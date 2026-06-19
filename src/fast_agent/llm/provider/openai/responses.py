@@ -56,6 +56,7 @@ from fast_agent.llm.provider.openai.web_tools import (
     resolve_web_search,
 )
 from fast_agent.llm.provider.reasoning_config import reasoning_setting_from_config
+from fast_agent.llm.provider.streaming_timeouts import enter_stream_with_timeout
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.request_params import RequestParams
@@ -1175,8 +1176,12 @@ class ResponsesLLM(
                 self.logger.debug("Responses request", data=arguments)
                 capture_filename = _stream_capture_filename(self.chat_turn())
                 _save_stream_request(capture_filename, arguments)
-                async with self._response_sse_stream(client=client, arguments=arguments) as stream:
-                    timeout = request_params.streaming_timeout
+                timeout = request_params.streaming_timeout
+                async with self._response_sse_stream(
+                    client=client,
+                    arguments=arguments,
+                    timeout_seconds=timeout,
+                ) as stream:
                     timed_stream = with_stream_idle_timeout(
                         stream,
                         idle_timeout_seconds=timeout,
@@ -1214,8 +1219,13 @@ class ResponsesLLM(
         *,
         client: AsyncOpenAI,
         arguments: dict[str, Any],
+        timeout_seconds: float | None = None,
     ):
-        async with client.responses.stream(**arguments) as stream:
+        async with enter_stream_with_timeout(
+            client.responses.stream(**arguments),
+            timeout_seconds=timeout_seconds,
+            timeout_message=f"Responses stream did not start within {timeout_seconds} seconds.",
+        ) as stream:
             yield stream
 
     @staticmethod

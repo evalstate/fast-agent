@@ -115,6 +115,35 @@ def _write_plugin(
     )
 
 
+def _write_versioned_plugin(
+    plugins_root: Path,
+    name: str,
+    *,
+    version: str | None,
+    command: str | None = None,
+) -> Path:
+    """Write a plugin directly into a plugins directory, optionally versioned."""
+    plugin_root = plugins_root / name
+    plugin_root.mkdir(parents=True, exist_ok=True)
+    cmd = command or name
+    lines = ["schema_version: 1", f"name: {name}"]
+    if version is not None:
+        lines.append(f"version: '{version}'")
+    lines += [
+        "description: Test plugin",
+        "commands:",
+        f"  {cmd}:",
+        "    description: Run test plugin",
+        "    handler: ./commands.py:run",
+    ]
+    (plugin_root / "plugin.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (plugin_root / "commands.py").write_text(
+        "async def run(ctx):\n    return 'ok'\n",
+        encoding="utf-8",
+    )
+    return plugin_root
+
+
 def _write_marketplace(path: Path, repo: Path, *, include_pack: bool = False) -> None:
     payload: dict[str, object] = {
         "command_plugins": [
@@ -296,6 +325,133 @@ def test_plugins_add_enables_and_loads_commands(tmp_path: Path) -> None:
         settings = get_settings(config_path=str(config_path))
         assert settings.commands is not None
         assert settings.commands["finder"].handler.endswith("/plugins/finder/commands.py:run")
+    finally:
+        update_global_settings(old_settings)
+
+
+def test_plugins_list_shows_project_and_global_plugins(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    global_home = tmp_path / "global-home"
+    env_root = tmp_path / "project-env"
+    _write_plugin(global_home, "global-finder")
+    _write_plugin(env_root, "project-helper")
+    (global_home / "fast-agent.yaml").write_text(
+        "plugins:\n  enabled: ['global-finder']\n",
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n"
+        "plugins:\n  enabled: ['project-helper']\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FAST_AGENT_HOME", global_home.as_posix())
+
+    old_settings = get_settings()
+    get_settings(config_path=str(config_path))
+    try:
+        result = CliRunner().invoke(plugins_command.app, ["list"])
+
+        assert result.exit_code == 0, result.output
+        assert "project plugins directory" in result.output
+        assert "global plugins directory" in result.output
+        assert "project-helper" in result.output
+        assert "global-finder" in result.output
+    finally:
+        update_global_settings(old_settings)
+
+
+def test_plugins_list_marks_active_duplicate(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    global_home = tmp_path / "global-home"
+    env_root = tmp_path / "project-env"
+    _write_versioned_plugin(global_home / "plugins", "shared", version="1.0.0")
+    _write_versioned_plugin(env_root / "plugins", "shared", version="2.0.0")
+    (global_home / "fast-agent.yaml").write_text(
+        "plugins:\n  enabled: ['shared']\n",
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n"
+        "plugins:\n  enabled: ['shared']\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FAST_AGENT_HOME", global_home.as_posix())
+
+    old_settings = get_settings()
+    get_settings(config_path=str(config_path))
+    try:
+        result = CliRunner().invoke(plugins_command.app, ["list"])
+
+        assert result.exit_code == 0, result.output
+        project_row = result.output.index("project")
+        global_row = result.output.index("global")
+        assert project_row < global_row
+        assert "active" in result.output
+        assert "shadowed by project" in result.output
+    finally:
+        update_global_settings(old_settings)
+
+
+def test_plugins_remove_without_selector_shows_only_project_plugins(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    global_home = tmp_path / "global-home"
+    env_root = tmp_path / "project-env"
+    _write_plugin(global_home, "global-finder")
+    _write_plugin(env_root, "project-helper")
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FAST_AGENT_HOME", global_home.as_posix())
+
+    old_settings = get_settings()
+    get_settings(config_path=str(config_path))
+    try:
+        result = CliRunner().invoke(plugins_command.app, ["remove"])
+
+        assert result.exit_code == 0, result.output
+        assert "project plugins directory" in result.output
+        assert "global plugins directory" not in result.output
+        assert "project-helper" in result.output
+        assert "global-finder" not in result.output
+    finally:
+        update_global_settings(old_settings)
+
+
+def test_plugins_remove_global_without_selector_shows_only_global_plugins(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    global_home = tmp_path / "global-home"
+    env_root = tmp_path / "project-env"
+    _write_plugin(global_home, "global-finder")
+    _write_plugin(env_root, "project-helper")
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FAST_AGENT_HOME", global_home.as_posix())
+
+    old_settings = get_settings()
+    get_settings(config_path=str(config_path))
+    try:
+        result = CliRunner().invoke(plugins_command.app, ["remove", "--global"])
+
+        assert result.exit_code == 0, result.output
+        assert "global plugins directory" in result.output
+        assert "project plugins directory" not in result.output
+        assert "global-finder" in result.output
+        assert "project-helper" not in result.output
     finally:
         update_global_settings(old_settings)
 
@@ -489,6 +645,119 @@ async def test_plugins_slash_add_list_and_remove(tmp_path: Path) -> None:
         assert remove_outcome.messages
         assert not (env_root / "plugins" / "finder").exists()
         assert "finder" not in config_path.read_text(encoding="utf-8")
+    finally:
+        update_global_settings(old_settings)
+
+
+@pytest.mark.asyncio
+async def test_plugins_slash_list_shows_both_scopes_active_marker_and_version_diff(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    # `shared` lives in both scopes; global is older (1.0.0), project newer (2.0.0).
+    # `discover` is global-only. Both scopes enable `shared`; only global enables `discover`.
+    global_home = tmp_path / "global-home"
+    env_root = tmp_path / "project-env"
+    _write_versioned_plugin(global_home / "plugins", "shared", version="1.0.0")
+    _write_versioned_plugin(env_root / "plugins", "shared", version="2.0.0")
+    _write_versioned_plugin(global_home / "plugins", "discover", version=None)
+
+    (global_home / "fast-agent.yaml").write_text(
+        "plugins:\n  enabled: ['shared', 'discover']\n",
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n"
+        "plugins:\n  enabled: ['shared']\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FAST_AGENT_HOME", global_home.as_posix())
+
+    old_settings = get_settings()
+    settings = get_settings(config_path=str(config_path))
+    provider = _Provider()
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="main",
+        io=_CapturingIO(),
+        settings=settings,
+    )
+    try:
+        outcome = await plugins_handlers.handle_plugins_command(
+            ctx,
+            agent_name="main",
+            action="list",
+            argument=None,
+        )
+        rendered = "\n".join(str(message.text) for message in outcome.messages)
+
+        # Both scopes are surfaced (mirrors the CLI listing).
+        assert "project plugins directory" in rendered
+        assert "global plugins directory" in rendered
+        # Both copies of the shared name, plus the global-only plugin, are shown.
+        assert "shared" in rendered
+        assert "discover" in rendered
+        # Project copy wins (override precedence) → marked active; global copy shadowed.
+        assert "active" in rendered
+        assert "shadowed by project" in rendered
+        # Version callout across scopes.
+        assert "2.0.0 is newer than global (1.0.0)" in rendered
+        assert "1.0.0 is older than project (2.0.0)" in rendered
+    finally:
+        update_global_settings(old_settings)
+
+
+@pytest.mark.asyncio
+async def test_plugins_slash_list_shows_session_active_command(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from fast_agent.command_actions import PluginCommandActionSpec
+
+    env_root = tmp_path / "project-env"
+    plugin_root = _write_versioned_plugin(
+        env_root / "plugins",
+        "catalog",
+        version=None,
+        command="discover",
+    )
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n"
+        "plugins:\n  enabled: ['catalog']\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+
+    old_settings = get_settings()
+    settings = get_settings(config_path=str(config_path))
+    provider = _Provider()
+    provider.plugin_commands = {
+        "discover": PluginCommandActionSpec(
+            name="discover",
+            description="Discover agents",
+            handler=f"{(plugin_root / 'commands.py').as_posix()}:run",
+        )
+    }
+    provider.plugin_command_base_path = config_path.parent
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="main",
+        io=_CapturingIO(),
+        settings=settings,
+    )
+    try:
+        outcome = await plugins_handlers.handle_plugins_command(
+            ctx,
+            agent_name="main",
+            action="list",
+            argument=None,
+        )
+        rendered = "\n".join(str(message.text) for message in outcome.messages)
+
+        assert "catalog" in rendered
+        assert "active commands: /discover" in rendered
     finally:
         update_global_settings(old_settings)
 

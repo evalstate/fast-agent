@@ -1,9 +1,20 @@
 import asyncio
+from pathlib import Path
 
 import pytest
 from mcp.types import TextContent
 
 from fast_agent.mcp.prompts import prompt_server
+
+
+def test_prompt_server_defaults_to_loopback_http_host(tmp_path: Path) -> None:
+    config = prompt_server.PromptConfig(
+        name="demo",
+        description="Demo prompt",
+        file_path=tmp_path / "demo.txt",
+    )
+
+    assert config.host == "127.0.0.1"
 
 
 def test_register_prompt_preserves_non_identifier_template_variables(

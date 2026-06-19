@@ -145,9 +145,9 @@ Appending and de-duplicating result rows into a Hugging Face dataset is not impl
 
 | Option                           | Description                                                                                                |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `--parallel N`                   | Run `N` local shard workers and merge their outputs.                                                       |
-| `--work-dir PATH`                | Directory for parallel shard outputs and resume manifests. Use a stable value for resumable parallel jobs. |
-| `--keep-temp` / `--no-keep-temp` | Keep parallel shard outputs after a successful merge.                                                      |
+| `--parallel N`                   | Run `N` local workers and merge deterministic chunk outputs.                                               |
+| `--work-dir PATH`                | Directory for parallel chunk outputs and resume manifests. Use a stable value for resumable parallel jobs. |
+| `--keep-temp` / `--no-keep-temp` | Keep parallel chunk outputs after a successful merge.                                                      |
 | `--progress-every N`             | Print progress every `N` processed rows per worker.                                                        |
 | `--progress` / `--no-progress`   | Print batch progress messages to stderr.                                                                   |
 

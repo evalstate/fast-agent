@@ -7,10 +7,11 @@
 | `deepseek4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `deepseekv4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `gemma4` | `hf.google/gemma-4-31B-it:novita` |
-| `glm` | `hf.zai-org/GLM-5.1:together` |
+| `glm` | `hf.zai-org/GLM-5.2:zai-org` |
 | `glm47` | `hf.zai-org/GLM-4.7:cerebras` |
 | `glm5` | `hf.zai-org/GLM-5:novita` |
 | `glm51` | `hf.zai-org/GLM-5.1:together` |
+| `glm52` | `hf.zai-org/GLM-5.2:zai-org` |
 | `google/gemma-4-31b-it` | `google/gemma-4-31b-it` |
 | `gpt-oss` | `hf.openai/gpt-oss-120b:cerebras` |
 | `gpt-oss-20b` | `hf.openai/gpt-oss-20b` |
@@ -42,3 +43,4 @@
 | `qwen35instruct` | `hf.Qwen/Qwen3.5-397B-A17B:novita?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off` |
 | `qwen36` | `hf.Qwen/Qwen3.6-35B-A3B:deepinfra?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0&presence_penalty=0.0&repetition_penalty=1.0&reasoning=on` |
 | `qwen36instruct` | `hf.Qwen/Qwen3.6-35B-A3B:deepinfra?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off` |
+| `zai-org/glm-5.2` | `zai-org/glm-5.2` |

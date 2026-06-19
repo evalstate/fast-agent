@@ -322,7 +322,10 @@ async def test_slash_command_does_not_mask_handler_keyerror(monkeypatch) -> None
     async def _raise_handler_keyerror(*_args, **_kwargs) -> str:
         raise KeyError("stale-agent")
 
-    monkeypatch.setattr("fast_agent.acp.slash.dispatch.execute", _raise_handler_keyerror)
+    monkeypatch.setattr(
+        "fast_agent.acp.slash.handlers.status.handle_status",
+        _raise_handler_keyerror,
+    )
     handler = _handler(StubAgentInstance())
 
     with pytest.raises(KeyError, match="stale-agent"):

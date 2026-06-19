@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Protocol, TypeGuard, cast
+from typing import TYPE_CHECKING, Literal, Protocol, TypeGuard, cast
 
 from rich import print as rich_print
 from rich.text import Text
@@ -165,44 +165,174 @@ class _DispatchStep:
 CommandOutcomeHandler = Callable[[CommandContext], Awaitable[CommandOutcome]]
 CommandHandlerFunction = Callable[..., Awaitable[CommandOutcome]]
 CatalogActionCommand = SkillsCommand | CardsCommand | PluginsCommand | ModelsCommand
+_CommandRouteGroup = Literal["catalog", "display", "mcp", "model"]
+_CommandRouteKind = Literal[
+    "agent_name",
+    "argument",
+    "catalog_action",
+    "mcp_list",
+    "mcp_server",
+    "value",
+]
 
 
 class _ValueCommandPayload(Protocol):
     value: str | None
 
 
-DISPLAY_COMMAND_HANDLERS: dict[type[CommandPayload], CommandHandlerFunction] = {
-    ShowUsageCommand: display_handlers.handle_show_usage,
-    ShowSystemCommand: display_handlers.handle_show_system,
-    ShowMarkdownCommand: display_handlers.handle_show_markdown,
-    ShowMcpStatusCommand: display_handlers.handle_show_mcp_status,
-}
+class _ArgumentCommandPayload(Protocol):
+    argument: str | None
 
-MODEL_VALUE_COMMAND_HANDLERS: dict[type[CommandPayload], CommandHandlerFunction] = {
-    ModelReasoningCommand: model_handlers.handle_model_reasoning,
-    ModelTaskBudgetCommand: model_handlers.handle_model_task_budget,
-    ModelVerbosityCommand: model_handlers.handle_model_verbosity,
-    ModelFastCommand: model_handlers.handle_model_fast,
-    ModelWebSearchCommand: model_handlers.handle_model_web_search,
-    ModelXSearchCommand: model_handlers.handle_model_x_search,
-    ModelWebFetchCommand: model_handlers.handle_model_web_fetch,
-}
 
-MCP_SERVER_COMMAND_HANDLERS: dict[type[CommandPayload], CommandHandlerFunction] = {
-    McpDisconnectCommand: mcp_runtime_handlers.handle_mcp_disconnect,
-    McpReconnectCommand: mcp_runtime_handlers.handle_mcp_reconnect,
-}
+class _McpServerCommandPayload(Protocol):
+    server_name: str | None
+    error: str | None
 
-CATALOG_LIST_COMMAND_HANDLERS: dict[type[CommandPayload], CommandHandlerFunction] = {
-    ListToolsCommand: tools_handlers.handle_list_tools,
-    ListSkillsCommand: skills_handlers.handle_list_skills,
-}
 
-CATALOG_ACTION_COMMAND_HANDLERS: dict[type[CommandPayload], CommandHandlerFunction] = {
-    SkillsCommand: skills_handlers.handle_skills_command,
-    CardsCommand: cards_handlers.handle_cards_command,
-    PluginsCommand: plugins_handlers.handle_plugins_command,
-    ModelsCommand: models_manager_handlers.handle_models_command,
+@dataclass(frozen=True)
+class _CommandOutcomeRoute:
+    payload_type: type[CommandPayload]
+    group: _CommandRouteGroup
+    kind: _CommandRouteKind
+    handler: CommandHandlerFunction
+
+
+_COMMAND_OUTCOME_ROUTES: tuple[_CommandOutcomeRoute, ...] = (
+    _CommandOutcomeRoute(
+        ListToolsCommand,
+        "catalog",
+        "agent_name",
+        tools_handlers.handle_list_tools,
+    ),
+    _CommandOutcomeRoute(
+        ListSkillsCommand,
+        "catalog",
+        "agent_name",
+        skills_handlers.handle_list_skills,
+    ),
+    _CommandOutcomeRoute(
+        SkillsCommand,
+        "catalog",
+        "catalog_action",
+        skills_handlers.handle_skills_command,
+    ),
+    _CommandOutcomeRoute(
+        CardsCommand,
+        "catalog",
+        "catalog_action",
+        cards_handlers.handle_cards_command,
+    ),
+    _CommandOutcomeRoute(
+        PluginsCommand,
+        "catalog",
+        "catalog_action",
+        plugins_handlers.handle_plugins_command,
+    ),
+    _CommandOutcomeRoute(
+        ModelsCommand,
+        "catalog",
+        "catalog_action",
+        models_manager_handlers.handle_models_command,
+    ),
+    _CommandOutcomeRoute(
+        ShowUsageCommand,
+        "display",
+        "agent_name",
+        display_handlers.handle_show_usage,
+    ),
+    _CommandOutcomeRoute(
+        ShowSystemCommand,
+        "display",
+        "agent_name",
+        display_handlers.handle_show_system,
+    ),
+    _CommandOutcomeRoute(
+        ShowMarkdownCommand,
+        "display",
+        "agent_name",
+        display_handlers.handle_show_markdown,
+    ),
+    _CommandOutcomeRoute(
+        ShowMcpStatusCommand,
+        "display",
+        "agent_name",
+        display_handlers.handle_show_mcp_status,
+    ),
+    _CommandOutcomeRoute(
+        CheckCommand,
+        "display",
+        "argument",
+        display_handlers.handle_check,
+    ),
+    _CommandOutcomeRoute(
+        CommandsCommand,
+        "display",
+        "argument",
+        display_handlers.handle_commands,
+    ),
+    _CommandOutcomeRoute(
+        McpListCommand,
+        "mcp",
+        "mcp_list",
+        mcp_runtime_handlers.handle_mcp_list,
+    ),
+    _CommandOutcomeRoute(
+        McpDisconnectCommand,
+        "mcp",
+        "mcp_server",
+        mcp_runtime_handlers.handle_mcp_disconnect,
+    ),
+    _CommandOutcomeRoute(
+        McpReconnectCommand,
+        "mcp",
+        "mcp_server",
+        mcp_runtime_handlers.handle_mcp_reconnect,
+    ),
+    _CommandOutcomeRoute(
+        ModelReasoningCommand,
+        "model",
+        "value",
+        model_handlers.handle_model_reasoning,
+    ),
+    _CommandOutcomeRoute(
+        ModelTaskBudgetCommand,
+        "model",
+        "value",
+        model_handlers.handle_model_task_budget,
+    ),
+    _CommandOutcomeRoute(
+        ModelVerbosityCommand,
+        "model",
+        "value",
+        model_handlers.handle_model_verbosity,
+    ),
+    _CommandOutcomeRoute(
+        ModelFastCommand,
+        "model",
+        "value",
+        model_handlers.handle_model_fast,
+    ),
+    _CommandOutcomeRoute(
+        ModelWebSearchCommand,
+        "model",
+        "value",
+        model_handlers.handle_model_web_search,
+    ),
+    _CommandOutcomeRoute(
+        ModelXSearchCommand,
+        "model",
+        "value",
+        model_handlers.handle_model_x_search,
+    ),
+    _CommandOutcomeRoute(
+        ModelWebFetchCommand,
+        "model",
+        "value",
+        model_handlers.handle_model_web_fetch,
+    ),
+)
+_COMMAND_OUTCOME_ROUTE_BY_PAYLOAD_TYPE: dict[type[CommandPayload], _CommandOutcomeRoute] = {
+    route.payload_type: route for route in _COMMAND_OUTCOME_ROUTES
 }
 
 
@@ -217,6 +347,78 @@ def _without_context(
 
 def _is_catalog_action_command(payload: CommandPayload) -> TypeGuard[CatalogActionCommand]:
     return isinstance(payload, (SkillsCommand, CardsCommand, PluginsCommand, ModelsCommand))
+
+
+def _command_route(
+    payload: CommandPayload,
+    *,
+    group: _CommandRouteGroup,
+) -> _CommandOutcomeRoute | None:
+    route = _COMMAND_OUTCOME_ROUTE_BY_PAYLOAD_TYPE.get(type(payload))
+    if route is None or route.group != group:
+        return None
+    return route
+
+
+def _command_route_handler(
+    payload: CommandPayload,
+    *,
+    route: _CommandOutcomeRoute,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> CommandOutcomeHandler | None:
+    if route.kind == "agent_name":
+        return partial(route.handler, agent_name=agent)
+
+    if route.kind == "argument":
+        argument_payload = cast("_ArgumentCommandPayload", payload)
+        return partial(
+            route.handler,
+            agent_name=agent,
+            argument=argument_payload.argument,
+        )
+
+    if route.kind == "catalog_action":
+        if not _is_catalog_action_command(payload):
+            return None
+        if isinstance(payload, ModelsCommand):
+            return partial(
+                route.handler,
+                agent_name=agent,
+                action=payload.action,
+                argument=payload.argument,
+                command_name=payload.command_name,
+            )
+        return partial(
+            route.handler,
+            agent_name=agent,
+            action=payload.action,
+            argument=payload.argument,
+        )
+
+    if route.kind == "mcp_list":
+        return _without_context(
+            partial(
+                route.handler,
+                manager=prompt_provider,
+                agent_name=agent,
+            )
+        )
+
+    if route.kind == "mcp_server":
+        server_payload = cast("_McpServerCommandPayload", payload)
+        if message := _mcp_server_command_error(server_payload.server_name, server_payload.error):
+            _print_styled(message, "red")
+            return None
+        return partial(
+            route.handler,
+            manager=prompt_provider,
+            agent_name=agent,
+            server_name=cast("str", server_payload.server_name),
+        )
+
+    value_payload = cast("_ValueCommandPayload", payload)
+    return partial(route.handler, agent_name=agent, value=value_payload.value)
 
 
 async def _run_command_handler(
@@ -449,7 +651,7 @@ async def _dispatch_catalog_payload(
     prompt_provider: "AgentApp",
     agent: str,
 ) -> DispatchResult | None:
-    handler = _catalog_handler(payload, agent=agent)
+    handler = _catalog_handler(payload, prompt_provider=prompt_provider, agent=agent)
     if handler is None:
         return None
 
@@ -464,29 +666,17 @@ async def _dispatch_catalog_payload(
 def _catalog_handler(
     payload: CommandPayload,
     *,
+    prompt_provider: "AgentApp",
     agent: str,
 ) -> CommandOutcomeHandler | None:
-    list_handler = CATALOG_LIST_COMMAND_HANDLERS.get(type(payload))
-    if list_handler is not None:
-        return partial(list_handler, agent_name=agent)
-
-    if not _is_catalog_action_command(payload):
+    route = _command_route(payload, group="catalog")
+    if route is None:
         return None
-
-    action_handler = CATALOG_ACTION_COMMAND_HANDLERS[type(payload)]
-    if isinstance(payload, ModelsCommand):
-        return partial(
-            action_handler,
-            agent_name=agent,
-            action=payload.action,
-            argument=payload.argument,
-            command_name=payload.command_name,
-        )
-    return partial(
-        action_handler,
-        agent_name=agent,
-        action=payload.action,
-        argument=payload.argument,
+    return _command_route_handler(
+        payload,
+        route=route,
+        prompt_provider=prompt_provider,
+        agent=agent,
     )
 
 
@@ -496,38 +686,22 @@ async def _dispatch_display_payload(
     prompt_provider: "AgentApp",
     agent: str,
 ) -> DispatchResult | None:
-    if isinstance(payload, CheckCommand):
-        await _run_command_handler(
-            prompt_provider=prompt_provider,
-            agent=agent,
-            handler=partial(
-                display_handlers.handle_check,
-                agent_name=agent,
-                argument=payload.argument,
-            ),
-        )
-        return DispatchResult(handled=True)
-
-    if isinstance(payload, CommandsCommand):
-        await _run_command_handler(
-            prompt_provider=prompt_provider,
-            agent=agent,
-            handler=partial(
-                display_handlers.handle_commands,
-                agent_name=agent,
-                argument=payload.argument,
-            ),
-        )
-        return DispatchResult(handled=True)
-
-    handler = DISPLAY_COMMAND_HANDLERS.get(type(payload))
+    route = _command_route(payload, group="display")
+    if route is None:
+        return None
+    handler = _command_route_handler(
+        payload,
+        route=route,
+        prompt_provider=prompt_provider,
+        agent=agent,
+    )
     if handler is None:
         return None
 
     await _run_command_handler(
         prompt_provider=prompt_provider,
         agent=agent,
-        handler=partial(handler, agent_name=agent),
+        handler=handler,
     )
     return DispatchResult(handled=True)
 
@@ -679,29 +853,15 @@ def _mcp_handler(
     prompt_provider: "AgentApp",
     agent: str,
 ) -> CommandOutcomeHandler | None:
-    if isinstance(payload, (McpDisconnectCommand, McpReconnectCommand)):
-        if message := _mcp_server_command_error(payload.server_name, payload.error):
-            _print_styled(message, "red")
-            return None
-        return partial(
-            MCP_SERVER_COMMAND_HANDLERS[type(payload)],
-            manager=prompt_provider,
-            agent_name=agent,
-            server_name=cast("str", payload.server_name),
-        )
-
-    match payload:
-        case McpListCommand():
-            handler = _without_context(
-                partial(
-                    mcp_runtime_handlers.handle_mcp_list,
-                    manager=prompt_provider,
-                    agent_name=agent,
-                )
-            )
-        case _:
-            handler = None
-    return handler
+    route = _command_route(payload, group="mcp")
+    if route is None:
+        return None
+    return _command_route_handler(
+        payload,
+        route=route,
+        prompt_provider=prompt_provider,
+        agent=agent,
+    )
 
 
 async def _dispatch_compact_payload(
@@ -819,7 +979,7 @@ async def _dispatch_model_payload(
     agent: str,
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
-    handler = _model_handler(payload, agent=agent)
+    handler = _model_handler(payload, prompt_provider=prompt_provider, agent=agent)
     if handler is not None:
         await _run_command_handler(
             prompt_provider=prompt_provider,
@@ -845,14 +1005,18 @@ async def _dispatch_model_payload(
 def _model_handler(
     payload: CommandPayload,
     *,
+    prompt_provider: "AgentApp",
     agent: str,
 ) -> CommandOutcomeHandler | None:
-    handler = MODEL_VALUE_COMMAND_HANDLERS.get(type(payload))
-    if handler is None:
+    route = _command_route(payload, group="model")
+    if route is None:
         return None
-
-    value_payload = cast("_ValueCommandPayload", payload)
-    return partial(handler, agent_name=agent, value=value_payload.value)
+    return _command_route_handler(
+        payload,
+        route=route,
+        prompt_provider=prompt_provider,
+        agent=agent,
+    )
 
 
 async def _dispatch_create_session_command(
@@ -1440,9 +1604,26 @@ async def _execute_plugin_command_action(
 
 def _plugin_action_outcome(
     action_result: PluginCommandActionResult | None,
+    *,
+    plugin_context: PluginCommandActionContext | None = None,
 ) -> CommandOutcome:
     if action_result is None:
         return CommandOutcome()
+
+    post_content = None
+    if action_result.images and plugin_context is not None:
+        from fast_agent.ui.terminal_images import render_plugin_command_images_for_settings
+
+        terminal_images = (
+            plugin_context.settings.logger.terminal_images
+            if plugin_context.settings is not None
+            else None
+        )
+        post_content = render_plugin_command_images_for_settings(
+            terminal_images,
+            action_result.images,
+            base_dir=plugin_context.session_cwd,
+        )
 
     outcome = CommandOutcome(
         buffer_prefill=action_result.buffer_prefill,
@@ -1450,9 +1631,11 @@ def _plugin_action_outcome(
         requires_refresh=action_result.refresh_agents,
     )
     if action_result.markdown:
-        outcome.add_message(action_result.markdown, render_markdown=True)
+        outcome.add_message(action_result.markdown, render_markdown=True, post_content=post_content)
     elif action_result.message:
-        outcome.add_message(action_result.message)
+        outcome.add_message(action_result.message, post_content=post_content)
+    elif post_content is not None:
+        outcome.add_message("", render_markdown=True, post_content=post_content)
     return outcome
 
 
@@ -1528,7 +1711,7 @@ async def _dispatch_plugin_command_payload(
         rich_print(_plugin_error_text(request.command_name, " failed: ", exc))
         return DispatchResult(handled=True)
 
-    outcome = _plugin_action_outcome(action_result)
+    outcome = _plugin_action_outcome(action_result, plugin_context=plugin_context)
     await emit_command_outcome(context, outcome)
     result = _plugin_dispatch_result(outcome)
 

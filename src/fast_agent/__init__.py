@@ -2,48 +2,43 @@
 
 from typing import TYPE_CHECKING
 
-from fast_agent.config import (
-    AnthropicSettings,
-    AzureSettings,
-    BedrockSettings,
-    DeepSeekSettings,
-    GenericSettings,
-    GoogleSettings,
-    GroqSettings,
-    HuggingFaceSettings,
-    LoggerSettings,
-    MCPElicitationSettings,
-    MCPRootSettings,
-    MCPSamplingSettings,
-    MCPServerAuthSettings,
-    MCPServerSettings,
-    MCPSettings,
-    OpenAISettings,
-    OpenRouterSettings,
-    OpenTelemetrySettings,
-    Settings,
-    SkillsSettings,
-    TensorZeroSettings,
-    XAISettings,
-)
-from fast_agent.types import (
-    ConversationSummary,
-    LlmStopReason,
-    PromptMessageExtended,
-    RequestParams,
-    ResourceLink,
-    audio_link,
-    extract_first,
-    extract_last,
-    find_matches,
-    image_link,
-    resource_link,
-    search_messages,
-    text_content,
-    video_link,
-)
-
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+    "AnthropicSettings": ("fast_agent.config", "AnthropicSettings"),
+    "AzureSettings": ("fast_agent.config", "AzureSettings"),
+    "BedrockSettings": ("fast_agent.config", "BedrockSettings"),
+    "DeepSeekSettings": ("fast_agent.config", "DeepSeekSettings"),
+    "GenericSettings": ("fast_agent.config", "GenericSettings"),
+    "GoogleSettings": ("fast_agent.config", "GoogleSettings"),
+    "GroqSettings": ("fast_agent.config", "GroqSettings"),
+    "HuggingFaceSettings": ("fast_agent.config", "HuggingFaceSettings"),
+    "LoggerSettings": ("fast_agent.config", "LoggerSettings"),
+    "MCPElicitationSettings": ("fast_agent.config", "MCPElicitationSettings"),
+    "MCPRootSettings": ("fast_agent.config", "MCPRootSettings"),
+    "MCPSamplingSettings": ("fast_agent.config", "MCPSamplingSettings"),
+    "MCPServerAuthSettings": ("fast_agent.config", "MCPServerAuthSettings"),
+    "MCPServerSettings": ("fast_agent.config", "MCPServerSettings"),
+    "MCPSettings": ("fast_agent.config", "MCPSettings"),
+    "OpenAISettings": ("fast_agent.config", "OpenAISettings"),
+    "OpenRouterSettings": ("fast_agent.config", "OpenRouterSettings"),
+    "OpenTelemetrySettings": ("fast_agent.config", "OpenTelemetrySettings"),
+    "Settings": ("fast_agent.config", "Settings"),
+    "SkillsSettings": ("fast_agent.config", "SkillsSettings"),
+    "TensorZeroSettings": ("fast_agent.config", "TensorZeroSettings"),
+    "XAISettings": ("fast_agent.config", "XAISettings"),
+    "ConversationSummary": ("fast_agent.types", "ConversationSummary"),
+    "LlmStopReason": ("fast_agent.types", "LlmStopReason"),
+    "PromptMessageExtended": ("fast_agent.types", "PromptMessageExtended"),
+    "RequestParams": ("fast_agent.types", "RequestParams"),
+    "ResourceLink": ("fast_agent.types", "ResourceLink"),
+    "audio_link": ("fast_agent.types", "audio_link"),
+    "extract_first": ("fast_agent.types", "extract_first"),
+    "extract_last": ("fast_agent.types", "extract_last"),
+    "find_matches": ("fast_agent.types", "find_matches"),
+    "image_link": ("fast_agent.types", "image_link"),
+    "resource_link": ("fast_agent.types", "resource_link"),
+    "search_messages": ("fast_agent.types", "search_messages"),
+    "text_content": ("fast_agent.types", "text_content"),
+    "video_link": ("fast_agent.types", "video_link"),
     "Core": ("fast_agent.core", "Core"),
     "Context": ("fast_agent.context", "Context"),
     "ContextDependent": ("fast_agent.context_dependent", "ContextDependent"),
@@ -78,6 +73,73 @@ def __getattr__(name: str):
 
 # Help static analyzers/IDEs resolve symbols and signatures without importing at runtime.
 if TYPE_CHECKING:  # pragma: no cover - typing aid only
+    from fast_agent.config import (
+        AnthropicSettings as AnthropicSettings,
+    )
+    from fast_agent.config import (
+        AzureSettings as AzureSettings,
+    )
+    from fast_agent.config import (
+        BedrockSettings as BedrockSettings,
+    )
+    from fast_agent.config import (
+        DeepSeekSettings as DeepSeekSettings,
+    )
+    from fast_agent.config import (
+        GenericSettings as GenericSettings,
+    )
+    from fast_agent.config import (
+        GoogleSettings as GoogleSettings,
+    )
+    from fast_agent.config import (
+        GroqSettings as GroqSettings,
+    )
+    from fast_agent.config import (
+        HuggingFaceSettings as HuggingFaceSettings,
+    )
+    from fast_agent.config import (
+        LoggerSettings as LoggerSettings,
+    )
+    from fast_agent.config import (
+        MCPElicitationSettings as MCPElicitationSettings,
+    )
+    from fast_agent.config import (
+        MCPRootSettings as MCPRootSettings,
+    )
+    from fast_agent.config import (
+        MCPSamplingSettings as MCPSamplingSettings,
+    )
+    from fast_agent.config import (
+        MCPServerAuthSettings as MCPServerAuthSettings,
+    )
+    from fast_agent.config import (
+        MCPServerSettings as MCPServerSettings,
+    )
+    from fast_agent.config import (
+        MCPSettings as MCPSettings,
+    )
+    from fast_agent.config import (
+        OpenAISettings as OpenAISettings,
+    )
+    from fast_agent.config import (
+        OpenRouterSettings as OpenRouterSettings,
+    )
+    from fast_agent.config import (
+        OpenTelemetrySettings as OpenTelemetrySettings,
+    )
+    from fast_agent.config import (
+        Settings as Settings,
+    )
+    from fast_agent.config import (
+        SkillsSettings as SkillsSettings,
+    )
+    from fast_agent.config import (
+        TensorZeroSettings as TensorZeroSettings,
+    )
+    from fast_agent.config import (
+        XAISettings as XAISettings,
+    )
+
     # Provide a concrete import path for type checkers/IDEs
     from fast_agent.core.fastagent import FastAgent as FastAgent
     from fast_agent.core.harness import AgentHarness as AgentHarness
@@ -85,7 +147,19 @@ if TYPE_CHECKING:  # pragma: no cover - typing aid only
     from fast_agent.core.harness import HarnessSessions as HarnessSessions
     from fast_agent.mcp.prompt import Prompt as Prompt
     from fast_agent.types import ConversationSummary as ConversationSummary
+    from fast_agent.types import LlmStopReason as LlmStopReason
     from fast_agent.types import PromptMessageExtended as PromptMessageExtended
+    from fast_agent.types import RequestParams as RequestParams
+    from fast_agent.types import ResourceLink as ResourceLink
+    from fast_agent.types import audio_link as audio_link
+    from fast_agent.types import extract_first as extract_first
+    from fast_agent.types import extract_last as extract_last
+    from fast_agent.types import find_matches as find_matches
+    from fast_agent.types import image_link as image_link
+    from fast_agent.types import resource_link as resource_link
+    from fast_agent.types import search_messages as search_messages
+    from fast_agent.types import text_content as text_content
+    from fast_agent.types import video_link as video_link
 
 
 __all__ = [

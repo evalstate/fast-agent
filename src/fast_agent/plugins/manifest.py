@@ -61,6 +61,7 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest:
             handler=_resolve_handler(spec.handler, plugin_dir),
             input_hint=spec.input_hint,
             key=spec.key,
+            completer=_resolve_handler(spec.completer, plugin_dir) if spec.completer else None,
         )
         for name, spec in commands.items()
     }

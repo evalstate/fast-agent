@@ -79,7 +79,7 @@ An async context manager that initializes all registered agents and returns an `
 ```python
 await fast.start_server(
     transport: str = "http",
-    host: str = "0.0.0.0",
+    host: str = "127.0.0.1",
     port: int = 8000,
     server_name: str | None = None,
     server_description: str | None = None,
@@ -95,7 +95,7 @@ Starts the application as an MCP server.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `transport` | `str` | `"http"` | Transport protocol to use (`http`, `stdio`, `acp`) |
-| `host` | `str` | `"0.0.0.0"` | Host address for the server when using HTTP |
+| `host` | `str` | `"127.0.0.1"` | Host address for the server when using HTTP |
 | `port` | `int` | `8000` | Port for the server when using HTTP |
 | `server_name` | `Optional[str]` | `None` | Optional custom name for the MCP server |
 | `server_description` | `Optional[str]` | `None` | Optional description for the MCP server |

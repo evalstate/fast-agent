@@ -232,6 +232,12 @@ class _AgentBackedToolRefProvider(Protocol):
 
 
 @runtime_checkable
+class _NamedAgentProvider(Protocol):
+    @property
+    def name(self) -> str: ...
+
+
+@runtime_checkable
 class _SelectedModelNameProvider(Protocol):
     @property
     def selected_model_name(self) -> str: ...
@@ -973,8 +979,15 @@ def _capture_attachment_refs(agent: "AgentProtocol") -> list[SessionAttachmentRe
         )
     if isinstance(agent, _AgentBackedToolRefProvider):
         refs.extend(
-            SessionAttachmentRef(ref=f"agent_tool:{child_name}")
-            for child_name in sorted(agent.agent_backed_tools)
+            SessionAttachmentRef(ref=f"agent_tool:{child.name}")
+            for child in sorted(
+                (
+                    child_agent
+                    for child_agent in agent.agent_backed_tools.values()
+                    if isinstance(child_agent, _NamedAgentProvider)
+                ),
+                key=lambda child: child.name,
+            )
         )
     return refs
 

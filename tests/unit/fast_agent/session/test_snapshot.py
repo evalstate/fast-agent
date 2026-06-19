@@ -116,6 +116,11 @@ class _UsageAccumulator:
         return dict(self._summary)
 
 
+class _ChildAgent:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
 class _Agent:
     def __init__(
         self,
@@ -389,7 +394,10 @@ def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_pa
             "cumulative_billing_tokens": 130,
         },
         attached_mcp_servers=["zeta", "alpha"],
-        child_agents={"child-b": object(), "child-a": object()},
+        child_agents={
+            "agent__child-b": _ChildAgent("child-b"),
+            "agent__child-a": _ChildAgent("child-a"),
+        },
     )
 
     identity = SessionSaveIdentity(

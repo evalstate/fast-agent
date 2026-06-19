@@ -146,7 +146,7 @@ markdown.link_url = bright_blue underline
 markdown.code = bright_green on black
 markdown.block_quote = blue
 
-markdown.table.border = yellow
+markdown.table.border = bold dim white
 markdown.table.header = bright_yellow
 markdown.hr = yellow dim
 ```

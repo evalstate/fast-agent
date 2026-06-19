@@ -15,6 +15,7 @@ from fast_agent.integrations.gepa import (
     RowWiseEvaluationRun,
     RowWiseScore,
     _evaluation_batch,
+    _evaluation_event_metrics,
     gepa_api_trackio_kwargs,
     gepa_numeric_metrics,
     gepa_trackio_init_kwargs,
@@ -111,6 +112,7 @@ def test_reflection_lm_logs_usage_metrics(monkeypatch, tmp_path):
     FastAgentGEPATrackioCallback(reflection_lm=lm).on_proposal_end(
         {
             "iteration": 3,
+            "total_metric_calls": 123,
             "new_instructions": {"policy": "new"},
             "prompts": {"policy": "prompt"},
             "raw_lm_outputs": {"policy": "raw"},
@@ -118,10 +120,14 @@ def test_reflection_lm_logs_usage_metrics(monkeypatch, tmp_path):
     )
     assert logged
     assert logged[0]["gepa/iteration"] == 3
+    assert logged[0]["gepa/total_metric_calls"] == 123
     assert logged[0]["fast_agent/gepa_context/proposed_components"] == 1
-    assert logged[0]["fast_agent/reflection/call_index"] == 1
     assert logged[0]["fast_agent/reflection/usage/cumulative_billing_tokens"] == 12
+    assert logged[0]["fast_agent/reflection/usage/billing_tokens_per_turn"] == 12
+    assert logged[0]["fast_agent/reflection/usage/input_tokens_per_turn"] == 10
     assert logged[0]["fast_agent/reflection/usage/cache_hit_rate_percent"] == 40.0
+    assert "fast_agent/reflection/call_index" not in logged[0]
+    assert "fast_agent/reflection/usage/cumulative_input_tokens" not in logged[0]
 
 
 def test_batch_evaluator_allocates_candidate_and_scores(monkeypatch, tmp_path):
@@ -289,17 +295,23 @@ def test_row_wise_batch_adapter_logs_batch_usage_and_cache(monkeypatch, tmp_path
             "usage": {
                 "input_tokens": 100,
                 "output_tokens": 20,
+                "total_tokens": 120,
                 "billing_tokens": 120,
                 "reasoning_tokens": 7,
+                "tool_use_tokens": 3,
+                "tool_calls": 1,
                 "rows_with_usage": 2,
                 "usage_coverage_percent": 100.0,
             },
             "cache": {
                 "served_tokens": 60,
+                "activity_tokens": 80,
                 "hit_tokens": 40,
                 "write_tokens": 20,
                 "effective_input_tokens": 40,
                 "hit_rate_percent": 60.0,
+                "rows_with_cache_activity": 2,
+                "row_cache_activity_percent": 100.0,
             },
         }
     )
@@ -357,12 +369,28 @@ def test_row_wise_batch_adapter_logs_batch_usage_and_cache(monkeypatch, tmp_path
     assert payload["gepa/candidate_idx"] == 4
     assert payload["fast_agent/gepa_context/parent_count"] == 1
     assert payload["fast_agent/gepa_context/score_mean"] == 0.5
-    assert payload["fast_agent/eval/eval_index"] == 1
     assert payload["fast_agent/eval/batch_size"] == 2
-    assert "fast_agent/eval/objective/gepa_score" not in payload
+    assert payload["fast_agent/eval/objective_avg/gepa_score"] == 0.5
+    assert payload["fast_agent/eval/duration_seconds"] == 1
+    assert payload["fast_agent/eval/duration_seconds_per_row"] == 0.5
+    assert payload["fast_agent/eval/rows_per_second"] == 2
+    assert payload["fast_agent/eval/failed_rows"] == 0
     assert payload["fast_agent/eval/usage/billing_tokens_per_row"] == 60
-    assert payload["fast_agent/eval/cache/served_tokens"] == 60
+    assert payload["fast_agent/eval/usage/input_tokens_per_row"] == 50
+    assert payload["fast_agent/eval/usage/reasoning_tokens_per_row"] == 3.5
+    assert payload["fast_agent/eval/usage/tool_use_tokens_per_row"] == 1.5
+    assert payload["fast_agent/eval/usage/tool_calls_per_row"] == 0.5
+    assert payload["fast_agent/eval/cache/row_cache_activity_percent"] == 100.0
     assert payload["fast_agent/eval/cache/hit_rate_percent"] == 60.0
+    assert "fast_agent/eval/eval_index" not in payload
+    assert "fast_agent/eval/num_metric_calls" not in payload
+    assert "fast_agent/eval/duration_ms" not in payload
+    assert "fast_agent/eval/processed_rows" not in payload
+    assert "fast_agent/eval/selected_rows" not in payload
+    assert "fast_agent/eval/usage/input_tokens" not in payload
+    assert "fast_agent/eval/usage/total_tokens_per_row" not in payload
+    assert "fast_agent/eval/cache/served_tokens" not in payload
+    assert "fast_agent/eval/cache/write_rate_percent" not in payload
 
 
 def test_trackio_callback_can_log_operational_metrics_only(monkeypatch, tmp_path):
@@ -432,11 +460,29 @@ def test_trackio_callback_can_log_operational_metrics_only(monkeypatch, tmp_path
     assert payload["gepa/candidate_idx"] == 4
     assert "fast_agent/gepa_context/score_mean" not in payload
     assert "fast_agent/gepa_context/batch_size" not in payload
-    assert "fast_agent/eval/batch_size" not in payload
+    assert payload["fast_agent/eval/batch_size"] == 1
     assert "fast_agent/eval/avg_score" not in payload
     assert "fast_agent/eval/num_metric_calls" not in payload
+    assert "fast_agent/eval/objective_avg/gepa_score" not in payload
     assert payload["fast_agent/eval/usage/billing_tokens_per_row"] == 60
-    assert payload["fast_agent/eval/cache/served_tokens"] == 60
+    assert payload["fast_agent/eval/cache/hit_rate_percent"] == 60.0
+
+
+def test_evaluation_event_metrics_maps_gepa_budget_fields_without_minibatch_confusion():
+    payload = _evaluation_event_metrics(
+        {
+            "iteration": 7,
+            "candidate_idx": 4,
+            "total_metric_calls": 123,
+            "metric_calls_used": 999,
+            "num_metric_calls": 2,
+        }
+    )
+
+    assert payload["gepa/iteration"] == 7
+    assert payload["gepa/candidate_idx"] == 4
+    assert payload["gepa/total_metric_calls"] == 123
+    assert "gepa/num_metric_calls" not in payload
 
 
 def test_gepa_numeric_metrics_flattens_scores_and_details():

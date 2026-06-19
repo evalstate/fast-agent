@@ -574,17 +574,17 @@ def run(
     parallel: int | None = typer.Option(
         None,
         "--parallel",
-        help="Run this many local shard workers and merge their outputs",
+        help="Run this many local workers and merge their chunk outputs",
     ),
     work_dir: Path | None = typer.Option(
         None,
         "--work-dir",
-        help="Directory for parallel shard outputs and resume manifests",
+        help="Directory for parallel chunk outputs and resume manifests",
     ),
     keep_temp: bool = typer.Option(
         False,
         "--keep-temp/--no-keep-temp",
-        help="Keep parallel shard outputs after a successful merge",
+        help="Keep parallel chunk outputs after a successful merge",
     ),
     progress_every: int | None = typer.Option(
         None,

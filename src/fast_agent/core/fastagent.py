@@ -433,37 +433,23 @@ class FastAgent(DecoratorMixin):
             self._skills_directory_override = self._normalize_skill_directories(args_skills)
 
     def _load_instance_settings(self) -> config.Settings:
-        self._load_config()
-        self._apply_constructor_config_overrides()
-        instance_settings = config.Settings(**self.config)
-        self._copy_loaded_settings_metadata(instance_settings)
+        instance_settings = self._load_config()
+        self._apply_constructor_config_overrides(instance_settings)
+        self.config = instance_settings.model_dump()
         config.update_global_settings(instance_settings)
         return instance_settings
 
-    def _apply_constructor_config_overrides(self) -> None:
+    def _apply_constructor_config_overrides(self, settings: config.Settings) -> None:
         if self._programmatic_quiet:
-            logger_config = self.config.setdefault("logger", {})
-            logger_config["progress_display"] = False
-            logger_config["show_chat"] = False
-            logger_config["show_tools"] = False
+            settings.logger.progress_display = False
+            settings.logger.show_chat = False
+            settings.logger.show_tools = False
 
         if self._environment_dir_override is not None:
-            self.config["environment_dir"] = str(self._environment_dir_override)
+            settings.environment_dir = str(self._environment_dir_override)
 
         if self._skills_directory_override is not None:
-            skills_config = self.config.setdefault("skills", {})
-            skills_config["directories"] = [str(path) for path in self._skills_directory_override]
-
-    def _copy_loaded_settings_metadata(self, instance_settings: config.Settings) -> None:
-        instance_settings._config_file = getattr(self, "_loaded_config_file", None)
-        instance_settings._secrets_file = getattr(self, "_loaded_secrets_file", None)
-        instance_settings._fast_agent_home = getattr(self, "_loaded_fast_agent_home", None)
-        instance_settings._fast_agent_home_source = getattr(
-            self,
-            "_loaded_fast_agent_home_source",
-            None,
-        )
-        instance_settings._fast_agent_noenv = bool(getattr(self, "_loaded_fast_agent_noenv", False))
+            settings.skills.directories = [str(path) for path in self._skills_directory_override]
 
     def _stop_progress_display_if_quiet(self) -> None:
         if not self._programmatic_quiet:
@@ -525,7 +511,7 @@ class FastAgent(DecoratorMixin):
             return (Path.cwd() / env_dir).resolve()
         return env_dir.resolve()
 
-    def _load_config(self) -> None:
+    def _load_config(self) -> config.Settings:
         """Load configuration from YAML file including secrets using get_settings
         but without relying on the global cache."""
 
@@ -548,15 +534,7 @@ class FastAgent(DecoratorMixin):
                 env_dir=self._environment_dir_override,
                 noenv=bool(getattr(self.args, "noenv", False)),
             )
-            self._loaded_config_file = settings._config_file if settings else None
-            self._loaded_secrets_file = settings._secrets_file if settings else None
-            self._loaded_fast_agent_home = settings._fast_agent_home if settings else None
-            self._loaded_fast_agent_home_source = (
-                settings._fast_agent_home_source if settings else None
-            )
-            self._loaded_fast_agent_noenv = settings._fast_agent_noenv if settings else False
-            # Convert to dict for backward compatibility
-            self.config = settings.model_dump() if settings else {}
+            return settings
         finally:
             # Restore the original global settings
             _config_module._settings = old_settings
@@ -2991,7 +2969,7 @@ class FastAgent(DecoratorMixin):
     async def start_server(
         self,
         transport: str = "http",
-        host: str = "0.0.0.0",
+        host: str = "127.0.0.1",
         port: int = 8000,
         server_name: str | None = None,
         server_description: str | None = None,
@@ -3061,7 +3039,7 @@ class FastAgent(DecoratorMixin):
     async def run_with_mcp_server(
         self,
         transport: str = "http",
-        host: str = "0.0.0.0",
+        host: str = "127.0.0.1",
         port: int = 8000,
         server_name: str | None = None,
         server_description: str | None = None,

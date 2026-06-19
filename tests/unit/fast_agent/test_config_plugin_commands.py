@@ -19,6 +19,7 @@ def test_settings_parses_global_plugin_commands(tmp_path: Path) -> None:
                 "    description: Draft the next user message",
                 '    input_hint: "[format]"',
                 '    handler: "commands.py:draft_next"',
+                '    completer: "commands.py:complete_draft_next"',
                 '    key: "c-x d"',
             ]
         ),
@@ -30,6 +31,7 @@ def test_settings_parses_global_plugin_commands(tmp_path: Path) -> None:
     assert settings.commands is not None
     assert settings.commands["draft-next"].description == "Draft the next user message"
     assert settings.commands["draft-next"].handler == "commands.py:draft_next"
+    assert settings.commands["draft-next"].completer == "commands.py:complete_draft_next"
     assert settings.commands["draft-next"].input_hint == "[format]"
     assert settings.commands["draft-next"].key == "c-x d"
 
@@ -108,6 +110,28 @@ def test_settings_merges_fast_agent_home_plugins(tmp_path: Path, monkeypatch) ->
     assert settings.commands["project-helper"].handler.endswith(
         "/project-env/plugins/project-helper/commands.py:run"
     )
+
+
+def test_plugin_manifest_resolves_command_completer_path(tmp_path: Path) -> None:
+    from fast_agent.plugins.manifest import load_plugin_manifest
+
+    plugin_dir = tmp_path / "image-helper"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.yaml").write_text(
+        "schema_version: 1\n"
+        "name: image-helper\n"
+        "commands:\n"
+        "  images:\n"
+        "    description: Image helper\n"
+        "    handler: ./images.py:images\n"
+        "    completer: ./images.py:complete_images\n",
+        encoding="utf-8",
+    )
+
+    manifest = load_plugin_manifest(plugin_dir)
+
+    assert manifest.commands["images"].handler == f"{plugin_dir}/images.py:images"
+    assert manifest.commands["images"].completer == f"{plugin_dir}/images.py:complete_images"
 
 
 def test_env_override_still_loads_fast_agent_home_plugins(

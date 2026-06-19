@@ -164,7 +164,13 @@ def parse_installed_skill_source_payload(payload: dict[str, Any]) -> InstalledSk
         installed_revision=parsed.installed_revision,
         installed_at=parsed.installed_at,
         content_fingerprint=parsed.content_fingerprint,
+        artifact_digest=_optional_string(payload.get("artifact_digest")),
+        artifact_type=_optional_string(payload.get("artifact_type")),
     )
+
+
+def _optional_string(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _parse_mcp_installed_skill_source_payload(payload: dict[str, Any]) -> InstalledSkillSource:

@@ -24,6 +24,7 @@ Return `None` for no visible output.
 | `handler` | `str` | Python handler reference, for example `./commands.py:run`. |
 | `input_hint` | `str | None` | Optional placeholder shown by surfaces that support command input hints. |
 | `key` | `str | None` | Optional key binding metadata. |
+| `completer` | `str | None` |  |
 
 ### Result Fields
 
@@ -34,6 +35,7 @@ Return `None` for no visible output.
 | `buffer_prefill` | `str | None` | Draft text inserted into the user's input buffer. |
 | `switch_agent` | `str | None` | Switch the active TUI agent after the command. |
 | `refresh_agents` | `bool` | Refresh agent/card state after the command. |
+| `images` | `list[PluginCommandActionImage]` |  |
 
 ### Context Fields
 

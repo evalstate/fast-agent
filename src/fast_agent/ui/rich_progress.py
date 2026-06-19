@@ -36,6 +36,7 @@ _ACTION_STYLES = {
     ProgressAction.SENDING: "blue",
     ProgressAction.STREAMING: "green",  # Assistant Colour
     ProgressAction.THINKING: "yellow",  # Assistant Colour
+    ProgressAction.COMPACTING: "cyan",
     ProgressAction.ROUTING: "blue",
     ProgressAction.PLANNING: "blue",
     ProgressAction.READY: "dim green",

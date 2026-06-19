@@ -93,6 +93,12 @@ def parse_plugin_command_action_specs(
             command_name=name,
             source=source,
         )
+        completer = _optional_string_field(
+            raw_value,
+            "completer",
+            command_name=name,
+            source=source,
+        )
 
         commands[name] = PluginCommandActionSpec(
             name=name,
@@ -100,6 +106,7 @@ def parse_plugin_command_action_specs(
             handler=handler,
             input_hint=input_hint,
             key=key,
+            completer=completer,
         )
 
     return commands

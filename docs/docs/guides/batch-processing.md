@@ -48,9 +48,9 @@ start the batch.
 Batch jobs benefit from the same runtime features as other **fast-agent**
 sessions:
 
-- **Parallel local workers**. Use `--parallel` to shard the selected input rows,
-  run several workers concurrently, and merge the shard outputs into the final
-  JSONL file.
+- **Parallel local workers**. Use `--parallel` to run several workers
+  concurrently. fast-agent plans deterministic row chunks behind the scenes and
+  merges the chunk outputs into the final JSONL file.
 - **Efficient provider execution**. Stable instructions, tools, schemas, and
   templates can benefit from provider prompt caching where supported; OpenAI
   Responses models can use `service_tier=flex` for cost-sensitive throughput;
@@ -287,7 +287,7 @@ See [Structured Outputs](structured-outputs.md) for more schema options.
 
 ## 5. Parallelize the run
 
-Use `--parallel` to run multiple local shard workers and merge the results:
+Use `--parallel` to run multiple local workers and merge the results:
 
 ```bash
 fast-agent batch run \
@@ -317,8 +317,9 @@ fast-agent batch run \
 
 Notes:
 
-- `--parallel` splits the selected rows into local shards.
-- Shard outputs are merged into the final `--output` file.
+- `--parallel N` means run up to `N` local workers concurrently.
+- fast-agent splits the selected rows into deterministic chunk files in
+  `--work-dir`; chunk outputs are merged into the final `--output` file.
 - `--parallel` cannot be combined with `--sql`, `--sample`,
   `--max-errors`, or `--export-traces`.
 - Use `--progress-every N` to print progress every `N` processed rows per
@@ -358,7 +359,7 @@ ID semantics:
 - If `--id-field` is set and a row is missing that field, the row is emitted as
   a `MissingIdField` error.
 
-For parallel jobs, resumption is based on the shard work directory rather than
+For parallel jobs, resumption is based on the chunk work directory rather than
 an existing final output file. Start the first run with a stable `--work-dir`,
 then resume with the same directory:
 

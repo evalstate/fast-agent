@@ -538,7 +538,7 @@ def test_batch_run_accepts_parquet_input(monkeypatch, tmp_path):
     assert record["result"] == {"id": "1", "x": 2}
 
 
-def test_batch_run_parallel_merges_shard_outputs(tmp_path):
+def test_batch_run_parallel_merges_chunk_outputs(tmp_path):
     env_dir = tmp_path / "env"
     env_dir.mkdir()
     input_path = tmp_path / "rows.jsonl"
@@ -591,16 +591,18 @@ def test_batch_run_parallel_merges_shard_outputs(tmp_path):
     records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
     assert [record["id"] for record in records] == ["0", "1", "2", "3"]
     assert [record["result"]["x"] for record in records] == [0, 1, 2, 3]
-    assert (work_dir / "part-000.jsonl").exists()
-    assert (work_dir / "part-001.jsonl").exists()
+    assert (work_dir / "chunk-000.jsonl").exists()
+    assert (work_dir / "chunk-001.jsonl").exists()
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["parallel"] == 2
+    assert summary["worker_count"] == 2
+    assert summary["chunk_count"] == 4
     assert summary["selected_rows"] == 4
     assert summary["processed_rows"] == 4
     assert summary["failed_rows"] == 0
 
 
-def test_batch_run_parallel_resume_uses_saved_shard_manifest(tmp_path):
+def test_batch_run_parallel_resume_uses_saved_chunk_manifest(tmp_path):
     env_dir = tmp_path / "env"
     env_dir.mkdir()
     input_path = tmp_path / "rows.jsonl"
@@ -666,7 +668,9 @@ def test_batch_run_parallel_resume_uses_saved_shard_manifest(tmp_path):
     records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
     assert [record["id"] for record in records] == ["1", "2", "3", "4"]
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert summary["parallel"] == 2
+    assert summary["parallel"] == 4
+    assert summary["worker_count"] == 4
+    assert summary["chunk_count"] == 4
     assert summary["selected_rows"] == 4
 
 

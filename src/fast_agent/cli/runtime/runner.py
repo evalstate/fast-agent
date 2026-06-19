@@ -11,8 +11,6 @@ from fast_agent.cli.asyncio_utils import set_asyncio_exception_handler
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.utils.async_utils import configure_uvloop, create_event_loop, ensure_event_loop
 
-from .agent_setup import run_agent_request
-
 if TYPE_CHECKING:
     from .run_request import AgentRunRequest
 
@@ -31,6 +29,8 @@ def _should_convert_keyboard_interrupt_to_task_cancel(request: "AgentRunRequest"
 
 def run_request(request: AgentRunRequest) -> None:
     """Run an agent request with CLI-compatible loop lifecycle semantics."""
+    from .agent_setup import run_agent_request
+
     configure_uvloop()
 
     loop = ensure_event_loop()

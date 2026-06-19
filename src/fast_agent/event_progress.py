@@ -15,6 +15,7 @@ class ProgressAction(str, Enum):
     SENDING = "Sending"
     STREAMING = "Streaming"  # Special action for real-time streaming updates
     THINKING = "Thinking"  # Special action for real-time thinking updates
+    COMPACTING = "Compacting"
     ROUTING = "Routing"
     PLANNING = "Planning"
     READY = "Ready"

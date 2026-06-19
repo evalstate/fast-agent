@@ -157,6 +157,24 @@ class ModelSelectionCatalog:
         ),
         Provider.HUGGINGFACE: (
             CatalogModelEntry(
+                alias="GLM 5.2 (zai-org)",
+                display_label="GLM 5.2 (zai-org)",
+                model=("hf.zai-org/GLM-5.2:zai-org"),
+                current=True,
+            ),
+            CatalogModelEntry(
+                alias="GLM 5.2 (fireworks-ai)",
+                display_label="GLM 5.2 (fireworks-ai)",
+                model=("hf.zai-org/GLM-5.2:fireworks-ai"),
+                current=True,
+            ),
+            CatalogModelEntry(
+                alias="GLM 5.2 (deepinfra)",
+                display_label="GLM 5.2 (deepinfra)",
+                model=("hf.zai-org/GLM-5.2:deepinfra"),
+                current=True,
+            ),
+            CatalogModelEntry(
                 alias="kimi27",
                 display_label="Kimi 2.7-Code",
                 description="thinking mode",
