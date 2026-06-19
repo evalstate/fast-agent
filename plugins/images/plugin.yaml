@@ -1,0 +1,10 @@
+schema_version: 1
+name: images
+version: 0.1.0
+description: Show image URLs and paths found in recent conversation and tool results.
+commands:
+  images:
+    description: List or render image URLs/paths from conversation history
+    input_hint: "[list|last|show] [all|last|number|source]"
+    handler: ./images.py:images
+    completer: ./images.py:complete_images
