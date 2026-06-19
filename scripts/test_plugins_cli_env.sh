@@ -41,6 +41,20 @@ assert_contains() {
   fi
 }
 
+assert_normalized_contains() {
+  local pattern="$1"
+  local path="$2"
+  local normalized
+  normalized="$(tr '\n' ' ' < "$path" | tr -s '[:space:]' ' ')"
+  if [[ "$normalized" != *"$pattern"* ]]; then
+    echo "Expected normalized '$path' to contain: $pattern" >&2
+    echo "---- $path ----" >&2
+    cat "$path" >&2
+    echo "--------------" >&2
+    return 1
+  fi
+}
+
 git_init() {
   git -C "$1" init >/dev/null
   git -C "$1" config user.email tests@example.com
@@ -166,8 +180,8 @@ YAML
   assert_contains "editor" "$WORK_DIR/plugins.list"
   assert_contains "find" "$WORK_DIR/plugins.list"
   assert_contains "edit-last" "$WORK_DIR/plugins.list"
-  assert_contains "c-x f" "$WORK_DIR/plugins.list"
-  assert_contains "c-x e" "$WORK_DIR/plugins.list"
+  assert_normalized_contains "c-x f" "$WORK_DIR/plugins.list"
+  assert_normalized_contains "c-x e" "$WORK_DIR/plugins.list"
 )
 
 cat > "$GLOBAL_HOME/fast-agent.yaml" <<YAML
