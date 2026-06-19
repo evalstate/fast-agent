@@ -28,12 +28,15 @@ from mcp.types import (
     GetPromptRequestParams,
     GetPromptResult,
     Implementation,
+    ListResourcesResult,
     ListRootsResult,
+    PaginatedRequestParams,
     PingRequest,
     ProgressNotification,
     ReadResourceRequest,
     ReadResourceRequestParams,
     ReadResourceResult,
+    Request,
     RequestParams,
     Root,
     SamplingCapability,
@@ -41,6 +44,8 @@ from mcp.types import (
     ToolListChangedNotification,
 )
 from pydantic import AnyUrl, FileUrl
+from pydantic.networks import UrlConstraints
+from typing_extensions import Annotated, Literal
 
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
@@ -65,6 +70,21 @@ if TYPE_CHECKING:
     from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 logger = get_logger(__name__)
+
+
+class DirectoryReadRequestParams(PaginatedRequestParams):
+    """Parameters for the SEP-2640 ``resources/directory/read`` method."""
+
+    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+
+
+class DirectoryReadRequest(
+    Request[DirectoryReadRequestParams, Literal["resources/directory/read"]]
+):
+    """List the direct children of a directory resource (SEP-2640)."""
+
+    method: Literal["resources/directory/read"] = "resources/directory/read"
+    params: DirectoryReadRequestParams
 
 
 def _progress_trace_enabled() -> bool:
@@ -693,6 +713,28 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
         request = ReadResourceRequest(method="resources/read", params=params)
         return await self.send_request(ClientRequest(request), ReadResourceResult)
+
+    async def read_directory(
+        self,
+        uri: AnyUrl | str,
+        *,
+        cursor: str | None = None,
+    ) -> ListResourcesResult:
+        """List the direct children of a directory resource (SEP-2640).
+
+        Sends ``resources/directory/read`` and reuses the ``resources/list``
+        result shape (``resources`` + ``nextCursor``). Callers MUST only invoke
+        this against servers that declared ``directoryRead``. The method is not in
+        the closed ``ClientRequest`` union, so the bare request goes through our
+        ``send_request`` override; wrapping it would emit union serializer warnings.
+        """
+        uri_obj: AnyUrl = uri if isinstance(uri, AnyUrl) else AnyUrl(uri)
+        params = DirectoryReadRequestParams(uri=uri_obj, cursor=cursor)
+        request = DirectoryReadRequest(method="resources/directory/read", params=params)
+        return await self.send_request(
+            cast("ClientRequest", request),
+            ListResourcesResult,
+        )
 
     async def get_prompt(
         self,
