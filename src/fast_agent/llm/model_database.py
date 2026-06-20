@@ -641,14 +641,6 @@ class ModelDatabase:
         system_role="developer",
     )
 
-    DEEPSEEK_DISTILL = ModelParameters(
-        context_window=131072,
-        max_output_tokens=131072,
-        tokenizes=TEXT_ONLY,
-        json_mode="object",
-        reasoning="tags",
-    )
-
     GEMINI_25_STANDARD = ModelParameters(
         context_window=1_048_576,
         max_output_tokens=65_536,
@@ -1118,7 +1110,6 @@ class ModelDatabase:
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
         "moonshotai/kimi-k2.7-code": KIMI_MOONSHOT_27_CODE,
         "qwen/qwen3-32b": QWEN3_REASONER,
-        "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
         "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,  # tool/reasoning interleave guidance
         "zai-org/glm-4.6": GLM_46,

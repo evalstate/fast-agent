@@ -331,17 +331,14 @@ class ModelSelectionCatalog:
         ),
         Provider.GROQ: (
             CatalogModelEntry(
-                alias="qwen3-32b",
-                model="groq.qwen/qwen3-32b",
+                alias="qwen3.6-27b",
+                model="groq.qwen/qwen3.6-27b",
                 fast=True,
             ),
             CatalogModelEntry(
-                alias="deepseek-r1-distill-llama-70b",
-                model="groq.deepseek-r1-distill-llama-70b",
-            ),
-            CatalogModelEntry(
-                alias="qwen3.6-27b",
-                model="groq.qwen/qwen3.6-27b",
+                alias="qwen3-32b",
+                model="groq.qwen/qwen3-32b",
+                fast=True,
             ),
         ),
         Provider.FAST_AGENT: (
