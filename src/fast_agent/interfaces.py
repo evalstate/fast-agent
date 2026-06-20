@@ -22,6 +22,7 @@ from mcp.types import GetPromptResult, ListToolsResult, Prompt, PromptMessage, R
 from pydantic import BaseModel
 from rich.text import Text
 
+from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.llm.stream_types import StreamChunk
@@ -132,6 +133,7 @@ class FastAgentLLMProtocol(Protocol):
 
     default_request_params: RequestParams
     instruction: str | None
+    verb: str | ProgressAction | None
 
     def add_stream_listener(
         self, listener: Callable[[StreamChunk], None]

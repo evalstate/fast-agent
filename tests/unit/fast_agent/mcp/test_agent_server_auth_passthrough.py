@@ -88,6 +88,16 @@ def test_serve_oauth_provider_normalizes_huggingface_aliases() -> None:
     assert _normalize_serve_oauth_provider(" HuggingFace ") == "huggingface"
 
 
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_agent_mcp_server_defaults_to_loopback_host() -> None:
+    agent = _AuthCapturingAgent()
+    server = await _build_server(agent)
+
+    assert server._default_host == "127.0.0.1"
+    await server.shutdown()
+
+
 @pytest.mark.unit
 def test_serve_oauth_provider_treats_blank_as_disabled() -> None:
     assert _normalize_serve_oauth_provider("   ") is None

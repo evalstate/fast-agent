@@ -38,6 +38,16 @@ fast-agent --model "hf.moonshotai/Kimi-K2.5?instant=on"  # thinking disabled
 fast-agent --model "hf.moonshotai/Kimi-K2.5?instant=off" # thinking enabled
 ```
 
+## Gemma thinking mode
+
+Gemma models that use the Hugging Face chat template `enable_thinking` flag can be toggled through
+fast-agent's `reasoning` query parameter:
+
+```bash
+fast-agent --model "gemma4?reasoning=on"  # sends chat_template_kwargs.enable_thinking=true
+fast-agent --model "gemma4?reasoning=off" # sends chat_template_kwargs.enable_thinking=false
+```
+
 ## Hugging Face MCP authentication
 
 `HF_TOKEN` is automatically applied when connecting to Hugging Face MCP servers:

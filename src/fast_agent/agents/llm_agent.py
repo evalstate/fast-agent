@@ -50,6 +50,7 @@ from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.context_usage_display import format_compact_context_usage_percent
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.message_display_helpers import (
+    build_safety_additional_message,
     build_tool_use_additional_message,
     build_user_message_display,
     build_user_message_image_previews,
@@ -364,6 +365,11 @@ class LlmAgent(LlmDecorator):
             error_segment = self._build_error_additional_segment(message)
             if error_segment is not None:
                 segments.append(error_segment)
+            return segments
+        if stop_reason == LlmStopReason.SAFETY:
+            safety_segment = build_safety_additional_message(message)
+            if safety_segment is not None:
+                segments.append(safety_segment)
             return segments
 
         fixed_segment = _fixed_stop_reason_segment(stop_reason)

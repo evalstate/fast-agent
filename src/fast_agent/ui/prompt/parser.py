@@ -34,6 +34,7 @@ from fast_agent.ui.command_payloads import (
     CommandError,
     CommandPayload,
     CommandsCommand,
+    CompactCommand,
     CreateSessionCommand,
     ExportSessionCommand,
     ForkSessionCommand,
@@ -246,6 +247,18 @@ def _parse_attach_command(remainder: str) -> AttachCommand:
     return AttachCommand(paths=tuple(tokens))
 
 
+def _parse_compact_command(remainder: str) -> CommandPayload:
+    stripped = remainder.strip()
+    if not stripped:
+        return CompactCommand()
+    action = strip_casefold(stripped)
+    if action == "preview":
+        return CompactCommand(action="preview")
+    if action == "prompt":
+        return CompactCommand(action="prompt")
+    return CompactCommand(instructions=stripped)
+
+
 def _parse_history_command(remainder: str) -> CommandPayload:
     if not remainder:
         return HistoryViewCommand(agent=None)
@@ -365,6 +378,7 @@ def _parse_session_command(remainder: str) -> CommandPayload:
             target=intent.export_target,
             agent_name=intent.export_agent,
             output_path=intent.export_output,
+            hf_url=intent.export_hf_url,
             hf_dataset=intent.export_hf_dataset,
             hf_dataset_path=intent.export_hf_dataset_path,
             privacy_filter=intent.export_privacy_filter,
@@ -677,6 +691,7 @@ def _parse_slash_alias_command(
 _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
     "a2a": _parse_a2a_command,
     "tasks": lambda remainder: A2ACommand(action="tasks", argument=remainder or None),
+    "compact": _parse_compact_command,
     "history": _parse_history_command,
     "session": _parse_session_command,
     "card": _parse_card_command,

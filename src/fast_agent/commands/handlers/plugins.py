@@ -30,6 +30,7 @@ from fast_agent.commands.handlers._text_formatting import (
     append_warning_line,
     append_wrapped_text,
     format_display_path,
+    indexed_row,
     update_status_text,
 )
 from fast_agent.commands.handlers.shared import (
@@ -49,7 +50,9 @@ from fast_agent.paths import resolve_environment_paths
 from fast_agent.plugins.configuration import (
     disable_plugin_in_config,
     enable_plugin_in_config,
+    enabled_plugins_by_scope,
     get_marketplace_url,
+    installed_plugin_roots,
     resolve_registries,
 )
 from fast_agent.plugins.manifest import load_plugin_manifest
@@ -90,6 +93,15 @@ class _PluginCommandProvider(Protocol):
     ) -> None: ...
 
 
+@runtime_checkable
+class _PluginCommandCatalogProvider(Protocol):
+    @property
+    def plugin_commands(self) -> dict[str, "PluginCommandActionSpec"] | None: ...
+
+    @property
+    def plugin_command_base_path(self) -> Path | None: ...
+
+
 def _config_path_for_settings(ctx: CommandContext) -> Path:
     settings = ctx.resolve_settings()
     if settings._config_file:
@@ -108,12 +120,44 @@ def _format_plugin_keys(entry: LocalPlugin) -> str:
     return ", ".join(labels) if labels else "-"
 
 
-def _format_local_plugins(
-    *,
-    plugins_dir: Path,
-    plugins: Sequence[LocalPlugin],
-    guidance: bool = True,
-) -> Text:
+def _version_of(entry: LocalPlugin) -> str | None:
+    return strip_to_none(entry.manifest.version) if entry.manifest is not None else None
+
+
+def _compare_versions(a: str | None, b: str | None) -> str | None:
+    """Return '<older'|'<same'|'<newer'|None comparing ``a`` to ``b``.
+
+    ``None`` means no meaningful ordering (a side is missing/unparseable).
+    """
+    if a is None or b is None or a == b:
+        return None
+    try:
+        from packaging.version import InvalidVersion, Version
+
+        try:
+            va, vb = Version(a), Version(b)
+        except InvalidVersion:
+            return None
+        if va < vb:
+            return "<older"
+        if va > vb:
+            return "<newer"
+        return "<same"
+    except Exception:
+        return "<older" if a < b else "<newer" if a > b else "<same"
+
+
+def _active_scope_for(name: str, *, home_enabled: Sequence[str], project_enabled: Sequence[str]) -> str | None:
+    # Load order is home first, then project overrides; project wins when
+    # the name is enabled in the project scope.
+    if name in project_enabled:
+        return "project"
+    if name in home_enabled:
+        return "global"
+    return None
+
+
+def _format_local_plugins(*, plugins_dir: Path, plugins: Sequence[LocalPlugin]) -> Text:
     content = Text()
     append_heading(content, f"Plugins in {format_display_path(plugins_dir)}:")
     if not plugins:
@@ -165,57 +209,178 @@ def _format_local_plugins(
         )
         content.append("\n\n")
 
-    if guidance:
-        content.append_text(Text("Browse marketplace plugins with /plugins available", style="dim"))
-        content.append("\n")
-        content.append_text(Text("Remove with /plugins remove <number|name>", style="dim"))
+    content.append_text(Text("Browse marketplace plugins with /plugins available", style="dim"))
+    content.append("\n")
+    content.append_text(Text("Remove with /plugins remove <number|name>", style="dim"))
     return content
-
-
-def _path_equal(left: Path, right: Path) -> bool:
-    try:
-        return left.resolve() == right.resolve()
-    except OSError:
-        return False
-
-
-def _global_plugins_dir(settings) -> Path | None:
-    if not settings._fast_agent_global_plugin_home:
-        return None
-    return Path(settings._fast_agent_global_plugin_home) / "plugins"
 
 
 def _format_installed_plugins(
     *,
-    project_plugins_dir: Path,
-    project_plugins: Sequence[LocalPlugin],
-    global_plugins_dir: Path | None,
-    global_plugins: Sequence[LocalPlugin],
+    roots: Sequence[tuple[str, Path]],
+    scoped_plugins: Sequence[tuple[str, LocalPlugin]],
+    home_enabled: Sequence[str],
+    project_enabled: Sequence[str],
+    active_plugin_commands: Sequence["PluginCommandActionSpec"],
+    active_plugin_command_base_path: Path | None,
 ) -> Text:
-    if global_plugins_dir is None:
-        return _format_local_plugins(plugins_dir=project_plugins_dir, plugins=project_plugins)
+    """Format every installed plugin across project + global scopes.
 
+    Mirrors the CLI listing: shows which scope each plugin lives in, which
+    copy is actually loaded for a duplicated name (project overrides global),
+    and calls out earlier/later versions across the two scopes.
+    """
     content = Text()
-    content.append_text(
-        _format_local_plugins(
-            plugins_dir=global_plugins_dir,
-            plugins=global_plugins,
-            guidance=False,
+    append_heading(content, "Installed plugins:")
+    for scope, root in roots:
+        append_detail_line(
+            content,
+            f"{scope} plugins directory",
+            format_display_path(root),
+            value_style="dim",
         )
-    )
-    content.append("\n\n")
-    content.append_text(
-        _format_local_plugins(
-            plugins_dir=project_plugins_dir,
-            plugins=project_plugins,
-            guidance=False,
-        )
-    )
     content.append("\n")
+
+    if not scoped_plugins:
+        content.append_text(Text("No plugins installed.", style="yellow"))
+        content.append("\n")
+        content.append_text(Text("Install with /plugins add <number|name>", style="dim"))
+        return content
+
+    # name -> list of (scope, entry) for all installed copies, in load order.
+    by_name: dict[str, list[tuple[str, LocalPlugin]]] = {}
+    for scope, entry in scoped_plugins:
+        if entry.manifest is None:
+            continue
+        by_name.setdefault(entry.name, []).append((scope, entry))
+
+    for index, (scope, entry) in enumerate(scoped_plugins, start=1):
+        name = entry.name
+        copies = by_name.get(name, ())
+        active_scope = _active_scope_for(
+            name, home_enabled=home_enabled, project_enabled=project_enabled
+        )
+        # A copy is loaded iff its scope is the winning scope for this name.
+        is_active = active_scope == scope
+        marker = None
+        if len(copies) > 1 and active_scope is not None:
+            marker = "active" if is_active else f"shadowed by {active_scope}"
+
+        row = indexed_row(index)
+        row.append(name, style="bright_blue bold")
+        row.append("  ", style="dim")
+        row.append(scope, style="dim cyan")
+        if marker:
+            row.append(" • ", style="dim")
+            row.append(marker, style="green" if is_active else "dim")
+        content.append_text(row)
+        content.append("\n")
+
+        content.append("     ", style="dim")
+        content.append(f"source: {format_display_path(entry.plugin_dir)}", style="dim green")
+        content.append("\n")
+
+        if entry.manifest is None:
+            content.append("     ", style="dim")
+            content.append(f"manifest: invalid: {entry.manifest_error}", style="yellow")
+            content.append("\n")
+        else:
+            commands = ", ".join(entry.manifest.commands) or "-"
+            content.append("     ", style="dim")
+            content.append(f"commands: {commands}", style="dim")
+            content.append("\n")
+            keys = _format_plugin_keys(entry)
+            if keys != "-":
+                content.append("     ", style="dim")
+                content.append(f"keys: {keys}", style="dim")
+                content.append("\n")
+            active_commands = _active_commands_for_plugin(
+                entry,
+                active_plugin_commands=active_plugin_commands,
+                active_plugin_command_base_path=active_plugin_command_base_path,
+            )
+            if active_commands:
+                content.append("     ", style="dim")
+                content.append(
+                    f"active commands: {', '.join(f'/{name}' for name in active_commands)}",
+                    style="green",
+                )
+                content.append("\n")
+            version = _version_of(entry)
+            if version is not None:
+                content.append("     ", style="dim")
+                content.append(f"version: {version}", style="dim")
+                content.append("\n")
+
+        if entry.source is not None:
+            src = entry.source
+            provenance = format_source_provenance(src.repo_url, src.repo_ref, src.repo_path)
+            content.append("     ", style="dim")
+            content.append(f"provenance: {provenance}", style="dim")
+            content.append("\n")
+            content.append("     ", style="dim")
+            content.append(
+                f"installed: {format_installed_revision_display(src.installed_at, src.installed_revision)}",
+                style="dim",
+            )
+            content.append("\n")
+
+        # Version comparison across scopes, only interesting when duplicated.
+        other_pair = next(
+            (pair for pair in copies if pair[1].plugin_dir != entry.plugin_dir),
+            None,
+        )
+        if other_pair is not None and entry.manifest is not None:
+            other_scope, other = other_pair
+            mine = _version_of(entry)
+            theirs = _version_of(other)
+            rel = _compare_versions(mine, theirs)
+            if rel is not None and rel != "<same":
+                direction = "older" if rel == "<older" else "newer"
+                content.append("     ", style="dim")
+                content.append(
+                    f"version differs: {mine} is {direction} than {other_scope} ({theirs})",
+                    style="yellow",
+                )
+                content.append("\n")
+
+        content.append("\n")
+
     content.append_text(Text("Browse marketplace plugins with /plugins available", style="dim"))
     content.append("\n")
-    content.append_text(Text("Remove project plugins with /plugins remove <number|name>", style="dim"))
+    content.append_text(Text("Remove with /plugins remove <number|name>", style="dim"))
     return content
+
+
+def _active_commands_for_plugin(
+    entry: LocalPlugin,
+    *,
+    active_plugin_commands: Sequence["PluginCommandActionSpec"],
+    active_plugin_command_base_path: Path | None,
+) -> list[str]:
+    if entry.manifest is None:
+        return []
+
+    manifest_handlers = {
+        _normalized_handler_path(command.handler, base_path=None)
+        for command in entry.manifest.commands.values()
+    }
+    return [
+        command.name
+        for command in active_plugin_commands
+        if _normalized_handler_path(command.handler, base_path=active_plugin_command_base_path)
+        in manifest_handlers
+    ]
+
+
+def _normalized_handler_path(handler: str, *, base_path: Path | None) -> Path | None:
+    module, separator, _func = handler.rpartition(":")
+    if not separator:
+        return None
+    path = Path(module)
+    if not path.is_absolute() and base_path is not None:
+        path = base_path / path
+    return path.resolve()
 
 
 def _format_marketplace_plugins(plugins: Sequence[MarketplacePlugin], *, source: str) -> Text:
@@ -341,28 +506,39 @@ async def handle_list_plugins(ctx: CommandContext, *, agent_name: str) -> Comman
     outcome = CommandOutcome()
     settings = ctx.resolve_settings()
     env_paths = resolve_environment_paths(settings)
-    plugins = list_local_plugins(destination_root=env_paths.plugins)
-    global_plugins_dir = _global_plugins_dir(settings)
-    if global_plugins_dir is not None and _path_equal(global_plugins_dir, env_paths.plugins):
-        global_plugins_dir = None
-    global_plugins = (
-        list_local_plugins(destination_root=global_plugins_dir)
-        if global_plugins_dir is not None
-        else []
-    )
-    if not global_plugins:
-        global_plugins_dir = None
+    roots = installed_plugin_roots(settings, project_plugins=env_paths.plugins)
+    scoped_plugins: list[tuple[str, LocalPlugin]] = []
+    for scope, plugin_root in roots:
+        for entry in list_local_plugins(destination_root=plugin_root):
+            scoped_plugins.append((scope, entry))
+    home_enabled, project_enabled = enabled_plugins_by_scope(settings)
     outcome.add_message(
         _format_installed_plugins(
-            project_plugins_dir=env_paths.plugins,
-            project_plugins=plugins,
-            global_plugins_dir=global_plugins_dir,
-            global_plugins=global_plugins,
+            roots=roots,
+            scoped_plugins=scoped_plugins,
+            home_enabled=home_enabled,
+            project_enabled=project_enabled,
+            active_plugin_commands=_session_plugin_commands(ctx),
+            active_plugin_command_base_path=_session_plugin_command_base_path(ctx),
         ),
         right_info="plugins",
         agent_name=agent_name,
     )
     return outcome
+
+
+def _session_plugin_commands(ctx: CommandContext) -> list["PluginCommandActionSpec"]:
+    provider = ctx.agent_provider
+    if not isinstance(provider, _PluginCommandCatalogProvider):
+        return []
+    return list((provider.plugin_commands or {}).values())
+
+
+def _session_plugin_command_base_path(ctx: CommandContext) -> Path | None:
+    provider = ctx.agent_provider
+    if not isinstance(provider, _PluginCommandCatalogProvider):
+        return None
+    return provider.plugin_command_base_path
 
 
 def handle_plugins_help(*, agent_name: str) -> CommandOutcome:

@@ -81,6 +81,9 @@ class ModelParameters(BaseModel):
     anthropic_task_budget_supported: bool = False
     """Whether Anthropic task_budget output_config is supported for this model."""
 
+    anthropic_thinking_field_required: bool = True
+    """Whether adaptive-thinking models require an explicit thinking request field."""
+
     google_search_supported: bool = False
     """Whether Grounding with Google Search is supported for this model."""
 
@@ -212,6 +215,13 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="toggle", value=True),
     )
 
+    GLM_52_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+        allow_toggle_disable=True,
+        default=ReasoningEffortSetting(kind="effort", value="max"),
+    )
+
     KIMI_REASONING_TOGGLE_SPEC = ReasoningEffortSpec(
         kind="toggle",
         default=ReasoningEffortSetting(kind="toggle", value=True),
@@ -244,6 +254,13 @@ class ModelDatabase:
         kind="effort",
         allowed_efforts=["low", "medium", "high", "xhigh", "max"],
         allow_toggle_disable=True,
+        allow_auto=True,
+        default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
+    )
+
+    ANTHROPIC_ALWAYS_ON_ADAPTIVE_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh"],
         allow_auto=True,
         default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
     )
@@ -503,6 +520,12 @@ class ModelDatabase:
             "max_output_tokens": 128_000,
         }
     )
+    ANTHROPIC_FABLE_5 = ANTHROPIC_OPUS_48.model_copy(
+        update={
+            "reasoning_effort_spec": ANTHROPIC_ALWAYS_ON_ADAPTIVE_THINKING_EFFORT_SPEC,
+            "anthropic_thinking_field_required": False,
+        }
+    )
 
     ANTHROPIC_OPUS_4_LEGACY = ModelParameters(
         context_window=200000,
@@ -711,6 +734,19 @@ class ModelDatabase:
         model_specific="You have vision capabilities.",
     )
 
+    KIMI_MOONSHOT_27_CODE = ModelParameters(
+        context_window=262144,
+        max_output_tokens=16384,
+        # Kimi K2.6 is multimodal, but video remains experimental and is only
+        # supported in Moonshot's official API for now.
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
+        default_provider=Provider.HUGGINGFACE,
+        model_specific="You have vision capabilities.",
+    )
+
     # xAI recommends Grok 4.3 for general text workloads. The pricing/tool
     # invocation tables and file/collection storage pricing are billing policy,
     # not model capability metadata, so they are intentionally not encoded here.
@@ -790,6 +826,17 @@ class ModelDatabase:
         stream_mode="manual",
     )
 
+    GLM_5_2 = ModelParameters(
+        context_window=1_000_000,
+        max_output_tokens=131072,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_52_REASONING_EFFORT_SPEC,
+        stream_mode="manual",
+        default_provider=Provider.HUGGINGFACE,
+    )
+
     MINIMAX_21 = ModelParameters(
         context_window=202752,
         max_output_tokens=131072,
@@ -817,7 +864,15 @@ class ModelDatabase:
         reasoning="reasoning_content",
         stream_mode="manual",
     )
-
+    MINIMAX_3 = ModelParameters(
+        context_window=1_000_000,
+        max_output_tokens=131072,
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
+        stream_mode="manual",
+    )
     HF_PROVIDER_DEEPSEEK31 = ModelParameters(
         context_window=163_800,
         max_output_tokens=8192,
@@ -858,6 +913,29 @@ class ModelDatabase:
         reasoning="reasoning_content",
         reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         default_provider=Provider.HUGGINGFACE,
+    )
+
+    HF_PROVIDER_QWEN36 = ModelParameters(
+        context_window=262_144,
+        max_output_tokens=65_536,
+        tokenizes=TEXT_ONLY,
+        json_mode=None,
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
+        default_provider=Provider.HUGGINGFACE,
+    )
+
+    HF_PROVIDER_GEMMA4_31B = ModelParameters(
+        context_window=262_144,
+        max_output_tokens=65_536,
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
+        default_provider=Provider.HUGGINGFACE,
+        model_specific="You have vision capabilities.",
     )
 
     ALIYUN_QWEN3_MODERN = ModelParameters(
@@ -975,6 +1053,7 @@ class ModelDatabase:
         "claude-opus-4-6": ANTHROPIC_OPUS_46,
         "claude-opus-4-7": ANTHROPIC_OPUS_47,
         "claude-opus-4-8": ANTHROPIC_OPUS_48,
+        "claude-fable-5": ANTHROPIC_FABLE_5,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
@@ -1013,6 +1092,7 @@ class ModelDatabase:
         "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,
         "moonshotai/kimi-k2.5": KIMI_MOONSHOT_25,
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
+        "moonshotai/kimi-k2.7-code": KIMI_MOONSHOT_27_CODE,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
@@ -1023,12 +1103,18 @@ class ModelDatabase:
         "zai-org/glm-5.1": _with_fast(
             GLM_5.model_copy(update={"structured_tool_policy": "no_tools"})
         ),
+        "zai-org/glm-5.2": _with_fast(
+            GLM_5_2.model_copy(update={"structured_tool_policy": "no_tools"})
+        ),
         "minimaxai/minimax-m2": GLM_46,
         "minimaxai/minimax-m2.1": MINIMAX_21,
         "minimaxai/minimax-m2.5": MINIMAX_25,
         "minimaxai/minimax-m2.7": MINIMAX_27,
+        "minimaxai/minimax-m3": MINIMAX_3,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "qwen/qwen3.5-397b-a17b": HF_PROVIDER_QWEN35,
+        "qwen/qwen3.6-35b-a3b": HF_PROVIDER_QWEN36,
+        "google/gemma-4-31b-it": HF_PROVIDER_GEMMA4_31B,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
         "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,
         "deepseek-ai/deepseek-v4-pro": HF_PROVIDER_DEEPSEEK4_PRO,
@@ -1258,15 +1344,15 @@ class ModelDatabase:
         return params.stream_mode if params else "openai"
 
     @classmethod
-    def get_default_max_tokens(cls, model: str, *, provider: Provider | None = None) -> int:
+    def get_default_max_tokens(cls, model: str, *, provider: Provider | None = None) -> int | None:
         """Get default max_tokens for RequestParams based on model"""
         if not model:
-            return 2048  # Fallback when no model specified
+            return None
 
         params = cls.get_model_params(model, provider=provider)
         if params:
             return params.max_output_tokens
-        return 2048  # Fallback for unknown models
+        return None
 
     @classmethod
     def get_default_temperature(

@@ -3,9 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import yaml
 from typer.testing import CliRunner
 
 from fast_agent.cli.commands import quickstart, setup
+from fast_agent.config import CompactionSettings
 
 if TYPE_CHECKING:
     from pytest import MonkeyPatch
@@ -39,6 +41,18 @@ def test_setup_template_resource_names_are_table_driven() -> None:
     )
     assert setup._template_resource_name("pyproject.toml") == "pyproject.toml.tmpl"
     assert setup._template_resource_name("agent.py") == "agent.py"
+
+
+def test_setup_config_compaction_defaults_match_settings() -> None:
+    setup_config = Path("examples/setup/fast-agent.yaml")
+    parsed = yaml.safe_load(setup_config.read_text(encoding="utf-8"))
+    compaction = parsed["compaction"]
+    defaults = CompactionSettings()
+
+    assert compaction["auto"] is defaults.auto
+    assert compaction["threshold"] == defaults.threshold
+    assert compaction["keep_turns"] == defaults.keep_turns
+    assert "prompt" not in compaction
 
 
 def test_render_pyproject_uses_python_requirement_helper(monkeypatch: MonkeyPatch) -> None:

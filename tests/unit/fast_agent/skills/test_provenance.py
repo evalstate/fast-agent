@@ -36,6 +36,8 @@ def test_installed_skill_source_round_trip(tmp_path: Path) -> None:
         installed_revision="abcdef1234567890",
         installed_at="2026-03-10T12:00:00Z",
         content_fingerprint=_VALID_SHA256_FINGERPRINT,
+        artifact_digest="sha256:" + ("a" * 64),
+        artifact_type="archive",
     )
 
     write_installed_skill_source(skill_dir, source)

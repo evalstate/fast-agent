@@ -7,6 +7,7 @@ import os
 import re
 import time
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,8 +20,16 @@ from prompt_toolkit.completion import Completer, Completion
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.command_actions.accessors import (
     lookup_agent,
+    plugin_command_base_path_for_provider,
     plugin_commands_for_agent,
     plugin_commands_for_provider,
+)
+from fast_agent.command_actions.loader import load_plugin_command_completion_function
+from fast_agent.command_actions.models import (
+    PluginCommandActionSpec,
+    PluginCommandAgentProtocol,
+    PluginCommandCompletion,
+    PluginCommandCompletionContext,
 )
 from fast_agent.commands.command_catalog import get_command_spec
 from fast_agent.commands.handlers import history as history_handlers
@@ -45,7 +54,7 @@ from fast_agent.ui.prompt.attachment_tokens import (
 )
 from fast_agent.ui.prompt.resource_mentions import template_argument_names
 from fast_agent.utils.async_utils import run_coroutine
-from fast_agent.utils.commandline import join_commandline
+from fast_agent.utils.commandline import join_commandline, split_commandline
 from fast_agent.utils.text import (
     casefold_text,
     starts_with_casefold,
@@ -290,6 +299,7 @@ class AgentCompleter(Completer):
                 "Show conversation history overview "
                 "(or /history show|detail|save|load|clear|rewind|fix)"
             ),
+            "compact": "Compact history into a checkpoint summary (/compact preview|prompt)",
             "tools": "List tools",
             "model": _catalog_command_description("model"),
             "models": _catalog_command_description("models"),
@@ -349,6 +359,116 @@ class AgentCompleter(Completer):
             if spec.key:
                 description = f"{description} (key: {spec.key})"
             self.commands[name] = description
+
+    def _current_plugin_command_specs(self):
+        if self.agent_provider is None or self.current_agent is None:
+            return {}
+
+        commands = {}
+        global_commands = plugin_commands_for_provider(self.agent_provider)
+        if global_commands:
+            commands.update(global_commands)
+
+        agent = lookup_agent(self.agent_provider, self.current_agent)
+        agent_commands = plugin_commands_for_agent(agent)
+        if agent_commands:
+            commands.update(agent_commands)
+        return commands
+
+    def _current_plugin_command_spec(
+        self,
+        command_name: str,
+    ) -> tuple[PluginCommandActionSpec, Path | None] | None:
+        if self.agent_provider is None or self.current_agent is None:
+            return None
+
+        agent = lookup_agent(self.agent_provider, self.current_agent)
+        agent_commands = plugin_commands_for_agent(agent)
+        if agent_commands:
+            spec = agent_commands.get(command_name)
+            if spec is not None:
+                plugin_agent = cast("PluginCommandAgentProtocol", agent)
+                source_path = plugin_agent.config.source_path
+                return spec, source_path.parent if source_path is not None else None
+
+        global_commands = plugin_commands_for_provider(self.agent_provider)
+        if global_commands:
+            spec = global_commands.get(command_name)
+            if spec is not None:
+                return spec, plugin_command_base_path_for_provider(self.agent_provider)
+
+        return None
+
+    def _plugin_command_argument_completions(self, text: str) -> list[Completion] | None:
+        if not text.startswith("/") or " " not in text or self.current_agent is None:
+            return None
+
+        command_token, arguments = text[1:].split(" ", 1)
+        resolved_command = self._current_plugin_command_spec(command_token)
+        if resolved_command is None:
+            return None
+        spec, base_path = resolved_command
+        if spec is None or spec.completer is None:
+            return None
+
+        agent = lookup_agent(self.agent_provider, self.current_agent)
+        if agent is None:
+            return None
+
+        try:
+            raw_tokens = split_commandline(arguments)
+        except ValueError:
+            raw_tokens = arguments.split()
+        trailing_space = arguments.endswith((" ", "\t"))
+        current_token = _current_completion_token(raw_tokens, trailing_space=trailing_space)
+        completed_tokens = tuple(
+            _completed_completion_tokens(raw_tokens, trailing_space=trailing_space)
+        )
+
+        try:
+            plugin_agent = cast("PluginCommandAgentProtocol", agent)
+            completer = load_plugin_command_completion_function(spec.completer, base_path=base_path)
+            values = self._run_plugin_command_completion(
+                lambda: cast(
+                    "Coroutine[Any, Any, list[PluginCommandCompletion | str]]",
+                    completer(
+                        PluginCommandCompletionContext(
+                            command_name=command_token,
+                            arguments=arguments,
+                            current_token=current_token,
+                            completed_tokens=completed_tokens,
+                            agent=plugin_agent,
+                            settings=get_settings(),
+                            session_cwd=self.cwd,
+                        )
+                    ),
+                ),
+            )
+        except Exception:
+            return []
+        if values is None:
+            return []
+
+        completions: list[Completion] = []
+        for value in values:
+            item = value if isinstance(value, PluginCommandCompletion) else PluginCommandCompletion(value=str(value))
+            display = item.display or item.value
+            detail = item.detail or ""
+            if current_token and not (
+                starts_with_casefold(item.value, current_token)
+                or current_token.casefold() in display.casefold()
+                or current_token.casefold() in detail.casefold()
+            ):
+                continue
+            completions.append(
+                Completion(
+                    item.value,
+                    start_position=-len(current_token),
+                    display=display,
+                    display_meta=detail,
+                )
+            )
+        return completions
 
     def _current_agent_has_web_tools_enabled(self) -> bool:
         return history_handlers.web_tools_enabled_for_agent(self._current_llm_agent())
@@ -1517,6 +1637,36 @@ class AgentCompleter(Completer):
         except Exception:
             return None
 
+    def _run_plugin_command_completion(
+        self,
+        create_awaitable: Callable[
+            [],
+            Coroutine[Any, Any, list[PluginCommandCompletion | str]],
+        ],
+    ) -> list[PluginCommandCompletion | str] | None:
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        if current_loop is None or not current_loop.is_running():
+            try:
+                return run_coroutine(create_awaitable())
+            except Exception:
+                return None
+
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fast-agent-completer")
+        future = executor.submit(lambda: run_coroutine(create_awaitable()))
+        try:
+            return future.result(timeout=self._completion_wait_timeout_seconds)
+        except FuturesTimeoutError:
+            future.cancel()
+            return None
+        except Exception:
+            return None
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
     async def _list_server_resource_uris(self, server_name: str) -> list[str]:
         agent = cast("CompleterResourceAgent | None", self._current_agent_object())
         if agent is None:
@@ -2060,6 +2210,11 @@ class AgentCompleter(Completer):
         mention_completions = self._mention_completions(text)
         if mention_completions is not None:
             yield from mention_completions
+            return
+
+        plugin_completions = self._plugin_command_argument_completions(text)
+        if plugin_completions is not None:
+            yield from plugin_completions
             return
 
         from fast_agent.ui.prompt.completion_sources import command_completions

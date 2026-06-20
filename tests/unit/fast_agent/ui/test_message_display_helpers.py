@@ -1,10 +1,12 @@
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams, ImageContent
+from mcp.types import CallToolRequest, CallToolRequestParams, ImageContent, TextContent
 
+from fast_agent.constants import FAST_AGENT_SAFETY_DETAILS
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.message_display_helpers import (
     _content_metadata,
+    build_safety_additional_message,
     build_tool_use_additional_message,
     build_user_message_display,
     build_user_message_image_previews,
@@ -128,6 +130,37 @@ def test_build_tool_use_additional_message_pluralizes_file_reads() -> None:
     additional = build_tool_use_additional_message(message, file_read=True)
 
     assert additional is None
+
+
+def test_build_safety_additional_message_includes_anthropic_refusal_category() -> None:
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        stop_reason=LlmStopReason.SAFETY,
+        channels={
+            FAST_AGENT_SAFETY_DETAILS: [
+                TextContent(type="text", text='{"type": "refusal", "category": "cyber"}')
+            ]
+        },
+    )
+
+    additional = build_safety_additional_message(message)
+
+    assert additional is not None
+    assert additional.plain == "\n\nRequest refused by safety classifier (cyber)."
+
+
+def test_build_safety_additional_message_handles_missing_category() -> None:
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        stop_reason=LlmStopReason.SAFETY,
+    )
+
+    additional = build_safety_additional_message(message)
+
+    assert additional is not None
+    assert additional.plain == "\n\nRequest refused by safety classifier."
 
 
 def test_resolve_highlight_index_for_string_target() -> None:

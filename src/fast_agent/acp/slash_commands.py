@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import inspect
 import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -27,8 +29,6 @@ from acp.schema import (
 )
 
 from fast_agent.acp.command_io import ACPCommandIO
-from fast_agent.acp.slash import dispatch as slash_dispatch
-from fast_agent.acp.slash.command_catalog import apply_dynamic_session_hints
 from fast_agent.acp.slash.handlers import cards as cards_slash_handlers
 from fast_agent.acp.slash.handlers import cards_manager as cards_manager_slash_handlers
 from fast_agent.acp.slash.handlers import clear as clear_slash_handlers
@@ -36,6 +36,7 @@ from fast_agent.acp.slash.handlers import commands as commands_slash_handlers
 from fast_agent.acp.slash.handlers import history as history_slash_handlers
 from fast_agent.acp.slash.handlers import mcp as mcp_slash_handlers
 from fast_agent.acp.slash.handlers import model as model_slash_handlers
+from fast_agent.acp.slash.handlers import plugins as plugins_slash_handlers
 from fast_agent.acp.slash.handlers import session as session_slash_handlers
 from fast_agent.acp.slash.handlers import skills as skills_slash_handlers
 from fast_agent.acp.slash.handlers import status as status_slash_handlers
@@ -67,7 +68,7 @@ from fast_agent.utils.slash_commands import parse_slash_command_line
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterable, Sequence
+    from collections.abc import Iterable, Sequence
 
     from fast_agent.acp.acp_context import ACPContext
     from fast_agent.acp.slash.tool_updates import ToolCallStatus
@@ -165,6 +166,33 @@ def _append_unshadowed_commands(
         existing_names.add(normalized_name)
 
 
+type _BuiltinSlashHandler = Callable[[str], Awaitable[str]]
+type _BuiltinSlashInputHint = str | Callable[[], str | None] | None
+
+
+@dataclass(frozen=True, slots=True)
+class _BuiltinSlashCommandSpec:
+    name: str
+    description: str
+    handler: _BuiltinSlashHandler
+    input_hint: _BuiltinSlashInputHint = None
+    available: Callable[[], bool] | None = None
+
+    def is_available(self) -> bool:
+        return True if self.available is None else self.available()
+
+    def available_command(self) -> AvailableCommand:
+        if self.input_hint is None or isinstance(self.input_hint, str):
+            input_hint = self.input_hint
+        else:
+            input_hint = self.input_hint()
+        return AvailableCommand(
+            name=self.name,
+            description=self.description,
+            input=_command_input(input_hint),
+        )
+
+
 class SlashCommandHandler:
     """Handles slash command execution for ACP sessions."""
 
@@ -259,121 +287,122 @@ class SlashCommandHandler:
             or "add|remove|update|publish|registry"
         )
 
-        # Session-level commands (always available, operate on current agent)
-        self._session_commands: dict[str, AvailableCommand] = {
-            "status": AvailableCommand(
+        # Session-level commands operate on the current agent.
+        self._session_commands = self._build_builtin_session_commands(cards_action_hint)
+
+    def _build_builtin_session_commands(
+        self,
+        cards_action_hint: str,
+    ) -> dict[str, _BuiltinSlashCommandSpec]:
+        specs = (
+            _BuiltinSlashCommandSpec(
                 name="status",
                 description="Show fast-agent diagnostics",
-                input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint="[system|auth|authreset]")
-                ),
+                handler=self._handle_status,
+                input_hint="[system|auth|authreset]",
             ),
-            "tools": AvailableCommand(
+            _BuiltinSlashCommandSpec(
                 name="tools",
                 description="List available tools",
-                input=None,
+                handler=self._handle_tools,
             ),
-            "commands": AvailableCommand(
+            _BuiltinSlashCommandSpec(
                 name="commands",
                 description="Discover slash commands and usage",
-                input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint="[<command>] [--json]")
-                ),
+                handler=self._handle_commands,
+                input_hint="[<command>] [--json]",
             ),
-            "skills": AvailableCommand(
+            _BuiltinSlashCommandSpec(
                 name="skills",
                 description="List, browse, search, or manage local skills",
-                input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(
-                        hint=(
-                            "[list|available|search <query>|add <name|number>|"
-                            "remove <name|number>|update <name|number|all> [--force] [--yes]|"
-                            "registry [number|url|path]|help]"
-                        )
-                    )
+                handler=self._handle_skills,
+                input_hint=(
+                    "[list|available|search <query>|add <name|number>|"
+                    "remove <name|number>|update <name|number|all> [--force] [--yes]|"
+                    "registry [number|url|path]|help]"
                 ),
             ),
-            "cards": AvailableCommand(
+            _BuiltinSlashCommandSpec(
                 name="cards",
                 description="List or manage card packs (add/remove/update/publish/registry)",
-                input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(
-                        hint=(
-                            f"[{cards_action_hint}] "
-                            "[name|number|all|url] "
-                            "[--force|--yes|--no-push|--message|--temp-dir|--keep-temp]"
-                        )
-                    )
+                handler=self._handle_cards,
+                input_hint=(
+                    f"[{cards_action_hint}] "
+                    "[name|number|all|url] "
+                    "[--force|--yes|--no-push|--message|--temp-dir|--keep-temp]"
                 ),
             ),
-            "model": AvailableCommand(
+            _BuiltinSlashCommandSpec(
+                name="plugins",
+                description="List or manage command plugins",
+                handler=self._handle_plugins,
+                input_hint=(
+                    "[list|available|add <name|number>|remove <name|number>|"
+                    "update <name|number|all> [--force] [--yes]|"
+                    "registry [number|url|path]|help]"
+                ),
+            ),
+            _BuiltinSlashCommandSpec(
                 name="model",
                 description="Inspect, switch, or update model settings",
-                input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint=(self._model_command_hint()))
-                ),
+                handler=self._handle_model,
+                input_hint=self._model_command_hint,
             ),
-            "history": AvailableCommand(
+            _BuiltinSlashCommandSpec(
                 name="history",
                 description="Show or manage conversation history",
-                input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint="[show|detail <turn>|save|load] [args]")
-                ),
+                handler=self._handle_history,
+                input_hint="[show|detail <turn>|save|load] [args]",
             ),
-            "clear": AvailableCommand(
+            _BuiltinSlashCommandSpec(
                 name="clear",
                 description="Clear history (`last` for prev. turn)",
-                input=AvailableCommandInput(root=UnstructuredCommandInput(hint="[last]")),
+                handler=self._handle_clear,
+                input_hint="[last]",
             ),
-            "session": AvailableCommand(
+            _BuiltinSlashCommandSpec(
                 name="session",
                 description="List or manage sessions",
-                input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(
-                        hint="[list|new|resume|title|fork|delete|pin|export] [args]"
-                    )
-                ),
+                handler=self._handle_session,
+                input_hint="[list|new|resume|title|fork|delete|pin|export] [args]",
             ),
-            "card": AvailableCommand(
+            _BuiltinSlashCommandSpec(
                 name="card",
                 description="Load an AgentCard from file or URL",
-                input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint="<filename|url> [--tool [remove]]")
-                ),
+                handler=self._handle_card,
+                input_hint="<filename|url> [--tool [remove]]",
             ),
-            "agent": AvailableCommand(
+            _BuiltinSlashCommandSpec(
                 name="agent",
                 description="Attach an agent as a tool or dump its AgentCard",
-                input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint="<@name> [--tool [remove]|--dump]")
-                ),
+                handler=self._handle_agent,
+                input_hint="<@name> [--tool [remove]|--dump]",
             ),
-            "mcp": AvailableCommand(
+            _BuiltinSlashCommandSpec(
                 name="mcp",
                 description="Manage runtime MCP servers and MCP data-layer sessions",
-                input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(
-                        hint=(
-                            "list | connect <target> [--name <server>] [--auth <token>] "
-                            "[--timeout <seconds>] [--oauth|--no-oauth] "
-                            "[--reconnect|--no-reconnect] | session [list|jar|new|use|clear] | "
-                            "disconnect <server>"
-                        )
-                    )
+                handler=self._handle_mcp,
+                input_hint=(
+                    "list | connect <target> [--name <server>] [--auth <token>] "
+                    "[--timeout <seconds>] [--oauth|--no-oauth] "
+                    "[--reconnect|--no-reconnect] | session [list|jar|new|use|clear] | "
+                    "disconnect <server>"
                 ),
             ),
-        }
-        if self._reload_callback is not None:
-            self._session_commands["reload"] = AvailableCommand(
+            _BuiltinSlashCommandSpec(
                 name="reload",
                 description="Reload AgentCards",
-                input=None,
-            )
+                handler=self._handle_reload,
+                available=lambda: self._reload_callback is not None,
+            ),
+        )
+        return {spec.name: spec for spec in specs}
 
     def get_available_commands(self) -> list[AvailableCommand]:
         """Get combined session commands and current agent's commands."""
-        commands_by_name = dict(self._get_allowed_session_commands())
-        commands = apply_dynamic_session_hints(commands_by_name, self._model_command_hint())
+        commands = [
+            command.available_command() for command in self._get_allowed_session_commands().values()
+        ]
 
         # Add agent-specific commands if current agent is ACP-aware
         agent = self._get_current_agent()
@@ -458,7 +487,7 @@ class SlashCommandHandler:
         """Set the ACP context for this handler."""
         self._acp_context = acp_context
 
-    def _get_allowed_session_commands(self) -> dict[str, AvailableCommand]:
+    def _get_allowed_session_commands(self) -> dict[str, _BuiltinSlashCommandSpec]:
         """
         Return session-level commands filtered by the current agent's policy.
 
@@ -467,22 +496,27 @@ class SlashCommandHandler:
         `acp_session_commands_allowlist: set[str] | None` attribute.
         """
         agent = self._get_current_agent()
+        session_commands = {
+            name: command
+            for name, command in self._session_commands.items()
+            if command.is_available()
+        }
         if not isinstance(agent, ACPAwareProtocol):
-            return self._session_commands
+            return session_commands
 
         allowlist = None
         if isinstance(agent, ACPCommandAllowlistProvider):
             allowlist = agent.acp_session_commands_allowlist
 
         if allowlist is None:
-            return self._session_commands
+            return session_commands
 
         try:
             allowset = {str(name) for name in allowlist}
         except Exception:
-            return self._session_commands
+            return session_commands
 
-        return {name: cmd for name, cmd in self._session_commands.items() if name in allowset}
+        return {name: cmd for name, cmd in session_commands.items() if name in allowset}
 
     def set_current_agent(self, agent_name: str) -> None:
         """
@@ -729,11 +763,9 @@ class SlashCommandHandler:
 
         # Check session-level commands (filtered by agent policy).
         allowed_session_commands = self._get_allowed_session_commands()
-        if normalized_command_name in allowed_session_commands:
-            try:
-                return await slash_dispatch.execute(self, normalized_command_name, arguments)
-            except slash_dispatch.UnknownSlashCommandError:
-                pass
+        builtin_command = allowed_session_commands.get(normalized_command_name)
+        if builtin_command is not None:
+            return await builtin_command.handler(arguments)
 
         # Unknown command
         available = self.get_available_commands()
@@ -801,6 +833,12 @@ class SlashCommandHandler:
             outcome.add_message(result.markdown, render_markdown=True)
         elif result.message:
             outcome.add_message(result.message)
+        if result.images:
+            lines = ["Images:"]
+            for image in result.images:
+                label = image.label or image.source
+                lines.append(f"- [{label}]({image.source})")
+            outcome.add_message("\n".join(lines), render_markdown=True)
         if result.buffer_prefill:
             outcome.add_message(
                 f"Command produced draft text:\n\n```text\n{result.buffer_prefill}\n```",
@@ -863,7 +901,8 @@ class SlashCommandHandler:
     def _handle_status_authreset(self) -> str:
         return status_slash_handlers.handle_status_authreset(self)
 
-    async def _handle_tools(self) -> str:
+    async def _handle_tools(self, arguments: str | None = None) -> str:
+        del arguments
         return await tools_slash_handlers.handle_tools(self)
 
     async def _handle_commands(self, arguments: str | None = None) -> str:
@@ -874,6 +913,9 @@ class SlashCommandHandler:
 
     async def _handle_cards(self, arguments: str | None = None) -> str:
         return await cards_manager_slash_handlers.handle_cards(self, arguments)
+
+    async def _handle_plugins(self, arguments: str | None = None) -> str:
+        return await plugins_slash_handlers.handle_plugins(self, arguments)
 
     async def _handle_skills_registry(self, argument: str) -> str:
         return await skills_slash_handlers.handle_skills_registry(self, argument)
@@ -931,7 +973,8 @@ class SlashCommandHandler:
     async def _handle_mcp(self, arguments: str | None = None) -> str:
         return await mcp_slash_handlers.handle_mcp(self, arguments)
 
-    async def _handle_reload(self) -> str:
+    async def _handle_reload(self, arguments: str | None = None) -> str:
+        del arguments
         return await cards_slash_handlers.handle_reload(self)
 
     async def _handle_clear(self, arguments: str | None = None) -> str:

@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import pytest
 
+import fast_agent.mcp.auth as auth_exports
+import fast_agent.mcp.auth.presence as presence_module
 from fast_agent.mcp.auth.presence import HuggingFaceTokenVerifier
+
+
+def test_presence_token_verifier_alias_is_not_exported() -> None:
+    assert "PresenceTokenVerifier" not in auth_exports.__all__
+    assert "PresenceTokenVerifier" not in vars(presence_module)
 
 
 @pytest.mark.asyncio

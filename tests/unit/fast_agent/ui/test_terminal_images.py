@@ -1,8 +1,10 @@
 import base64
 from types import SimpleNamespace
 
+import pytest
 from mcp.types import ImageContent, TextContent
 
+from fast_agent.command_actions.models import PluginCommandActionImage
 from fast_agent.config import LoggerSettings, Settings, TerminalImageSettings
 from fast_agent.mcp.prompt_render import render_content_blocks
 from fast_agent.mcp.tool_result_metadata import (
@@ -14,6 +16,7 @@ from fast_agent.ui.terminal_images import (
     extract_image_artifacts,
     extract_image_render_items,
     render_assistant_images,
+    render_plugin_command_images_for_settings,
     render_tool_result_images,
 )
 from fast_agent.ui.terminal_images import renderer as terminal_image_renderer
@@ -127,6 +130,31 @@ def test_render_assistant_images_returns_none_for_none_backend() -> None:
     )
 
     renderable = render_assistant_images(config, [_image_content()])
+
+    assert renderable is None
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        TerminalImageSettings(enabled=False, backend="unicode"),
+        TerminalImageSettings(enabled=True, backend="none"),
+    ],
+)
+def test_plugin_command_images_do_not_load_sources_when_disabled(
+    monkeypatch,
+    settings: TerminalImageSettings,
+) -> None:
+    def fail_source_load(*args, **kwargs):
+        del args, kwargs
+        pytest.fail("disabled plugin images should not load image sources")
+
+    monkeypatch.setattr(terminal_image_renderer, "_artifact_from_plugin_image", fail_source_load)
+
+    renderable = render_plugin_command_images_for_settings(
+        settings,
+        [PluginCommandActionImage(source="https://example.test/image.png")],
+    )
 
     assert renderable is None
 

@@ -30,7 +30,9 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from fast_agent.a2a.task_api import A2ATaskHandle
+    from fast_agent.config import CompactionSettings
     from fast_agent.core.fastagent import AgentInstance, FastAgent, RunRuntime, RunSettings
+    from fast_agent.history.compaction import CompactionResult
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.session.session_manager import Session, SessionManager
     from fast_agent.tools.session_environment import ShellExecutionResult, ShellExecutor
@@ -156,6 +158,42 @@ class HarnessSession:
         finally:
             await self._end_operation("clear")
 
+    async def compact(
+        self,
+        *,
+        agent_name: str | None = None,
+        instructions: str | None = None,
+    ) -> "CompactionResult":
+        """Compact the resolved agent's history into a checkpoint summary.
+
+        Mirrors the ``/compact`` command: summarizes older turns via the agent's
+        own model, keeps recent turns verbatim, and persists the compacted
+        history. Honors ``compaction.keep_turns`` and ``compaction.prompt`` from
+        config. ``instructions`` adds one-off focus for this summary.
+
+        Raises ``CompactionSkipped`` when there is nothing worth compacting and
+        ``CompactionError`` when the summarization call fails (history is left
+        untouched in both cases).
+        """
+        from typing import cast
+
+        from fast_agent.history.compaction import (
+            CompactableAgent,
+            compact_conversation,
+        )
+
+        agent = await self._begin_operation("compact", agent_name)
+        try:
+            result = await compact_conversation(
+                cast("CompactableAgent", agent),
+                settings=self._compaction_settings(agent),
+                instructions=instructions,
+            )
+            await self._save_persisted_history(agent)
+            return result
+        finally:
+            await self._end_operation("compact")
+
     async def shell(
         self,
         command: str,
@@ -220,6 +258,15 @@ class HarnessSession:
     def _raise_if_closed(self) -> None:
         if self._record.closed:
             raise RuntimeError(f"Session '{self.id}' is closed.")
+
+    def _compaction_settings(self, agent: AgentProtocol) -> "CompactionSettings":
+        from fast_agent.config import CompactionSettings
+
+        context = getattr(agent, "context", None)
+        config = context.config if context is not None else None
+        if config is not None and config.compaction is not None:
+            return config.compaction
+        return CompactionSettings()
 
     async def _save_persisted_history(self, agent: AgentProtocol) -> None:
         persistence_handle = self._record.persistence_handle

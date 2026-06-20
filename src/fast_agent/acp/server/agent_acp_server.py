@@ -37,6 +37,7 @@ from acp.schema import (
     Implementation,
     ListSessionsResponse,
     LoadSessionResponse,
+    McpCapabilities,
     McpServerStdio,
     PromptCapabilities,
     ResumeSessionResponse,
@@ -78,6 +79,7 @@ from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_resolved_model,
 )
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
+from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.session import get_session_manager
 from fast_agent.types import RequestParams
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
@@ -345,6 +347,11 @@ class AgentACPServer(ACPAgent):
                 client_supports_fs_write=self._client_supports_fs_write,
             )
 
+            supports_mcp_servers = any(
+                isinstance(agent, McpAgentProtocol)
+                for agent in self._bootstrap_instance.agents.values()
+            )
+
             # Build our capabilities
             agent_capabilities = AgentCapabilities(
                 field_meta={
@@ -358,6 +365,10 @@ class AgentACPServer(ACPAgent):
                     audio=False,  # Don't support audio (yet)
                 ),
                 load_session=True,
+                mcp_capabilities=McpCapabilities(
+                    http=supports_mcp_servers,
+                    sse=supports_mcp_servers,
+                ),
                 session_capabilities=SessionCapabilities(
                     list=SessionListCapabilities(),
                     resume=SessionResumeCapabilities(),

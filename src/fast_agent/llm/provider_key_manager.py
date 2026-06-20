@@ -201,12 +201,25 @@ class ProviderKeyManager:
         if ProviderKeyManager._uses_no_api_key(provider_name, config):
             return ""
 
-        api_key = (
-            ProviderKeyManager._request_scoped_api_key(provider_name)
-            or ProviderKeyManager._configured_or_environment_key(provider_name, config)
-            or ProviderKeyManager._provider_specific_fallback_key(provider_name)
-        )
+        api_key = ProviderKeyManager.get_optional_api_key(provider_name, config)
         if not api_key:
             ProviderKeyManager._raise_missing_api_key(provider_name)
 
         return api_key
+
+    @staticmethod
+    def get_optional_api_key(
+        provider_name: str,
+        config: Any,
+    ) -> str | None:
+        """Return a configured provider API key if one is available, otherwise None."""
+        provider_name = strip_casefold(provider_name)
+
+        if ProviderKeyManager._uses_no_api_key(provider_name, config):
+            return ""
+
+        return (
+            ProviderKeyManager._request_scoped_api_key(provider_name)
+            or ProviderKeyManager._configured_or_environment_key(provider_name, config)
+            or ProviderKeyManager._provider_specific_fallback_key(provider_name)
+        )

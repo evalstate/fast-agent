@@ -548,6 +548,6 @@ def validate_provider_keys_post_creation(active_agents: dict[str, Any]) -> None:
     """
     for agent in active_agents.values():
         llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
-        if llm:
-            # This throws a ProviderKeyError if the key is not present
-            llm._api_key()
+        if isinstance(llm, FastAgentLLM):
+            # This throws a ProviderKeyError if no local credential source is present.
+            llm.validate_provider_credentials()

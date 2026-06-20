@@ -181,6 +181,18 @@ pages can include examples directly from `examples/`:
 Prefer direct includes for examples that are meant to stay runnable. This keeps docs and examples
 on one source of truth and makes drift visible in ordinary code review.
 
+## Source-Backed Configuration
+
+For defaults that appear in code, docs, and sample config, keep the Pydantic settings model as the
+authority and generate reusable snippets. `docs/generate_reference_docs.py` writes compaction
+snippets from `fast_agent.config.CompactionSettings`; docs pages include those snippets instead of
+copying values such as `compaction.threshold` by hand.
+
+The annotated setup template lives at `examples/setup/fast-agent.yaml`, and the packaged setup
+resource is copied from that path during build. When a setup value mirrors a code default, add or
+update a focused test that parses the setup template and compares that value with the corresponding
+settings model.
+
 ## Plugin API Reference
 
 `docs/generate_plugin_api_docs.py` reads the plugin command dataclasses and runtime protocol from

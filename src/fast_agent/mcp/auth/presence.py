@@ -91,8 +91,3 @@ class HuggingFaceTokenVerifier(TokenVerifier):
 def _string_field(payload: dict[str, Any], key: str) -> str | None:
     value = payload.get(key)
     return value if isinstance(value, str) and value else None
-
-
-# Backward-compatible import name for external users. Do not use for new code:
-# despite the old name, this now validates with Hugging Face.
-PresenceTokenVerifier = HuggingFaceTokenVerifier

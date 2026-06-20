@@ -31,6 +31,7 @@ _LEGACY_METADATA_KEYS = frozenset(
         "cwd",
         "first_user_preview",
         "forked_from",
+        "git",
         "label",
         "last_history_by_agent",
         "pinned",
@@ -64,6 +65,30 @@ class SessionLineageSnapshot(BaseModel):
 
     forked_from: str | None = None
     acp_session_id: str | None = None
+
+
+class SessionGitSnapshot(BaseModel):
+    """Git repository provenance captured for a session cwd."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cwd: str
+    repository_root: str
+    commit: str
+    captured_at: datetime
+    remote_url: str | None = None
+    github_repository: str | None = None
+    branch: str | None = None
+    dirty: bool = False
+
+
+class SessionGitStateSnapshot(BaseModel):
+    """Initial and latest git state observed while persisting a session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    started: SessionGitSnapshot | None = None
+    current: SessionGitSnapshot | None = None
 
 
 class SessionRequestSettingsSnapshot(BaseModel):
@@ -134,6 +159,7 @@ class SessionContinuationSnapshot(BaseModel):
 
     active_agent: str | None = None
     cwd: str | None = None
+    git: SessionGitStateSnapshot | None = None
     lineage: SessionLineageSnapshot = Field(default_factory=SessionLineageSnapshot)
     agents: dict[str, SessionAgentSnapshot] = Field(default_factory=dict)
 
@@ -206,6 +232,12 @@ class _AgentBackedToolRefProvider(Protocol):
 
 
 @runtime_checkable
+class _NamedAgentProvider(Protocol):
+    @property
+    def name(self) -> str: ...
+
+
+@runtime_checkable
 class _SelectedModelNameProvider(Protocol):
     @property
     def selected_model_name(self) -> str: ...
@@ -252,6 +284,7 @@ def synthesize_legacy_session_snapshot(payload: Mapping[str, object]) -> Session
     continuation = SessionContinuationSnapshot(
         active_agent=_optional_str(metadata_mapping, "agent_name", session_id),
         cwd=_optional_str(metadata_mapping, "cwd", session_id),
+        git=_optional_git_state(metadata_mapping, session_id),
         lineage=SessionLineageSnapshot(
             forked_from=_optional_str(metadata_mapping, "forked_from", session_id),
             acp_session_id=_optional_str(metadata_mapping, "acp_session_id", session_id),
@@ -285,6 +318,7 @@ def snapshot_from_session_info(info: "SessionInfo") -> SessionSnapshot:
     continuation = SessionContinuationSnapshot(
         active_agent=_typed_str(metadata_dict.get("agent_name")),
         cwd=_typed_str(metadata_dict.get("cwd")),
+        git=_metadata_git_state(metadata_dict),
         lineage=SessionLineageSnapshot(
             forked_from=_typed_str(metadata_dict.get("forked_from")),
             acp_session_id=_typed_str(metadata_dict.get("acp_session_id")),
@@ -317,6 +351,11 @@ def capture_session_snapshot(
     snapshot.continuation.active_agent = active_agent.name
     snapshot.continuation.cwd = _capture_continuation_cwd(
         compatibility_snapshot=snapshot,
+        existing_snapshot=existing_snapshot,
+        identity=identity,
+    )
+    snapshot.continuation.git = _capture_git_state_snapshot(
+        snapshot=snapshot,
         existing_snapshot=existing_snapshot,
         identity=identity,
     )
@@ -372,6 +411,8 @@ def _metadata_fields_from_snapshot(snapshot: SessionSnapshot) -> dict[str, JsonV
         metadata["agent_name"] = snapshot.continuation.active_agent
     if snapshot.continuation.cwd is not None:
         metadata["cwd"] = snapshot.continuation.cwd
+    if snapshot.continuation.git is not None:
+        metadata["git"] = snapshot.continuation.git.model_dump(mode="json", exclude_none=True)
     if snapshot.continuation.lineage.forked_from is not None:
         metadata["forked_from"] = snapshot.continuation.lineage.forked_from
     if snapshot.continuation.lineage.acp_session_id is not None:
@@ -565,6 +606,43 @@ def _optional_bool(
     return default
 
 
+def _optional_git_state(
+    mapping: Mapping[str, object] | None,
+    session_id: str,
+) -> SessionGitStateSnapshot | None:
+    if mapping is None:
+        return None
+    raw_git = mapping.get("git")
+    if raw_git is None:
+        return None
+    if not isinstance(raw_git, Mapping):
+        _warn_legacy_issue(session_id, "legacy metadata.git must be an object; ignoring value")
+        return None
+    git_mapping: dict[str, object] = {}
+    for key, value in raw_git.items():
+        if not isinstance(key, str):
+            _warn_legacy_issue(
+                session_id,
+                "legacy metadata.git keys must be strings; ignoring value",
+            )
+            return None
+        git_mapping[key] = value
+    return _metadata_git_state(git_mapping)
+
+
+def _metadata_git_state(metadata: Mapping[str, object]) -> SessionGitStateSnapshot | None:
+    raw_git = metadata.get("git")
+    if raw_git is None:
+        return None
+    try:
+        git = SessionGitStateSnapshot.model_validate(raw_git)
+    except ValueError:
+        return None
+    if git.started is None and git.current is None:
+        return None
+    return git
+
+
 def _session_info_metadata_extras(
     metadata: Mapping[str, object],
     session_id: str,
@@ -623,6 +701,67 @@ def _capture_continuation_cwd(
     if existing_snapshot is not None:
         return existing_snapshot.continuation.cwd
     return None
+
+
+def _capture_git_state_snapshot(
+    *,
+    snapshot: SessionSnapshot,
+    existing_snapshot: SessionSnapshot | None,
+    identity: "SessionSaveIdentity",
+) -> SessionGitStateSnapshot | None:
+    existing_git = existing_snapshot.continuation.git if existing_snapshot is not None else None
+    if not _git_aware_enabled():
+        return snapshot.continuation.git or existing_git
+
+    cwd = _git_capture_cwd(snapshot=snapshot, identity=identity)
+    if cwd is None:
+        return snapshot.continuation.git or existing_git
+
+    from fast_agent.session.git_metadata import capture_git_metadata
+
+    captured = capture_git_metadata(cwd)
+    if captured is None:
+        return snapshot.continuation.git or existing_git
+
+    current = SessionGitSnapshot(
+        cwd=captured.cwd,
+        repository_root=captured.repository_root,
+        commit=captured.commit,
+        captured_at=captured.captured_at,
+        remote_url=captured.remote_url,
+        github_repository=captured.github_repository,
+        branch=captured.branch,
+        dirty=captured.dirty,
+    )
+    return SessionGitStateSnapshot(
+        started=(
+            existing_git.started
+            if existing_git is not None and existing_git.started is not None
+            else current
+        ),
+        current=current,
+    )
+
+
+def _git_aware_enabled() -> bool:
+    try:
+        from fast_agent.config import get_settings
+
+        return get_settings().git_aware
+    except Exception:
+        return False
+
+
+def _git_capture_cwd(
+    *,
+    snapshot: SessionSnapshot,
+    identity: "SessionSaveIdentity",
+) -> Path | None:
+    if snapshot.continuation.cwd is not None:
+        return Path(snapshot.continuation.cwd).expanduser().resolve()
+    if identity.session_cwd is not None:
+        return identity.session_cwd.expanduser().resolve()
+    return identity.manager.workspace_dir
 
 
 def _capture_lineage_snapshot(
@@ -840,8 +979,15 @@ def _capture_attachment_refs(agent: "AgentProtocol") -> list[SessionAttachmentRe
         )
     if isinstance(agent, _AgentBackedToolRefProvider):
         refs.extend(
-            SessionAttachmentRef(ref=f"agent_tool:{child_name}")
-            for child_name in sorted(agent.agent_backed_tools)
+            SessionAttachmentRef(ref=f"agent_tool:{child.name}")
+            for child in sorted(
+                (
+                    child_agent
+                    for child_agent in agent.agent_backed_tools.values()
+                    if isinstance(child_agent, _NamedAgentProvider)
+                ),
+                key=lambda child: child.name,
+            )
         )
     return refs
 

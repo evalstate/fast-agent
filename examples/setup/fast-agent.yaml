@@ -4,7 +4,7 @@
 #
 # Takes format:
 #   <provider>.<model_string>?reasoning=<value> (e.g. anthropic.claude-3-5-sonnet-20241022 or openai.o3-mini?reasoning=low)
-# Accepts aliases for Anthropic Models: haiku, haiku3, sonnet, sonnet35, opus, opus3, opus46, opus47, opus46, opus47
+# Accepts aliases for Anthropic Models: haiku, haiku45, sonnet, sonnet4, sonnet46, claude, opus, opus4, opus46, opus47, opus48
 # and OpenAI Models: gpt-4.1, gpt-4.1-mini, o1, o1-mini, o3-mini
 #
 # If not specified, defaults to "gpt-5-mini?reasoning=low".
@@ -25,6 +25,18 @@ default_model: gpt-5-mini?reasoning=low
 
 # Number of times to retry transient LLM API errors (falls back to FAST_AGENT_RETRIES env var)
 # llm_retries: 1
+
+# Persist git repository provenance in session snapshots and trace exports.
+# Captures the repo root, commit, branch, dirty state, and sanitized origin URL
+# for the session working directory when it is inside a git repository.
+# git_aware: false
+
+# History compaction keeps long conversations within the model context window.
+compaction:
+  auto: true # automatically compact when the threshold is crossed
+  threshold: 0.85 # fraction of the context window that triggers compaction
+  keep_turns: 2 # recent turns kept verbatim after compaction
+  # prompt: null # built-in prompt; set inline text or a relative file path
 
 # otel:
 #   enabled: true

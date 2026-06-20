@@ -64,35 +64,24 @@ def test_list_curated_models_for_provider() -> None:
 def test_list_curated_aliases_for_provider() -> None:
     aliases = ModelSelectionCatalog.list_curated_aliases(Provider.ANTHROPIC)
 
-    assert aliases[:2] == ["opus", "opus4"]
+    assert aliases == unique_preserve_order(aliases)
     assert {
-        "claude",
-        "haiku45",
-        "opus47",
-        "opus48",
-        "sonnet46",
+        "fable",
+        "haiku",
+        "opus",
+        "sonnet",
     }.issubset(aliases)
+    assert aliases.index("opus") < aliases.index("opus46")
 
 
 def test_anthropic_catalog_lists_user_facing_factory_aliases() -> None:
-    aliases = set(ModelSelectionCatalog.list_curated_aliases(Provider.ANTHROPIC))
-    expected_aliases = {
-        "claude",
-        "haiku",
-        "haiku45",
-        "opus",
-        "opus4",
-        "opus46",
-        "opus47",
-        "opus48",
-        "sonnet",
-        "sonnet4",
-        "sonnet46",
-    }
+    aliases = ModelSelectionCatalog.list_curated_aliases(Provider.ANTHROPIC)
 
-    assert expected_aliases.issubset(aliases)
-    for alias in expected_aliases:
+    assert aliases
+    for alias in aliases:
         assert alias in ModelFactory.MODEL_PRESETS
+    assert ModelFactory.MODEL_PRESETS["fable"] == "claude-fable-5"
+    assert ModelFactory.MODEL_PRESETS["fable5"] == "claude-fable-5"
 
 
 def test_deepseek_curated_order_prefers_pro_above_flash() -> None:
@@ -106,11 +95,18 @@ def test_legacy_aliases_are_listed_but_not_curated() -> None:
 
     assert set(curated_aliases).isdisjoint(legacy_aliases)
     assert "glm51" in curated_aliases
+    assert "gemma4" in curated_aliases
     assert "kimi26instant" in curated_aliases
     assert "deepseek-hf" in curated_aliases
+    assert "kimi27" in curated_aliases
+    assert "kimi27code" in curated_aliases
+    assert "qwen36" in curated_aliases
+    assert "qwen36instruct" in curated_aliases
     assert "kimi-k2-instruct" not in curated_aliases
-    assert "kimi25" in curated_aliases
-    assert "kimi25instant" in curated_aliases
+    assert "kimi25" not in curated_aliases
+    assert "kimi25instant" not in curated_aliases
+    assert "kimi25" in legacy_aliases
+    assert "kimi25instant" in legacy_aliases
     assert "glm5" not in curated_aliases
     assert "glm5" in legacy_aliases
     assert "glm47" in legacy_aliases

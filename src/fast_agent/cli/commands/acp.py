@@ -128,7 +128,7 @@ def run_acp(
     uvx: str | None = CommonAgentOptions.uvx(),
     stdio: str | None = CommonAgentOptions.stdio(),
     host: str = typer.Option(
-        "0.0.0.0",
+        "127.0.0.1",
         "--host",
         help="Host address to bind when using HTTP transport",
     ),

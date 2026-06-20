@@ -158,7 +158,7 @@ class AgentMCPServer:
         server_name: str = "FastAgent-MCP-Server",
         server_description: str | None = None,
         tool_description: str | None = None,
-        host: str = "0.0.0.0",
+        host: str = "127.0.0.1",
         get_registry_version: Callable[[], int] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
         tool_name_template: str | None = None,
@@ -550,7 +550,7 @@ class AgentMCPServer:
     def run(
         self,
         transport: TransportMode = "http",
-        host: str = "0.0.0.0",
+        host: str = "127.0.0.1",
         port: int = 8000,
     ) -> None:
         """Run the MCP server synchronously."""
@@ -576,7 +576,7 @@ class AgentMCPServer:
     async def run_async(
         self,
         transport: TransportMode = "http",
-        host: str = "0.0.0.0",
+        host: str = "127.0.0.1",
         port: int = 8000,
     ) -> None:
         """Run the MCP server asynchronously."""

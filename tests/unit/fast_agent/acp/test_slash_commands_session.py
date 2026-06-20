@@ -303,6 +303,7 @@ async def test_handle_session_export_leaves_agent_unset_for_latest_target(
         target: str | None,
         agent_name: str | None,
         output_path: str | None,
+        hf_url: str | None,
         hf_dataset: str | None,
         hf_dataset_path: str | None,
         privacy_filter: bool = False,
@@ -316,6 +317,7 @@ async def test_handle_session_export_leaves_agent_unset_for_latest_target(
     ) -> CommandOutcome:
         del (
             ctx,
+            hf_url,
             privacy_filter,
             privacy_filter_path,
             download_privacy_filter,
@@ -393,6 +395,7 @@ async def test_handle_session_export_defaults_agent_only_with_current_session(
         target: str | None,
         agent_name: str | None,
         output_path: str | None,
+        hf_url: str | None,
         hf_dataset: str | None,
         hf_dataset_path: str | None,
         privacy_filter: bool = False,
@@ -407,6 +410,7 @@ async def test_handle_session_export_defaults_agent_only_with_current_session(
         del (
             ctx,
             output_path,
+            hf_url,
             hf_dataset,
             hf_dataset_path,
             privacy_filter,
@@ -480,6 +484,7 @@ async def test_handle_session_export_uses_handler_session_when_manager_current_i
         target: str | None,
         agent_name: str | None,
         output_path: str | None,
+        hf_url: str | None,
         hf_dataset: str | None,
         hf_dataset_path: str | None,
         privacy_filter: bool = False,
@@ -494,6 +499,7 @@ async def test_handle_session_export_uses_handler_session_when_manager_current_i
         del (
             ctx,
             output_path,
+            hf_url,
             hf_dataset,
             hf_dataset_path,
             privacy_filter,

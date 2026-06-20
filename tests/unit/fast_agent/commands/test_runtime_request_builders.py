@@ -178,6 +178,7 @@ def test_build_command_run_request_resolves_defaults() -> None:
 
     assert request.instruction == resolve_default_instruction(None, "serve")
     assert request.agent_name == "agent"
+    assert request.host == "127.0.0.1"
     assert request.result_file == "out.json"
     assert request.execution_mode == "repl"
 

@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.7.16"
+version = "0.7.21"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -22,10 +22,10 @@ dependencies = [
     "pyyaml==6.0.3",
     "rich==15.0.0",
     "typer==0.25.1",
-    "anthropic[vertex]==0.106",
-    "openai[aiohttp]==2.41.0",
+    "anthropic[vertex]==0.109.1",
+    "openai[aiohttp]==2.41.1",
     "prompt-toolkit==3.0.52",
-    "aiohttp==3.14.0",
+    "aiohttp==3.14.1",
     "opentelemetry-distro==0.63b1",
     "opentelemetry-exporter-otlp-proto-http==1.42.1",
     "opentelemetry-instrumentation-openai==0.61.0; python_version >= '3.10' and python_version < '4.0'",
@@ -48,7 +48,7 @@ dependencies = [
     "uvloop==0.22.1; platform_system != 'Windows'",
     "multilspy==0.0.15",
     "ruamel.yaml==0.19.1",
-    "huggingface_hub==1.18.0",
+    "huggingface_hub==1.19.0",
     "mslex==1.3.0",
     "starlette==1.2.1",
 ]
@@ -71,6 +71,13 @@ textual = [
 ]
 batch-parquet = [
     "duckdb>=1.4",
+]
+gepa = [
+    "gepa>=0.1.1",
+    "trackio>=0.27.0",
+]
+trackio = [
+    "trackio>=0.27.0",
 ]
 parquet = [
     "duckdb>=1.4",
@@ -98,6 +105,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.hooks.custom]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build]
 include = [
@@ -163,6 +173,10 @@ prompt-server = "fast_agent.mcp.prompts.__main__:main"
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+extend-exclude = [
+    "docs/docs/assets/gepa-monty-runs/**/candidate-*/*.monty.py",
+    "skills-repo/**",
+]
 
 [tool.ruff.lint]
 select = [

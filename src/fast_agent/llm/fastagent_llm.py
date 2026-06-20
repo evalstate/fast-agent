@@ -461,6 +461,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         params = self._get_model_params(model_name)
         return bool(params.anthropic_task_budget_supported) if params is not None else False
 
+    def _get_model_anthropic_thinking_field_required(self, model_name: str | None) -> bool:
+        params = self._get_model_params(model_name)
+        return params.anthropic_thinking_field_required if params is not None else True
+
     def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
         if setting is None:
             self._reasoning_effort = None
@@ -1570,6 +1574,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             return self._init_api_key
 
         return self._provider_api_key()
+
+    def validate_provider_credentials(self) -> None:
+        """Validate that this provider has a locally configured credential source."""
+        self._api_key()
 
     def _provider_api_key(self):
         from fast_agent.llm.provider_key_manager import ProviderKeyManager

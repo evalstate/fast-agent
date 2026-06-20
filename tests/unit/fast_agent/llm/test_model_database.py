@@ -16,7 +16,7 @@ from mcp import Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.config import HuggingFaceSettings, Settings
+from fast_agent.config import HuggingFaceSettings, OpenAISettings, Settings
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS
 from fast_agent.context import Context
 from fast_agent.llm.fastagent_llm import FastAgentLLM
@@ -41,7 +41,9 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("gpt-4o") == 128000
     assert ModelDatabase.get_context_window("gemini-2.0-flash") == 1048576
     assert ModelDatabase.get_context_window("Qwen/Qwen3.5-397B-A17B") == 262144
+    assert ModelDatabase.get_context_window("Qwen/Qwen3.6-35B-A3B") == 262144
     assert ModelDatabase.get_context_window("moonshotai/Kimi-K2.6") == 262144
+    assert ModelDatabase.get_context_window("google/gemma-4-31B-it:novita") == 262144
     assert ModelDatabase.get_context_window("deepseek-ai/DeepSeek-V4-Pro") == 1_048_576
     assert ModelDatabase.get_context_window("deepseek-v4-flash") == 1_048_576
     assert ModelDatabase.get_context_window("deepseek-v4-pro") == 1_048_576
@@ -62,6 +64,13 @@ def test_deepseek_v4_direct_model_metadata():
     assert spec.default.value == "high"
     assert spec.allowed_efforts == ["high", "max"]
     assert spec.allow_toggle_disable is True
+
+
+def test_glm52_hf_provider_suffix_resolves_without_provider_prefix():
+    parsed = ModelFactory.parse_model_spec("zai-org/GLM-5.2:zai-org")
+
+    assert parsed.provider == Provider.HUGGINGFACE
+    assert parsed.model_name == "zai-org/GLM-5.2:zai-org"
 
 
 def test_model_database_long_context_windows():
@@ -109,6 +118,8 @@ def test_model_database_default_provider_lookup():
         == Provider.HUGGINGFACE
     )
     assert ModelDatabase.get_default_provider("Qwen/Qwen3.5-397B-A17B") == Provider.HUGGINGFACE
+    assert ModelDatabase.get_default_provider("Qwen/Qwen3.6-35B-A3B") == Provider.HUGGINGFACE
+    assert ModelDatabase.get_default_provider("google/gemma-4-31B-it") == Provider.HUGGINGFACE
     assert ModelDatabase.get_default_provider("unknown-model") is None
 
 
@@ -228,12 +239,46 @@ def test_huggingface_qwen35_structured_output_uses_prompted_json_object_mode() -
     assert "YOU MUST RESPOND WITH A JSON OBJECT" in prepared_text
 
 
+def test_huggingface_qwen36_structured_output_uses_prompt_only() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+    llm = _make_hf_llm("Qwen/Qwen3.6-35B-A3B")
+
+    prepared_messages, prepared_params = llm._prepare_structured_request(
+        [Prompt.user("return json")],
+        RequestParams(structured_schema=schema),
+    )
+
+    assert llm.resolve_structured_tool_policy(RequestParams(structured_schema=schema)) == "no_tools"
+    assert prepared_params.response_format is None
+    prepared_text = prepared_messages[-1].last_text()
+    assert prepared_text is not None
+    assert "YOU MUST RESPOND WITH A JSON OBJECT" in prepared_text
+
+
 def test_huggingface_kimi25_uses_schema_mode() -> None:
     params = ModelDatabase.get_model_params("moonshotai/Kimi-K2.5")
 
     assert params is not None
     assert params.json_mode == "schema"
     assert params.structured_tool_policy is None
+
+
+def test_huggingface_gemma4_31b_metadata() -> None:
+    params = ModelDatabase.get_model_params("google/gemma-4-31B-it:novita")
+
+    assert params is not None
+    assert params.context_window == 262_144
+    assert params.max_output_tokens == 65_536
+    assert params.json_mode == "schema"
+    assert params.structured_tool_policy == "no_tools"
+    assert params.reasoning == "reasoning_content"
+    assert params.reasoning_effort_spec is not None
+    assert ModelDatabase.supports_mime("google/gemma-4-31B-it", "image/png")
+    assert not ModelDatabase.supports_mime("google/gemma-4-31B-it", "audio/mpeg")
 
 
 def test_model_database_anthropic_web_tool_versions_for_46_models():
@@ -335,9 +380,9 @@ def test_model_database_max_tokens():
     assert ModelDatabase.get_default_max_tokens("o1") == 100000  # High max_output_tokens
     assert ModelDatabase.get_default_max_tokens("Qwen/Qwen3.5-397B-A17B:novita") == 65536
 
-    # Test fallbacks
-    assert ModelDatabase.get_default_max_tokens("unknown-model") == 2048
-    assert ModelDatabase.get_default_max_tokens("") == 2048
+    # Unknown models should omit max_tokens rather than inventing a small cap.
+    assert ModelDatabase.get_default_max_tokens("unknown-model") is None
+    assert ModelDatabase.get_default_max_tokens("") is None
 
 
 def test_model_database_default_temperature():
@@ -635,6 +680,22 @@ def test_model_database_opus_47_reasoning_spec():
     assert spec.allow_toggle_disable
 
 
+def test_model_database_fable_5_reasoning_spec_is_always_on():
+    """Fable 5 adaptive thinking is always on and needs no thinking field."""
+    params = ModelDatabase.get_model_params("claude-fable-5")
+    spec = ModelDatabase.get_reasoning_effort_spec("claude-fable-5")
+
+    assert params is not None
+    assert params.anthropic_thinking_field_required is False
+    assert spec is not None
+    assert spec.kind == "effort"
+    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh"]
+    assert spec.allow_auto is True
+    assert spec.allow_toggle_disable is False
+    assert spec.default is not None
+    assert spec.default.value == "auto"
+
+
 def test_model_database_text_verbosity_spec():
     """Ensure text verbosity support is tracked for GPT-5 models."""
     spec = ModelDatabase.get_text_verbosity_spec("gpt-5")
@@ -734,6 +795,106 @@ def test_huggingface_glm_disable_reasoning_toggle():
     assert extra_body["disable_reasoning"] is True
 
 
+def test_huggingface_glm52_default_preserves_thinking():
+    llm = _make_hf_llm("zai-org/glm-5.2:zai-org")
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert args["model"] == "zai-org/glm-5.2:zai-org"
+    assert args["reasoning_effort"] == "max"
+    assert extra_body["thinking"] == {"type": "enabled", "clear_thinking": False}
+
+
+def test_huggingface_glm52_default_ignores_openai_reasoning_default():
+    settings = Settings(
+        hf=HuggingFaceSettings(),
+        openai=OpenAISettings(reasoning="medium"),
+    )
+    context = Context(config=settings)
+    llm = HuggingFaceLLM(context=context, model="zai-org/glm-5.2:zai-org", name="test-agent")
+
+    args = _hf_request_args(llm)
+    assert args["reasoning_effort"] == "max"
+
+
+def test_huggingface_glm52_routes_use_json_object_structured_mode():
+    for provider in ("zai-org", "together", "deepinfra", "novita", "fireworks-ai"):
+        llm = _make_hf_llm(f"zai-org/glm-5.2:{provider}")
+
+        assert llm._structured_json_mode(llm.default_request_params) == "object"
+
+
+def test_huggingface_glm52_deepinfra_default_uses_xhigh_reasoning_effort():
+    llm = _make_hf_llm("zai-org/glm-5.2:deepinfra")
+
+    args = _hf_request_args(llm)
+    assert args["model"] == "zai-org/glm-5.2:deepinfra"
+    assert args["reasoning_effort"] == "xhigh"
+    assert "extra_body" not in args
+
+
+def test_huggingface_glm52_deepinfra_xhigh_reasoning_effort():
+    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:deepinfra", reasoning="xhigh")
+
+    args = _hf_request_args(llm)
+    assert args["reasoning_effort"] == "xhigh"
+    assert "extra_body" not in args
+
+
+def test_huggingface_glm52_deepinfra_disable_reasoning_uses_none_effort():
+    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:deepinfra", reasoning=False)
+
+    args = _hf_request_args(llm)
+    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
+
+
+def test_huggingface_glm52_fireworks_default_uses_reasoning_effort_only():
+    llm = _make_hf_llm("zai-org/glm-5.2:fireworks-ai")
+
+    args = _hf_request_args(llm)
+    assert args["model"] == "zai-org/glm-5.2:fireworks-ai"
+    assert args["reasoning_effort"] == "max"
+    assert "extra_body" not in args
+
+
+def test_huggingface_glm52_fireworks_passes_requested_reasoning_effort():
+    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:fireworks-ai", reasoning="low")
+
+    args = _hf_request_args(llm)
+    assert args["reasoning_effort"] == "low"
+    assert "extra_body" not in args
+
+
+def test_huggingface_glm52_fireworks_disable_reasoning_uses_none_effort():
+    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:fireworks-ai", reasoning=False)
+
+    args = _hf_request_args(llm)
+    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
+
+
+def test_huggingface_glm52_reasoning_effort():
+    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:zai-org", reasoning="high")
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert args["reasoning_effort"] == "high"
+    assert extra_body["thinking"] == {"type": "enabled", "clear_thinking": False}
+
+
+def test_huggingface_glm52_disable_reasoning():
+    llm = _make_hf_llm_with_reasoning("zai-org/glm-5.2:zai-org", reasoning=False)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert "reasoning_effort" not in args
+    assert extra_body["thinking"] == {"type": "disabled"}
+
+
 def test_huggingface_kimi25_disable_reasoning_toggle():
     llm = _make_hf_llm_with_reasoning("moonshotai/kimi-k2.5", reasoning=False)
 
@@ -785,6 +946,33 @@ def test_huggingface_qwen35_reasoning_toggle_uses_chat_template_kwargs_disabled(
 
 def test_huggingface_qwen35_reasoning_toggle_uses_chat_template_kwargs_enabled():
     llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=True)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_huggingface_gemma4_reasoning_toggle_uses_chat_template_kwargs_enabled():
+    llm = _make_hf_llm_with_reasoning("google/gemma-4-31B-it", reasoning=True)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_huggingface_gemma4_reasoning_toggle_uses_chat_template_kwargs_disabled():
+    llm = _make_hf_llm_with_reasoning("google/gemma-4-31B-it", reasoning=False)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_huggingface_gemma4_default_reasoning_emits_chat_template_kwargs_enabled():
+    llm = _make_hf_llm("google/gemma-4-31B-it")
 
     args = _hf_request_args(llm)
     extra_body = args.get("extra_body")

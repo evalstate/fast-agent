@@ -550,12 +550,15 @@ def test_go_pack_skips_readme_notice_for_noninteractive_runs(
 
 def test_go_quiet_skips_update_notice(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(go_command, "run_request", lambda _request: None)
-    monkeypatch.setattr(go_command, "should_run_update_check", lambda *, disabled: not disabled)
+    monkeypatch.setattr(
+        "fast_agent.cli.update_check.should_run_update_check",
+        lambda *, disabled: not disabled,
+    )
 
     def _unexpected_update_check(*, environment_dir: Path | None) -> str | None:
         raise AssertionError(f"quiet mode should not check for updates: {environment_dir}")
 
-    monkeypatch.setattr(go_command, "check_for_update_notice", _unexpected_update_check)
+    monkeypatch.setattr("fast_agent.cli.update_check.check_for_update_notice", _unexpected_update_check)
     monkeypatch.setattr(
         "fast_agent.ui.enhanced_prompt.queue_startup_notice",
         lambda *_args: (_ for _ in ()).throw(

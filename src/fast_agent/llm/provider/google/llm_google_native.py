@@ -19,7 +19,7 @@ from mcp.types import (
     TextContent,
 )
 
-from fast_agent.constants import DEFAULT_MAX_ITERATIONS, REASONING
+from fast_agent.constants import DEFAULT_MAX_ITERATIONS, FAST_AGENT_SAFETY_DETAILS, REASONING
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.fastagent_llm import FastAgentLLM
@@ -30,6 +30,7 @@ from fast_agent.llm.provider.google._stream_capture import (
     stream_capture_filename,
 )
 from fast_agent.llm.provider.google.google_converter import GoogleConverter, GoogleToolResult
+from fast_agent.llm.provider.streaming_timeouts import await_stream_start
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     format_reasoning_setting,
@@ -374,6 +375,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         contents: list[types.Content],
         config: types.GenerateContentConfig,
         client: genai.Client,
+        timeout_seconds: float | None,
     ) -> types.GenerateContentResponse | None:
         """Stream Gemini responses and return the final aggregated completion."""
         capture_base = stream_capture_filename(self.chat_turn())
@@ -386,14 +388,20 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             },
         )
         try:
-            response_stream = await client.aio.models.generate_content_stream(
-                model=model,
-                contents=cast("types.ContentListUnion", contents),
-                config=config,
+            response_stream = await await_stream_start(
+                client.aio.models.generate_content_stream(
+                    model=model,
+                    contents=cast("types.ContentListUnion", contents),
+                    config=config,
+                ),
+                timeout_seconds=timeout_seconds,
+                timeout_message=f"Google stream did not start within {timeout_seconds} seconds.",
             )
         except AttributeError:
             # Older SDKs might not expose streaming; fall back to non-streaming.
             return None
+        except TimeoutError:
+            raise
         except errors.APIError:
             raise
         except Exception as exc:  # pragma: no cover - defensive fallback
@@ -848,6 +856,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         generate_content_config: types.GenerateContentConfig,
         response_mime_type: str | None,
         response_schema: object | None,
+        streaming_timeout: float | None,
     ) -> types.GenerateContentResponse:
         async with client.aio:
             api_response = None
@@ -858,6 +867,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                     contents=conversation_history,
                     config=generate_content_config,
                     client=client,
+                    timeout_seconds=streaming_timeout,
                 )
             if api_response is None:
                 api_response = await client.aio.models.generate_content(
@@ -998,14 +1008,34 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         stop_reason: LlmStopReason,
         tool_calls: dict[str, CallToolRequest] | None,
         candidate_content: types.Content | None,
+        finish_reason: object | None = None,
     ) -> PromptMessageExtended:
         assistant = Prompt.assistant(*responses, stop_reason=stop_reason, tool_calls=tool_calls)
+        channels = dict(assistant.channels or {})
         reasoning_blocks = GoogleNativeLLM._extract_reasoning_blocks(candidate_content)
         if reasoning_blocks:
-            channels = dict(assistant.channels or {})
             channels[REASONING] = reasoning_blocks
+        if stop_reason == LlmStopReason.SAFETY:
+            reason = GoogleNativeLLM._finish_reason_key(finish_reason) or "SAFETY"
+            channels[FAST_AGENT_SAFETY_DETAILS] = [
+                TextContent(
+                    type="text",
+                    text=json.dumps({"provider": "google", "reason": reason}),
+                )
+            ]
+        if channels:
             assistant.channels = channels
         return assistant
+
+    @staticmethod
+    def _finish_reason_key(finish_reason: object) -> str | None:
+        try:
+            reason = str(finish_reason) if finish_reason is not None else None
+        except Exception:
+            return None
+        if not reason:
+            return None
+        return reason.split(".")[-1].upper()
 
     async def _consume_google_stream(
         self,
@@ -1098,6 +1128,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 generate_content_config=generate_content_config,
                 response_mime_type=response_mime_type,
                 response_schema=response_schema,
+                streaming_timeout=request_params.streaming_timeout,
             )
             self.logger.debug("Google generate_content response:", data=api_response)
             self._track_google_usage(api_response, model_name)
@@ -1143,6 +1174,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             stop_reason=stop_reason,
             tool_calls=tool_calls,
             candidate_content=candidate_content,
+            finish_reason=getattr(candidate, "finish_reason", None),
         )
 
     #        return responses  # Return the accumulated responses (fast-agent content types)
@@ -1342,18 +1374,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
     def _map_finish_reason(self, finish_reason: object) -> LlmStopReason:
         """Map Google finish reasons to LlmStopReason robustly."""
-        # Normalize to string if it's an enum-like object
-        reason = None
-        try:
-            reason = str(finish_reason) if finish_reason is not None else None
-        except Exception:
-            reason = None
-
-        if not reason:
+        key = self._finish_reason_key(finish_reason)
+        if not key:
             return LlmStopReason.END_TURN
-
-        # Extract last token after any dots or enum prefixes
-        key = reason.split(".")[-1].upper()
 
         # Some SDKs include OTHER, LANGUAGE, GROUNDING, UNSPECIFIED, etc.
         return _GOOGLE_FINISH_REASON_MAP.get(key, LlmStopReason.ERROR)

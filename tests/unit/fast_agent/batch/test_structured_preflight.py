@@ -12,6 +12,7 @@ from fast_agent.batch.structured import (
     _identity_for_candidate,
     _load_parallel_manifest,
     _merge_timing_key,
+    _plan_parallel_chunks,
     _row_call,
     _summary_int,
     _validate_selected_identities,
@@ -92,7 +93,7 @@ def test_selected_identities_preflight_invalid_id_values() -> None:
         _validate_selected_identities(selected, id_field="id")
 
 
-def test_parallel_timing_merge_does_not_claim_weighted_shard_median_is_global_median() -> None:
+def test_parallel_timing_merge_does_not_claim_weighted_chunk_median_is_global_median() -> None:
     merged = _merge_timing_key(
         [
             {
@@ -162,16 +163,16 @@ def _set_parallel_manifest_value(
         return
 
     assert len(field_path) == 3
-    assert field_path[0] == "shards"
-    shard_index = field_path[1]
-    shard_key = field_path[2]
-    assert isinstance(shard_index, int)
-    assert isinstance(shard_key, str)
-    shards = manifest["shards"]
-    assert isinstance(shards, list)
-    shard = shards[shard_index]
-    assert isinstance(shard, dict)
-    cast("dict[str, object]", shard)[shard_key] = value
+    assert field_path[0] == "chunks"
+    chunk_index = field_path[1]
+    chunk_key = field_path[2]
+    assert isinstance(chunk_index, int)
+    assert isinstance(chunk_key, str)
+    chunks = manifest["chunks"]
+    assert isinstance(chunks, list)
+    chunk = chunks[chunk_index]
+    assert isinstance(chunk, dict)
+    cast("dict[str, object]", chunk)[chunk_key] = value
 
 
 @pytest.mark.parametrize(
@@ -179,9 +180,9 @@ def _set_parallel_manifest_value(
     [
         (("input_rows",), "input row count"),
         (("selected_rows",), "invalid selected_rows"),
-        (("shards", 0, "index"), "invalid shard index"),
-        (("shards", 0, "offset"), "invalid shard offset"),
-        (("shards", 0, "limit"), "invalid shard limit"),
+        (("chunks", 0, "index"), "invalid chunk index"),
+        (("chunks", 0, "offset"), "invalid chunk offset"),
+        (("chunks", 0, "limit"), "invalid chunk limit"),
     ],
 )
 def test_parallel_manifest_rejects_bool_counts(
@@ -195,7 +196,7 @@ def test_parallel_manifest_rejects_bool_counts(
         "input": str(input_path),
         "input_rows": 1,
         "selected_rows": 1,
-        "shards": [
+        "chunks": [
             {
                 "index": 0,
                 "offset": 0,
@@ -216,6 +217,26 @@ def test_parallel_manifest_rejects_bool_counts(
 
     with pytest.raises(ValueError, match=message):
         _load_parallel_manifest(options, work_dir, input_rows=1)
+
+
+def test_parallel_chunks_overpartition_workers_deterministically(tmp_path) -> None:
+    chunks = _plan_parallel_chunks(
+        StructuredBatchOptions(
+            input_path=tmp_path / "rows.jsonl",
+            output_path=tmp_path / "out.jsonl",
+            offset=10,
+        ),
+        tmp_path / "work",
+        selected_rows=100,
+        worker_count=4,
+    )
+
+    assert len(chunks) == 32
+    assert chunks[0].offset == 10
+    assert chunks[0].limit == 4
+    assert chunks[-1].offset == 107
+    assert chunks[-1].limit == 3
+    assert sum(chunk.limit for chunk in chunks) == 100
 
 
 @pytest.mark.asyncio
@@ -361,12 +382,19 @@ def test_extracts_timing_and_usage_channels() -> None:
         content=[],
         channels={
             FAST_AGENT_TIMING: [text_content('{"duration_ms": 12.5}')],
-            FAST_AGENT_USAGE: [text_content('{"summary": {"total_tokens": 42}}')],
+            FAST_AGENT_USAGE: [
+                text_content(
+                    '{"turn": {"total_tokens": 42}, "summary": {"cumulative_input_tokens": 40}}'
+                )
+            ],
         },
     )
 
     assert _extract_timing(response) == {"duration_ms": 12.5}
-    assert _extract_usage(response) == {"summary": {"total_tokens": 42}}
+    assert _extract_usage(response) == {
+        "turn": {"total_tokens": 42},
+        "summary": {"cumulative_input_tokens": 40},
+    }
 
 
 @pytest.mark.asyncio

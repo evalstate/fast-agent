@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 import typer
 
+from fast_agent.batch.monitoring import BatchTrackioOptions
 from fast_agent.batch.structured import (
     StructuredBatchOptions,
     run_parallel_structured_batch,
@@ -83,6 +85,18 @@ def _load_vars_json(path: Path | None) -> dict[str, str]:
     return values
 
 
+def _load_trackio_config_json(path: Path | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    try:
+        payload = json.loads(path.expanduser().read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise typer.BadParameter("--trackio-config-json must contain valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise typer.BadParameter("--trackio-config-json must contain a JSON object")
+    return dict(payload)
+
+
 def _merge_batch_variables(
     *,
     var_entries: list[str] | None,
@@ -133,6 +147,14 @@ def _validate_batch_run_options(
     max_errors: int | None,
     parallel: int | None,
     progress_every: int | None,
+    trackio_project: str | None,
+    trackio_name: str | None,
+    trackio_group: str | None,
+    trackio_space_id: str | None,
+    trackio_server_url: str | None,
+    trackio_every: int | None,
+    trackio_config_json: Path | None,
+    no_trackio: bool,
 ) -> None:
     hf_dataset = strip_to_none(hf_dataset)
     hf_dataset_path = strip_to_none(hf_dataset_path)
@@ -144,6 +166,7 @@ def _validate_batch_run_options(
         max_errors=max_errors,
         parallel=parallel,
         progress_every=progress_every,
+        trackio_every=trackio_every,
     )
     _validate_batch_conflicting_options(
         prompt=prompt,
@@ -163,6 +186,14 @@ def _validate_batch_run_options(
         offset=offset,
         sample=sample,
         parallel=parallel,
+        trackio_project=trackio_project,
+        trackio_name=trackio_name,
+        trackio_group=trackio_group,
+        trackio_space_id=trackio_space_id,
+        trackio_server_url=trackio_server_url,
+        trackio_every=trackio_every,
+        trackio_config_json=trackio_config_json,
+        no_trackio=no_trackio,
     )
     _validate_local_input_exists(input_path)
 
@@ -176,6 +207,7 @@ def _validate_batch_numeric_options(
     max_errors: int | None,
     parallel: int | None,
     progress_every: int | None,
+    trackio_every: int | None,
 ) -> None:
     for value, name in (
         (limit, "--limit"),
@@ -185,7 +217,11 @@ def _validate_batch_numeric_options(
         (max_errors, "--max-errors"),
     ):
         _validate_non_negative(value, name)
-    for value, name in ((parallel, "--parallel"), (progress_every, "--progress-every")):
+    for value, name in (
+        (parallel, "--parallel"),
+        (progress_every, "--progress-every"),
+        (trackio_every, "--trackio-every"),
+    ):
         _validate_positive(value, name)
 
 
@@ -208,6 +244,14 @@ def _validate_batch_conflicting_options(
     offset: int | None,
     sample: int | None,
     parallel: int | None,
+    trackio_project: str | None,
+    trackio_name: str | None,
+    trackio_group: str | None,
+    trackio_space_id: str | None,
+    trackio_server_url: str | None,
+    trackio_every: int | None,
+    trackio_config_json: Path | None,
+    no_trackio: bool,
 ) -> None:
     if prompt is not None and template_source is not None:
         _fail_validation("--prompt and --template cannot be used together")
@@ -227,6 +271,25 @@ def _validate_batch_conflicting_options(
         _fail_validation("--sql cannot be used with --limit, --offset, or --sample")
     if sql is not None and parallel is not None and parallel > 1:
         _fail_validation("--sql cannot be used with --parallel")
+    trackio_project = strip_to_none(trackio_project)
+    trackio_detail_values = (
+        trackio_name,
+        trackio_group,
+        trackio_space_id,
+        trackio_server_url,
+        trackio_every,
+        trackio_config_json,
+    )
+    if no_trackio and (
+        trackio_project is not None or any(value is not None for value in trackio_detail_values)
+    ):
+        _fail_validation("--no-trackio cannot be used with Trackio options")
+    if (
+        trackio_project is None
+        and not no_trackio
+        and any(value is not None for value in trackio_detail_values)
+    ):
+        _fail_validation("Trackio options require --project or --trackio-project")
 
 
 def _environment_dir_from_context(ctx: typer.Context) -> Path | None:
@@ -280,9 +343,28 @@ def _build_structured_batch_options(
     final_summary: bool,
     shell_runtime: bool,
     variables: dict[str, str] | None,
+    trackio_project: str | None,
+    trackio_name: str | None,
+    trackio_group: str | None,
+    trackio_space_id: str | None,
+    trackio_server_url: str | None,
+    trackio_every: int | None,
+    trackio_config: dict[str, Any] | None,
+    no_trackio: bool,
 ) -> StructuredBatchOptions:
     hf_dataset = strip_to_none(hf_dataset)
     hf_dataset_path = strip_to_none(hf_dataset_path)
+    trackio = _build_trackio_options(
+        project=trackio_project,
+        name=trackio_name,
+        group=trackio_group,
+        space_id=trackio_space_id,
+        server_url=trackio_server_url,
+        trackio_every=trackio_every,
+        progress_every=progress_every,
+        config=trackio_config,
+        disabled=no_trackio,
+    )
     return StructuredBatchOptions(
         input_path=input_path,
         output_path=output_path,
@@ -323,6 +405,33 @@ def _build_structured_batch_options(
         agent_card_source=agent_card_source,
         agent_name=agent_name,
         variables=variables,
+        trackio=trackio,
+    )
+
+
+def _build_trackio_options(
+    *,
+    project: str | None,
+    name: str | None,
+    group: str | None,
+    space_id: str | None,
+    server_url: str | None,
+    trackio_every: int | None,
+    progress_every: int | None,
+    config: dict[str, Any] | None,
+    disabled: bool,
+) -> BatchTrackioOptions | None:
+    project = strip_to_none(project)
+    if disabled or project is None:
+        return None
+    return BatchTrackioOptions(
+        project=project,
+        name=strip_to_none(name),
+        group=strip_to_none(group),
+        space_id=strip_to_none(space_id),
+        server_url=strip_to_none(server_url),
+        log_every=trackio_every or progress_every or 10,
+        config=config,
     )
 
 
@@ -342,6 +451,9 @@ def _run_structured_batch_options(options: StructuredBatchOptions) -> dict:
         raise typer.Exit(1) from exc
     except OSError as exc:
         typer.echo(f"Error: File error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except RuntimeError as exc:
+        typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from exc
 
 
@@ -462,17 +574,17 @@ def run(
     parallel: int | None = typer.Option(
         None,
         "--parallel",
-        help="Run this many local shard workers and merge their outputs",
+        help="Run this many local workers and merge their chunk outputs",
     ),
     work_dir: Path | None = typer.Option(
         None,
         "--work-dir",
-        help="Directory for parallel shard outputs and resume manifests",
+        help="Directory for parallel chunk outputs and resume manifests",
     ),
     keep_temp: bool = typer.Option(
         False,
         "--keep-temp/--no-keep-temp",
-        help="Keep parallel shard outputs after a successful merge",
+        help="Keep parallel chunk outputs after a successful merge",
     ),
     progress_every: int | None = typer.Option(
         None,
@@ -498,6 +610,49 @@ def run(
         None,
         "--vars-json",
         help="JSON object containing AgentCard template variables.",
+    ),
+    trackio_project: str | None = typer.Option(
+        None,
+        "--project",
+        "--trackio-project",
+        help="Enable Trackio monitoring and set the Trackio project",
+    ),
+    trackio_name: str | None = typer.Option(
+        None,
+        "--run-name",
+        "--trackio-name",
+        help="Trackio run name",
+    ),
+    trackio_group: str | None = typer.Option(
+        None,
+        "--group",
+        "--trackio-group",
+        help="Trackio group for repeated runs or data-build phases",
+    ),
+    trackio_space_id: str | None = typer.Option(
+        None,
+        "--trackio-space-id",
+        help="Optional Trackio/Hugging Face Space id",
+    ),
+    trackio_server_url: str | None = typer.Option(
+        None,
+        "--trackio-server-url",
+        help="Optional Trackio server URL",
+    ),
+    trackio_every: int | None = typer.Option(
+        None,
+        "--trackio-every",
+        help="Log Trackio aggregate progress every N processed rows",
+    ),
+    trackio_config_json: Path | None = typer.Option(
+        None,
+        "--trackio-config-json",
+        help="JSON object merged into Trackio init config",
+    ),
+    no_trackio: bool = typer.Option(
+        False,
+        "--no-trackio",
+        help="Disable Trackio monitoring",
     ),
     final_summary: bool = typer.Option(
         True,
@@ -529,7 +684,16 @@ def run(
         max_errors=max_errors,
         parallel=parallel,
         progress_every=progress_every,
+        trackio_project=trackio_project,
+        trackio_name=trackio_name,
+        trackio_group=trackio_group,
+        trackio_space_id=trackio_space_id,
+        trackio_server_url=trackio_server_url,
+        trackio_every=trackio_every,
+        trackio_config_json=trackio_config_json,
+        no_trackio=no_trackio,
     )
+    trackio_config = _load_trackio_config_json(trackio_config_json)
     options = _build_structured_batch_options(
         ctx=ctx,
         input_path=input_path,
@@ -570,6 +734,14 @@ def run(
             var_file_entries=var_file_entries,
             vars_json_path=vars_json_path,
         ),
+        trackio_project=trackio_project,
+        trackio_name=trackio_name,
+        trackio_group=trackio_group,
+        trackio_space_id=trackio_space_id,
+        trackio_server_url=trackio_server_url,
+        trackio_every=trackio_every,
+        trackio_config=trackio_config,
+        no_trackio=no_trackio,
     )
     summary = _run_structured_batch_options(options)
 

@@ -1,12 +1,17 @@
 import asyncio
 import json
 import sys
+from collections.abc import Mapping
 from io import BytesIO
+from typing import Any
 
+from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 import fast_agent.io.source_resolver as source_resolver
 from fast_agent.batch.structured import StructuredBatchOptions, run_parallel_structured_batch
+from fast_agent.batch.summary import BatchSummary
+from fast_agent.cli.commands.batch import _build_trackio_options
 from fast_agent.cli.main import app
 
 
@@ -16,6 +21,25 @@ class FakeHfFileSystem:
 
     def open(self, path: str, mode: str = "rb") -> BytesIO:
         return BytesIO(self.files[path])
+
+
+class RecordingBatchMonitor:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, int]] = []
+
+    def start(self, options: StructuredBatchOptions, selected_rows: int) -> None:
+        self.events.append(("start", selected_rows))
+
+    def row(self, summary: BatchSummary) -> None:
+        self.events.append(("row", summary.processed_rows))
+
+    def complete(self, payload: Mapping[str, Any]) -> None:
+        processed_rows = payload.get("processed_rows")
+        assert isinstance(processed_rows, int)
+        self.events.append(("complete", processed_rows))
+
+    def close(self) -> None:
+        self.events.append(("close", 0))
 
 
 def test_batch_run_direct_mode_with_passthrough(tmp_path):
@@ -95,6 +119,91 @@ def test_batch_run_missing_input_reports_error_without_traceback(tmp_path):
     assert f"Error: Input file not found: {input_path}" in result.output
     assert "Traceback" not in result.output
     assert not output_path.exists()
+
+
+def test_batch_trackio_options_default_to_progress_interval() -> None:
+    options = _build_trackio_options(
+        project="demo",
+        name="run-1",
+        group="phase-a",
+        space_id=None,
+        server_url=None,
+        trackio_every=None,
+        progress_every=25,
+        config={"dataset": "pilot"},
+        disabled=False,
+    )
+
+    assert options is not None
+    assert options.project == "demo"
+    assert options.name == "run-1"
+    assert options.group == "phase-a"
+    assert options.log_every == 25
+    assert options.config == {"dataset": "pilot"}
+
+
+def test_batch_trackio_every_must_be_positive(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    input_path.write_text('{"id":"1"}\n', encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--model",
+            "passthrough",
+            "--project",
+            "demo",
+            "--trackio-every",
+            "0",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--trackio-every must be greater than zero" in strip_ansi(result.output)
+
+
+def test_batch_trackio_detail_options_require_project(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    input_path.write_text('{"id":"1"}\n', encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--no-update-check",
+            "--env",
+            str(env_dir),
+            "batch",
+            "run",
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--model",
+            "passthrough",
+            "--run-name",
+            "run-1",
+            "--no-final-summary",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Trackio options require --project or --trackio-project" in result.output
 
 
 def test_batch_run_parallel_missing_parquet_input_reports_error_without_traceback(tmp_path):
@@ -429,7 +538,7 @@ def test_batch_run_accepts_parquet_input(monkeypatch, tmp_path):
     assert record["result"] == {"id": "1", "x": 2}
 
 
-def test_batch_run_parallel_merges_shard_outputs(tmp_path):
+def test_batch_run_parallel_merges_chunk_outputs(tmp_path):
     env_dir = tmp_path / "env"
     env_dir.mkdir()
     input_path = tmp_path / "rows.jsonl"
@@ -482,16 +591,18 @@ def test_batch_run_parallel_merges_shard_outputs(tmp_path):
     records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
     assert [record["id"] for record in records] == ["0", "1", "2", "3"]
     assert [record["result"]["x"] for record in records] == [0, 1, 2, 3]
-    assert (work_dir / "part-000.jsonl").exists()
-    assert (work_dir / "part-001.jsonl").exists()
+    assert (work_dir / "chunk-000.jsonl").exists()
+    assert (work_dir / "chunk-001.jsonl").exists()
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["parallel"] == 2
+    assert summary["worker_count"] == 2
+    assert summary["chunk_count"] == 4
     assert summary["selected_rows"] == 4
     assert summary["processed_rows"] == 4
     assert summary["failed_rows"] == 0
 
 
-def test_batch_run_parallel_resume_uses_saved_shard_manifest(tmp_path):
+def test_batch_run_parallel_resume_uses_saved_chunk_manifest(tmp_path):
     env_dir = tmp_path / "env"
     env_dir.mkdir()
     input_path = tmp_path / "rows.jsonl"
@@ -557,8 +668,49 @@ def test_batch_run_parallel_resume_uses_saved_shard_manifest(tmp_path):
     records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
     assert [record["id"] for record in records] == ["1", "2", "3", "4"]
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert summary["parallel"] == 2
+    assert summary["parallel"] == 4
+    assert summary["worker_count"] == 4
+    assert summary["chunk_count"] == 4
     assert summary["selected_rows"] == 4
+
+
+def test_batch_run_parallel_reports_aggregate_monitor_row_progress(tmp_path):
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    input_path = tmp_path / "rows.jsonl"
+    output_path = tmp_path / "out.jsonl"
+    summary_path = tmp_path / "summary.json"
+    work_dir = tmp_path / "work"
+    monitor = RecordingBatchMonitor()
+
+    input_path.write_text(
+        "\n".join(json.dumps({"id": str(index), "x": index}) for index in range(4)) + "\n",
+        encoding="utf-8",
+    )
+
+    asyncio.run(
+        run_parallel_structured_batch(
+            StructuredBatchOptions(
+                input_path=input_path,
+                output_path=output_path,
+                model="passthrough",
+                id_field="id",
+                summary_output_path=summary_path,
+                final_summary=False,
+                environment_dir=env_dir,
+                parallel=2,
+                work_dir=work_dir,
+                keep_temp=True,
+                progress=False,
+                monitor=monitor,
+            )
+        )
+    )
+
+    assert ("complete", 4) in monitor.events
+    row_progress = [processed for event, processed in monitor.events if event == "row"]
+    assert row_progress
+    assert row_progress[-1] == 4
 
 
 def test_batch_run_parallel_rejects_final_output_inside_work_dir(tmp_path):

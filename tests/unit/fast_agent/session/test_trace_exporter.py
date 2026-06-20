@@ -31,6 +31,8 @@ from fast_agent.privacy.sanitizer import PrivacyFilterModelInfo, RedactionSpan, 
 from fast_agent.session import (
     SessionAgentSnapshot,
     SessionContinuationSnapshot,
+    SessionGitSnapshot,
+    SessionGitStateSnapshot,
     SessionRequestSettingsSnapshot,
     SessionSnapshot,
     SessionTraceExporter,
@@ -257,6 +259,71 @@ def test_session_trace_exporter_treats_latest_target_case_insensitively(tmp_path
 
     assert result.session_id == session_id
     assert result.output_path == tmp_path / "trace.jsonl"
+
+
+def test_session_trace_exporter_includes_git_metadata(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-gitMd"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    _write_history(session_dir / "history_dev.json", assistant_text="done")
+    snapshot = SessionSnapshot(
+        session_id=session_id,
+        created_at=datetime(2026, 4, 20, 13, 3, 0),
+        last_activity=datetime(2026, 4, 20, 13, 8, 0),
+        continuation=SessionContinuationSnapshot(
+            active_agent="dev",
+            cwd=str(tmp_path),
+            git=SessionGitStateSnapshot(
+                started=SessionGitSnapshot(
+                    cwd=str(tmp_path),
+                    repository_root=str(tmp_path),
+                    commit="a" * 40,
+                    captured_at=datetime(2026, 4, 20, 13, 3, 1, tzinfo=timezone.utc),
+                    remote_url="https://github.com/fast-agent-ai/fast-agent.git",
+                    github_repository="fast-agent-ai/fast-agent",
+                    branch="main",
+                ),
+                current=SessionGitSnapshot(
+                    cwd=str(tmp_path),
+                    repository_root=str(tmp_path),
+                    commit="b" * 40,
+                    captured_at=datetime(2026, 4, 20, 13, 8, 1, tzinfo=timezone.utc),
+                    remote_url="https://github.com/fast-agent-ai/fast-agent.git",
+                    github_repository="fast-agent-ai/fast-agent",
+                    branch="feature/git-aware",
+                    dirty=True,
+                ),
+            ),
+            agents={
+                "dev": SessionAgentSnapshot(
+                    history_file="history_dev.json",
+                    request_settings=SessionRequestSettingsSnapshot(use_history=True),
+                )
+            },
+        ),
+    )
+    (session_dir / "session.json").write_text(
+        json.dumps(snapshot.model_dump(mode="json"), indent=2),
+        encoding="utf-8",
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name=None,
+            output_path=tmp_path / "trace.jsonl",
+        )
+    )
+
+    first_record = json.loads((tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    git = first_record["payload"]["git"]
+    assert git["started"]["commit"] == "a" * 40
+    assert git["started"]["github_repository"] == "fast-agent-ai/fast-agent"
+    assert git["current"]["commit"] == "b" * 40
+    assert git["current"]["branch"] == "feature/git-aware"
+    assert git["current"]["dirty"] is True
 
 
 def test_session_trace_exporter_context_window_falls_back_to_model(
@@ -1021,17 +1088,20 @@ def test_session_trace_exporter_uploads_sanitized_trace_to_hf_dataset(
         def upload(
             self,
             *,
-            dataset_repo: str,
             trace_path: Path,
+            hf_url: str | None = None,
+            dataset_repo: str | None = None,
             dataset_path: str | None = None,
         ) -> DatasetUploadResult:
             del dataset_path
+            del hf_url
+            repo = dataset_repo or "owner/dataset"
             self.uploaded_text = trace_path.read_text(encoding="utf-8")
             return DatasetUploadResult(
-                repo_id=dataset_repo,
+                repo_id=repo,
                 path_in_repo=trace_path.name,
                 commit_url="https://huggingface.co/datasets/owner/traces/commit/main",
-                file_url=f"https://huggingface.co/datasets/{dataset_repo}/blob/main/{trace_path.name}",
+                file_url=f"https://huggingface.co/datasets/{repo}/blob/main/{trace_path.name}",
             )
 
     uploader = _Uploader()
@@ -1869,16 +1939,18 @@ def test_session_trace_exporter_uploads_trace_to_hugging_face_dataset(tmp_path: 
         def upload(
             self,
             *,
-            dataset_repo: str,
             trace_path: Path,
+            hf_url: str | None = None,
+            dataset_repo: str | None = None,
             dataset_path: str | None = None,
         ) -> DatasetUploadResult:
-            self.calls.append((dataset_repo, trace_path, dataset_path))
+            self.calls.append((hf_url or dataset_repo or "", trace_path, dataset_path))
             return DatasetUploadResult(
-                repo_id=dataset_repo,
-                path_in_repo=dataset_path or trace_path.name,
+                repo_id=dataset_repo or "owner/dataset",
+                path_in_repo=dataset_path or "exports/trace.jsonl",
                 commit_url="https://huggingface.co/datasets/owner/traces/commit/main",
-                file_url=f"https://huggingface.co/datasets/{dataset_repo}/blob/main/{dataset_path or trace_path.name}",
+                file_url=hf_url
+                or f"https://huggingface.co/datasets/{dataset_repo}/blob/main/{dataset_path or trace_path.name}",
             )
 
     uploader = _Uploader()
@@ -1897,7 +1969,9 @@ def test_session_trace_exporter_uploads_trace_to_hugging_face_dataset(tmp_path: 
         )
     )
 
-    assert uploader.calls == [("owner/dataset", tmp_path / "trace.jsonl", "exports/trace.jsonl")]
+    assert uploader.calls == [
+        ("hf://datasets/owner/dataset/exports/trace.jsonl", tmp_path / "trace.jsonl", None)
+    ]
     assert result.upload is not None
     assert result.upload.repo_id == "owner/dataset"
     assert result.upload.path_in_repo == "exports/trace.jsonl"

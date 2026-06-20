@@ -85,7 +85,6 @@ async def main():
     # Start as a server programmatically
     await fast.start_server(
         transport="http",
-        host="0.0.0.0",
         port=8080,
         server_name="API-Agent-Server",
         server_description="Provides API access to my agent",

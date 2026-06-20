@@ -80,6 +80,19 @@ def _prompt_message(role: MessageRole, text: str) -> PromptMessageExtended:
     )
 
 
+@pytest.mark.asyncio
+async def test_initialize_does_not_advertise_mcp_servers_without_mcp_agents() -> None:
+    server = _build_server(_build_instance(["main"]))
+
+    response = await server.initialize(protocol_version=1)
+
+    assert response.agent_capabilities is not None
+    mcp_capabilities = response.agent_capabilities.mcp_capabilities
+    assert mcp_capabilities is not None
+    assert mcp_capabilities.http is False
+    assert mcp_capabilities.sse is False
+
+
 def test_build_history_updates_maps_supported_message_roles() -> None:
     store = ACPServerSessionStore(cast("SessionStoreHost", SimpleNamespace()))
     ignored = SimpleNamespace(

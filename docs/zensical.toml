@@ -4,6 +4,7 @@ site_url = "https://fast-agent.ai/"
 site_description = "MCP-native agents, workflows, and servers"
 repo_url = "https://github.com/evalstate/fast-agent"
 repo_name = "evalstate/fast-agent"
+edit_uri = "edit/main/docs/docs"
 copyright = "© 2025-2026 llmindset.co.uk"
 extra_css = [
   "stylesheets/fast-agent.css",
@@ -26,6 +27,7 @@ nav = [
     { "GEPA Optimization" = "guides/gepa.md" },
     "guides/structured-outputs.md",
     { "Privacy Filter" = "guides/privacy_filter.md" },
+    { "Compaction" = "guides/compaction.md" },
   ] },
   { "Agents" = [
     { "Defining Agents" = [
@@ -98,6 +100,7 @@ nav = [
     { "Config File" = "ref/config_file.md" },
     { "Command Line" = "ref/cmd_switches.md" },
     { "Class Reference" = "ref/class_reference.md" },
+    { "Extension Reference" = "ref/extension_reference.md" },
     { "Open Telemetry" = "ref/open_telemetry.md" },
     { "Articles & Blog Posts" = "ref/fast_agent_ai_articles.md" },
     { "Generated Docs" = "ref/generated_docs.md" },

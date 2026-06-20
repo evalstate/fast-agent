@@ -28,6 +28,8 @@ OPENAI_MCP_LIST_TOOLS_ITEMS = "openai-mcp-list-tools-items"
 """Raw OpenAI mcp_list_tools output items for Responses history passback."""
 FAST_AGENT_ERROR_CHANNEL = "fast-agent-error"
 FAST_AGENT_ALERT_CHANNEL = "fast-agent-alert"
+FAST_AGENT_SAFETY_DETAILS = "fast-agent-safety-details"
+"""Normalized provider safety/refusal metadata for display and diagnostics."""
 FAST_AGENT_REMOVED_METADATA_CHANNEL = "fast-agent-removed-meta"
 FAST_AGENT_URL_ELICITATION_CHANNEL = "fast-agent-url-elicitation"
 FAST_AGENT_TIMING = "fast-agent-timing"
@@ -37,6 +39,8 @@ FAST_AGENT_USAGE = "fast-agent-usage"
 FAST_AGENT_SYNTHETIC_FINAL_CHANNEL = "fast-agent-synthetic-final"
 FAST_AGENT_PENDING_MEDIA_ATTACHMENTS = "fast-agent-pending-media-attachments"
 """Content blocks staged by attach_media for injection as user input on the next LLM call."""
+FAST_AGENT_COMPACTION_CHANNEL = "fast-agent-compaction"
+"""Metadata channel marking a compaction summary message (prompt used, counts, timestamps)."""
 
 FORCE_SEQUENTIAL_TOOL_CALLS = False
 """Force tool execution to run sequentially even when multiple tool calls are present."""
@@ -51,7 +55,7 @@ def should_parallelize_tool_calls(tool_call_count: int) -> bool:
 DEFAULT_MAX_ITERATIONS = 199
 """Maximum number of User/Assistant turns to take"""
 
-DEFAULT_STREAMING_TIMEOUT = 300.0
+DEFAULT_STREAMING_TIMEOUT = 120.0
 """Default idle timeout in seconds between provider streaming events."""
 
 DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 8192

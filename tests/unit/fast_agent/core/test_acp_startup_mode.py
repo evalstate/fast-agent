@@ -336,6 +336,7 @@ async def test_start_server_preserves_existing_optional_args(
     assert fast.args is original_args
     assert captured_args
     assert captured_args[0].model is None
+    assert captured_args[0].host == "127.0.0.1"
     assert captured_args[0].agent == "main"
     assert captured_args[0].reload is False
     assert captured_args[0].watch is False

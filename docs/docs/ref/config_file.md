@@ -49,7 +49,18 @@ session_history: true
 
 # Session history rolling window (number of recent sessions to keep)
 session_history_window: 20
+
+# Persist git repository provenance in session snapshots and trace exports
+git_aware: false
 ```
+
+History compaction defaults are generated from `fast_agent.config.CompactionSettings`:
+
+--8<-- "_generated/compaction_config_snippet.md"
+
+Relative `compaction.prompt` file paths are resolved from the loaded config file's directory. If
+`FAST_AGENT_HOME` points at a home config, the path is relative to that home config file; it is not
+resolved from the process current working directory.
 
 `llm_retries` defaults to `1` and is the preferred way to control retry attempts. If unset in
 config, the `FAST_AGENT_RETRIES` environment variable is used as a fallback.
@@ -139,7 +150,24 @@ For a complete guide, see [Model Overlays](../models/model_overlays/).
 - `FAST_AGENT_DISABLE_UV_LOOP=1`: Disable uvloop even if installed (non-Windows). By default, uvloop is used when available.
 `session_history` controls whether fast-agent persists session metadata and history files in the environment sessions folder (default `.fast-agent/sessions`). `session_history_window` limits how many recent sessions are kept; older sessions are pruned when new sessions are created. The same window is used for session resume completions and ordinal selection (e.g. `/session resume 1`).
 
+`git_aware` adds best-effort git provenance to persisted sessions and exported traces. When enabled and the session working directory is inside a git repository, fast-agent records the repository root, commit, capture time, branch, dirty state, GitHub `owner/repo` when available, and a sanitized `origin` remote URL. The first captured state is kept as `started`; later saves update `current`.
+
 `environment_dir` sets the base folder for local fast-agent data such as skills, sessions, and permission history. You can also override this per run with `fast-agent --env <path>`. Use `--noenv` for ephemeral runs that intentionally skip environment-based side effects.
+
+### History Compaction
+
+When a conversation grows large, fast-agent can compact older turns into a single checkpoint summary, freeing context while preserving the work done so far. The summary is produced by the agent's own model and inserted into history as a clearly-marked message (shown as `compacted` in `/history`); the most recent turns are kept verbatim.
+
+--8<-- "_generated/compaction_settings_reference.md"
+
+You can also compact on demand:
+
+- `/compact` &mdash; compact now, showing the before/after context usage.
+- `/compact <instructions>` &mdash; steer the summary (for example, `/compact focus on the database migration`).
+- `/compact preview` &mdash; show what would be kept and dropped, without calling the model.
+- `/compact prompt` &mdash; print the active summarization prompt.
+
+The pre-compaction history is archived to a `compacted_*.json` file in the session directory so the original conversation is never lost.
 
 ## Model Providers
 
@@ -147,7 +175,7 @@ For a complete guide, see [Model Overlays](../models/model_overlays/).
 
 ```yaml
 anthropic:
-  api_key: "your_anthropic_key"  # Can also use ANTHROPIC_API_KEY env var
+  api_key: "your_anthropic_key"  # Optional; can also use ANTHROPIC_API_KEY or Anthropic SDK credentials
   base_url: "https://api.anthropic.com/v1"  # Optional, only include to override
   reasoning: auto  # Adaptive models: auto/low/medium/high/max. Budget models: integer tokens or off.
   structured_output_mode: auto  # auto (default), json, or tool_use
@@ -170,6 +198,16 @@ anthropic:
     allowed_domains: ["example.com"]  # Optional; mutually exclusive with blocked_domains
     # blocked_domains: ["ads.example"]
 ```
+
+Anthropic authentication uses this precedence:
+
+1. `anthropic.api_key` in fast-agent config/secrets.
+2. `ANTHROPIC_API_KEY`.
+3. Anthropic SDK credential discovery, including `ANTHROPIC_AUTH_TOKEN`, Anthropic profiles
+   (`ANTHROPIC_PROFILE` / `ANTHROPIC_CONFIG_DIR` / active profile), and workload identity
+   federation environment variables.
+
+This means `api_key` is no longer required when Anthropic SDK credentials are available.
 
 Anthropic models fall into three groups:
 

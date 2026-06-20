@@ -771,6 +771,8 @@ class ModelFactory:
         "opus46": "claude-opus-4-6",
         "opus47": "claude-opus-4-7",
         "opus48": "claude-opus-4-8",
+        "fable": "claude-fable-5",
+        "fable5": "claude-fable-5",
         "deepseek": "deepseek.deepseek-v4-pro",
         "deepseek4": "deepseek.deepseek-v4-pro",
         "deepseek4pro": "deepseek.deepseek-v4-pro",
@@ -795,24 +797,32 @@ class ModelFactory:
         "grok4": "xai.grok-4.3",
         "grok-4-fast": "xai.grok-4-fast-non-reasoning",
         "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
-        "minimax": "hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
+        "minimax": "hf.MiniMaxAI/MiniMax-M3:together?temperature=1.0&top_p=0.95&top_k=40",
         "minimax25": "hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
         "minimax27": "hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
+        "minimax3": "hf.MiniMaxAI/MiniMax-M3:together?temperature=1.0&top_p=0.95&top_k=40",
         "minimax2.5": "hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
         "minimax21": "hf.MiniMaxAI/MiniMax-M2.1:novita",
-        "kimi": ("hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on"),
+        "kimi": (
+            "hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
+        ),
+        "kimi27code": (
+            "hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
+        ),
         "kimithink": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
         "gpt-oss": "hf.openai/gpt-oss-120b:cerebras",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",
         "glm47": "hf.zai-org/GLM-4.7:cerebras",
         "glm51": "hf.zai-org/GLM-5.1:together",
         "glm5": "hf.zai-org/GLM-5:novita",
-        "glm": "hf.zai-org/GLM-5.1:together",
+        "glm52": "hf.zai-org/GLM-5.2:zai-org",
+        "glm": "hf.zai-org/GLM-5.2:zai-org",
         "deepseek-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
         "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
         "deepseek4-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
         "deepseek4pro-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
         "deepseekv4pro-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
+        "gemma4": "hf.google/gemma-4-31B-it:novita",
         "kimi26": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
         "kimi26instant": (
             "hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off"
@@ -830,6 +840,16 @@ class ModelFactory:
         ),
         "qwen35instruct": (
             "hf.Qwen/Qwen3.5-397B-A17B:novita"
+            "?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0"
+            "&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off"
+        ),
+        "qwen36": (
+            "hf.Qwen/Qwen3.6-35B-A3B:deepinfra"
+            "?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0"
+            "&presence_penalty=0.0&repetition_penalty=1.0&reasoning=on"
+        ),
+        "qwen36instruct": (
+            "hf.Qwen/Qwen3.6-35B-A3B:deepinfra"
             "?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0"
             "&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off"
         ),

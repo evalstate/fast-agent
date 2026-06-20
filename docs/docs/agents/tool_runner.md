@@ -32,6 +32,22 @@ intermediate responses that request tools. `before_tool_call` and
 at the end of the whole user turn, after any model/tool/model loop has finished,
 and receives the final message for that turn.
 
+### Built-in hooks
+
+fast-agent ships several `after_turn_complete` hooks built on this mechanism,
+applied automatically and gated by config:
+
+- **Auto-compaction** — summarizes older history when context usage crosses
+  `compaction.threshold`. See [Compaction](../guides/compaction.md).
+- **History trimming** — `trim_tool_history: true` on an agent collapses a
+  multi-call tool loop to its last call, result, and final response.
+- **Session-history persistence** — saves the conversation after each turn when
+  `session_history` is enabled.
+
+These coexist with any hooks you attach: built-ins run in a fixed order
+(custom/trim → compact → session save) so a custom `after_turn_complete` hook
+still fires.
+
 ## Minimal example
 
 ```python

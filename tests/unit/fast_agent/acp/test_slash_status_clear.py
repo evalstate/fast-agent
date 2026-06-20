@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from fast_agent.acp.acp_aware_mixin import ACPCommand
-from fast_agent.acp.slash import dispatch as slash_dispatch
 from fast_agent.acp.slash.handlers import status as status_slash_handlers
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.core.fastagent import AgentInstance
@@ -53,6 +52,27 @@ class _ShadowingAgent:
         return None
 
 
+class _AllowlistAgent:
+    @property
+    def acp(self):
+        return None
+
+    @property
+    def is_acp_mode(self) -> bool:
+        return True
+
+    @property
+    def acp_commands(self) -> dict[str, ACPCommand]:
+        return {}
+
+    @property
+    def acp_session_commands_allowlist(self) -> set[str] | None:
+        return {"status"}
+
+    def acp_mode_info(self):
+        return None
+
+
 class _App:
     pass
 
@@ -74,19 +94,32 @@ def _handler(*, reload_enabled: bool = False) -> SlashCommandHandler:
     )
 
 
-def test_advertised_session_commands_are_dispatch_routable() -> None:
-    command_names = {command.name for command in _handler().get_available_commands()}
-
-    assert command_names <= slash_dispatch.routed_command_names()
-
-
-def test_reload_session_command_is_dispatch_routable_when_advertised() -> None:
+def test_reload_session_command_is_advertised_only_when_available() -> None:
+    default_command_names = {command.name for command in _handler().get_available_commands()}
     command_names = {
         command.name for command in _handler(reload_enabled=True).get_available_commands()
     }
 
+    assert "reload" not in default_command_names
     assert "reload" in command_names
-    assert command_names <= slash_dispatch.routed_command_names()
+
+
+@pytest.mark.asyncio
+async def test_acp_session_command_allowlist_filters_advertisement_and_execution() -> None:
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=AgentInstance(
+            app=cast("AgentApp", _App()),
+            agents={"main": cast("AgentProtocol", _AllowlistAgent())},
+            registry_version=0,
+        ),
+        primary_agent_name="main",
+    )
+
+    command_names = {command.name for command in handler.get_available_commands()}
+
+    assert command_names == {"status"}
+    assert "Unknown command: /tools" in await handler.execute_command("tools", "")
 
 
 @pytest.mark.asyncio
@@ -104,17 +137,17 @@ async def test_exact_case_agent_status_takes_precedence_over_mixed_case_builtin(
         primary_agent_name="main",
     )
 
-    async def fake_execute(_handler: object, command_name: str, arguments: str) -> str:
-        assert command_name == "status"
+    async def fake_status(_handler: SlashCommandHandler, arguments: str | None = None) -> str:
         assert arguments == ""
         return "built-in status"
 
-    monkeypatch.setattr(slash_dispatch, "execute", fake_execute)
+    monkeypatch.setattr(status_slash_handlers, "handle_status", fake_status)
 
     command_names = {command.name for command in handler.get_available_commands()}
     assert "status" in command_names
     assert "Status" not in command_names
     assert await handler.execute_command("Status", "") == "agent shadow"
+    assert await handler.execute_command("status", "") == "built-in status"
 
 
 @pytest.mark.asyncio

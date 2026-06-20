@@ -9,7 +9,7 @@ import time
 from collections.abc import Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from mcp.types import TextContent
@@ -115,6 +115,40 @@ class _TestLocalShellExecutor(LocalShellExecutor):
 
     def runtime_info(self) -> dict[str, str | None]:
         return self._test_runtime_info
+
+
+class _CancellableLocalShellExecutor(LocalShellExecutor):
+    def __init__(self, *, logger: logging.Logger) -> None:
+        super().__init__(logger=logger)
+        self.processes: list[DummyProcess] = []
+        self.terminated_pids: list[int] = []
+        self.waiting_count = 0
+        self.waiting = asyncio.Event()
+
+    async def _start_shell_process(
+        self,
+        command: str,
+        plan: Any,
+    ) -> asyncio.subprocess.Process:
+        process = DummyProcess()
+        process.pid = 10_000 + len(self.processes)
+        self.processes.append(process)
+        return cast("asyncio.subprocess.Process", process)
+
+    async def _wait_for_process_exit(self, process: Any) -> int:
+        self.waiting_count += 1
+        self.waiting.set()
+        await asyncio.Future()
+        raise AssertionError("unreachable")
+
+    async def _terminate_cancelled_process(
+        self,
+        process: Any,
+        *,
+        is_windows: bool,
+    ) -> None:
+        self.terminated_pids.append(process.pid)
+        process.returncode = -signal.SIGTERM
 
 
 @contextmanager
@@ -245,6 +279,41 @@ async def test_shell_executor_strips_runtime_home_in_noenv(tmp_path: Path) -> No
 
     assert result.exit_code == 0
     assert result.stdout.strip() == "missing"
+
+
+@pytest.mark.asyncio
+async def test_shell_executor_terminates_process_when_cancelled() -> None:
+    executor = _CancellableLocalShellExecutor(logger=logging.getLogger(__name__))
+
+    task = asyncio.create_task(executor.execute("long-running"))
+    await executor.waiting.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert executor.terminated_pids == [10_000]
+
+
+@pytest.mark.asyncio
+async def test_shell_executor_terminates_parallel_processes_when_cancelled() -> None:
+    executor = _CancellableLocalShellExecutor(logger=logging.getLogger(__name__))
+
+    tasks = [
+        asyncio.create_task(executor.execute("long-running-a")),
+        asyncio.create_task(executor.execute("long-running-b")),
+    ]
+    while executor.waiting_count < len(tasks):
+        await executor.waiting.wait()
+        executor.waiting.clear()
+
+    for task in tasks:
+        task.cancel()
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    assert all(isinstance(result, asyncio.CancelledError) for result in results)
+    assert executor.terminated_pids == [10_000, 10_001]
 
 
 def _terminate_pid(pid_path: Path) -> None:

@@ -34,6 +34,7 @@ from fast_agent.plugins import operations as plugin_ops
 from fast_agent.plugins.configuration import (
     disable_plugin_in_config,
     enable_plugin_in_config,
+    enabled_plugins_by_scope,
     get_marketplace_url,
 )
 from fast_agent.plugins.manifest import load_plugin_manifest
@@ -42,7 +43,11 @@ from fast_agent.ui.console import console
 from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     import click
+
+    from fast_agent.plugins.models import LocalPlugin
 
 RegistryOption = Annotated[
     str | None,
@@ -82,33 +87,73 @@ def _environment_paths(ctx: typer.Context):
     return resolve_environment_paths(_settings(ctx))
 
 
-def _print_local_plugins(ctx: typer.Context) -> None:
-    env_paths = _environment_paths(ctx)
-    plugins = plugin_ops.list_local_plugins(destination_root=env_paths.plugins)
+def _print_installed_plugins(ctx: typer.Context) -> None:
+    settings = _settings(ctx)
+    env_paths = resolve_environment_paths(settings)
+    plugin_roots = _installed_plugin_roots(settings, env_paths.plugins)
+    home_enabled, project_enabled = enabled_plugins_by_scope(settings)
+    _print_plugin_roots(
+        plugin_roots,
+        home_enabled=home_enabled,
+        project_enabled=project_enabled,
+    )
+
+
+def _print_scoped_plugins(destination_root: Path, *, scope: str) -> None:
+    _print_plugin_roots([(scope, destination_root)], home_enabled=[], project_enabled=[])
+
+
+def _print_plugin_roots(
+    plugin_roots: list[tuple[str, Path]],
+    *,
+    home_enabled: Sequence[str],
+    project_enabled: Sequence[str],
+) -> None:
+    scoped_plugins = [
+        (scope, plugin)
+        for scope, plugin_root in plugin_roots
+        for plugin in plugin_ops.list_local_plugins(destination_root=plugin_root)
+    ]
     print_detail_section(
         console,
         "Installed Plugins",
-        [DetailDisplayRow(label="plugins directory", value=format_display_path(env_paths.plugins))],
+        [
+            DetailDisplayRow(label=f"{scope} plugins directory", value=format_display_path(root))
+            for scope, root in plugin_roots
+        ],
     )
-    if not plugins:
+    if not scoped_plugins:
         print_warning(console, "No plugins installed.")
         print_hint(console, "Install with: fast-agent plugins add <number|name>")
         return
+    by_name: dict[str, list[tuple[str, LocalPlugin]]] = {}
+    for scope, entry in scoped_plugins:
+        by_name.setdefault(entry.name, []).append((scope, entry))
+
     table = indexed_table(
+        ("Scope", "white"),
         ("Name", "cyan"),
         ("Commands", "white"),
         ("Keys", "white"),
         ("Provenance", "dim"),
         ("Installed", "green"),
     )
-    for entry in plugins:
+    for index, (scope, entry) in enumerate(scoped_plugins, start=1):
+        status = _plugin_status(
+            entry.name,
+            scope=scope,
+            copies=by_name[entry.name],
+            home_enabled=home_enabled,
+            project_enabled=project_enabled,
+        )
+        scope_display = scope if status == "-" else f"{scope} ({status})"
         commands = ", ".join(entry.manifest.commands) if entry.manifest else "invalid manifest"
         keys = _format_plugin_keys(entry)
         if entry.source is None:
             provenance = (
                 f"invalid metadata: {entry.metadata_error}" if entry.metadata_error else "unmanaged"
             )
-            table.add_row(str(entry.index), entry.name, commands, keys, provenance, "-")
+            table.add_row(str(index), scope_display, entry.name, commands, keys, provenance, "-")
             continue
         source = entry.source
         provenance = format_source_provenance(source.repo_url, source.repo_ref, source.repo_path)
@@ -117,11 +162,47 @@ def _print_local_plugins(ctx: typer.Context) -> None:
             source.installed_revision,
             revision_label="",
         )
-        table.add_row(str(entry.index), entry.name, commands, keys, provenance, installed)
+        table.add_row(str(index), scope_display, entry.name, commands, keys, provenance, installed)
     console.print(table)
 
 
-def _format_plugin_keys(entry) -> str:
+def _plugin_status(
+    name: str,
+    *,
+    scope: str,
+    copies: Sequence[tuple[str, LocalPlugin]],
+    home_enabled: Sequence[str],
+    project_enabled: Sequence[str],
+) -> str:
+    if len(copies) < 2:
+        return "-"
+
+    active_scope = _active_scope_for(name, home_enabled=home_enabled, project_enabled=project_enabled)
+    if active_scope is None:
+        return "-"
+    return "active" if active_scope == scope else f"shadowed by {active_scope}"
+
+
+def _active_scope_for(
+    name: str,
+    *,
+    home_enabled: Sequence[str],
+    project_enabled: Sequence[str],
+) -> str | None:
+    if name in project_enabled:
+        return "project"
+    if name in home_enabled:
+        return "global"
+    return None
+
+
+def _installed_plugin_roots(settings, project_plugins: Path) -> list[tuple[str, Path]]:
+    from fast_agent.plugins.configuration import installed_plugin_roots
+
+    return installed_plugin_roots(settings, project_plugins=project_plugins)
+
+
+def _format_plugin_keys(entry: LocalPlugin) -> str:
     if entry.manifest is None:
         return "-"
     key_labels = [
@@ -165,13 +246,13 @@ def _print_updates(updates) -> None:
 def plugins_main(ctx: typer.Context, registry: RegistryOption = None) -> None:
     ensure_context_object(ctx)["registry"] = registry
     if ctx.invoked_subcommand is None:
-        _print_local_plugins(ctx)
+        _print_installed_plugins(ctx)
 
 
 @app.command("list")
 def plugins_list(ctx: typer.Context) -> None:
-    """List local plugins."""
-    _print_local_plugins(ctx)
+    """List installed project and global plugins."""
+    _print_installed_plugins(ctx)
 
 
 @app.command("add")
@@ -244,7 +325,7 @@ def plugins_remove(
     destination_root, config_path = _target_install_context(ctx, global_install=global_remove)
     plugins = plugin_ops.list_local_plugins(destination_root=destination_root)
     if not selector:
-        _print_local_plugins(ctx)
+        _print_scoped_plugins(destination_root, scope="global" if global_remove else "project")
         print_hint(console, "Remove with: fast-agent plugins remove <number|name>")
         raise typer.Exit(0)
     selected = plugin_ops.select_local_plugin_by_name_or_index(plugins, selector)

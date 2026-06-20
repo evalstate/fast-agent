@@ -305,6 +305,16 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
             usage="/card <path> [--tool [remove]]",
             examples=["/card sizer.md", "/card sizer.md --tool"],
         ),
+        {
+            "name": "compact",
+            "summary": "Compact history into a checkpoint summary",
+            "usage": "/compact [preview|prompt|<instructions>]",
+            "actions": [
+                {"name": "preview", "summary": "show what compaction would keep (no model call)"},
+                {"name": "prompt", "summary": "show the active compaction prompt"},
+            ],
+            "examples": ["/compact", "/compact preview", "/compact focus on the DB migration"],
+        },
         _simple_command_entry(
             "connect",
             summary="Attach a runtime MCP server",

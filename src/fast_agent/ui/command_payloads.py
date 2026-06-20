@@ -155,6 +155,13 @@ class ClearCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class CompactCommand(CommandBase):
+    action: Literal["run", "preview", "prompt"] = "run"
+    instructions: str | None = None
+    kind: Literal["compact"] = "compact"
+
+
+@dataclass(frozen=True, slots=True)
 class SkillsCommand(CommandBase):
     action: str
     argument: str | None
@@ -330,6 +337,7 @@ class ExportSessionCommand(CommandBase):
     target: str | None
     agent_name: str | None
     output_path: str | None
+    hf_url: str | None
     hf_dataset: str | None
     hf_dataset_path: str | None
     privacy_filter: bool
@@ -443,6 +451,7 @@ CommandPayload = (
     | ListSkillsCommand
     | HistoryViewCommand
     | ClearCommand
+    | CompactCommand
     | SkillsCommand
     | CardsCommand
     | PluginsCommand

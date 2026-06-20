@@ -15,24 +15,13 @@ from urllib.parse import urlparse
 import typer
 from pydantic import BaseModel
 
-from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.cli.command_support import get_settings_or_exit
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
-from fast_agent.config import Settings
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
-from fast_agent.core.keyring_utils import emit_keyring_access_notice
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
-from fast_agent.llm.provider_types import Provider
 from fast_agent.session.preview import find_last_assistant_preview_text
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
-from fast_agent.ui.model_picker_common import (
-    LLAMACPP_PROVIDER_KEY,
-    has_explicit_provider_prefix,
-    infer_initial_picker_provider,
-    normalize_generic_model_spec,
-)
 from fast_agent.utils.filename import sanitize_filename_suffix
 from fast_agent.utils.text import strip_casefold, strip_to_none
 from fast_agent.utils.transports import uses_protocol_stdio
@@ -50,6 +39,7 @@ from .shell_cwd_policy import (
 if TYPE_CHECKING:
     from mcp.types import ContentBlock
 
+    from fast_agent.config import Settings
     from fast_agent.core.model_resolution import ResolvedModelSpec
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.llm.structured_schema import StructuredSchemaSource
@@ -327,6 +317,8 @@ def _identity_model_picker_selection(
     *,
     model_identity: Callable[[str], object | None],
 ) -> _ModelPickerInitialSelection | None:
+    from fast_agent.ui.model_picker_common import infer_initial_picker_provider
+
     if model_identity(model_spec) is None:
         return None
     return _ModelPickerInitialSelection(
@@ -405,6 +397,8 @@ def _persist_model_picker_last_used_selection(
 
 
 def _generic_model_prompt_default(initial_model_spec: str | None) -> str:
+    from fast_agent.ui.model_picker_common import has_explicit_provider_prefix
+
     candidate = strip_to_none(initial_model_spec) or ""
     if candidate.startswith("generic."):
         candidate = candidate.removeprefix("generic.")
@@ -416,6 +410,8 @@ def _generic_model_prompt_default(initial_model_spec: str | None) -> str:
 
 async def _prompt_for_generic_model_spec(*, default_model: str = "llama3.2") -> str:
     from prompt_toolkit import PromptSession
+
+    from fast_agent.ui.model_picker_common import normalize_generic_model_spec
 
     prompt_session = PromptSession()
     while True:
@@ -489,7 +485,10 @@ async def _select_model_from_picker(
     initial_model_spec: str | None = None,
 ) -> str:
     """Prompt user for model selection and return a resolved model string."""
+    from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
+    from fast_agent.llm.provider_types import Provider
     from fast_agent.ui.model_picker import run_model_picker_async
+    from fast_agent.ui.model_picker_common import LLAMACPP_PROVIDER_KEY
 
     config_path = Path(request.config_path) if request.config_path else None
     picker_start_path = (
@@ -566,15 +565,6 @@ def _emit_immediate_notice(message: str) -> None:
     typer.echo(message, err=True)
 
 
-def _emit_model_picker_keyring_notice(request: AgentRunRequest) -> None:
-    """Explain the one-time keyring probe that happens while building the model picker."""
-    del request
-    emit_keyring_access_notice(
-        purpose="checking stored Codex OAuth tokens for model setup",
-        emitter=_emit_immediate_notice,
-    )
-
-
 def _format_shell_cwd_policy_message(
     *,
     policy: str,
@@ -585,6 +575,8 @@ def _format_shell_cwd_policy_message(
 
 
 def _apply_shell_cwd_policy_preflight(fast: Any, request: AgentRunRequest) -> None:
+    from fast_agent.config import Settings
+
     issues = collect_shell_cwd_issues(
         fast.agents,
         shell_runtime_requested=request.shell_runtime,
@@ -935,6 +927,8 @@ def _select_loaded_card_agent(
 def _attach_cli_servers_to_selected_agent(fast, request: AgentRunRequest) -> None:
     if not request.server_list:
         return
+
+    from fast_agent.agents.agent_types import AgentConfig
 
     selected_agent_data = None
     if request.target_agent_name and request.target_agent_name in fast.agents:
@@ -1306,6 +1300,18 @@ async def _select_startup_model_if_needed(request: AgentRunRequest) -> str | Non
     if request.model is not None:
         return None
 
+    if request.resume:
+        # Resuming a session: the persisted session snapshot owns the model
+        # (restored by session hydration during run). Showing the startup
+        # picker here is both misleading and ineffective -- its selection is
+        # set on ``request.model`` before the agents are initialized, yet
+        # hydration overrides it with the snapshot model afterward, so the
+        # "Model selected via model picker" notice would fire while the
+        # resumed model stays active. Surface a distinctive source instead so
+        # the startup status notice names session resumption as the source,
+        # mirroring the notices shown for other model sources.
+        return "session resumption"
+
     settings = _load_request_settings(request)
     startup_model_defined_by_card = _explicit_agent_cards_define_startup_model(
         request,
@@ -1324,7 +1330,6 @@ async def _select_startup_model_if_needed(request: AgentRunRequest) -> str | Non
         stdin_is_tty=sys.stdin.isatty(),
         stdout_is_tty=sys.stdout.isatty(),
     ):
-        _emit_model_picker_keyring_notice(request)
         initial_selection = _resolve_model_picker_initial_selection(settings=settings)
         request.model = await _select_model_from_picker(
             request,
@@ -1438,6 +1443,8 @@ async def _add_cli_servers(fast: Any, request: AgentRunRequest) -> None:
 
 
 def _card_defined_default_type(fast: Any) -> str | None:
+    from fast_agent.agents.agent_types import AgentConfig
+
     for agent_data in fast.agents.values():
         config = agent_data.get("config")
         if isinstance(config, AgentConfig) and config.default:
@@ -1453,6 +1460,8 @@ def _warn_if_card_default_overrides_smart(
     smart_unavailable_warning: str,
 ) -> None:
     if explicit_default_type is not None and request.force_smart:
+        from fast_agent.agents.agent_types import AgentType
+
         if explicit_default_type != AgentType.SMART.value:
             typer.echo(
                 "Warning: --smart requested, but loaded AgentCards already define a "

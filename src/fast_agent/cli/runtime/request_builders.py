@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Literal
 from urllib.parse import urlparse
 
@@ -18,8 +19,6 @@ from fast_agent.constants import (
     SMART_AGENT_INSTRUCTION,
 )
 from fast_agent.core.agent_card_paths import is_agent_card_path
-from fast_agent.llm.request_params import is_structured_tool_policy
-from fast_agent.paths import resolve_environment_paths
 from fast_agent.utils.collections import unique_preserve_order
 from fast_agent.utils.commandline import split_commandline
 
@@ -32,13 +31,10 @@ from .run_request import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from fast_agent.llm.request_params import StructuredToolPolicy
 
-DEFAULT_ENV_PATHS = resolve_environment_paths()
-DEFAULT_AGENT_CARDS_DIR: Final[Path] = DEFAULT_ENV_PATHS.agent_cards
-DEFAULT_TOOL_CARDS_DIR: Final[Path] = DEFAULT_ENV_PATHS.tool_cards
+DEFAULT_AGENT_CARDS_DIR: Final[Path] = Path(".fast-agent/agent-cards")
+DEFAULT_TOOL_CARDS_DIR: Final[Path] = Path(".fast-agent/tool-cards")
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +118,16 @@ def normalize_explicit_card_sources(sources: list[str] | None) -> list[str] | No
     return unique_preserve_order(sources) or None
 
 
+def _default_card_directories(environment_dir: Path | None) -> tuple[Path, Path]:
+    from fast_agent.paths import resolve_environment_paths
+
+    if environment_dir is not None:
+        env_paths = resolve_environment_paths(override=environment_dir)
+    else:
+        env_paths = resolve_environment_paths()
+    return env_paths.agent_cards, env_paths.tool_cards
+
+
 def validate_noenv_conflicts(
     *,
     noenv: bool,
@@ -188,6 +194,8 @@ def validate_json_schema_inputs(
             param_hint="--schema-model",
         )
     if structured_tool_policy is not None:
+        from fast_agent.llm.request_params import is_structured_tool_policy
+
         if not is_structured_tool_policy(structured_tool_policy):
             raise typer.BadParameter(
                 "structured tool policy must be 'auto', 'always', 'defer', or 'no_tools'",
@@ -487,24 +495,15 @@ def build_agent_run_request(
     stdio_servers = stdio_merge.stdio_servers
     server_list = stdio_merge.server_list
 
-    if environment_dir:
-        env_paths = resolve_environment_paths(override=environment_dir)
-        default_agent_cards_dir = env_paths.agent_cards
-        default_tool_cards_dir = env_paths.tool_cards
+    if noenv:
+        merged_agent_cards = normalize_explicit_card_sources(agent_cards)
+        merged_card_tools = normalize_explicit_card_sources(card_tools)
     else:
-        default_agent_cards_dir = DEFAULT_AGENT_CARDS_DIR
-        default_tool_cards_dir = DEFAULT_TOOL_CARDS_DIR
-
-    merged_agent_cards = (
-        normalize_explicit_card_sources(agent_cards)
-        if noenv
-        else merge_card_sources(agent_cards, default_agent_cards_dir)
-    )
-    merged_card_tools = (
-        normalize_explicit_card_sources(card_tools)
-        if noenv
-        else merge_card_sources(card_tools, default_tool_cards_dir)
-    )
+        default_agent_cards_dir, default_tool_cards_dir = _default_card_directories(
+            environment_dir
+        )
+        merged_agent_cards = merge_card_sources(agent_cards, default_agent_cards_dir)
+        merged_card_tools = merge_card_sources(card_tools, default_tool_cards_dir)
 
     validate_multi_model_card_conflicts(
         model=model,
@@ -600,7 +599,7 @@ def build_command_run_request(
     shell_enabled: bool,
     mode: Literal["interactive", "serve"],
     transport: str = "http",
-    host: str = "0.0.0.0",
+    host: str = "127.0.0.1",
     port: int = 8000,
     tool_description: str | None = None,
     tool_name_template: str | None = None,

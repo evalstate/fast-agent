@@ -55,14 +55,16 @@ The core pattern is:
 
 ## Pick the evidence shape: rows or artifacts
 
-GEPA only requires an evaluator with one shape: `candidate -> (score,
-side_info)`. Philosophically, batch and artifact evals are the same kind of
-optimization loop. Practically, fast-agent GEPA loops almost always split by the
-evidence they produce.
+GEPA loops need a candidate, a score, and enough evidence for reflection.
+Practically, fast-agent GEPA loops split by the evidence they produce and by the
+GEPA API shape they use.
 
-**Batch-focused evals** run the same worker over many independent rows, then
-score the output JSONL. Use this shape for classification, extraction,
-labeling, routing, grading, and other dataset-style tasks.
+**Aggregate batch evals** run the same worker over many independent rows, then
+score the output JSONL as one candidate result. Use this shape for
+classification, extraction, labeling, routing, grading, and other dataset-style
+tasks where the main signal is corpus-level. This is the
+`candidate -> (score, side_info)` shape used by
+`FastAgentBatchEvaluator` and GEPA's `optimize_anything()`.
 
 ```text
 candidate instructions/card variables
@@ -70,6 +72,20 @@ candidate instructions/card variables
   -> results.jsonl + summary/telemetry
   -> deterministic scorer
   -> score + ASI
+```
+
+**Row-wise batch evals** still use fast-agent batch execution, but expose each
+input row as a GEPA optimization instance. Use this when GEPA should sample
+minibatches, compare per-row scores, and reflect over row-level trajectories.
+This is the adapter protocol shape used by `FastAgentRowWiseBatchAdapter` and
+GEPA's `gepa.api.optimize()`.
+
+```text
+candidate instructions/card variables + GEPA minibatch rows
+  -> fast-agent batch run over that minibatch
+  -> aligned per-row outputs
+  -> row scorer
+  -> per-row scores + trajectories + objective scores
 ```
 
 **Artifact-focused evals** ask the task model to create files or other
@@ -85,12 +101,13 @@ candidate skill/card/prompt files
   -> score + ASI
 ```
 
-The evaluator contract is the same in both cases. The operational details are
-different: batch evals usually center on `results.jsonl`; artifact evals usually
-center on generated files, checker reports, screenshots, logs, or test output.
-Keep candidate materialization isolated, write every prompt/result/report to a
-candidate directory, and make the scorer produce compact evidence that the
-reflection model can act on.
+The evidence hygiene is the same in every mode even when the GEPA API shape is
+different. Keep candidate materialization isolated, write every
+prompt/result/report to a candidate or evaluation directory, and make the
+scorer produce compact evidence that the reflection model can act on. Batch
+evals usually center on `results.jsonl`; row-wise evals center on minibatch
+JSONL plus per-row trajectories; artifact evals center on generated files,
+checker reports, screenshots, logs, or test output.
 
 ## Start with a batch evaluator
 
@@ -263,15 +280,61 @@ Artifact evals often benefit from subprocess isolation. A failed candidate
 should usually produce side-info and artifacts, not corrupt the working tree or
 abort the optimization without evidence.
 
-!!! tip "Monitor long runs with Trackio"
+## Make Trackio the default dashboard
 
-    GEPA runs can be long-lived. If you want a live view of candidate scores,
-    frontier metrics, alerts, or run metadata, initialize
-    [Trackio](https://github.com/huggingface/trackio) in your evaluator script
-    and log after each candidate evaluation. Keep raw lower-is-better values out
-    of `side_info["scores"]`, but log them to Trackio normally for monitoring.
+GEPA runs can be long-lived. [Trackio](https://github.com/gradio-app/trackio) is recommended to provide a live view of GEPA optimize metrics, and other metadata you want to track. Use one Trackio run for both GEPA's optimizer metrics and your evaluator-specific candidate metrics:
+
+- GEPA logs frontier, candidate, proposal, validation, objective, and summary
+  data under the `gepa/` prefix.
+- Your scorer can log task-specific candidate metrics under `candidate/` and
+  `candidate/detail/`.
+- Keep `side_info["scores"]` frontier-safe: every value should be numeric and
+  higher-is-better. Put raw lower-is-better diagnostics in
+  `side_info["score_details"]` or `side_info["raw_metrics"]`.
+
+The useful side-info shape is:
+
+```python
+side_info = {
+    "scores": {
+        "gepa_score": score,
+        "valid_output_rate": valid_output_rate,
+        "failure_free_rate": failure_free_rate,
+    },
+    "score_details": {
+        "failure_count": failure_count,
+        "latency_seconds": latency_seconds,
+    },
+    "failures": failures[:20],
+    "actionable_feedback": summarize_failures(failures),
+}
+```
+
+`fast_agent.integrations.gepa.gepa_numeric_metrics()` turns that into Trackio
+metrics such as `candidate/gepa_score` and
+`candidate/detail/failure_count`; `safe_trackio_log()` makes that logging
+best-effort so a dashboard outage does not fail an evaluator.
 
 ## Call fast-agent from GEPA
+
+Install GEPA and Trackio support with the `gepa` optional dependency:
+
+```bash
+uv add "fast-agent-mcp[gepa]"
+```
+
+PyPI packages cannot declare direct Git dependencies in extras, so the published
+extra depends on the latest PyPI GEPA release plus Trackio. Trackio-specific GEPA
+helpers require a GEPA release with Trackio support; until that support is
+available on PyPI, install the integration branch in your application
+environment:
+
+```bash
+uv add "gepa @ git+https://github.com/evalstate/gepa.git@feat/trackio"
+```
+
+See the [Extension Reference](../ref/extension_reference/#gepa) for the exact
+dependency set and adapter class signatures.
 
 For row-oriented evaluators, use the public batch adapter instead of
 hand-rolling candidate directories, subprocess calls, JSONL parsing, summary
@@ -283,10 +346,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import trackio
 from gepa.optimize_anything import GEPAConfig, EngineConfig, ReflectionConfig, optimize_anything
 from fast_agent.batch import BatchRunResult
 from fast_agent.eval import CandidateRun
-from fast_agent.integrations.gepa import FastAgentBatchEvaluator, FastAgentReflectionLM
+from fast_agent.integrations.gepa import (
+    FastAgentBatchEvaluator,
+    FastAgentReflectionLM,
+    gepa_numeric_metrics,
+    gepa_trackio_init_kwargs,
+    make_gepa_tracking_config,
+    safe_trackio_log,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -303,11 +374,21 @@ def score_candidate(
             "gepa_score": score,
             "valid_output_rate": sum(1 for row in result.rows if row.get("ok")) / max(len(result.rows), 1),
         },
+        "score_details": {
+            "failure_count": len(failures),
+        },
         "candidate_dir": str(candidate_run.path),
         "summary": result.summary,
         "failures": failures[:20],
         "actionable_feedback": summarize_failures(failures),
     }
+    safe_trackio_log(
+        {
+            "gepa/iteration": (candidate_run.index or 1) - 1,
+            "candidate/local_idx": candidate_run.index or 0,
+            **gepa_numeric_metrics(side_info),
+        }
+    )
     return score, side_info
 
 
@@ -332,6 +413,18 @@ reflection_lm = FastAgentReflectionLM(
     audit_dir=ROOT / "runs" / "reflection",
 )
 
+trackio.init(
+    **gepa_trackio_init_kwargs(
+        project="fast-agent-gepa",
+        name="classifier-policy",
+        config={
+            "mode": "aggregate",
+            "agent": "classifier",
+            "run_dir": str(ROOT / "runs"),
+        },
+    )
+)
+
 result = optimize_anything(
     seed_candidate={"policy": Path("seed/policy.md").read_text(encoding="utf-8")},
     evaluator=evaluator,
@@ -339,6 +432,10 @@ result = optimize_anything(
     config=GEPAConfig(
         engine=EngineConfig(max_metric_calls=24, cache_evaluation=True),
         reflection=ReflectionConfig(reflection_lm=reflection_lm),
+        tracking=make_gepa_tracking_config(
+            name="classifier-policy",
+            attach_existing=True,
+        ),
     ),
 )
 
@@ -349,6 +446,132 @@ Replace `score_rows()` and `summarize_failures()` with your deterministic
 checker. The checker is the most important part of the loop: it should encode
 the product decision you actually care about and explain failures in language a
 reflection model can act on.
+
+### Use row-wise GEPA when each row is an optimization instance
+
+`FastAgentBatchEvaluator` treats the whole JSONL batch as one GEPA metric call:
+`candidate -> full batch -> one aggregate score + side_info`. That is usually
+the simplest and most stable mode.
+
+GEPA also supports a lower-level adapter protocol where it samples minibatches
+from a trainset and expects **one score per row**. Use
+`FastAgentRowWiseBatchAdapter` for that mode. fast-agent still owns the JSONL
+minibatch file, `BatchRunner` call, result alignment, summaries, telemetry, and
+artifact directories; your code supplies row scoring and row-level trajectories.
+
+```python title="row-wise-gepa.py"
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from gepa.api import optimize
+
+from fast_agent.integrations.gepa import (
+    FastAgentReflectionLM,
+    FastAgentRowWiseBatchAdapter,
+    RowWiseEvaluationRun,
+    RowWiseScore,
+    gepa_api_trackio_kwargs,
+)
+
+
+def score_row(
+    output_row: dict[str, Any],
+    input_row: dict[str, Any],
+    candidate: dict[str, str],
+    evaluation: RowWiseEvaluationRun,
+) -> RowWiseScore:
+    result = output_row.get("result") if isinstance(output_row.get("result"), dict) else {}
+    expected = input_row["expected_label"]
+    actual = result.get("label")
+    score = 1.0 if actual == expected else 0.0
+    return RowWiseScore(
+        score=score,
+        trajectory={
+            "scores": {"gepa_score": score, "row_exact": score},
+            "expected": expected,
+            "actual": actual,
+            "feedback": (
+                "Preserve this row behavior."
+                if score == 1.0
+                else f"Expected {expected!r}, got {actual!r}."
+            ),
+        },
+        objective_scores={"gepa_score": score, "row_exact": score},
+    )
+
+
+adapter = FastAgentRowWiseBatchAdapter(
+    env_dir=".fast-agent",
+    agent_card=".fast-agent/agent-cards/classifier.md",
+    agent="classifier",
+    candidate_variables={"policy": "policy"},
+    template_source="eval/template.md",
+    schema="eval/output.schema.json",
+    model="responses.gpt-5.4-mini",
+    parallel=8,
+    row_scorer=score_row,
+    run_dir=Path("runs/row-wise-gepa"),
+    id_field="id",
+    backend="process",
+)
+
+rows = load_jsonl("eval/train.jsonl")
+
+result = optimize(
+    seed_candidate={"policy": Path("seed/policy.md").read_text(encoding="utf-8")},
+    trainset=rows,
+    valset=rows,
+    adapter=adapter,
+    reflection_lm=FastAgentReflectionLM(
+        env_dir=".fast-agent",
+        model="responses.gpt-5.5?reasoning=high",
+        audit_dir="runs/row-wise-gepa/reflection",
+    ),
+    reflection_minibatch_size=3,
+    max_metric_calls=400,
+    cache_evaluation=True,
+    frontier_type="hybrid",
+    **gepa_api_trackio_kwargs(
+        project="fast-agent-gepa",
+        name="classifier-row-wise",
+        config={
+            "mode": "row-wise",
+            "agent": "classifier",
+        },
+    ),
+)
+```
+
+See the [Extension Reference](../ref/extension_reference/#gepa-integration-adapters)
+for the generated signatures of the GEPA adapter classes.
+
+!!! tip "Choose row-wise minibatch sizes deliberately"
+
+    GEPA's default epoch-shuffled minibatch sampler pads an epoch when the
+    trainset size is not divisible by `reflection_minibatch_size`. Padding can
+    repeat examples. That is statistically fine for some in-memory evaluators,
+    but it can surprise the batch runner that requires unique row IDs inside
+    each minibatch.
+
+    For row-wise **`fast-agent`** runs, prefer one of these setups:
+
+    - choose a trainset size divisible by `reflection_minibatch_size`;
+    - use a custom GEPA batch sampler that does not repeat IDs;
+    - or make the batch layer explicitly tolerate duplicate logical examples,
+      for example by assigning unique per-evaluation row IDs while preserving
+      the original source ID in a separate field.
+
+    If your dataset size changes between experiments, re-check this divisibility
+    before starting a long run.
+
+Use row-wise mode when the row is the natural optimization instance and GEPA
+should reflect over row-level successes/failures. Keep aggregate metrics such as
+micro-F1, exact-match rate, or average Jaccard in your scorer or Trackio logs as
+needed, but remember that GEPA's adapter protocol accepts per-row scores and
+sums/minibatches them during candidate selection. If your signal is mostly a
+single corpus-level metric, prefer `FastAgentBatchEvaluator`.
 
 For artifact evaluators, use `EvalRun` and `CandidateRun` directly:
 

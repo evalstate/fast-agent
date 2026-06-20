@@ -280,6 +280,30 @@ def test_alias_sampling_defaults_preserve_user_provider_suffix_override() -> Non
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
 
 
+def test_qwen36_alias_sets_deepinfra_sampling_defaults() -> None:
+    config = ModelFactory.parse_model_string("qwen36")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "Qwen/Qwen3.6-35B-A3B:deepinfra"
+    assert config.temperature == 0.6
+    assert config.top_p == 0.95
+    assert config.top_k == 20
+    assert config.min_p == 0.0
+    assert config.presence_penalty == 0.0
+    assert config.repetition_penalty == 1.0
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
+
+
+def test_qwen36instruct_alias_disables_reasoning() -> None:
+    config = ModelFactory.parse_model_string("qwen36instruct")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "Qwen/Qwen3.6-35B-A3B:deepinfra"
+    assert config.temperature == 0.7
+    assert config.top_p == 0.8
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
+
+
 def test_kimi25_alias_sets_thinking_sampling_defaults() -> None:
     config = ModelFactory.parse_model_string("kimi25")
 
@@ -301,7 +325,17 @@ def test_kimi25instant_alias_sets_instant_sampling_defaults() -> None:
 
 
 def test_kimi_alias_matches_current_promoted_kimi_defaults() -> None:
-    assert ModelFactory.parse_model_string("kimi") == ModelFactory.parse_model_string("kimi26")
+    assert ModelFactory.parse_model_string("kimi") == ModelFactory.parse_model_string("kimi27code")
+
+
+def test_kimi27code_alias_sets_thinking_sampling_defaults() -> None:
+    config = ModelFactory.parse_model_string("kimi27code")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "moonshotai/Kimi-K2.7-Code:fireworks-ai"
+    assert config.temperature == 1.0
+    assert config.top_p == 0.95
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
 
 
 def test_kimithink_alias_maps_to_current_kimi_defaults() -> None:
@@ -688,10 +722,14 @@ def test_huggingface_alias_without_provider():
     assert config.model_name == "moonshotai/Kimi-K2-Instruct-0905"
 
 
-def test_builtin_glm_alias_uses_glm_51_default() -> None:
+def test_builtin_glm_alias_uses_glm_52_default() -> None:
     config = ModelFactory.parse_model_string("glm")
     assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "zai-org/GLM-5.1:together"
+    assert config.model_name == "zai-org/GLM-5.2:zai-org"
+
+    current = ModelFactory.parse_model_string("glm52")
+    assert current.provider == Provider.HUGGINGFACE
+    assert current.model_name == "zai-org/GLM-5.2:zai-org"
 
     explicit = ModelFactory.parse_model_string("glm51")
     assert explicit.provider == Provider.HUGGINGFACE
@@ -733,6 +771,10 @@ def test_claude_alias_resolves_to_sonnet_46():
     config = ModelFactory.parse_model_string("opus47")
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-opus-4-7"
+
+    config = ModelFactory.parse_model_string("fable")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-fable-5"
 
 
 def test_gemini31_alias_resolves_to_google_31_preview():
@@ -812,6 +854,15 @@ def test_hf_routed_gpt_oss_alias_resolves_model_metadata():
     assert resolved.provider == Provider.HUGGINGFACE
     assert resolved.wire_model_name == "openai/gpt-oss-120b:cerebras"
     assert resolved.max_output_tokens == 32766
+
+
+def test_gemma4_alias_resolves_to_hf_novita_vision_model():
+    resolved = ModelFactory.resolve_model_spec("gemma4")
+
+    assert resolved.provider == Provider.HUGGINGFACE
+    assert resolved.wire_model_name == "google/gemma-4-31B-it:novita"
+    assert resolved.context_window == 262_144
+    assert resolved.max_output_tokens == 65_536
 
 
 def test_curated_catalog_aliases_are_parseable():
@@ -1099,6 +1150,41 @@ def test_hf_sampling_overrides_route_non_openai_fields_to_extra_body() -> None:
     assert extra_body["min_p"] == 0.0
     assert extra_body["repetition_penalty"] == 1.0
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_hf_omits_empty_tools_for_router_compatibility() -> None:
+    factory = ModelFactory.create_factory("qwen36")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+
+    args = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        [],
+        llm.default_request_params,
+    )
+
+    assert "tools" not in args
+    assert "tool_choice" not in args
+
+
+def test_hf_qwen36_instruct_alias_disables_thinking_via_chat_template_kwargs() -> None:
+    factory = ModelFactory.create_factory("qwen36instruct")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+
+    args = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        llm.default_request_params,
+    )
+
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
 
 
 def test_hf_qwen35_instruct_alias_disables_thinking_via_chat_template_kwargs() -> None:

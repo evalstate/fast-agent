@@ -13,7 +13,7 @@ Anthropic models support Text, Vision and PDF content. Caching is enabled by def
 
 ```yaml
 anthropic:
-  api_key: "your_anthropic_key" # Required
+  api_key: "your_anthropic_key" # Optional if ANTHROPIC_API_KEY or Anthropic SDK credentials are available
   base_url: "https://api.anthropic.com/v1" # Default, only include if required
   cache_mode: "auto" # Options: off, prompt, auto (default: auto)
   cache_ttl: "5m" # Options: 5m, 1h (default: 5m)
@@ -38,7 +38,17 @@ anthropic:
 **Environment Variables:**
 
 - `ANTHROPIC_API_KEY`: Your Anthropic API key
+- `ANTHROPIC_AUTH_TOKEN`: Bearer token auth supported by the Anthropic SDK
+- `ANTHROPIC_PROFILE` / `ANTHROPIC_CONFIG_DIR`: Select Anthropic SDK profile credentials
 - `ANTHROPIC_BASE_URL`: Override the API endpoint
+
+**Authentication precedence:**
+
+**fast-agent** first uses an explicit `anthropic.api_key`, then `ANTHROPIC_API_KEY`. If neither is
+set, it constructs the Anthropic SDK client without an API key so the SDK can use its own credential
+chain, including `ANTHROPIC_AUTH_TOKEN`, profile credentials, and workload identity federation
+environment variables. `fast-agent check` reports these as Anthropic SDK credentials when the SDK
+finds an auth source.
 
 **Caching Options:**
 

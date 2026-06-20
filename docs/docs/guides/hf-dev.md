@@ -55,33 +55,37 @@ This installs the `fast-agent` executable.
 [llama.cpp provider guide](../models/providers/llamacpp.md) to get
 started.
 
-## Export agent traces to Hugging Face datasets
+## Export agent traces to Hugging Face URLs
 
 Persisted sessions can be exported as Codex-style JSONL traces and uploaded directly
-to a Hugging Face dataset repo.
+to Hugging Face Hub storage.
 
 From inside `fast-agent`:
 
 ```text
-/session export latest --hf-dataset your-name/fast-agent-traces
-/session export latest --hf-dataset your-name/fast-agent-traces --hf-dataset-path evals/
+/session export latest --hf-url hf://buckets/your-name/fast-agent-traces/
+/session export latest --hf-url hf://datasets/your-name/fast-agent-traces/trace.jsonl
 ```
 
 From the shell:
 
 ```bash
-fast-agent export latest --hf-dataset your-name/fast-agent-traces
-fast-agent export latest --output trace.jsonl --hf-dataset your-name/fast-agent-traces
+fast-agent export latest --hf-url hf://buckets/your-name/fast-agent-traces/
+fast-agent export latest --output trace.jsonl --hf-url hf://datasets/your-name/fast-agent-traces/trace.jsonl
 ```
 
 Notes:
 
 - Traces come from persisted sessions, so `--noenv` runs are not exportable.
+- Set `git_aware: true` in `fast-agent.yaml` to include git provenance in
+  exported trace metadata when the session runs inside a git repository.
 - If you omit `--output`, fast-agent writes a default file named
   `{session_id}__{agent_name}__codex.jsonl` in the current directory before upload.
-- `--hf-dataset-path` can be either a file path or a folder path. If it ends with `/`,
-  fast-agent appends the local filename.
-- Uploads require `huggingface_hub`. The dataset repo is created automatically if it
-  does not already exist.
+- `--hf-url` supports `hf://buckets/...` and `hf://datasets/...`. If it ends with
+  `/`, fast-agent appends the local filename.
+- `--hf-dataset` remains available for compatibility and constructs an equivalent
+  `hf://datasets/...` upload URL.
+- Uploads require `huggingface_hub`. Dataset repos are created automatically if
+  they do not already exist.
 
 For the full CLI reference, see [fast-agent export](../ref/export_command/).

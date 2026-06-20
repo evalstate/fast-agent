@@ -1,4 +1,5 @@
 import asyncio
+import json
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,7 +29,7 @@ from openai.types.chat import (
 from openai.types.chat.chat_completion_message_tool_call import Function
 from pydantic_core import from_json
 
-from fast_agent.constants import REASONING
+from fast_agent.constants import FAST_AGENT_SAFETY_DETAILS, REASONING
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -54,6 +55,7 @@ from fast_agent.llm.provider.openai.streaming_utils import with_stream_idle_time
 from fast_agent.llm.provider.openai.structured_output import OpenAIStructuredOutputMixin
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider.reasoning_config import reasoning_setting_from_config
+from fast_agent.llm.provider.streaming_timeouts import await_stream_start
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.stream_types import StreamChunk
@@ -760,6 +762,7 @@ class OpenAILLM(
             chunk_count += 1
             # Save chunk if stream capture is enabled
             _save_stream_chunk(capture_filename, chunk)
+            self._raise_stream_chunk_error(chunk)
             # Handle chunk accumulation
             state.handle_chunk(chunk)
             # Process streaming events for tool calls
@@ -836,6 +839,13 @@ class OpenAILLM(
         )
 
         return final_completion, reasoning_segments.parts()
+
+    def _raise_stream_chunk_error(self, chunk: Any) -> None:
+        if getattr(chunk, "choices", None):
+            return
+        error_message = getattr(chunk, "error_message", None)
+        if error_message:
+            raise RuntimeError(f"Provider stream error: {error_message}")
 
     def _normalize_role(self, role: str | None) -> str:
         """Ensure the role string matches MCP expectations."""
@@ -1129,8 +1139,12 @@ class OpenAILLM(
         request: _OpenAICompletionRequest,
         capture_filename: Path | None,
     ) -> _OpenAICompletionResponse:
-        stream = await client.chat.completions.create(**request.arguments)
         timeout = request.params.streaming_timeout
+        stream = await await_stream_start(
+            client.chat.completions.create(**request.arguments),
+            timeout_seconds=timeout,
+            timeout_message=f"OpenAI stream did not start within {timeout} seconds.",
+        )
         timed_stream = with_stream_idle_timeout(
             stream,
             idle_timeout_seconds=timeout,
@@ -1275,6 +1289,30 @@ class OpenAILLM(
             return None
         return [TextContent(type="text", text="".join(streamed_reasoning))]
 
+    @staticmethod
+    def _openai_response_channels(
+        *,
+        reasoning_blocks: list[ContentBlock] | None,
+        choice: Any,
+        stop_result: _OpenAIStopResult,
+    ) -> dict[str, list[ContentBlock]] | None:
+        channels: dict[str, list[ContentBlock]] = {}
+        if reasoning_blocks:
+            channels[REASONING] = reasoning_blocks
+        if stop_result.stop_reason == LlmStopReason.SAFETY:
+            channels[FAST_AGENT_SAFETY_DETAILS] = [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "provider": "openai",
+                            "reason": str(getattr(choice, "finish_reason", "content_filter")),
+                        }
+                    ),
+                )
+            ]
+        return channels or None
+
     async def _finalize_openai_completion(
         self,
         request: _OpenAICompletionRequest,
@@ -1298,7 +1336,11 @@ class OpenAILLM(
             role="assistant",
             content=response_content_blocks,
             tool_calls=stop_result.requested_tool_calls,
-            channels={REASONING: reasoning_blocks} if reasoning_blocks else None,
+            channels=self._openai_response_channels(
+                reasoning_blocks=reasoning_blocks,
+                choice=choice,
+                stop_result=stop_result,
+            ),
             stop_reason=stop_result.stop_reason,
         )
 
@@ -1389,14 +1431,13 @@ class OpenAILLM(
 
         if self._reasoning:
             effort = self._resolve_reasoning_effort()
-            base_args.update(
-                {
-                    "max_completion_tokens": request_params.maxTokens,
-                    **({"reasoning_effort": effort} if effort else {}),
-                }
-            )
+            if request_params.maxTokens is not None:
+                base_args["max_completion_tokens"] = request_params.maxTokens
+            if effort:
+                base_args["reasoning_effort"] = effort
         else:
-            base_args["max_tokens"] = request_params.maxTokens
+            if request_params.maxTokens is not None:
+                base_args["max_tokens"] = request_params.maxTokens
             if tools:
                 base_args["parallel_tool_calls"] = request_params.parallel_tool_calls
 

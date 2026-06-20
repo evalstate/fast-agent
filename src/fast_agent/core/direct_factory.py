@@ -92,6 +92,12 @@ class AgentsAsToolsBuildInputs:
     child_message_files: dict[str, list[Path]]
 
 
+@runtime_checkable
+class _ToolRunnerAgentProvider(Protocol):
+    @property
+    def agent(self) -> object: ...
+
+
 class CoreContextProtocol(Protocol):
     context: Context
 
@@ -371,13 +377,12 @@ async def _finalize_agent(
         api_key=config.api_key,
     )
 
-    if config.tool_hooks or config.trim_tool_history or session_history_enabled:
-        _apply_tool_hooks(
-            agent,
-            config,
-            agent_data.get("source_path"),
-            enable_session_history=session_history_enabled,
-        )
+    _apply_tool_hooks(
+        agent,
+        config,
+        agent_data.get("source_path"),
+        enable_session_history=session_history_enabled,
+    )
 
     _register_loaded_agent(result_agents, name, agent)
 
@@ -438,9 +443,10 @@ def _merge_tool_runner_hooks(existing: Any, override: Any) -> Any:
 def _tool_hook_context(agent: LlmAgent, runner: Any, message: Any) -> Any:
     from fast_agent.hooks.hook_context import HookContext
 
+    hook_agent = runner.agent if isinstance(runner, _ToolRunnerAgentProvider) else agent
     return HookContext(
         runner=runner,
-        agent=cast("HookAgentProtocol", agent),
+        agent=cast("HookAgentProtocol", hook_agent),
         message=message,
         hook_type="after_turn_complete",
     )
@@ -533,6 +539,31 @@ def _apply_session_history_hook(agent: LlmAgent) -> None:
     )
 
 
+def _auto_compaction_after_turn_hook(
+    agent: LlmAgent,
+    existing_after_turn: Callable[[Any, Any], Awaitable[None]] | None,
+) -> Callable[[Any, Any], Awaitable[None]]:
+    from fast_agent.hooks.compaction import auto_compact_history
+
+    async def _auto_compact_wrapper(runner: Any, message: Any) -> None:
+        if existing_after_turn is not None:
+            await existing_after_turn(runner, message)
+        # auto_compact_history handles its own failures; never breaks the turn.
+        await auto_compact_history(_tool_hook_context(agent, runner, message))
+
+    return _auto_compact_wrapper
+
+
+def _apply_auto_compaction_hook(agent: LlmAgent) -> None:
+    from fast_agent.agents.tool_runner import ToolRunnerHooks
+
+    existing_hooks = agent.tool_runner_hooks or ToolRunnerHooks()
+    agent.tool_runner_hooks = _replace_after_turn_complete(
+        existing_hooks,
+        _auto_compaction_after_turn_hook(agent, existing_hooks.after_turn_complete),
+    )
+
+
 def _apply_tool_hooks(
     agent: LlmAgent,
     config: AgentConfig,
@@ -543,9 +574,14 @@ def _apply_tool_hooks(
     """
     Apply tool runner hooks to an agent based on config.
 
-    Handles both:
+    Handles:
     - tool_hooks: dict mapping hook types to function specs
     - trim_tool_history: shortcut to apply built-in history trimmer
+    - built-in auto-compaction (runtime-gated by settings.compaction)
+    - built-in session history persistence
+
+    Auto-compaction runs after trim/custom hooks and before the session save,
+    so persisted sessions reflect the compacted history.
 
     Args:
         agent: The agent to apply hooks to
@@ -554,6 +590,7 @@ def _apply_tool_hooks(
     """
     hooks_config = _apply_trim_history_hook(agent, config)
     _apply_configured_tool_hooks(agent, hooks_config, source_path)
+    _apply_auto_compaction_hook(agent)
 
     if enable_session_history:
         _apply_session_history_hook(agent)
@@ -799,13 +836,12 @@ async def _create_custom_agent(
     if child_names:
         _attach_child_agents_as_tools(agent, name, child_names, build_ctx.active_agents)
 
-    if config.tool_hooks or config.trim_tool_history or build_ctx.session_history_enabled:
-        _apply_tool_hooks(
-            agent,
-            config,
-            agent_data.get("source_path"),
-            enable_session_history=build_ctx.session_history_enabled,
-        )
+    _apply_tool_hooks(
+        agent,
+        config,
+        agent_data.get("source_path"),
+        enable_session_history=build_ctx.session_history_enabled,
+    )
 
     _register_loaded_agent(result_agents, name, agent)
 

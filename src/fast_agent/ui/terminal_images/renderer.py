@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import base64
+import mimetypes
 from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib import import_module
 from io import BytesIO
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import unquote, urlparse
+from urllib.request import Request, urlopen
 
 from mcp.types import BlobResourceContents, EmbeddedResource, ImageContent, TextContent
 from rich.console import Group, RenderableType
@@ -14,10 +18,13 @@ from rich.text import Text
 from fast_agent.core.logging.logger import get_logger
 
 if TYPE_CHECKING:
+    from fast_agent.command_actions.models import PluginCommandActionImage
     from fast_agent.config import Settings, TerminalImageSettings
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 logger = get_logger(__name__)
+MAX_TERMINAL_IMAGE_SOURCE_BYTES = 25 * 1024 * 1024
+TERMINAL_IMAGE_FETCH_TIMEOUT_SECONDS = 10.0
 
 _TEXTUAL_IMAGE_CLASS_BY_BACKEND: dict[str, str] = {
     "auto": "Image",
@@ -114,6 +121,22 @@ def render_tool_result_images_for_settings(
     return render_image_items(settings, extract_image_render_items(content))
 
 
+def render_plugin_command_images_for_settings(
+    settings: TerminalImageSettings | None,
+    images: Sequence[PluginCommandActionImage],
+    *,
+    base_dir: Path | None = None,
+) -> RenderableType | None:
+    if settings is None or not images or not settings.enabled or settings.backend == "none":
+        return None
+    items = [
+        ImageRenderItem(artifact)
+        for image in images
+        if (artifact := _artifact_from_plugin_image(image, base_dir=base_dir)) is not None
+    ]
+    return render_image_items(settings, items)
+
+
 def render_image_items(
     settings: TerminalImageSettings,
     items: Sequence[ImageRenderItem],
@@ -192,6 +215,101 @@ def _artifact_from_content(item: object, index: int) -> ImageArtifact | None:
             uri=uri,
         )
 
+    return None
+
+
+def _artifact_from_plugin_image(
+    image: PluginCommandActionImage,
+    *,
+    base_dir: Path | None,
+) -> ImageArtifact | None:
+    source = image.source.strip()
+    if not source:
+        return None
+
+    data, mime_type = _read_image_source(
+        source,
+        base_dir=base_dir,
+        mime_type=image.mime_type,
+    )
+    if data is None or mime_type is None:
+        return None
+    label = image.label or source
+    return ImageArtifact(
+        data=data,
+        mime_type=mime_type,
+        label=f"[IMAGE: {label}, {mime_type}, {len(data)} bytes]",
+        uri=source,
+    )
+
+
+def _read_image_source(
+    source: str,
+    *,
+    base_dir: Path | None,
+    mime_type: str | None,
+) -> tuple[bytes | None, str | None]:
+    parsed = urlparse(source)
+    if parsed.scheme in ("http", "https"):
+        return _read_image_url(source, mime_type=mime_type)
+    if parsed.scheme == "file":
+        return _read_image_path(Path(unquote(parsed.path)), mime_type=mime_type)
+    if parsed.scheme:
+        return None, None
+    path = Path(source).expanduser()
+    if not path.is_absolute() and base_dir is not None:
+        path = base_dir / path
+    return _read_image_path(path, mime_type=mime_type)
+
+
+def _read_image_url(
+    url: str,
+    *,
+    mime_type: str | None,
+) -> tuple[bytes | None, str | None]:
+    try:
+        request = Request(url, headers={"User-Agent": "fast-agent"})
+        with urlopen(request, timeout=TERMINAL_IMAGE_FETCH_TIMEOUT_SECONDS) as response:
+            header_mime = response.headers.get_content_type()
+            data = response.read(MAX_TERMINAL_IMAGE_SOURCE_BYTES + 1)
+    except Exception:
+        logger.debug("Failed to fetch terminal image URL", url=url)
+        return None, None
+
+    if len(data) > MAX_TERMINAL_IMAGE_SOURCE_BYTES:
+        logger.debug("Terminal image URL exceeded size limit", url=url)
+        return None, None
+
+    resolved_mime = _resolve_image_mime(mime_type or header_mime, url)
+    if resolved_mime is None:
+        return None, None
+    return data, resolved_mime
+
+
+def _read_image_path(
+    path: Path,
+    *,
+    mime_type: str | None,
+) -> tuple[bytes | None, str | None]:
+    try:
+        resolved = path.expanduser().resolve()
+        if not resolved.is_file() or resolved.stat().st_size > MAX_TERMINAL_IMAGE_SOURCE_BYTES:
+            return None, None
+        data = resolved.read_bytes()
+    except Exception:
+        logger.debug("Failed to read terminal image path", path=str(path))
+        return None, None
+
+    resolved_mime = _resolve_image_mime(mime_type, resolved.as_posix())
+    if resolved_mime is None:
+        return None, None
+    return data, resolved_mime
+
+
+def _resolve_image_mime(mime_type: str | None, source: str) -> str | None:
+    guessed = mime_type or mimetypes.guess_type(source)[0]
+    if guessed and guessed.startswith("image/"):
+        return guessed
     return None
 
 

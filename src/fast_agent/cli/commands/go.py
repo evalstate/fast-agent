@@ -11,9 +11,8 @@ from typing import Any, Literal
 import typer
 
 from fast_agent.a2a.connect import normalize_a2a_transport, normalize_a2a_url
-from fast_agent.cli.command_support import ensure_context_object, get_settings_or_exit
+from fast_agent.cli.command_support import ensure_context_object
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
-from fast_agent.cli.runtime.agent_setup import run_agent_request
 from fast_agent.cli.runtime.request_builders import (
     DEFAULT_AGENT_CARDS_DIR as _DEFAULT_AGENT_CARDS_DIR,
 )
@@ -41,12 +40,10 @@ from fast_agent.cli.runtime.run_request import (
 )
 from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions
-from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.agent_card_paths import AGENT_CARD_EXTENSIONS as _CARD_EXTENSIONS
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.hf_auth import add_explicit_bearer_auth_header
-from fast_agent.paths import resolve_environment_paths
 
 CARD_EXTENSIONS = _CARD_EXTENSIONS
 DEFAULT_AGENT_CARDS_DIR = _DEFAULT_AGENT_CARDS_DIR
@@ -205,7 +202,7 @@ def _build_compat_run_request(**kwargs: Any) -> AgentRunRequest:
         no_shell=kwargs.get("no_shell", False),
         mode=kwargs.get("mode", "interactive"),
         transport=kwargs.get("transport", "http"),
-        host=kwargs.get("host", "0.0.0.0"),
+        host=kwargs.get("host", "127.0.0.1"),
         port=kwargs.get("port", 8000),
         tool_description=kwargs.get("tool_description"),
         tool_name_template=kwargs.get("tool_name_template"),
@@ -227,6 +224,8 @@ async def _run_agent(
     **kwargs: Any,
 ) -> None:
     """Compatibility wrapper for async request execution."""
+    from fast_agent.cli.runtime.agent_setup import run_agent_request
+
     if request is not None and kwargs:
         raise ValueError("request cannot be combined with compatibility keyword arguments")
 
@@ -263,7 +262,7 @@ def run_async_agent(
     no_shell: bool = False,
     mode: Literal["interactive", "serve"] = "interactive",
     transport: str = "http",
-    host: str = "0.0.0.0",
+    host: str = "127.0.0.1",
     port: int = 8000,
     tool_description: str | None = None,
     tool_name_template: str | None = None,
@@ -336,6 +335,8 @@ def _resolve_effective_environment_dir(
     settings: Any | None,
     env_dir: Path | None,
 ) -> Path:
+    from fast_agent.paths import resolve_environment_paths
+
     if env_dir is not None:
         return env_dir
     return resolve_environment_paths(settings=settings).root
@@ -367,16 +368,18 @@ def _resolve_request_update_notice(
     request: AgentRunRequest,
     environment_dir: Path | None,
 ) -> str | None:
-    context_payload = ensure_context_object(ctx)
-    no_update_check_value = context_payload.get("no_update_check")
-    no_update_check = no_update_check_value if isinstance(no_update_check_value, bool) else False
-
     if request.noenv:
         return None
     if not request.is_repl:
         return None
     if request.quiet:
         return None
+    context_payload = ensure_context_object(ctx)
+    no_update_check_value = context_payload.get("no_update_check")
+    no_update_check = no_update_check_value if isinstance(no_update_check_value, bool) else False
+
+    from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
+
     if not should_run_update_check(
         disabled=no_update_check,
     ):
@@ -498,6 +501,9 @@ def go(
 
         if noenv:
             raise typer.BadParameter("Cannot combine --pack with --noenv.", param_hint="--pack")
+
+        from fast_agent.cli.command_support import get_settings_or_exit
+        from fast_agent.paths import resolve_environment_paths
 
         settings = (
             get_settings_or_exit(config_path)
