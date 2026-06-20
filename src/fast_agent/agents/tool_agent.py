@@ -383,7 +383,11 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         Generate a response using the LLM, and handle tool calls if necessary.
         Messages are already normalized to list[PromptMessageExtended].
         """
-        use_history = request_params.use_history if request_params is not None else True
+        use_history = (
+            request_params.use_history
+            if request_params is not None and "use_history" in request_params.model_fields_set
+            else self.config.use_history
+        )
         has_tool_results = any(message.tool_results for message in messages)
         if use_history and not has_tool_results:
             history_state = ToolRunner.reconcile_interrupted_history(

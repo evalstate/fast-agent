@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from fast_agent import FastAgent
+from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.fastagent import AgentRefreshResult
 from fast_agent.session import (
@@ -499,12 +500,16 @@ async def test_refresh_result_rehydrates_only_updated_agents_on_partial_refresh(
     class _Agent:
         def __init__(self, name: str) -> None:
             self.name = name
+            self.config = AgentConfig(name=name)
 
     from fast_agent.session.session_manager import Session, SessionInfo
 
-    async def fake_hydrate_active_agents_from_session(
+    async def fake_hydrate_current_session_for_refresh(
         agents: dict[str, AgentProtocol],
+        *,
+        fallback_agent_name: str | None,
     ) -> SessionHydrationResult:
+        del fallback_agent_name
         rehydrated_agent_sets.append(set(agents))
         now = datetime.now()
         return SessionHydrationResult(
@@ -526,9 +531,8 @@ async def test_refresh_result_rehydrates_only_updated_agents_on_partial_refresh(
         )
 
     monkeypatch.setattr(
-        fast,
-        "_hydrate_active_agents_from_session",
-        fake_hydrate_active_agents_from_session,
+        "fast_agent.core.fastagent.hydrate_current_session_for_refresh",
+        fake_hydrate_current_session_for_refresh,
     )
 
     changed_agent = cast("AgentProtocol", _Agent("changed"))

@@ -19,6 +19,7 @@ class AgentCardData(TypedDict, total=False):
     func: object | None
     source_path: str
     tool_only: bool
+    save_trajectory: bool
     schema_version: str
     message_files: list[Path]
     child_agents: list[str]

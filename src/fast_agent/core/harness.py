@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import sys
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar, Union
 
@@ -23,7 +23,13 @@ from fast_agent.core.harness_persistence import (
 )
 from fast_agent.core.live_session_registry import InMemoryLiveSessionRegistry
 from fast_agent.core.run_lifecycle import FastAgentRunLifecycle, FastAgentRunLifecycleState
-from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.types import (
+    AgentAuth,
+    AgentRequest,
+    AgentResponse,
+    PromptMessageExtended,
+    RequestParams,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -109,6 +115,16 @@ class HarnessSession:
             return result
         finally:
             await self._end_operation("generate")
+
+    async def invoke(self, request: AgentRequest) -> AgentResponse:
+        """Invoke the session's target agent using an AgentRequest envelope."""
+        with _agent_auth_context(request.auth):
+            message = await self.generate(
+                request.message,
+                agent_name=request.agent,
+                request_params=request.params,
+            )
+        return AgentResponse(message=message, metadata=dict(request.metadata))
 
     async def structured(
         self,
@@ -510,6 +526,26 @@ class AgentHarness:
         """Return an existing session or create it."""
         return await self.sessions.get_or_create(session_id, agent_name=agent_name)
 
+    @contextmanager
+    def request_context(
+        self,
+        request: AgentRequest | None = None,
+        *,
+        auth: AgentAuth | None = None,
+        bearer_token: str | None = None,
+    ):
+        """Set request-scoped auth for provider and MCP pass-through calls."""
+        resolved_auth = auth if auth is not None else request.auth if request is not None else None
+        if bearer_token is not None:
+            resolved_auth = AgentAuth.bearer(bearer_token)
+        with _agent_auth_context(resolved_auth):
+            yield
+
+    async def invoke(self, request: AgentRequest) -> AgentResponse:
+        """Invoke an agent through the harness session manager."""
+        session = await self.session(request.session_id, agent_name=request.agent)
+        return await session.invoke(request)
+
     async def shell(
         self,
         command: str,
@@ -698,6 +734,21 @@ def _resolve_persistence(
         create_persisted_session=create_persisted_session,
         delete_persisted_session=delete_persisted_session,
     )
+
+
+@contextmanager
+def _agent_auth_context(auth: AgentAuth | None):
+    from fast_agent.mcp.auth.context import request_bearer_token
+
+    if auth is None:
+        yield
+        return
+
+    saved_token = request_bearer_token.set(auth.token)
+    try:
+        yield
+    finally:
+        request_bearer_token.reset(saved_token)
 
 
 def _normalize_session_id(session_id: str | None) -> str:

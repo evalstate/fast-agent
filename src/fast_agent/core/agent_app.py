@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
+    from fast_agent.session.session_manager import ResumeSessionAgentsResult
     from fast_agent.types import PromptMessageExtended, RequestParams
     from fast_agent.ui.interactive_prompt import PromptLoopResult
 
@@ -155,6 +156,7 @@ class AgentApp:
         self._plugin_commands = plugin_commands
         self._plugin_command_base_path = plugin_command_base_path
         self._last_refresh_result = AgentRefreshResult(changed=False)
+        self._session_restore_result: ResumeSessionAgentsResult | None = None
         self._noenv_mode = noenv_mode
         self._missing_shell_cwd_policy_override: "MissingShellCwdPolicy | None" = None
         self._apply_agent_registry()
@@ -534,6 +536,15 @@ class AgentApp:
 
     def latest_refresh_result(self) -> AgentRefreshResult:
         return self._last_refresh_result
+
+    def set_refresh_result(self, result: AgentRefreshResult) -> None:
+        self._last_refresh_result = result
+
+    def latest_session_restore_result(self) -> "ResumeSessionAgentsResult | None":
+        return self._session_restore_result
+
+    def set_session_restore_result(self, result: "ResumeSessionAgentsResult | None") -> None:
+        self._session_restore_result = result
 
     def set_reload_callback(
         self, callback: Callable[[], Awaitable[AgentRefreshResult]] | None

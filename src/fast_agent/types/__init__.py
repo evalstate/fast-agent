@@ -32,6 +32,7 @@ from fast_agent.mcp.helpers.content_helpers import (
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 # Stop reason enum - imported directly to avoid circular dependency
+from .agent_io import AgentAuth, AgentRequest, AgentResponse, ProgressReporter
 from .assistant_message_phase import (
     COMMENTARY_PHASE,
     FINAL_ANSWER_PHASE,
@@ -52,9 +53,13 @@ __all__ = [
     "COMMENTARY_PHASE",
     "FINAL_ANSWER_PHASE",
     "AssistantMessagePhase",
+    "AgentAuth",
+    "AgentRequest",
+    "AgentResponse",
     "ConversationSummary",
     "LlmStopReason",
     "PromptMessageExtended",
+    "ProgressReporter",
     "RequestParams",
     "ResourceLink",
     "ResponseMode",

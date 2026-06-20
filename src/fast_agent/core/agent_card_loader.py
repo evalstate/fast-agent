@@ -453,6 +453,7 @@ def _build_agent_data(
 
     model = raw.get("model")
     use_history = _default_use_history(type_key, raw.get("use_history"))
+    save_trajectory = _ensure_bool(raw.get("save_trajectory"), "save_trajectory", path)
     request_params = _ensure_request_params(raw.get("request_params"), path)
     human_input = _ensure_bool(raw.get("human_input"), "human_input", path, default=False)
     default, tool_only = _ensure_default_flags(raw, name, path)
@@ -481,6 +482,7 @@ def _build_agent_data(
         skills=raw.get("skills") if raw.get("skills") is not None else SKILLS_DEFAULT,
         model=model,
         use_history=use_history,
+        save_trajectory=save_trajectory,
         human_input=human_input,
         default=default,
         tool_only=tool_only,
@@ -1181,6 +1183,13 @@ def _serialize_optional_common_fields(
     )
     _set_allowed(card, allowed_fields, "model", config.model, when=bool(config.model))
     _set_allowed(card, allowed_fields, "human_input", True, when=config.human_input)
+    _set_allowed(
+        card,
+        allowed_fields,
+        "save_trajectory",
+        True,
+        when=config.save_trajectory,
+    )
     _set_allowed(card, allowed_fields, "api_key", config.api_key, when=bool(config.api_key))
     _set_allowed(
         card,

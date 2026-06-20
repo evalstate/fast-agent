@@ -677,7 +677,10 @@ class ToolRunner:
         return staged
 
     def _use_history_enabled(self) -> bool:
-        if self._request_params is not None:
+        if (
+            self._request_params is not None
+            and "use_history" in self._request_params.model_fields_set
+        ):
             return self._request_params.use_history
         return self._agent.config.use_history
 

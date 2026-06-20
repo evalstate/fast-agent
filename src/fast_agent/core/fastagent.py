@@ -58,11 +58,15 @@ from fast_agent.core.instruction_utils import apply_instruction_context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt_templates import enrich_with_environment_context
 from fast_agent.core.run_lifecycle import FastAgentRunLifecycle
-from fast_agent.core.validation import (
-    validate_provider_keys_post_creation,
-    validate_server_references,
-    validate_workflow_references,
+from fast_agent.core.runtime_finalization import (
+    SessionRestoreRequest,
+    hydrate_current_session_for_refresh,
+    hydration_warnings,
+    restore_requested_session,
+    session_restore_warnings,
+    validate_final_provider_state,
 )
+from fast_agent.core.validation import validate_server_references, validate_workflow_references
 from fast_agent.mcp.connect_targets import resolve_target_entry
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
@@ -88,7 +92,6 @@ if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol, ModelFactoryFunctionProtocol
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
     from fast_agent.mcp.types import McpAgentProtocol
-    from fast_agent.session import Session, SessionHydrationResult
     from fast_agent.tools.session_environment import ShellExecutor
     from fast_agent.types import PromptMessageExtended
 
@@ -98,6 +101,7 @@ SkillEntry: TypeAlias = SkillManifest | SkillRegistry | Path | str
 SkillConfig: TypeAlias = SkillEntry | list[SkillEntry | None] | None | SkillsDefault
 FileSignature: TypeAlias = tuple[int, int]
 _PROMPT_EXIT_SHUTDOWN_TIMEOUT_SECONDS = 1.0
+_DEFAULT_CLI_AGENT_PLACEHOLDER = "agent"
 
 
 @dataclass(frozen=True)
@@ -109,6 +113,9 @@ class RunSettings:
     transport: str | None
     is_acp_server_mode: bool
     reload_enabled: bool
+    resume_requested: bool = False
+    resume_session_id: str | None = None
+    target_agent_name: str | None = None
 
 
 @dataclass
@@ -120,6 +127,9 @@ class RunRuntime:
     managed_instances: list[AgentInstance]
     instance_lock: asyncio.Lock
     shell_executor: ShellExecutor
+    resume_requested: bool = False
+    resume_session_id: str | None = None
+    target_agent_name: str | None = None
 
 
 @dataclass
@@ -1607,6 +1617,11 @@ class FastAgent(DecoratorMixin):
         )
         cli_model_override = cli_model_arg if isinstance(cli_model_arg, str) else None
         noenv_mode = bool(getattr(self.args, "noenv", False))
+        resume_requested = bool(getattr(self.args, "resume_requested", False))
+        resume_session_id_arg = getattr(self.args, "resume_session_id", None)
+        resume_session_id = resume_session_id_arg if isinstance(resume_session_id_arg, str) else None
+        target_agent_name_arg = getattr(self.args, "agent", None)
+        target_agent_name = target_agent_name_arg if isinstance(target_agent_name_arg, str) else None
 
         cfg = self.context.config
         model_source_override_arg = getattr(self.args, "model_source_override", None)
@@ -1627,6 +1642,9 @@ class FastAgent(DecoratorMixin):
         return RunSettings(
             quiet_mode=quiet_mode,
             cli_model_override=cli_model_override,
+            resume_requested=resume_requested,
+            resume_session_id=resume_session_id,
+            target_agent_name=target_agent_name,
             noenv_mode=noenv_mode,
             server_mode=server_mode,
             transport=transport,
@@ -1733,6 +1751,9 @@ class FastAgent(DecoratorMixin):
                 apply_global_prompt_context=not settings.is_acp_server_mode,
                 noenv_mode=settings.noenv_mode,
             ),
+            resume_requested=settings.resume_requested,
+            resume_session_id=settings.resume_session_id,
+            target_agent_name=settings.target_agent_name,
             is_acp_server_mode=settings.is_acp_server_mode,
             noenv_mode=settings.noenv_mode,
             managed_instances=[],
@@ -1757,8 +1778,6 @@ class FastAgent(DecoratorMixin):
                 runtime.model_factory_func,
                 global_function_tools=self._registered_tools,
             )
-            if not runtime.is_acp_server_mode:
-                validate_provider_keys_post_creation(agents_map)
 
             tool_only_agents = {
                 name for name, data in self.agents.items() if data.get("tool_only", False)
@@ -1796,8 +1815,6 @@ class FastAgent(DecoratorMixin):
             )
             runtime.managed_instances.append(instance)
             self._apply_agent_card_histories(instance.agents)
-            if runtime.global_prompt_context:
-                await self._apply_instruction_context(instance, runtime.global_prompt_context)
             return instance
 
     async def _dispose_agent_instance(self, runtime: RunRuntime, instance: AgentInstance) -> None:
@@ -1806,9 +1823,48 @@ class FastAgent(DecoratorMixin):
                 runtime.managed_instances.remove(instance)
         await instance.shutdown()
 
+    def _session_restore_request(self, app: AgentApp, runtime: RunRuntime) -> SessionRestoreRequest:
+        target_agent_name = runtime.target_agent_name
+        if (
+            target_agent_name == _DEFAULT_CLI_AGENT_PLACEHOLDER
+            and app.get_agent(target_agent_name) is None
+        ):
+            target_agent_name = None
+        return SessionRestoreRequest(
+            session_id=runtime.resume_session_id,
+            fallback_agent_name=app.resolve_target_agent_name(target_agent_name),
+        )
+
+    async def _finalize_initial_agent_instance(
+        self,
+        runtime: RunRuntime,
+        instance: AgentInstance,
+    ) -> AgentRefreshResult:
+        if runtime.global_prompt_context:
+            await self._apply_instruction_context(instance, runtime.global_prompt_context)
+
+        restore_result = None
+        if runtime.resume_requested:
+            restore_result = await restore_requested_session(
+                instance.agents,
+                self._session_restore_request(instance.app, runtime),
+            )
+            instance.app.set_session_restore_result(restore_result)
+
+        if not runtime.is_acp_server_mode:
+            validate_final_provider_state(instance.agents)
+
+        return AgentRefreshResult(
+            changed=restore_result is not None,
+            active_agent=restore_result.active_agent if restore_result is not None else None,
+            warnings=session_restore_warnings(restore_result),
+        )
+
     async def _initialize_managed_run_state(self, runtime: RunRuntime) -> ManagedRunState:
         """Create the primary shared app instance for this run."""
         primary_instance = await self._instantiate_agent_instance(runtime)
+        refresh_result = await self._finalize_initial_agent_instance(runtime, primary_instance)
+        primary_instance.app.set_refresh_result(refresh_result)
         return ManagedRunState(
             runtime=runtime,
             primary_instance=primary_instance,
@@ -1912,21 +1968,11 @@ class FastAgent(DecoratorMixin):
         if not updated_agents:
             return
 
-        if not runtime.is_acp_server_mode:
-            validate_provider_keys_post_creation(updated_agents)
-
         if runtime.global_prompt_context:
             await apply_instruction_context(updated_agents.values(), runtime.global_prompt_context)
 
-    def _load_current_persisted_session(self) -> "Session | None":
-        from fast_agent.session import get_session_manager
-
-        manager = get_session_manager()
-        current_session = manager.current_session
-        if current_session is None:
-            return None
-        loaded_session = manager.load_session(current_session.info.name)
-        return loaded_session or current_session
+        if not runtime.is_acp_server_mode:
+            validate_final_provider_state(updated_agents)
 
     def _log_local_hydration_messages(self, warnings: list[str]) -> None:
         for warning in warnings:
@@ -1936,42 +1982,20 @@ class FastAgent(DecoratorMixin):
                 warning=warning,
             )
 
-    async def _hydrate_active_agents_from_session(
-        self,
-        agents: dict[str, AgentProtocol],
-    ) -> "SessionHydrationResult | None":
-        from fast_agent.session import SessionHydrationPolicy, SessionHydrator
-
-        persisted_session = self._load_current_persisted_session()
-        if persisted_session is None:
-            return None
-
-        fallback_agent_name = resolve_default_agent_name(
-            agents,
-            is_default=lambda _name, agent: agent_is_default(agent),
-        )
-        hydration = SessionHydrator().hydrate_session(
-            session=persisted_session,
-            agents=agents,
-            fallback_agent_name=fallback_agent_name,
-            policy=SessionHydrationPolicy.for_refresh(),
-        )
-        result = await hydration if inspect.isawaitable(hydration) else hydration
-        warnings = [warning.message for warning in result.warnings]
-        warnings.extend(result.usage_notices)
-        self._log_local_hydration_messages(warnings)
-        return result
-
     async def _refresh_result_from_session_restore(
         self,
         agents: dict[str, AgentProtocol],
         updated_agents: dict[str, AgentProtocol] | None = None,
     ) -> AgentRefreshResult:
         agents_to_hydrate = updated_agents if updated_agents is not None else agents
-        hydration_result = self._hydrate_active_agents_from_session(agents_to_hydrate)
-        hydration = (
-            await hydration_result if inspect.isawaitable(hydration_result) else hydration_result
+        hydration = await hydrate_current_session_for_refresh(
+            agents_to_hydrate,
+            fallback_agent_name=resolve_default_agent_name(
+                agents_to_hydrate,
+                is_default=lambda _name, agent: agent_is_default(agent),
+            ),
         )
+        self._log_local_hydration_messages(hydration_warnings(hydration))
         if hydration is None:
             if updated_agents:
                 self._reload_updated_agent_file_histories(
@@ -1993,15 +2017,13 @@ class FastAgent(DecoratorMixin):
                     allow_unchanged_empty=True,
                 )
 
-        warnings = [warning.message for warning in hydration.warnings]
-        warnings.extend(hydration.usage_notices)
         active_agent = hydration.active_agent
         if updated_agents is not None and active_agent not in updated_agents:
             active_agent = None
         return AgentRefreshResult(
             changed=True,
             active_agent=active_agent,
-            warnings=warnings,
+            warnings=hydration_warnings(hydration),
         )
 
     async def _refresh_shared_instance(self, state: ManagedRunState) -> AgentRefreshResult:
@@ -2019,6 +2041,7 @@ class FastAgent(DecoratorMixin):
                 state.runtime,
                 app_override=state.wrapper,
             )
+            await self._finalize_updated_agents(new_instance.agents, state.runtime)
             refresh_result = await self._refresh_result_from_session_restore(new_instance.agents)
             old_instance = state.primary_instance
             state.primary_instance = new_instance

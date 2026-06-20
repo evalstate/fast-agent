@@ -26,8 +26,12 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "TensorZeroSettings": ("fast_agent.config", "TensorZeroSettings"),
     "XAISettings": ("fast_agent.config", "XAISettings"),
     "ConversationSummary": ("fast_agent.types", "ConversationSummary"),
+    "AgentAuth": ("fast_agent.types", "AgentAuth"),
+    "AgentRequest": ("fast_agent.types", "AgentRequest"),
+    "AgentResponse": ("fast_agent.types", "AgentResponse"),
     "LlmStopReason": ("fast_agent.types", "LlmStopReason"),
     "PromptMessageExtended": ("fast_agent.types", "PromptMessageExtended"),
+    "ProgressReporter": ("fast_agent.types", "ProgressReporter"),
     "RequestParams": ("fast_agent.types", "RequestParams"),
     "ResourceLink": ("fast_agent.types", "ResourceLink"),
     "audio_link": ("fast_agent.types", "audio_link"),
@@ -146,8 +150,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing aid only
     from fast_agent.core.harness import HarnessSession as HarnessSession
     from fast_agent.core.harness import HarnessSessions as HarnessSessions
     from fast_agent.mcp.prompt import Prompt as Prompt
+    from fast_agent.types import AgentAuth as AgentAuth
+    from fast_agent.types import AgentRequest as AgentRequest
+    from fast_agent.types import AgentResponse as AgentResponse
     from fast_agent.types import ConversationSummary as ConversationSummary
     from fast_agent.types import LlmStopReason as LlmStopReason
+    from fast_agent.types import ProgressReporter as ProgressReporter
     from fast_agent.types import PromptMessageExtended as PromptMessageExtended
     from fast_agent.types import RequestParams as RequestParams
     from fast_agent.types import ResourceLink as ResourceLink
@@ -164,7 +172,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing aid only
 
 __all__ = [
     "AnthropicSettings",
+    "AgentAuth",
     "AgentHarness",
+    "AgentRequest",
+    "AgentResponse",
     "HarnessSessions",
     "HarnessSession",
     "AzureSettings",
@@ -198,6 +209,7 @@ __all__ = [
     "Prompt",
     "PromptExitError",
     "PromptMessageExtended",
+    "ProgressReporter",
     "RequestParams",
     "ResourceLink",
     "ServerRegistry",

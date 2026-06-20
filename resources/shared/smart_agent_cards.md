@@ -35,6 +35,9 @@
   - If omitted, parent agents use the legacy `message: string` tool schema.
   - Use `properties.<param>.description` for clear parameter guidance.
 - `use_history` — bool (default `true`).
+- `save_trajectory` — bool (default `false`); requires `use_history: false`.
+  Saves one replay-oriented JSON trace per stateless invocation in the active
+  session's `trajectories/` directory.
 - `messages` — path or list of history files (relative to card directory).
 - `request_params` — request/model overrides.
   - `tool_result_mode` controls what a caller receives after this agent uses tools.

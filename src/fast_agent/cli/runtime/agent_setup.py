@@ -41,7 +41,6 @@ if TYPE_CHECKING:
 
     from fast_agent.config import Settings
     from fast_agent.core.model_resolution import ResolvedModelSpec
-    from fast_agent.interfaces import AgentProtocol
     from fast_agent.llm.structured_schema import StructuredSchemaSource
     from fast_agent.types import PromptMessageExtended, StructuredToolPolicy
 
@@ -664,17 +663,11 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
     if not request.resume or request.noenv:
         return
 
-    from fast_agent.session import get_session_manager
     from fast_agent.ui.enhanced_prompt import queue_startup_markdown_notice, queue_startup_notice
 
-    manager = get_session_manager()
     session_id = _resume_session_id(request)
     default_agent = agent_app._agent(None)
-    result = await manager.resume_session_agents_async(
-        agent_app.registered_agents(),
-        session_id,
-        fallback_agent_name=_resume_fallback_agent_name(agent_app, request, default_agent),
-    )
+    result = agent_app.latest_session_restore_result()
     interactive_notice = request.is_repl
     if not result:
         _emit_resume_not_found_notice(session_id, interactive_notice, queue_startup_notice)
@@ -702,14 +695,6 @@ def _validate_resume_request(request: AgentRunRequest) -> None:
 
 def _resume_session_id(request: AgentRunRequest) -> str | None:
     return None if request.resume in ("", RESUME_LATEST_SENTINEL) else request.resume
-
-
-def _resume_fallback_agent_name(
-    agent_app: Any,
-    request: AgentRunRequest,
-    default_agent: "AgentProtocol",
-) -> str | None:
-    return agent_app.resolve_target_agent_name(request.target_agent_name) or default_agent.name
 
 
 def _plain_resume_notice(notice: str) -> str:
@@ -1402,6 +1387,8 @@ def _apply_fast_args(
 ) -> None:
     if request.model:
         fast.args.model = request.model
+    fast.args.resume_requested = request.resume is not None
+    fast.args.resume_session_id = _resume_session_id(request)
     if model_source_override:
         fast.args.model_source_override = model_source_override
     fast.args.noenv = request.noenv

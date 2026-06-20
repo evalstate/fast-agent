@@ -14,6 +14,7 @@ from mcp.types import CallToolRequestParams, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.cli.runtime.agent_setup import (
+    _apply_fast_args,
     _apply_shell_cwd_policy_preflight,
     _build_fan_out_result_paths,
     _build_result_file_with_suffix,
@@ -78,6 +79,7 @@ class _DummyAgentApp:
     def __init__(self, agent_names: list[str], *, default_agent: str | None = None) -> None:
         self._agents = {name: _DummyAgent(name) for name in agent_names}
         self._default_agent = default_agent or agent_names[0]
+        self._session_restore_result = None
 
     def _agent(self, agent_name: str | None):
         if agent_name is None:
@@ -92,6 +94,9 @@ class _DummyAgentApp:
 
     def registered_agents(self):
         return self._agents
+
+    def latest_session_restore_result(self):
+        return self._session_restore_result
 
     async def interactive(self, agent_name: str | None = None) -> None:
         del agent_name
@@ -189,6 +194,17 @@ def test_should_convert_keyboard_interrupt_to_task_cancel_only_for_interactive_r
         prompt_file="prompt.txt",
     )
     assert _should_convert_keyboard_interrupt_to_task_cancel(prompt_file_request) is False
+
+
+def test_apply_fast_args_threads_resume_into_runtime_settings() -> None:
+    request = _make_request(result_file=None)
+    request.resume = "session-123"
+    fast = SimpleNamespace(args=SimpleNamespace())
+
+    _apply_fast_args(fast, request)
+
+    assert fast.args.resume_requested is True
+    assert fast.args.resume_session_id == "session-123"
 
 
 def test_build_fan_out_result_paths_disambiguates_collisions() -> None:
@@ -648,15 +664,11 @@ async def test_resume_session_interactive_queues_markdown_preview(
         )
     )
 
-    async def _resume_session_agents_async(*args, **kwargs):
-        del args, kwargs
-        return ResumeSessionAgentsResult(
-            session=cast("Any", session),
-            loaded={"alpha": Path("history_alpha.json")},
-            missing_agents=[],
-        )
-
-    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
+    app._session_restore_result = ResumeSessionAgentsResult(
+        session=cast("Any", session),
+        loaded={"alpha": Path("history_alpha.json")},
+        missing_agents=[],
+    )
 
     markdown_notices: list[tuple[str, dict[str, str | None]]] = []
     plain_notices: list[str] = []
@@ -664,7 +676,6 @@ async def test_resume_session_interactive_queues_markdown_preview(
     def _capture_markdown_notice(text: str, **kwargs: str | None) -> None:
         markdown_notices.append((text, kwargs))
 
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
     monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", plain_notices.append)
     monkeypatch.setattr(
         "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
@@ -710,24 +721,19 @@ async def test_resume_session_preview_fallback_preserves_loaded_order(
         )
     )
 
-    async def _resume_session_agents_async(*args, **kwargs):
-        del args, kwargs
-        return ResumeSessionAgentsResult(
-            session=cast("Any", session),
-            loaded={
-                "beta": Path("history_beta.json"),
-                "alpha": Path("history_alpha.json"),
-            },
-            missing_agents=[],
-        )
-
-    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
+    app._session_restore_result = ResumeSessionAgentsResult(
+        session=cast("Any", session),
+        loaded={
+            "beta": Path("history_beta.json"),
+            "alpha": Path("history_alpha.json"),
+        },
+        missing_agents=[],
+    )
     markdown_notices: list[tuple[str, dict[str, str | None]]] = []
 
     def _capture_markdown_notice(text: str, **kwargs: str | None) -> None:
         markdown_notices.append((text, kwargs))
 
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
     monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", lambda *_args: None)
     monkeypatch.setattr(
         "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
@@ -763,20 +769,15 @@ async def test_resume_session_interactive_handles_usage_notices_from_result(
         )
     )
 
-    async def _resume_session_agents_async(*args, **kwargs):
-        del args, kwargs
-        return ResumeSessionAgentsResult(
-            session=cast("Any", session),
-            loaded={"agent": Path("history_agent.json")},
-            missing_agents=[],
-            usage_notices=["[dim]Usage restored[/dim]"],
-        )
-
-    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
+    app._session_restore_result = ResumeSessionAgentsResult(
+        session=cast("Any", session),
+        loaded={"agent": Path("history_agent.json")},
+        missing_agents=[],
+        usage_notices=["[dim]Usage restored[/dim]"],
+    )
 
     plain_notices: list[str] = []
 
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
     monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", plain_notices.append)
     monkeypatch.setattr(
         "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
@@ -819,26 +820,21 @@ async def test_resume_session_applies_hydrated_active_agent_to_request(
         )
     )
 
-    async def _resume_session_agents_async(*args, **kwargs):
-        del args, kwargs
-        return ResumeSessionAgentsResult(
-            session=cast("Any", session),
-            loaded={
-                "alpha": Path("history_alpha.json"),
-                "beta": Path("history_beta.json"),
-            },
-            missing_agents=[],
-            active_agent="alpha",
-        )
-
-    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
+    app._session_restore_result = ResumeSessionAgentsResult(
+        session=cast("Any", session),
+        loaded={
+            "alpha": Path("history_alpha.json"),
+            "beta": Path("history_beta.json"),
+        },
+        missing_agents=[],
+        active_agent="alpha",
+    )
 
     markdown_notices: list[tuple[str, dict[str, str | None]]] = []
 
     def _capture_markdown_notice(text: str, **kwargs: str | None) -> None:
         markdown_notices.append((text, kwargs))
 
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
     monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", lambda *_args: None)
     monkeypatch.setattr(
         "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
@@ -865,26 +861,17 @@ async def test_resume_session_prefers_explicit_target_agent_for_fallback_history
     request.resume = "latest"
 
     app = _DummyAgentApp(["alpha", "beta"], default_agent="alpha")
-    captured_kwargs: dict[str, object] = {}
     session = SimpleNamespace(
         info=SimpleNamespace(
             name="session-3",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
         )
     )
-
-    async def _resume_session_agents_async(*args, **kwargs):
-        del args
-        captured_kwargs.update(kwargs)
-        return ResumeSessionAgentsResult(
-            session=cast("Any", session),
-            loaded={"beta": Path("history_beta.json")},
-            missing_agents=[],
-        )
-
-    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
-
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
+    app._session_restore_result = ResumeSessionAgentsResult(
+        session=cast("Any", session),
+        loaded={"beta": Path("history_beta.json")},
+        missing_agents=[],
+    )
     monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", lambda *_args: None)
     monkeypatch.setattr(
         "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
@@ -893,7 +880,7 @@ async def test_resume_session_prefers_explicit_target_agent_for_fallback_history
 
     await _resume_session_if_requested(app, request)
 
-    assert captured_kwargs["fallback_agent_name"] == "beta"
+    assert request.target_agent_name == "beta"
 
 
 @pytest.mark.asyncio
