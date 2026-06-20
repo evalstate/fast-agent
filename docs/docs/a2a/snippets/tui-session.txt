@@ -3,7 +3,6 @@ help
 /a2a status
 /a2a transport
 please stream
-/tasks
 respond with files
 need input
 blue
