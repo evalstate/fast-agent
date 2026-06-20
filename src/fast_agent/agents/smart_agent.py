@@ -489,8 +489,6 @@ async def _run_named_command_call(
             agent_name=agent_name,
             value=argument,
         )
-        if selected_action == "switch":
-            await model_handlers.apply_model_switch_session_reset(context, outcome)
         final_heading = heading or f"model.{selected_action}"
         return _render_command_outcome(outcome, heading=final_heading, io=io)
 

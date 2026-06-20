@@ -339,6 +339,10 @@ class ModelSelectionCatalog:
                 alias="deepseek-r1-distill-llama-70b",
                 model="groq.deepseek-r1-distill-llama-70b",
             ),
+            CatalogModelEntry(
+                alias="qwen3.6-27b",
+                model="groq.qwen/qwen3.6-27b",
+            ),
         ),
         Provider.FAST_AGENT: (
             CatalogModelEntry(
