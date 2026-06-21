@@ -227,6 +227,15 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="toggle", value=True),
     )
 
+    # Groq exposes reasoning as a binary toggle: `reasoning_effort="default"`
+    # (thinking on) or `reasoning_effort="none"` (thinking off). Standard effort
+    # levels are rejected by the API, so model this as a toggle and let the Groq
+    # provider normalize arbitrary effort input to on/off.
+    GROQ_REASONING_TOGGLE_SPEC = ReasoningEffortSpec(
+        kind="toggle",
+        default=ReasoningEffortSetting(kind="toggle", value=True),
+    )
+
     DEEPSEEK_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["high", "max"],
@@ -632,14 +641,6 @@ class ModelDatabase:
         system_role="developer",
     )
 
-    DEEPSEEK_DISTILL = ModelParameters(
-        context_window=131072,
-        max_output_tokens=131072,
-        tokenizes=TEXT_ONLY,
-        json_mode="object",
-        reasoning="tags",
-    )
-
     GEMINI_25_STANDARD = ModelParameters(
         context_window=1_048_576,
         max_output_tokens=65_536,
@@ -926,6 +927,21 @@ class ModelDatabase:
         default_provider=Provider.HUGGINGFACE,
     )
 
+    # Groq-hosted Qwen3.6-27B. Groq's OpenAI-compatible API returns reasoning in
+    # a separate `reasoning` delta field when `reasoning_format=parsed`, which
+    # fast-agent extracts and streams via the "stream" reasoning mode. Capability
+    # values reflect Groq's published model metadata (text+image input, JSON
+    # object mode, 131k context, 32k output).
+    GROQ_QWEN36_27B = ModelParameters(
+        context_window=131_072,
+        max_output_tokens=32_768,
+        tokenizes=QWEN_MULTIMODAL,
+        json_mode="object",
+        reasoning="stream",
+        reasoning_effort_spec=GROQ_REASONING_TOGGLE_SPEC,
+        default_provider=Provider.GROQ,
+    )
+
     HF_PROVIDER_GEMMA4_31B = ModelParameters(
         context_window=262_144,
         max_output_tokens=65_536,
@@ -1094,7 +1110,6 @@ class ModelDatabase:
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
         "moonshotai/kimi-k2.7-code": KIMI_MOONSHOT_27_CODE,
         "qwen/qwen3-32b": QWEN3_REASONER,
-        "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
         "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,  # tool/reasoning interleave guidance
         "zai-org/glm-4.6": GLM_46,
@@ -1114,6 +1129,7 @@ class ModelDatabase:
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "qwen/qwen3.5-397b-a17b": HF_PROVIDER_QWEN35,
         "qwen/qwen3.6-35b-a3b": HF_PROVIDER_QWEN36,
+        "qwen/qwen3.6-27b": GROQ_QWEN36_27B,
         "google/gemma-4-31b-it": HF_PROVIDER_GEMMA4_31B,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
         "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,

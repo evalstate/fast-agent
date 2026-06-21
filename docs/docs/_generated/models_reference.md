@@ -51,6 +51,7 @@
 | `moonshotai/kimi-k2-instruct-0905` | `groq` | Text | `json` (schema) | — | — | — |
 | `moonshotai/kimi-k2-thinking` | `groq` | Text | `json` (schema) | — | — | — |
 | `moonshotai/kimi-k2` | `groq` | Text | `json` (schema) | — | — | — |
+| `qwen/qwen3.6-27b` | `groq` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen/qwen3.6-27b?reasoning=off` | — | — |
 | `deepseek-hf` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek32` | `hf` | Text | `json` (schema) | — | — | — |
 | `gemma4` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `gemma4?reasoning=off` | — | — |

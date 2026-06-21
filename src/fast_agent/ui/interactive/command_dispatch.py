@@ -1213,7 +1213,6 @@ async def _dispatch_model_payload(
         agent_name=agent,
         value=payload.value,
     )
-    await model_handlers.apply_model_switch_session_reset(context, outcome)
     await emit_command_outcome(context, outcome)
     return result
 
