@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from json import JSONDecodeError
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, Union, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from mcp.types import CallToolResult, ContentBlock
 from rich.console import Group, RenderableType
@@ -1184,7 +1184,7 @@ class ConsoleDisplay:
 
     async def show_assistant_message(
         self,
-        message_text: Union[str, Text, "PromptMessageExtended"],
+        message_text: "str | Text | PromptMessageExtended",
         bottom_items: list[str] | None = None,
         highlight_index: int | None = None,
         max_item_length: int | None = None,
@@ -1295,7 +1295,7 @@ class ConsoleDisplay:
 
     def show_mermaid_diagrams_from_message_text(
         self,
-        message_text: Union[str, Text, "PromptMessageExtended"],
+        message_text: "str | Text | PromptMessageExtended",
     ) -> None:
         """Display mermaid links extracted from assistant text payload."""
         if not self._chat_output_enabled():
@@ -1494,7 +1494,7 @@ class ConsoleDisplay:
 
     def show_user_message(
         self,
-        message: Union[str, Text],
+        message: str | Text,
         model: str | None = None,
         chat_turn: int = 0,
         total_turns: int | None = None,

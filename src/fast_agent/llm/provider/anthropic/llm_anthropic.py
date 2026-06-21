@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar, Literal, Protocol, Union, cast, runtime_checkable
+from typing import Any, ClassVar, Literal, Protocol, cast, runtime_checkable
 
 from anthropic import (
     APIError,
@@ -140,7 +140,7 @@ STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
 STREAM_CAPTURE_DIR = Path("stream-debug")
 
 # Type alias for system field - can be string or list of text blocks with cache control
-SystemParam = Union[str, list[BetaTextBlockParam]]
+SystemParam = str | list[BetaTextBlockParam]
 CacheTTL = Literal["5m", "1h"]
 
 logger = get_logger(__name__)
@@ -736,7 +736,11 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if self._configured_api_key() is not None:
             return
         client = self._initialize_anthropic_client()
-        if client.api_key is not None or client.auth_token is not None or client.credentials is not None:
+        if (
+            client.api_key is not None
+            or client.auth_token is not None
+            or client.credentials is not None
+        ):
             return
         self._provider_api_key()
 

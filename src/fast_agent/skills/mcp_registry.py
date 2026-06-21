@@ -305,9 +305,7 @@ def _parse_archives(
         if validated is None:
             continue
         url, digest = validated
-        archives.append(
-            McpRegistryArchive(url=url, mime_type=mime_type.strip(), digest=digest)
-        )
+        archives.append(McpRegistryArchive(url=url, mime_type=mime_type.strip(), digest=digest))
     return archives
 
 
@@ -655,9 +653,7 @@ async def _walk_skill_directory(
                 )
                 continue
             if len(data) > MAX_SUPPORTING_FILE_BYTES:
-                raise ValueError(
-                    f"MCP skill supporting file exceeds size limit: {child_uri}"
-                )
+                raise ValueError(f"MCP skill supporting file exceeds size limit: {child_uri}")
             budget.add(len(data))
             destination = dest_dir / PurePosixPath(relative)
             destination.parent.mkdir(parents=True, exist_ok=True)

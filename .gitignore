@@ -207,6 +207,7 @@ tests/integration/roots/fastagent.jsonl
 
 # Runtime session data
 sessions/
+hf-dev/sessions/
 
 # Auth configuration (local/secrets)
 auths.md

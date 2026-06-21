@@ -176,9 +176,7 @@ class _ParallelChunkMonitor:
         )
         aggregate.timing_ttft_ms.extend(summary.timing_ttft_ms[self._snapshot.timing_ttft_count :])
         aggregate.timing_time_to_response_ms.extend(
-            summary.timing_time_to_response_ms[
-                self._snapshot.timing_time_to_response_count :
-            ]
+            summary.timing_time_to_response_ms[self._snapshot.timing_time_to_response_count :]
         )
         _add_usage_totals_delta(
             aggregate.usage_totals,
@@ -1000,10 +998,12 @@ async def _process_batch_selection(
     trace_recorder = _configure_trace_recorder(worker, options, summary.metadata)
     with (
         options.output_path.open(output_mode, encoding="utf-8") as output_handle,
-        _optional_jsonl_handle(options.error_output_path, "a" if options.resume else "w")
-        as error_handle,
-        _optional_jsonl_handle(options.telemetry_output_path, "a" if options.resume else "w")
-        as telemetry_handle,
+        _optional_jsonl_handle(
+            options.error_output_path, "a" if options.resume else "w"
+        ) as error_handle,
+        _optional_jsonl_handle(
+            options.telemetry_output_path, "a" if options.resume else "w"
+        ) as telemetry_handle,
     ):
         for candidate in selected:
             if _max_errors_reached(summary.failed_rows, options.max_errors):

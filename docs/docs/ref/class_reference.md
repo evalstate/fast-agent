@@ -97,8 +97,8 @@ Starts the application as an MCP server.
 | `transport` | `str` | `"http"` | Transport protocol to use (`http`, `stdio`, `acp`) |
 | `host` | `str` | `"127.0.0.1"` | Host address for the server when using HTTP |
 | `port` | `int` | `8000` | Port for the server when using HTTP |
-| `server_name` | `Optional[str]` | `None` | Optional custom name for the MCP server |
-| `server_description` | `Optional[str]` | `None` | Optional description for the MCP server |
+| `server_name` | `str \| None` | `None` | Optional custom name for the MCP server |
+| `server_description` | `str \| None` | `None` | Optional description for the MCP server |
 | `tool_description` | `str \| None` | `None` | Customise the exposed `send` tool description (supports `{agent}` placeholder) |
 | `instance_scope` | `str \| None` | `None` | Control how clients receive isolated agent instances (`shared`, `connection`, `request`); `None` uses the transport default |
 | `permissions_enabled` | `bool` | `True` | Enable tool permission requests (ACP only) |
@@ -136,7 +136,7 @@ response = await agent["agent_name"].send("Hello")
 
 ```python
 await agent.send(
-    message: Union[str, PromptMessage, PromptMessageExtended],
+    message: str | PromptMessage | PromptMessageExtended,
     agent_name: str | None = None,
     request_params: RequestParams | None = None,
 ) -> str
@@ -161,7 +161,7 @@ Apply a prompt template to an agent (default agent if not specified).
 
 ```python
 await agent.with_resource(
-    prompt_content: Union[str, PromptMessage, PromptMessageExtended],
+    prompt_content: str | PromptMessage | PromptMessageExtended,
     resource_uri: str,
     server_name: str | None = None,
     agent_name: str | None = None

@@ -2,7 +2,7 @@ import json
 import os
 import re
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal, Protocol, Union, cast, runtime_checkable
+from typing import Any, Literal, Protocol, cast, runtime_checkable
 from urllib.parse import urlparse
 
 from anthropic.types.beta import (
@@ -739,7 +739,7 @@ class AnthropicConverter:
 
     @staticmethod
     def _determine_mime_type(
-        resource: Union[TextResourceContents, BlobResourceContents],
+        resource: TextResourceContents | BlobResourceContents,
     ) -> str:
         """
         Determine the MIME type of a resource.

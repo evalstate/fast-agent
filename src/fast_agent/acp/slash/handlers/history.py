@@ -29,10 +29,10 @@ _HistoryIntentHandler = Callable[["SlashCommandHandler", HistoryActionIntent], A
 
 
 _HISTORY_USAGE = (
-    "Usage: /history [show|detail <turn>|save|load|clear [last]|rewind <turn>|fix] [args]"
+    "Usage: /history [turn|show|detail <turn>|save|load|clear [last]|rewind <turn>|fix] [args]"
 )
 _HISTORY_WEBCLEAR_USAGE = (
-    "Usage: /history [show|detail <turn>|save|load|clear [last]|rewind <turn>|fix|webclear] [args]"
+    "Usage: /history [turn|show|detail <turn>|save|load|clear [last]|rewind <turn>|fix|webclear] [args]"
 )
 _TURN_ERROR_MESSAGES: dict[HistoryTurnAction, dict[HistoryTurnError, str]] = {
     "detail": {

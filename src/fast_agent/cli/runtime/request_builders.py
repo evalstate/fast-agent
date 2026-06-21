@@ -499,9 +499,7 @@ def build_agent_run_request(
         merged_agent_cards = normalize_explicit_card_sources(agent_cards)
         merged_card_tools = normalize_explicit_card_sources(card_tools)
     else:
-        default_agent_cards_dir, default_tool_cards_dir = _default_card_directories(
-            environment_dir
-        )
+        default_agent_cards_dir, default_tool_cards_dir = _default_card_directories(environment_dir)
         merged_agent_cards = merge_card_sources(agent_cards, default_agent_cards_dir)
         merged_card_tools = merge_card_sources(card_tools, default_tool_cards_dir)
 

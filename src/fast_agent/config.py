@@ -640,9 +640,7 @@ class MCPServerSettings(BaseModel):
                 url=self.url,
                 headers=self.headers,
                 access_token=self.access_token,
-                forward_huggingface=(
-                    self.auth is not None and self.auth.forward == "huggingface"
-                ),
+                forward_huggingface=(self.auth is not None and self.auth.forward == "huggingface"),
             )
             self.url = normalized_server.url
             self.headers = normalized_server.headers

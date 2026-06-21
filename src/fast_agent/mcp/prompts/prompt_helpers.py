@@ -5,7 +5,7 @@ These utilities simplify extracting content from nested message structures
 without repetitive type checking.
 """
 
-from typing import Union, cast
+from typing import cast
 
 from mcp.types import (
     EmbeddedResource,
@@ -16,7 +16,7 @@ from mcp.types import (
 from fast_agent.mcp.helpers.content_helpers import get_image_data, get_text
 
 # Forward reference for PromptMessageExtended, actual import happens at runtime
-PromptMessageExtendedType = Union[object]  # Will be replaced with actual type
+PromptMessageExtendedType = object  # Will be replaced with actual type
 try:
     from fast_agent.types import PromptMessageExtended
 
@@ -34,7 +34,7 @@ class MessageContent:
     """
 
     @staticmethod
-    def get_all_text(message: Union[PromptMessage, "PromptMessageExtended"]) -> list[str]:
+    def get_all_text(message: "PromptMessage | PromptMessageExtended") -> list[str]:
         """
         Extract all text content from a message.
 
@@ -57,9 +57,7 @@ class MessageContent:
         return result
 
     @staticmethod
-    def join_text(
-        message: Union[PromptMessage, "PromptMessageExtended"], separator: str = "\n\n"
-    ) -> str:
+    def join_text(message: "PromptMessage | PromptMessageExtended", separator: str = "\n\n") -> str:
         """
         Join all text content in a message with a separator.
 
@@ -73,7 +71,7 @@ class MessageContent:
         return separator.join(MessageContent.get_all_text(message))
 
     @staticmethod
-    def get_first_text(message: Union[PromptMessage, "PromptMessageExtended"]) -> str | None:
+    def get_first_text(message: "PromptMessage | PromptMessageExtended") -> str | None:
         """
         Get the first available text content from a message.
 
@@ -94,7 +92,7 @@ class MessageContent:
         return None
 
     @staticmethod
-    def has_text_at_first_position(message: Union[PromptMessage, "PromptMessageExtended"]) -> bool:
+    def has_text_at_first_position(message: "PromptMessage | PromptMessageExtended") -> bool:
         """
         Check if a message has a TextContent at the first position.
         This is a common case when dealing with messages that start with text.
@@ -113,7 +111,7 @@ class MessageContent:
 
     @staticmethod
     def get_text_at_first_position(
-        message: Union[PromptMessage, "PromptMessageExtended"],
+        message: "PromptMessage | PromptMessageExtended",
     ) -> str | None:
         """
         Get the text from the first position of a message if it's TextContent.
@@ -135,7 +133,7 @@ class MessageContent:
         return cast("TextContent", message.content[0]).text
 
     @staticmethod
-    def get_all_images(message: Union[PromptMessage, "PromptMessageExtended"]) -> list[str]:
+    def get_all_images(message: "PromptMessage | PromptMessageExtended") -> list[str]:
         """
         Extract all image data from a message.
 
@@ -158,7 +156,7 @@ class MessageContent:
         return result
 
     @staticmethod
-    def get_first_image(message: Union[PromptMessage, "PromptMessageExtended"]) -> str | None:
+    def get_first_image(message: "PromptMessage | PromptMessageExtended") -> str | None:
         """
         Get the first available image data from a message.
 
@@ -180,7 +178,7 @@ class MessageContent:
 
     @staticmethod
     def get_all_resources(
-        message: Union[PromptMessage, "PromptMessageExtended"],
+        message: "PromptMessage | PromptMessageExtended",
     ) -> list[EmbeddedResource]:
         """
         Extract all embedded resources from a message.
@@ -199,7 +197,7 @@ class MessageContent:
         return [content for content in message.content if isinstance(content, EmbeddedResource)]
 
     @staticmethod
-    def has_text(message: Union[PromptMessage, "PromptMessageExtended"]) -> bool:
+    def has_text(message: "PromptMessage | PromptMessageExtended") -> bool:
         """
         Check if the message has any text content.
 
@@ -212,7 +210,7 @@ class MessageContent:
         return bool(MessageContent.get_all_text(message))
 
     @staticmethod
-    def has_images(message: Union[PromptMessage, "PromptMessageExtended"]) -> bool:
+    def has_images(message: "PromptMessage | PromptMessageExtended") -> bool:
         """
         Check if the message has any image content.
 
@@ -225,7 +223,7 @@ class MessageContent:
         return bool(MessageContent.get_all_images(message))
 
     @staticmethod
-    def has_resources(message: Union[PromptMessage, "PromptMessageExtended"]) -> bool:
+    def has_resources(message: "PromptMessage | PromptMessageExtended") -> bool:
         """
         Check if the message has any embedded resources.
 

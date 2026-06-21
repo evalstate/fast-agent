@@ -7,7 +7,7 @@ EmbeddedResource, and other MCP content types with minimal boilerplate.
 
 import base64
 from pathlib import Path
-from typing import Any, Protocol, Union, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from mcp.types import (
     Annotations,
@@ -110,7 +110,7 @@ def MCPImage(
 
 
 def MCPFile(
-    path: Union[str, Path],
+    path: str | Path,
     mime_type: str | None = None,
     role: MessageRole = "user",
     annotations: Annotations | None = None,
@@ -162,18 +162,16 @@ def MCPFile(
 
 
 def MCPPrompt(
-    *content_items: Union[
-        dict,
-        str,
-        Path,
-        bytes,
-        ContentBlock,
-        _EmbeddedResourceLike,
-        ResourceContents,
-        ReadResourceResult,
-        PromptMessage,
-        PromptMessageExtended,
-    ],
+    *content_items: dict
+    | str
+    | Path
+    | bytes
+    | ContentBlock
+    | _EmbeddedResourceLike
+    | ResourceContents
+    | ReadResourceResult
+    | PromptMessage
+    | PromptMessageExtended,
     role: MessageRole = "user",
 ) -> list[dict]:
     """
@@ -301,34 +299,30 @@ def _prompt_message_from_embedded_resource_like(
 
 
 def User(
-    *content_items: Union[
-        dict,
-        str,
-        Path,
-        bytes,
-        ContentBlock,
-        ResourceContents,
-        ReadResourceResult,
-        PromptMessage,
-        PromptMessageExtended,
-    ],
+    *content_items: dict
+    | str
+    | Path
+    | bytes
+    | ContentBlock
+    | ResourceContents
+    | ReadResourceResult
+    | PromptMessage
+    | PromptMessageExtended,
 ) -> list[dict]:
     """Create user message(s) with various content types."""
     return MCPPrompt(*content_items, role="user")
 
 
 def Assistant(
-    *content_items: Union[
-        dict,
-        str,
-        Path,
-        bytes,
-        ContentBlock,
-        ResourceContents,
-        ReadResourceResult,
-        PromptMessage,
-        PromptMessageExtended,
-    ],
+    *content_items: dict
+    | str
+    | Path
+    | bytes
+    | ContentBlock
+    | ResourceContents
+    | ReadResourceResult
+    | PromptMessage
+    | PromptMessageExtended,
 ) -> list[dict]:
     """Create assistant message(s) with various content types."""
     return MCPPrompt(*content_items, role="assistant")

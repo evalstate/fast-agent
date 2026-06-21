@@ -7,7 +7,6 @@ from typing import (
     TYPE_CHECKING,
     Literal,
     Protocol,
-    Union,
     cast,
 )
 
@@ -577,7 +576,7 @@ class ToolRunner:
         """Current request params driving this tool-loop turn."""
         return self._request_params
 
-    def append_messages(self, *messages: Union[str, PromptMessageExtended]) -> None:
+    def append_messages(self, *messages: str | PromptMessageExtended) -> None:
         for message in messages:
             if isinstance(message, str):
                 self._delta_messages.append(

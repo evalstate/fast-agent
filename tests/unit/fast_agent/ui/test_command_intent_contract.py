@@ -17,6 +17,7 @@ from fast_agent.ui.command_payloads import (
     CreateSessionCommand,
     ForkSessionCommand,
     HashAgentCommand,
+    HistoryReviewCommand,
     HistoryViewCommand,
     ListPromptsCommand,
     LoadAgentCardCommand,
@@ -137,6 +138,11 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
             "/history show analyst",
             HistoryViewCommand(agent="analyst", view="table"),
             id="history-show-target",
+        ),
+        pytest.param(
+            "/history 3",
+            HistoryReviewCommand(turn_index=3, error=None),
+            id="history-bare-turn-detail",
         ),
         pytest.param(
             "/history load",

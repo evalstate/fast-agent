@@ -24,6 +24,8 @@ from .snapshot import (
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.session.git_metadata import GitMetadata
+    from fast_agent.session.snapshot import SessionGitSnapshot
 
     from .session_manager import Session
 
@@ -112,6 +114,32 @@ class _NamedAgent(Protocol):
     def name(self) -> str: ...
 
 
+def _git_state_changes(persisted: "SessionGitSnapshot", captured: "GitMetadata") -> list[str]:
+    changes: list[str] = []
+    if persisted.repository_root != captured.repository_root:
+        changes.append(f"repository {persisted.repository_root} -> {captured.repository_root}")
+    if persisted.branch != captured.branch:
+        changes.append(
+            f"branch {_git_display(persisted.branch)} -> {_git_display(captured.branch)}"
+        )
+    if persisted.commit != captured.commit:
+        changes.append(f"commit {persisted.commit[:7]} -> {captured.commit[:7]}")
+    if persisted.dirty != captured.dirty:
+        changes.append(
+            "working tree "
+            f"{_git_dirty_display(persisted.dirty)} -> {_git_dirty_display(captured.dirty)}"
+        )
+    return changes
+
+
+def _git_display(value: str | None) -> str:
+    return value or "(detached)"
+
+
+def _git_dirty_display(value: bool) -> str:
+    return "dirty" if value else "clean"
+
+
 class SessionHydrator:
     async def hydrate_session(
         self,
@@ -123,6 +151,7 @@ class SessionHydrator:
     ) -> SessionHydrationResult:
         warnings: list[SessionHydrationWarning] = []
         snapshot = self._load_snapshot(session=session, warnings=warnings)
+        warnings.extend(self._git_state_warnings(snapshot))
         agent_snapshots = self._select_agent_snapshots(
             session=session,
             snapshot=snapshot,
@@ -160,6 +189,34 @@ class SessionHydrator:
             usage_notices=state.usage_notices,
             active_agent=active_agent,
         )
+
+    @staticmethod
+    def _git_state_warnings(snapshot: SessionSnapshot) -> list[SessionHydrationWarning]:
+        git_state = snapshot.continuation.git
+        if git_state is None:
+            return []
+
+        persisted = git_state.current or git_state.started
+        if persisted is None:
+            return []
+
+        from fast_agent.session.git_metadata import capture_git_metadata
+
+        captured = capture_git_metadata(Path(persisted.cwd))
+        if captured is None:
+            return []
+
+        changes = _git_state_changes(persisted, captured)
+        if not changes:
+            return []
+
+        return [
+            SessionHydrationWarning(
+                code="git-state-changed",
+                message=f"Git state changed since session save: {'; '.join(changes)}.",
+                ref=persisted.repository_root,
+            )
+        ]
 
     async def _hydrate_agent(
         self,

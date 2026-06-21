@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import time
 from collections.abc import Awaitable, Callable, Mapping
@@ -26,6 +27,7 @@ from fast_agent.utils.filename import sanitize_filename_suffix
 from fast_agent.utils.text import strip_casefold, strip_to_none
 from fast_agent.utils.transports import uses_protocol_stdio
 
+from .harness_startup import run_cli_flow, run_parallel_cli_flow
 from .request_builders import resolve_default_instruction, resolve_smart_agent_enabled
 from .shell_cwd_policy import (
     can_prompt_for_missing_cwd,
@@ -40,8 +42,10 @@ if TYPE_CHECKING:
     from mcp.types import ContentBlock
 
     from fast_agent.config import Settings
+    from fast_agent.core.harness import HarnessSession
     from fast_agent.core.model_resolution import ResolvedModelSpec
     from fast_agent.llm.structured_schema import StructuredSchemaSource
+    from fast_agent.session.session_manager import SessionManager
     from fast_agent.types import PromptMessageExtended, StructuredToolPolicy
 
     from .run_request import AgentRunRequest
@@ -108,6 +112,7 @@ def _explicit_agent_cards_define_startup_model(
     request: AgentRunRequest,
     *,
     model_references: Mapping[str, Mapping[str, str]] | None = None,
+    system_default_requires_explicit: bool = False,
 ) -> bool:
     if not request.agent_cards or request.target_agent_name:
         return False
@@ -137,6 +142,7 @@ def _explicit_agent_cards_define_startup_model(
     return _agent_config_defines_startup_model(
         runnable_configs[0],
         model_references=model_references,
+        system_default_requires_explicit=system_default_requires_explicit,
     )
 
 
@@ -174,6 +180,7 @@ def _agent_config_defines_startup_model(
     agent_config: Any,
     *,
     model_references: Mapping[str, Mapping[str, str]] | None,
+    system_default_requires_explicit: bool = False,
 ) -> bool:
     model = agent_config.model
     if not isinstance(model, str):
@@ -184,6 +191,12 @@ def _agent_config_defines_startup_model(
         return False
     if not model_spec.startswith("$"):
         return True
+    if (
+        system_default_requires_explicit
+        and model_spec == "$system.default"
+        and _system_default_reference_is_missing(model_references)
+    ):
+        return False
 
     try:
         from fast_agent.core.model_resolution import resolve_model_reference
@@ -300,6 +313,35 @@ def _last_used_model_reference(
         return None
 
     return strip_to_none(raw_last_used)
+
+
+def _system_default_reference_is_missing(
+    references: Mapping[str, Mapping[str, str]] | None,
+) -> bool:
+    if references is None:
+        return True
+    system_references = references.get("system")
+    if not isinstance(system_references, Mapping):
+        return True
+
+    raw_default = system_references.get("default")
+    if not isinstance(raw_default, str):
+        return True
+    return strip_to_none(raw_default) is None
+
+
+def _should_prompt_for_unpinned_system_default(
+    settings: Settings,
+    *,
+    can_prompt: bool,
+) -> bool:
+    if not can_prompt:
+        return False
+    if strip_to_none(settings.default_model) != "$system.default":
+        return False
+    if os.getenv("FAST_AGENT_MODEL"):
+        return False
+    return _system_default_reference_is_missing(_settings_model_references(settings))
 
 
 def _overlay_model_picker_selection(
@@ -1125,7 +1167,13 @@ async def _export_result_histories(
         raise typer.Exit(1) from exc
 
 
-async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -> None:
+async def _run_cli_flow(
+    agent_app: Any,
+    request: AgentRunRequest,
+    *,
+    session_manager: "SessionManager | None" = None,
+    harness_session: "HarnessSession | None" = None,
+) -> None:
     from fast_agent.mcp.prompts.prompt_load import load_prompt
 
     # Allow interactive prompt startup checks to honor per-run CLI override policy.
@@ -1187,7 +1235,12 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
             response,
         )
     else:
-        await _run_interactive_with_interrupt_recovery(agent_app, request)
+        await _run_interactive_with_interrupt_recovery(
+            agent_app,
+            request,
+            session_manager=session_manager,
+            harness_session=harness_session,
+        )
 
     await _export_result_histories(
         agent_app,
@@ -1199,6 +1252,9 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
 async def _run_interactive_with_interrupt_recovery(
     agent_app: Any,
     request: AgentRunRequest,
+    *,
+    session_manager: "SessionManager | None" = None,
+    harness_session: "HarnessSession | None" = None,
 ) -> None:
     ctrl_c_exit_window_seconds = 2.0
     ctrl_c_deadline: float | None = None
@@ -1206,7 +1262,11 @@ async def _run_interactive_with_interrupt_recovery(
     while True:
         try:
             write_interactive_trace("cli.interactive.enter", agent=request.target_agent_name)
-            await agent_app.interactive(agent_name=request.target_agent_name)
+            await agent_app.interactive(
+                agent_name=request.target_agent_name,
+                session_manager=session_manager,
+                harness_session=harness_session,
+            )
             write_interactive_trace("cli.interactive.return", agent=request.target_agent_name)
             return
         except asyncio.CancelledError:
@@ -1298,23 +1358,47 @@ async def _select_startup_model_if_needed(request: AgentRunRequest) -> str | Non
         return "session resumption"
 
     settings = _load_request_settings(request)
+    can_prompt_for_model = _should_prompt_for_model_picker(
+        request,
+        stdin_is_tty=sys.stdin.isatty(),
+        stdout_is_tty=sys.stdout.isatty(),
+    )
     startup_model_defined_by_card = _explicit_agent_cards_define_startup_model(
         request,
         model_references=settings.model_references,
+        system_default_requires_explicit=(
+            can_prompt_for_model
+            and _system_default_reference_is_missing(_settings_model_references(settings))
+        ),
     )
     resolved_model = _resolve_model_without_hardcoded_default(
         model=request.model,
         config_default_model=settings.default_model,
         model_references=settings.model_references,
     )
+
+    if (
+        not startup_model_defined_by_card
+        and _should_prompt_for_unpinned_system_default(settings, can_prompt=can_prompt_for_model)
+    ):
+        initial_selection = _resolve_model_picker_initial_selection(settings=settings)
+        request.model = await _select_model_from_picker(
+            request,
+            config_payload=settings.model_dump(),
+            initial_provider=initial_selection.provider,
+            initial_model_spec=initial_selection.model_spec,
+        )
+        _persist_model_picker_last_used_selection(
+            request,
+            settings=settings,
+            model_spec=request.model,
+        )
+        return "model picker"
+
     if resolved_model.source is not None or startup_model_defined_by_card:
         return None
 
-    if _should_prompt_for_model_picker(
-        request,
-        stdin_is_tty=sys.stdin.isatty(),
-        stdout_is_tty=sys.stdout.isatty(),
-    ):
+    if can_prompt_for_model:
         initial_selection = _resolve_model_picker_initial_selection(settings=settings)
         request.model = await _select_model_from_picker(
             request,
@@ -1578,8 +1662,11 @@ def _build_card_cli_agent(
     )
 
     async def cli_agent() -> None:
-        async with fast.run() as agent:
-            await _run_single_agent_cli_flow(agent, request)
+        await run_cli_flow(
+            fast,
+            request,
+            flow=_run_cli_flow,
+        )
 
     return cli_agent
 
@@ -1686,7 +1773,7 @@ async def _run_parallel_message(
     from fast_agent.ui.console_display import ConsoleDisplay
 
     prompt_payload = await _build_cli_message_payload(
-        object(),
+        agent_app.parallel,
         request.message,
         request.attachments,
     )
@@ -1715,7 +1802,7 @@ async def _run_parallel_prompt_file(
     from fast_agent.ui.console_display import ConsoleDisplay
 
     prompt_payload = await _build_cli_prompt_file_payload(
-        object(),
+        agent_app.parallel,
         prompt,
         request.attachments,
     )
@@ -1728,6 +1815,9 @@ async def _run_parallel_cli_flow(
     agent_app: Any,
     request: AgentRunRequest,
     fan_out_agent_names: list[str],
+    *,
+    session_manager: "SessionManager | None" = None,
+    harness_session: "HarnessSession | None" = None,
 ) -> None:
     await _resume_session_if_requested(agent_app, request)
     transient_messages_by_agent: dict[str, list["PromptMessageExtended"]] | None = None
@@ -1739,6 +1829,8 @@ async def _run_parallel_cli_flow(
         await agent_app.interactive(
             agent_name=request.target_agent_name,
             pretty_print_parallel=True,
+            session_manager=session_manager,
+            harness_session=harness_session,
         )
 
     await _export_result_histories(
@@ -1771,8 +1863,12 @@ def _build_multi_model_cli_agent(
     _define_parallel_agent(fast, fan_out_agents)
 
     async def cli_agent() -> None:
-        async with fast.run() as agent:
-            await _run_parallel_cli_flow(agent, request, fan_out_agents)
+        await run_parallel_cli_flow(
+            fast,
+            request,
+            fan_out_agents,
+            flow=_run_parallel_cli_flow,
+        )
 
     return cli_agent
 
@@ -1828,8 +1924,11 @@ async def run_agent_request(request: AgentRunRequest) -> None:
             default=True,
         )
         async def cli_agent() -> None:
-            async with fast.run() as agent:
-                await _run_single_agent_cli_flow(agent, request)
+            await run_cli_flow(
+                fast,
+                request,
+                flow=_run_cli_flow,
+            )
 
         _validate_target_agent_name(fast, request)
 

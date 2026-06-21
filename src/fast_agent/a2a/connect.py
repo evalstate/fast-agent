@@ -30,9 +30,14 @@ class A2AConnectRequest:
     relative_card_path: str | None = None
 
 
-def parse_a2a_connect_arguments(arguments: str | None) -> tuple[A2AConnectRequest | None, str | None]:
+def parse_a2a_connect_arguments(
+    arguments: str | None,
+) -> tuple[A2AConnectRequest | None, str | None]:
     if not arguments:
-        return None, "Usage: /a2a connect <base-url-or-card-url> [--transport JSONRPC|HTTP+JSON] [--name NAME] [--card-path PATH] [--oauth|--no-oauth]"
+        return (
+            None,
+            "Usage: /a2a connect <base-url-or-card-url> [--transport JSONRPC|HTTP+JSON] [--name NAME] [--card-path PATH] [--oauth|--no-oauth]",
+        )
     try:
         tokens = shlex.split(arguments)
     except ValueError as exc:
@@ -83,11 +88,7 @@ def parse_a2a_connect_arguments(arguments: str | None) -> tuple[A2AConnectReques
             url=normalized_url,
             name=name,
             transport=transport,
-            auth=(
-                _a2a_auth_settings(trigger_oauth)
-                if trigger_oauth is not None
-                else None
-            ),
+            auth=(_a2a_auth_settings(trigger_oauth) if trigger_oauth is not None else None),
             relative_card_path=card_path or inferred_card_path,
         ),
         None,

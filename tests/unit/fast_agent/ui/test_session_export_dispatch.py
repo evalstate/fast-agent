@@ -24,6 +24,14 @@ class _NoenvPromptProvider:
         return {"agent": object()}
 
 
+class _PromptProvider(_NoenvPromptProvider):
+    noenv_mode = False
+
+
+class _SessionManager:
+    current_session = None
+
+
 @pytest.mark.asyncio
 async def test_noenv_session_export_dispatch_does_not_resolve_session_manager(
     monkeypatch: pytest.MonkeyPatch,
@@ -58,9 +66,53 @@ async def test_noenv_session_export_dispatch_does_not_resolve_session_manager(
         ),
         prompt_provider=cast("AgentApp", _NoenvPromptProvider()),
         agent="agent",
+        session_manager=None,
     )
 
     assert result is not None
     assert result.handled is True
     assert emitted
     assert str(emitted[0].messages[0].text) == NOENV_SESSION_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_session_export_dispatch_uses_supplied_session_manager(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted: list[CommandOutcome] = []
+
+    async def collect_outcome(_context: object, outcome: CommandOutcome) -> None:
+        emitted.append(outcome)
+
+    def fail_get_session_manager(**_kwargs: Any) -> object:
+        raise AssertionError("global session manager should not be resolved")
+
+    monkeypatch.setattr(command_dispatch, "emit_command_outcome", collect_outcome)
+    monkeypatch.setattr("fast_agent.session.get_session_manager", fail_get_session_manager)
+
+    result = await command_dispatch._dispatch_session_payload(
+        ExportSessionCommand(
+            target=None,
+            agent_name=None,
+            output_path=None,
+            hf_url=None,
+            hf_dataset="evalstate/test-traces",
+            hf_dataset_path=None,
+            privacy_filter=False,
+            privacy_filter_path=None,
+            download_privacy_filter=False,
+            privacy_filter_device=None,
+            privacy_filter_variant=None,
+            show_redactions=False,
+            show_help=False,
+            error=None,
+        ),
+        prompt_provider=cast("AgentApp", _PromptProvider()),
+        agent="agent",
+        session_manager=cast("Any", _SessionManager()),
+    )
+
+    assert result is not None
+    assert result.handled is True
+    assert emitted
+    assert str(emitted[0].messages[0].text) == "No active session to export."

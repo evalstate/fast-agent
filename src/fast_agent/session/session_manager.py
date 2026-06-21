@@ -281,6 +281,11 @@ class Session:
         self._manager = manager
         self._dirty = False
 
+    @property
+    def manager(self) -> SessionManager | None:
+        """Return the manager that owns this session, when available."""
+        return self._manager
+
     async def save_history(
         self,
         agent: AgentProtocol,

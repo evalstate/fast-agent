@@ -348,6 +348,97 @@ def test_resolve_model_without_hardcoded_default_uses_environment_variable() -> 
 
 
 @pytest.mark.asyncio
+async def test_interactive_startup_prompts_when_system_default_is_only_last_used(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent import config as config_module
+
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        (
+            'default_model: "$system.default"\n'
+            "model_references:\n"
+            "  system:\n"
+            "    last_used: claude-haiku-4-5\n"
+        ),
+        encoding="utf-8",
+    )
+    request = _make_request(config_path=str(config_path))
+    captured: dict[str, object] = {}
+
+    async def fake_select_model_from_picker(*args, **kwargs):
+        del args
+        captured.update(kwargs)
+        return "gpt-4.1-mini"
+
+    old_settings = config_module._settings
+    previous_fast_agent_model = os.environ.pop("FAST_AGENT_MODEL", None)
+    try:
+        config_module._settings = None
+        monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+        monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+        monkeypatch.setattr(
+            "fast_agent.cli.runtime.agent_setup._select_model_from_picker",
+            fake_select_model_from_picker,
+        )
+
+        assert await _select_startup_model_if_needed(request) == "model picker"
+    finally:
+        if previous_fast_agent_model is not None:
+            os.environ["FAST_AGENT_MODEL"] = previous_fast_agent_model
+        config_module._settings = old_settings
+
+    assert request.model == "gpt-4.1-mini"
+    assert captured["initial_model_spec"] == "claude-haiku-4-5"
+    assert captured["initial_provider"] == "anthropic"
+
+
+@pytest.mark.asyncio
+async def test_interactive_startup_uses_explicit_system_default_without_picker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent import config as config_module
+
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        (
+            'default_model: "$system.default"\n'
+            "model_references:\n"
+            "  system:\n"
+            "    default: claude-sonnet-4-5\n"
+            "    last_used: claude-haiku-4-5\n"
+        ),
+        encoding="utf-8",
+    )
+    request = _make_request(config_path=str(config_path))
+
+    async def fail_select_model_from_picker(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("model picker must not run")
+
+    old_settings = config_module._settings
+    previous_fast_agent_model = os.environ.pop("FAST_AGENT_MODEL", None)
+    try:
+        config_module._settings = None
+        monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+        monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+        monkeypatch.setattr(
+            "fast_agent.cli.runtime.agent_setup._select_model_from_picker",
+            fail_select_model_from_picker,
+        )
+
+        assert await _select_startup_model_if_needed(request) is None
+    finally:
+        if previous_fast_agent_model is not None:
+            os.environ["FAST_AGENT_MODEL"] = previous_fast_agent_model
+        config_module._settings = old_settings
+
+    assert request.model is None
+
+
+@pytest.mark.asyncio
 async def test_select_model_from_picker_preserves_overlay_token_when_resolved_model_is_present(
     monkeypatch,
 ) -> None:
@@ -604,6 +695,24 @@ def test_agent_config_defines_startup_model_normalizes_model_value() -> None:
     assert not _agent_config_defines_startup_model(
         SimpleNamespace(model="   "),
         model_references=None,
+    )
+
+
+def test_agent_config_does_not_treat_unpinned_system_default_as_interactive_model() -> None:
+    assert not _agent_config_defines_startup_model(
+        SimpleNamespace(model="$system.default"),
+        model_references={"system": {"last_used": "claude-haiku-4-5"}},
+        system_default_requires_explicit=True,
+    )
+    assert _agent_config_defines_startup_model(
+        SimpleNamespace(model="$system.default"),
+        model_references={
+            "system": {
+                "default": "claude-sonnet-4-5",
+                "last_used": "claude-haiku-4-5",
+            }
+        },
+        system_default_requires_explicit=True,
     )
 
 

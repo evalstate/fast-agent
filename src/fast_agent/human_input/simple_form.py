@@ -1,6 +1,6 @@
 """Simple form API for elicitation schemas without MCP wrappers."""
 
-from typing import Any, Union
+from typing import Any
 
 from mcp.types import ElicitRequestedSchema
 
@@ -10,7 +10,7 @@ from fast_agent.utils.text import strip_str_to_none
 
 
 async def form(
-    schema: Union[FormSchema, ElicitRequestedSchema, dict[str, Any]],
+    schema: FormSchema | ElicitRequestedSchema | dict[str, Any],
     message: str = "Please fill out the form",
     title: str = "Form Input",
 ) -> dict[str, Any] | None:
@@ -69,7 +69,7 @@ async def form(
 
 
 def form_sync(
-    schema: Union[FormSchema, ElicitRequestedSchema, dict[str, Any]],
+    schema: FormSchema | ElicitRequestedSchema | dict[str, Any],
     message: str = "Please fill out the form",
     title: str = "Form Input",
 ) -> dict[str, Any] | None:
@@ -89,7 +89,7 @@ def form_sync(
 
 # Convenience function with a shorter name
 async def ask(
-    schema: Union[FormSchema, ElicitRequestedSchema, dict[str, Any]],
+    schema: FormSchema | ElicitRequestedSchema | dict[str, Any],
     message: str = "Please provide the requested information",
 ) -> dict[str, Any] | None:
     """
@@ -109,7 +109,7 @@ async def ask(
 
 
 def ask_sync(
-    schema: Union[FormSchema, ElicitRequestedSchema, dict[str, Any]],
+    schema: FormSchema | ElicitRequestedSchema | dict[str, Any],
     message: str = "Please provide the requested information",
 ) -> dict[str, Any] | None:
     """

@@ -1,7 +1,7 @@
 """High-level field types for elicitation forms with default support."""
 
 from dataclasses import dataclass
-from typing import Any, Union
+from typing import Any
 
 
 @dataclass
@@ -143,7 +143,7 @@ class EnumField:
 
 
 # Field type union
-FieldType = Union[StringField, IntegerField, NumberField, BooleanField, EnumField]
+FieldType = StringField | IntegerField | NumberField | BooleanField | EnumField
 
 
 class FormSchema:

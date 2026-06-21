@@ -12,7 +12,7 @@ import json
 import os
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from a2a.types import AgentCapabilities
 from mcp import Tool
@@ -251,7 +251,7 @@ class LlmAgent(LlmDecorator):
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
-        additional_message: Optional[Text] = None,
+        additional_message: Text | None = None,
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
         render_message: bool = True,

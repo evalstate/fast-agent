@@ -121,6 +121,7 @@ if TYPE_CHECKING:
 
     from fast_agent.command_actions.models import PluginCommandAgentProtocol
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.session.session_manager import SessionManager
     from fast_agent.ui.interactive_prompt import InteractivePrompt
 
 logger = get_logger(__name__)
@@ -431,8 +432,9 @@ async def _run_command_handler(
     prompt_provider: "AgentApp",
     agent: str,
     handler: CommandOutcomeHandler,
+    session_manager: "SessionManager | None",
 ) -> CommandOutcome:
-    context = build_command_context(prompt_provider, agent)
+    context = build_command_context(prompt_provider, agent, session_manager=session_manager)
     outcome = await handler(context)
     await emit_command_outcome(context, outcome)
     return outcome
@@ -443,11 +445,12 @@ async def _local_attach_paths(
     prompt_provider: "AgentApp",
     agent_name: str,
     paths: tuple[str, ...],
+    session_manager: "SessionManager | None",
 ) -> list[str] | None:
     if paths:
         return list(paths)
 
-    context = build_command_context(prompt_provider, agent_name)
+    context = build_command_context(prompt_provider, agent_name, session_manager=session_manager)
     prompted_path = await context.io.prompt_text(
         "Attach file path or HTTP(S) URL:",
         allow_empty=False,
@@ -493,6 +496,7 @@ async def _dispatch_attach_command(
     agent_name: str,
     buffer_prefill: str,
     shell_working_dir: "Path | None",
+    session_manager: "SessionManager | None",
 ) -> DispatchResult:
     result = DispatchResult(handled=True)
     if payload.error:
@@ -507,6 +511,7 @@ async def _dispatch_attach_command(
         prompt_provider=prompt_provider,
         agent_name=agent_name,
         paths=payload.paths,
+        session_manager=session_manager,
     )
     if paths is None:
         result.buffer_prefill = buffer_prefill
@@ -562,6 +567,7 @@ async def _dispatch_local_ui_payload(
     agent_name: str,
     buffer_prefill: str,
     shell_working_dir: Path | None = None,
+    session_manager: "SessionManager | None" = None,
 ) -> DispatchResult | None:
     match payload:
         case InterruptCommand():
@@ -584,6 +590,7 @@ async def _dispatch_local_ui_payload(
                 agent_name=agent_name,
                 buffer_prefill=buffer_prefill,
                 shell_working_dir=shell_working_dir,
+                session_manager=session_manager,
             )
         case _:
             return _dispatch_simple_local_ui_payload(payload)
@@ -608,6 +615,7 @@ async def _dispatch_prompt_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     handler = _prompt_handler(payload, agent=agent)
     if handler is None:
@@ -617,6 +625,7 @@ async def _dispatch_prompt_payload(
         prompt_provider=prompt_provider,
         agent=agent,
         handler=handler,
+        session_manager=session_manager,
     )
     result = DispatchResult(handled=True)
     if isinstance(payload, (SelectPromptCommand, LoadPromptCommand)):
@@ -655,6 +664,7 @@ async def _dispatch_catalog_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     handler = _catalog_handler(payload, prompt_provider=prompt_provider, agent=agent)
     if handler is None:
@@ -664,6 +674,7 @@ async def _dispatch_catalog_payload(
         prompt_provider=prompt_provider,
         agent=agent,
         handler=handler,
+        session_manager=session_manager,
     )
     return DispatchResult(handled=True)
 
@@ -732,9 +743,7 @@ async def _dispatch_a2a_payload(
 
     if payload.action == "list":
         names = sorted(
-            name
-            for name in available_agents_set
-            if owner.agent_types.get(name) == AgentType.A2A
+            name for name in available_agents_set if owner.agent_types.get(name) == AgentType.A2A
         )
         if not names:
             rich_print("[yellow]No A2A agents are currently registered.[/yellow]")
@@ -871,8 +880,7 @@ def _dispatch_a2a_existing_agent_action(
     rich_print("  Interfaces:")
     for interface in card.supported_interfaces:
         rich_print(
-            f"    • {interface.protocol_binding} "
-            f"{interface.protocol_version}: {interface.url}"
+            f"    • {interface.protocol_binding} {interface.protocol_version}: {interface.url}"
         )
     return result
 
@@ -882,6 +890,7 @@ async def _dispatch_display_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     route = _command_route(payload, group="display")
     if route is None:
@@ -899,6 +908,7 @@ async def _dispatch_display_payload(
         prompt_provider=prompt_provider,
         agent=agent,
         handler=handler,
+        session_manager=session_manager,
     )
     return DispatchResult(handled=True)
 
@@ -1015,6 +1025,7 @@ async def _dispatch_mcp_connect_command(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult:
     result = DispatchResult(handled=True)
     if payload.error:
@@ -1024,7 +1035,7 @@ async def _dispatch_mcp_connect_command(
         rich_print("[red]Connection target is required[/red]")
         return result
 
-    context = build_command_context(prompt_provider, agent)
+    context = build_command_context(prompt_provider, agent, session_manager=session_manager)
     outcome = await handle_mcp_connect(
         context=context,
         prompt_provider=prompt_provider,
@@ -1066,12 +1077,13 @@ async def _dispatch_compact_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     if not isinstance(payload, CompactCommand):
         return None
 
     result = DispatchResult(handled=True)
-    context = build_command_context(prompt_provider, agent)
+    context = build_command_context(prompt_provider, agent, session_manager=session_manager)
 
     if payload.action == "run":
         # Resume the streaming token progress display around the summarization
@@ -1100,6 +1112,7 @@ async def _dispatch_history_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
@@ -1124,6 +1137,7 @@ async def _dispatch_history_payload(
                 prompt_provider=prompt_provider,
                 agent=agent,
                 handler=handler,
+                session_manager=session_manager,
             )
             if isinstance(payload, HistoryRewindCommand):
                 result.buffer_prefill = outcome.buffer_prefill
@@ -1135,6 +1149,7 @@ async def _dispatch_mcp_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
@@ -1143,6 +1158,7 @@ async def _dispatch_mcp_payload(
                 payload,
                 prompt_provider=prompt_provider,
                 agent=agent,
+                session_manager=session_manager,
             )
         case _:
             handler = _mcp_handler(
@@ -1165,6 +1181,7 @@ async def _dispatch_mcp_payload(
                 prompt_provider=prompt_provider,
                 agent=agent,
                 handler=handler,
+                session_manager=session_manager,
             )
             return result
 
@@ -1174,6 +1191,7 @@ async def _dispatch_model_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     handler = _model_handler(payload, prompt_provider=prompt_provider, agent=agent)
@@ -1182,13 +1200,14 @@ async def _dispatch_model_payload(
             prompt_provider=prompt_provider,
             agent=agent,
             handler=handler,
+            session_manager=session_manager,
         )
         return result
 
     if not isinstance(payload, ModelSwitchCommand):
         return None
 
-    context = build_command_context(prompt_provider, agent)
+    context = build_command_context(prompt_provider, agent, session_manager=session_manager)
     outcome = await model_handlers.handle_model_switch(
         context,
         agent_name=agent,
@@ -1221,9 +1240,10 @@ async def _dispatch_create_session_command(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult:
     result = DispatchResult(handled=True)
-    context = build_command_context(prompt_provider, agent)
+    context = build_command_context(prompt_provider, agent, session_manager=session_manager)
     outcome = await sessions_handlers.handle_create_session(
         context,
         session_name=payload.session_name,
@@ -1293,9 +1313,10 @@ async def _dispatch_session_export_command(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult:
     result = DispatchResult(handled=True)
-    context = build_command_context(prompt_provider, agent)
+    context = build_command_context(prompt_provider, agent, session_manager=session_manager)
     if payload.show_help:
         outcome = CommandOutcome()
         outcome.add_message(render_session_export_help_markdown(), render_markdown=True)
@@ -1346,6 +1367,7 @@ async def _dispatch_session_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
@@ -1354,12 +1376,14 @@ async def _dispatch_session_payload(
                 payload,
                 prompt_provider=prompt_provider,
                 agent=agent,
+                session_manager=session_manager,
             )
         case ExportSessionCommand():
             return await _dispatch_session_export_command(
                 payload,
                 prompt_provider=prompt_provider,
                 agent=agent,
+                session_manager=session_manager,
             )
         case _:
             handler = _session_handler(payload, agent=agent)
@@ -1369,6 +1393,7 @@ async def _dispatch_session_payload(
                 prompt_provider=prompt_provider,
                 agent=agent,
                 handler=handler,
+                session_manager=session_manager,
             )
             if isinstance(payload, ResumeSessionCommand) and outcome.switch_agent:
                 result.next_agent = outcome.switch_agent
@@ -1433,6 +1458,7 @@ async def _dispatch_agent_card_payload(
     prompt_provider: "AgentApp",
     agent: str,
     merge_pinned_agents: Callable[[list[str]], list[str]],
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
@@ -1445,7 +1471,11 @@ async def _dispatch_agent_card_payload(
             if error:
                 _print_styled(error, "red")
                 return result
-            context = build_command_context(prompt_provider, agent)
+            context = build_command_context(
+                prompt_provider,
+                agent,
+                session_manager=session_manager,
+            )
             outcome = await agent_card_handlers.handle_card_load(
                 context,
                 manager=prompt_provider,
@@ -1479,7 +1509,11 @@ async def _dispatch_agent_card_payload(
             if error:
                 _print_styled(error, "red")
                 return result
-            context = build_command_context(prompt_provider, agent)
+            context = build_command_context(
+                prompt_provider,
+                agent,
+                session_manager=session_manager,
+            )
             outcome = await agent_card_handlers.handle_agent_command(
                 context,
                 manager=prompt_provider,
@@ -1502,11 +1536,16 @@ async def _dispatch_reload_payload(
     prompt_provider: "AgentApp",
     agent: str,
     merge_pinned_agents: Callable[[list[str]], list[str]],
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
         case ReloadAgentsCommand():
-            context = build_command_context(prompt_provider, agent)
+            context = build_command_context(
+                prompt_provider,
+                agent,
+                session_manager=session_manager,
+            )
             outcome = await agent_card_handlers.handle_reload_agents(
                 context,
                 manager=prompt_provider,
@@ -1556,6 +1595,7 @@ async def dispatch_command_payload(
     merge_pinned_agents: Callable[[list[str]], list[str]],
     buffer_prefill: str = "",
     shell_working_dir: Path | None = None,
+    session_manager: "SessionManager | None" = None,
 ) -> DispatchResult:
     del available_agents
 
@@ -1571,6 +1611,7 @@ async def dispatch_command_payload(
                     available_agents_set=available_agents_set,
                     merge_pinned_agents=merge_pinned_agents,
                     shell_working_dir=shell_working_dir,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1582,6 +1623,7 @@ async def dispatch_command_payload(
                     agent_name=agent,
                     buffer_prefill=buffer_prefill,
                     shell_working_dir=shell_working_dir,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1590,6 +1632,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1598,6 +1641,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1616,6 +1660,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1624,6 +1669,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1633,6 +1679,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1641,6 +1688,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1649,6 +1697,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1657,6 +1706,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1667,6 +1717,7 @@ async def dispatch_command_payload(
                     prompt_provider=prompt_provider,
                     agent=agent,
                     merge_pinned_agents=merge_pinned_agents,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1677,6 +1728,7 @@ async def dispatch_command_payload(
                     prompt_provider=prompt_provider,
                     agent=agent,
                     merge_pinned_agents=merge_pinned_agents,
+                    session_manager=session_manager,
                 ),
             ),
         )
@@ -1880,6 +1932,7 @@ async def _dispatch_plugin_command_payload(
     available_agents_set: set[str],
     merge_pinned_agents: Callable[[list[str]], list[str]],
     shell_working_dir: Path | None,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     request = _plugin_command_request(
         payload,
@@ -1890,7 +1943,7 @@ async def _dispatch_plugin_command_payload(
         return None
 
     try:
-        context = build_command_context(prompt_provider, agent)
+        context = build_command_context(prompt_provider, agent, session_manager=session_manager)
         plugin_context = _plugin_command_context(
             command_name=request.command_name,
             arguments=request.arguments,

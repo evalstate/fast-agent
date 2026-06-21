@@ -962,7 +962,9 @@ def _evaluation_event_metrics(
     if isinstance(scores, Sequence) and not isinstance(scores, str | bytes):
         numeric_scores = [score for score in scores if _is_numeric_metric(score)]
         if numeric_scores:
-            metrics["fast_agent/gepa_context/score_mean"] = sum(numeric_scores) / len(numeric_scores)
+            metrics["fast_agent/gepa_context/score_mean"] = sum(numeric_scores) / len(
+                numeric_scores
+            )
     return metrics
 
 

@@ -5,7 +5,7 @@ Each function handles all content types consistently and is designed for simple 
 """
 
 from collections.abc import Mapping
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 from mcp.types import (
     AudioContent,
@@ -35,7 +35,7 @@ def _coerce_str(value: object, *, default: str = "") -> str:
 
 
 def _message_role_and_content(
-    message: Union[ChatCompletionMessage, ChatCompletionMessageParam, dict[str, Any]],
+    message: ChatCompletionMessage | ChatCompletionMessageParam | dict[str, Any],
 ) -> tuple[Literal["assistant", "user"], object]:
     if isinstance(message, ChatCompletionMessage):
         return _coerce_extended_role(message.role), message.content
@@ -169,13 +169,11 @@ def _content_part_to_mcp_content(
 
 
 def openai_to_extended(
-    message: Union[
-        ChatCompletionMessage,
-        ChatCompletionMessageParam,
-        dict[str, Any],
-        list[Union[ChatCompletionMessage, ChatCompletionMessageParam, dict[str, Any]]],
-    ],
-) -> Union[PromptMessageExtended, list[PromptMessageExtended]]:
+    message: ChatCompletionMessage
+    | ChatCompletionMessageParam
+    | dict[str, Any]
+    | list[ChatCompletionMessage | ChatCompletionMessageParam | dict[str, Any]],
+) -> PromptMessageExtended | list[PromptMessageExtended]:
     """
     Convert OpenAI messages to PromptMessageExtended format.
 
@@ -191,7 +189,7 @@ def openai_to_extended(
 
 
 def _openai_message_to_extended(
-    message: Union[ChatCompletionMessage, ChatCompletionMessageParam, dict[str, Any]],
+    message: ChatCompletionMessage | ChatCompletionMessageParam | dict[str, Any],
 ) -> PromptMessageExtended:
     """Convert a single OpenAI message to PromptMessageExtended."""
     role, content = _message_role_and_content(message)

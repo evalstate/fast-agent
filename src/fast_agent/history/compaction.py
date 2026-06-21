@@ -321,7 +321,9 @@ def _archive_history(
             session_store_scope=normalize_session_store_scope(
                 acp_context.session_store_scope if acp_context else "workspace"
             ),
-            session_store_cwd=_resolved_path(acp_context.session_store_cwd) if acp_context else None,
+            session_store_cwd=_resolved_path(acp_context.session_store_cwd)
+            if acp_context
+            else None,
         )
         identity = resolve_session_for_save(
             current_session=None,
@@ -391,7 +393,9 @@ async def compact_conversation(
     previous_verb = llm.verb
     llm.verb = ProgressAction.COMPACTING
     try:
-        response = await llm.generate(summary_source + [Prompt.user(request_text)], None, tools=None)
+        response = await llm.generate(
+            summary_source + [Prompt.user(request_text)], None, tools=None
+        )
     finally:
         llm.verb = previous_verb
     summary_text = (response.last_text() or "").strip()

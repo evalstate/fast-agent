@@ -20,7 +20,6 @@ from typing import (
     Any,
     Literal,
     TypeVar,
-    Union,
     cast,
 )
 
@@ -1024,12 +1023,10 @@ class McpAgent(ABC, ToolAgent):
 
     async def __call__(
         self,
-        message: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
+        message: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
     ) -> str:
         return await self.send(message)
 
@@ -1360,7 +1357,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def apply_prompt(
         self,
-        prompt: Union[str, GetPromptResult],
+        prompt: str | GetPromptResult,
         arguments: dict[str, str] | None = None,
         as_template: bool = False,
         namespace: str | None = None,
@@ -1476,7 +1473,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def with_resource(
         self,
-        prompt_content: Union[str, PromptMessage, PromptMessageExtended],
+        prompt_content: str | PromptMessage | PromptMessageExtended,
         resource_uri: str,
         namespace: str | None = None,
         server_name: str | None = None,
@@ -2367,7 +2364,7 @@ class McpAgent(ABC, ToolAgent):
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
-        additional_message: Union["Text", None] = None,
+        additional_message: "Text | None" = None,
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
         render_message: bool = True,
@@ -2577,7 +2574,7 @@ class McpAgent(ABC, ToolAgent):
         return super().message_history
 
     @property
-    def usage_accumulator(self) -> Union["UsageAccumulator", None]:
+    def usage_accumulator(self) -> "UsageAccumulator | None":
         """
         Return the usage accumulator for tracking token usage across turns.
 

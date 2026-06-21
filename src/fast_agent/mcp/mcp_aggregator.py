@@ -12,7 +12,6 @@ from typing import (
     Literal,
     Protocol,
     TypeVar,
-    Union,
     cast,
     runtime_checkable,
 )
@@ -357,7 +356,7 @@ class MCPAggregator(ContextDependent):
         self,
         server_names: list[str],
         connection_persistence: bool = True,
-        context: Union["Context", None] = None,
+        context: "Context | None" = None,
         name: str | None = None,
         config: Any | None = None,  # Accept the agent config for elicitation_handler access
         tool_handler: ToolExecutionHandler | None = None,
@@ -478,9 +477,7 @@ class MCPAggregator(ContextDependent):
         except Exception:
             return False
         return (
-            config is not None
-            and config.auth is not None
-            and config.auth.forward == "huggingface"
+            config is not None and config.auth is not None and config.auth.forward == "huggingface"
         )
 
     def _require_connection_manager(self) -> MCPConnectionManager:

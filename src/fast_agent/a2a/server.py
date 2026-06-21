@@ -277,9 +277,7 @@ class FastAgentA2AExecutor(AgentExecutor):
 
         lock = await self._context_lock(self._lock_key(context))
         async with lock:
-            saved_bearer_token = request_bearer_token.set(
-                _bearer_token_from_call_context(context)
-            )
+            saved_bearer_token = request_bearer_token.set(_bearer_token_from_call_context(context))
             saved_a2a_task = _set_current_task(updater)
             instance: AgentInstance | None = None
             try:
@@ -702,11 +700,7 @@ def _security_schemes() -> dict[str, SecurityScheme]:
 
 
 def _security_requirements() -> list[SecurityRequirement]:
-    return [
-        SecurityRequirement(
-            schemes={A2A_HF_BEARER_SCHEME: StringList(list=[])}
-        )
-    ]
+    return [SecurityRequirement(schemes={A2A_HF_BEARER_SCHEME: StringList(list=[])})]
 
 
 def _agent_skill_from_fast_agent(
@@ -716,7 +710,9 @@ def _agent_skill_from_fast_agent(
     security_requirements: list[SecurityRequirement] | None = None,
 ) -> AgentSkill:
     agent_type = str(agent.agent_type) if agent.agent_type else "agent"
-    description = agent.config.description or f"Send a message to the {agent_name} fast-agent agent."
+    description = (
+        agent.config.description or f"Send a message to the {agent_name} fast-agent agent."
+    )
     return AgentSkill(
         id=agent_name,
         name=agent_name,
@@ -790,9 +786,7 @@ def _parts_from_prompt_message(message: PromptMessageExtended) -> list[Part]:
             parts.append(Part(text=content.text))
             continue
         if isinstance(content, ImageContent):
-            parts.append(
-                Part(raw=base64.b64decode(content.data), media_type=content.mimeType)
-            )
+            parts.append(Part(raw=base64.b64decode(content.data), media_type=content.mimeType))
             continue
         if isinstance(content, EmbeddedResource):
             resource = content.resource

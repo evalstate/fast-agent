@@ -900,7 +900,9 @@ class AgentsAsToolsAgent(McpAgent):
     ) -> _ChildHookInstall:
         capture_enabled = trajectory_capture is not None
         progress_enabled = bool(tool_handler and tool_call_id)
-        if not (progress_enabled or capture_enabled) or not isinstance(child, ToolRunnerHookCapable):
+        if not (progress_enabled or capture_enabled) or not isinstance(
+            child, ToolRunnerHookCapable
+        ):
             return _ChildHookInstall(installed=False)
 
         previous_hooks = child.tool_runner_hooks

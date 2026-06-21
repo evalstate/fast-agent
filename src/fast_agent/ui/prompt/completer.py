@@ -451,7 +451,11 @@ class AgentCompleter(Completer):
 
         completions: list[Completion] = []
         for value in values:
-            item = value if isinstance(value, PluginCommandCompletion) else PluginCommandCompletion(value=str(value))
+            item = (
+                value
+                if isinstance(value, PluginCommandCompletion)
+                else PluginCommandCompletion(value=str(value))
+            )
             display = item.display or item.value
             detail = item.detail or ""
             if current_token and not (

@@ -431,7 +431,9 @@ class A2ARemoteAgent(LlmDecorator):
                 )
                 self._log_a2a_progress(ProgressAction.UPDATED, details=state)
                 for artifact in event.task.artifacts:
-                    _replace_artifact_text(artifact_order, artifact_texts, artifact, _parts_text(artifact.parts))
+                    _replace_artifact_text(
+                        artifact_order, artifact_texts, artifact, _parts_text(artifact.parts)
+                    )
                 continue
 
             if event.HasField("status_update"):
@@ -502,7 +504,6 @@ class _A2AResult:
     text: str
     state: str | None
     status_text: str | None
-
 
 
 def _parts_from_messages(messages: Sequence[PromptMessageExtended]) -> list[Part]:

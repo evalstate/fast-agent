@@ -306,10 +306,7 @@ class FastAgent(DecoratorMixin):
             "--transport",
             choices=["http", "stdio", "acp", "a2a"],
             default=None,
-            help=(
-                "Transport protocol to use when running as a server "
-                "(http, stdio, acp, or a2a)"
-            ),
+            help=("Transport protocol to use when running as a server (http, stdio, acp, or a2a)"),
         )
         parser.add_argument(
             "--port",
@@ -1619,9 +1616,13 @@ class FastAgent(DecoratorMixin):
         noenv_mode = bool(getattr(self.args, "noenv", False))
         resume_requested = bool(getattr(self.args, "resume_requested", False))
         resume_session_id_arg = getattr(self.args, "resume_session_id", None)
-        resume_session_id = resume_session_id_arg if isinstance(resume_session_id_arg, str) else None
+        resume_session_id = (
+            resume_session_id_arg if isinstance(resume_session_id_arg, str) else None
+        )
         target_agent_name_arg = getattr(self.args, "agent", None)
-        target_agent_name = target_agent_name_arg if isinstance(target_agent_name_arg, str) else None
+        target_agent_name = (
+            target_agent_name_arg if isinstance(target_agent_name_arg, str) else None
+        )
 
         cfg = self.context.config
         model_source_override_arg = getattr(self.args, "model_source_override", None)

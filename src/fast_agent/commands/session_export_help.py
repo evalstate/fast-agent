@@ -52,12 +52,8 @@ SESSION_EXPORT_OUTPUT_HELP = (
     "Write trace to this file path. Relative paths resolve from the current "
     "working directory. Parent directories are created as needed."
 )
-SESSION_EXPORT_HF_DATASET_HELP = (
-    "Compatibility option: upload the exported trace to this Hugging Face dataset repo (owner/name). Prefer --hf-url for new workflows."
-)
-SESSION_EXPORT_HF_URL_HELP = (
-    "Upload the exported trace to this Hugging Face URL. Supports hf://buckets/... and hf://datasets/...."
-)
+SESSION_EXPORT_HF_DATASET_HELP = "Compatibility option: upload the exported trace to this Hugging Face dataset repo (owner/name). Prefer --hf-url for new workflows."
+SESSION_EXPORT_HF_URL_HELP = "Upload the exported trace to this Hugging Face URL. Supports hf://buckets/... and hf://datasets/...."
 SESSION_EXPORT_HF_DATASET_PATH_HELP = (
     "Path in the dataset repo. Defaults to the root using the local filename. "
     "If the value ends with '/', it is treated as a folder. Requires --hf-dataset."

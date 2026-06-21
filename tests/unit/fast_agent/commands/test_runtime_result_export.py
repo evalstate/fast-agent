@@ -22,12 +22,17 @@ from fast_agent.cli.runtime.agent_setup import (
     _export_result_histories,
     _find_last_assistant_text,
     _resume_session_if_requested,
-    _run_single_agent_cli_flow,
+    _run_cli_flow,
     _select_loaded_card_agent,
+)
+from fast_agent.cli.runtime.harness_startup import (
+    run_cli_flow,
+    should_use_harness_startup,
 )
 from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.cli.runtime.runner import _should_convert_keyboard_interrupt_to_task_cancel
 from fast_agent.config import Settings, ShellSettings
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.session import ResumeSessionAgentsResult
@@ -98,12 +103,80 @@ class _DummyAgentApp:
     def latest_session_restore_result(self):
         return self._session_restore_result
 
-    async def interactive(self, agent_name: str | None = None) -> None:
-        del agent_name
+    async def interactive(
+        self,
+        agent_name: str | None = None,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_name, session_manager, harness_session
 
     async def send(self, message: str, agent_name: str | None = None) -> str:
         del agent_name
         return message
+
+
+class _AsyncContext:
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+    async def __aenter__(self) -> object:
+        return self.value
+
+    async def __aexit__(self, *args: object) -> None:
+        del args
+
+
+class _FailingAsyncContext(_AsyncContext):
+    def __init__(self, exc: Exception) -> None:
+        super().__init__(object())
+        self.exc = exc
+
+    async def __aenter__(self) -> object:
+        raise self.exc
+
+
+class _DummyHarness:
+    def __init__(self, agent_app: _DummyAgentApp, session_manager: object) -> None:
+        self.agent_app = agent_app
+        self.session_manager = session_manager
+
+    async def session(self, session_id: str, *, agent_name: str | None = None):
+        del session_id, agent_name
+        return self
+
+
+class _DummyFastRuntime:
+    def __init__(self) -> None:
+        self.direct_app = _DummyAgentApp(["agent"])
+        self.harness_app = _DummyAgentApp(["agent"])
+        self.session_manager = object()
+        self.harness_session = _DummyHarness(self.harness_app, self.session_manager)
+        self.run_calls = 0
+        self.harness_calls = 0
+
+    def run(self) -> _AsyncContext:
+        self.run_calls += 1
+        return _AsyncContext(self.direct_app)
+
+    def harness(self) -> _AsyncContext:
+        self.harness_calls += 1
+        return _AsyncContext(self.harness_session)
+
+
+class _FailingHarnessRuntime(_DummyFastRuntime):
+    def __init__(self, exc: Exception) -> None:
+        super().__init__()
+        self.exc = exc
+        self.handled_errors: list[Exception] = []
+
+    def harness(self) -> _FailingAsyncContext:
+        self.harness_calls += 1
+        return _FailingAsyncContext(self.exc)
+
+    def _handle_error(self, exc: Exception, error_type: str | None = None) -> None:
+        del error_type
+        self.handled_errors.append(exc)
 
 
 def _make_request(
@@ -207,6 +280,93 @@ def test_apply_fast_args_threads_resume_into_runtime_settings() -> None:
     assert fast.args.resume_session_id == "session-123"
 
 
+@pytest.mark.asyncio
+async def test_run_cli_flow_uses_harness_for_local_repl() -> None:
+    request = _make_request(result_file=None, message=None)
+    fast = _DummyFastRuntime()
+    calls: list[tuple[object, object | None, object | None]] = []
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del request
+        calls.append((agent_app, session_manager, harness_session))
+
+    assert should_use_harness_startup(request)
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert fast.harness_calls == 1
+    assert fast.run_calls == 0
+    assert calls == [(fast.harness_app, fast.session_manager, fast.harness_session)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("resume", "latest"),
+        ("noenv", True),
+        ("message", "hello"),
+        ("prompt_file", "prompt.json"),
+    ],
+)
+async def test_run_cli_flow_uses_direct_run_for_non_harness_modes(
+    field: str,
+    value: object,
+) -> None:
+    request = _make_request(result_file=None, message=None)
+    setattr(request, field, value)
+    if field in {"message", "prompt_file"}:
+        request.execution_mode = "one_shot_message" if field == "message" else "one_shot_prompt_file"
+    fast = _DummyFastRuntime()
+    calls: list[tuple[object, object | None, object | None]] = []
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del request
+        calls.append((agent_app, session_manager, harness_session))
+
+    assert not should_use_harness_startup(request)
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert fast.harness_calls == 0
+    assert fast.run_calls == 1
+    assert calls == [(fast.direct_app, None, None)]
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_handles_harness_startup_errors_like_cli_run() -> None:
+    request = _make_request(result_file=None, message=None)
+    error = AgentConfigError("bad agent")
+    fast = _FailingHarnessRuntime(error)
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_app, request, session_manager, harness_session
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert exc_info.value.code == 1
+    assert fast.handled_errors == [error]
+
+
 def test_build_fan_out_result_paths_disambiguates_collisions() -> None:
     exports = _build_fan_out_result_paths(
         "foo.json",
@@ -300,7 +460,7 @@ def test_find_last_assistant_text_prefers_text_over_pending_tool_summary() -> No
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_exports_transient_turn_when_history_disabled(
+async def test_run_cli_flow_exports_transient_turn_when_history_disabled(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -309,7 +469,7 @@ async def test_run_single_agent_cli_flow_exports_transient_turn_when_history_dis
     app._agents["agent"] = agent
     output = tmp_path / "out.json"
 
-    await _run_single_agent_cli_flow(app, _make_request(result_file=str(output), message="hello"))
+    await _run_cli_flow(app, _make_request(result_file=str(output), message="hello"))
 
     assert agent.message_history == []
     exported = load_messages(str(output))
@@ -321,7 +481,7 @@ async def test_run_single_agent_cli_flow_exports_transient_turn_when_history_dis
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_prompt_file_is_one_shot_and_exports_results(
+async def test_run_cli_flow_prompt_file_is_one_shot_and_exports_results(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -331,8 +491,13 @@ async def test_run_single_agent_cli_flow_prompt_file_is_one_shot_and_exports_res
             super().__init__(["agent"])
             self.interactive_calls = 0
 
-        async def interactive(self, agent_name: str | None = None) -> None:
-            del agent_name
+        async def interactive(
+            self,
+            agent_name: str | None = None,
+            session_manager: object | None = None,
+            harness_session: object | None = None,
+        ) -> None:
+            del agent_name, session_manager, harness_session
             self.interactive_calls += 1
 
     prompt = [
@@ -354,7 +519,7 @@ async def test_run_single_agent_cli_flow_prompt_file_is_one_shot_and_exports_res
         lambda _path: prompt,
     )
 
-    await _run_single_agent_cli_flow(
+    await _run_cli_flow(
         app,
         _make_request(
             result_file=str(output),
@@ -373,7 +538,7 @@ async def test_run_single_agent_cli_flow_prompt_file_is_one_shot_and_exports_res
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_message_attaches_files(
+async def test_run_cli_flow_message_attaches_files(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -383,7 +548,7 @@ async def test_run_single_agent_cli_flow_message_attaches_files(
     app = _DummyAgentApp(["agent"])
     app._agents["agent"] = agent
 
-    await _run_single_agent_cli_flow(
+    await _run_cli_flow(
         app,
         _make_request(
             result_file=None,
@@ -406,7 +571,7 @@ def test_cli_attachment_token_normalizes_remote_scheme_case() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_prompt_file_attaches_to_last_user_message(
+async def test_run_cli_flow_prompt_file_attaches_to_last_user_message(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -438,7 +603,7 @@ async def test_run_single_agent_cli_flow_prompt_file_attaches_to_last_user_messa
         lambda _path: prompt,
     )
 
-    await _run_single_agent_cli_flow(
+    await _run_cli_flow(
         app,
         _make_request(
             result_file=None,
@@ -458,7 +623,7 @@ async def test_run_single_agent_cli_flow_prompt_file_attaches_to_last_user_messa
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_json_schema_message_emits_only_json(
+async def test_run_cli_flow_json_schema_message_emits_only_json(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -475,7 +640,7 @@ async def test_run_single_agent_cli_flow_json_schema_message_emits_only_json(
     app = _DummyAgentApp(["agent"])
     app._agents["agent"] = agent
 
-    await _run_single_agent_cli_flow(
+    await _run_cli_flow(
         app,
         _make_request(
             result_file=None,
@@ -491,7 +656,7 @@ async def test_run_single_agent_cli_flow_json_schema_message_emits_only_json(
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_json_schema_prompt_file_emits_only_json(
+async def test_run_cli_flow_json_schema_prompt_file_emits_only_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -523,7 +688,7 @@ async def test_run_single_agent_cli_flow_json_schema_prompt_file_emits_only_json
         lambda _path: prompt,
     )
 
-    await _run_single_agent_cli_flow(
+    await _run_cli_flow(
         app,
         _make_request(
             result_file=None,
@@ -540,7 +705,7 @@ async def test_run_single_agent_cli_flow_json_schema_prompt_file_emits_only_json
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_json_schema_invalid_output_exits_nonzero(
+async def test_run_cli_flow_json_schema_invalid_output_exits_nonzero(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -561,7 +726,7 @@ async def test_run_single_agent_cli_flow_json_schema_invalid_output_exits_nonzer
     app._agents["agent"] = agent
 
     with pytest.raises(typer.Exit) as exc_info:
-        await _run_single_agent_cli_flow(
+        await _run_cli_flow(
             app,
             _make_request(
                 result_file=None,
@@ -884,7 +1049,7 @@ async def test_resume_session_prefers_explicit_target_agent_for_fallback_history
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_retries_interactive_after_keyboard_interrupt(
+async def test_run_cli_flow_retries_interactive_after_keyboard_interrupt(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     class _InterruptingAgentApp(_DummyAgentApp):
@@ -892,8 +1057,13 @@ async def test_run_single_agent_cli_flow_retries_interactive_after_keyboard_inte
             super().__init__(["agent"])
             self.interactive_calls = 0
 
-        async def interactive(self, agent_name: str | None = None) -> None:
-            del agent_name
+        async def interactive(
+            self,
+            agent_name: str | None = None,
+            session_manager: object | None = None,
+            harness_session: object | None = None,
+        ) -> None:
+            del agent_name, session_manager, harness_session
             self.interactive_calls += 1
             if self.interactive_calls == 1:
                 raise KeyboardInterrupt()
@@ -901,7 +1071,7 @@ async def test_run_single_agent_cli_flow_retries_interactive_after_keyboard_inte
     app = _InterruptingAgentApp()
     request = _make_request(result_file=None, message=None)
 
-    await _run_single_agent_cli_flow(app, request)
+    await _run_cli_flow(app, request)
 
     captured = capsys.readouterr()
     assert app.interactive_calls == 2
@@ -909,7 +1079,7 @@ async def test_run_single_agent_cli_flow_retries_interactive_after_keyboard_inte
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_exits_after_double_keyboard_interrupt(
+async def test_run_cli_flow_exits_after_double_keyboard_interrupt(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     class _InterruptingAgentApp(_DummyAgentApp):
@@ -917,8 +1087,13 @@ async def test_run_single_agent_cli_flow_exits_after_double_keyboard_interrupt(
             super().__init__(["agent"])
             self.interactive_calls = 0
 
-        async def interactive(self, agent_name: str | None = None) -> None:
-            del agent_name
+        async def interactive(
+            self,
+            agent_name: str | None = None,
+            session_manager: object | None = None,
+            harness_session: object | None = None,
+        ) -> None:
+            del agent_name, session_manager, harness_session
             self.interactive_calls += 1
             raise KeyboardInterrupt()
 
@@ -926,7 +1101,7 @@ async def test_run_single_agent_cli_flow_exits_after_double_keyboard_interrupt(
     request = _make_request(result_file=None, message=None)
 
     with pytest.raises(KeyboardInterrupt):
-        await _run_single_agent_cli_flow(app, request)
+        await _run_cli_flow(app, request)
 
     captured = capsys.readouterr()
     assert app.interactive_calls == 2
@@ -934,7 +1109,7 @@ async def test_run_single_agent_cli_flow_exits_after_double_keyboard_interrupt(
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_retries_interactive_after_cancelled_error(
+async def test_run_cli_flow_retries_interactive_after_cancelled_error(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     class _CancelledAgentApp(_DummyAgentApp):
@@ -942,8 +1117,13 @@ async def test_run_single_agent_cli_flow_retries_interactive_after_cancelled_err
             super().__init__(["agent"])
             self.interactive_calls = 0
 
-        async def interactive(self, agent_name: str | None = None) -> None:
-            del agent_name
+        async def interactive(
+            self,
+            agent_name: str | None = None,
+            session_manager: object | None = None,
+            harness_session: object | None = None,
+        ) -> None:
+            del agent_name, session_manager, harness_session
             self.interactive_calls += 1
             if self.interactive_calls == 1:
                 raise asyncio.CancelledError()
@@ -951,7 +1131,7 @@ async def test_run_single_agent_cli_flow_retries_interactive_after_cancelled_err
     app = _CancelledAgentApp()
     request = _make_request(result_file=None, message=None)
 
-    await _run_single_agent_cli_flow(app, request)
+    await _run_cli_flow(app, request)
 
     captured = capsys.readouterr()
     assert app.interactive_calls == 2

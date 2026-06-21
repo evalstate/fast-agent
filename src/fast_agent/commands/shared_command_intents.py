@@ -518,6 +518,8 @@ def parse_current_agent_history_intent(remainder: str) -> HistoryActionIntent:
         return HistoryActionIntent(action="overview")
 
     subcmd = normalize_action_token(tokens[0])
+    if subcmd.isdigit():
+        return _parse_turn_history_intent("detail", subcmd)
 
     action = _SIMPLE_HISTORY_ACTIONS.get(subcmd)
     if action is not None:

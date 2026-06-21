@@ -274,6 +274,7 @@ class CommandContext:
     session_cwd: Path | None = None
     session_store_scope: SessionStoreScope = "workspace"
     session_store_cwd: Path | None = None
+    session_manager: "SessionManager | None" = None
     skill_source_overrides: dict[str, str] = field(default_factory=dict)
 
     def resolve_settings(self) -> Settings:
@@ -299,6 +300,9 @@ class CommandContext:
 
     def resolve_session_manager(self) -> "SessionManager":
         from fast_agent.session import get_session_manager
+
+        if self.session_manager is not None:
+            return self.session_manager
 
         environment_override = self.resolve_settings().environment_dir
         if self.session_store_scope == "app":

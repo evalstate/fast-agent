@@ -147,7 +147,9 @@ def _compare_versions(a: str | None, b: str | None) -> str | None:
         return "<older" if a < b else "<newer" if a > b else "<same"
 
 
-def _active_scope_for(name: str, *, home_enabled: Sequence[str], project_enabled: Sequence[str]) -> str | None:
+def _active_scope_for(
+    name: str, *, home_enabled: Sequence[str], project_enabled: Sequence[str]
+) -> str | None:
     # Load order is home first, then project overrides; project wins when
     # the name is enabled in the project scope.
     if name in project_enabled:

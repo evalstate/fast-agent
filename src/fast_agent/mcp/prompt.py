@@ -7,7 +7,6 @@ fast_agent.core.prompt importing this Prompt.
 """
 
 from pathlib import Path
-from typing import Union
 
 from mcp import CallToolRequest
 from mcp.types import ContentBlock, PromptMessage, ReadResourceResult, ResourceContents
@@ -39,17 +38,15 @@ class Prompt:
     @classmethod
     def user(
         cls,
-        *content_items: Union[
-            str,
-            Path,
-            bytes,
-            dict,
-            ContentBlock,
-            ResourceContents,
-            ReadResourceResult,
-            PromptMessage,
-            PromptMessageExtended,
-        ],
+        *content_items: str
+        | Path
+        | bytes
+        | dict
+        | ContentBlock
+        | ResourceContents
+        | ReadResourceResult
+        | PromptMessage
+        | PromptMessageExtended,
     ) -> PromptMessageExtended:
         """
         Create a user PromptMessageExtended with various content items.
@@ -70,17 +67,15 @@ class Prompt:
     @classmethod
     def assistant(
         cls,
-        *content_items: Union[
-            str,
-            Path,
-            bytes,
-            dict,
-            ContentBlock,
-            ResourceContents,
-            ReadResourceResult,
-            PromptMessage,
-            PromptMessageExtended,
-        ],
+        *content_items: str
+        | Path
+        | bytes
+        | dict
+        | ContentBlock
+        | ResourceContents
+        | ReadResourceResult
+        | PromptMessage
+        | PromptMessageExtended,
         stop_reason: LlmStopReason | None = None,
         tool_calls: dict[str, CallToolRequest] | None = None,
         phase: AssistantMessagePhase | None = None,
@@ -122,17 +117,15 @@ class Prompt:
     @classmethod
     def message(
         cls,
-        *content_items: Union[
-            str,
-            Path,
-            bytes,
-            dict,
-            ContentBlock,
-            ResourceContents,
-            ReadResourceResult,
-            PromptMessage,
-            PromptMessageExtended,
-        ],
+        *content_items: str
+        | Path
+        | bytes
+        | dict
+        | ContentBlock
+        | ResourceContents
+        | ReadResourceResult
+        | PromptMessage
+        | PromptMessageExtended,
         role: MessageRole = "user",
     ) -> PromptMessageExtended:
         """

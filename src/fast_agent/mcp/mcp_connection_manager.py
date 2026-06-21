@@ -12,7 +12,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppres
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn, Protocol, Union, runtime_checkable
+from typing import TYPE_CHECKING, NoReturn, Protocol, runtime_checkable
 
 import httpx
 from anyio import CancelScope, Event, Lock, create_task_group
@@ -81,7 +81,7 @@ def _pingable_session(session: object | None) -> PingableClientSession | None:
 @dataclass(frozen=True, slots=True)
 class PreparedHttpAuth:
     headers: dict[str, str]
-    oauth_provider: Union["OAuthClientProvider", None]
+    oauth_provider: "OAuthClientProvider | None"
     user_auth_keys: set[str]
 
     def __iter__(self):
@@ -987,9 +987,7 @@ class MCPConnectionManager(ContextDependent):
     Integrates with the application context system for proper resource management.
     """
 
-    def __init__(
-        self, server_registry: "ServerRegistry", context: Union["Context", None] = None
-    ) -> None:
+    def __init__(self, server_registry: "ServerRegistry", context: "Context | None" = None) -> None:
         super().__init__(context=context)
         self.server_registry = server_registry
         self.running_servers: dict[str, ServerConnection] = {}
@@ -1426,7 +1424,7 @@ class MCPConnectionManager(ContextDependent):
         allow_oauth_paste_fallback: bool,
         transport_metrics: TransportChannelMetrics | None,
         suppress_transport_errors: Callable[[], None],
-    ) -> tuple[dict[str, str], Union["OAuthClientProvider", None], Callable | None]:
+    ) -> tuple[dict[str, str], "OAuthClientProvider | None", Callable | None]:
         suppress_transport_errors()
         self._suppress_mcp_oauth_cancel_errors()
         prepared_auth = _prepare_headers_and_auth(

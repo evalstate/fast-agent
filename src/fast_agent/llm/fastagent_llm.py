@@ -16,7 +16,6 @@ from typing import (
     Generic,
     Literal,
     TypeVar,
-    Union,
     cast,
 )
 
@@ -148,7 +147,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         instruction: str | None = None,
         name: str | None = None,
         request_params: RequestParams | None = None,
-        context: Union["Context", None] = None,
+        context: "Context | None" = None,
         model: str | None = None,
         api_key: str | None = None,
         **kwargs: Any,

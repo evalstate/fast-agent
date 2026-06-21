@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterable, Mapping
-from typing import Any, Union
+from typing import Any
 
 from mcp.types import (
     AudioContent,
@@ -538,10 +538,10 @@ class OpenAIConverter:
         tool_result: CallToolResult,
         tool_call_id: str,
         concatenate_text_blocks: bool = False,
-    ) -> Union[
-        ChatCompletionMessageParam,
-        tuple[ChatCompletionMessageParam, list[ChatCompletionMessageParam]],
-    ]:
+    ) -> (
+        ChatCompletionMessageParam
+        | tuple[ChatCompletionMessageParam, list[ChatCompletionMessageParam]]
+    ):
         """
         Convert a CallToolResult to an OpenAI tool message.
 

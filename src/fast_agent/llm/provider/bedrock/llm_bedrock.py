@@ -6,7 +6,7 @@ import sys
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from types import UnionType
-from typing import TYPE_CHECKING, Any, ClassVar, Union, cast, get_args, get_origin
+from typing import TYPE_CHECKING, Any, ClassVar, cast, get_args, get_origin
 
 from mcp import Tool
 from mcp.types import (
@@ -105,7 +105,7 @@ _SIMPLIFIED_SCHEMA_SCALARS = {
 
 def _bedrock_union_members(field_type: Any) -> tuple[Any, ...] | None:
     origin = get_origin(field_type)
-    if origin not in {Union, UnionType}:
+    if origin is not UnionType and str(origin) != "typing.Union":
         return None
     return tuple(arg for arg in get_args(field_type) if arg is not type(None))
 
@@ -441,7 +441,7 @@ class ModelCapabilities:
 @dataclass
 class BedrockAttemptConfig:
     converse_args: dict[str, Any]
-    tools_payload: Union[list[dict[str, Any]], str, None]
+    tools_payload: list[dict[str, Any]] | str | None
     tool_name_mapping: dict[str, str] | None
     name_policy: ToolNamePolicy
     system_text: str | None
@@ -1828,7 +1828,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         self,
         converse_args: dict[str, Any],
         schema_choice: ToolSchemaType,
-        tools_payload: Union[list[dict[str, Any]], str, None],
+        tools_payload: list[dict[str, Any]] | str | None,
         *,
         has_tool_results: bool,
         has_tool_use: bool,
@@ -1844,7 +1844,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
     @staticmethod
     def _bedrock_has_tools_payload(
-        tools_payload: Union[list[dict[str, Any]], str, None],
+        tools_payload: list[dict[str, Any]] | str | None,
     ) -> bool:
         if isinstance(tools_payload, list):
             return bool(tools_payload)
@@ -1877,7 +1877,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         model: str,
         schema_choice: ToolSchemaType,
         tool_list: "ListToolsResult | None",
-    ) -> tuple[Union[list[dict[str, Any]], str, None], dict[str, str] | None, ToolNamePolicy]:
+    ) -> tuple[list[dict[str, Any]] | str | None, dict[str, str] | None, ToolNamePolicy]:
         name_policy = (
             self.capabilities.get(model) or ModelCapabilities()
         ).tool_name_policy or ToolNamePolicy.PRESERVE
@@ -1916,7 +1916,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         base_system_text: str | None,
         model: str,
         schema_choice: ToolSchemaType,
-        tools_payload: Union[list[dict[str, Any]], str, None],
+        tools_payload: list[dict[str, Any]] | str | None,
     ) -> str | None:
         system_text = base_system_text
         if (

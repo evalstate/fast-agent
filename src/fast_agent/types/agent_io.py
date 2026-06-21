@@ -107,7 +107,9 @@ class AgentRequest:
         progress: ProgressReporter | None = None,
     ) -> AgentRequest:
         return cls(
-            message=PromptMessageExtended(role="user", content=[TextContent(type="text", text=text)]),
+            message=PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text=text)]
+            ),
             agent=agent,
             session_id=session_id,
             auth=auth,

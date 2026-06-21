@@ -21,7 +21,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import nullcontext, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, Union, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from mcp.types import PromptMessage
 from rich import print as rich_print
@@ -29,6 +29,7 @@ from rich.text import Text
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.session.session_manager import SessionManager
     from fast_agent.ui.console_display import ConsoleDisplay
 
 from fast_agent.agents.agent_types import AgentType
@@ -80,7 +81,7 @@ from fast_agent.utils.text import strip_casefold
 _MCP_RUNTIME_HANDLERS_COMPAT = mcp_runtime_handlers
 
 # Type alias for the send function
-SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awaitable[str]]
+SendFunc = Callable[[str | PromptMessage | PromptMessageExtended, str], Awaitable[str]]
 type PromptLoopResult = str | ShellExecutionResult
 
 # Type alias for the agent getter function
@@ -826,6 +827,7 @@ class InteractivePrompt:
         pinned_agent: str | None,
         runtime_state: PromptLoopRuntimeState,
         ctrl_c_exit_window_seconds: float,
+        session_manager: "SessionManager | None",
     ) -> PromptCommandPhase:
         pending = PendingCommandExecution()
         command_result = await handle_special_commands(user_input, prompt_provider)
@@ -852,6 +854,7 @@ class InteractivePrompt:
                         agent_name=agent_state.current_agent,
                         agent_provider=prompt_provider,
                     ),
+                    session_manager=session_manager,
                 )
             except KeyboardInterrupt:
                 self._handle_ctrl_c_interrupt(
@@ -1125,6 +1128,7 @@ class InteractivePrompt:
         pinned_agent: str | None = None,
         default: str = "",
         quiet_send_func: SendFunc | None = None,
+        session_manager: "SessionManager | None" = None,
     ) -> PromptLoopResult:
         """
         Start an interactive prompt session.
@@ -1137,6 +1141,7 @@ class InteractivePrompt:
             prompt_provider: AgentApp instance for accessing agents and prompts
             pinned_agent: Explicitly targeted agent name to preserve across refreshes
             default: Default message to use when user presses enter
+            session_manager: Optional manager for session-backed prompt runs
 
         Returns:
             The result of the interactive session
@@ -1217,6 +1222,7 @@ class InteractivePrompt:
                 pinned_agent=pinned_agent,
                 runtime_state=runtime_state,
                 ctrl_c_exit_window_seconds=ctrl_c_exit_window_seconds,
+                session_manager=session_manager,
             )
             if command_phase.should_return:
                 return result

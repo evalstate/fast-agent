@@ -7,7 +7,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 from deprecated import deprecated
 from rich import print as rich_print
@@ -32,9 +32,10 @@ if TYPE_CHECKING:
     from fast_agent.cli.runtime.shell_cwd_policy import MissingShellCwdPolicy
     from fast_agent.command_actions import PluginCommandActionSpec
     from fast_agent.config import MCPServerSettings
+    from fast_agent.core.harness import HarnessSession
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
-    from fast_agent.session.session_manager import ResumeSessionAgentsResult
+    from fast_agent.session.session_manager import ResumeSessionAgentsResult, SessionManager
     from fast_agent.types import PromptMessageExtended, RequestParams
     from fast_agent.ui.interactive_prompt import PromptLoopResult
 
@@ -177,6 +178,13 @@ class AgentApp:
         """Return the named agent if available, else None."""
         return self._agents.get(name)
 
+    def resolve_agent(self, name: str | None = None) -> AgentProtocol:
+        """Return the resolved target agent, raising when no target is available."""
+        resolved_agent_name = self.resolve_target_agent_name(name)
+        if resolved_agent_name is None:
+            raise ValueError("No agents provided!")
+        return self._agents[resolved_agent_name]
+
     @property
     def plugin_commands(self) -> dict[str, PluginCommandActionSpec] | None:
         return self._plugin_commands
@@ -209,7 +217,7 @@ class AgentApp:
 
     async def __call__(
         self,
-        message: Union[str, PromptMessage, PromptMessageExtended] | None = None,
+        message: str | PromptMessage | PromptMessageExtended | None = None,
         agent_name: str | None = None,
         default_prompt: str = "",
         request_params: RequestParams | None = None,
@@ -240,7 +248,7 @@ class AgentApp:
 
     async def send(
         self,
-        message: Union[str, PromptMessage, PromptMessageExtended],
+        message: str | PromptMessage | PromptMessageExtended,
         agent_name: str | None = None,
         request_params: RequestParams | None = None,
     ) -> str:
@@ -269,14 +277,11 @@ class AgentApp:
         )
 
     def _agent(self, agent_name: str | None) -> AgentProtocol:
-        resolved_agent_name = self.resolve_target_agent_name(agent_name)
-        if resolved_agent_name is None:
-            raise ValueError("No agents provided!")
-        return self._agents[resolved_agent_name]
+        return self.resolve_agent(agent_name)
 
     async def apply_prompt(
         self,
-        prompt: Union[str, GetPromptResult],
+        prompt: str | GetPromptResult,
         arguments: dict[str, str] | None = None,
         agent_name: str | None = None,
         as_template: bool = False,
@@ -344,7 +349,7 @@ class AgentApp:
 
     async def with_resource(
         self,
-        prompt_content: Union[str, PromptMessage, PromptMessageExtended],
+        prompt_content: str | PromptMessage | PromptMessageExtended,
         resource_uri: str,
         server_name: str | None = None,
         agent_name: str | None = None,
@@ -669,6 +674,8 @@ class AgentApp:
         default_prompt: str = "",
         pretty_print_parallel: bool = False,
         request_params: RequestParams | None = None,
+        session_manager: "SessionManager | None" = None,
+        harness_session: "HarnessSession | None" = None,
     ) -> PromptLoopResult:
         """
         Interactive prompt for sending messages with advanced features.
@@ -678,6 +685,8 @@ class AgentApp:
             default: Default message to use when user presses enter
             pretty_print_parallel: Enable clean parallel results display for parallel agents
             request_params: Optional request parameters including MCP metadata
+            session_manager: Optional session manager for session-backed interactive runs
+            harness_session: Optional harness session that owns this interactive run
 
         Returns:
             The result of the interactive session
@@ -698,6 +707,29 @@ class AgentApp:
         prompt = InteractivePrompt(agent_types=agent_types)
 
         async def send_with_error_handling(message, agent_name, *, show_usage: bool) -> str:
+            if harness_session is not None:
+                try:
+                    turn_start_indices = self._capture_turn_start_indices(agent_name)
+                    result = await harness_session.send(
+                        message,
+                        agent_name=agent_name,
+                        request_params=request_params,
+                    )
+                    if show_usage and display_usage_enabled():
+                        self._show_turn_usage(agent_name, turn_start_indices)
+                    return result
+                except Exception as e:
+                    if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
+                        raise
+
+                    logger.exception(
+                        "Agent failed after repeated attempts",
+                        agent_name=agent_name,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+                    return _format_interactive_final_error(e)
+
             return await self._send_interactive_message(
                 message,
                 agent_name,
@@ -719,11 +751,12 @@ class AgentApp:
             prompt_provider=self,  # Pass self as the prompt provider
             pinned_agent=agent_name,
             default=default_prompt,
+            session_manager=session_manager,
         )
 
     async def _send_interactive_message(
         self,
-        message: Union[str, PromptMessage, PromptMessageExtended],
+        message: str | PromptMessage | PromptMessageExtended,
         agent_name: str | None,
         *,
         request_params: RequestParams | None,

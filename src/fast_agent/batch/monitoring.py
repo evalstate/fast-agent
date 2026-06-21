@@ -75,9 +75,7 @@ class BatchUsageTotals:
             reasoning_tokens = _int(source, "cumulative_reasoning_tokens", "reasoning_tokens")
             tool_calls = _int(source, "cumulative_tool_calls", "tool_calls")
             cache_read_tokens = _int(source, "cumulative_cache_read_tokens", "cache_read_tokens")
-            cache_write_tokens = _int(
-                source, "cumulative_cache_write_tokens", "cache_write_tokens"
-            )
+            cache_write_tokens = _int(source, "cumulative_cache_write_tokens", "cache_write_tokens")
             cache_hit_tokens = _int(source, "cumulative_cache_hit_tokens", "cache_hit_tokens")
             effective_input_tokens = _int(
                 source, "cumulative_effective_input_tokens", "effective_input_tokens"
@@ -314,12 +312,12 @@ def summary_metrics(summary: BatchSummary) -> dict[str, int | float]:
     )
     _add_timing_list_metrics(metrics, "duration", summary.timing_duration_ms)
     _add_timing_list_metrics(metrics, "ttft", summary.timing_ttft_ms)
-    _add_timing_list_metrics(
-        metrics, "time_to_response", summary.timing_time_to_response_ms
-    )
+    _add_timing_list_metrics(metrics, "time_to_response", summary.timing_time_to_response_ms)
     usage = summary.usage_totals.usage_block(processed_rows=summary.processed_rows)
     cache = summary.usage_totals.cache_block()
-    _add_usage_cache_metrics(metrics, usage=usage, cache=cache, processed_rows=summary.processed_rows)
+    _add_usage_cache_metrics(
+        metrics, usage=usage, cache=cache, processed_rows=summary.processed_rows
+    )
     return metrics
 
 
@@ -487,7 +485,9 @@ def _add_timing_list_metrics(
     metrics[f"{prefix}_max"] = max(values)
 
 
-def _add_timing_payload_metrics(metrics: dict[str, int | float], payload: Mapping[str, Any]) -> None:
+def _add_timing_payload_metrics(
+    metrics: dict[str, int | float], payload: Mapping[str, Any]
+) -> None:
     timing = _mapping(payload.get("timing_ms"))
     if timing is None:
         return
@@ -553,8 +553,12 @@ def _add_usage_cache_metrics(
     )
     rows_with_usage = _int(usage, "rows_with_usage")
     denominator = rows_with_usage or processed_rows
-    _add_per_row_metric(metrics, usage, "input_tokens", "batch/usage/input_tokens_per_row", denominator)
-    _add_per_row_metric(metrics, usage, "output_tokens", "batch/usage/output_tokens_per_row", denominator)
+    _add_per_row_metric(
+        metrics, usage, "input_tokens", "batch/usage/input_tokens_per_row", denominator
+    )
+    _add_per_row_metric(
+        metrics, usage, "output_tokens", "batch/usage/output_tokens_per_row", denominator
+    )
     _add_per_row_metric(
         metrics, usage, "billing_tokens", "batch/usage/billing_tokens_per_row", denominator
     )
