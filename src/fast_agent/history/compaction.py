@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from fast_agent.context import Context
     from fast_agent.interfaces import FastAgentLLMProtocol
     from fast_agent.llm.usage_tracking import UsageAccumulator
+    from fast_agent.session.session_manager import SessionManager
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
@@ -313,6 +314,9 @@ def _archive_history(
         context = agent.context or get_current_context()
         if not _session_persistence_enabled(agent):
             return None
+        manager = context.session_manager if context is not None else None
+        if manager is None:
+            manager = get_session_manager()
 
         acp_context = context.acp if context else None
         session_context = SessionSaveContext(
@@ -327,11 +331,10 @@ def _archive_history(
         )
         identity = resolve_session_for_save(
             current_session=None,
-            get_manager=lambda cwd: get_session_manager(cwd=cwd),
+            get_manager=lambda cwd: _resolve_active_session_manager(manager, cwd),
             context=session_context,
             seed_metadata={"agent_name": agent.name},
         )
-        manager = identity.manager
         session = identity.session
 
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -341,12 +344,28 @@ def _archive_history(
         save_messages(history, str(filepath))
         manager.set_current_session(session)
         return str(filepath)
+    except RuntimeError as exc:
+        if "session manager" in str(exc).lower():
+            raise
+        logger.warning(
+            "Failed to archive pre-compaction history",
+            data={"error": str(exc), "error_type": type(exc).__name__},
+        )
+        return None
     except Exception as exc:
         logger.warning(
             "Failed to archive pre-compaction history",
             data={"error": str(exc), "error_type": type(exc).__name__},
         )
         return None
+
+
+def _resolve_active_session_manager(manager: "SessionManager", cwd: Path | None) -> "SessionManager":
+    if cwd is not None and cwd.resolve() != manager.workspace_dir:
+        raise RuntimeError(
+            "Compaction archive requested a different cwd than the active session manager."
+        )
+    return manager
 
 
 def _resolved_path(raw_path: object | None) -> Path | None:

@@ -22,8 +22,20 @@ if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
 
 
+class _DefaultSessionManager:
+    current_session = None
+
+    def list_sessions(self) -> list[object]:
+        return []
+
+
 class _Agent:
     acp_commands: dict[str, object] = {}
+
+    def __init__(self, session_manager: object | None = None) -> None:
+        self.context = SimpleNamespace(
+            session_manager=session_manager or _DefaultSessionManager()
+        )
 
 
 class _App:
@@ -50,7 +62,6 @@ class _App:
 
 @pytest.mark.asyncio
 async def test_render_session_list_uses_acp_session_cwd(
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     app = _App()
@@ -61,25 +72,16 @@ async def test_render_session_list_uses_acp_session_cwd(
     )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    manager_calls: list[Path | None] = []
+    list_calls: list[str] = []
 
     class _Manager:
         current_session = None
 
         def list_sessions(self) -> list[object]:
+            list_calls.append("list")
             return []
 
-    def fake_get_session_manager(
-        *,
-        cwd: Path | None = None,
-        environment_override=None,
-        respect_env_override: bool = True,
-    ) -> object:
-        del environment_override, respect_env_override
-        manager_calls.append(cwd)
-        return _Manager()
-
-    monkeypatch.setattr("fast_agent.session.get_session_manager", fake_get_session_manager)
+    cast("Any", instance.agents["main"]).context.session_manager = _Manager()
 
     handler = SlashCommandHandler(
         session_id="s1",
@@ -98,12 +100,11 @@ async def test_render_session_list_uses_acp_session_cwd(
     output = session_slash_handlers.render_session_list(handler)
 
     assert "# sessions" in output
-    assert manager_calls == [workspace.resolve()]
+    assert list_calls == ["list"]
 
 
 @pytest.mark.asyncio
 async def test_render_session_list_uses_app_session_store_when_configured(
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     app = _App()
@@ -114,25 +115,16 @@ async def test_render_session_list_uses_app_session_store_when_configured(
     )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    manager_calls: list[Path | None] = []
+    list_calls: list[str] = []
 
     class _Manager:
         current_session = None
 
         def list_sessions(self) -> list[object]:
+            list_calls.append("list")
             return []
 
-    def fake_get_session_manager(
-        *,
-        cwd: Path | None = None,
-        environment_override=None,
-        respect_env_override: bool = True,
-    ) -> object:
-        del environment_override, respect_env_override
-        manager_calls.append(cwd)
-        return _Manager()
-
-    monkeypatch.setattr("fast_agent.session.get_session_manager", fake_get_session_manager)
+    cast("Any", instance.agents["main"]).context.session_manager = _Manager()
 
     handler = SlashCommandHandler(
         session_id="s1",
@@ -151,13 +143,11 @@ async def test_render_session_list_uses_app_session_store_when_configured(
     output = session_slash_handlers.render_session_list(handler)
 
     assert "# sessions" in output
-    assert manager_calls == [None]
+    assert list_calls == ["list"]
 
 
 @pytest.mark.asyncio
-async def test_handle_session_unknown_action_returns_diagnostic(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_handle_session_unknown_action_returns_diagnostic() -> None:
     app = _App()
     instance = AgentInstance(
         app=cast("AgentApp", app),
@@ -165,13 +155,6 @@ async def test_handle_session_unknown_action_returns_diagnostic(
         registry_version=0,
     )
 
-    class _Manager:
-        current_session = None
-
-        def list_sessions(self) -> list[object]:
-            return []
-
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
     handler = SlashCommandHandler(
         session_id="s1",
         instance=instance,
@@ -186,9 +169,7 @@ async def test_handle_session_unknown_action_returns_diagnostic(
 
 
 @pytest.mark.asyncio
-async def test_handle_session_blank_arguments_default_to_list(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_handle_session_blank_arguments_default_to_list() -> None:
     app = _App()
     instance = AgentInstance(
         app=cast("AgentApp", app),
@@ -200,14 +181,6 @@ async def test_handle_session_blank_arguments_default_to_list(
         instance=instance,
         primary_agent_name="main",
     )
-
-    class _Manager:
-        current_session = None
-
-        def list_sessions(self) -> list[object]:
-            return []
-
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
 
     output = await session_slash_handlers.handle_session(handler, "   ")
 
@@ -235,7 +208,7 @@ async def test_handle_session_new_uses_acp_session_id(
             calls.append(("create_with_id", session_id, metadata))
             return SimpleNamespace(info=SimpleNamespace(metadata=metadata or {}, name=session_id))
 
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
+    cast("Any", instance.agents["main"]).context.session_manager = _Manager()
     handler = SlashCommandHandler(
         session_id="acp-session-1",
         instance=instance,
@@ -346,7 +319,7 @@ async def test_handle_session_export_leaves_agent_unset_for_latest_target(
     class _Manager:
         current_session = SimpleNamespace(info=SimpleNamespace(name="persisted-1"))
 
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
+    cast("Any", instance.agents["main"]).context.session_manager = _Manager()
 
     handler = SlashCommandHandler(
         session_id="persisted-1",
@@ -438,7 +411,7 @@ async def test_handle_session_export_defaults_agent_only_with_current_session(
     class _Manager:
         current_session = SimpleNamespace(info=SimpleNamespace(name="persisted-1"))
 
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
+    cast("Any", instance.agents["main"]).context.session_manager = _Manager()
 
     handler = SlashCommandHandler(
         session_id="persisted-1",
@@ -532,7 +505,7 @@ async def test_handle_session_export_uses_handler_session_when_manager_current_i
                 return SimpleNamespace(info=SimpleNamespace(name="persisted-1"))
             return None
 
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
+    cast("Any", instance.agents["main"]).context.session_manager = _Manager()
 
     handler = SlashCommandHandler(
         session_id="persisted-1",
@@ -591,7 +564,7 @@ async def test_handle_session_export_rejects_stale_manager_current_session(
             del name
             return None
 
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
+    cast("Any", instance.agents["main"]).context.session_manager = _Manager()
 
     handler = SlashCommandHandler(
         session_id="new-session",

@@ -62,8 +62,12 @@ async def test_harness_loads_environment_agent_cards(tmp_path: "Path") -> None:
 
 @pytest.mark.asyncio
 async def test_harness_session_creates_persisted_session_folder(tmp_path: "Path") -> None:
+    from fast_agent.context import Context
+
     fast = FastAgent("test", parse_cli_args=False, environment_dir=tmp_path)
-    agents = {"support": cast("AgentProtocol", FakeAgent("support", default=True))}
+    support = FakeAgent("support", default=True)
+    support.context = Context()
+    agents = {"support": cast("AgentProtocol", support)}
     instance = AgentInstance(AgentApp(agents), agents)
 
     await fast.app.initialize()
@@ -78,6 +82,28 @@ async def test_harness_session_creates_persisted_session_folder(tmp_path: "Path"
 
     assert persisted is not None
     assert (tmp_path / "sessions" / "customer-123" / "session.json").exists()
+    _persisted_manager, persisted_session = persisted
+    assert support.context.session_manager is _persisted_manager
+    assert _persisted_manager.current_session is persisted_session
+
+
+@pytest.mark.asyncio
+async def test_file_harness_persistence_attaches_session_manager(tmp_path: "Path") -> None:
+    from fast_agent.context import Context
+    from fast_agent.core.harness_persistence import FileHarnessSessionPersistence
+
+    support = FakeAgent("support", default=True)
+    support.context = Context()
+    agents = {"support": cast("AgentProtocol", support)}
+    instance = AgentInstance(AgentApp(agents), agents)
+    persistence = FileHarnessSessionPersistence(tmp_path)
+
+    persisted = await persistence.create_or_load("customer-123", instance, "support")
+
+    assert persisted is not None
+    manager = support.context.session_manager
+    assert manager is not None
+    assert manager.current_session is persisted
 
 
 class FakeAgent:

@@ -27,6 +27,7 @@ from .session_manager import (
     get_session_manager,
     is_session_pinned,
     reset_session_manager,
+    set_session_manager,
     summarize_session_histories,
 )
 from .snapshot import (
@@ -126,6 +127,7 @@ __all__ = [
     "is_session_pinned",
     "load_session_snapshot",
     "reset_session_manager",
+    "set_session_manager",
     "resolve_session_for_save",
     "session_info_from_snapshot",
     "snapshot_from_session_info",

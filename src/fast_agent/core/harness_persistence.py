@@ -57,6 +57,7 @@ class FileHarnessSessionPersistence:
             metadata={"harness_session_id": session_id},
             metadata_id_key="harness_session_id",
         )
+        _attach_session_manager(instance, manager)
         fallback_agent_name = instance.app.resolve_target_agent_name(default_agent_name)
         hydration = await SessionHydrator().hydrate_session(
             session=persisted_session,
@@ -106,7 +107,8 @@ class CallbackHarnessSessionPersistence:
         )
         if persisted is None:
             return None
-        _manager, session = persisted
+        manager, session = persisted
+        _attach_session_manager(instance, manager)
         return session
 
     async def save(
@@ -121,6 +123,12 @@ class CallbackHarnessSessionPersistence:
     async def delete(self, session_id: str) -> None:
         if self.delete_persisted_session is not None:
             await self.delete_persisted_session(session_id)
+
+
+def _attach_session_manager(instance: AgentInstance, manager: SessionManager) -> None:
+    from fast_agent.session.context import attach_session_manager
+
+    attach_session_manager(instance, manager)
 
 
 __all__ = [

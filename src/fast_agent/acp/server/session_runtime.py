@@ -632,6 +632,11 @@ class ACPServerSessionRuntime:
         bind_runtimes: bool,
         register_stream_listeners: bool,
     ) -> None:
+        if session_state.session_manager is not None:
+            from fast_agent.session.context import attach_session_manager
+
+            attach_session_manager(instance, session_state.session_manager)
+
         tool_handler = session_state.progress_manager
         permission_handler = session_state.permission_handler
         workflow_telemetry = (

@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
     from fast_agent.acp.server.models import ACPSessionState
     from fast_agent.session.identity import SessionStoreScope
+    from fast_agent.session.session_manager import SessionManager
     from fast_agent.types import PromptMessageExtended
 
 from fast_agent.acp.content_conversion import convert_mcp_content_to_acp
@@ -71,7 +72,7 @@ class SessionStoreHost(Protocol):
 
     def _resolve_session_fallback_agent_name(self, instance: Any) -> str | None: ...
 
-    def _get_session_manager(self, *, cwd: Path | None = None) -> Any: ...
+    def _get_session_manager(self, *, cwd: Path | None = None) -> SessionManager: ...
 
 
 class ACPServerSessionStore:
@@ -101,7 +102,7 @@ class ACPServerSessionStore:
             return str(Path(normalized_workspace_dir).expanduser().resolve())
         return str(Path(manager.base_dir).resolve().parent.parent)
 
-    def session_manager_entries(self, cwd: str | None) -> list[tuple[Any, str]]:
+    def session_manager_entries(self, cwd: str | None) -> list[tuple[SessionManager, str]]:
         if cwd is None:
             manager = self._host._get_session_manager()
             return [(manager, self.legacy_session_cwd(manager))]
@@ -113,7 +114,9 @@ class ACPServerSessionStore:
             entries.append((app_manager, self.legacy_session_cwd(app_manager)))
         return entries
 
-    def session_manager_for_state(self, session_state: ACPSessionState) -> Any:
+    def session_manager_for_state(self, session_state: ACPSessionState) -> SessionManager:
+        if session_state.session_manager is not None:
+            return session_state.session_manager
         if session_state.session_store_scope == "app":
             return self._host._get_session_manager()
 
@@ -124,10 +127,21 @@ class ACPServerSessionStore:
 
     def load_persisted_session_for_state(self, session_state: ACPSessionState) -> Session | None:
         manager = self.session_manager_for_state(session_state)
+        self._attach_session_manager(session_state, manager)
         loaded_session = manager.load_session(session_state.session_id)
         if loaded_session is None:
             return None
-        return cast("Session", loaded_session)
+        return loaded_session
+
+    @staticmethod
+    def _attach_session_manager(
+        session_state: ACPSessionState,
+        manager: SessionManager,
+    ) -> None:
+        from fast_agent.session.context import attach_session_manager
+
+        session_state.session_manager = manager
+        attach_session_manager(session_state.instance, manager)
 
     async def hydrate_session_state(
         self,
@@ -450,6 +464,7 @@ class ACPServerSessionStore:
         )
         session_state.session_store_scope = manager_store_scope
         session_state.session_store_cwd = manager_store_cwd
+        self._attach_session_manager(session_state, persisted_manager)
         if session_state.acp_context:
             session_state.acp_context.set_session_store(
                 manager_store_scope,

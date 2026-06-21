@@ -605,6 +605,8 @@ class SlashCommandHandler:
         raw_session_cwd, session_store_scope, raw_session_store_cwd = (
             self._resolve_acp_session_metadata()
         )
+        current_agent = self._get_current_agent()
+        agent_context = current_agent.context if current_agent else None
         return CommandContext(
             agent_provider=StaticAgentProvider(
                 cast("dict[str, object]", dict(self.instance.agents))
@@ -623,6 +625,7 @@ class SlashCommandHandler:
                 if raw_session_store_cwd
                 else None
             ),
+            session_manager=agent_context.session_manager if agent_context else None,
         )
 
     def _format_outcome_as_markdown(
@@ -651,21 +654,13 @@ class SlashCommandHandler:
             return
         if self._noenv:
             return
-        from fast_agent.session import extract_session_title, get_session_manager
+        from fast_agent.session import extract_session_title
 
-        raw_session_cwd, raw_session_store_scope, raw_session_store_cwd = (
-            self._resolve_acp_session_metadata()
-        )
-        if raw_session_store_scope == "app":
-            manager = get_session_manager()
-        elif raw_session_store_cwd:
-            manager = get_session_manager(
-                cwd=Path(str(raw_session_store_cwd)).expanduser().resolve()
-            )
-        elif raw_session_cwd:
-            manager = get_session_manager(cwd=Path(str(raw_session_cwd)).expanduser().resolve())
-        else:
-            manager = get_session_manager()
+        current_agent = self._get_current_agent()
+        agent_context = current_agent.context if current_agent else None
+        manager = agent_context.session_manager if agent_context else None
+        if manager is None:
+            raise RuntimeError("ACP slash command session update has no active session manager.")
         session = manager.current_session
         if session is None or session.info.name != self.session_id:
             session = manager.get_session(self.session_id)

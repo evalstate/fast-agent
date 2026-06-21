@@ -25,9 +25,12 @@ async def restore_requested_session(
     request: SessionRestoreRequest,
 ) -> ResumeSessionAgentsResult | None:
     """Hydrate agents from an explicit resume request."""
-    from fast_agent.session import get_session_manager
+    from fast_agent.context import get_current_context
 
-    return await get_session_manager().resume_session_agents_async(
+    manager = get_current_context().session_manager
+    if manager is None:
+        raise RuntimeError("Session restore requested without an active session manager.")
+    return await manager.resume_session_agents_async(
         agents,
         request.session_id,
         fallback_agent_name=request.fallback_agent_name,
@@ -40,9 +43,12 @@ async def hydrate_current_session_for_refresh(
     fallback_agent_name: str | None,
 ) -> SessionHydrationResult | None:
     """Refresh rebuilt agents from the current persisted session, when one exists."""
-    from fast_agent.session import SessionHydrationPolicy, SessionHydrator, get_session_manager
+    from fast_agent.context import get_current_context
+    from fast_agent.session import SessionHydrationPolicy, SessionHydrator
 
-    manager = get_session_manager()
+    manager = get_current_context().session_manager
+    if manager is None:
+        return None
     current_session = manager.current_session
     if current_session is None:
         return None

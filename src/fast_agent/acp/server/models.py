@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.session.identity import SessionStoreScope
+    from fast_agent.session.session_manager import SessionManager
 
 
 @dataclass
@@ -31,6 +32,7 @@ class ACPSessionState:
     session_cwd: str | None = None
     session_store_scope: SessionStoreScope = "workspace"
     session_store_cwd: str | None = None
+    session_manager: SessionManager | None = None
     current_agent_name: str | None = None
     progress_manager: ACPToolProgressManager | None = None
     permission_handler: ACPToolPermissionAdapter | None = None

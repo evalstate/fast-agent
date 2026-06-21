@@ -9,6 +9,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -36,11 +37,12 @@ from fast_agent.mcp.prompt_serialization import save_json
 from fast_agent.session import (
     SessionAgentSnapshot,
     SessionContinuationSnapshot,
+    SessionManager,
     SessionRequestSettingsSnapshot,
     SessionSnapshot,
     display_session_name,
-    get_session_manager,
     reset_session_manager,
+    set_session_manager,
 )
 from fast_agent.session import session_manager as session_manager_module
 from fast_agent.utils.markdown import escape_markdown_text
@@ -497,7 +499,7 @@ async def test_slash_command_session_resume_switches_current_mode(tmp_path: Path
     os.chdir(tmp_path)
     session_manager_module._session_manager = None
     try:
-        manager = get_session_manager()
+        manager = SessionManager(cwd=tmp_path, environment_override=tmp_path / ".fast-agent")
         session = manager.create_session()
 
         user_message = PromptMessageExtended(
@@ -515,6 +517,8 @@ async def test_slash_command_session_resume_switches_current_mode(tmp_path: Path
         await session.save_history(cast("AgentProtocol", alpha_agent))
 
         beta_agent = StubAgent(name="beta")
+        alpha_agent.context = SimpleNamespace(session_manager=manager)
+        beta_agent.context = SimpleNamespace(session_manager=manager)
         instance = StubAgentInstance(agents={"alpha": alpha_agent, "beta": beta_agent})
         switched: list[str] = []
 
@@ -1109,6 +1113,8 @@ async def test_slash_command_session_list_no_sessions(tmp_path, monkeypatch) -> 
     reset_session_manager()
 
     try:
+        manager = SessionManager(environment_override=env_dir)
+        set_session_manager(manager)
         handler = _handler(StubAgentInstance())
         response = await handler.execute_command("session", "list")
 
@@ -1150,7 +1156,8 @@ async def test_slash_command_session_pin_sets_metadata(tmp_path: Path) -> None:
     reset_session_manager()
 
     try:
-        manager = get_session_manager()
+        manager = SessionManager(environment_override=env_dir)
+        set_session_manager(manager)
         session = manager.create_session()
         label = display_session_name(session.info.name)
 
@@ -1230,7 +1237,11 @@ async def test_slash_command_session_export_writes_trace_for_current_session(
         )
 
         output_path = tmp_path / "slash-trace.jsonl"
-        instance = StubAgentInstance(agents={"test-agent": StubAgent(message_history=[])})
+        manager = SessionManager(environment_override=env_dir)
+        set_session_manager(manager)
+        stub_agent = StubAgent(message_history=[])
+        stub_agent.context = SimpleNamespace(session_manager=manager)
+        instance = StubAgentInstance(agents={"test-agent": stub_agent})
         handler = SlashCommandHandler(
             session_id,
             cast("AgentInstance", instance),

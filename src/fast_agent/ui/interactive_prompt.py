@@ -743,6 +743,7 @@ class InteractivePrompt:
         buffer_prefill: str,
         runtime_state: PromptLoopRuntimeState,
         ctrl_c_exit_window_seconds: float,
+        session_manager: "SessionManager | None",
     ) -> PromptInputPhase:
         noenv_mode = prompt_provider.noenv_mode
         try:
@@ -757,6 +758,7 @@ class InteractivePrompt:
                 agent_provider=prompt_provider,
                 noenv_mode=noenv_mode,
                 pre_populate_buffer=buffer_prefill,
+                session_manager=session_manager,
             )
         except KeyboardInterrupt:
             self._handle_ctrl_c_interrupt(
@@ -1202,6 +1204,7 @@ class InteractivePrompt:
                 buffer_prefill=buffer_prefill,
                 runtime_state=runtime_state,
                 ctrl_c_exit_window_seconds=ctrl_c_exit_window_seconds,
+                session_manager=session_manager,
             )
             if input_phase.should_return:
                 return result

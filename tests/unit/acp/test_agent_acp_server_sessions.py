@@ -37,6 +37,7 @@ class _Agent:
 
     def __init__(self) -> None:
         self.config = SimpleNamespace(default=False)
+        self.context = SimpleNamespace(session_manager=None)
         self.message_history: list[object] = []
 
     def set_instruction(self, instruction: str) -> None:
@@ -223,10 +224,7 @@ async def test_load_session_falls_back_when_primary_agent_was_removed(
             )
 
     monkeypatch.setattr(server, "_initialize_session_state", fake_initialize_session_state)
-    monkeypatch.setattr(
-        "fast_agent.acp.server.agent_acp_server.get_session_manager",
-        fake_get_session_manager,
-    )
+    monkeypatch.setattr(server, "_get_session_manager", fake_get_session_manager)
     monkeypatch.setattr("fast_agent.acp.server.session_store.SessionHydrator", _Hydrator)
 
     response = await server.load_session(
@@ -327,10 +325,7 @@ async def test_load_session_uses_request_cwd_for_session_manager(
             )
 
     monkeypatch.setattr(server, "_initialize_session_state", fake_initialize_session_state)
-    monkeypatch.setattr(
-        "fast_agent.acp.server.agent_acp_server.get_session_manager",
-        fake_get_session_manager,
-    )
+    monkeypatch.setattr(server, "_get_session_manager", fake_get_session_manager)
     monkeypatch.setattr("fast_agent.acp.server.session_store.SessionHydrator", _Hydrator)
 
     response = await server.load_session(
@@ -409,10 +404,7 @@ async def test_load_session_applies_restored_prompt_cache(
             )
 
     monkeypatch.setattr(server, "_initialize_session_state", fake_initialize_session_state)
-    monkeypatch.setattr(
-        "fast_agent.acp.server.agent_acp_server.get_session_manager",
-        fake_get_session_manager,
-    )
+    monkeypatch.setattr(server, "_get_session_manager", fake_get_session_manager)
     monkeypatch.setattr("fast_agent.acp.server.session_store.SessionHydrator", _Hydrator)
 
     response = await server.load_session(
@@ -487,10 +479,7 @@ async def test_load_session_does_not_cache_prompt_when_hydrator_did_not_restore_
             )
 
     monkeypatch.setattr(server, "_initialize_session_state", fake_initialize_session_state)
-    monkeypatch.setattr(
-        "fast_agent.acp.server.agent_acp_server.get_session_manager",
-        fake_get_session_manager,
-    )
+    monkeypatch.setattr(server, "_get_session_manager", fake_get_session_manager)
     monkeypatch.setattr("fast_agent.acp.server.session_store.SessionHydrator", _Hydrator)
 
     response = await server.load_session(
@@ -538,10 +527,7 @@ async def test_list_sessions_keeps_legacy_sessions_when_cwd_matches(
         def list_sessions(self) -> list[SessionInfo]:
             return [legacy_session, explicit_session, other_session]
 
-    monkeypatch.setattr(
-        "fast_agent.acp.server.agent_acp_server.get_session_manager",
-        lambda *, cwd=None, environment_override=None, respect_env_override=True: _Manager(),
-    )
+    monkeypatch.setattr(server, "_get_session_manager", lambda *, cwd=None: _Manager())
 
     response = await server.list_sessions(cwd=str(workspace))
 
@@ -583,10 +569,7 @@ async def test_list_sessions_uses_manager_workspace_for_legacy_sessions(
         def list_sessions(self) -> list[SessionInfo]:
             return [legacy_session, other_session]
 
-    monkeypatch.setattr(
-        "fast_agent.acp.server.agent_acp_server.get_session_manager",
-        lambda *, cwd=None, environment_override=None, respect_env_override=True: _Manager(),
-    )
+    monkeypatch.setattr(server, "_get_session_manager", lambda *, cwd=None: _Manager())
 
     response = await server.list_sessions(cwd=str(workspace))
 
@@ -628,10 +611,7 @@ async def test_list_sessions_uses_request_cwd_for_session_manager(
         manager_cwds.append((cwd, environment_override, respect_env_override))
         return _Manager()
 
-    monkeypatch.setattr(
-        "fast_agent.acp.server.agent_acp_server.get_session_manager",
-        fake_get_session_manager,
-    )
+    monkeypatch.setattr(server, "_get_session_manager", fake_get_session_manager)
 
     response = await server.list_sessions(cwd=str(workspace))
 
@@ -715,10 +695,7 @@ async def test_load_session_prefers_workspace_duplicate_session_across_stores(
         return app_manager
 
     monkeypatch.setattr(server, "_initialize_session_state", fake_initialize_session_state)
-    monkeypatch.setattr(
-        "fast_agent.acp.server.agent_acp_server.get_session_manager",
-        fake_get_session_manager,
-    )
+    monkeypatch.setattr(server, "_get_session_manager", fake_get_session_manager)
 
     class _Hydrator:
         def hydrate_session(
@@ -829,10 +806,7 @@ async def test_load_session_marks_selected_manager_session_current(
             )
 
     monkeypatch.setattr(server, "_initialize_session_state", fake_initialize_session_state)
-    monkeypatch.setattr(
-        "fast_agent.acp.server.agent_acp_server.get_session_manager",
-        fake_get_session_manager,
-    )
+    monkeypatch.setattr(server, "_get_session_manager", fake_get_session_manager)
     monkeypatch.setattr("fast_agent.acp.server.session_store.SessionHydrator", _Hydrator)
 
     response = await server.load_session(
@@ -898,10 +872,7 @@ async def test_list_sessions_prefers_workspace_duplicate_session_across_stores(
             return request_manager
         return app_manager
 
-    monkeypatch.setattr(
-        "fast_agent.acp.server.agent_acp_server.get_session_manager",
-        fake_get_session_manager,
-    )
+    monkeypatch.setattr(server, "_get_session_manager", fake_get_session_manager)
 
     response = await server.list_sessions(cwd=str(workspace))
 
@@ -976,10 +947,7 @@ async def test_load_session_falls_back_to_app_store_when_workspace_store_misses(
         return app_manager
 
     monkeypatch.setattr(server, "_initialize_session_state", fake_initialize_session_state)
-    monkeypatch.setattr(
-        "fast_agent.acp.server.agent_acp_server.get_session_manager",
-        fake_get_session_manager,
-    )
+    monkeypatch.setattr(server, "_get_session_manager", fake_get_session_manager)
 
     class _Hydrator:
         def hydrate_session(
@@ -1040,10 +1008,7 @@ async def test_load_session_rejects_noncanonical_identifier(
         del cwd, environment_override, respect_env_override
         return _Manager()
 
-    monkeypatch.setattr(
-        "fast_agent.acp.server.agent_acp_server.get_session_manager",
-        fake_get_session_manager,
-    )
+    monkeypatch.setattr(server, "_get_session_manager", fake_get_session_manager)
 
     with pytest.raises(RequestError, match="Session not found: 1"):
         await server.load_session(
@@ -1126,10 +1091,7 @@ async def test_load_session_skips_workspace_duplicate_when_cwd_mismatches(
         return app_manager
 
     monkeypatch.setattr(server, "_initialize_session_state", fake_initialize_session_state)
-    monkeypatch.setattr(
-        "fast_agent.acp.server.agent_acp_server.get_session_manager",
-        fake_get_session_manager,
-    )
+    monkeypatch.setattr(server, "_get_session_manager", fake_get_session_manager)
 
     class _Hydrator:
         def hydrate_session(

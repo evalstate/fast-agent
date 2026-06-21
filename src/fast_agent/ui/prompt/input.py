@@ -117,6 +117,7 @@ if TYPE_CHECKING:
 
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.interfaces import FastAgentLLMProtocol
+    from fast_agent.session.session_manager import SessionManager
 
 
 @runtime_checkable
@@ -1248,6 +1249,7 @@ async def get_enhanced_input(
     agent_provider: "AgentApp | None" = None,
     noenv_mode: bool = False,
     pre_populate_buffer: str = "",
+    session_manager: "SessionManager | None" = None,
 ) -> str | CommandPayload:
     """
     Enhanced input with advanced prompt_toolkit features.
@@ -1265,6 +1267,7 @@ async def get_enhanced_input(
         agent_provider: Optional AgentApp for displaying agent info
         noenv_mode: Whether session operations should be disabled for --noenv mode
         pre_populate_buffer: Text to pre-populate in the input buffer for editing (one-off)
+        session_manager: Optional session manager for session completions
 
     Returns:
         User input string or parsed command payload
@@ -1304,6 +1307,7 @@ async def get_enhanced_input(
                 agent_name=agent_name,
                 agent_provider=agent_provider,
             ),
+            session_manager=session_manager,
         ),
         lexer=ShellPrefixLexer(),
         multiline_filter=Condition(lambda: in_multiline_mode),

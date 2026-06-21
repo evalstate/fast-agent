@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
 
 from fast_agent.config import get_settings, update_global_settings
-from fast_agent.session import get_session_manager, reset_session_manager
+from fast_agent.session import SessionManager, reset_session_manager, set_session_manager
 from tests.support.command_surface import (
     CommandSurfaceAgent,
     CommandSurfaceOwner,
@@ -30,7 +31,9 @@ async def test_tui_and_acp_share_session_pin_state_effect(tmp_path: Path) -> Non
         provider = CommandSurfaceProvider({"main": CommandSurfaceAgent(name="main")})
         owner = CommandSurfaceOwner(agent_types=provider.agent_types())
 
-        manager = get_session_manager()
+        manager = SessionManager(environment_override=env_dir)
+        set_session_manager(manager)
+        provider._agent("main").context = SimpleNamespace(session_manager=manager)
         session = manager.create_session("sprint")
         session.set_pinned(False)
 

@@ -40,7 +40,7 @@ from fast_agent.llm.text_verbosity import TextVerbositySpec
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.plugins.models import InstalledPluginSource
 from fast_agent.plugins.provenance import write_installed_plugin_source
-from fast_agent.session import get_session_manager, reset_session_manager
+from fast_agent.session import SessionManager, reset_session_manager
 from fast_agent.skills.mcp_registry import McpRegistrySkill, McpSkillRegistry
 from fast_agent.skills.models import (
     DEFAULT_SKILL_REGISTRIES,
@@ -1008,10 +1008,10 @@ def test_get_completions_for_session_pin(tmp_path: Path) -> None:
     reset_session_manager()
 
     try:
-        manager = get_session_manager()
+        manager = SessionManager(environment_override=env_dir)
         session = manager.create_session()
 
-        completer = AgentCompleter(agents=["agent1"])
+        completer = AgentCompleter(agents=["agent1"], session_manager=manager)
         doc = Document("/session pin ", cursor_position=len("/session pin "))
         completions = list(completer.get_completions(doc, None))
         names = [c.text for c in completions]
@@ -1068,10 +1068,10 @@ def test_get_completions_for_session_export(tmp_path: Path) -> None:
     reset_session_manager()
 
     try:
-        manager = get_session_manager()
+        manager = SessionManager(environment_override=env_dir)
         session = manager.create_session()
 
-        completer = AgentCompleter(agents=["agent1"])
+        completer = AgentCompleter(agents=["agent1"], session_manager=manager)
         doc = Document("/session export ", cursor_position=len("/session export "))
         completions = list(completer.get_completions(doc, None))
         names = [c.text for c in completions]
@@ -1151,7 +1151,7 @@ def test_session_completion_uses_shared_title_extraction(tmp_path: Path) -> None
     reset_session_manager()
 
     try:
-        manager = get_session_manager()
+        manager = SessionManager(environment_override=env_dir)
         session = manager.create_session(
             metadata={
                 "title": {"text": "structured"},
@@ -1160,7 +1160,7 @@ def test_session_completion_uses_shared_title_extraction(tmp_path: Path) -> None
             }
         )
 
-        completer = AgentCompleter(agents=["agent1"])
+        completer = AgentCompleter(agents=["agent1"], session_manager=manager)
         completions = list(completer._complete_session_ids(""))
 
         completion = next(item for item in completions if item.text == session.info.name)

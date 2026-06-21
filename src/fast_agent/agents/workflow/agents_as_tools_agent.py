@@ -245,7 +245,7 @@ if TYPE_CHECKING:
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.agents.llm_agent import LlmAgent
     from fast_agent.agents.tool_runner import ToolRunner
-    from fast_agent.session.session_manager import Session
+    from fast_agent.session.session_manager import Session, SessionManager
 
 logger = get_logger(__name__)
 
@@ -332,6 +332,17 @@ def _resolved_path(raw_path: object | None) -> Path | None:
     if not raw_path:
         return None
     return Path(str(raw_path)).expanduser().resolve()
+
+
+def _resolve_active_session_manager(
+    manager: "SessionManager",
+    cwd: Path | None,
+) -> "SessionManager":
+    if cwd is not None and cwd.resolve() != manager.workspace_dir:
+        raise RuntimeError(
+            "Trajectory persistence requested a different cwd than the active session manager."
+        )
+    return manager
 
 
 class HistorySource(str, Enum):
@@ -1309,9 +1320,12 @@ class AgentsAsToolsAgent(McpAgent):
         session_cwd = _resolved_path(
             getattr(acp_context, "session_cwd", None) if acp_context is not None else None
         )
+        manager = agent_context.session_manager if agent_context else current_context.session_manager
+        if manager is None:
+            manager = get_session_manager()
         identity = resolve_session_for_save(
             current_session=None,
-            get_manager=lambda cwd: get_session_manager(cwd=cwd),
+            get_manager=lambda cwd: _resolve_active_session_manager(manager, cwd),
             context=SessionSaveContext(
                 acp_session_id=(
                     getattr(acp_context, "session_id", None) if acp_context is not None else None

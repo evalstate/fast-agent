@@ -30,11 +30,13 @@ if TYPE_CHECKING:
     from fast_agent.acp.acp_context import ACPContext
     from fast_agent.core.executor.workflow_signal import SignalWaitCallback
     from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
+    from fast_agent.session.session_manager import SessionManager
 else:
     # Runtime placeholders for the types
     ACPContext = Any
     SignalWaitCallback = Any
     MCPConnectionManager = Any
+    SessionManager = Any
 
 logger = get_logger(__name__)
 
@@ -66,6 +68,7 @@ class Context(BaseModel):
     # ACP context - set when running in ACP mode
     # Provides agents access to ACP capabilities (mode switching, commands, etc.)
     acp: "ACPContext | None" = None
+    session_manager: "SessionManager | None" = None
 
     model_config = ConfigDict(
         extra="allow",
@@ -209,6 +212,11 @@ async def initialize_context(
     context = Context()
     context.config = config
     context.server_registry = ServerRegistry(config=config)
+    if config.session_history and not config._fast_agent_noenv:
+        from fast_agent.session.session_manager import SessionManager, set_session_manager
+
+        context.session_manager = SessionManager(environment_override=config.environment_dir)
+        set_session_manager(context.session_manager)
 
     override_directories = None
     if config.skills.directories:

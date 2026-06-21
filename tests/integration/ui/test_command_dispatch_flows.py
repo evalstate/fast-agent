@@ -7,7 +7,7 @@ from mcp.types import TextContent
 
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-from fast_agent.session import get_session_manager, reset_session_manager
+from fast_agent.session import SessionManager, reset_session_manager, set_session_manager
 from tests.support.command_surface import (
     CommandSurfaceAgent,
     CommandSurfaceOwner,
@@ -29,6 +29,8 @@ async def test_dispatch_session_flow_updates_session_state(tmp_path: Path) -> No
     reset_session_manager()
 
     try:
+        manager = SessionManager(environment_override=env_dir)
+        set_session_manager(manager)
         provider = CommandSurfaceProvider({"main": CommandSurfaceAgent(name="main")})
         owner = CommandSurfaceOwner(agent_types=provider.agent_types())
 
@@ -51,7 +53,6 @@ async def test_dispatch_session_flow_updates_session_state(tmp_path: Path) -> No
         assert create_result == DispatchResult(handled=True)
         assert pin_result == DispatchResult(handled=True)
 
-        manager = get_session_manager()
         current_session = manager.current_session
         assert current_session is not None
         assert current_session.info.metadata.get("pinned") is True

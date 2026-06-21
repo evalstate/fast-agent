@@ -303,18 +303,4 @@ class CommandContext:
 
         if self.session_manager is not None:
             return self.session_manager
-
-        environment_override = self.resolve_settings().environment_dir
-        if self.session_store_scope == "app":
-            return get_session_manager(environment_override=environment_override)
-        if self.session_store_cwd is not None:
-            return get_session_manager(
-                cwd=self.session_store_cwd,
-                environment_override=environment_override,
-            )
-        if self.session_cwd is not None:
-            return get_session_manager(
-                cwd=self.session_cwd,
-                environment_override=environment_override,
-            )
-        return get_session_manager(environment_override=environment_override)
+        return get_session_manager()

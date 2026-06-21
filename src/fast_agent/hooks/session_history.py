@@ -17,13 +17,13 @@ from fast_agent.session.identity import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.hooks.hook_context import HookContext
     from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LlmAgentProtocol
     from fast_agent.llm.usage_tracking import UsageAccumulator
-    from fast_agent.session.session_manager import Session
+    from fast_agent.session.session_manager import Session, SessionManager
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
@@ -94,6 +94,7 @@ class _SessionHistoryContext:
     session_cwd: Path | None = None
     session_store_scope: SessionStoreScope = "workspace"
     session_store_cwd: Path | None = None
+    session_manager: "SessionManager | None" = None
     resolved_prompts: dict[str, str] | None = None
     acp_context: _SessionInfoUpdateCapable | None = None
 
@@ -124,7 +125,7 @@ async def save_session_history(ctx: "HookContext") -> None:
         metadata["model"] = model_name
     identity = resolve_session_for_save(
         current_session=None,
-        get_manager=lambda cwd: get_session_manager(cwd=cwd),
+        get_manager=_session_manager_resolver(session_context),
         context=SessionSaveContext(
             acp_session_id=session_context.acp_session_id,
             session_cwd=session_context.session_cwd,
@@ -163,16 +164,39 @@ def _session_history_context(ctx: "HookContext") -> _SessionHistoryContext:
     agent_context = ctx.context
     acp_context = agent_context.acp if agent_context else None
     if acp_context is None:
-        return _SessionHistoryContext(session_cwd=Path.cwd().resolve())
+        return _SessionHistoryContext(
+            session_cwd=Path.cwd().resolve(),
+            session_manager=agent_context.session_manager if agent_context else None,
+        )
 
+    assert agent_context is not None
     return _SessionHistoryContext(
         acp_session_id=acp_context.session_id,
         session_cwd=_resolved_path(acp_context.session_cwd),
         session_store_scope=normalize_session_store_scope(acp_context.session_store_scope),
         session_store_cwd=_resolved_path(acp_context.session_store_cwd),
+        session_manager=agent_context.session_manager,
         resolved_prompts=acp_context.resolved_instructions_snapshot() or None,
         acp_context=acp_context,
     )
+
+
+def _session_manager_resolver(
+    context: _SessionHistoryContext,
+) -> "Callable[[Path | None], SessionManager]":
+    manager = context.session_manager
+    if manager is None:
+        return lambda cwd: get_session_manager(cwd=cwd)
+
+    def resolve(cwd: Path | None) -> SessionManager:
+        if cwd is not None and cwd.resolve() != manager.workspace_dir:
+            raise RuntimeError(
+                "Session history save requested a different cwd than the active "
+                "session manager."
+            )
+        return manager
+
+    return resolve
 
 
 def _resolved_path(raw_path: object | None) -> Path | None:

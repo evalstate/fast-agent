@@ -60,6 +60,7 @@ class Aggregator:
 @dataclass
 class CommandSurfaceAgent:
     name: str
+    context: Any = None
     display: DisplayRecorder = field(default_factory=DisplayRecorder)
     message_history: list[PromptMessageExtended] = field(default_factory=list)
     llm: object | None = None

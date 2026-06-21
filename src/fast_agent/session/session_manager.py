@@ -428,8 +428,10 @@ class Session:
         acp_session_id = metadata.get("acp_session_id")
         manager = self._manager
         if manager is None:
-            manager = SessionManager(cwd=self.directory.parent)
-            self._manager = manager
+            raise RuntimeError(
+                "Session save requires an owning SessionManager. Load or create sessions through "
+                "SessionManager, or pass an explicit SessionSaveIdentity."
+            )
 
         return SessionSaveIdentity(
             manager=manager,
@@ -1138,14 +1140,24 @@ def reset_session_manager() -> None:
     _session_manager = None
 
 
+def set_session_manager(manager: SessionManager) -> None:
+    """Set the process-level session manager for legacy consumers."""
+    global _session_manager
+    _session_manager = manager
+
+
 def get_session_manager(
     *,
     cwd: pathlib.Path | None = None,
     environment_override: str | pathlib.Path | None = None,
     respect_env_override: bool = True,
 ) -> SessionManager:
-    """Get or create the global session manager."""
-    global _session_manager
+    """Return the registered process-level session manager.
+
+    Session managers are created by explicit runtime/session boundaries. This
+    accessor exists only for legacy paths that receive that established manager
+    through process context.
+    """
     explicit_cwd = cwd is not None
     resolved_cwd = cwd.resolve() if cwd is not None else pathlib.Path.cwd().resolve()
     env_override = _session_environment_override(
@@ -1156,18 +1168,18 @@ def get_session_manager(
     )
     expected_paths = resolve_environment_paths(cwd=resolved_cwd, override=env_override)
     if _session_manager is None:
-        _session_manager = SessionManager(
-            cwd=cwd,
-            environment_override=env_override,
-            respect_env_override=respect_env_override,
+        raise RuntimeError(
+            "No active session manager has been registered. Create a SessionManager at the "
+            "runtime/session boundary and pass it through Context or CommandContext."
         )
-        return _session_manager
     if _session_manager.base_dir != expected_paths.sessions:
-        _session_manager = SessionManager(
-            cwd=cwd,
-            environment_override=env_override,
-            respect_env_override=respect_env_override,
+        raise RuntimeError(
+            "Active session manager does not match the requested session store. Pass the "
+            "correct SessionManager explicitly instead of resolving a new one."
         )
-    elif _session_manager.workspace_dir != resolved_cwd:
-        _session_manager.workspace_dir = resolved_cwd
+    if explicit_cwd and _session_manager.workspace_dir != resolved_cwd:
+        raise RuntimeError(
+            "Active session manager workspace does not match the requested cwd. Pass the "
+            "correct SessionManager explicitly instead of switching the global manager."
+        )
     return _session_manager

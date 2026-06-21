@@ -934,7 +934,7 @@ class ModelDatabase:
     # object mode, 131k context, 32k output).
     GROQ_QWEN36_27B = ModelParameters(
         context_window=131_072,
-        max_output_tokens=32_768,
+        max_output_tokens=30_000,
         tokenizes=QWEN_MULTIMODAL,
         json_mode="object",
         reasoning="stream",

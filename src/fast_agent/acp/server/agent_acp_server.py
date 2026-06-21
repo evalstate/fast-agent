@@ -80,7 +80,8 @@ from fast_agent.llm.terminal_output_limits import (
 )
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
 from fast_agent.mcp.types import McpAgentProtocol
-from fast_agent.session import get_session_manager
+from fast_agent.paths import resolve_environment_paths
+from fast_agent.session.session_manager import SessionManager
 from fast_agent.types import RequestParams
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 
@@ -185,6 +186,7 @@ class AgentACPServer(ACPAgent):
 
         # Aggregated per-session state
         self._session_state = self._live_sessions.session_state
+        self._session_managers: dict[tuple[str, str], SessionManager] = {}
 
         # Connection reference (set during run_async)
         self._connection: ACPClient | None = None
@@ -499,10 +501,7 @@ class AgentACPServer(ACPAgent):
             )
         return str(path.resolve())
 
-    def _get_session_manager(self, *, cwd: Path | None = None) -> Any:
-        if cwd is None:
-            return get_session_manager()
-
+    def _session_manager_environment_override(self, cwd: Path | None) -> str | Path | None:
         settings = get_settings()
         configured_environment_dir = settings.environment_dir
         legacy_environment_dir = os.getenv("ENVIRONMENT_DIR")
@@ -513,12 +512,26 @@ class AgentACPServer(ACPAgent):
             == Path(legacy_environment_dir).expanduser()
         )
         if configured_environment_dir is not None and not ambient_legacy_environment_dir:
-            return get_session_manager(cwd=cwd, environment_override=configured_environment_dir)
+            return configured_environment_dir
 
         if settings._fast_agent_home_source == "default":
-            return get_session_manager(cwd=cwd, environment_override=DEFAULT_ENVIRONMENT_DIR)
+            return DEFAULT_ENVIRONMENT_DIR
 
-        return get_session_manager(cwd=cwd)
+        return None
+
+    def _get_session_manager(self, *, cwd: Path | None = None) -> SessionManager:
+        resolved_cwd = cwd.resolve() if cwd is not None else Path.cwd().resolve()
+        environment_override = self._session_manager_environment_override(cwd)
+        expected_paths = resolve_environment_paths(
+            cwd=resolved_cwd,
+            override=environment_override,
+        )
+        key = (str(expected_paths.sessions.resolve()), str(resolved_cwd))
+        manager = self._session_managers.get(key)
+        if manager is None:
+            manager = SessionManager(cwd=cwd, environment_override=environment_override)
+            self._session_managers[key] = manager
+        return manager
 
     @staticmethod
     def _encode_session_list_cursor(offset: int) -> str:
@@ -764,6 +777,10 @@ class AgentACPServer(ACPAgent):
             cwd=request_cwd,
             mcp_servers=mcp_servers or [],
         )
+        session_state.session_manager = manager
+        from fast_agent.session.context import attach_session_manager
+
+        attach_session_manager(session_state.instance, manager)
 
         logger.info(
             "ACP new session created",

@@ -22,7 +22,7 @@ from fast_agent.history.compaction import (
     should_auto_compact,
 )
 from fast_agent.llm.usage_tracking import UsageAccumulator
-from fast_agent.session import get_session_manager, reset_session_manager
+from fast_agent.session import SessionManager, reset_session_manager
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -390,7 +390,12 @@ class TestCompactConversation:
         try:
             history = _turn("one", "1") + _turn("two", "2")
             agent = _FakeAgent(history, summary="checkpoint summary")
-            agent.context = Context(config=Settings(session_history=True))
+            manager = SessionManager(
+                cwd=workspace,
+                environment_override=workspace / ".fast-agent",
+                respect_env_override=False,
+            )
+            agent.context = Context(config=Settings(session_history=True), session_manager=manager)
             settings = CompactionSettings(keep_turns=1)
 
             result = await compact_conversation(agent, settings=settings)
@@ -399,7 +404,6 @@ class TestCompactConversation:
             archive_path = Path(result.archive_file)
             assert archive_path.is_file()
             assert archive_path.parent.parent == workspace / ".fast-agent" / "sessions"
-            manager = get_session_manager()
             assert manager.current_session is not None
             assert archive_path.name not in manager.current_session.info.history_files
         finally:

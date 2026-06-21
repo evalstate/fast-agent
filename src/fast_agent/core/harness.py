@@ -657,6 +657,9 @@ class AgentHarness:
             metadata={"harness_session_id": session_id},
             metadata_id_key="harness_session_id",
         )
+        from fast_agent.session.context import attach_session_manager
+
+        attach_session_manager(instance, manager)
 
         from fast_agent.session import SessionHydrator
 

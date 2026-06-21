@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Protocol, cast
 
@@ -12,7 +13,6 @@ from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-    from pathlib import Path
 
     from fast_agent.session.identity import SessionSaveIdentity
 
@@ -42,6 +42,7 @@ class _Session:
 class _Manager:
     def __init__(self, label: str) -> None:
         self.label = label
+        self.workspace_dir = Path.cwd().resolve()
         self.current_session: _Session | None = None
         self.saved_agents: list[object] = []
         self.saved_identities: list[SessionSaveIdentity | None] = []
@@ -86,7 +87,7 @@ class _Agent:
     ) -> None:
         self.name = "main"
         self.config = SimpleNamespace(tool_only=False, model="passthrough")
-        self.context = SimpleNamespace(acp=acp_context)
+        self.context = SimpleNamespace(acp=acp_context, session_manager=None)
         self.message_history = history
         self.usage_accumulator = None
         self.agent_registry = None
@@ -106,20 +107,13 @@ async def test_save_session_history_uses_app_store_for_app_scoped_acp_session(
 ) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    manager_calls: list[Path | None] = []
     workspace_manager = _Manager("workspace")
+    workspace_manager.workspace_dir = workspace.resolve()
     app_manager = _Manager("app")
     session_info_updates: list[dict[str, object]] = []
 
-    def fake_get_session_manager(
-        *,
-        cwd: Path | None = None,
-        environment_override=None,
-        respect_env_override: bool = True,
-    ) -> object:
-        del environment_override, respect_env_override
-        manager_calls.append(cwd)
-        return workspace_manager if cwd is not None else app_manager
+    def fail_get_session_manager(**_kwargs: object) -> object:
+        raise AssertionError("session history should use the manager from agent context")
 
     async def fake_send_session_info_update(**kwargs: object) -> None:
         session_info_updates.append(dict(kwargs))
@@ -130,7 +124,7 @@ async def test_save_session_history_uses_app_store_for_app_scoped_acp_session(
     )
     monkeypatch.setattr(
         "fast_agent.hooks.session_history.get_session_manager",
-        fake_get_session_manager,
+        fail_get_session_manager,
     )
 
     acp_context = SimpleNamespace(
@@ -151,6 +145,7 @@ async def test_save_session_history_uses_app_store_for_app_scoped_acp_session(
         acp_context=acp_context,
         history=history,
     )
+    agent.context.session_manager = app_manager
     ctx = HookContext(
         runner=SimpleNamespace(iteration=1, request_params=None),
         agent=agent,
@@ -160,7 +155,6 @@ async def test_save_session_history_uses_app_store_for_app_scoped_acp_session(
 
     await save_session_history(ctx)
 
-    assert manager_calls == [None]
     assert workspace_manager.current_session is None
     current_session = app_manager.current_session
     assert current_session is not None

@@ -371,6 +371,7 @@ def _build_command_context(agent: _SmartCommandAgent) -> _SmartCommandContext:
             current_agent_name=agent_name,
             io=io,
             settings=settings,
+            session_manager=context.session_manager if context else None,
         ),
         io=io,
     )

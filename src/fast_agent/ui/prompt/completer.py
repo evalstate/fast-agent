@@ -67,6 +67,7 @@ if TYPE_CHECKING:
 
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.interfaces import FastAgentLLMProtocol
+    from fast_agent.session.session_manager import SessionManager
     from fast_agent.types import PromptMessageExtended
 
 
@@ -285,12 +286,14 @@ class AgentCompleter(Completer):
         agent_provider: "AgentApp | None" = None,
         noenv_mode: bool = False,
         cwd: Path | None = None,
+        session_manager: "SessionManager | None" = None,
     ) -> None:
         self.agents = agents
         self.current_agent = current_agent
         self.agent_provider = agent_provider
         self.noenv_mode = noenv_mode
         self.cwd = cwd
+        self.session_manager = session_manager
         # Map commands to their descriptions for better completion hints
         self.commands = {
             "mcp": "Manage MCP runtime servers (/mcp list|connect|disconnect|reconnect)",
@@ -782,7 +785,7 @@ class AgentCompleter(Completer):
         )
         from fast_agent.session.formatting import extract_session_title
 
-        manager = get_session_manager()
+        manager = self.session_manager or get_session_manager()
         sessions = apply_session_window(manager.list_sessions())
         for session_info in sessions:
             session_id = session_info.name
