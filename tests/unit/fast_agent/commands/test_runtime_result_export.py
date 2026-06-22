@@ -33,9 +33,11 @@ from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.cli.runtime.runner import _should_convert_keyboard_interrupt_to_task_cancel
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.harness_app import DefaultHarnessApp
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.session import ResumeSessionAgentsResult
+from fast_agent.session.hydrator import SessionHydrationWarning
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
@@ -97,6 +99,9 @@ class _DummyAgentApp:
     def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
         return self._default_agent if agent_name is None else agent_name
 
+    def resolve_agent(self, agent_name: str | None = None):
+        return self._agent(self.resolve_target_agent_name(agent_name))
+
     def registered_agents(self):
         return self._agents
 
@@ -140,10 +145,37 @@ class _DummyHarness:
     def __init__(self, agent_app: _DummyAgentApp, session_manager: object) -> None:
         self.agent_app = agent_app
         self.session_manager = session_manager
+        self.generated_messages: list[tuple[object, str | None]] = []
 
     async def session(self, session_id: str, *, agent_name: str | None = None):
         del session_id, agent_name
         return self
+
+    def app(self):
+        return DefaultHarnessApp(cast("Any", self))
+
+    async def generate(
+        self,
+        messages: object,
+        *,
+        agent_name: str | None = None,
+        request_params: object | None = None,
+    ) -> PromptMessageExtended:
+        del request_params
+        self.generated_messages.append((messages, agent_name))
+        return await self.agent_app._agent(agent_name).generate(messages)
+
+    async def structured_schema(
+        self,
+        messages: object,
+        schema: dict[str, Any],
+        *,
+        agent_name: str | None = None,
+        request_params: object | None = None,
+    ) -> tuple[object | None, PromptMessageExtended]:
+        del request_params
+        self.generated_messages.append((messages, agent_name))
+        return await self.agent_app._agent(agent_name).structured_schema(messages, schema)
 
 
 class _DummyFastRuntime:
@@ -280,6 +312,18 @@ def test_apply_fast_args_threads_resume_into_runtime_settings() -> None:
     assert fast.args.resume_session_id == "session-123"
 
 
+def test_apply_fast_args_rejects_noenv_resume_before_enabling_restore() -> None:
+    request = _make_request(result_file=None)
+    request.noenv = True
+    request.resume = "session-123"
+    fast = SimpleNamespace(args=SimpleNamespace())
+
+    with pytest.raises(typer.Exit):
+        _apply_fast_args(fast, request)
+
+    assert "resume_requested" not in vars(fast.args)
+
+
 @pytest.mark.asyncio
 async def test_run_cli_flow_uses_harness_for_local_repl() -> None:
     request = _make_request(result_file=None, message=None)
@@ -311,18 +355,14 @@ async def test_run_cli_flow_uses_harness_for_local_repl() -> None:
     [
         ("resume", "latest"),
         ("noenv", True),
-        ("message", "hello"),
-        ("prompt_file", "prompt.json"),
     ],
 )
-async def test_run_cli_flow_uses_direct_run_for_non_harness_modes(
+async def test_run_cli_flow_uses_direct_run_for_resume_and_noenv(
     field: str,
     value: object,
 ) -> None:
     request = _make_request(result_file=None, message=None)
     setattr(request, field, value)
-    if field in {"message", "prompt_file"}:
-        request.execution_mode = "one_shot_message" if field == "message" else "one_shot_prompt_file"
     fast = _DummyFastRuntime()
     calls: list[tuple[object, object | None, object | None]] = []
 
@@ -343,6 +383,44 @@ async def test_run_cli_flow_uses_direct_run_for_non_harness_modes(
     assert fast.harness_calls == 0
     assert fast.run_calls == 1
     assert calls == [(fast.direct_app, None, None)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "value", "execution_mode"),
+    [
+        ("message", "hello", "one_shot_message"),
+        ("prompt_file", "prompt.json", "one_shot_prompt_file"),
+    ],
+)
+async def test_run_cli_flow_uses_harness_for_one_shot_modes(
+    field: str,
+    value: object,
+    execution_mode: str,
+) -> None:
+    request = _make_request(result_file=None, message=None)
+    setattr(request, field, value)
+    request.execution_mode = cast("Any", execution_mode)
+    fast = _DummyFastRuntime()
+    calls: list[tuple[object, object | None, object | None]] = []
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del request
+        calls.append((agent_app, session_manager, harness_session))
+
+    assert should_use_harness_startup(request)
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert fast.harness_calls == 1
+    assert fast.run_calls == 0
+    assert calls == [(fast.harness_app, fast.session_manager, fast.harness_session)]
 
 
 @pytest.mark.asyncio
@@ -476,6 +554,26 @@ async def test_run_cli_flow_exports_transient_turn_when_history_disabled(
     assert [message.role for message in exported] == ["user", "assistant"]
     assert exported[0].first_text() == "hello"
     assert exported[1].last_text() == "done"
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "done"
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_one_shot_uses_harness_session_when_available(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    agent = _NonPersistentMessageAgent("agent", "done")
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+    harness_session = _DummyHarness(app, object())
+
+    await _run_cli_flow(
+        app,
+        _make_request(result_file=None, message="hello"),
+        harness_session=cast("Any", harness_session),
+    )
+
+    assert harness_session.generated_messages == [("hello", "agent")]
     captured = capsys.readouterr()
     assert captured.out.strip() == "done"
 
@@ -853,6 +951,60 @@ async def test_resume_session_interactive_queues_markdown_preview(
     assert markdown_notices
     assert markdown_notices[0][0] == "## Welcome back\n\n- item"
     assert markdown_notices[0][1]["title"] == "Last assistant message"
+
+
+@pytest.mark.asyncio
+async def test_resume_session_interactive_queues_git_warning_after_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _make_request(result_file=None, message=None, prompt_file=None)
+    request.resume = "latest"
+
+    agent = _DummyAgent("agent")
+    agent.message_history = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="last response")],
+        )
+    ]
+    app = _DummyAgentApp(["agent"], default_agent="agent")
+    app._agents["agent"] = agent
+
+    session = SimpleNamespace(
+        info=SimpleNamespace(
+            name="session-1",
+            last_activity=datetime(2026, 2, 26, 12, 0, 0),
+        )
+    )
+    app._session_restore_result = ResumeSessionAgentsResult(
+        session=cast("Any", session),
+        loaded={"agent": Path("history_agent.json")},
+        missing_agents=[],
+        warnings=[
+            SessionHydrationWarning(
+                code="git-state-changed",
+                message="Git state changed since session save: commit 746b5a9 -> af77669.",
+            )
+        ],
+    )
+
+    events: list[str] = []
+
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_notice",
+        lambda notice: events.append(str(notice)),
+    )
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
+        lambda text, **kwargs: events.append(f"preview:{text}"),
+    )
+
+    await _resume_session_if_requested(app, request)
+
+    assert events[-2:] == [
+        "preview:last response",
+        "[yellow]Git state changed since session save: commit 746b5a9 -> af77669.[/yellow]",
+    ]
 
 
 @pytest.mark.asyncio

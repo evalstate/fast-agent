@@ -257,6 +257,15 @@ class PluginsSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class HarnessAppSettings(BaseModel):
+    """Configuration for the harness application boundary."""
+
+    entrypoint: str | None = None
+    """Import path for a custom harness app factory, as module:function."""
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class ShellSettings(BaseModel):
     """Configuration for shell execution behavior."""
 
@@ -1858,6 +1867,9 @@ class Settings(BaseSettings):
 
     mcp: MCPSettings | None = Field(default_factory=MCPSettings)
     """MCP config, such as MCP servers"""
+
+    harness_app: HarnessAppSettings = Field(default_factory=HarnessAppSettings)
+    """Harness application boundary configuration."""
 
     execution_engine: Literal["asyncio"] = "asyncio"
     """Execution engine for the fast-agent application"""

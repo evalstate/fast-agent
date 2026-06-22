@@ -66,6 +66,22 @@ def test_format_session_entries_marks_pinned() -> None:
     assert "\U0001f4cc" in verbose[0]
 
 
+def test_format_session_entries_marks_empty() -> None:
+    now = datetime(2026, 1, 18, 12, 0)
+    session = SessionInfo(
+        name="2601181200-AbCd12",
+        created_at=now,
+        last_activity=now,
+        history_files=[],
+        metadata={},
+    )
+
+    compact = format_session_entries([session], None, mode="compact")
+
+    assert compact
+    assert "empty" in compact[0]
+
+
 def test_format_session_entries_accepts_named_mode() -> None:
     now = datetime(2026, 1, 18, 12, 0)
     session = SessionInfo(

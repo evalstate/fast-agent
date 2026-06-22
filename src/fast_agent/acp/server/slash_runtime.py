@@ -31,8 +31,6 @@ class SlashRuntimeHost(Protocol):
     _reload_callback: Any
     _live_sessions: ACPLiveSessionRegistry
     _session_lock: asyncio.Lock
-    _create_instance_task: Any
-    _dispose_instance_task: Any
     _client_info: dict[str, Any] | None
     _client_capabilities: dict[str, Any] | None
     _protocol_version: int | None
@@ -245,7 +243,7 @@ class ACPServerSlashRuntime:
 
     @staticmethod
     async def _set_current_mode(session_state: ACPSessionState, agent_name: str) -> None:
-        session_state.current_agent_name = agent_name
+        session_state.set_current_agent(agent_name, sync_context=False)
         if session_state.acp_context:
             await session_state.acp_context.switch_mode(agent_name)
 

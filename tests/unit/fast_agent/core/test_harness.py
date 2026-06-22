@@ -446,6 +446,70 @@ async def test_harness_session_saves_to_current_managed_session_after_session_sw
 
 
 @pytest.mark.asyncio
+async def test_harness_close_removes_untitled_empty_persisted_session(tmp_path: "Path") -> None:
+    from fast_agent.session.session_manager import SessionManager
+
+    factory = InstanceFactory()
+    manager = SessionManager(environment_override=tmp_path)
+
+    async def create_persisted_session(
+        session_id: str,
+        instance: AgentInstance,
+        default_agent_name: str | None,
+    ):
+        del instance, default_agent_name
+        return manager, manager.create_session_with_id(
+            session_id,
+            metadata={"harness_session_id": session_id},
+            metadata_id_key="harness_session_id",
+        )
+
+    sessions = HarnessSessions(
+        create_instance=factory.create,
+        dispose_instance=factory.dispose,
+        create_persisted_session=create_persisted_session,
+    )
+
+    await sessions.create("empty")
+    assert (tmp_path / "sessions" / "empty" / "session.json").exists()
+
+    await sessions.close_all()
+
+    assert not (tmp_path / "sessions" / "empty").exists()
+
+
+@pytest.mark.asyncio
+async def test_harness_close_keeps_titled_empty_persisted_session(tmp_path: "Path") -> None:
+    from fast_agent.session.session_manager import SessionManager
+
+    factory = InstanceFactory()
+    manager = SessionManager(environment_override=tmp_path)
+
+    async def create_persisted_session(
+        session_id: str,
+        instance: AgentInstance,
+        default_agent_name: str | None,
+    ):
+        del instance, default_agent_name
+        return manager, manager.create_session_with_id(
+            session_id,
+            metadata={"harness_session_id": session_id, "title": "keep me"},
+            metadata_id_key="harness_session_id",
+        )
+
+    sessions = HarnessSessions(
+        create_instance=factory.create,
+        dispose_instance=factory.dispose,
+        create_persisted_session=create_persisted_session,
+    )
+
+    await sessions.create("empty")
+    await sessions.close_all()
+
+    assert (tmp_path / "sessions" / "empty" / "session.json").exists()
+
+
+@pytest.mark.asyncio
 async def test_harness_session_invoke_uses_agent_request_auth_context() -> None:
     async def create_instance() -> AgentInstance:
         agent = cast("AgentProtocol", TokenEchoAgent("main", default=True))

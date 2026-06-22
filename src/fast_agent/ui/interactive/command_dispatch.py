@@ -1299,9 +1299,9 @@ def _active_session_id_or_empty(context: CommandContext, target: str | None) -> 
     if context.noenv:
         return None
 
-    manager = context.resolve_session_manager()
-    current_session = manager.current_session
-    current_session_id = current_session.info.name if current_session is not None else None
+    if context.session_runtime is None:
+        return ""
+    current_session_id = context.session_runtime.current_session_id()
     if target is None and current_session_id is None:
         return ""
     return current_session_id

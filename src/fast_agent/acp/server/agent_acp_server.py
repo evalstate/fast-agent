@@ -150,8 +150,6 @@ class AgentACPServer(ACPAgent):
             create=create_instance,
             dispose=dispose_instance,
         )
-        self._create_instance_task = self._instance_factory.create_instance
-        self._dispose_instance_task = self._instance_factory.dispose_instance
         self._load_card_callback = load_card_callback
         self._attach_agent_tools_callback = attach_agent_tools_callback
         self._detach_agent_tools_callback = detach_agent_tools_callback
@@ -533,14 +531,6 @@ class AgentACPServer(ACPAgent):
             self._session_managers[key] = manager
         return manager
 
-    @staticmethod
-    def _encode_session_list_cursor(offset: int) -> str:
-        return ACPServerSessionStore._encode_session_list_cursor(offset)
-
-    @staticmethod
-    def _decode_session_list_cursor(cursor: str) -> int:
-        return ACPServerSessionStore._decode_session_list_cursor(cursor)
-
     async def _replace_instance_for_session(
         self,
         session_state: ACPSessionState,
@@ -748,19 +738,14 @@ class AgentACPServer(ACPAgent):
         Creates a new ACP session with its own dedicated agent instance.
         """
         _ = additional_directories
-        request_cwd = self._resolve_request_cwd(
-            cwd=cwd,
-            request_name="session/new",
-            required=True,
+        request_cwd = cast(
+            "str",
+            self._resolve_request_cwd(
+                cwd=cwd,
+                request_name="session/new",
+                required=True,
+            ),
         )
-        if request_cwd is None:
-            raise RequestError.invalid_params(
-                {
-                    "cwd": cwd,
-                    "request": "session/new",
-                    "reason": "cwd is required and must be an absolute path",
-                }
-            )
         manager = self._get_session_manager(cwd=Path(request_cwd))
         session_id = manager.generate_session_id()
 
@@ -777,10 +762,7 @@ class AgentACPServer(ACPAgent):
             cwd=request_cwd,
             mcp_servers=mcp_servers or [],
         )
-        session_state.session_manager = manager
-        from fast_agent.session.context import attach_session_manager
-
-        attach_session_manager(session_state.instance, manager)
+        session_state.attach_session_manager(manager)
 
         logger.info(
             "ACP new session created",
@@ -861,17 +843,12 @@ class AgentACPServer(ACPAgent):
 
         # Update the session's current agent
         if session_state:
-            session_state.current_agent_name = mode_id
-
-        # Update slash handler's current agent so it queries the right agent's commands
-        if session_state and session_state.slash_handler:
-            session_state.slash_handler.set_current_agent(mode_id)
+            session_state.set_current_agent(mode_id)
 
         # Update ACPContext and send available_commands_update
         # (commands may differ per agent)
         if session_state and session_state.acp_context:
             acp_context = session_state.acp_context
-            acp_context.set_current_mode(mode_id)
             await acp_context.send_available_commands_update()
 
         logger.info(
@@ -1089,7 +1066,7 @@ class AgentACPServer(ACPAgent):
                 continue
             disposed_instances.add(instance_id)
             try:
-                await self._dispose_instance_task(instance)
+                await self._instance_factory.dispose_instance(instance)
             except Exception as e:
                 logger.error(
                     f"Error disposing instance for session {session_id}: {e}",
@@ -1102,7 +1079,7 @@ class AgentACPServer(ACPAgent):
         if not bootstrap_instance or id(bootstrap_instance) in disposed_instances:
             return
         try:
-            await self._dispose_instance_task(bootstrap_instance)
+            await self._instance_factory.dispose_instance(bootstrap_instance)
         except Exception as e:
             logger.error(
                 f"Error disposing ACP bootstrap instance: {e}",

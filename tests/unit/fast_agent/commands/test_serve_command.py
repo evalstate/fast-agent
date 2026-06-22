@@ -37,7 +37,19 @@ def test_serve_security_warnings_for_wildcard_host_with_shell() -> None:
     assert "shell execution tool is available to remote callers" in messages[1]
 
 
-def test_serve_security_warnings_only_for_remote_http_binds() -> None:
+def test_serve_security_warnings_for_a2a_wildcard_host_with_shell() -> None:
+    messages = serve_command._serve_security_warning_messages(
+        transport=serve_command.ServeTransport.A2A,
+        host="0.0.0.0",
+        shell=True,
+    )
+
+    assert len(messages) == 2
+    assert "exposes fast-agent to remote network clients" in messages[0]
+    assert "shell execution tool is available to remote callers" in messages[1]
+
+
+def test_serve_security_warnings_only_for_remote_http_and_a2a_binds() -> None:
     assert (
         serve_command._serve_security_warning_messages(
             transport=serve_command.ServeTransport.HTTP,
@@ -62,6 +74,14 @@ def test_serve_security_warnings_only_for_remote_http_binds() -> None:
     assert (
         serve_command._serve_security_warning_messages(
             transport=serve_command.ServeTransport.STDIO,
+            host="0.0.0.0",
+            shell=True,
+        )
+        == []
+    )
+    assert (
+        serve_command._serve_security_warning_messages(
+            transport=serve_command.ServeTransport.ACP,
             host="0.0.0.0",
             shell=True,
         )

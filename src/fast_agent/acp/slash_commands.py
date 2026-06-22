@@ -63,6 +63,7 @@ from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol, FastAgentLLMProtocol
+from fast_agent.session.context import SessionContextCapable
 from fast_agent.session.identity import SessionStoreScope, normalize_session_store_scope
 from fast_agent.utils.slash_commands import parse_slash_command_line
 from fast_agent.utils.text import strip_casefold
@@ -606,7 +607,11 @@ class SlashCommandHandler:
             self._resolve_acp_session_metadata()
         )
         current_agent = self._get_current_agent()
-        agent_context = current_agent.context if current_agent else None
+        agent_context = (
+            current_agent.context
+            if current_agent and isinstance(current_agent, SessionContextCapable)
+            else None
+        )
         return CommandContext(
             agent_provider=StaticAgentProvider(
                 cast("dict[str, object]", dict(self.instance.agents))

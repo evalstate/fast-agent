@@ -70,7 +70,7 @@ def _resolve_instance_scope(
 
 
 def _serves_remote_clients(transport: ServeTransport, host: str) -> bool:
-    if transport != ServeTransport.HTTP:
+    if transport not in (ServeTransport.HTTP, ServeTransport.A2A):
         return False
     normalized_host = host.strip().lower()
     if normalized_host == "localhost":
@@ -385,4 +385,5 @@ def serve_a2a(
         reload=reload,
         watch=watch,
     )
+    _emit_serve_security_warnings(transport=ServeTransport.A2A, host=host, shell=shell)
     run_request(request)

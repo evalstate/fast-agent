@@ -44,3 +44,18 @@ class ACPSessionState:
     resolved_instructions: dict[str, str] = field(default_factory=dict)
     session_mcp_servers: dict[str, SessionMCPServerState] = field(default_factory=dict)
     agent_mcp_servers: dict[str, dict[str, SessionMCPServerState]] = field(default_factory=dict)
+
+    def set_current_agent(self, agent_name: str, *, sync_context: bool = True) -> None:
+        """Keep ACP session routing state aligned for the active agent."""
+        self.current_agent_name = agent_name
+        if self.slash_handler:
+            self.slash_handler.set_current_agent(agent_name)
+        if sync_context and self.acp_context:
+            self.acp_context.set_current_mode(agent_name)
+
+    def attach_session_manager(self, manager: SessionManager) -> None:
+        """Use ``manager`` as this ACP session's persistence boundary."""
+        from fast_agent.session.context import attach_session_manager
+
+        self.session_manager = manager
+        attach_session_manager(self.instance, manager)

@@ -37,6 +37,9 @@ class StartupMarkdownNotice(Protocol):
     ) -> None: ...
 
 
+DEFERRED_RESUME_WARNING_CODES = frozenset({"git-state-changed"})
+
+
 def find_last_assistant_text(history: Sequence[object]) -> str | None:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
@@ -74,6 +77,7 @@ async def resume_session_if_requested(
         interactive_notice,
         queue_startup_markdown_notice,
     )
+    emit_deferred_resume_warnings(result.warnings, interactive_notice, queue_startup_notice)
 
 
 def validate_resume_request(request: AgentRunRequest) -> None:
@@ -151,7 +155,12 @@ def emit_resume_status_notices(
         interactive_notice,
         queue_startup_notice,
     )
-    emit_resume_warnings(result.warnings, interactive_notice, queue_startup_notice)
+    emit_resume_warnings(
+        result.warnings,
+        interactive_notice,
+        queue_startup_notice,
+        deferred=False,
+    )
     emit_resume_usage_notices(result.usage_notices, interactive_notice, queue_startup_notice)
 
 
@@ -175,9 +184,13 @@ def emit_resume_warnings(
     warnings: list[SessionHydrationWarning],
     interactive_notice: bool,
     queue_startup_notice: StartupNotice,
+    *,
+    deferred: bool | None = None,
 ) -> None:
     for warning in warnings:
         if warning.code == "missing-agent":
+            continue
+        if deferred is not None and (warning.code in DEFERRED_RESUME_WARNING_CODES) != deferred:
             continue
         emit_resume_notice(
             f"[yellow]{warning.message}[/yellow]",
@@ -185,6 +198,19 @@ def emit_resume_warnings(
             queue_startup_notice=queue_startup_notice,
             plain_notice=warning.message,
         )
+
+
+def emit_deferred_resume_warnings(
+    warnings: list[SessionHydrationWarning],
+    interactive_notice: bool,
+    queue_startup_notice: StartupNotice,
+) -> None:
+    emit_resume_warnings(
+        warnings,
+        interactive_notice,
+        queue_startup_notice,
+        deferred=True,
+    )
 
 
 def emit_resume_usage_notices(

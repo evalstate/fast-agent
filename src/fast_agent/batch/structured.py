@@ -978,7 +978,7 @@ async def _configured_batch_fast(
     target_agent_name = await _configure_batch_worker(fast, options, instruction)
     if options.shell_runtime:
         await fast.app.initialize()
-        context = cast("Any", fast.app.context)
+        context = fast.app.context
         context.shell_runtime = True
     return fast, target_agent_name
 

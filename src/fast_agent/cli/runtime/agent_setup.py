@@ -3,909 +3,104 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import os
 import sys
 import time
-from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
 import typer
-from pydantic import BaseModel
 
-from fast_agent.cli.command_support import get_settings_or_exit
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
-from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
-from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.session.preview import find_last_assistant_preview_text
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.utils.filename import sanitize_filename_suffix
 from fast_agent.utils.text import strip_casefold, strip_to_none
 from fast_agent.utils.transports import uses_protocol_stdio
 
 from .harness_startup import run_cli_flow, run_parallel_cli_flow
+from .model_bootstrap import (
+    agent_config_defines_startup_model as _agent_config_defines_startup_model,
+)
+from .model_bootstrap import (
+    explicit_agent_cards_define_startup_model as _explicit_agent_cards_define_startup_model,
+)
+from .model_bootstrap import (
+    generic_model_prompt_default as _generic_model_prompt_default,
+)
+from .model_bootstrap import (
+    last_used_model_reference as _last_used_model_reference,
+)
+from .model_bootstrap import (
+    load_request_settings as _load_request_settings,
+)
+from .model_bootstrap import (
+    persist_model_picker_last_used_selection as _persist_model_picker_last_used_selection,
+)
+from .model_bootstrap import (
+    resolve_model_picker_initial_selection as _resolve_model_picker_initial_selection,
+)
+from .model_bootstrap import (
+    resolve_model_without_hardcoded_default as _resolve_model_without_hardcoded_default,
+)
+from .model_bootstrap import (
+    select_model_from_picker as _select_model_from_picker,
+)
+from .model_bootstrap import (
+    settings_model_references as _settings_model_references,
+)
+from .model_bootstrap import (
+    should_prompt_for_model_picker as _should_prompt_for_model_picker,
+)
+from .model_bootstrap import (
+    should_prompt_for_unpinned_system_default as _should_prompt_for_unpinned_system_default,
+)
+from .model_bootstrap import (
+    system_default_reference_is_missing as _system_default_reference_is_missing,
+)
+from .one_shot import run_one_shot_payload as _run_one_shot_payload
 from .request_builders import resolve_default_instruction, resolve_smart_agent_enabled
-from .shell_cwd_policy import (
-    can_prompt_for_missing_cwd,
-    collect_shell_cwd_issues,
-    create_missing_shell_cwd_directories,
-    effective_missing_shell_cwd_policy,
-    format_shell_cwd_issues,
-    resolve_missing_shell_cwd_policy,
+from .session_resume import (
+    find_last_assistant_text as _find_last_assistant_text,
+)
+from .session_resume import (
+    resume_session_id as _resume_session_id,
+)
+from .session_resume import (
+    resume_session_if_requested,
+)
+from .session_resume import (
+    validate_resume_request as _validate_resume_request,
+)
+from .shell_cwd_preflight import (
+    apply_shell_cwd_policy_preflight as _apply_shell_cwd_policy_preflight,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Mapping
+
     from mcp.types import ContentBlock
 
-    from fast_agent.config import Settings
+    from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.harness import HarnessSession
-    from fast_agent.core.model_resolution import ResolvedModelSpec
-    from fast_agent.llm.structured_schema import StructuredSchemaSource
     from fast_agent.session.session_manager import SessionManager
-    from fast_agent.types import PromptMessageExtended, StructuredToolPolicy
+    from fast_agent.types import PromptMessageExtended
 
     from .run_request import AgentRunRequest
 
 logger = get_logger(__name__)
 
-
-@dataclass(frozen=True, slots=True)
-class _ModelPickerInitialSelection:
-    provider: str | None = None
-    model_spec: str | None = None
-
-
-async def _structured_call(
-    agent_obj: Any,
-    prompt: Any,
-    schema_source: StructuredSchemaSource,
-    structured_tool_policy: StructuredToolPolicy | None = None,
-) -> tuple[Any | None, Any]:
-    if isinstance(schema_source, type) and issubclass(schema_source, BaseModel):
-        return await agent_obj.structured(prompt, schema_source)
-    if structured_tool_policy is None:
-        return await agent_obj.structured_schema(prompt, schema_source)
-
-    from fast_agent.types import RequestParams
-
-    return await agent_obj.structured_schema(
-        prompt,
-        schema_source,
-        RequestParams(structured_tool_policy=structured_tool_policy),
-    )
-
-
-def _structured_output_payload(parsed: Any) -> Any:
-    if isinstance(parsed, BaseModel):
-        return parsed.model_dump(mode="json")
-    return parsed
-
-
-def _find_last_assistant_text(history: list[Any]) -> str | None:
-    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-
-    typed_history = [message for message in history if isinstance(message, PromptMessageExtended)]
-    return find_last_assistant_preview_text(typed_history)
-
-
-def _is_interactive_startup_notice_context(request: AgentRunRequest) -> bool:
-    return request.mode == "interactive" and request.is_repl
-
-
-def _should_prompt_for_model_picker(
-    request: AgentRunRequest,
-    *,
-    stdin_is_tty: bool,
-    stdout_is_tty: bool,
-) -> bool:
-    """Return True when interactive startup can safely prompt for model selection."""
-    if not _is_interactive_startup_notice_context(request):
-        return False
-    return stdin_is_tty and stdout_is_tty
-
-
-def _explicit_agent_cards_define_startup_model(
-    request: AgentRunRequest,
-    *,
-    model_references: Mapping[str, Mapping[str, str]] | None = None,
-    system_default_requires_explicit: bool = False,
-) -> bool:
-    if not request.agent_cards or request.target_agent_name:
-        return False
-
-    try:
-        from fast_agent.core.agent_card_loader import load_agent_cards
-    except Exception:
-        return False
-
-    loaded_cards = []
-    temp_paths: list[Path] = []
-    try:
-        for path, is_temporary in _materialized_agent_card_paths(request.agent_cards):
-            if is_temporary:
-                temp_paths.append(path)
-            loaded_cards.extend(load_agent_cards(path))
-    except Exception:
-        return False
-    finally:
-        for path in temp_paths:
-            path.unlink(missing_ok=True)
-
-    runnable_configs = _runnable_agent_card_configs(loaded_cards)
-    if len(runnable_configs) != 1:
-        return False
-
-    return _agent_config_defines_startup_model(
-        runnable_configs[0],
-        model_references=model_references,
-        system_default_requires_explicit=system_default_requires_explicit,
-    )
-
-
-def _materialized_agent_card_paths(sources: list[str]) -> list[tuple[Path, bool]]:
-    from fast_agent.io.source_resolver import REMOTE_TEXT_SCHEMES, materialize_text_source
-
-    paths: list[tuple[Path, bool]] = []
-    for source in sources:
-        parsed = urlparse(source)
-        if parsed.scheme in REMOTE_TEXT_SCHEMES:
-            suffix = Path(parsed.path).suffix or ".md"
-            paths.append(
-                (
-                    materialize_text_source(source, label="AgentCard URL", suffix=suffix),
-                    True,
-                )
-            )
-        else:
-            paths.append((materialize_text_source(source, label="AgentCard source"), False))
-    return paths
-
-
-def _runnable_agent_card_configs(loaded_cards: list[Any]) -> list[Any]:
-    runnable_configs = []
-    for card in loaded_cards:
-        if card.agent_data.get("tool_only", False):
-            continue
-        config = card.agent_data.get("config")
-        if config is not None:
-            runnable_configs.append(config)
-    return runnable_configs
-
-
-def _agent_config_defines_startup_model(
-    agent_config: Any,
-    *,
-    model_references: Mapping[str, Mapping[str, str]] | None,
-    system_default_requires_explicit: bool = False,
-) -> bool:
-    model = agent_config.model
-    if not isinstance(model, str):
-        return False
-
-    model_spec = strip_to_none(model)
-    if model_spec is None:
-        return False
-    if not model_spec.startswith("$"):
-        return True
-    if (
-        system_default_requires_explicit
-        and model_spec == "$system.default"
-        and _system_default_reference_is_missing(model_references)
-    ):
-        return False
-
-    try:
-        from fast_agent.core.model_resolution import resolve_model_reference
-
-        resolved_model = resolve_model_reference(model_spec, model_references)
-    except ModelConfigError:
-        return False
-
-    return strip_to_none(resolved_model) is not None
-
-
-def _resolve_model_without_hardcoded_default(
-    *,
-    model: str | None,
-    config_default_model: str | None,
-    model_references: Mapping[str, Mapping[str, str]] | None,
-) -> ResolvedModelSpec:
-    """Resolve model precedence without falling back to the hardcoded system default."""
-    from fast_agent.core.model_resolution import resolve_model_spec
-
-    return resolve_model_spec(
-        context=None,
-        model=model,
-        default_model=config_default_model,
-        cli_model=model,
-        fallback_to_hardcoded=False,
-        model_references=model_references,
-    )
-
-
-def _load_request_settings(request: "AgentRunRequest") -> "Settings":
-    from fast_agent import config as config_module
-
-    if request.config_path is None:
-        config_module._settings = None
-
-    return get_settings_or_exit(
-        request.config_path,
-        env_dir=request.environment_dir,
-        noenv=request.noenv,
-    )
-
-
-def _resolve_model_picker_initial_selection(
-    *,
-    settings: "Settings",
-) -> _ModelPickerInitialSelection:
-    from fast_agent.core.exceptions import ModelConfigError
-    from fast_agent.core.model_resolution import resolve_model_reference
-    from fast_agent.llm.model_overlays import load_model_overlay_registry
-    from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
-    from fast_agent.ui.model_picker_common import model_identity
-
-    references = _settings_model_references(settings)
-    initial_model_spec = _last_used_model_reference(references)
-    if initial_model_spec is None:
-        return _ModelPickerInitialSelection()
-
-    overlay_registry = load_model_overlay_registry(
-        start_path=resolve_model_reference_start_path(
-            settings=settings,
-            fallback_path=Path.cwd(),
-        ),
-        env_dir=settings.environment_dir,
-    )
-    overlay_selection = _overlay_model_picker_selection(
-        overlay_registry,
-        initial_model_spec,
-    )
-    if overlay_selection is not None:
-        return overlay_selection
-
-    identity_selection = _identity_model_picker_selection(
-        initial_model_spec,
-        model_identity=model_identity,
-    )
-    if identity_selection is not None:
-        return identity_selection
-
-    try:
-        resolved_model_spec = resolve_model_reference(initial_model_spec, references)
-    except ModelConfigError:
-        return _ModelPickerInitialSelection(model_spec=initial_model_spec)
-
-    overlay_selection = _overlay_model_picker_selection(overlay_registry, resolved_model_spec)
-    if overlay_selection is not None:
-        return overlay_selection
-
-    identity_selection = _identity_model_picker_selection(
-        resolved_model_spec,
-        model_identity=model_identity,
-    )
-    return identity_selection or _ModelPickerInitialSelection(model_spec=initial_model_spec)
-
-
-def _settings_model_references(settings: "Settings") -> Mapping[str, Mapping[str, str]] | None:
-    references = settings.model_references
-    if not isinstance(references, Mapping):
-        return None
-    return references
-
-
-def _last_used_model_reference(
-    references: Mapping[str, Mapping[str, str]] | None,
-) -> str | None:
-    if references is None:
-        return None
-    system_references = references.get("system")
-    if not isinstance(system_references, Mapping):
-        return None
-
-    raw_last_used = system_references.get("last_used")
-    if not isinstance(raw_last_used, str):
-        return None
-
-    return strip_to_none(raw_last_used)
-
-
-def _system_default_reference_is_missing(
-    references: Mapping[str, Mapping[str, str]] | None,
-) -> bool:
-    if references is None:
-        return True
-    system_references = references.get("system")
-    if not isinstance(system_references, Mapping):
-        return True
-
-    raw_default = system_references.get("default")
-    if not isinstance(raw_default, str):
-        return True
-    return strip_to_none(raw_default) is None
-
-
-def _should_prompt_for_unpinned_system_default(
-    settings: Settings,
-    *,
-    can_prompt: bool,
-) -> bool:
-    if not can_prompt:
-        return False
-    if strip_to_none(settings.default_model) != "$system.default":
-        return False
-    if os.getenv("FAST_AGENT_MODEL"):
-        return False
-    return _system_default_reference_is_missing(_settings_model_references(settings))
-
-
-def _overlay_model_picker_selection(
-    overlay_registry: Any,
-    model_spec: str,
-) -> _ModelPickerInitialSelection | None:
-    if overlay_registry.resolve_model_string(model_spec) is None:
-        return None
-    return _ModelPickerInitialSelection(provider="overlays", model_spec=model_spec)
-
-
-def _identity_model_picker_selection(
-    model_spec: str,
-    *,
-    model_identity: Callable[[str], object | None],
-) -> _ModelPickerInitialSelection | None:
-    from fast_agent.ui.model_picker_common import infer_initial_picker_provider
-
-    if model_identity(model_spec) is None:
-        return None
-    return _ModelPickerInitialSelection(
-        provider=infer_initial_picker_provider(model_spec),
-        model_spec=model_spec,
-    )
-
-
-def _persist_model_picker_last_used_selection(
-    request: AgentRunRequest,
-    *,
-    settings: "Settings",
-    model_spec: str,
-) -> bool:
-    from fast_agent.llm.model_reference_config import (
-        ModelReferenceConfigService,
-        resolve_model_reference_start_path,
-    )
-    from fast_agent.paths import resolve_environment_dir
-
-    normalized_model = strip_to_none(model_spec)
-    if request.noenv or normalized_model is None:
-        return False
-
-    start_path = resolve_model_reference_start_path(settings=settings, fallback_path=Path.cwd())
-    explicit_config_path = None
-    if request.config_path is not None:
-        loaded_config_file = getattr(settings, "_config_file", None)
-        loaded_config_file_path = (
-            strip_to_none(loaded_config_file) if isinstance(loaded_config_file, str) else None
-        )
-        if loaded_config_file_path is not None:
-            explicit_config_path = Path(loaded_config_file_path).expanduser().resolve()
-        else:
-            explicit_config_path = Path(request.config_path).expanduser().resolve()
-
-    env_dir = resolve_environment_dir(
-        settings=settings,
-        cwd=Path.cwd(),
-        override=request.environment_dir or settings.environment_dir,
-    )
-    write_target = "project" if explicit_config_path is not None else "env"
-
-    try:
-        ModelReferenceConfigService(
-            start_path=start_path,
-            env_dir=env_dir,
-            project_write_path=explicit_config_path,
-        ).set_reference(
-            "$system.last_used",
-            normalized_model,
-            target=write_target,
-        )
-    except Exception as exc:
-        logger.warning(
-            "Failed to persist model picker last-used selection",
-            env_dir=str(env_dir) if env_dir is not None else None,
-            config_path=str(explicit_config_path) if explicit_config_path is not None else None,
-            target=write_target,
-            model_spec=normalized_model,
-            error=str(exc),
-        )
-        return False
-
-    references = settings.model_references
-    if isinstance(references, dict):
-        system_references = references.get("system")
-        if isinstance(system_references, dict):
-            system_references["last_used"] = normalized_model
-        else:
-            references["system"] = {"last_used": normalized_model}
-    else:
-        settings.model_references = {"system": {"last_used": normalized_model}}
-
-    return True
-
-
-def _generic_model_prompt_default(initial_model_spec: str | None) -> str:
-    from fast_agent.ui.model_picker_common import has_explicit_provider_prefix
-
-    candidate = strip_to_none(initial_model_spec) or ""
-    if candidate.startswith("generic."):
-        candidate = candidate.removeprefix("generic.")
-        return candidate or "llama3.2"
-    if has_explicit_provider_prefix(candidate):
-        return "llama3.2"
-    return candidate or "llama3.2"
-
-
-async def _prompt_for_generic_model_spec(*, default_model: str = "llama3.2") -> str:
-    from prompt_toolkit import PromptSession
-
-    from fast_agent.ui.model_picker_common import normalize_generic_model_spec
-
-    prompt_session = PromptSession()
-    while True:
-        try:
-            entered = await prompt_session.prompt_async(
-                "Local model (e.g. llama3.2): ",
-                default=default_model,
-            )
-        except (EOFError, KeyboardInterrupt):
-            typer.echo("Model selection cancelled.", err=True)
-            raise typer.Exit(1) from None
-
-        normalized = normalize_generic_model_spec(entered)
-        if normalized:
-            return normalized
-
-        typer.echo("Please enter a non-empty model string.", err=True)
-
-
-async def _import_llamacpp_overlay_from_picker(
-    *,
-    request: AgentRunRequest,
-    start_path: Path,
-) -> str | None:
-    from fast_agent.cli.commands.model import import_llamacpp_overlay_from_default_url
-
-    settings = _load_request_settings(request)
-    env_dir = request.environment_dir or settings.environment_dir
-
-    try:
-        return await import_llamacpp_overlay_from_default_url(
-            start_path=start_path,
-            env_dir=env_dir,
-        )
-    except (EOFError, KeyboardInterrupt):
-        return None
-    except Exception as exc:
-        typer.echo(f"llama.cpp import failed: {exc}", err=True)
-        return None
-
-
-def _activate_model_picker_provider(action: str) -> bool:
-    if action != "codex-login":
-        typer.echo(f"Unsupported provider activation action: {action}", err=True)
-        return False
-
-    from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
-    from fast_agent.llm.provider.openai.codex_oauth import login_codex_oauth
-    from fast_agent.ui import console
-
-    typer.echo("Starting Codex OAuth login...", err=True)
-    try:
-        console.ensure_blocking_console()
-        login_codex_oauth()
-    except ProviderKeyError as exc:
-        typer.echo(format_fast_agent_error(exc), err=True)
-        return False
-    except (EOFError, KeyboardInterrupt):
-        typer.echo("Codex OAuth login cancelled.", err=True)
-        return False
-
-    typer.echo("Codex OAuth login complete. Choose a Codex model to continue.", err=True)
-    return True
-
-
-async def _select_model_from_picker(
-    request: AgentRunRequest,
-    *,
-    config_payload: dict[str, Any] | None = None,
-    initial_provider: str | None = None,
-    initial_model_spec: str | None = None,
-) -> str:
-    """Prompt user for model selection and return a resolved model string."""
-    from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
-    from fast_agent.llm.provider_types import Provider
-    from fast_agent.ui.model_picker import run_model_picker_async
-    from fast_agent.ui.model_picker_common import LLAMACPP_PROVIDER_KEY
-
-    config_path = Path(request.config_path) if request.config_path else None
-    picker_start_path = (
-        config_path.parent
-        if config_path is not None
-        else resolve_model_reference_start_path(settings=_load_request_settings(request))
-    )
-    while True:
-        picker_result = await run_model_picker_async(
-            config_path=config_path,
-            config_payload=config_payload,
-            start_path=picker_start_path,
-            initial_provider=initial_provider,
-            initial_model_spec=initial_model_spec,
-        )
-        if picker_result is None:
-            typer.echo("Model selection cancelled.", err=True)
-            raise typer.Exit(1)
-
-        initial_provider = picker_result.provider
-
-        if picker_result.activation_action is not None:
-            _activate_model_picker_provider(picker_result.activation_action)
-            continue
-
-        if picker_result.provider == LLAMACPP_PROVIDER_KEY:
-            imported_overlay = await _import_llamacpp_overlay_from_picker(
-                request=request,
-                start_path=picker_start_path,
-            )
-            if imported_overlay is not None:
-                typer.echo(f"Imported llama.cpp overlay '{imported_overlay}'.", err=True)
-                return imported_overlay
-            continue
-
-        if (
-            picker_result.provider == Provider.GENERIC.config_name
-            and picker_result.resolved_model is None
-        ):
-            return await _prompt_for_generic_model_spec(
-                default_model=_generic_model_prompt_default(initial_model_spec),
-            )
-
-        if picker_result.refer_to_docs or not picker_result.resolved_model:
-            typer.echo(
-                "Selected provider requires manual model IDs/options. "
-                "Please choose a concrete model (or press q to cancel).",
-                err=True,
-            )
-            continue
-
-        selected_model = picker_result.resolved_model or picker_result.selected_model
-        assert selected_model is not None
-        return selected_model
-
-
-def _emit_startup_notice(request: AgentRunRequest, message: str) -> None:
-    if _is_interactive_startup_notice_context(request):
-        from fast_agent.ui.enhanced_prompt import queue_startup_notice
-
-        queue_startup_notice(message)
-        return
-
-    typer.echo(message, err=True)
-
-
-def _emit_immediate_notice(message: str) -> None:
-    try:
-        if not sys.stderr.isatty():
-            return
-    except Exception:
-        return
-
-    typer.echo(message, err=True)
-
-
-def _format_shell_cwd_policy_message(
-    *,
-    policy: str,
-    lines: list[str],
-) -> str:
-    title = f"Shell cwd policy ({policy}):"
-    return "\n".join([title, *lines])
-
-
-def _apply_shell_cwd_policy_preflight(fast: Any, request: AgentRunRequest) -> None:
-    from fast_agent.config import Settings
-
-    issues = collect_shell_cwd_issues(
-        fast.agents,
-        shell_runtime_requested=request.shell_runtime,
-        no_shell=request.no_shell,
-        cwd=Path.cwd(),
-    )
-    if not issues:
-        return
-
-    settings = fast.app.context.config
-    configured_policy = (
-        settings.shell_execution.missing_cwd_policy if isinstance(settings, Settings) else None
-    )
-    resolved_policy = resolve_missing_shell_cwd_policy(
-        cli_override=request.missing_shell_cwd_policy,
-        configured_policy=configured_policy,
-    )
-    interactive_startup_context = _is_interactive_startup_notice_context(request)
-    can_prompt = can_prompt_for_missing_cwd(
-        mode=request.mode,
-        execution_mode=request.execution_mode or "repl",
-        stdin_is_tty=sys.stdin.isatty(),
-        tty_device_available=False,
-    )
-    policy = effective_missing_shell_cwd_policy(resolved_policy, can_prompt=can_prompt)
-    issue_lines = format_shell_cwd_issues(issues)
-
-    if policy == "warn":
-        _emit_startup_notice(
-            request,
-            _format_shell_cwd_policy_message(policy=policy, lines=issue_lines),
-        )
-        return
-
-    if policy == "error":
-        typer.echo(_format_shell_cwd_policy_message(policy=policy, lines=issue_lines), err=True)
-        raise typer.Exit(1)
-
-    if policy == "ask":
-        if interactive_startup_context:
-            # Keep interactive confirmation inside the prompt lifecycle for ask mode.
-            return
-        policy = "warn"
-
-    if policy == "warn":
-        _emit_startup_notice(
-            request,
-            _format_shell_cwd_policy_message(policy=policy, lines=issue_lines),
-        )
-        return
-
-    creation_result = create_missing_shell_cwd_directories(issues)
-    if creation_result.created_paths:
-        created_lines = [
-            "Created missing shell cwd directories:",
-            *[f" - {path}" for path in creation_result.created_paths],
-        ]
-        _emit_startup_notice(request, "\n".join(created_lines))
-
-    if creation_result.errors:
-        error_lines = ["Failed to create one or more shell cwd directories:"]
-        error_lines.extend(f" - {item.path}: {item.message}" for item in creation_result.errors)
-        typer.echo("\n".join(error_lines), err=True)
-        raise typer.Exit(1)
-
-    remaining_issues = collect_shell_cwd_issues(
-        fast.agents,
-        shell_runtime_requested=request.shell_runtime,
-        no_shell=request.no_shell,
-        cwd=Path.cwd(),
-    )
-    if remaining_issues:
-        typer.echo(
-            _format_shell_cwd_policy_message(
-                policy="error",
-                lines=format_shell_cwd_issues(remaining_issues),
-            ),
-            err=True,
-        )
-        raise typer.Exit(1)
-
-
-async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> None:
-    _validate_resume_request(request)
-    if not request.resume or request.noenv:
-        return
-
-    from fast_agent.ui.enhanced_prompt import queue_startup_markdown_notice, queue_startup_notice
-
-    session_id = _resume_session_id(request)
-    default_agent = agent_app._agent(None)
-    result = agent_app.latest_session_restore_result()
-    interactive_notice = request.is_repl
-    if not result:
-        _emit_resume_not_found_notice(session_id, interactive_notice, queue_startup_notice)
-        return
-
-    _emit_resume_status_notices(result, interactive_notice, queue_startup_notice)
-    _emit_resume_history_summary(result, interactive_notice, queue_startup_notice)
-
-    if result.active_agent is not None:
-        request.target_agent_name = result.active_agent
-
-    preview_agent = _resume_preview_agent(agent_app, request, default_agent, result.loaded)
-    _emit_resume_assistant_preview(
-        preview_agent,
-        interactive_notice,
-        queue_startup_markdown_notice,
-    )
-
-
-def _validate_resume_request(request: AgentRunRequest) -> None:
-    if request.noenv and request.resume:
-        typer.echo("Error: --resume cannot be used with --noenv.", err=True)
-        raise typer.Exit(1)
-
-
-def _resume_session_id(request: AgentRunRequest) -> str | None:
-    return None if request.resume in ("", RESUME_LATEST_SENTINEL) else request.resume
-
-
-def _plain_resume_notice(notice: str) -> str:
-    return (
-        notice.replace("[yellow]", "")
-        .replace("[/yellow]", "")
-        .replace("[dim]", "")
-        .replace("[/dim]", "")
-        .replace("[cyan]", "")
-        .replace("[/cyan]", "")
-    )
-
-
-def _emit_resume_notice(
-    notice: str,
-    *,
-    interactive_notice: bool,
-    queue_startup_notice: Any,
-    plain_notice: str | None = None,
-) -> None:
-    if interactive_notice:
-        queue_startup_notice(notice)
-    else:
-        typer.echo(
-            plain_notice if plain_notice is not None else _plain_resume_notice(notice), err=True
-        )
-
-
-def _emit_resume_not_found_notice(
-    session_id: str | None,
-    interactive_notice: bool,
-    queue_startup_notice: Any,
-) -> None:
-    notice = (
-        f"[yellow]Session not found:[/yellow] {session_id}"
-        if session_id
-        else "[yellow]No sessions found to resume.[/yellow]"
-    )
-    _emit_resume_notice(
-        notice,
-        interactive_notice=interactive_notice,
-        queue_startup_notice=queue_startup_notice,
-    )
-
-
-def _emit_resume_status_notices(
-    result: Any,
-    interactive_notice: bool,
-    queue_startup_notice: Any,
-) -> None:
-    session = result.session
-    session_time = session.info.last_activity.strftime("%y-%m-%d %H:%M")
-    resume_notice = (
-        f"[dim]Resumed session[/dim] [cyan]{session.info.name}[/cyan] [dim]({session_time})[/dim]"
-    )
-    _emit_resume_notice(
-        resume_notice,
-        interactive_notice=interactive_notice,
-        queue_startup_notice=queue_startup_notice,
-        plain_notice=f"Resumed session {session.info.name} ({session_time})",
-    )
-    _emit_missing_resume_agents_notice(
-        result.missing_agents, interactive_notice, queue_startup_notice
-    )
-    _emit_resume_warnings(result.warnings, interactive_notice, queue_startup_notice)
-    _emit_resume_usage_notices(result.usage_notices, interactive_notice, queue_startup_notice)
-
-
-def _emit_missing_resume_agents_notice(
-    missing_agents: list[str],
-    interactive_notice: bool,
-    queue_startup_notice: Any,
-) -> None:
-    if not missing_agents:
-        return
-    missing_list = ", ".join(sorted(missing_agents))
-    _emit_resume_notice(
-        f"[yellow]Missing agents from session:[/yellow] {missing_list}",
-        interactive_notice=interactive_notice,
-        queue_startup_notice=queue_startup_notice,
-        plain_notice=f"Missing agents from session: {missing_list}",
-    )
-
-
-def _emit_resume_warnings(
-    warnings: list[Any],
-    interactive_notice: bool,
-    queue_startup_notice: Any,
-) -> None:
-    for warning in warnings:
-        if warning.code == "missing-agent":
-            continue
-        _emit_resume_notice(
-            f"[yellow]{warning.message}[/yellow]",
-            interactive_notice=interactive_notice,
-            queue_startup_notice=queue_startup_notice,
-            plain_notice=warning.message,
-        )
-
-
-def _emit_resume_usage_notices(
-    usage_notices: list[str],
-    interactive_notice: bool,
-    queue_startup_notice: Any,
-) -> None:
-    for usage_notice in usage_notices:
-        if not usage_notice:
-            continue
-        _emit_resume_notice(
-            usage_notice,
-            interactive_notice=interactive_notice,
-            queue_startup_notice=queue_startup_notice,
-        )
-
-
-def _emit_resume_history_summary(
-    result: Any,
-    interactive_notice: bool,
-    queue_startup_notice: Any,
-) -> None:
-    if result.missing_agents or not result.loaded:
-        from fast_agent.session import format_history_summary, summarize_session_histories
-
-        summary = summarize_session_histories(result.session)
-        summary_text = format_history_summary(summary)
-        if summary_text:
-            _emit_resume_notice(
-                f"[dim]Available histories:[/dim] {summary_text}",
-                interactive_notice=interactive_notice,
-                queue_startup_notice=queue_startup_notice,
-                plain_notice=f"Available histories: {summary_text}",
-            )
-
-
-def _resume_preview_agent(
-    agent_app: Any,
-    request: AgentRunRequest,
-    default_agent: Any,
-    loaded: Mapping[str, Any],
-) -> Any:
-    preview_agent = default_agent
-    default_name = default_agent.name
-    preview_name = request.target_agent_name or default_name
-    if loaded and preview_name not in loaded:
-        first_loaded_name = next(iter(loaded))
-        preview_agent = agent_app.get_agent(first_loaded_name) or default_agent
-    elif preview_name is not None:
-        preview_agent = agent_app.get_agent(preview_name) or default_agent
-    return preview_agent
-
-
-def _emit_resume_assistant_preview(
-    preview_agent: Any,
-    interactive_notice: bool,
-    queue_startup_markdown_notice: Any,
-) -> None:
-    preview_history = preview_agent.message_history
-    assistant_text = _find_last_assistant_text(list(preview_history))
-    if assistant_text:
-        if interactive_notice:
-            queue_startup_markdown_notice(
-                assistant_text,
-                title="Last assistant message",
-                right_info="session",
-                agent_name=preview_agent.name,
-            )
-        else:
-            typer.echo("Last assistant message:", err=True)
-            typer.echo(assistant_text, err=True)
+__all__ = [
+    "_agent_config_defines_startup_model",
+    "_find_last_assistant_text",
+    "_generic_model_prompt_default",
+    "_last_used_model_reference",
+]
+
+
+async def _resume_session_if_requested(agent_app: Any, request: AgentRunRequest) -> None:
+    await resume_session_if_requested(cast("AgentApp", agent_app), request)
 
 
 def _validate_target_agent_name(fast, request: AgentRunRequest) -> None:
@@ -1205,7 +400,11 @@ async def _run_cli_flow(
             request.attachments,
         )
         response = await _run_one_shot_payload(
-            agent_obj, prompt_payload, request, structured_source
+            agent_obj,
+            prompt_payload,
+            request,
+            structured_source,
+            harness_session=harness_session,
         )
         transient_messages_by_agent = _transient_result_messages_if_needed(
             agent_obj,
@@ -1225,7 +424,11 @@ async def _run_cli_flow(
             request.attachments,
         )
         response = await _run_one_shot_payload(
-            agent_obj, prompt_payload, request, structured_source
+            agent_obj,
+            prompt_payload,
+            request,
+            structured_source,
+            harness_session=harness_session,
         )
         transient_messages_by_agent = _transient_result_messages_if_needed(
             agent_obj,
@@ -1298,33 +501,6 @@ async def _run_interactive_with_interrupt_recovery(
                 "Press Ctrl+C again within 2 seconds to exit.",
                 err=True,
             )
-
-
-async def _run_one_shot_payload(
-    agent_obj: Any,
-    prompt_payload: Any,
-    request: AgentRunRequest,
-    structured_source: Any,
-) -> PromptMessageExtended:
-    if structured_source is None:
-        response = await agent_obj.generate(prompt_payload)
-        print(response.last_text() or "")
-        return response
-
-    parsed, response = await _structured_call(
-        agent_obj,
-        prompt_payload,
-        structured_source,
-        request.structured_tool_policy,
-    )
-    if parsed is None:
-        typer.echo(
-            "Error: model response did not produce valid JSON matching the structured output schema.",
-            err=True,
-        )
-        raise typer.Exit(1)
-    sys.stdout.write(json.dumps(_structured_output_payload(parsed), ensure_ascii=False))
-    return response
 
 
 def _transient_result_messages_if_needed(
@@ -1469,6 +645,7 @@ def _apply_fast_args(
     *,
     model_source_override: str | None = None,
 ) -> None:
+    _validate_resume_request(request)
     if request.model:
         fast.args.model = request.model
     fast.args.resume_requested = request.resume is not None

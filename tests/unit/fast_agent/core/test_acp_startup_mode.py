@@ -18,6 +18,7 @@ from fast_agent.core.fastagent import (
     RunRuntime,
     RunSettings,
 )
+from fast_agent.core.server_runtime import ServerRuntimeContext, run_mcp_server
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
 from fast_agent.session.session_manager import ResumeSessionAgentsResult, Session, SessionInfo
 from fast_agent.tools.session_environment import ShellExecutionResult
@@ -26,7 +27,9 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
+    from fast_agent.core.fastagent import RuntimeCallbacks
     from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LLMFactoryProtocol
+    from fast_agent.mcp.server.harness_app_server import HarnessMCPAppRuntimeOptions
 
 
 class _Agent:
@@ -152,6 +155,48 @@ def test_resolve_server_instance_scope_rejects_explicit_request_for_acp() -> Non
         )
 
 
+@pytest.mark.asyncio
+async def test_run_mcp_server_forwards_instance_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_options: HarnessMCPAppRuntimeOptions | None = None
+
+    async def fake_run_harness_mcp_app_server(**kwargs: object) -> None:
+        nonlocal captured_options
+        captured_options = cast("HarnessMCPAppRuntimeOptions", kwargs["options"])
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.server.harness_app_server.run_harness_mcp_app_server",
+        fake_run_harness_mcp_app_server,
+    )
+
+    context = ServerRuntimeContext(
+        app_name="TestAgent",
+        args=argparse.Namespace(
+            agent=None,
+            host="127.0.0.1",
+            instance_scope="request",
+            port=8000,
+            server_description=None,
+            server_name=None,
+            tool_description=None,
+            transport="http",
+        ),
+        config=None,
+        skills_directory_override=None,
+        state=cast("ManagedRunState", SimpleNamespace(runtime=SimpleNamespace(shell_executor=None))),
+        callbacks=cast(
+            "RuntimeCallbacks",
+            SimpleNamespace(instance_factory=lambda: object()),
+        ),
+        settings=cast("RunSettings", SimpleNamespace()),
+        acp_server_factory=lambda: object,
+    )
+
+    await run_mcp_server(context)
+
+    assert captured_options is not None
+    assert captured_options.instance_scope == "request"
+
+
 def test_resume_request_uses_app_default_for_missing_cli_placeholder() -> None:
     fast = FastAgent("TestAgent", parse_cli_args=False)
     agent = cast("AgentProtocol", _Agent("card_default"))
@@ -205,11 +250,11 @@ async def test_finalize_resume_preserves_restored_prompt_after_context(
 
     monkeypatch.setattr(fast, "_apply_instruction_context", fake_apply_instruction_context)
     monkeypatch.setattr(
-        "fast_agent.core.fastagent.restore_requested_session",
+        "fast_agent.core.managed_runtime.restore_requested_session",
         fake_restore_requested_session,
     )
     monkeypatch.setattr(
-        "fast_agent.core.fastagent.validate_final_provider_state",
+        "fast_agent.core.managed_runtime.validate_final_provider_state",
         lambda agents: None,
     )
 

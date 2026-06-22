@@ -10,7 +10,7 @@ from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.renderers.session_markdown import render_session_list_markdown
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.session_export_help import render_session_export_help_markdown
-from fast_agent.commands.session_summaries import FULL_SESSION_USAGE, build_session_list_summary
+from fast_agent.commands.session_summaries import FULL_SESSION_USAGE
 from fast_agent.commands.shared_command_intents import (
     SessionAction,
     SessionCommandIntent,
@@ -165,9 +165,16 @@ def render_session_list(handler: "SlashCommandHandler") -> str:
                 "Session commands are disabled in --noenv mode.",
             ]
         )
-    summary = build_session_list_summary(
-        manager=handler._build_command_context().resolve_session_manager()
-    )
+    ctx = handler._build_command_context()
+    if ctx.session_runtime is None:
+        return "\n".join(
+            [
+                "# sessions",
+                "",
+                "Session commands are unavailable in this context.",
+            ]
+        )
+    summary = ctx.session_runtime.build_list_summary()
     return render_session_list_markdown(summary, heading="sessions")
 
 
@@ -260,15 +267,11 @@ async def handle_session_export(handler: "SlashCommandHandler", intent) -> str:
 
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
-    manager = ctx.resolve_session_manager()
-    current_session = manager.current_session
-    current_session_id = current_session.info.name if current_session is not None else None
-    if current_session_id != handler.session_id:
-        try:
-            handler_session = manager.get_session(handler.session_id)
-        except AttributeError:
-            handler_session = None
-        current_session_id = handler_session.info.name if handler_session is not None else None
+    current_session_id = (
+        ctx.session_runtime.active_session_id(fallback_session_id=handler.session_id)
+        if ctx.session_runtime is not None
+        else None
+    )
     if intent.export_target is None and current_session_id is None:
         outcome = CommandOutcome()
         outcome.add_message(

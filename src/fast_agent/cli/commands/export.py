@@ -30,6 +30,7 @@ from fast_agent.commands.session_export_help import (
     SESSION_EXPORT_SHOW_REDACTIONS_HELP,
     SESSION_EXPORT_TARGET_HELP,
 )
+from fast_agent.session.session_manager import SessionManager
 from fast_agent.utils.async_utils import run_coroutine
 
 if TYPE_CHECKING:
@@ -124,12 +125,14 @@ def export(
     context_payload = ensure_context_object(ctx)
     env_dir_value = context_payload.get("env_dir")
     env_dir = env_dir_value if isinstance(env_dir_value, Path) else None
-    resolve_environment_dir_option(ctx, env_dir)
+    resolved_env_dir = resolve_environment_dir_option(ctx, env_dir)
+    session_manager = SessionManager(environment_override=resolved_env_dir)
 
     command_context = CommandContext(
         agent_provider=StaticAgentProvider(),
         current_agent_name="cli",
         io=_ExportCommandIO(),
+        session_manager=session_manager,
     )
     if list_sessions:
         if (

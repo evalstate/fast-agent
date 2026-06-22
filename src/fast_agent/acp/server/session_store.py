@@ -52,7 +52,6 @@ class SessionStoreHost(Protocol):
     _connection: Any
     _session_lock: Any
     _live_sessions: ACPLiveSessionRegistry
-    _dispose_instance_task: Any
 
     def _resolve_request_cwd(
         self,
@@ -127,21 +126,11 @@ class ACPServerSessionStore:
 
     def load_persisted_session_for_state(self, session_state: ACPSessionState) -> Session | None:
         manager = self.session_manager_for_state(session_state)
-        self._attach_session_manager(session_state, manager)
+        session_state.attach_session_manager(manager)
         loaded_session = manager.load_session(session_state.session_id)
         if loaded_session is None:
             return None
         return loaded_session
-
-    @staticmethod
-    def _attach_session_manager(
-        session_state: ACPSessionState,
-        manager: SessionManager,
-    ) -> None:
-        from fast_agent.session.context import attach_session_manager
-
-        session_state.session_manager = manager
-        attach_session_manager(session_state.instance, manager)
 
     async def hydrate_session_state(
         self,
@@ -163,7 +152,8 @@ class ACPServerSessionStore:
         self._log_hydration_result(session_state, result)
         self._restore_resolved_instructions(session_state, result)
         current_agent = result.active_agent
-        self._set_active_agent(session_state, current_agent)
+        if current_agent:
+            session_state.set_current_agent(current_agent)
         next_modes = self._session_modes_with_current_agent(
             session_state,
             session_modes,
@@ -213,16 +203,6 @@ class ACPServerSessionStore:
             session_state.acp_context.set_resolved_instructions(session_state.resolved_instructions)
 
     @staticmethod
-    def _set_active_agent(session_state: ACPSessionState, current_agent: str | None) -> None:
-        if not current_agent:
-            return
-        session_state.current_agent_name = current_agent
-        if session_state.slash_handler:
-            session_state.slash_handler.set_current_agent(current_agent)
-        if session_state.acp_context:
-            session_state.acp_context.set_current_mode(current_agent)
-
-    @staticmethod
     def _session_modes_with_current_agent(
         session_state: ACPSessionState,
         session_modes: SessionModeState | None,
@@ -239,7 +219,6 @@ class ACPServerSessionStore:
         )
         if session_state.acp_context:
             session_state.acp_context.set_available_modes(next_modes.available_modes)
-            session_state.acp_context.set_current_mode(current_agent)
         return next_modes
 
     async def hydrate_session_state_from_persisted_session(
@@ -403,19 +382,14 @@ class ACPServerSessionStore:
         **kwargs: Any,
     ) -> LoadSessionResponse | None:
         _ = kwargs
-        request_cwd = self._host._resolve_request_cwd(
-            cwd=cwd,
-            request_name="session/load",
-            required=True,
+        request_cwd = cast(
+            "str",
+            self._host._resolve_request_cwd(
+                cwd=cwd,
+                request_name="session/load",
+                required=True,
+            ),
         )
-        if request_cwd is None:
-            raise RequestError.invalid_params(
-                {
-                    "cwd": cwd,
-                    "request": "session/load",
-                    "reason": "cwd is required and must be an absolute path",
-                }
-            )
         logger.info(
             "ACP load session request",
             name="acp_load_session",
@@ -464,7 +438,7 @@ class ACPServerSessionStore:
         )
         session_state.session_store_scope = manager_store_scope
         session_state.session_store_cwd = manager_store_cwd
-        self._attach_session_manager(session_state, persisted_manager)
+        session_state.attach_session_manager(persisted_manager)
         if session_state.acp_context:
             session_state.acp_context.set_session_store(
                 manager_store_scope,
@@ -497,19 +471,14 @@ class ACPServerSessionStore:
     ) -> ResumeSessionResponse:
         """Alias for session/load to support unstable session/resume."""
         _ = kwargs
-        request_cwd = self._host._resolve_request_cwd(
-            cwd=cwd,
-            request_name="session/resume",
-            required=True,
+        request_cwd = cast(
+            "str",
+            self._host._resolve_request_cwd(
+                cwd=cwd,
+                request_name="session/resume",
+                required=True,
+            ),
         )
-        if request_cwd is None:
-            raise RequestError.invalid_params(
-                {
-                    "cwd": cwd,
-                    "request": "session/resume",
-                    "reason": "cwd is required and must be an absolute path",
-                }
-            )
         response = await self.load_session(
             cwd=request_cwd,
             mcp_servers=mcp_servers or [],

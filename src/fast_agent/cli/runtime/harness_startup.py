@@ -1,4 +1,4 @@
-"""Harness-backed startup helpers for local interactive CLI sessions."""
+"""Harness-backed startup helpers for local CLI sessions."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from fast_agent.core.exceptions import (
     ServerConfigError,
     ServerInitializationError,
 )
+from fast_agent.core.harness_app import AppOpenRequest
 
 if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
@@ -59,7 +60,6 @@ class ParallelCliFlow(Protocol):
 def should_use_harness_startup(request: AgentRunRequest) -> bool:
     return (
         request.mode == "interactive"
-        and request.is_repl
         and request.allow_sessions
         and request.resume is None
     )
@@ -81,13 +81,16 @@ async def run_harness_cli_flow(
     session_id = new_harness_session_id(request)
     try:
         async with fast.harness() as harness:
-            session = await harness.session(session_id, agent_name=request.target_agent_name)
-            await flow(
-                session.agent_app,
-                request,
-                session_manager=session.session_manager,
-                harness_session=session,
-            )
+            app = harness.app()
+            async with app.open(
+                AppOpenRequest(session_id=session_id, agent=request.target_agent_name)
+            ) as session:
+                await flow(
+                    session.agent_app,
+                    request,
+                    session_manager=session.env.session_manager,
+                    harness_session=session.env.harness_session,
+                )
     except PromptExitError as exc:
         fast._handle_error(exc)
         raise SystemExit(0) from exc
@@ -127,14 +130,17 @@ async def run_harness_parallel_cli_flow(
     session_id = new_harness_session_id(request)
     try:
         async with fast.harness() as harness:
-            session = await harness.session(session_id, agent_name=request.target_agent_name)
-            await flow(
-                session.agent_app,
-                request,
-                fan_out_agent_names,
-                session_manager=session.session_manager,
-                harness_session=session,
-            )
+            app = harness.app()
+            async with app.open(
+                AppOpenRequest(session_id=session_id, agent=request.target_agent_name)
+            ) as session:
+                await flow(
+                    session.agent_app,
+                    request,
+                    fan_out_agent_names,
+                    session_manager=session.env.session_manager,
+                    harness_session=session.env.harness_session,
+                )
     except PromptExitError as exc:
         fast._handle_error(exc)
         raise SystemExit(0) from exc

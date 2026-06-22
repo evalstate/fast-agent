@@ -83,3 +83,31 @@ def test_serve_transport_a2a_callback_path_builds_a2a_run_request(monkeypatch) -
     assert request.name == "generic-a2a"
     assert request.transport == "a2a"
     assert request.instance_scope == "request"
+
+
+def test_serve_a2a_warns_for_remote_shell_server(monkeypatch) -> None:
+    captured: list[AgentRunRequest] = []
+
+    def fake_run_request(request: AgentRunRequest) -> None:
+        captured.append(request)
+
+    monkeypatch.setattr(serve_command, "run_request", fake_run_request)
+
+    result = CliRunner().invoke(
+        serve_command.app,
+        [
+            "a2a",
+            "--host",
+            "0.0.0.0",
+            "--shell",
+            "--model",
+            "passthrough",
+            "--noenv",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert len(captured) == 1
+    stderr = " ".join(result.stderr.split())
+    assert "exposes fast-agent to remote network clients" in stderr
+    assert "shell execution tool is available to remote callers" in stderr

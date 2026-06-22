@@ -11,7 +11,6 @@ from rich.text import Text
 from fast_agent.commands.handlers._text_formatting import indexed_row, resolve_terminal_width
 from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.results import CommandOutcome
-from fast_agent.commands.session_summaries import build_session_list_summary
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.session import display_session_name, format_session_agent_label
 from fast_agent.session.preview import find_last_assistant_preview_text
@@ -29,6 +28,7 @@ if TYPE_CHECKING:
 
 
 NOENV_SESSION_MESSAGE = "Session commands are disabled in --noenv mode."
+SESSION_UNAVAILABLE_MESSAGE = "Session commands are unavailable in this context."
 _PIN_TOGGLE_VALUES = {"", "toggle"}
 _PIN_USAGE = "Usage: /session pin [on|off|id|number]"
 
@@ -43,6 +43,20 @@ def _noenv_outcome() -> CommandOutcome:
     outcome = CommandOutcome()
     outcome.add_message(NOENV_SESSION_MESSAGE, channel="warning", right_info="session")
     return outcome
+
+
+def _unavailable_outcome() -> CommandOutcome:
+    outcome = CommandOutcome()
+    outcome.add_message(SESSION_UNAVAILABLE_MESSAGE, channel="warning", right_info="session")
+    return outcome
+
+
+def _session_runtime(ctx: CommandContext):
+    if ctx.noenv:
+        return None, _noenv_outcome()
+    if ctx.session_runtime is None:
+        return None, _unavailable_outcome()
+    return ctx.session_runtime, None
 
 
 def _append_session_metadata(line: Text, items: list[tuple[str, str]]) -> None:
@@ -138,6 +152,8 @@ def _build_session_entries(entries: list[SessionEntrySummary], *, usage: str) ->
         agent_label = format_session_agent_label(entry)
         if agent_label:
             metadata_items.append((agent_label, "dim"))
+        if entry.is_empty:
+            metadata_items.append(("empty", "dim"))
 
         if entry.is_pinned:
             line.append(bullet_sep, style="dim")
@@ -172,17 +188,20 @@ async def handle_create_session(
     if ctx.noenv:
         return _noenv_outcome()
 
-    outcome = CommandOutcome()
+    runtime, unavailable = _session_runtime(ctx)
+    if unavailable is not None:
+        return unavailable
+    assert runtime is not None
 
-    manager = ctx.resolve_session_manager()
+    outcome = CommandOutcome()
     session_name = _strip_wrapping_quotes(session_name)
     metadata = {"title": session_name} if session_name else None
-    if session_id:
-        if replace_existing:
-            manager.delete_session(session_id)
-        session = manager.create_session_with_id(session_id, metadata=metadata)
-    else:
-        session = manager.create_session(session_name)
+    session = runtime.create_session(
+        session_name=session_name,
+        session_id=session_id,
+        replace_existing=replace_existing,
+        metadata=metadata,
+    )
     label = session.info.metadata.get("title") or session.info.name
     outcome.add_message(f"Created session: {label}", channel="info", right_info="session")
     return outcome
@@ -211,11 +230,13 @@ async def handle_list_sessions(
     if ctx.noenv:
         return _noenv_outcome()
 
+    runtime, unavailable = _session_runtime(ctx)
+    if unavailable is not None:
+        return unavailable
+    assert runtime is not None
+
     outcome = CommandOutcome()
-    summary = build_session_list_summary(
-        manager=ctx.resolve_session_manager(),
-        show_help=show_help,
-    )
+    summary = runtime.build_list_summary(show_help=show_help)
     if not summary.entries:
         outcome.add_message("No sessions found.", channel="warning", right_info="session")
         if show_help:
@@ -241,7 +262,12 @@ async def handle_pin_session(
     outcome = CommandOutcome()
     from fast_agent.session import is_session_pinned
 
-    manager = ctx.resolve_session_manager()
+    runtime, unavailable = _session_runtime(ctx)
+    if unavailable is not None:
+        return unavailable
+    assert runtime is not None
+
+    manager = runtime.resolve_manager()
     session = _session_for_pin(manager, outcome, target=target)
     if session is None:
         return outcome
@@ -286,15 +312,19 @@ async def handle_clear_sessions(
         )
         return outcome
 
-    manager = ctx.resolve_session_manager()
+    runtime, unavailable = _session_runtime(ctx)
+    if unavailable is not None:
+        return unavailable
+    assert runtime is not None
+
     if normalize_action_token(target) == "all":
-        all_sessions = manager.list_sessions()
+        all_sessions = runtime.list_sessions()
         if not all_sessions:
             outcome.add_message("No sessions found.", channel="warning", right_info="session")
             return outcome
         deleted = 0
         for session_info in all_sessions:
-            if manager.delete_session(session_info.name):
+            if runtime.delete_session(session_info.name):
                 deleted += 1
         outcome.add_message(
             f"Deleted {format_count(deleted, 'session')}.",
@@ -303,7 +333,7 @@ async def handle_clear_sessions(
         )
         return outcome
 
-    sessions = apply_session_window(manager.list_sessions())
+    sessions = apply_session_window(runtime.list_sessions())
     target_name = target
     if target.isdigit():
         ordinal = int(target)
@@ -312,7 +342,7 @@ async def handle_clear_sessions(
             return outcome
         target_name = sessions[ordinal - 1].name
 
-    if manager.delete_session(target_name):
+    if runtime.delete_session(target_name):
         outcome.add_message(f"Deleted session: {target_name}", channel="info")
     else:
         outcome.add_message(f"Session not found: {target}", channel="error")
@@ -452,7 +482,11 @@ async def handle_resume_session(
         return _noenv_outcome()
 
     outcome = CommandOutcome()
-    manager = ctx.resolve_session_manager()
+    runtime, unavailable = _session_runtime(ctx)
+    if unavailable is not None:
+        return unavailable
+    assert runtime is not None
+
     agents_map = cast("Mapping[str, AgentProtocol]", ctx.agent_provider.registered_agents())
     if not isinstance(agents_map, Mapping):
         outcome.add_message(
@@ -464,7 +498,7 @@ async def handle_resume_session(
 
     fallback_agent_name = ctx.agent_provider.resolve_target_agent_name(agent_name)
 
-    result = await manager.resume_session_agents_async(
+    result = await runtime.resume_agents(
         agents_map,
         session_id,
         fallback_agent_name=fallback_agent_name,
@@ -508,19 +542,17 @@ async def handle_title_session(
         outcome.add_message("Usage: /session title <text>", channel="error")
         return outcome
 
-    manager = ctx.resolve_session_manager()
-    session = manager.current_session
-    if session_id:
-        if session is None or session.info.name != session_id:
-            session = manager.create_session_with_id(session_id)
-    elif session is None:
-        session = manager.create_session()
+    runtime, unavailable = _session_runtime(ctx)
+    if unavailable is not None:
+        return unavailable
+    assert runtime is not None
+
+    session = runtime.title_session(title, session_id=session_id)
     if session is None:
         outcome.add_message(
             "No session available to title.", channel="warning", right_info="session"
         )
         return outcome
-    session.set_title(title)
     outcome.add_message(f"Session title set: {title}", channel="info", right_info="session")
     return outcome
 
@@ -534,9 +566,13 @@ async def handle_fork_session(
         return _noenv_outcome()
 
     outcome = CommandOutcome()
-    manager = ctx.resolve_session_manager()
+    runtime, unavailable = _session_runtime(ctx)
+    if unavailable is not None:
+        return unavailable
+    assert runtime is not None
+
     title = _strip_wrapping_quotes(title)
-    forked = manager.fork_current_session(title=title)
+    forked = runtime.fork_current_session(title=title)
     if forked is None:
         outcome.add_message(
             "No session available to fork.", channel="warning", right_info="session"

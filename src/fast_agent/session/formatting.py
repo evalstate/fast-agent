@@ -58,6 +58,7 @@ class SessionEntrySummary:
     agent_count: int | None = None
     agent_label: str | None = None
     summary: str | None = None
+    is_empty: bool = False
 
 
 def format_session_agent_label(entry: SessionEntrySummary) -> str | None:
@@ -84,6 +85,10 @@ def build_session_entry_summaries(
         pinned = is_session_pinned(session_info)
 
         metadata = session_info.metadata or {}
+        history_map = metadata.get("last_history_by_agent")
+        is_empty = not session_info.history_files and (
+            not isinstance(history_map, Mapping) or not history_map
+        )
         summary_text = extract_session_title(metadata)
         if not summary_text:
             summary_value = None
@@ -108,6 +113,7 @@ def build_session_entry_summaries(
                 display_name=display_name,
                 is_current=is_current,
                 is_pinned=pinned,
+                is_empty=is_empty,
                 timestamp=timestamp,
                 agent_count=agent_count,
                 agent_label=agent_label,
@@ -144,6 +150,8 @@ def format_session_entries(
             line = f"{index_str} {entry.display_name}{separator}{entry.timestamp}"
             if entry.is_pinned:
                 line = f"{line} - pin"
+            if entry.is_empty:
+                line = f"{line} - empty"
             agent_label = format_session_agent_label(entry)
             if agent_label:
                 line = f"{line} - {agent_label}"

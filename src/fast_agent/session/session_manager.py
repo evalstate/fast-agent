@@ -451,6 +451,28 @@ class Session:
             self.info.metadata.pop("pinned", None)
         self._save_metadata()
 
+    def has_persisted_content(self) -> bool:
+        """Return True when this session has saved conversation history."""
+        if self.info.history_files:
+            return True
+        history_map = self.info.metadata.get("last_history_by_agent")
+        if isinstance(history_map, dict) and history_map:
+            return True
+        return any(self.directory.glob(f"{HISTORY_PREFIX}*{HISTORY_SUFFIX}"))
+
+    def delete_if_empty(self) -> bool:
+        """Delete this session when it only contains startup metadata."""
+        if self.has_persisted_content() or is_session_pinned(self.info):
+            return False
+        title = self.info.metadata.get("title")
+        label = self.info.metadata.get("label")
+        if (isinstance(title, str) and strip_to_none(title)) or (
+            isinstance(label, str) and strip_to_none(label)
+        ):
+            return False
+        self.delete()
+        return True
+
     def _atomic_write_json(self, path: pathlib.Path, payload: dict[str, Any]) -> None:
         temp_path: pathlib.Path | None = None
         try:

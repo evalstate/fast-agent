@@ -127,6 +127,22 @@ def _build_context(*, session_cwd: Path | None = None) -> CommandContext:
     )
 
 
+def _build_scoped_context(
+    *,
+    session_cwd: Path | None = None,
+    session_store_scope: str = "workspace",
+    session_store_cwd: Path | None = None,
+) -> CommandContext:
+    return CommandContext(
+        agent_provider=_StubAgentProvider(),
+        current_agent_name="agent",
+        io=_StubIO(),
+        session_cwd=session_cwd,
+        session_store_scope=cast("Any", session_store_scope),
+        session_store_cwd=session_store_cwd,
+    )
+
+
 def _assistant_message(text: str) -> PromptMessageExtended:
     return PromptMessageExtended(
         role="assistant",
@@ -202,6 +218,84 @@ async def test_create_session_uses_context_session_cwd(
 
     assert outcome.messages
     assert manager_calls == [workspace.resolve()]
+
+
+@pytest.mark.asyncio
+async def test_create_session_uses_session_store_cwd_before_session_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    store_workspace = tmp_path / "store-workspace"
+    workspace.mkdir()
+    store_workspace.mkdir()
+    manager_calls: list[Path | None] = []
+
+    class _Manager:
+        def create_session(self, name: str | None = None):
+            del name
+            return SimpleNamespace(info=SimpleNamespace(metadata={}, name="s-1"))
+
+    def fake_get_session_manager(
+        *,
+        cwd: Path | None = None,
+        environment_override=None,
+        respect_env_override: bool = True,
+    ):
+        del environment_override, respect_env_override
+        manager_calls.append(cwd)
+        return _Manager()
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", fake_get_session_manager)
+
+    outcome = await session_handlers.handle_create_session(
+        _build_scoped_context(
+            session_cwd=workspace.resolve(),
+            session_store_cwd=store_workspace.resolve(),
+        ),
+        session_name="Title",
+    )
+
+    assert outcome.messages
+    assert manager_calls == [store_workspace.resolve()]
+
+
+@pytest.mark.asyncio
+async def test_create_session_app_scope_uses_app_session_store(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    manager_calls: list[Path | None] = []
+
+    class _Manager:
+        def create_session(self, name: str | None = None):
+            del name
+            return SimpleNamespace(info=SimpleNamespace(metadata={}, name="s-1"))
+
+    def fake_get_session_manager(
+        *,
+        cwd: Path | None = None,
+        environment_override=None,
+        respect_env_override: bool = True,
+    ):
+        del environment_override, respect_env_override
+        manager_calls.append(cwd)
+        return _Manager()
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", fake_get_session_manager)
+
+    outcome = await session_handlers.handle_create_session(
+        _build_scoped_context(
+            session_cwd=workspace.resolve(),
+            session_store_scope="app",
+        ),
+        session_name="Title",
+    )
+
+    assert outcome.messages
+    assert manager_calls == [None]
 
 
 @pytest.mark.asyncio

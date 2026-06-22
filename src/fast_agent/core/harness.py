@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from fast_agent.config import CompactionSettings
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.fastagent import AgentInstance, FastAgent, RunRuntime, RunSettings
+    from fast_agent.core.harness_app import HarnessApp
     from fast_agent.history.compaction import CompactionResult
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.session.session_manager import Session, SessionManager
@@ -425,6 +426,10 @@ class HarnessSessions:
     async def _close_all(self) -> None:
         await self._registry.close_all()
 
+    async def close_all(self) -> None:
+        """Close all live harness sessions and dispose their instances."""
+        await self._close_all()
+
     async def _create_record(
         self,
         session_id: str,
@@ -456,6 +461,13 @@ class HarnessSessions:
     @staticmethod
     def _close_record(record: _HarnessSessionRecord) -> None:
         record.closed = True
+        persistence_handle = record.persistence_handle
+        if persistence_handle is None:
+            return
+        from fast_agent.session.session_manager import Session
+
+        if isinstance(persistence_handle, Session):
+            persistence_handle.delete_if_empty()
 
     @staticmethod
     def _raise_if_active(record: _HarnessSessionRecord) -> None:
@@ -549,6 +561,16 @@ class AgentHarness:
     ) -> HarnessSession:
         """Return an existing session or create it."""
         return await self.sessions.get_or_create(session_id, agent_name=agent_name)
+
+    def app(self, *, entrypoint: str | None = None) -> "HarnessApp":
+        """Return the configured harness app for this running harness."""
+        from fast_agent.core.harness_app import load_harness_app
+
+        return load_harness_app(
+            session_provider=self,
+            settings=self._fast_agent.context.config,
+            entrypoint=entrypoint,
+        )
 
     @contextmanager
     def request_context(

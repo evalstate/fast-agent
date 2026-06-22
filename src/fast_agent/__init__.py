@@ -10,6 +10,7 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "GenericSettings": ("fast_agent.config", "GenericSettings"),
     "GoogleSettings": ("fast_agent.config", "GoogleSettings"),
     "GroqSettings": ("fast_agent.config", "GroqSettings"),
+    "HarnessAppSettings": ("fast_agent.config", "HarnessAppSettings"),
     "HuggingFaceSettings": ("fast_agent.config", "HuggingFaceSettings"),
     "LoggerSettings": ("fast_agent.config", "LoggerSettings"),
     "MCPElicitationSettings": ("fast_agent.config", "MCPElicitationSettings"),
@@ -55,9 +56,23 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "ToolAgent": ("fast_agent.agents.tool_agent", "ToolAgent"),
     "McpAgent": ("fast_agent.agents.mcp_agent", "McpAgent"),
     "FastAgent": ("fast_agent.core.fastagent", "FastAgent"),
+    "AgentRuntimeEnvironment": ("fast_agent.core.harness_app", "AgentRuntimeEnvironment"),
+    "AppOpenRequest": ("fast_agent.core.harness_app", "AppOpenRequest"),
+    "DefaultHarnessApp": ("fast_agent.core.harness_app", "DefaultHarnessApp"),
+    "DefaultHarnessAppSession": ("fast_agent.core.harness_app", "DefaultHarnessAppSession"),
     "AgentHarness": ("fast_agent.core.harness", "AgentHarness"),
+    "HarnessApp": ("fast_agent.core.harness_app", "HarnessApp"),
+    "HarnessAppContext": ("fast_agent.core.harness_app", "HarnessAppContext"),
+    "HarnessAppFactory": ("fast_agent.core.harness_app", "HarnessAppFactory"),
+    "HarnessAppSession": ("fast_agent.core.harness_app", "HarnessAppSession"),
+    "HarnessSessionProvider": ("fast_agent.core.harness_app", "HarnessSessionProvider"),
+    "HarnessSessionsAppProvider": ("fast_agent.core.harness_app", "HarnessSessionsAppProvider"),
     "HarnessSessions": ("fast_agent.core.harness", "HarnessSessions"),
     "HarnessSession": ("fast_agent.core.harness", "HarnessSession"),
+    "RuntimeAgent": ("fast_agent.core.harness_app", "RuntimeAgent"),
+    "RuntimeSkills": ("fast_agent.core.harness_app", "RuntimeSkills"),
+    "RuntimeTools": ("fast_agent.core.harness_app", "RuntimeTools"),
+    "load_harness_app": ("fast_agent.core.harness_app", "load_harness_app"),
     "Prompt": ("fast_agent.mcp.prompt", "Prompt"),
     "PromptExitError": ("fast_agent.core.exceptions", "PromptExitError"),
     "load_prompt": ("fast_agent.mcp.prompts.prompt_load", "load_prompt"),
@@ -97,6 +112,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing aid only
     )
     from fast_agent.config import (
         GroqSettings as GroqSettings,
+    )
+    from fast_agent.config import (
+        HarnessAppSettings as HarnessAppSettings,
     )
     from fast_agent.config import (
         HuggingFaceSettings as HuggingFaceSettings,
@@ -149,6 +167,20 @@ if TYPE_CHECKING:  # pragma: no cover - typing aid only
     from fast_agent.core.harness import AgentHarness as AgentHarness
     from fast_agent.core.harness import HarnessSession as HarnessSession
     from fast_agent.core.harness import HarnessSessions as HarnessSessions
+    from fast_agent.core.harness_app import AgentRuntimeEnvironment as AgentRuntimeEnvironment
+    from fast_agent.core.harness_app import AppOpenRequest as AppOpenRequest
+    from fast_agent.core.harness_app import DefaultHarnessApp as DefaultHarnessApp
+    from fast_agent.core.harness_app import DefaultHarnessAppSession as DefaultHarnessAppSession
+    from fast_agent.core.harness_app import HarnessApp as HarnessApp
+    from fast_agent.core.harness_app import HarnessAppContext as HarnessAppContext
+    from fast_agent.core.harness_app import HarnessAppFactory as HarnessAppFactory
+    from fast_agent.core.harness_app import HarnessAppSession as HarnessAppSession
+    from fast_agent.core.harness_app import HarnessSessionProvider as HarnessSessionProvider
+    from fast_agent.core.harness_app import HarnessSessionsAppProvider as HarnessSessionsAppProvider
+    from fast_agent.core.harness_app import RuntimeAgent as RuntimeAgent
+    from fast_agent.core.harness_app import RuntimeSkills as RuntimeSkills
+    from fast_agent.core.harness_app import RuntimeTools as RuntimeTools
+    from fast_agent.core.harness_app import load_harness_app as load_harness_app
     from fast_agent.mcp.prompt import Prompt as Prompt
     from fast_agent.types import AgentAuth as AgentAuth
     from fast_agent.types import AgentRequest as AgentRequest
@@ -174,10 +206,10 @@ __all__ = [
     "AnthropicSettings",
     "AgentAuth",
     "AgentHarness",
+    "AgentRuntimeEnvironment",
     "AgentRequest",
     "AgentResponse",
-    "HarnessSessions",
-    "HarnessSession",
+    "AppOpenRequest",
     "AzureSettings",
     "BedrockSettings",
     "Context",
@@ -185,11 +217,22 @@ __all__ = [
     "ConversationSummary",
     "Core",
     "DeepSeekSettings",
+    "DefaultHarnessApp",
+    "DefaultHarnessAppSession",
     "FastAgent",
     "GenericSettings",
     "GoogleSettings",
     "GroqSettings",
+    "HarnessAppSettings",
     "HuggingFaceSettings",
+    "HarnessApp",
+    "HarnessAppContext",
+    "HarnessAppFactory",
+    "HarnessAppSession",
+    "HarnessSessionProvider",
+    "HarnessSessionsAppProvider",
+    "HarnessSession",
+    "HarnessSessions",
     "LlmAgent",
     "LlmDecorator",
     "LlmStopReason",
@@ -212,6 +255,10 @@ __all__ = [
     "ProgressReporter",
     "RequestParams",
     "ResourceLink",
+    "RuntimeAgent",
+    "RuntimeSkills",
+    "RuntimeTools",
+    "load_harness_app",
     "ServerRegistry",
     "Settings",
     "SkillsSettings",

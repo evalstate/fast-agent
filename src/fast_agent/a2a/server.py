@@ -59,7 +59,13 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.auth.presence import HuggingFaceTokenVerifier
 from fast_agent.tools.function_tool_loader import build_default_function_tool
-from fast_agent.types import LlmStopReason, PromptMessageExtended
+from fast_agent.types import (
+    AgentAuth,
+    AgentRequest,
+    AgentResponse,
+    LlmStopReason,
+    PromptMessageExtended,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -138,6 +144,11 @@ def _bearer_token_from_call_context(context: RequestContext) -> str | None:
     return _bearer_token_from_header(
         hf_authorization if isinstance(hf_authorization, str) else None
     )
+
+
+def _a2a_agent_auth(context: RequestContext) -> AgentAuth | None:
+    token = _bearer_token_from_call_context(context)
+    return AgentAuth.bearer(token) if token is not None else None
 
 
 class A2ABearerAuthMiddleware:
@@ -282,16 +293,25 @@ class FastAgentA2AExecutor(AgentExecutor):
             instance: AgentInstance | None = None
             try:
                 instance = await self._acquire_instance(context.context_id)
-                stream_context: _A2AStreamingContext | None = None
+                session = _A2AInvokeSession(
+                    executor=self,
+                    instance=instance,
+                    message=context.message,
+                    updater=updater,
+                )
                 try:
-                    agent = self._select_agent(instance, context.message)
-                    _attach_a2a_task_tools(agent)
-                    stream_context = self._prepare_streaming_context(
-                        agent=agent,
-                        updater=updater,
-                    )
-                    response = await agent.generate(
-                        _prompt_from_a2a_message(context.message),
+                    response = await session.invoke(
+                        AgentRequest.from_message(
+                            _prompt_from_a2a_message(context.message),
+                            agent=_requested_agent_name(context.message),
+                            session_id=context.context_id,
+                            auth=_a2a_agent_auth(context),
+                            metadata={
+                                "transport": "a2a",
+                                "task_id": context.task_id,
+                                "context_id": context.context_id,
+                            },
+                        )
                     )
                 except ProviderKeyError as exc:
                     await updater.requires_auth(
@@ -307,8 +327,8 @@ class FastAgentA2AExecutor(AgentExecutor):
                     )
                     return
                 finally:
-                    if stream_context is not None:
-                        await self._cleanup_streaming_context(stream_context)
+                    if session.stream_context is not None:
+                        await self._cleanup_streaming_context(session.stream_context)
             finally:
                 _reset_current_task(saved_a2a_task)
                 request_bearer_token.reset(saved_bearer_token)
@@ -318,18 +338,21 @@ class FastAgentA2AExecutor(AgentExecutor):
                         instance,
                     )
 
-        streamed_text = stream_context.streamed_text()
-        response_text = response.all_text()
-        if response.stop_reason == LlmStopReason.PAUSE:
+        stream_context = session.stream_context
+        streamed_text = stream_context.streamed_text() if stream_context is not None else ""
+        response_message = response.message
+        response_text = response_message.all_text()
+        if response_message.stop_reason == LlmStopReason.PAUSE:
             await updater.requires_input(
-                message=updater.new_agent_message(parts=_parts_from_prompt_message(response))
+                message=updater.new_agent_message(parts=_parts_from_prompt_message(response_message))
             )
             return
 
         if streamed_text:
             if response_text and response_text != streamed_text:
+                assert stream_context is not None
                 await updater.add_artifact(
-                    parts=_parts_from_prompt_message(response),
+                    parts=_parts_from_prompt_message(response_message),
                     artifact_id=stream_context.artifact_id,
                     name="response",
                     append=False,
@@ -337,7 +360,7 @@ class FastAgentA2AExecutor(AgentExecutor):
                 )
         else:
             await updater.add_artifact(
-                parts=_parts_from_prompt_message(response),
+                parts=_parts_from_prompt_message(response_message),
                 name="response",
                 append=False,
                 last_chunk=True,
@@ -405,8 +428,13 @@ class FastAgentA2AExecutor(AgentExecutor):
         if self._instance_scope == "request":
             await self._dispose_instance(instance)
 
-    def _select_agent(self, instance: AgentInstance, message: Message) -> AgentProtocol:
-        agent_name = _requested_agent_name(message)
+    def _select_agent(
+        self,
+        instance: AgentInstance,
+        message: Message,
+        requested_agent: str | None = None,
+    ) -> AgentProtocol:
+        agent_name = requested_agent or _requested_agent_name(message)
         if agent_name and agent_name in instance.agents:
             return instance.agents[agent_name]
         if self._primary_agent_name in instance.agents:
@@ -420,6 +448,38 @@ class FastAgentA2AExecutor(AgentExecutor):
             await self._dispose_instance(instance)
         self._context_instances.clear()
         self._context_locks.clear()
+
+
+class _A2AInvokeSession:
+    """A2A protocol adapter over one acquired AgentInstance."""
+
+    def __init__(
+        self,
+        *,
+        executor: FastAgentA2AExecutor,
+        instance: AgentInstance,
+        message: Message,
+        updater: TaskUpdater,
+    ) -> None:
+        self._executor = executor
+        self._instance = instance
+        self._message = message
+        self._updater = updater
+        self.stream_context: _A2AStreamingContext | None = None
+
+    @property
+    def agent_app(self):
+        return self._instance.app
+
+    async def invoke(self, request: AgentRequest) -> AgentResponse:
+        agent = self._executor._select_agent(self._instance, self._message, request.agent)
+        _attach_a2a_task_tools(agent)
+        self.stream_context = self._executor._prepare_streaming_context(
+            agent=agent,
+            updater=self._updater,
+        )
+        message = await agent.generate(request.message, request_params=request.params)
+        return AgentResponse(message=message, metadata=dict(request.metadata))
 
 
 def _attach_a2a_task_tools(agent: AgentProtocol) -> None:

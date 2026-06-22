@@ -12,8 +12,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from fast_agent.commands.results import CommandMessage
+    from fast_agent.commands.session_summaries import SessionListSummary
+    from fast_agent.interfaces import AgentProtocol
     from fast_agent.llm.usage_tracking import UsageAccumulator
-    from fast_agent.session import SessionManager
+    from fast_agent.session import ResumeSessionAgentsResult, Session, SessionInfo, SessionManager
     from fast_agent.session.identity import SessionStoreScope
     from fast_agent.types import PromptMessageExtended
 
@@ -140,6 +142,47 @@ class StaticAgentProvider:
     ) -> object:
         del namespace, agent_name
         return {}
+
+
+class SessionCommandRuntime(Protocol):
+    """Explicit session capability supplied by an interactive/runtime boundary."""
+
+    def resolve_manager(self) -> "SessionManager": ...
+
+    def current_session_id(self) -> str | None: ...
+
+    def active_session_id(self, *, fallback_session_id: str | None = None) -> str | None: ...
+
+    def build_list_summary(self, *, show_help: bool = False) -> "SessionListSummary": ...
+
+    def create_session(
+        self,
+        *,
+        session_name: str | None,
+        session_id: str | None = None,
+        replace_existing: bool = False,
+        metadata: dict[str, str] | None = None,
+    ) -> "Session": ...
+
+    def list_sessions(self) -> list["SessionInfo"]: ...
+
+    def delete_session(self, session_id: str) -> bool: ...
+
+    def resolve_session_name(self, name: str | None) -> str | None: ...
+
+    def get_session(self, session_id: str) -> "Session | None": ...
+
+    async def resume_agents(
+        self,
+        agents: Mapping[str, "AgentProtocol"],
+        session_id: str | None,
+        *,
+        fallback_agent_name: str | None,
+    ) -> "ResumeSessionAgentsResult | None": ...
+
+    def title_session(self, title: str, *, session_id: str | None = None) -> "Session | None": ...
+
+    def fork_current_session(self, *, title: str | None = None) -> "Session | None": ...
 
 
 async def noninteractive_prompt_selection(
@@ -275,7 +318,21 @@ class CommandContext:
     session_store_scope: SessionStoreScope = "workspace"
     session_store_cwd: Path | None = None
     session_manager: "SessionManager | None" = None
+    session_runtime: SessionCommandRuntime | None = None
     skill_source_overrides: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.noenv or self.session_runtime is not None:
+            return
+        from fast_agent.commands.session_runtime import SessionManagerCommandRuntime
+
+        self.session_runtime = SessionManagerCommandRuntime(
+            explicit_manager=self.session_manager,
+            session_cwd=self.session_cwd,
+            session_store_scope=self.session_store_scope,
+            session_store_cwd=self.session_store_cwd,
+            settings=self.settings,
+        )
 
     def resolve_settings(self) -> Settings:
         return self.settings or get_settings()
@@ -301,6 +358,15 @@ class CommandContext:
     def resolve_session_manager(self) -> "SessionManager":
         from fast_agent.session import get_session_manager
 
+        if self.session_runtime is not None:
+            return self.session_runtime.resolve_manager()
         if self.session_manager is not None:
             return self.session_manager
-        return get_session_manager()
+        return get_session_manager(cwd=self._session_manager_cwd())
+
+    def _session_manager_cwd(self) -> "Path | None":
+        if self.session_store_scope == "app":
+            return None
+        if self.session_store_cwd is not None:
+            return self.session_store_cwd
+        return self.session_cwd
