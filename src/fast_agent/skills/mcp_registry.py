@@ -627,14 +627,26 @@ async def _materialize_supporting_files(
                 limits=_WalkLimits(),
                 depth=0,
             )
-        except Exception as exc:  # noqa: BLE001 - supporting files are best-effort.
+        except Exception as exc:  # noqa: BLE001 - a failed walk falls back to the verified single file.
             # Staging is discarded on exit; the verified skill remains intact.
             logger.warning(
                 "Failed to materialize MCP skill supporting files",
                 data={"server": skill.server_name, "skill": skill.name, "error": str(exc)},
             )
             return
-        # Walk succeeded: merge the staged tree alongside the verified SKILL.md.
+        # Walk succeeded. A direct (``url``) entry pins only ``SKILL.md`` by digest;
+        # supporting files fetched via the directory walk carry no digest, so they
+        # cannot be integrity-checked. Rather than install unverifiable bytes as if
+        # they were trusted, refuse: a skill that ships supporting files must be
+        # delivered as a whole-archive-digested form (which covers every file).
+        staged_files = [path for path in staging.rglob("*") if path.is_file()]
+        if staged_files:
+            raise ValueError(
+                f"MCP skill '{skill.name}' ships {len(staged_files)} supporting file(s) "
+                "not covered by any digest (fetched via resources/directory/read); "
+                "deliver it as a digest-verified archive instead"
+            )
+        # No supporting files beyond the verified SKILL.md — nothing to merge.
         shutil.copytree(staging, install_dir, dirs_exist_ok=True)
 
 
