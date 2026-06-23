@@ -558,9 +558,9 @@ def _write_archive_artifact(skill: McpRegistrySkill, artifact: bytes, install_di
     install_dir.mkdir(parents=True, exist_ok=False)
     try:
         if _archive_strategy(skill) == "zip":
-            _extract_zip_safely(artifact, install_dir)
+            _extract_zip_safely(artifact, install_dir, skill.server_name)
         else:
-            _extract_tar_safely(artifact, install_dir)
+            _extract_tar_safely(artifact, install_dir, skill.server_name)
         manifest_path = install_dir / "SKILL.md"
         if not manifest_path.is_file():
             raise ValueError("MCP skill archive must contain SKILL.md at the root")
@@ -781,6 +781,39 @@ def _relative_uri_path(root_uri: str, child_uri: str) -> str | None:
     return relative or None
 
 
+# Cumulative unpacked bytes per MCP server, accumulated for the process lifetime.
+# SEP-2640 bounds each archive's unpacked size (MAX_UNPACKED_ARCHIVE_BYTES);
+# additionally cap the cumulative per-server total so one server cannot exhaust
+# the host with many individually-fine skills. A module-level tracker is a simple
+# shape for this; a production host would scope/reset it per install session.
+_server_unpacked_bytes: dict[str, int] = {}
+
+
+def _check_server_unpack_budget(server_name: str | None, archive_unpacked: int) -> None:
+    """Reject when this archive would push the server over its cumulative unpack budget.
+
+    Pure check (no mutation); pair with ``_commit_server_unpack_budget`` after a
+    successful extraction so a rejected archive never consumes budget.
+    """
+    if server_name is None:
+        return
+    projected = _server_unpacked_bytes.get(server_name, 0) + archive_unpacked
+    if projected > MAX_UNPACKED_ARCHIVE_BYTES:
+        raise ValueError(
+            f"MCP server '{server_name}' exceeds its cumulative unpacked-size budget "
+            f"({projected} > {MAX_UNPACKED_ARCHIVE_BYTES} bytes)"
+        )
+
+
+def _commit_server_unpack_budget(server_name: str | None, archive_unpacked: int) -> None:
+    """Charge a successfully-unpacked archive against the server's cumulative budget."""
+    if server_name is None:
+        return
+    _server_unpacked_bytes[server_name] = (
+        _server_unpacked_bytes.get(server_name, 0) + archive_unpacked
+    )
+
+
 def _check_archive_name_collisions(names: Iterable[str]) -> None:
     """Reject archives whose entry names collide under Unicode normalization and case-folding.
 
@@ -807,7 +840,7 @@ def _check_archive_name_collisions(names: Iterable[str]) -> None:
         seen[key] = name
 
 
-def _extract_tar_safely(artifact: bytes, destination: Path) -> None:
+def _extract_tar_safely(artifact: bytes, destination: Path, server_name: str | None = None) -> None:
     total_size = 0
     with tarfile.open(fileobj=io.BytesIO(artifact), mode="r:*") as archive:
         members = archive.getmembers()
@@ -820,10 +853,12 @@ def _extract_tar_safely(artifact: bytes, destination: Path) -> None:
                 total_size += member.size
                 if total_size > MAX_UNPACKED_ARCHIVE_BYTES:
                     raise ValueError("MCP skill archive unpacked size exceeds limit")
+        _check_server_unpack_budget(server_name, total_size)
         archive.extractall(destination, filter="data")
+    _commit_server_unpack_budget(server_name, total_size)
 
 
-def _extract_zip_safely(artifact: bytes, destination: Path) -> None:
+def _extract_zip_safely(artifact: bytes, destination: Path, server_name: str | None = None) -> None:
     total_size = 0
     with zipfile.ZipFile(io.BytesIO(artifact)) as archive:
         infos = archive.infolist()
@@ -836,7 +871,9 @@ def _extract_zip_safely(artifact: bytes, destination: Path) -> None:
             total_size += info.file_size
             if total_size > MAX_UNPACKED_ARCHIVE_BYTES:
                 raise ValueError("MCP skill archive unpacked size exceeds limit")
+        _check_server_unpack_budget(server_name, total_size)
         archive.extractall(destination)
+    _commit_server_unpack_budget(server_name, total_size)
 
 
 _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
