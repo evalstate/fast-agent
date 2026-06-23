@@ -206,16 +206,16 @@ def _build_registry_skill(
     server_name: str,
     server_version: str | None,
 ) -> McpRegistrySkill | None:
-    frontmatter = entry.get("frontmatter")
-    if not isinstance(frontmatter, Mapping):
+    fm = entry.get("frontmatter")
+    if not isinstance(fm, Mapping):
         logger.warning("MCP skill entry missing frontmatter", data={"server": server_name})
         return None
-    name = frontmatter.get("name")
+    name = fm.get("name")
     if not isinstance(name, str) or not name.strip():
         logger.warning("MCP skill entry frontmatter missing name", data={"server": server_name})
         return None
     name = name.strip()
-    description = frontmatter.get("description")
+    description = fm.get("description")
     description = description.strip() if isinstance(description, str) else None
 
     direct = _validate_url_and_digest(
@@ -254,7 +254,7 @@ def _build_registry_skill(
         digest=digest,
         artifact_type=artifact_type,
         server_version=server_version,
-        frontmatter=dict(frontmatter),
+        frontmatter=dict(fm),
         archives=tuple(archives),
         artifact_mime_type=artifact_mime_type,
     )
