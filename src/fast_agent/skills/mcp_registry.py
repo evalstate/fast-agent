@@ -30,6 +30,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Protocol
 from urllib.parse import urlparse
 
+import frontmatter
 from mcp.types import BlobResourceContents, ServerCapabilities, TextResourceContents
 from pydantic import AnyUrl
 
@@ -465,6 +466,42 @@ async def _write_verified_mcp_skill(
     )
 
 
+def _canonical_frontmatter(value: Any) -> Any:
+    """Normalize a frontmatter value for content comparison.
+
+    Strips surrounding whitespace from scalars (so a YAML folded-scalar trailing
+    newline does not read as a mismatch) and recurses into mappings/sequences;
+    mappings compare key-and-value, order-independent.
+    """
+    if isinstance(value, Mapping):
+        return {str(key): _canonical_frontmatter(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_frontmatter(item) for item in value]
+    if isinstance(value, str):
+        return value.strip()
+    return value
+
+
+def _verify_frontmatter_matches_index(skill_text: str, skill: McpRegistrySkill) -> None:
+    """Re-verify the served SKILL.md frontmatter against the index entry, field by field.
+
+    SEP-2640 requires the index ``frontmatter`` object to be identical in content
+    to the SKILL.md it describes — the index is not authoritative. fast-agent
+    pins the SKILL.md bytes by SHA-256, but the digest covers the file we fetched,
+    not the index's *claim* about it, so a server can still publish an index
+    ``frontmatter`` that diverges from the file (advertising a tamer description,
+    omitting a self-granted field, etc.). Re-parse the file we actually fetched
+    and compare every field; treat any divergence as a verification failure.
+    Previously only ``manifest.name == skill.name`` was checked.
+    """
+    served = frontmatter.loads(skill_text).metadata or {}
+    if _canonical_frontmatter(served) != _canonical_frontmatter(skill.frontmatter or {}):
+        raise ValueError(
+            "MCP skill index frontmatter does not match the served SKILL.md "
+            f"frontmatter for '{skill.name}' (index frontmatter is not authoritative)"
+        )
+
+
 def _write_skill_md_artifact(skill: McpRegistrySkill, artifact: bytes, install_dir: Path) -> None:
     if len(artifact) > MAX_SKILL_MD_BYTES:
         raise ValueError(f"MCP skill SKILL.md exceeds size limit: {skill.source_url}")
@@ -476,6 +513,7 @@ def _write_skill_md_artifact(skill: McpRegistrySkill, artifact: bytes, install_d
         raise ValueError(
             f"MCP skill index name '{skill.name}' does not match manifest name '{manifest.name}'"
         )
+    _verify_frontmatter_matches_index(skill_text, skill)
 
     install_dir.mkdir(parents=True, exist_ok=False)
     (install_dir / "SKILL.md").write_text(skill_text, encoding="utf-8")
@@ -493,15 +531,15 @@ def _write_archive_artifact(skill: McpRegistrySkill, artifact: bytes, install_di
         manifest_path = install_dir / "SKILL.md"
         if not manifest_path.is_file():
             raise ValueError("MCP skill archive must contain SKILL.md at the root")
-        manifest, parse_error = SkillRegistry.parse_manifest_text(
-            manifest_path.read_text(encoding="utf-8")
-        )
+        manifest_text = manifest_path.read_text(encoding="utf-8")
+        manifest, parse_error = SkillRegistry.parse_manifest_text(manifest_text)
         if manifest is None:
             raise ValueError(f"Failed to parse MCP skill manifest: {parse_error}")
         if manifest.name != skill.name:
             raise ValueError(
                 f"MCP skill index name '{skill.name}' does not match manifest name '{manifest.name}'"
             )
+        _verify_frontmatter_matches_index(manifest_text, skill)
     except Exception:
         if install_dir.exists():
             shutil.rmtree(install_dir)
