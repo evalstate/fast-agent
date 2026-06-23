@@ -769,20 +769,18 @@ async def test_install_warns_on_unverified_supporting_files(tmp_path, monkeypatc
 
 @pytest.mark.asyncio
 async def test_archive_enforces_cumulative_per_server_budget(tmp_path, monkeypatch) -> None:
-    """Each archive passes the per-archive size cap, but a second archive from the same server
-    that pushes the cumulative unpacked total over budget is rejected."""
-    monkeypatch.setattr(mcp_registry, "_server_unpacked_bytes", {}, raising=False)
+    """Each archive fits the per-archive cap, but a second archive from the same server that
+    pushes the server's cumulative on-disk total over budget is rejected."""
 
     def _part(name: str) -> tuple[bytes, str]:
-        text = f"---\nname: {name}\ndescription: Budget part\n---\n" + "padding " * 20 + "\n"
+        text = f"---\nname: {name}\ndescription: Budget part\n---\n" + "padding " * 200 + "\n"
         return _tar_gz({"SKILL.md": text.encode("utf-8")}), text
 
     artifact_a, text_a = _part("budget-a")
     artifact_b, _ = _part("budget-b")
-    # One part fits under the per-archive cap; two together exceed the per-server budget.
-    monkeypatch.setattr(
-        mcp_registry, "MAX_UNPACKED_ARCHIVE_BYTES", len(text_a.encode("utf-8")) + 16
-    )
+    unpacked = len(text_a.encode("utf-8"))
+    # Room for one part's unpacked bytes plus headroom, but not two.
+    monkeypatch.setattr(mcp_registry, "MAX_SERVER_UNPACKED_BYTES", unpacked + unpacked // 2)
 
     def _part_skill(name: str, artifact: bytes) -> McpRegistrySkill:
         return McpRegistrySkill(
@@ -811,3 +809,112 @@ async def test_archive_enforces_cumulative_per_server_budget(tmp_path, monkeypat
         await install_mcp_registry_skill(
             aggregator, _part_skill("budget-b", artifact_b), destination_root=tmp_path
         )
+    assert not (tmp_path / "budget-b").exists()
+
+
+@pytest.mark.asyncio
+async def test_rolled_back_install_frees_cumulative_budget(tmp_path, monkeypatch) -> None:
+    """A failed install (extract succeeds, a post-extract check fails and rolls back) must not
+    charge the per-server budget — a later legitimate install still fits. The accumulator this
+    replaced leaked the rolled-back bytes and would reject the good install with 'cumulative'."""
+    good_text = "---\nname: good\ndescription: Good skill\n---\n" + "padding " * 200 + "\n"
+    good_artifact = _tar_gz({"SKILL.md": good_text.encode("utf-8")})
+    unpacked = len(good_text.encode("utf-8"))
+    monkeypatch.setattr(mcp_registry, "MAX_SERVER_UNPACKED_BYTES", unpacked + unpacked // 2)
+
+    # Bad skill: archive extracts cleanly but its served frontmatter diverges from the index,
+    # so _write_archive_artifact rolls the directory back after extraction has been charged.
+    bad_text = "---\nname: bad\ndescription: Served description\n---\n" + "padding " * 200 + "\n"
+    bad_artifact = _tar_gz({"SKILL.md": bad_text.encode("utf-8")})
+    bad_skill = McpRegistrySkill(
+        name="bad",
+        description="Bad skill",
+        source_url="skill://bad.tar.gz",
+        server_name="srv",
+        digest=_digest(bad_artifact),
+        artifact_type="archive",
+        artifact_mime_type="application/gzip",
+        frontmatter={"name": "bad", "description": "Index claims otherwise"},
+    )
+    good_skill = McpRegistrySkill(
+        name="good",
+        description="Good skill",
+        source_url="skill://good.tar.gz",
+        server_name="srv",
+        digest=_digest(good_artifact),
+        artifact_type="archive",
+        artifact_mime_type="application/gzip",
+        frontmatter={"name": "good", "description": "Good skill"},
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(),
+        responses={
+            "skill://bad.tar.gz": bad_artifact,
+            "skill://good.tar.gz": good_artifact,
+        },
+    )
+
+    with pytest.raises(ValueError, match="does not match"):
+        await install_mcp_registry_skill(aggregator, bad_skill, destination_root=tmp_path)
+    assert not (tmp_path / "bad").exists()
+
+    install_dir = await install_mcp_registry_skill(
+        aggregator, good_skill, destination_root=tmp_path
+    )
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == good_text
+
+
+@pytest.mark.asyncio
+async def test_supporting_files_count_against_server_budget(tmp_path, monkeypatch) -> None:
+    """Walk-fetched supporting files share the cumulative per-server budget with archives:
+    once a prior install has consumed the cap, a further supporting file is refused (the walk
+    is best-effort), though the digest-verified SKILL.md still installs."""
+    base_text = "---\nname: base\ndescription: Base\n---\n" + "padding " * 200 + "\n"
+    base_artifact = _tar_gz({"SKILL.md": base_text.encode("utf-8")})
+    base_unpacked = len(base_text.encode("utf-8"))
+    # Budget leaves only a few dozen bytes of headroom after the base skill installs.
+    monkeypatch.setattr(mcp_registry, "MAX_SERVER_UNPACKED_BYTES", base_unpacked + 64)
+
+    base_skill = McpRegistrySkill(
+        name="base",
+        description="Base",
+        source_url="skill://base.tar.gz",
+        server_name="srv",
+        digest=_digest(base_artifact),
+        artifact_type="archive",
+        artifact_mime_type="application/gzip",
+        frontmatter={"name": "base", "description": "Base"},
+    )
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nSee GUIDE.md\n"
+    big_support = "x" * 4096  # well over the remaining headroom, under the per-file cap
+    demo_skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="srv",
+        digest=_digest(skill_text),
+        frontmatter={"name": "demo", "description": "Demo skill"},
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=True),
+        responses={
+            "skill://base.tar.gz": base_artifact,
+            "skill://demo/SKILL.md": skill_text,
+            "skill://demo/GUIDE.md": big_support,
+        },
+        directories={
+            "skill://demo": [
+                Resource(uri=AnyUrl("skill://demo/GUIDE.md"), name="GUIDE.md"),
+            ],
+        },
+    )
+
+    await install_mcp_registry_skill(aggregator, base_skill, destination_root=tmp_path)
+    install_dir = await install_mcp_registry_skill(
+        aggregator, demo_skill, destination_root=tmp_path
+    )
+
+    # SKILL.md is digest-verified and always installs; the supporting file would breach the
+    # per-server budget the base skill already consumed, so the best-effort walk drops it.
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+    assert not (install_dir / "GUIDE.md").exists()

@@ -39,6 +39,7 @@ from fast_agent.marketplace import git_sources as marketplace_git_sources
 from fast_agent.skills.provenance import (
     build_mcp_installed_skill_source,
     compute_skill_content_fingerprint,
+    read_installed_skill_source,
     write_installed_skill_source,
 )
 from fast_agent.skills.registry import SkillRegistry
@@ -76,8 +77,13 @@ MAX_INDEX_BYTES = 1_048_576
 MAX_SKILL_MD_BYTES = 262_144
 MAX_ARCHIVE_BYTES = 10 * 1_048_576
 MAX_UNPACKED_ARCHIVE_BYTES = 50 * 1_048_576
+# Cumulative unpacked bytes across every skill installed from a single server,
+# bounding total host footprint even when each archive/skill is within the
+# per-archive limit. Must exceed ``MAX_UNPACKED_ARCHIVE_BYTES`` or the cumulative
+# check would just restate the per-archive one.
+MAX_SERVER_UNPACKED_BYTES = 200 * 1_048_576
 # Per-resource cap for a supporting file, bounding any single file under the
-# cumulative ``MAX_UNPACKED_ARCHIVE_BYTES`` budget.
+# cumulative per-server budget.
 MAX_SUPPORTING_FILE_BYTES = 10 * 1_048_576
 # Bounds on a ``resources/directory/read`` walk so a buggy or hostile server
 # cannot hang the install: total pages (never-terminating cursor), entries, depth.
@@ -359,7 +365,9 @@ async def update_mcp_registry_skill(
         prefix=f".{skill_dir.name}.update-",
     ) as temp_dir_str:
         staged_dir = Path(temp_dir_str) / skill_dir.name
-        await _write_verified_mcp_skill(aggregator, skill, staged_dir)
+        await _write_verified_mcp_skill(
+            aggregator, skill, staged_dir, managed_dir=parent_dir, exclude=skill_dir
+        )
         marketplace_git_sources.atomic_replace_directory(
             existing_dir=skill_dir,
             staged_dir=staged_dir,
@@ -439,7 +447,16 @@ async def _write_verified_mcp_skill(
     aggregator: McpSkillInstallClient,
     skill: McpRegistrySkill,
     install_dir: Path,
+    *,
+    managed_dir: Path | None = None,
+    exclude: Path | None = None,
 ) -> None:
+    # ``managed_dir`` is where installed skills live (for the cumulative per-server budget);
+    # it differs from ``install_dir.parent`` on update, where install_dir is a temp staging
+    # dir. ``exclude`` is the prior install being replaced, credited so an in-place update
+    # isn't double-counted.
+    if managed_dir is None:
+        managed_dir = install_dir.parent
     result = await aggregator.get_resource(skill.source_url, server_name=skill.server_name)
     artifact = _first_bytes(result)
     if artifact is None:
@@ -448,9 +465,13 @@ async def _write_verified_mcp_skill(
 
     if skill.artifact_type == "skill-md":
         _write_skill_md_artifact(skill, artifact, install_dir)
-        await _materialize_supporting_files(aggregator, skill, install_dir)
+        await _materialize_supporting_files(
+            aggregator, skill, install_dir, managed_dir=managed_dir, exclude=exclude
+        )
     else:
-        _write_archive_artifact(skill, artifact, install_dir)
+        _write_archive_artifact(
+            skill, artifact, install_dir, managed_dir=managed_dir, exclude=exclude
+        )
 
     fingerprint = compute_skill_content_fingerprint(install_dir)
     write_installed_skill_source(
@@ -531,15 +552,27 @@ def _write_skill_md_artifact(skill: McpRegistrySkill, artifact: bytes, install_d
     _strip_permission_widening_frontmatter(install_dir)
 
 
-def _write_archive_artifact(skill: McpRegistrySkill, artifact: bytes, install_dir: Path) -> None:
+def _write_archive_artifact(
+    skill: McpRegistrySkill,
+    artifact: bytes,
+    install_dir: Path,
+    *,
+    managed_dir: Path,
+    exclude: Path | None = None,
+) -> None:
     if len(artifact) > MAX_ARCHIVE_BYTES:
         raise ValueError(f"MCP skill archive exceeds size limit: {skill.source_url}")
     install_dir.mkdir(parents=True, exist_ok=False)
     try:
+        extract_kwargs = {
+            "managed_dir": managed_dir,
+            "server_name": skill.server_name,
+            "exclude": exclude,
+        }
         if _archive_strategy(skill) == "zip":
-            _extract_zip_safely(artifact, install_dir, skill.server_name)
+            _extract_zip_safely(artifact, install_dir, **extract_kwargs)
         else:
-            _extract_tar_safely(artifact, install_dir, skill.server_name)
+            _extract_tar_safely(artifact, install_dir, **extract_kwargs)
         manifest_path = install_dir / "SKILL.md"
         if not manifest_path.is_file():
             raise ValueError("MCP skill archive must contain SKILL.md at the root")
@@ -572,6 +605,9 @@ async def _materialize_supporting_files(
     aggregator: McpSkillInstallClient,
     skill: McpRegistrySkill,
     install_dir: Path,
+    *,
+    managed_dir: Path | None = None,
+    exclude: Path | None = None,
 ) -> None:
     """Fetch a direct-entry skill's supporting files via ``resources/directory/read``.
 
@@ -583,7 +619,10 @@ async def _materialize_supporting_files(
 
     Unlike the digest-checked ``SKILL.md`` and archive artifacts, supporting
     files carry no digests, so they rest on trusting this server and the
-    transport; path traversal is still blocked and total size bounded.
+    transport; path traversal is still blocked. The walk shares the cumulative
+    per-server unpack budget with the archive path: its byte budget is seeded with
+    the server's current on-disk total, so these undigested files can't exhaust
+    the host any more than archives can.
     """
     capabilities = await aggregator.get_capabilities(skill.server_name)
     if not server_supports_directory_read(capabilities):
@@ -591,6 +630,9 @@ async def _materialize_supporting_files(
     root_uri = _skill_root_uri(skill.source_url)
     if root_uri is None:
         return
+    if managed_dir is None:
+        managed_dir = install_dir.parent
+    used = _server_unpacked_used(managed_dir, skill.server_name, exclude=exclude)
     with tempfile.TemporaryDirectory(
         dir=install_dir.parent, prefix=f".{install_dir.name}.support-"
     ) as staging_str:
@@ -602,7 +644,7 @@ async def _materialize_supporting_files(
                 root_uri=root_uri,
                 dir_uri=root_uri,
                 dest_dir=staging,
-                budget=_ByteBudget(MAX_UNPACKED_ARCHIVE_BYTES),
+                budget=_ByteBudget(MAX_SERVER_UNPACKED_BYTES, used=used),
                 limits=_WalkLimits(),
                 depth=0,
             )
@@ -628,14 +670,16 @@ async def _materialize_supporting_files(
 
 
 class _ByteBudget:
-    def __init__(self, limit: int) -> None:
+    def __init__(self, limit: int, *, used: int = 0) -> None:
         self._limit = limit
-        self._used = 0
+        self._used = used
 
     def add(self, size: int) -> None:
         self._used += size
         if self._used > self._limit:
-            raise ValueError("MCP skill supporting files exceed unpacked size limit")
+            raise ValueError(
+                "MCP skill supporting files exceed the server's cumulative unpacked-size budget"
+            )
 
 
 class _WalkLimits:
@@ -758,31 +802,65 @@ def _relative_uri_path(root_uri: str, child_uri: str) -> str | None:
     return relative or None
 
 
-# Cumulative unpacked bytes per server (process-lifetime): caps the per-server total on top
-# of the per-archive limit, so many individually-fine skills can't exhaust the host.
-_server_unpacked_bytes: dict[str, int] = {}
+def _dir_size(path: Path) -> int:
+    return sum(child.stat().st_size for child in path.rglob("*") if child.is_file())
 
 
-def _check_server_unpack_budget(server_name: str | None, archive_unpacked: int) -> None:
-    """Reject if this archive would exceed the server's cumulative budget; pure check, so
-    pair with _commit_server_unpack_budget after a successful extract."""
-    if server_name is None:
+def _server_installed_bytes(managed_dir: Path, server_name: str) -> int:
+    """Bytes currently on disk across all skills installed from this MCP server.
+
+    Sums sibling install dirs whose ``.skill-source.json`` names this server. This reads
+    ground truth, so a rolled-back/failed/removed install simply isn't counted and an update
+    that shrinks a skill is credited automatically — no accumulator to decrement and no
+    process-global state to leak across installs or tests.
+    """
+    if not managed_dir.is_dir():
+        return 0
+    total = 0
+    for entry in managed_dir.iterdir():
+        if not entry.is_dir():
+            continue
+        source = read_installed_skill_source(entry).source
+        if source is None or source.source_origin != "mcp":
+            continue
+        if source.mcp_server_name != server_name:
+            continue
+        total += _dir_size(entry)
+    return total
+
+
+def _server_unpacked_used(
+    managed_dir: Path | None, server_name: str | None, *, exclude: Path | None = None
+) -> int:
+    """On-disk bytes already charged to this server, crediting the dir being replaced on
+    update (``exclude``) so an in-place update isn't counted as old + new."""
+    if server_name is None or managed_dir is None or not managed_dir.is_dir():
+        return 0
+    current = _server_installed_bytes(managed_dir, server_name)
+    if exclude is not None and exclude.is_dir():
+        src = read_installed_skill_source(exclude).source
+        if src is not None and src.source_origin == "mcp" and src.mcp_server_name == server_name:
+            current -= _dir_size(exclude)
+    return max(0, current)
+
+
+def _check_server_unpack_budget(
+    managed_dir: Path | None,
+    server_name: str | None,
+    *,
+    projected_new: int,
+    exclude: Path | None = None,
+) -> None:
+    """Reject if the server's current on-disk footprint plus this artifact would exceed the
+    cumulative per-server budget. Pure check — call before writing the new bytes."""
+    if server_name is None or managed_dir is None:
         return
-    projected = _server_unpacked_bytes.get(server_name, 0) + archive_unpacked
-    if projected > MAX_UNPACKED_ARCHIVE_BYTES:
+    projected = _server_unpacked_used(managed_dir, server_name, exclude=exclude) + projected_new
+    if projected > MAX_SERVER_UNPACKED_BYTES:
         raise ValueError(
             f"MCP server '{server_name}' exceeds its cumulative unpacked-size budget "
-            f"({projected} > {MAX_UNPACKED_ARCHIVE_BYTES} bytes)"
+            f"({projected} > {MAX_SERVER_UNPACKED_BYTES} bytes)"
         )
-
-
-def _commit_server_unpack_budget(server_name: str | None, archive_unpacked: int) -> None:
-    """Charge a successfully-unpacked archive against the server's cumulative budget."""
-    if server_name is None:
-        return
-    _server_unpacked_bytes[server_name] = (
-        _server_unpacked_bytes.get(server_name, 0) + archive_unpacked
-    )
 
 
 def _check_archive_name_collisions(names: Iterable[str]) -> None:
@@ -802,7 +880,14 @@ def _check_archive_name_collisions(names: Iterable[str]) -> None:
         seen[key] = name
 
 
-def _extract_tar_safely(artifact: bytes, destination: Path, server_name: str | None = None) -> None:
+def _extract_tar_safely(
+    artifact: bytes,
+    destination: Path,
+    *,
+    managed_dir: Path | None = None,
+    server_name: str | None = None,
+    exclude: Path | None = None,
+) -> None:
     total_size = 0
     with tarfile.open(fileobj=io.BytesIO(artifact), mode="r:*") as archive:
         members = archive.getmembers()
@@ -815,12 +900,20 @@ def _extract_tar_safely(artifact: bytes, destination: Path, server_name: str | N
                 total_size += member.size
                 if total_size > MAX_UNPACKED_ARCHIVE_BYTES:
                     raise ValueError("MCP skill archive unpacked size exceeds limit")
-        _check_server_unpack_budget(server_name, total_size)
+        _check_server_unpack_budget(
+            managed_dir, server_name, projected_new=total_size, exclude=exclude
+        )
         archive.extractall(destination, filter="data")
-    _commit_server_unpack_budget(server_name, total_size)
 
 
-def _extract_zip_safely(artifact: bytes, destination: Path, server_name: str | None = None) -> None:
+def _extract_zip_safely(
+    artifact: bytes,
+    destination: Path,
+    *,
+    managed_dir: Path | None = None,
+    server_name: str | None = None,
+    exclude: Path | None = None,
+) -> None:
     total_size = 0
     with zipfile.ZipFile(io.BytesIO(artifact)) as archive:
         infos = archive.infolist()
@@ -833,9 +926,10 @@ def _extract_zip_safely(artifact: bytes, destination: Path, server_name: str | N
             total_size += info.file_size
             if total_size > MAX_UNPACKED_ARCHIVE_BYTES:
                 raise ValueError("MCP skill archive unpacked size exceeds limit")
-        _check_server_unpack_budget(server_name, total_size)
+        _check_server_unpack_budget(
+            managed_dir, server_name, projected_new=total_size, exclude=exclude
+        )
         archive.extractall(destination)
-    _commit_server_unpack_budget(server_name, total_size)
 
 
 _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
