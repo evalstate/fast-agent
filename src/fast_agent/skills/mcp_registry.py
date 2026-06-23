@@ -612,14 +612,17 @@ async def _materialize_supporting_files(
                 data={"server": skill.server_name, "skill": skill.name, "error": str(exc)},
             )
             return
-        # A url entry digests only SKILL.md; walk-fetched supporting files are unverifiable,
-        # so refuse rather than install them as trusted (require whole-archive delivery).
+        # A url entry digests only SKILL.md; walk-fetched supporting files carry no digest,
+        # so flag them as unverified before merging them alongside the verified SKILL.md.
         staged_files = [path for path in staging.rglob("*") if path.is_file()]
         if staged_files:
-            raise ValueError(
-                f"MCP skill '{skill.name}' ships {len(staged_files)} supporting file(s) "
-                "not covered by any digest (fetched via resources/directory/read); "
-                "deliver it as a digest-verified archive instead"
+            logger.warning(
+                "Installing unverified MCP skill supporting files (not covered by any digest)",
+                data={
+                    "server": skill.server_name,
+                    "skill": skill.name,
+                    "count": len(staged_files),
+                },
             )
         shutil.copytree(staging, install_dir, dirs_exist_ok=True)
 
