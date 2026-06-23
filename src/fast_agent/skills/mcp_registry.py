@@ -467,12 +467,8 @@ async def _write_verified_mcp_skill(
 
 
 def _canonical_frontmatter(value: Any) -> Any:
-    """Normalize a frontmatter value for content comparison.
-
-    Strips surrounding whitespace from scalars (so a YAML folded-scalar trailing
-    newline does not read as a mismatch) and recurses into mappings/sequences;
-    mappings compare key-and-value, order-independent.
-    """
+    """Normalize for comparison: strip scalar whitespace (folded-scalar newlines) and
+    recurse into mappings/sequences (order-independent)."""
     if isinstance(value, Mapping):
         return {str(key): _canonical_frontmatter(val) for key, val in value.items()}
     if isinstance(value, (list, tuple)):
@@ -483,17 +479,8 @@ def _canonical_frontmatter(value: Any) -> Any:
 
 
 def _verify_frontmatter_matches_index(skill_text: str, skill: McpRegistrySkill) -> None:
-    """Re-verify the served SKILL.md frontmatter against the index entry, field by field.
-
-    SEP-2640 requires the index ``frontmatter`` object to be identical in content
-    to the SKILL.md it describes — the index is not authoritative. fast-agent
-    pins the SKILL.md bytes by SHA-256, but the digest covers the file we fetched,
-    not the index's *claim* about it, so a server can still publish an index
-    ``frontmatter`` that diverges from the file (advertising a tamer description,
-    omitting a self-granted field, etc.). Re-parse the file we actually fetched
-    and compare every field; treat any divergence as a verification failure.
-    Previously only ``manifest.name == skill.name`` was checked.
-    """
+    """Reject when the served SKILL.md frontmatter diverges from the index entry — the
+    digest pins the file's bytes, not the index's claim about them, so re-check every field."""
     served = frontmatter.loads(skill_text).metadata or {}
     if _canonical_frontmatter(served) != _canonical_frontmatter(skill.frontmatter or {}):
         raise ValueError(
@@ -502,22 +489,14 @@ def _verify_frontmatter_matches_index(skill_text: str, skill: McpRegistrySkill) 
         )
 
 
-# Frontmatter fields that widen a skill's host permissions or register executable
-# behaviour. Honoring these for a *remote* (MCP-origin) skill lets the serving
-# server self-grant access on the host, so they are stripped on install.
+# Frontmatter that widens host permissions or registers executable behaviour; honoring it
+# for a remote (MCP-origin) skill lets the server self-grant access, so strip it on install.
 PERMISSION_WIDENING_FRONTMATTER = ("allowed-tools", "hooks")
 
 
 def _strip_permission_widening_frontmatter(install_dir: Path) -> None:
-    """Strip permission-widening / exec-registering frontmatter from the installed SKILL.md.
-
-    Every skill installed through this module is MCP-origin (remote). Fields like
-    ``allowed-tools`` and ``hooks`` scope which tools / automation a *local* skill
-    may use; honoring them for a remote skill lets the serving MCP server widen
-    its own access on the host. This install path has no per-skill approval
-    channel, so strip them — the skill still installs, with the self-grant
-    neutralized — rather than honor a server self-grant.
-    """
+    """Strip allowed-tools / hooks from an installed MCP-origin SKILL.md (no per-skill approval
+    channel here, so neutralize the self-grant rather than honor it)."""
     skill_md = install_dir / "SKILL.md"
     if not skill_md.is_file():
         return
@@ -628,17 +607,13 @@ async def _materialize_supporting_files(
                 depth=0,
             )
         except Exception as exc:  # noqa: BLE001 - a failed walk falls back to the verified single file.
-            # Staging is discarded on exit; the verified skill remains intact.
             logger.warning(
                 "Failed to materialize MCP skill supporting files",
                 data={"server": skill.server_name, "skill": skill.name, "error": str(exc)},
             )
             return
-        # Walk succeeded. A direct (``url``) entry pins only ``SKILL.md`` by digest;
-        # supporting files fetched via the directory walk carry no digest, so they
-        # cannot be integrity-checked. Rather than install unverifiable bytes as if
-        # they were trusted, refuse: a skill that ships supporting files must be
-        # delivered as a whole-archive-digested form (which covers every file).
+        # A url entry digests only SKILL.md; walk-fetched supporting files are unverifiable,
+        # so refuse rather than install them as trusted (require whole-archive delivery).
         staged_files = [path for path in staging.rglob("*") if path.is_file()]
         if staged_files:
             raise ValueError(
@@ -646,7 +621,6 @@ async def _materialize_supporting_files(
                 "not covered by any digest (fetched via resources/directory/read); "
                 "deliver it as a digest-verified archive instead"
             )
-        # No supporting files beyond the verified SKILL.md — nothing to merge.
         shutil.copytree(staging, install_dir, dirs_exist_ok=True)
 
 
@@ -781,20 +755,14 @@ def _relative_uri_path(root_uri: str, child_uri: str) -> str | None:
     return relative or None
 
 
-# Cumulative unpacked bytes per MCP server, accumulated for the process lifetime.
-# SEP-2640 bounds each archive's unpacked size (MAX_UNPACKED_ARCHIVE_BYTES);
-# additionally cap the cumulative per-server total so one server cannot exhaust
-# the host with many individually-fine skills. A module-level tracker is a simple
-# shape for this; a production host would scope/reset it per install session.
+# Cumulative unpacked bytes per server (process-lifetime): caps the per-server total on top
+# of the per-archive limit, so many individually-fine skills can't exhaust the host.
 _server_unpacked_bytes: dict[str, int] = {}
 
 
 def _check_server_unpack_budget(server_name: str | None, archive_unpacked: int) -> None:
-    """Reject when this archive would push the server over its cumulative unpack budget.
-
-    Pure check (no mutation); pair with ``_commit_server_unpack_budget`` after a
-    successful extraction so a rejected archive never consumes budget.
-    """
+    """Reject if this archive would exceed the server's cumulative budget; pure check, so
+    pair with _commit_server_unpack_budget after a successful extract."""
     if server_name is None:
         return
     projected = _server_unpacked_bytes.get(server_name, 0) + archive_unpacked
@@ -815,20 +783,11 @@ def _commit_server_unpack_budget(server_name: str | None, archive_unpacked: int)
 
 
 def _check_archive_name_collisions(names: Iterable[str]) -> None:
-    """Reject archives whose entry names collide under Unicode normalization and case-folding.
-
-    On a case-insensitive or Unicode-normalizing filesystem (Windows NTFS, macOS
-    APFS) two distinct entry names can resolve to the same path, so a later entry
-    silently overwrites an earlier one — e.g. ``Skill.md`` clobbering the
-    digest-verified ``SKILL.md``. A raw byte-equality / ``set`` duplicate check
-    misses this, so fold each name the way such a filesystem would (NFC + case)
-    before checking for duplicates.
-    """
+    """Reject entry names that collide under NFC + case-fold (e.g. Skill.md vs SKILL.md),
+    which would silently overwrite each other on a case-insensitive filesystem."""
     seen: dict[str, str] = {}
     for name in names:
-        # Normalize the whole POSIX path as a case-insensitive, NFC-normalizing
-        # filesystem would; drop a trailing slash so a directory entry and a file
-        # of the same name also collide.
+        # trailing slash dropped so a dir entry and a file of the same name also collide
         key = unicodedata.normalize("NFC", name).rstrip("/").casefold()
         if not key:
             continue
