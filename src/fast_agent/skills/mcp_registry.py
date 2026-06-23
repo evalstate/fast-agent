@@ -872,18 +872,21 @@ def _check_server_unpack_budget(
 
 
 def _check_archive_name_collisions(names: Iterable[str]) -> None:
-    """Reject entry names that collide under NFC + case-fold (e.g. Skill.md vs SKILL.md),
-    which would silently overwrite each other on a case-insensitive filesystem."""
+    """Reject entry names that *differ* yet normalize to one path under NFC + case-fold
+    (e.g. Skill.md vs SKILL.md), which would silently overwrite each other on a
+    case-insensitive filesystem. Byte-identical repeated entries are harmless and allowed —
+    some tar invocations emit a directory and a file within it (or the same path twice)."""
     seen: dict[str, str] = {}
     for name in names:
         # trailing slash dropped so a dir entry and a file of the same name also collide
         key = unicodedata.normalize("NFC", name).rstrip("/").casefold()
         if not key:
             continue
-        if key in seen:
+        prior = seen.get(key)
+        if prior is not None and prior != name:
             raise ValueError(
                 "MCP skill archive entries collide under case/Unicode normalization: "
-                f"{seen[key]!r} and {name!r}"
+                f"{prior!r} and {name!r}"
             )
         seen[key] = name
 

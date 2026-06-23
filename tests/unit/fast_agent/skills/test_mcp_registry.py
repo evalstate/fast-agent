@@ -941,3 +941,40 @@ async def test_install_accepts_yaml_date_frontmatter(tmp_path) -> None:
     install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
 
     assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+
+
+@pytest.mark.asyncio
+async def test_archive_allows_identical_duplicate_entries(tmp_path) -> None:
+    """Byte-identical duplicate archive entries (some tar invocations emit a directory and a
+    file within it, or the same path twice) must not be mistaken for a case-fold collision."""
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nBody\n"
+    run_sh = b"echo ok\n"
+    buffer = BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name, content in (
+            ("SKILL.md", skill_text.encode("utf-8")),
+            ("scripts/run.sh", run_sh),
+            ("scripts/run.sh", run_sh),  # duplicate: identical path and content
+        ):
+            info = tarfile.TarInfo(name)
+            info.size = len(content)
+            archive.addfile(info, BytesIO(content))
+    artifact = buffer.getvalue()
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/demo.tar.gz",
+        server_name="hf",
+        digest=_digest(artifact),
+        artifact_type="archive",
+        artifact_mime_type="application/gzip",
+        frontmatter={"name": "demo", "description": "Demo skill"},
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(),
+        responses={"skill://demo/demo.tar.gz": artifact},
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    assert (install_dir / "scripts" / "run.sh").read_bytes() == run_sh
