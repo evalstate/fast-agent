@@ -978,3 +978,29 @@ async def test_archive_allows_identical_duplicate_entries(tmp_path) -> None:
     install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
 
     assert (install_dir / "scripts" / "run.sh").read_bytes() == run_sh
+
+
+@pytest.mark.asyncio
+async def test_scan_rejects_no_authority_file_urls() -> None:
+    """RFC 8089 file URIs without an authority (file:/path, file:path) are still local-file
+    references and must be rejected like file:// is."""
+    for bad_url in ("file:/etc/passwd", "file:etc/passwd"):
+        index = json.dumps(
+            {
+                "skills": [
+                    {
+                        "frontmatter": {"name": "local", "description": "Local skill"},
+                        "url": bad_url,
+                        "digest": "sha256:" + "0" * 64,
+                    }
+                ]
+            }
+        )
+        aggregator = _Aggregator(
+            capabilities=_skills_capabilities(), responses={INDEX_URI: index}
+        )
+
+        registry = await scan_mcp_skill_registry(aggregator, "hf")
+
+        assert registry is not None
+        assert registry.skills == []

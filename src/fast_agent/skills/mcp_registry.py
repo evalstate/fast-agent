@@ -272,9 +272,11 @@ def _validate_url_and_digest(
     if not isinstance(url, str) or not url.strip():
         return None
     source_url = url.strip()
-    if source_url.lower().startswith("file://"):
+    # Match the ``file`` scheme itself, not just ``file://`` — the no-authority forms
+    # ``file:/path`` and ``file:path`` (RFC 8089) would slip past a prefix check.
+    if urlparse(source_url).scheme.lower() == "file":
         logger.warning(
-            f"Rejecting file:// MCP skill {label}",
+            f"Rejecting file: MCP skill {label}",
             data={"server": server_name, "name": name, "url": source_url},
         )
         return None
