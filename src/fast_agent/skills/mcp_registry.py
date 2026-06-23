@@ -502,6 +502,38 @@ def _verify_frontmatter_matches_index(skill_text: str, skill: McpRegistrySkill) 
         )
 
 
+# Frontmatter fields that widen a skill's host permissions or register executable
+# behaviour. Honoring these for a *remote* (MCP-origin) skill lets the serving
+# server self-grant access on the host, so they are stripped on install.
+PERMISSION_WIDENING_FRONTMATTER = ("allowed-tools", "hooks")
+
+
+def _strip_permission_widening_frontmatter(install_dir: Path) -> None:
+    """Strip permission-widening / exec-registering frontmatter from the installed SKILL.md.
+
+    Every skill installed through this module is MCP-origin (remote). Fields like
+    ``allowed-tools`` and ``hooks`` scope which tools / automation a *local* skill
+    may use; honoring them for a remote skill lets the serving MCP server widen
+    its own access on the host. This install path has no per-skill approval
+    channel, so strip them — the skill still installs, with the self-grant
+    neutralized — rather than honor a server self-grant.
+    """
+    skill_md = install_dir / "SKILL.md"
+    if not skill_md.is_file():
+        return
+    post = frontmatter.loads(skill_md.read_text(encoding="utf-8"))
+    removed = [key for key in PERMISSION_WIDENING_FRONTMATTER if key in post.metadata]
+    if not removed:
+        return
+    for key in removed:
+        post.metadata.pop(key, None)
+    skill_md.write_text(frontmatter.dumps(post), encoding="utf-8")
+    logger.warning(
+        "Stripped permission-widening frontmatter from MCP-origin skill",
+        data={"skill": install_dir.name, "fields": removed},
+    )
+
+
 def _write_skill_md_artifact(skill: McpRegistrySkill, artifact: bytes, install_dir: Path) -> None:
     if len(artifact) > MAX_SKILL_MD_BYTES:
         raise ValueError(f"MCP skill SKILL.md exceeds size limit: {skill.source_url}")
@@ -517,6 +549,7 @@ def _write_skill_md_artifact(skill: McpRegistrySkill, artifact: bytes, install_d
 
     install_dir.mkdir(parents=True, exist_ok=False)
     (install_dir / "SKILL.md").write_text(skill_text, encoding="utf-8")
+    _strip_permission_widening_frontmatter(install_dir)
 
 
 def _write_archive_artifact(skill: McpRegistrySkill, artifact: bytes, install_dir: Path) -> None:
@@ -540,6 +573,7 @@ def _write_archive_artifact(skill: McpRegistrySkill, artifact: bytes, install_di
                 f"MCP skill index name '{skill.name}' does not match manifest name '{manifest.name}'"
             )
         _verify_frontmatter_matches_index(manifest_text, skill)
+        _strip_permission_widening_frontmatter(install_dir)
     except Exception:
         if install_dir.exists():
             shutil.rmtree(install_dir)
