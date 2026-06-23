@@ -23,6 +23,7 @@ import shutil
 import stat
 import tarfile
 import tempfile
+import unicodedata
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -696,10 +697,38 @@ def _relative_uri_path(root_uri: str, child_uri: str) -> str | None:
     return relative or None
 
 
+def _check_archive_name_collisions(names: Iterable[str]) -> None:
+    """Reject archives whose entry names collide under Unicode normalization and case-folding.
+
+    On a case-insensitive or Unicode-normalizing filesystem (Windows NTFS, macOS
+    APFS) two distinct entry names can resolve to the same path, so a later entry
+    silently overwrites an earlier one — e.g. ``Skill.md`` clobbering the
+    digest-verified ``SKILL.md``. A raw byte-equality / ``set`` duplicate check
+    misses this, so fold each name the way such a filesystem would (NFC + case)
+    before checking for duplicates.
+    """
+    seen: dict[str, str] = {}
+    for name in names:
+        # Normalize the whole POSIX path as a case-insensitive, NFC-normalizing
+        # filesystem would; drop a trailing slash so a directory entry and a file
+        # of the same name also collide.
+        key = unicodedata.normalize("NFC", name).rstrip("/").casefold()
+        if not key:
+            continue
+        if key in seen:
+            raise ValueError(
+                "MCP skill archive entries collide under case/Unicode normalization: "
+                f"{seen[key]!r} and {name!r}"
+            )
+        seen[key] = name
+
+
 def _extract_tar_safely(artifact: bytes, destination: Path) -> None:
     total_size = 0
     with tarfile.open(fileobj=io.BytesIO(artifact), mode="r:*") as archive:
-        for member in archive.getmembers():
+        members = archive.getmembers()
+        _check_archive_name_collisions(member.name for member in members)
+        for member in members:
             _validate_archive_name(member.name)
             if member.issym() or member.islnk():
                 raise ValueError("MCP skill archives must not contain links")
@@ -713,7 +742,9 @@ def _extract_tar_safely(artifact: bytes, destination: Path) -> None:
 def _extract_zip_safely(artifact: bytes, destination: Path) -> None:
     total_size = 0
     with zipfile.ZipFile(io.BytesIO(artifact)) as archive:
-        for info in archive.infolist():
+        infos = archive.infolist()
+        _check_archive_name_collisions(info.filename for info in infos)
+        for info in infos:
             _validate_archive_name(info.filename)
             mode = info.external_attr >> 16
             if stat.S_ISLNK(mode):
