@@ -918,3 +918,26 @@ async def test_supporting_files_count_against_server_budget(tmp_path, monkeypatc
     # per-server budget the base skill already consumed, so the best-effort walk drops it.
     assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
     assert not (install_dir / "GUIDE.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_install_accepts_yaml_date_frontmatter(tmp_path) -> None:
+    """A SKILL.md whose YAML frontmatter carries a date scalar matches the index's JSON string
+    rendering of the same value; YAML->JSON type coercion must not cause a false rejection."""
+    skill_text = "---\nname: demo\ndescription: Demo skill\nupdated: 2024-01-15\n---\nBody\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+        frontmatter={"name": "demo", "description": "Demo skill", "updated": "2024-01-15"},
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(),
+        responses={"skill://demo/SKILL.md": skill_text},
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text

@@ -15,6 +15,7 @@ must supply a usable ``url``, a non-empty ``archives``, or both.
 from __future__ import annotations
 
 import base64
+import datetime
 import hashlib
 import io
 import json
@@ -488,12 +489,19 @@ async def _write_verified_mcp_skill(
 
 
 def _canonical_frontmatter(value: Any) -> Any:
-    """Normalize for comparison: strip scalar whitespace (folded-scalar newlines) and
-    recurse into mappings/sequences (order-independent)."""
+    """Normalize so served YAML frontmatter compares equal to a faithful JSON rendering of
+    the same YAML. Mappings compare order-independently (Python dict ==); sequences compare
+    positionally (list order is author-meaningful). YAML-only temporal scalars
+    (date/datetime/time) collapse to ISO-8601 strings because the index frontmatter is the
+    SKILL.md YAML rendered as JSON, and JSON has no date type. Scalar whitespace is stripped
+    (folded-scalar newlines)."""
     if isinstance(value, Mapping):
         return {str(key): _canonical_frontmatter(val) for key, val in value.items()}
     if isinstance(value, (list, tuple)):
         return [_canonical_frontmatter(item) for item in value]
+    # datetime subclasses date; time is distinct. All three expose .isoformat().
+    if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+        return value.isoformat()
     if isinstance(value, str):
         return value.strip()
     return value
