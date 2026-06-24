@@ -1124,7 +1124,7 @@ def _render_mcp_skills_hint(status: ServerStatus, *, indent: str) -> None:
 
     skills_line = Text(indent + "  ")
     skills_line.append(
-        "SEP-2640 Skills over MCP is enabled: use `/skills registry` to select them",
+        "Skills over MCP are available: use `/skills registry` to select them",
         style=Colours.TEXT_SUCCESS,
     )
     console.console.print(skills_line)

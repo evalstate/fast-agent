@@ -12,7 +12,6 @@ from fast_agent.config import Settings
 from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.llm_groq import GroqLLM, _normalize_groq_reasoning_setting
-from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, available_reasoning_values
 from fast_agent.llm.request_params import RequestParams
 
