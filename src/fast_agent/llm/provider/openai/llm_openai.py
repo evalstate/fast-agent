@@ -1242,7 +1242,6 @@ class OpenAILLM(
         with suppress(Exception):
             cast("Any", message).role = normalized_role
         if model_name in (
-            "deepseek-r1-distill-llama-70b",
             "openai/gpt-oss-120b",
             "openai/gpt-oss-20b",
         ):
