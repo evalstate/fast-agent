@@ -185,6 +185,7 @@ project_contents.md
 fastagent.secrets.yaml
 CLAUDE.md
 example-outputs/
+stream-debug/
 
 tests/integration/api/weather_location.txt
 tests/integration/prompt-state/simple.txt
