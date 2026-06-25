@@ -7,12 +7,8 @@ social:
   alt: fast-agent social card - Skills over MCP
 ---
 
-`fast-agent` supports the registry and installation portion of
-[SEP-2640: Skills Extension](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/93d7a9ddb20d4b3594f4a1be7508ee47f0718f17/seps/2640-skills-extension.md).
-SEP-2640 is still a draft, so this support is intentionally scoped: an MCP
-server can act as a skills registry when it advertises the
-`io.modelcontextprotocol/skills` extension capability, and `fast-agent` installs
-selected skills into the normal managed skills directory.
+`fast-agent` supports the draft 
+[SEP-2640: Skills over MCP Extension](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/93d7a9ddb20d4b3594f4a1be7508ee47f0718f17/seps/2640-skills-extension.md).
 
 When a connected MCP server advertises this capability, `fast-agent` shows it as
 an MCP-backed skills registry. Opening `/skills registry` reads
@@ -78,3 +74,5 @@ registry digest and apply a verified update when the server publishes a newer
 artifact. The top-level `fast-agent skills` CLI remains marketplace/file/GitHub
 oriented; select MCP registries from an interactive session after connecting the
 MCP server.
+
+Thanks to [olaservo](https://github.com/olaservo) for contributing this feature.

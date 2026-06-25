@@ -76,7 +76,6 @@ from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
-    from fast_agent.core.logging.logger import Logger
     from fast_agent.interfaces import FastAgentLLMProtocol, LlmAgentProtocol
 
 
@@ -511,6 +510,33 @@ async def _set_agent_model_for_switch(
     return True
 
 
+async def _start_model_switch_session(ctx: CommandContext, outcome: CommandOutcome) -> None:
+    if not ctx.noenv:
+        outcome.add_message(
+            "Model switch starts a new session to avoid mixing histories.",
+            channel="info",
+        )
+        session_outcome = await sessions_handlers.handle_create_session(
+            ctx,
+            session_name=None,
+            session_id=ctx.acp_session_id,
+            replace_existing=ctx.acp_session_id is not None,
+        )
+        outcome.messages.extend(session_outcome.messages)
+    else:
+        outcome.add_message(
+            "Model switch cleared in-memory history (--noenv disables session persistence).",
+            channel="info",
+        )
+
+    cleared = clear_agent_histories(ctx.agent_provider.registered_agents())
+    if cleared:
+        outcome.add_message(
+            f"Cleared agent history: {', '.join(sorted(cleared))}",
+            channel="info",
+        )
+
+
 async def handle_model_switch(
     ctx: CommandContext,
     *,
@@ -552,6 +578,23 @@ async def handle_model_switch(
         )
         return outcome
 
+    if (
+        previous_resolved_model is not None
+        and selected_model == previous_resolved_model.selected_model_name
+    ):
+        outcome.add_message(
+            styled_model_line(
+                "Model",
+                f"{format_model_switch_value(previous_resolved_model)} (already active)",
+                suffix="",
+            ),
+            channel="warning",
+            right_info="model",
+        )
+        return outcome
+
+    await _start_model_switch_session(ctx, outcome)
+
     if not await _set_agent_model_for_switch(outcome, agent, selected_model):
         return outcome
 
@@ -582,44 +625,7 @@ async def handle_model_switch(
         channel="system",
         right_info="model",
     )
-    outcome.reset_session = True
     return outcome
-
-
-async def apply_model_switch_session_reset(
-    ctx: CommandContext,
-    outcome: CommandOutcome,
-    *,
-    logger: "Logger | None" = None,
-) -> None:
-    """Apply the shared session/history reset requested by a model switch."""
-    if not outcome.reset_session:
-        return
-
-    if not ctx.noenv:
-        outcome.add_message(
-            "Model switch starts a new session to avoid mixing histories.",
-            channel="info",
-        )
-        session_outcome = await sessions_handlers.handle_create_session(
-            ctx,
-            session_name=None,
-            session_id=ctx.acp_session_id,
-            replace_existing=ctx.acp_session_id is not None,
-        )
-        outcome.messages.extend(session_outcome.messages)
-    else:
-        outcome.add_message(
-            "Model switch cleared in-memory history (--noenv disables session persistence).",
-            channel="info",
-        )
-
-    cleared = clear_agent_histories(ctx.agent_provider.registered_agents(), logger)
-    if cleared:
-        outcome.add_message(
-            f"Cleared agent history: {', '.join(sorted(cleared))}",
-            channel="info",
-        )
 
 
 async def handle_model_reasoning(

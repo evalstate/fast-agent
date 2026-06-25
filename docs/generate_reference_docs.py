@@ -8,7 +8,8 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from types import NoneType, UnionType
+from typing import Any, Literal, Union, get_args, get_origin
 
 from pydantic_core import PydanticUndefined
 
@@ -132,6 +133,42 @@ def _field_default_text(field_info: Any) -> str:
     return f"`{default!r}`"
 
 
+def _annotation_text(annotation: Any) -> str:
+    if annotation is Any:
+        return "Any"
+    if annotation is NoneType:
+        return "None"
+    if annotation is Ellipsis:
+        return "..."
+    if isinstance(annotation, str):
+        return annotation
+
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+    if origin in (Union, UnionType):
+        return " | ".join(_annotation_text(arg) for arg in args)
+    if origin is Literal:
+        values = ", ".join(repr(arg) for arg in args)
+        return f"Literal[{values}]"
+    if origin is not None:
+        origin_text = _annotation_text(origin)
+        if args:
+            args_text = ", ".join(_annotation_text(arg) for arg in args)
+            return f"{origin_text}[{args_text}]"
+        return origin_text
+
+    name = getattr(annotation, "__qualname__", None)
+    if name is not None:
+        module = getattr(annotation, "__module__", None)
+        if module in (None, "builtins"):
+            return name
+        if module == "typing":
+            return name
+        return f"{module}.{name}"
+
+    return str(annotation).removeprefix("typing.")
+
+
 def generate_workflows_reference() -> str:
     from fast_agent.core.fastagent import FastAgent
 
@@ -177,8 +214,7 @@ def generate_request_params_reference() -> str:
     lines.append("| --- | --- | --- | --- |\n")
 
     for field_name, field_info in RequestParams.model_fields.items():
-        annotation = field_info.annotation
-        type_str = getattr(annotation, "__name__", None) or str(annotation)
+        type_str = _annotation_text(field_info.annotation)
         default_str = _field_default_text(field_info)
 
         desc = (field_info.description or "").replace("\n", " ").strip()
@@ -792,7 +828,6 @@ def generate_models_reference() -> str:
         "moonshotai/kimi-k2-thinking": Provider.GROQ,
         "moonshotai/kimi-k2-thinking-0905": Provider.GROQ,
         "qwen/qwen3-32b": Provider.GROQ,
-        "deepseek-r1-distill-llama-70b": Provider.GROQ,
     }
 
     def infer_provider(model_name: str, alias: str | None) -> Provider:

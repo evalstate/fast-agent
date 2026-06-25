@@ -374,12 +374,11 @@ async def test_render_mcp_status_shows_skills_hint_above_capability_bar() -> Non
         _restore_console_size(original_console)
 
     assert "last activity:" in output
-    assert "last activity:" in output and "SEP-2640" in output
-    assert "last activity:" not in next(line for line in output.splitlines() if "SEP-2640" in line)
+    assert "last activity:" in output and "Skills over MCP" in output
 
     lines = output.splitlines()
     transport_index = next(index for index, line in enumerate(lines) if "STDIO" in line)
-    skills_index = next(index for index, line in enumerate(lines) if "SEP-2640" in line)
+    skills_index = next(index for index, line in enumerate(lines) if "Skills over MCP" in line)
     capability_index = next(index for index, line in enumerate(lines) if "─| " in line)
 
     assert transport_index < skills_index < capability_index
