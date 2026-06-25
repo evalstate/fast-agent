@@ -6,6 +6,7 @@ import tarfile
 from hashlib import sha256
 from io import BytesIO
 
+import frontmatter
 import pytest
 from mcp.types import (
     BlobResourceContents,
@@ -288,6 +289,7 @@ async def test_install_mcp_registry_skill_writes_provenance(tmp_path) -> None:
         server_name="hf",
         digest=_digest(skill_text),
         server_version="1.2.3",
+        frontmatter={"name": "demo", "description": "Demo skill"},
     )
     aggregator = _Aggregator(
         capabilities=_skills_capabilities(),
@@ -324,6 +326,7 @@ async def test_install_direct_skill_materializes_supporting_files(tmp_path) -> N
         source_url="skill://demo/SKILL.md",
         server_name="hf",
         digest=_digest(skill_text),
+        frontmatter={"name": "demo", "description": "Demo skill"},
     )
     aggregator = _Aggregator(
         capabilities=_skills_capabilities(directory_read=True),
@@ -367,6 +370,7 @@ async def test_install_direct_skill_walks_lowercase_skill_md_url(tmp_path) -> No
         source_url="skill://demo/skill.md",
         server_name="hf",
         digest=_digest(skill_text),
+        frontmatter={"name": "demo", "description": "Demo skill"},
     )
     aggregator = _Aggregator(
         capabilities=_skills_capabilities(directory_read=True),
@@ -400,6 +404,7 @@ async def test_install_direct_skill_rejects_oversized_supporting_file(
         source_url="skill://demo/SKILL.md",
         server_name="hf",
         digest=_digest(skill_text),
+        frontmatter={"name": "demo", "description": "Demo skill"},
     )
     aggregator = _Aggregator(
         capabilities=_skills_capabilities(directory_read=True),
@@ -450,6 +455,7 @@ async def test_install_direct_skill_does_not_overwrite_verified_skill_md(tmp_pat
         source_url="skill://demo/SKILL.md",
         server_name="hf",
         digest=_digest(skill_text),
+        frontmatter={"name": "demo", "description": "Demo skill"},
     )
     aggregator = _Aggregator(
         capabilities=_skills_capabilities(directory_read=True),
@@ -480,6 +486,7 @@ async def test_install_direct_skill_rolls_back_partial_supporting_files(tmp_path
         source_url="skill://demo/SKILL.md",
         server_name="hf",
         digest=_digest(skill_text),
+        frontmatter={"name": "demo", "description": "Demo skill"},
     )
     aggregator = _Aggregator(
         capabilities=_skills_capabilities(directory_read=True),
@@ -514,6 +521,7 @@ async def test_install_direct_skill_bounds_infinite_pagination(tmp_path) -> None
         source_url="skill://demo/SKILL.md",
         server_name="hf",
         digest=_digest(skill_text),
+        frontmatter={"name": "demo", "description": "Demo skill"},
     )
 
     class _InfinitePagerAggregator(_Aggregator):
@@ -547,6 +555,7 @@ async def test_install_direct_skill_skips_walk_without_capability(tmp_path) -> N
         source_url="skill://demo/SKILL.md",
         server_name="hf",
         digest=_digest(skill_text),
+        frontmatter={"name": "demo", "description": "Demo skill"},
     )
     aggregator = _Aggregator(
         capabilities=_skills_capabilities(directory_read=False),
@@ -602,6 +611,7 @@ async def test_install_mcp_registry_archive_skill(tmp_path) -> None:
         digest=_digest(artifact),
         artifact_type="archive",
         artifact_mime_type="application/gzip",
+        frontmatter={"name": "demo", "description": "Demo skill"},
     )
     aggregator = _Aggregator(
         capabilities=_skills_capabilities(),
@@ -612,3 +622,433 @@ async def test_install_mcp_registry_archive_skill(tmp_path) -> None:
 
     assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
     assert (install_dir / "scripts" / "run.sh").read_text(encoding="utf-8") == "echo ok\n"
+
+
+# --- SEP-2640 install-path hardening guards ---------------------------------
+
+
+@pytest.mark.asyncio
+async def test_archive_rejects_case_fold_collision(tmp_path) -> None:
+    """An archive entry that case-folds onto SKILL.md (Skill.md) is rejected before unpack,
+    so it cannot silently overwrite the digest-verified manifest on a case-insensitive FS."""
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nVerified\n"
+    artifact = _tar_gz(
+        {
+            "SKILL.md": skill_text.encode("utf-8"),
+            "Skill.md": b"---\nname: demo\ndescription: Overwrite\n---\nUNVERIFIED\n",
+        }
+    )
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/demo.tar.gz",
+        server_name="hf",
+        digest=_digest(artifact),
+        artifact_type="archive",
+        artifact_mime_type="application/gzip",
+        frontmatter={"name": "demo", "description": "Demo skill"},
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(),
+        responses={"skill://demo/demo.tar.gz": artifact},
+    )
+
+    with pytest.raises(ValueError, match="collide"):
+        await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    assert not (tmp_path / "demo").exists()
+
+
+@pytest.mark.asyncio
+async def test_install_rejects_frontmatter_index_mismatch(tmp_path) -> None:
+    """The served SKILL.md frontmatter must match the index entry field-by-field; a server
+    advertising different frontmatter than it serves is a verification failure."""
+    skill_text = "---\nname: demo\ndescription: Honest served description\n---\nBody\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+        frontmatter={
+            "name": "demo",
+            "description": "Index claims something tamer",
+            "allowed-tools": ["Bash"],
+        },
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(),
+        responses={"skill://demo/SKILL.md": skill_text},
+    )
+
+    with pytest.raises(ValueError, match="does not match"):
+        await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    assert not (tmp_path / "demo").exists()
+
+
+@pytest.mark.asyncio
+async def test_install_strips_permission_widening_frontmatter(tmp_path) -> None:
+    """allowed-tools / hooks are stripped from an installed MCP-origin SKILL.md so a remote
+    server cannot self-grant host permissions; the skill still installs."""
+    skill_text = (
+        "---\nname: demo\ndescription: Demo skill\n"
+        "allowed-tools:\n  - Bash\n  - Write\n---\nBody\n"
+    )
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+        frontmatter={
+            "name": "demo",
+            "description": "Demo skill",
+            "allowed-tools": ["Bash", "Write"],
+        },
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(),
+        responses={"skill://demo/SKILL.md": skill_text},
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    installed = frontmatter.loads((install_dir / "SKILL.md").read_text(encoding="utf-8"))
+    assert "allowed-tools" not in installed.metadata
+    assert installed.metadata["name"] == "demo"
+
+
+@pytest.mark.asyncio
+async def test_install_warns_on_unverified_supporting_files(tmp_path, monkeypatch) -> None:
+    """Url-only supporting files are still materialized, but flagged as unverified (no digest
+    covers bytes fetched via the directory walk)."""
+    messages: list[str] = []
+    monkeypatch.setattr(
+        mcp_registry.logger,
+        "warning",
+        lambda message, *args, **kwargs: messages.append(str(message)),
+    )
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nSee references/GUIDE.md\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+        frontmatter={"name": "demo", "description": "Demo skill"},
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=True),
+        responses={
+            "skill://demo/SKILL.md": skill_text,
+            "skill://demo/references/GUIDE.md": "# Guide\n",
+        },
+        directories={
+            "skill://demo": [
+                Resource(uri=AnyUrl("skill://demo/SKILL.md"), name="SKILL.md"),
+                Resource(
+                    uri=AnyUrl("skill://demo/references"),
+                    name="references",
+                    mimeType="inode/directory",
+                ),
+            ],
+            "skill://demo/references": [
+                Resource(uri=AnyUrl("skill://demo/references/GUIDE.md"), name="GUIDE.md"),
+            ],
+        },
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    # Feature preserved: the supporting file is still installed...
+    assert (install_dir / "references" / "GUIDE.md").read_text(encoding="utf-8") == "# Guide\n"
+    # ...but flagged as unverified.
+    assert any("unverified" in message.lower() for message in messages)
+
+
+@pytest.mark.asyncio
+async def test_archive_enforces_cumulative_per_server_budget(tmp_path, monkeypatch) -> None:
+    """Each archive fits the per-archive cap, but a second archive from the same server that
+    pushes the server's cumulative on-disk total over budget is rejected."""
+
+    def _part(name: str) -> tuple[bytes, str]:
+        text = f"---\nname: {name}\ndescription: Budget part\n---\n" + "padding " * 200 + "\n"
+        return _tar_gz({"SKILL.md": text.encode("utf-8")}), text
+
+    artifact_a, text_a = _part("budget-a")
+    artifact_b, _ = _part("budget-b")
+    unpacked = len(text_a.encode("utf-8"))
+    # Room for one part's unpacked bytes plus headroom, but not two.
+    monkeypatch.setattr(mcp_registry, "MAX_SERVER_UNPACKED_BYTES", unpacked + unpacked // 2)
+
+    def _part_skill(name: str, artifact: bytes) -> McpRegistrySkill:
+        return McpRegistrySkill(
+            name=name,
+            description="Budget part",
+            source_url=f"skill://{name}.tar.gz",
+            server_name="budget-srv",
+            digest=_digest(artifact),
+            artifact_type="archive",
+            artifact_mime_type="application/gzip",
+            frontmatter={"name": name, "description": "Budget part"},
+        )
+
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(),
+        responses={
+            "skill://budget-a.tar.gz": artifact_a,
+            "skill://budget-b.tar.gz": artifact_b,
+        },
+    )
+
+    await install_mcp_registry_skill(
+        aggregator, _part_skill("budget-a", artifact_a), destination_root=tmp_path
+    )
+    with pytest.raises(ValueError, match="cumulative"):
+        await install_mcp_registry_skill(
+            aggregator, _part_skill("budget-b", artifact_b), destination_root=tmp_path
+        )
+    assert not (tmp_path / "budget-b").exists()
+
+
+@pytest.mark.asyncio
+async def test_direct_skill_md_enforces_cumulative_per_server_budget(
+    tmp_path, monkeypatch
+) -> None:
+    """Direct SKILL.md installs are charged to the same cumulative server budget as archives,
+    even when the server cannot provide supporting files."""
+
+    def _direct_skill_text(name: str) -> str:
+        return f"---\nname: {name}\ndescription: Budget part\n---\n" + "padding " * 200 + "\n"
+
+    text_a = _direct_skill_text("budget-a")
+    text_b = _direct_skill_text("budget-b")
+    unpacked = len(text_a.encode("utf-8"))
+    # Room for one direct SKILL.md plus headroom, but not two.
+    monkeypatch.setattr(mcp_registry, "MAX_SERVER_UNPACKED_BYTES", unpacked + unpacked // 2)
+
+    def _part_skill(name: str, text: str) -> McpRegistrySkill:
+        return McpRegistrySkill(
+            name=name,
+            description="Budget part",
+            source_url=f"skill://{name}/SKILL.md",
+            server_name="budget-srv",
+            digest=_digest(text),
+            frontmatter={"name": name, "description": "Budget part"},
+        )
+
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=False),
+        responses={
+            "skill://budget-a/SKILL.md": text_a,
+            "skill://budget-b/SKILL.md": text_b,
+        },
+    )
+
+    await install_mcp_registry_skill(
+        aggregator, _part_skill("budget-a", text_a), destination_root=tmp_path
+    )
+    with pytest.raises(ValueError, match="cumulative"):
+        await install_mcp_registry_skill(
+            aggregator, _part_skill("budget-b", text_b), destination_root=tmp_path
+        )
+    assert not (tmp_path / "budget-b").exists()
+
+
+@pytest.mark.asyncio
+async def test_rolled_back_install_frees_cumulative_budget(tmp_path, monkeypatch) -> None:
+    """A failed install (extract succeeds, a post-extract check fails and rolls back) must not
+    charge the per-server budget — a later legitimate install still fits. The accumulator this
+    replaced leaked the rolled-back bytes and would reject the good install with 'cumulative'."""
+    good_text = "---\nname: good\ndescription: Good skill\n---\n" + "padding " * 200 + "\n"
+    good_artifact = _tar_gz({"SKILL.md": good_text.encode("utf-8")})
+    unpacked = len(good_text.encode("utf-8"))
+    monkeypatch.setattr(mcp_registry, "MAX_SERVER_UNPACKED_BYTES", unpacked + unpacked // 2)
+
+    # Bad skill: archive extracts cleanly but its served frontmatter diverges from the index,
+    # so _write_archive_artifact rolls the directory back after extraction has been charged.
+    bad_text = "---\nname: bad\ndescription: Served description\n---\n" + "padding " * 200 + "\n"
+    bad_artifact = _tar_gz({"SKILL.md": bad_text.encode("utf-8")})
+    bad_skill = McpRegistrySkill(
+        name="bad",
+        description="Bad skill",
+        source_url="skill://bad.tar.gz",
+        server_name="srv",
+        digest=_digest(bad_artifact),
+        artifact_type="archive",
+        artifact_mime_type="application/gzip",
+        frontmatter={"name": "bad", "description": "Index claims otherwise"},
+    )
+    good_skill = McpRegistrySkill(
+        name="good",
+        description="Good skill",
+        source_url="skill://good.tar.gz",
+        server_name="srv",
+        digest=_digest(good_artifact),
+        artifact_type="archive",
+        artifact_mime_type="application/gzip",
+        frontmatter={"name": "good", "description": "Good skill"},
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(),
+        responses={
+            "skill://bad.tar.gz": bad_artifact,
+            "skill://good.tar.gz": good_artifact,
+        },
+    )
+
+    with pytest.raises(ValueError, match="does not match"):
+        await install_mcp_registry_skill(aggregator, bad_skill, destination_root=tmp_path)
+    assert not (tmp_path / "bad").exists()
+
+    install_dir = await install_mcp_registry_skill(
+        aggregator, good_skill, destination_root=tmp_path
+    )
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == good_text
+
+
+@pytest.mark.asyncio
+async def test_supporting_files_count_against_server_budget(tmp_path, monkeypatch) -> None:
+    """Walk-fetched supporting files share the cumulative per-server budget with archives:
+    once a prior install has consumed the cap, a further supporting file is refused (the walk
+    is best-effort), though the digest-verified SKILL.md still installs."""
+    base_text = "---\nname: base\ndescription: Base\n---\n" + "padding " * 200 + "\n"
+    base_artifact = _tar_gz({"SKILL.md": base_text.encode("utf-8")})
+    base_skill = McpRegistrySkill(
+        name="base",
+        description="Base",
+        source_url="skill://base.tar.gz",
+        server_name="srv",
+        digest=_digest(base_artifact),
+        artifact_type="archive",
+        artifact_mime_type="application/gzip",
+        frontmatter={"name": "base", "description": "Base"},
+    )
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nSee GUIDE.md\n"
+    big_support = "x" * 65  # over the remaining headroom, under the per-file cap
+    demo_skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="srv",
+        digest=_digest(skill_text),
+        frontmatter={"name": "demo", "description": "Demo skill"},
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=True),
+        responses={
+            "skill://base.tar.gz": base_artifact,
+            "skill://demo/SKILL.md": skill_text,
+            "skill://demo/GUIDE.md": big_support,
+        },
+        directories={
+            "skill://demo": [
+                Resource(uri=AnyUrl("skill://demo/GUIDE.md"), name="GUIDE.md"),
+            ],
+        },
+    )
+
+    await install_mcp_registry_skill(aggregator, base_skill, destination_root=tmp_path)
+    # Budget leaves room for the direct SKILL.md plus only 64 bytes of supporting files.
+    monkeypatch.setattr(
+        mcp_registry,
+        "MAX_SERVER_UNPACKED_BYTES",
+        mcp_registry._server_unpacked_used(tmp_path, "srv")
+        + len(skill_text.encode("utf-8"))
+        + 64,
+    )
+    install_dir = await install_mcp_registry_skill(
+        aggregator, demo_skill, destination_root=tmp_path
+    )
+
+    # SKILL.md is digest-verified and always installs; the supporting file would breach the
+    # per-server budget the base skill already consumed, so the best-effort walk drops it.
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+    assert not (install_dir / "GUIDE.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_install_accepts_yaml_date_frontmatter(tmp_path) -> None:
+    """A SKILL.md whose YAML frontmatter carries a date scalar matches the index's JSON string
+    rendering of the same value; YAML->JSON type coercion must not cause a false rejection."""
+    skill_text = "---\nname: demo\ndescription: Demo skill\nupdated: 2024-01-15\n---\nBody\n"
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/SKILL.md",
+        server_name="hf",
+        digest=_digest(skill_text),
+        frontmatter={"name": "demo", "description": "Demo skill", "updated": "2024-01-15"},
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(),
+        responses={"skill://demo/SKILL.md": skill_text},
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    assert (install_dir / "SKILL.md").read_text(encoding="utf-8") == skill_text
+
+
+@pytest.mark.asyncio
+async def test_archive_allows_identical_duplicate_entries(tmp_path) -> None:
+    """Byte-identical duplicate archive entries (some tar invocations emit a directory and a
+    file within it, or the same path twice) must not be mistaken for a case-fold collision."""
+    skill_text = "---\nname: demo\ndescription: Demo skill\n---\nBody\n"
+    run_sh = b"echo ok\n"
+    buffer = BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for name, content in (
+            ("SKILL.md", skill_text.encode("utf-8")),
+            ("scripts/run.sh", run_sh),
+            ("scripts/run.sh", run_sh),  # duplicate: identical path and content
+        ):
+            info = tarfile.TarInfo(name)
+            info.size = len(content)
+            archive.addfile(info, BytesIO(content))
+    artifact = buffer.getvalue()
+    skill = McpRegistrySkill(
+        name="demo",
+        description="Demo skill",
+        source_url="skill://demo/demo.tar.gz",
+        server_name="hf",
+        digest=_digest(artifact),
+        artifact_type="archive",
+        artifact_mime_type="application/gzip",
+        frontmatter={"name": "demo", "description": "Demo skill"},
+    )
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(),
+        responses={"skill://demo/demo.tar.gz": artifact},
+    )
+
+    install_dir = await install_mcp_registry_skill(aggregator, skill, destination_root=tmp_path)
+
+    assert (install_dir / "scripts" / "run.sh").read_bytes() == run_sh
+
+
+@pytest.mark.asyncio
+async def test_scan_rejects_no_authority_file_urls() -> None:
+    """RFC 8089 file URIs without an authority (file:/path, file:path) are still local-file
+    references and must be rejected like file:// is."""
+    for bad_url in ("file:/etc/passwd", "file:etc/passwd"):
+        index = json.dumps(
+            {
+                "skills": [
+                    {
+                        "frontmatter": {"name": "local", "description": "Local skill"},
+                        "url": bad_url,
+                        "digest": "sha256:" + "0" * 64,
+                    }
+                ]
+            }
+        )
+        aggregator = _Aggregator(
+            capabilities=_skills_capabilities(), responses={INDEX_URI: index}
+        )
+
+        registry = await scan_mcp_skill_registry(aggregator, "hf")
+
+        assert registry is not None
+        assert registry.skills == []
