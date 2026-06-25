@@ -575,6 +575,14 @@ class ModelDatabase:
         default_provider=Provider.DEEPSEEK,
     )
 
+    DEEPSEEK_V_32 = ModelParameters(
+        context_window=65536,
+        max_output_tokens=32768,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="gpt_oss",
+    )
+
     GEMINI_25_STANDARD = ModelParameters(
         context_window=1_048_576,
         max_output_tokens=65_536,

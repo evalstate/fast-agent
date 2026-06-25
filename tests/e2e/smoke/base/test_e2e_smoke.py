@@ -34,7 +34,6 @@ if TYPE_CHECKING:
         "grok-3-fast",
         "groq.moonshotai/kimi-k2-instruct",
         "gpt-5-mini?reasoning=minimal",
-        # "groq.deepseek-r1-distill-llama-70b", # handle reasoning outputs (they are long)
     ],
 )
 async def test_basic_textual_prompting(fast_agent, model_name):
@@ -319,7 +318,6 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "azure.gpt-4.1",
         "grok-3",
         "groq.moonshotai/kimi-k2-instruct",
-        "groq.deepseek-r1-distill-llama-70b",
         "groq.qwen/qwen3-32b",
         "gpt-oss",
         "gpt-5-mini?reasoning=minimal",

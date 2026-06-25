@@ -1,21 +1,32 @@
-"""Contract tests for Groq reasoning wiring.
+"""Contract tests for Groq reasoning wiring and the Qwen3.6-27B model entry.
 
 Groq exposes reasoning as a binary `reasoning_effort` toggle (`default`/`none`)
 plus a `reasoning_format` extension. These tests pin the provider add-on that
-shapes that wire contract without restating internal implementation tables.
+shapes that wire contract and the model-database capability entry, without
+restating internal implementation tables.
 """
 
 from __future__ import annotations
 
 from fast_agent.config import Settings
 from fast_agent.context import Context
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.llm_groq import GroqLLM, _normalize_groq_reasoning_setting
-from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, available_reasoning_values
 from fast_agent.llm.request_params import RequestParams
 
 
 def _groq_llm(model: str) -> GroqLLM:
     return GroqLLM(context=Context(config=Settings()), model=model)
+
+
+def test_qwen36_27b_model_database_entry() -> None:
+    params = ModelDatabase.get_model_params("qwen/qwen3.6-27b")
+    assert params
+    # Binary reasoning toggle exposed as on/off.
+    spec = params.reasoning_effort_spec
+    assert spec is not None and spec.kind == "toggle"
+    assert available_reasoning_values(spec) == ["on", "off"]
 
 
 def test_normalize_collsapses_effort_levels_to_toggle() -> None:

@@ -832,7 +832,6 @@ def generate_models_reference() -> str:
         "moonshotai/kimi-k2-thinking": Provider.GROQ,
         "moonshotai/kimi-k2-thinking-0905": Provider.GROQ,
         "qwen/qwen3-32b": Provider.GROQ,
-        "deepseek-r1-distill-llama-70b": Provider.GROQ,
     }
 
     def infer_provider(model_name: str, alias: str | None) -> Provider:

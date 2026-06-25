@@ -203,4 +203,3 @@ def render_marketplace_skills(
     lines.extend(_skills_marketplace_guidance())
 
     return "\n".join(lines)
-

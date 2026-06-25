@@ -53,6 +53,7 @@ class CommandOutcome:
     buffer_prefill: str | None = None
     switch_agent: str | None = None
     requires_refresh: bool = False
+    halt_loop: bool = False
 
     def add_message(
         self,
