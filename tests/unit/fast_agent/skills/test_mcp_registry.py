@@ -813,6 +813,50 @@ async def test_archive_enforces_cumulative_per_server_budget(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_direct_skill_md_enforces_cumulative_per_server_budget(
+    tmp_path, monkeypatch
+) -> None:
+    """Direct SKILL.md installs are charged to the same cumulative server budget as archives,
+    even when the server cannot provide supporting files."""
+
+    def _direct_skill_text(name: str) -> str:
+        return f"---\nname: {name}\ndescription: Budget part\n---\n" + "padding " * 200 + "\n"
+
+    text_a = _direct_skill_text("budget-a")
+    text_b = _direct_skill_text("budget-b")
+    unpacked = len(text_a.encode("utf-8"))
+    # Room for one direct SKILL.md plus headroom, but not two.
+    monkeypatch.setattr(mcp_registry, "MAX_SERVER_UNPACKED_BYTES", unpacked + unpacked // 2)
+
+    def _part_skill(name: str, text: str) -> McpRegistrySkill:
+        return McpRegistrySkill(
+            name=name,
+            description="Budget part",
+            source_url=f"skill://{name}/SKILL.md",
+            server_name="budget-srv",
+            digest=_digest(text),
+            frontmatter={"name": name, "description": "Budget part"},
+        )
+
+    aggregator = _Aggregator(
+        capabilities=_skills_capabilities(directory_read=False),
+        responses={
+            "skill://budget-a/SKILL.md": text_a,
+            "skill://budget-b/SKILL.md": text_b,
+        },
+    )
+
+    await install_mcp_registry_skill(
+        aggregator, _part_skill("budget-a", text_a), destination_root=tmp_path
+    )
+    with pytest.raises(ValueError, match="cumulative"):
+        await install_mcp_registry_skill(
+            aggregator, _part_skill("budget-b", text_b), destination_root=tmp_path
+        )
+    assert not (tmp_path / "budget-b").exists()
+
+
+@pytest.mark.asyncio
 async def test_rolled_back_install_frees_cumulative_budget(tmp_path, monkeypatch) -> None:
     """A failed install (extract succeeds, a post-extract check fails and rolls back) must not
     charge the per-server budget — a later legitimate install still fits. The accumulator this
@@ -871,10 +915,6 @@ async def test_supporting_files_count_against_server_budget(tmp_path, monkeypatc
     is best-effort), though the digest-verified SKILL.md still installs."""
     base_text = "---\nname: base\ndescription: Base\n---\n" + "padding " * 200 + "\n"
     base_artifact = _tar_gz({"SKILL.md": base_text.encode("utf-8")})
-    base_unpacked = len(base_text.encode("utf-8"))
-    # Budget leaves only a few dozen bytes of headroom after the base skill installs.
-    monkeypatch.setattr(mcp_registry, "MAX_SERVER_UNPACKED_BYTES", base_unpacked + 64)
-
     base_skill = McpRegistrySkill(
         name="base",
         description="Base",
@@ -886,7 +926,7 @@ async def test_supporting_files_count_against_server_budget(tmp_path, monkeypatc
         frontmatter={"name": "base", "description": "Base"},
     )
     skill_text = "---\nname: demo\ndescription: Demo skill\n---\nSee GUIDE.md\n"
-    big_support = "x" * 4096  # well over the remaining headroom, under the per-file cap
+    big_support = "x" * 65  # over the remaining headroom, under the per-file cap
     demo_skill = McpRegistrySkill(
         name="demo",
         description="Demo skill",
@@ -910,6 +950,14 @@ async def test_supporting_files_count_against_server_budget(tmp_path, monkeypatc
     )
 
     await install_mcp_registry_skill(aggregator, base_skill, destination_root=tmp_path)
+    # Budget leaves room for the direct SKILL.md plus only 64 bytes of supporting files.
+    monkeypatch.setattr(
+        mcp_registry,
+        "MAX_SERVER_UNPACKED_BYTES",
+        mcp_registry._server_unpacked_used(tmp_path, "srv")
+        + len(skill_text.encode("utf-8"))
+        + 64,
+    )
     install_dir = await install_mcp_registry_skill(
         aggregator, demo_skill, destination_root=tmp_path
     )
