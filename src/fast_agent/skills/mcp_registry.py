@@ -467,9 +467,20 @@ async def _write_verified_mcp_skill(
     _verify_artifact_digest(artifact, skill.digest)
 
     if skill.artifact_type == "skill-md":
+        _check_server_unpack_budget(
+            managed_dir,
+            skill.server_name,
+            projected_new=len(artifact),
+            exclude=exclude,
+        )
         _write_skill_md_artifact(skill, artifact, install_dir)
         await _materialize_supporting_files(
-            aggregator, skill, install_dir, managed_dir=managed_dir, exclude=exclude
+            aggregator,
+            skill,
+            install_dir,
+            managed_dir=managed_dir,
+            exclude=exclude,
+            pending_bytes=len(artifact),
         )
     else:
         _write_archive_artifact(
@@ -618,6 +629,7 @@ async def _materialize_supporting_files(
     *,
     managed_dir: Path | None = None,
     exclude: Path | None = None,
+    pending_bytes: int = 0,
 ) -> None:
     """Fetch a direct-entry skill's supporting files via ``resources/directory/read``.
 
@@ -642,7 +654,7 @@ async def _materialize_supporting_files(
         return
     if managed_dir is None:
         managed_dir = install_dir.parent
-    used = _server_unpacked_used(managed_dir, skill.server_name, exclude=exclude)
+    used = _server_unpacked_used(managed_dir, skill.server_name, exclude=exclude) + pending_bytes
     with tempfile.TemporaryDirectory(
         dir=install_dir.parent, prefix=f".{install_dir.name}.support-"
     ) as staging_str:
