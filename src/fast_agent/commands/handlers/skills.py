@@ -680,7 +680,7 @@ async def _check_skill_update_sources(
     updates: Sequence[SkillUpdateInfo],
 ) -> list[SkillUpdateInfo]:
     resolver = SkillSourceResolver(ctx, agent_name=agent_name)
-    groups = await resolver.update_sources(list(updates))
+    groups = await resolver.update_sources(updates)
     checked_groups = await asyncio.gather(
         *(group.source.check_updates(group.updates) for group in groups)
     )
@@ -695,7 +695,7 @@ async def _apply_skill_update_sources(
     force: bool,
 ) -> list[SkillUpdateInfo]:
     resolver = SkillSourceResolver(ctx, agent_name=agent_name)
-    groups = await resolver.update_sources(list(updates))
+    groups = await resolver.update_sources(updates)
     applied_groups = await asyncio.gather(
         *(group.source.apply_updates(group.updates, force=force) for group in groups)
     )

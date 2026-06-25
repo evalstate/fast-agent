@@ -203,35 +203,3 @@ def render_marketplace_skills(
     lines.extend(_skills_marketplace_guidance())
 
     return "\n".join(lines)
-
-
-def render_skills_registry_overview(
-    *,
-    heading: str,
-    current_registry: str,
-    configured_urls: Sequence[str],
-) -> str:
-    normalized_registry = strip_to_none(current_registry) or current_registry
-    normalized_urls = [
-        normalized_url
-        for url in configured_urls
-        if (normalized_url := strip_to_none(url)) is not None
-    ]
-    lines = [
-        markdown_heading(heading),
-        "",
-        f"Registry: {markdown_code_span(normalized_registry)}",
-        "",
-    ]
-    if normalized_urls:
-        lines.append("Configured registries:")
-        for index, url in enumerate(normalized_urls, 1):
-            lines.append(f"- [{index}] {markdown_code_span(url)}")
-        lines.append("")
-
-    lines.append(
-        "Usage: `/skills registry <number|URL|path>`.\n\n"
-        "URL should point to a repo with a valid `marketplace.json`."
-    )
-
-    return "\n".join(lines)
