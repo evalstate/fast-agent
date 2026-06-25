@@ -56,11 +56,6 @@ async def _handle_model_like(
             value=intent.argument,
         )
 
-    await model_handlers.apply_model_switch_session_reset(
-        ctx,
-        outcome,
-        logger=handler._logger,
-    )
     heading = (
         heading_prefix
         if intent.action == "reasoning" and intent.argument is None

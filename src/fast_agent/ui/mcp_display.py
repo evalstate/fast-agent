@@ -1118,13 +1118,13 @@ def _render_server_calls(status: ServerStatus, *, indent: str) -> None:
         console.console.print(reconnect_line)
 
 
-def _render_mcp_skills_hint(status: ServerStatus, *, indent: str) -> None:
+def _render_mcp_skills_hint(server: str, status: ServerStatus, *, indent: str) -> None:
     if not status.mcp_skills_enabled:
         return
 
     skills_line = Text(indent + "  ")
     skills_line.append(
-        "SEP-2640 Skills over MCP is enabled: use `/skills registry` to select them",
+        f"Skills over MCP are available: use `/skills registry {server}` to select them",
         style=Colours.TEXT_SUCCESS,
     )
     console.console.print(skills_line)
@@ -1173,7 +1173,7 @@ def _render_server_status_block(
     _render_server_state(status, indent=indent, template_expected=template_expected)
     _render_server_calls(status, indent=indent)
     _render_channel_summary(status, indent, total_width)
-    _render_mcp_skills_hint(status, indent=indent)
+    _render_mcp_skills_hint(server,status, indent=indent)
     _render_capability_banner(
         primary_caps + secondary_caps,
         indent=indent,

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -262,14 +263,18 @@ class _StubAgent:
         shell_limit: int | None = None,
         *,
         set_model_error: Exception | None = None,
+        before_set_model: Callable[[], None] | None = None,
     ) -> None:
         self.llm = llm
         self._llm = llm
         self.shell_runtime = _StubShellRuntime(shell_limit) if shell_limit is not None else None
         self.config = SimpleNamespace(model=llm.model_name)
         self._set_model_error = set_model_error
+        self._before_set_model = before_set_model
 
     async def set_model(self, model: str | None) -> None:
+        if self._before_set_model is not None:
+            self._before_set_model()
         if self._set_model_error is not None:
             raise self._set_model_error
         self.config.model = model
@@ -728,22 +733,34 @@ async def test_model_web_search_rejects_invalid_value() -> None:
 
 
 @pytest.mark.asyncio
-async def test_model_switch_sets_explicit_model_and_requests_session_reset() -> None:
+async def test_model_switch_starts_new_session_before_setting_model(tmp_path: Path) -> None:
     llm = _StubLLM("claude-haiku-4-5")
-    agent = _StubAgent(llm)
+    created_session_before_set_model = False
+
+    def record_session_boundary() -> None:
+        nonlocal created_session_before_set_model
+        created_session_before_set_model = ctx.resolve_session_manager().current_session is not None
+
+    agent = _StubAgent(llm, before_set_model=record_session_boundary)
     provider = _StubAgentProvider(agent)
     ctx = CommandContext(
         agent_provider=provider,
         current_agent_name="test",
         io=_StubIO(),
-        settings=Settings(),
+        settings=Settings(environment_dir=str(tmp_path / "fast-agent")),
     )
 
     outcome = await handle_model_switch(ctx, agent_name="test", value="gpt-4.1-mini")
 
+    assert created_session_before_set_model is True
     assert agent.config.model == "gpt-4.1-mini"
     assert llm.model_name == "gpt-4.1-mini"
-    assert outcome.reset_session is True
+    assert ctx.resolve_session_manager().current_session is not None
+    assert any(
+        str(message.text) == "Model switch starts a new session to avoid mixing histories."
+        for message in outcome.messages
+    )
+    assert any(str(message.text).startswith("Created session: ") for message in outcome.messages)
     assert any(
         str(message.text) == "Model: switched from claude-haiku-4-5 to gpt-4.1-mini."
         for message in outcome.messages
@@ -760,13 +777,13 @@ async def test_model_switch_uses_selector_when_value_missing() -> None:
         current_agent_name="test",
         io=_StubIO(model_selection_response="gpt-5-mini"),
         settings=Settings(),
+        noenv=True,
     )
 
-    outcome = await handle_model_switch(ctx, agent_name="test", value=None)
+    await handle_model_switch(ctx, agent_name="test", value=None)
 
     assert agent.config.model == "gpt-5-mini"
     assert llm.model_name == "gpt-5-mini"
-    assert outcome.reset_session is True
 
 
 @pytest.mark.asyncio
@@ -791,7 +808,6 @@ async def test_model_switch_reopens_overlay_selection_on_overlay_provider() -> N
 
     assert io.last_initial_provider == "overlays"
     assert io.last_default_model == "haikutiny"
-    assert outcome.reset_session is False
     assert any("already active" in str(message.text) for message in outcome.messages)
 
 
@@ -816,12 +832,13 @@ async def test_model_switch_reopens_vertex_selection_for_anthropic_vertex_model(
 
     assert io.last_initial_provider == ANTHROPIC_VERTEX_PROVIDER_KEY
     assert io.last_default_model == "anthropic-vertex.claude-sonnet-4-6"
-    assert outcome.reset_session is False
     assert any("already active" in str(message.text) for message in outcome.messages)
 
 
 @pytest.mark.asyncio
-async def test_model_switch_does_not_reset_session_when_model_is_already_active() -> None:
+async def test_model_switch_does_not_start_session_when_model_is_already_active(
+    tmp_path: Path,
+) -> None:
     llm = _StubLLM("gpt-5-mini")
     agent = _StubAgent(llm)
     provider = _StubAgentProvider(agent)
@@ -829,12 +846,12 @@ async def test_model_switch_does_not_reset_session_when_model_is_already_active(
         agent_provider=provider,
         current_agent_name="test",
         io=_StubIO(),
-        settings=Settings(),
+        settings=Settings(environment_dir=str(tmp_path / "fast-agent")),
     )
 
     outcome = await handle_model_switch(ctx, agent_name="test", value="gpt-5-mini")
 
-    assert outcome.reset_session is False
+    assert ctx.resolve_session_manager().current_session is None
     assert any("already active" in str(message.text) for message in outcome.messages)
 
 
@@ -854,15 +871,16 @@ async def test_model_switch_returns_model_config_errors_without_raising() -> Non
         current_agent_name="test",
         io=_StubIO(),
         settings=Settings(),
+        noenv=True,
     )
 
     outcome = await handle_model_switch(ctx, agent_name="test", value="$system.typo")
     text_messages = [str(message.text) for message in outcome.messages]
 
-    assert outcome.reset_session is False
-    assert text_messages == [
+    assert (
         "Model reference '$system.typo' could not be resolved: Available references: $system.default"
-    ]
+        in text_messages
+    )
 
 
 @pytest.mark.asyncio

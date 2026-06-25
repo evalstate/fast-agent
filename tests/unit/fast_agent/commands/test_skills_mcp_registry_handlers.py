@@ -106,7 +106,7 @@ async def test_skills_registry_can_select_mcp_server_by_name() -> None:
     assert settings.skills.marketplace_url is None
     assert ctx.active_skill_source("main") == "mcp://hf"
     assert "Registry set to: mcp-server hf@1.2.3" in rendered
-    assert "Skills discovered: 1" in rendered
+    assert "Skills discovered: 1. Use /skills add to list." in rendered
 
 
 @pytest.mark.asyncio

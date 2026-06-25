@@ -10,6 +10,8 @@ from fast_agent.skills.marketplace_source import MarketplaceSkillSource
 from fast_agent.skills.mcp_source import McpSkillSource, UnavailableMcpSkillSource
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from fast_agent.commands.context import CommandContext
     from fast_agent.skills.mcp_registry import McpSkillInstallClient, McpSkillRegistry
     from fast_agent.skills.models import SkillUpdateInfo
@@ -53,7 +55,7 @@ def mcp_registry_server_name(source: str) -> str | None:
 
 
 def find_mcp_registry(
-    registries: list[McpSkillRegistry],
+    registries: Sequence[McpSkillRegistry],
     server_name: str,
 ) -> McpSkillRegistry | None:
     for registry in registries:
@@ -118,7 +120,7 @@ class SkillSourceResolver:
 
     async def update_sources(
         self,
-        updates: list[SkillUpdateInfo],
+        updates: Sequence[SkillUpdateInfo],
     ) -> list[SkillUpdateSourceGroup]:
         if not updates:
             return []
