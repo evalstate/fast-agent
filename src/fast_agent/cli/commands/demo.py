@@ -47,9 +47,6 @@ def _build_demo_stream_handle(
     header_right = "[dim]demo[/dim]"
     return StreamingMessageHandle(
         display=display,
-        bottom_items=None,
-        highlight_index=None,
-        max_item_length=None,
         use_plain_text=plain,
         header_left=header_left,
         header_right=header_right,

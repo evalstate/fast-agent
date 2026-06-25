@@ -78,10 +78,6 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
 
 
-class StreamingNotAvailableError(RuntimeError):
-    """Raised when streaming APIs are accessed before an LLM is attached."""
-
-
 logger = get_logger(__name__)
 
 

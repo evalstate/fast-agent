@@ -19,12 +19,6 @@ else:
 ResponseMode: TypeAlias = Literal["inherit", "postprocess", "passthrough"]
 ToolResultMode: TypeAlias = Literal["postprocess", "passthrough", "selectable"]
 StructuredToolPolicy: TypeAlias = Literal["auto", "always", "defer", "no_tools"]
-RESPONSE_MODE_VALUES: tuple[ResponseMode, ...] = ("inherit", "postprocess", "passthrough")
-TOOL_RESULT_MODE_VALUES: tuple[ToolResultMode, ...] = (
-    "postprocess",
-    "passthrough",
-    "selectable",
-)
 _RESPONSE_MODE_TOOL_RESULT_MODES: dict[ResponseMode, ToolResultMode | None] = {
     "inherit": None,
     "postprocess": "postprocess",

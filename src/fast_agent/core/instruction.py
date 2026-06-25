@@ -42,7 +42,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
-from typing import ClassVar, TypeAlias
+from typing import ClassVar
 
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
@@ -54,7 +54,6 @@ logger = get_logger(__name__)
 
 # Type aliases
 Resolver = Callable[[], Awaitable[str]]  # Type alias for async resolvers
-StringSet: TypeAlias = set[str]
 
 
 def _get_current_date() -> str:
@@ -367,30 +366,6 @@ class InstructionBuilder:
     # ─────────────────────────────────────────────────────────────────────────
     # Utilities
     # ─────────────────────────────────────────────────────────────────────────
-
-    def get_placeholders(self) -> StringSet:
-        """
-        Extract all placeholder names from the template.
-
-        Returns:
-            Set of placeholder names (without braces)
-        """
-        # Match {{name}} but not special patterns
-        pattern = re.compile(r"(?<!\\)\{\{(?!url:|file:|file_silent:|internal:)([^}]+)\}\}")
-        return set(pattern.findall(self._template))
-
-    def get_unresolved_placeholders(self) -> StringSet:
-        """
-        Get placeholders that don't have a source registered.
-
-        Returns:
-            Set of placeholder names without sources
-        """
-        all_placeholders = self.get_placeholders()
-        registered = (
-            set(self._static.keys()) | set(self._resolvers.keys()) | set(self._BUILTINS.keys())
-        )
-        return all_placeholders - registered
 
     def copy(self) -> "InstructionBuilder":
         """

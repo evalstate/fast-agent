@@ -55,69 +55,15 @@ class TrimmedTextWindow:
 class StreamBuffer:
     """Buffer for streaming markdown content with smart truncation.
 
-    Usage:
-        buffer = StreamBuffer()
-        for chunk in stream:
-            buffer.append(chunk)
-            display_text = buffer.get_display_text(terminal_height)
-            render(display_text)
+    Use ``truncate_text`` to derive the display window for a markdown string.
     """
 
     def __init__(self, target_height_ratio: float = 0.7):
         """Initialize the stream buffer."""
         if not 0 < target_height_ratio <= 1:
             raise ValueError("target_height_ratio must be between 0 and 1")
-        self._chunks: list[str] = []
         self._target_height_ratio = target_height_ratio
         self._parser = MarkdownIt().enable("table")
-
-    def append(self, chunk: str) -> None:
-        """Add a chunk to the buffer.
-
-        Args:
-            chunk: Text chunk from streaming response
-        """
-        if chunk:
-            self._chunks.append(chunk)
-
-    def get_full_text(self) -> str:
-        """Get the complete buffered text.
-
-        Returns:
-            Full concatenated text from all chunks
-        """
-        return "".join(self._chunks)
-
-    def get_display_text(
-        self,
-        terminal_height: int,
-        target_ratio: float | None = None,
-        terminal_width: int | None = None,
-        *,
-        add_closing_fence: bool = False,
-    ) -> str:
-        """Get text for display, truncated to fit terminal.
-
-        Args:
-            terminal_height: Height of terminal in lines
-            target_ratio: Ratio of terminal height to keep (defaults to instance ratio)
-            terminal_width: Optional terminal width for estimating wrapped lines
-            add_closing_fence: Append a closing fence for unclosed code blocks
-
-        Returns:
-            Text ready for display (truncated if needed)
-        """
-        full_text = self.get_full_text()
-        if not full_text:
-            return full_text
-        ratio = target_ratio if target_ratio is not None else self._target_height_ratio
-        return self._truncate_for_display(
-            full_text,
-            terminal_height,
-            ratio,
-            terminal_width,
-            add_closing_fence=add_closing_fence,
-        )
 
     def truncate_text(
         self,
@@ -139,10 +85,6 @@ class StreamBuffer:
             terminal_width,
             add_closing_fence=add_closing_fence,
         )
-
-    def clear(self) -> None:
-        """Clear the buffer."""
-        self._chunks.clear()
 
     def _truncate_for_display(
         self,

@@ -10,6 +10,7 @@ from mcp.types import TextContent
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.harness_app import AppOpenRequest
+from fast_agent.mcp.server.common import get_oauth_config, normalize_serve_oauth_provider
 from fast_agent.mcp.server.harness_app_server import (
     HarnessMCPAppRuntimeOptions,
     HarnessMCPAppServer,
@@ -132,6 +133,29 @@ def mcp_context_with_session(session_id: str) -> "MCPContext":
         "MCPContext",
         SimpleNamespace(request_context=request_context, report_progress=report_progress),
     )
+
+
+@pytest.mark.unit
+def test_serve_oauth_provider_normalizes_huggingface_aliases() -> None:
+    assert normalize_serve_oauth_provider(" HF ") == "huggingface"
+    assert normalize_serve_oauth_provider(" HuggingFace ") == "huggingface"
+
+
+@pytest.mark.unit
+def test_serve_oauth_provider_treats_blank_as_disabled() -> None:
+    assert normalize_serve_oauth_provider("   ") is None
+    assert normalize_serve_oauth_provider(None) is None
+
+
+@pytest.mark.unit
+def test_get_oauth_config_normalizes_provider_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FAST_AGENT_SERVE_OAUTH", " HF ")
+
+    oauth_provider, _scopes, _resource_url = get_oauth_config()
+
+    assert oauth_provider == "huggingface"
 
 
 @pytest.mark.asyncio

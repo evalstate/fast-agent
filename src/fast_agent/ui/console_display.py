@@ -63,8 +63,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-DEFAULT_CODE_THEME = "native"
-
 # Glyph to indicate tool hooks are active
 HOOK_INDICATOR_GLYPH = "◆"
 
@@ -101,8 +99,6 @@ class ConsoleDisplay:
     Handles displaying formatted messages, tool calls, and results to the console.
     This centralizes the UI display logic used by LLM implementations.
     """
-
-    CODE_STYLE = DEFAULT_CODE_THEME
 
     def __init__(
         self,
@@ -1318,9 +1314,6 @@ class ConsoleDisplay:
     def streaming_assistant_message(
         self,
         *,
-        bottom_items: list[str] | None = None,
-        highlight_index: int | None = None,
-        max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
         show_hook_indicator: bool = False,
@@ -1360,9 +1353,6 @@ class ConsoleDisplay:
 
         handle = _StreamingMessageHandle(
             display=self,
-            bottom_items=bottom_items,
-            highlight_index=highlight_index,
-            max_item_length=max_item_length,
             use_plain_text=use_plain_text,
             header_left=left,
             header_right=right_info,

@@ -31,7 +31,6 @@ from fast_agent.agents.workflow.iterative_planner import IterativePlanner
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
 from fast_agent.context import Context
-from fast_agent.core import Core
 from fast_agent.core.agent_card_types import AgentCardData
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
 from fast_agent.core.function_tool_support import custom_class_supports_function_tools
@@ -594,20 +593,6 @@ def _apply_tool_hooks(
 
     if enable_session_history:
         _apply_session_history_hook(agent)
-
-
-class AgentCreatorProtocol(Protocol):
-    """Protocol for agent creator functions."""
-
-    async def __call__(
-        self,
-        app_instance: Core,
-        agents_dict: AgentConfigDict,
-        agent_type: AgentType,
-        active_agents: AgentDict | None = None,
-        model_factory_func: ModelFactoryFunctionProtocol | None = None,
-        **kwargs: Any,
-    ) -> AgentDict: ...
 
 
 def get_model_factory(

@@ -75,7 +75,6 @@ class ManagedRuntimeMixin:
     _card_collision_warnings: list[str]
     _registered_tools: list["FunctionTool"]
     _server_instance_dispose: "Callable[[AgentInstance], Awaitable[None]] | None"
-    _server_instance_factory: "Callable[[], Awaitable[AgentInstance]] | None"
     _server_managed_instances: list["AgentInstance"] | None
     _skills_directory_override: Any
 
@@ -751,7 +750,6 @@ class ManagedRuntimeMixin:
         if getattr(self.args, "watch", False) and self._agent_card_roots:
             self._agent_card_watch_task = asyncio.create_task(self._watch_agent_cards())
 
-        self._server_instance_factory = callbacks.create_instance
         self._server_instance_dispose = callbacks.dispose_instance
         self._server_managed_instances = state.runtime.managed_instances
 

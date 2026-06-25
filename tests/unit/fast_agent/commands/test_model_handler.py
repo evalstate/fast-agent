@@ -27,7 +27,6 @@ from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.resolved_model import ResolvedModelSpec, resolve_base_model_params
 from fast_agent.llm.task_budget import format_task_budget_tokens
 from fast_agent.llm.text_verbosity import TextVerbositySpec
-from fast_agent.ui.model_picker_common import ANTHROPIC_VERTEX_PROVIDER_KEY
 
 
 def _build_overlay(
@@ -830,7 +829,7 @@ async def test_model_switch_reopens_vertex_selection_for_anthropic_vertex_model(
 
     outcome = await handle_model_switch(ctx, agent_name="test", value=None)
 
-    assert io.last_initial_provider == ANTHROPIC_VERTEX_PROVIDER_KEY
+    assert io.last_initial_provider == Provider.ANTHROPIC_VERTEX.config_name
     assert io.last_default_model == "anthropic-vertex.claude-sonnet-4-6"
     assert any("already active" in str(message.text) for message in outcome.messages)
 

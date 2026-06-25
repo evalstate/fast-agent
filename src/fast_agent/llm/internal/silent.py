@@ -30,9 +30,3 @@ class SilentLLM(PassthroughLLM):
         super().__init__(name=name, provider=provider, **kwargs)
         # Override with zero usage accumulator - silent model reports no usage
         self.usage_accumulator = ZeroUsageAccumulator()
-
-    def show_tool_calls(self, tool_calls: Any, **kwargs) -> None:
-        """Override to suppress tool call display."""
-
-    def show_tool_results(self, tool_results: Any, **kwargs) -> None:
-        """Override to suppress tool result display."""

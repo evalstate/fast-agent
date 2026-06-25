@@ -21,7 +21,6 @@ from mcp.types import (
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS, FAST_AGENT_SAFETY_DETAILS, REASONING
 from fast_agent.core.exceptions import ProviderKeyError
-from fast_agent.core.prompt import Prompt
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.google._stream_capture import (
@@ -40,6 +39,7 @@ from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 from fast_agent.llm.tool_tracking import ToolCallTracker
 from fast_agent.llm.usage_tracking import TurnUsage
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.utils.text import strip_casefold
@@ -86,18 +86,6 @@ def _google_thinking_effort_config(effort: str) -> tuple[int | None, str | None]
     if level is not None:
         return None, level
     return -1, None
-
-
-# Define Google-specific parameter exclusions if necessary
-GOOGLE_EXCLUDE_FIELDS = {
-    # Add fields that should not be passed directly from RequestParams to google.genai config
-    FastAgentLLM.PARAM_MESSAGES,  # Handled by contents
-    FastAgentLLM.PARAM_MODEL,  # Handled during client/call setup
-    FastAgentLLM.PARAM_SYSTEM_PROMPT,  # Handled by system_instruction in config
-    FastAgentLLM.PARAM_USE_HISTORY,  # Handled by FastAgentLLM base / this class's logic
-    FastAgentLLM.PARAM_MAX_ITERATIONS,  # Handled by this class's loop
-    FastAgentLLM.PARAM_MCP_METADATA,
-}.union(FastAgentLLM.BASE_EXCLUDE_FIELDS)
 
 
 @dataclass(slots=True)

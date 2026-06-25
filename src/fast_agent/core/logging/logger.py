@@ -11,9 +11,7 @@ import asyncio
 import logging
 import sys
 import threading
-import time
 import traceback
-from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -214,60 +212,6 @@ class Logger:
         self.event("progress", name, message, context, merged_data)
 
 
-@contextmanager
-def event_context(
-    logger: Logger,
-    message: str,
-    event_type: EventType = "info",
-    name: str | None = None,
-    **data,
-):
-    """
-    Times a synchronous block, logs an event after completion.
-    Because logger methods are async, we schedule the final log.
-    """
-    start_time = time.time()
-    try:
-        yield
-    finally:
-        duration = time.time() - start_time
-
-        logger.event(
-            event_type,
-            name,
-            f"{message} finished in {duration:.3f}s",
-            None,
-            {"duration": duration, **data},
-        )
-
-
-# TODO: saqadri - check if we need this
-@asynccontextmanager
-async def async_event_context(
-    logger: Logger,
-    message: str,
-    event_type: EventType = "info",
-    name: str | None = None,
-    **data,
-):
-    """
-    Times an asynchronous block, logs an event after completion.
-    Because logger methods are async, we schedule the final log.
-    """
-    start_time = time.time()
-    try:
-        yield
-    finally:
-        duration = time.time() - start_time
-        logger.event(
-            event_type,
-            name,
-            f"{message} finished in {duration:.3f}s",
-            None,
-            {"duration": duration, **data},
-        )
-
-
 class LoggingConfig:
     """Global configuration for the logging system."""
 
@@ -332,17 +276,6 @@ class LoggingConfig:
         bus = AsyncEventBus.get()
         await bus.stop()
         cls._initialized = False
-
-    @classmethod
-    @asynccontextmanager
-    async def managed(cls, **config_kwargs):
-        """Context manager for the logging system lifecycle."""
-        try:
-            await cls.configure(**config_kwargs)
-            yield
-        finally:
-            await cls.shutdown()
-
 
 _logger_lock = threading.Lock()
 _loggers: dict[str, Logger] = {}

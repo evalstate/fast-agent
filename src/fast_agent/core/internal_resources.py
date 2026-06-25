@@ -218,7 +218,7 @@ def _read_shared_resource_text(relative_source: str) -> str:
     )
 
 
-def _join_traversable(base: "Traversable", relative_path: Path) -> "Traversable":
+def _join_traversable(base: Traversable, relative_path: Path) -> Traversable:
     target = base
     for part in relative_path.parts:
         target = target.joinpath(part)

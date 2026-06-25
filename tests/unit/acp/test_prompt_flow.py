@@ -6,7 +6,7 @@ import pytest
 
 from fast_agent.acp.server.prompt_flow import ACPInvokeSession, ACPPromptFlow, PromptFlowHost
 from fast_agent.agents.tool_runner import ToolRunnerHooks
-from fast_agent.core.prompt import Prompt
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import AgentRequest
 from fast_agent.types.llm_stop_reason import LlmStopReason
 

@@ -13,7 +13,7 @@ from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import save_messages
-from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
+from fast_agent.mcp.prompts.prompt_load import load_transcript_into_agent
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 TEST_CONFIG_PATH = Path(__file__).resolve().parent.parent / "llm" / "fastagent.config.yaml"
@@ -115,7 +115,7 @@ async def _create_history(agent: LlmAgent) -> None:
 
 
 async def _load_and_verify(agent: LlmAgent, history_file: Path) -> None:
-    load_history_into_agent(agent, history_file)
+    load_transcript_into_agent(agent, history_file)
 
     follow_up = await agent.generate(
         "Without inventing anything new, what exact passphrase did fetch_magic_string return earlier?"

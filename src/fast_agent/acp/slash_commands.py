@@ -72,7 +72,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
     from fast_agent.acp.acp_context import ACPContext
-    from fast_agent.acp.slash.tool_updates import ToolCallStatus
     from fast_agent.command_actions.models import PluginCommandAgentProtocol
     from fast_agent.command_actions.runtime import AttachMcpServerCallback, DetachMcpServerCallback
     from fast_agent.commands.context import AgentProvider
@@ -868,39 +867,6 @@ class SlashCommandHandler:
     async def _handle_status(self, arguments: str | None = None) -> str:
         return await status_slash_handlers.handle_status(self, arguments)
 
-    async def _handle_status_system(self) -> str:
-        return await status_slash_handlers.handle_status_system(self)
-
-    async def _render_history_overview(self) -> str:
-        return await history_slash_handlers.render_history_overview(self)
-
-    def _render_session_list(self) -> str:
-        return session_slash_handlers.render_session_list(self)
-
-    async def _handle_session_resume(self, argument: str) -> str:
-        return await session_slash_handlers.handle_session_resume(self, argument)
-
-    async def _handle_session_title(self, argument: str) -> str:
-        return await session_slash_handlers.handle_session_title(self, argument)
-
-    async def _handle_session_fork(self, argument: str) -> str:
-        return await session_slash_handlers.handle_session_fork(self, argument)
-
-    async def _handle_session_new(self, argument: str) -> str:
-        return await session_slash_handlers.handle_session_new(self, argument)
-
-    async def _handle_session_delete(self, argument: str) -> str:
-        return await session_slash_handlers.handle_session_delete(self, argument)
-
-    async def _handle_session_pin(self, argument: str) -> str:
-        return await session_slash_handlers.handle_session_pin(self, argument)
-
-    def _handle_status_auth(self) -> str:
-        return status_slash_handlers.handle_status_auth(self)
-
-    def _handle_status_authreset(self) -> str:
-        return status_slash_handlers.handle_status_authreset(self)
-
     async def _handle_tools(self, arguments: str | None = None) -> str:
         del arguments
         return await tools_slash_handlers.handle_tools(self)
@@ -917,52 +883,11 @@ class SlashCommandHandler:
     async def _handle_plugins(self, arguments: str | None = None) -> str:
         return await plugins_slash_handlers.handle_plugins(self, arguments)
 
-    async def _handle_skills_registry(self, argument: str) -> str:
-        return await skills_slash_handlers.handle_skills_registry(self, argument)
-
-    def _handle_skills_list(self) -> str:
-        return skills_slash_handlers.handle_skills_list(self)
-
-    def _skills_override_section(self) -> str | None:
-        return skills_slash_handlers.skills_override_section(self)
-
-    async def _handle_skills_add(self, argument: str) -> str:
-        return await skills_slash_handlers.handle_skills_add(self, argument)
-
-    async def _handle_skills_remove(self, argument: str) -> str:
-        return await skills_slash_handlers.handle_skills_remove(self, argument)
-
-    async def _handle_skills_update(self, argument: str) -> str:
-        return await skills_slash_handlers.handle_skills_update(self, argument)
-
     async def _refresh_agent_skills(self, agent: AgentProtocol) -> None:
         await skills_slash_handlers.refresh_agent_skills(agent)
 
     def _build_tool_call_id(self) -> str:
         return skills_slash_handlers.build_tool_call_id()
-
-    async def _send_skills_update(
-        self,
-        agent: AgentProtocol,
-        tool_call_id: str,
-        *,
-        title: str,
-        status: "ToolCallStatus",
-        message: str | None = None,
-        start: bool = False,
-    ) -> None:
-        await skills_slash_handlers.send_skills_update(
-            self,
-            agent,
-            tool_call_id,
-            title=title,
-            status=status,
-            message=message,
-            start=start,
-        )
-
-    async def _handle_history_webclear(self) -> str:
-        return await history_slash_handlers.handle_history_webclear(self)
 
     async def _handle_card(self, arguments: str | None = None) -> str:
         return await cards_slash_handlers.handle_card(self, arguments)
@@ -979,9 +904,3 @@ class SlashCommandHandler:
 
     async def _handle_clear(self, arguments: str | None = None) -> str:
         return await clear_slash_handlers.handle_clear(self, arguments)
-
-    async def _handle_clear_all(self) -> str:
-        return await clear_slash_handlers.handle_clear_all(self)
-
-    async def _handle_clear_last(self) -> str:
-        return await clear_slash_handlers.handle_clear_last(self)

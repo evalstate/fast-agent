@@ -173,7 +173,7 @@ The **`fast-agent`** API supports using either a Pydantic Model or JSON Schema:
     import json
 
     from fast_agent import FastAgent
-    from fast_agent.core.prompt import Prompt
+    from fast_agent.mcp.prompt import Prompt
     from fast_agent.llm.request_params import RequestParams
 
 

@@ -75,9 +75,9 @@ finally:
     remove_listener()
 ```
 
-For A2A streaming, `chunk.text` contains text from message events and artifact
-updates. Artifact updates are also assembled into the returned
-`PromptMessageExtended`.
+For A2A streaming, `chunk.text` contains text from message events. Task artifact
+updates are assembled into the returned `PromptMessageExtended` but are not
+emitted as live assistant-message chunks.
 
 ## Client `INPUT_REQUIRED`
 

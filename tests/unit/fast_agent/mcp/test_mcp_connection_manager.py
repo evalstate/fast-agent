@@ -2,7 +2,6 @@
 import asyncio
 import logging
 import time
-from contextlib import asynccontextmanager
 from typing import Any, cast
 
 import pytest
@@ -551,10 +550,16 @@ async def test_get_server_retries_with_oauth_after_401_startup(
 async def test_get_server_formats_stdio_missing_executable_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    @asynccontextmanager
-    async def _failing_stdio_client(*_args, **_kwargs):
-        raise FileNotFoundError(2, "No such file or directory")
-        yield
+    class _FailingStdioClient:
+        async def __aenter__(self):
+            raise FileNotFoundError(2, "No such file or directory")
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            del exc_type, exc, tb
+            return False
+
+    def _failing_stdio_client(*_args, **_kwargs):
+        return _FailingStdioClient()
 
     monkeypatch.setattr(
         "fast_agent.mcp.mcp_connection_manager.tracking_stdio_client",
@@ -594,10 +599,16 @@ async def test_get_server_formats_stdio_missing_executable_without_traceback(
 async def test_get_server_formats_stdio_missing_cwd_without_traceback(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    @asynccontextmanager
-    async def _failing_stdio_client(*_args, **_kwargs):
-        raise FileNotFoundError(2, "No such file or directory")
-        yield
+    class _FailingStdioClient:
+        async def __aenter__(self):
+            raise FileNotFoundError(2, "No such file or directory")
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            del exc_type, exc, tb
+            return False
+
+    def _failing_stdio_client(*_args, **_kwargs):
+        return _FailingStdioClient()
 
     missing_cwd = str(tmp_path / "missing-dir")
 

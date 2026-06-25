@@ -14,8 +14,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 HomeSource = Literal["cli", "FAST_AGENT_HOME", "ENVIRONMENT_DIR", "default"]
-ConfigSource = Literal["explicit", "home", "cwd", "none"]
-SecretsSource = Literal["same_dir", "home", "cwd", "none"]
 
 PREFERRED_CONFIG_FILENAME = "fast-agent.yaml"
 TRANSITIONAL_CONFIG_FILENAMES = ("fast-agent.config.yaml",)
@@ -42,8 +40,6 @@ class ConfigDiscoveryResult:
     home: FastAgentHome | None
     config_path: Path | None
     secrets_path: Path | None
-    config_source: ConfigSource
-    secrets_source: SecretsSource
 
 
 class ConfigDiscoveryError(ConfigFileError):
@@ -119,8 +115,6 @@ def discover_config_files(
             home=home,
             config_path=config_path,
             secrets_path=secrets_path,
-            config_source="explicit",
-            secrets_source="same_dir" if secrets_path else "none",
         )
 
     searched: set[Path] = set()
@@ -134,8 +128,6 @@ def discover_config_files(
                 home=home,
                 config_path=config_path,
                 secrets_path=secrets_path,
-                config_source="home",
-                secrets_source="same_dir" if secrets_path else "none",
             )
 
     cwd_dir = base.resolve()
@@ -147,8 +139,6 @@ def discover_config_files(
                 home=home,
                 config_path=config_path,
                 secrets_path=secrets_path,
-                config_source="cwd",
-                secrets_source="same_dir" if secrets_path else "none",
             )
 
     if home is not None:
@@ -158,8 +148,6 @@ def discover_config_files(
                 home=home,
                 config_path=None,
                 secrets_path=secrets_path,
-                config_source="none",
-                secrets_source="home",
             )
 
     if cwd_dir not in searched:
@@ -169,16 +157,12 @@ def discover_config_files(
                 home=home,
                 config_path=None,
                 secrets_path=secrets_path,
-                config_source="none",
-                secrets_source="cwd",
             )
 
     return ConfigDiscoveryResult(
         home=home,
         config_path=None,
         secrets_path=None,
-        config_source="none",
-        secrets_source="none",
     )
 
 

@@ -751,7 +751,6 @@ def _load_cli_settings(
 
     settings = Settings(**merged_settings)
     settings._config_file = str(config_file) if config_file else None
-    settings._secrets_file = str(secrets_path) if secrets_path and secrets_path.exists() else None
     return settings
 
 

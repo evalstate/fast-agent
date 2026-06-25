@@ -376,7 +376,7 @@ def test_model_database_max_tokens():
     """Test that ModelDatabase returns expected max tokens"""
     # Test known models with different max_output_tokens (no cap)
     assert ModelDatabase.get_default_max_tokens("claude-sonnet-4-0") == 64000  # ANTHROPIC_SONNET
-    assert ModelDatabase.get_default_max_tokens("gpt-4o") == 16384  # OPENAI_STANDARD
+    assert ModelDatabase.get_default_max_tokens("gpt-4o") == 16384
     assert ModelDatabase.get_default_max_tokens("o1") == 100000  # High max_output_tokens
     assert ModelDatabase.get_default_max_tokens("Qwen/Qwen3.5-397B-A17B:novita") == 65536
 

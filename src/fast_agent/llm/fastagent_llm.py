@@ -20,10 +20,7 @@ from typing import (
 )
 
 from mcp import Tool
-from mcp.types import (
-    GetPromptResult,
-    PromptMessage,
-)
+from mcp.types import GetPromptResult
 from pydantic_core import from_json
 
 from fast_agent.constants import (
@@ -32,7 +29,6 @@ from fast_agent.constants import (
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import AgentConfigError, ProviderKeyError, ServerConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import (
     FastAgentLLMProtocol,
@@ -72,6 +68,7 @@ from fast_agent.llm.text_verbosity import (
 )
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.provider_management import ProviderManagedMCPState
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.console import error_console
@@ -319,10 +316,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         params = self._get_model_params(model_name)
         return params.reasoning_effort_spec if params is not None else None
 
-    def _get_model_text_verbosity_spec(self, model_name: str | None) -> TextVerbositySpec | None:
-        params = self._get_model_params(model_name)
-        return params.text_verbosity_spec if params is not None else None
-
     def _get_model_json_mode(self, model_name: str | None) -> str | None:
         params = self._get_model_params(model_name)
         return params.json_mode if params is not None else None
@@ -418,10 +411,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _get_model_stream_mode(self, model_name: str | None) -> Literal["openai", "manual"]:
         params = self._get_model_params(model_name)
         return params.stream_mode if params is not None else "openai"
-
-    def _get_model_cache_ttl(self, model_name: str | None) -> Literal["5m", "1h"] | None:
-        params = self._get_model_params(model_name)
-        return params.cache_ttl if params is not None else None
 
     def _get_model_response_transports(
         self,
@@ -582,12 +571,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             config_section=getattr(self, "config_section", None),
             fallback_sections=self._provider_config_fallback_sections(),
         )
-
-    def _provider_config_sections(self) -> tuple[str, ...]:
-        section_name = getattr(self, "config_section", None) or getattr(
-            self.provider, "value", None
-        )
-        return (section_name,) if section_name else ()
 
     def _provider_config_fallback_sections(self) -> tuple[str, ...]:
         return ()
@@ -922,16 +905,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _start_request_timing_capture(self) -> tuple[RequestTimingCapture, Callable[[], None]]:
         return start_request_timing_capture(self)
 
-    def _build_usage_payload(self) -> dict[str, Any] | None:
-        from fast_agent.llm.response_telemetry import build_usage_payload
-
-        return build_usage_payload(self.usage_accumulator)
-
-    def _serialize_raw_usage(self, raw_usage: object | None) -> object:
-        from fast_agent.llm.response_telemetry import serialize_raw_usage
-
-        return serialize_raw_usage(raw_usage)
-
     @abstractmethod
     async def _apply_prompt_provider_specific(
         self,
@@ -1205,14 +1178,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         del tools
         return messages, request_params
 
-    def record_templates(self, templates: list[PromptMessageExtended]) -> None:
-        """Hook for providers that need template visibility (e.g., caching)."""
-        return
-
-    def _precall(self, multipart_messages: list[PromptMessageExtended]) -> None:
-        """Pre-call hook to modify the message before sending it to the provider."""
-        # No-op placeholder; history is managed by the agent
-
     def chat_turn(self) -> int:
         """Return the current chat turn number"""
         return 1 + len(self._usage_accumulator.turns)
@@ -1426,13 +1391,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         }
         self.logger.debug("Chat finished", data=data)
 
-    def _convert_prompt_messages(self, prompt_messages: list[PromptMessage]) -> list[MessageParamT]:
-        """
-        Convert prompt messages to this LLM's specific message format.
-        To be implemented by concrete LLM classes.
-        """
-        raise NotImplementedError("Must be implemented by subclass")
-
     def _convert_to_provider_format(
         self, messages: list[PromptMessageExtended]
     ) -> list[MessageParamT]:
@@ -1609,16 +1567,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     @usage_accumulator.setter
     def usage_accumulator(self, value):
         self._usage_accumulator = value
-
-    def get_usage_summary(self) -> dict:
-        """
-        Get a summary of usage statistics for this LLM instance.
-
-        Returns:
-            Dictionary containing usage statistics including tokens, cache metrics,
-            and context window utilization.
-        """
-        return self._usage_accumulator.get_summary()
 
     @property
     def provider(self) -> Provider:

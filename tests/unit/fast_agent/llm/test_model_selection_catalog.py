@@ -53,16 +53,16 @@ def _static_current_entries(provider: Provider) -> list:
     ]
 
 
-def test_list_curated_models_for_provider() -> None:
-    models = ModelSelectionCatalog.list_curated_models(Provider.ANTHROPIC)
+def test_list_current_models_for_provider() -> None:
+    models = ModelSelectionCatalog.list_current_models(Provider.ANTHROPIC)
     expected = unique_preserve_order(
         entry.model for entry in _static_current_entries(Provider.ANTHROPIC)
     )
     assert models == expected
 
 
-def test_list_curated_aliases_for_provider() -> None:
-    aliases = ModelSelectionCatalog.list_curated_aliases(Provider.ANTHROPIC)
+def test_list_current_aliases_for_provider() -> None:
+    aliases = ModelSelectionCatalog.list_current_aliases(Provider.ANTHROPIC)
 
     assert aliases == unique_preserve_order(aliases)
     assert {
@@ -75,7 +75,7 @@ def test_list_curated_aliases_for_provider() -> None:
 
 
 def test_anthropic_catalog_lists_user_facing_factory_aliases() -> None:
-    aliases = ModelSelectionCatalog.list_curated_aliases(Provider.ANTHROPIC)
+    aliases = ModelSelectionCatalog.list_current_aliases(Provider.ANTHROPIC)
 
     assert aliases
     for alias in aliases:
@@ -84,33 +84,33 @@ def test_anthropic_catalog_lists_user_facing_factory_aliases() -> None:
     assert ModelFactory.MODEL_PRESETS["fable5"] == "claude-fable-5"
 
 
-def test_deepseek_curated_order_prefers_pro_above_flash() -> None:
-    aliases = ModelSelectionCatalog.list_curated_aliases(Provider.DEEPSEEK)
+def test_deepseek_current_order_prefers_pro_above_flash() -> None:
+    aliases = ModelSelectionCatalog.list_current_aliases(Provider.DEEPSEEK)
     assert aliases[:2] == ["deepseek", "deepseek4flash"]
 
 
-def test_legacy_aliases_are_listed_but_not_curated() -> None:
-    curated_aliases = ModelSelectionCatalog.list_curated_aliases(Provider.HUGGINGFACE)
+def test_non_current_aliases_are_listed_but_not_current() -> None:
+    current_aliases = ModelSelectionCatalog.list_current_aliases(Provider.HUGGINGFACE)
     legacy_aliases = ModelSelectionCatalog.list_non_current_aliases(Provider.HUGGINGFACE)
 
-    assert set(curated_aliases).isdisjoint(legacy_aliases)
-    assert "glm51" in curated_aliases
-    assert "gemma4" in curated_aliases
-    assert "kimi26instant" in curated_aliases
-    assert "deepseek-hf" in curated_aliases
-    assert "kimi27" in curated_aliases
-    assert "kimi27code" in curated_aliases
-    assert "qwen36" in curated_aliases
-    assert "qwen36instruct" in curated_aliases
-    assert "kimi-k2-instruct" not in curated_aliases
-    assert "kimi25" not in curated_aliases
-    assert "kimi25instant" not in curated_aliases
+    assert set(current_aliases).isdisjoint(legacy_aliases)
+    assert "glm51" in current_aliases
+    assert "gemma4" in current_aliases
+    assert "kimi26instant" in current_aliases
+    assert "deepseek-hf" in current_aliases
+    assert "kimi27" in current_aliases
+    assert "kimi27code" in current_aliases
+    assert "qwen36" in current_aliases
+    assert "qwen36instruct" in current_aliases
+    assert "kimi-k2-instruct" not in current_aliases
+    assert "kimi25" not in current_aliases
+    assert "kimi25instant" not in current_aliases
     assert "kimi25" in legacy_aliases
     assert "kimi25instant" in legacy_aliases
-    assert "glm5" not in curated_aliases
+    assert "glm5" not in current_aliases
     assert "glm5" in legacy_aliases
     assert "glm47" in legacy_aliases
-    assert "glm47" not in curated_aliases
+    assert "glm47" not in current_aliases
     assert "deepseek-hf" not in legacy_aliases
     assert "deepseek32" in legacy_aliases
 
@@ -127,8 +127,8 @@ def test_list_fast_models_uses_explicit_curated_designation() -> None:
         )
 
 
-def test_groq_curated_aliases_drop_deprecated_kimi_entry() -> None:
-    aliases = ModelSelectionCatalog.list_curated_aliases(Provider.GROQ)
+def test_groq_current_aliases_drop_deprecated_kimi_entry() -> None:
+    aliases = ModelSelectionCatalog.list_current_aliases(Provider.GROQ)
 
     assert "kimigroq" not in aliases
     assert "qwen3-32b" in aliases
@@ -155,24 +155,6 @@ def test_current_catalog_helpers_project_current_entries(provider: Provider) -> 
     assert ModelSelectionCatalog.list_fast_models(provider) == unique_preserve_order(
         entry.model for entry in current_entries if entry.fast
     )
-
-
-@pytest.mark.parametrize(
-    "provider",
-    (
-        Provider.ANTHROPIC,
-        Provider.GOOGLE,
-        Provider.HUGGINGFACE,
-        Provider.CODEX_RESPONSES,
-    ),
-)
-def test_curated_helpers_alias_current_helpers(provider: Provider) -> None:
-    assert ModelSelectionCatalog.list_curated_aliases(
-        provider
-    ) == ModelSelectionCatalog.list_current_aliases(provider)
-    assert ModelSelectionCatalog.list_curated_models(
-        provider
-    ) == ModelSelectionCatalog.list_current_models(provider)
 
 
 def test_is_fast_model_normalizes_provider_prefix() -> None:
@@ -284,17 +266,12 @@ def test_configured_providers_does_not_treat_overlay_only_provider_as_ready(
     assert Provider.ANTHROPIC not in providers
 
 
-def test_suggestions_for_providers_returns_curated_and_fast_models() -> None:
-    suggestions = ModelSelectionCatalog.suggestions_for_providers([Provider.GOOGLE])
-
-    assert len(suggestions) == 1
-    suggestion = suggestions[0]
-    assert suggestion.provider == Provider.GOOGLE
-    assert suggestion.current_aliases
-    assert suggestion.non_current_aliases == ()
-    assert suggestion.current_models
-    assert suggestion.fast_models
-    assert suggestion.all_models
+def test_google_catalog_exposes_curated_and_fast_models() -> None:
+    assert ModelSelectionCatalog.list_current_aliases(Provider.GOOGLE)
+    assert ModelSelectionCatalog.list_non_current_aliases(Provider.GOOGLE) == []
+    assert ModelSelectionCatalog.list_current_models(Provider.GOOGLE)
+    assert ModelSelectionCatalog.list_fast_models(Provider.GOOGLE)
+    assert ModelSelectionCatalog.list_all_models(Provider.GOOGLE)
 
 
 def test_google_picker_lists_gemini35_flash_first() -> None:
@@ -308,15 +285,14 @@ def test_google_picker_lists_gemini35_flash_first() -> None:
     assert first.fast is True
 
 
-def test_suggestions_include_legacy_aliases_when_configured() -> None:
-    suggestions = ModelSelectionCatalog.suggestions_for_providers([Provider.HUGGINGFACE])
+def test_catalog_lists_legacy_aliases_when_configured() -> None:
+    current_aliases = ModelSelectionCatalog.list_current_aliases(Provider.HUGGINGFACE)
+    non_current_aliases = ModelSelectionCatalog.list_non_current_aliases(Provider.HUGGINGFACE)
 
-    assert len(suggestions) == 1
-    suggestion = suggestions[0]
-    assert "glm51" in suggestion.current_aliases
-    assert "glm5" in suggestion.non_current_aliases
-    assert "glm47" in suggestion.non_current_aliases
-    assert "glm47" not in suggestion.current_aliases
+    assert "glm51" in current_aliases
+    assert "glm5" in non_current_aliases
+    assert "glm47" in non_current_aliases
+    assert "glm47" not in current_aliases
 
 
 def test_list_all_models_for_provider() -> None:
@@ -343,7 +319,7 @@ def test_cross_provider_overlay_alias_does_not_hide_curated_model(tmp_path: Path
     previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
     os.environ["ENVIRONMENT_DIR"] = str(env_dir)
     try:
-        aliases = ModelSelectionCatalog.list_curated_aliases(Provider.ANTHROPIC)
+        aliases = ModelSelectionCatalog.list_current_aliases(Provider.ANTHROPIC)
         assert "sonnet" in aliases
     finally:
         empty_env_dir = tmp_path / ".empty-fast-agent"
@@ -355,11 +331,11 @@ def test_cross_provider_overlay_alias_does_not_hide_curated_model(tmp_path: Path
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
 
-def test_codexresponses_curated_entries_use_explicit_transports() -> None:
-    curated = ModelSelectionCatalog.list_curated_models(Provider.CODEX_RESPONSES)
-    assert "codexresponses.gpt-5.4?reasoning=high" in curated
-    assert "codexresponses.gpt-5.5?reasoning=medium" in curated
-    assert "codexresponses.gpt-5.3-codex-spark" in curated
+def test_codexresponses_current_entries_use_explicit_transports() -> None:
+    current = ModelSelectionCatalog.list_current_models(Provider.CODEX_RESPONSES)
+    assert "codexresponses.gpt-5.4?reasoning=high" in current
+    assert "codexresponses.gpt-5.5?reasoning=medium" in current
+    assert "codexresponses.gpt-5.3-codex-spark" in current
 
 
 def test_google_curated_models_exist_in_provider_catalog() -> None:
@@ -403,22 +379,17 @@ def test_openrouter_list_all_models_uses_discovery(monkeypatch) -> None:
     assert "openrouter.anthropic/claude-sonnet-4" in models
 
 
-def test_openrouter_suggestions_use_discovered_models_when_no_curated(monkeypatch) -> None:
+def test_openrouter_all_models_use_discovered_models_when_no_curated(monkeypatch) -> None:
     monkeypatch.setattr(
         "fast_agent.llm.openrouter_model_lookup.list_openrouter_model_specs_sync",
         lambda **kwargs: ["openrouter.openai/gpt-4.1-mini"],
     )
 
-    suggestions = ModelSelectionCatalog.suggestions_for_providers(
-        [Provider.OPENROUTER],
-        config={"openrouter": {"api_key": "or-test-key"}},
+    models = ModelSelectionCatalog.list_all_models(
+        Provider.OPENROUTER, config={"openrouter": {"api_key": "or-test-key"}}
     )
 
-    assert len(suggestions) == 1
-    suggestion = suggestions[0]
-    assert suggestion.provider == Provider.OPENROUTER
-    assert suggestion.current_models == ("openrouter.openai/gpt-4.1-mini",)
-    assert suggestion.all_models == ("openrouter.openai/gpt-4.1-mini",)
+    assert models == ["openrouter.openai/gpt-4.1-mini"]
 
 
 def test_overlay_catalog_uses_explicit_environment_context(
@@ -447,13 +418,13 @@ def test_overlay_catalog_uses_explicit_environment_context(
         start_path=tmp_path,
         env_dir=env_dir,
     )
-    suggestions = ModelSelectionCatalog.suggestions_for_providers(
-        [Provider.OPENRESPONSES],
+    current_aliases = ModelSelectionCatalog.list_current_aliases(
+        Provider.OPENRESPONSES,
         start_path=tmp_path,
         env_dir=env_dir,
     )
 
     assert "openresponses.overlay-tests/project" in models
     assert "openresponses.overlay-tests/ambient" not in models
-    assert "projectoverlay" in suggestions[0].current_aliases
-    assert "ambientoverlay" not in suggestions[0].current_aliases
+    assert "projectoverlay" in current_aliases
+    assert "ambientoverlay" not in current_aliases

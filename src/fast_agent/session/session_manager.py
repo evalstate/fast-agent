@@ -279,7 +279,6 @@ class Session:
         self.info = info
         self.directory = directory
         self._manager = manager
-        self._dirty = False
 
     @property
     def manager(self) -> SessionManager | None:
@@ -299,7 +298,6 @@ class Session:
         from fast_agent.history.history_exporter import HistoryExporter
 
         self.info.last_activity = datetime.now()
-        self._dirty = True
 
         rotating = filename is None
         current_filename: str | None = None
@@ -413,7 +411,6 @@ class Session:
         payload = snapshot.model_dump(mode="json")
         with self._metadata_lock():
             self._atomic_write_json(metadata_file, payload)
-        self._dirty = False
 
     def _default_save_identity(self) -> "SessionSaveIdentity":
         """Build a compatibility save identity when a caller does not supply one."""
@@ -582,10 +579,6 @@ class Session:
                 return data if isinstance(data, dict) else None
         except Exception:
             return None
-
-    def get_history_file(self, filename: str) -> pathlib.Path:
-        """Get path to a history file."""
-        return self.directory / filename
 
     def delete(self) -> None:
         """Delete this session."""
@@ -883,48 +876,11 @@ class SessionManager:
             return await hydration
         return hydration
 
-    def _hydrate_session_agents(
-        self,
-        agents: Mapping[str, AgentProtocol],
-        name: str | None = None,
-        fallback_agent_name: str | None = None,
-    ) -> SessionHydrationResult | None:
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return run_coroutine(
-                self._hydrate_session_agents_async(
-                    agents,
-                    name,
-                    fallback_agent_name=fallback_agent_name,
-                )
-            )
-        raise RuntimeError(
-            "SessionManager._hydrate_session_agents() cannot be used from an async context; "
-            "use _hydrate_session_agents_async() instead."
-        )
-
     def resume_session(
         self, agent: AgentProtocol, name: str | None = None
     ) -> tuple[Session, pathlib.Path | None, list[str]] | None:
         """Resume a session through the hydrator compatibility path."""
         result = self.resume_session_agents(
-            {agent.name: agent},
-            name,
-            fallback_agent_name=agent.name,
-        )
-        if result is None:
-            return None
-
-        notices = list(result.usage_notices)
-        notices.extend(warning.message for warning in result.warnings)
-        return result.session, result.loaded.get(agent.name), notices
-
-    async def resume_session_async(
-        self, agent: AgentProtocol, name: str | None = None
-    ) -> tuple[Session, pathlib.Path | None, list[str]] | None:
-        """Async resume_session companion for callers already running in an event loop."""
-        result = await self.resume_session_agents_async(
             {agent.name: agent},
             name,
             fallback_agent_name=agent.name,
@@ -1028,10 +984,6 @@ class SessionManager:
         except Exception as e:
             logger.error(f"Failed to get session {name}: {e}")
             return None
-
-    def _sanitize_name(self, name: str) -> str:
-        """Sanitize session name for filesystem safety."""
-        return _sanitize_component(name)
 
     def _prune_sessions(self, max_sessions: int | None = None) -> None:
         """Remove older sessions beyond the rolling window."""

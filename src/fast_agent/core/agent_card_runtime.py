@@ -77,7 +77,6 @@ class AgentCardRuntimeMixin:
     _agent_declared_servers: dict[str, list[str]]
     _base_mcp_servers: dict[str, "MCPServerSettings"] | None
     _card_collision_warnings: list[str]
-    _card_mcp_owned_servers: dict[str, set[str]]
     _default_skill_manifests: list["SkillManifest"]
     _dynamic_mcp_server_names: set[str]
 
@@ -800,9 +799,8 @@ class AgentCardRuntimeMixin:
     def _resolve_agent_mcp_connect_servers(
         self,
         effective_servers: dict[str, "MCPServerSettings"],
-    ) -> tuple[dict[str, list[str]], dict[str, set[str]], set[str]]:
+    ) -> tuple[dict[str, list[str]], set[str]]:
         resolved_servers_by_agent: dict[str, list[str]] = {}
-        card_owners: dict[str, set[str]] = {}
         all_dynamic_server_names: set[str] = set()
 
         for agent_name in sorted(self.agents.keys()):
@@ -816,7 +814,6 @@ class AgentCardRuntimeMixin:
                 resolved_servers_by_agent[agent_name] = []
                 continue
 
-            owner = str(config_obj.source_path or f"agent:{agent_name}")
             for index, entry in enumerate(entries):
                 resolved = self._resolve_mcp_connect_entry(agent_name, index, entry)
                 existing = effective_servers.get(resolved.name)
@@ -839,10 +836,9 @@ class AgentCardRuntimeMixin:
                     )
 
                 resolved_servers_by_agent.setdefault(agent_name, []).append(resolved.name)
-                card_owners.setdefault(owner, set()).add(resolved.name)
                 all_dynamic_server_names.add(resolved.name)
 
-        return resolved_servers_by_agent, card_owners, all_dynamic_server_names
+        return resolved_servers_by_agent, all_dynamic_server_names
 
     def _merge_agent_mcp_servers(
         self,
@@ -897,13 +893,12 @@ class AgentCardRuntimeMixin:
         effective_servers = self._effective_mcp_servers(
             self._preserved_runtime_mcp_servers(existing_registry)
         )
-        resolved_servers_by_agent, card_owners, all_dynamic_server_names = (
-            self._resolve_agent_mcp_connect_servers(effective_servers)
+        resolved_servers_by_agent, all_dynamic_server_names = self._resolve_agent_mcp_connect_servers(
+            effective_servers
         )
 
         self._merge_agent_mcp_servers(resolved_servers_by_agent)
         self._publish_effective_mcp_servers(app_config, registry, effective_servers)
-        self._card_mcp_owned_servers = card_owners
         self._dynamic_mcp_server_names = all_dynamic_server_names
 
     async def _watch_agent_cards(self) -> None:

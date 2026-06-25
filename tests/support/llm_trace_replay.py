@@ -158,7 +158,6 @@ class ResponsesReplayStream:
 
 class AnthropicReplayStream:
     def __init__(self, payloads: list[dict[str, Any]]) -> None:
-        self._payloads = payloads
         self._events = [_ANTHROPIC_EVENT_ADAPTER.validate_python(payload) for payload in payloads]
         self._index = 0
         self._final_message = _final_anthropic_message(payloads)

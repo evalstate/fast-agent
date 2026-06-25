@@ -413,11 +413,6 @@ def build_prompt_with_resources(
     return PromptMessageExtended(role="user", content=content)
 
 
-def mentions_in_text(text: str, *, cwd: Path | None = None) -> Sequence[ParsedMention]:
-    """Convenience helper primarily for tests."""
-    return parse_mentions(text, cwd=cwd).mentions
-
-
 def _resolve_local_content_block(path_text: str) -> ContentBlock:
     path = Path(path_text)
     if not path.exists():

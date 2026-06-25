@@ -122,16 +122,6 @@ def format_provider_help_message(result: InferenceProviderLookupResult) -> str |
     return None
 
 
-def format_provider_summary(result: InferenceProviderLookupResult) -> str | None:
-    """Format a brief provider summary for status output."""
-    if result.has_providers:
-        providers = result.format_provider_list()
-        return f"Available providers: {providers}"
-    if result.exists:
-        return "No inference providers available"
-    return None
-
-
 async def lookup_inference_providers(
     model_id: str,
     timeout: float = 10.0,

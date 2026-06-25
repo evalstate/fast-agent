@@ -59,7 +59,6 @@ from fast_agent.utils.text import (
     casefold_text,
     starts_with_casefold,
     strip_casefold,
-    strip_str_to_none,
 )
 
 if TYPE_CHECKING:
@@ -139,12 +138,6 @@ class _ConnectedServerStatus(Protocol):
 class _ResourceServerStatus(_ConnectedServerStatus, Protocol):
     @property
     def server_capabilities(self) -> object | None: ...
-
-
-@runtime_checkable
-class _NamedServerStatus(_ConnectedServerStatus, Protocol):
-    @property
-    def implementation_name(self) -> object | None: ...
 
 
 def _current_completion_token(raw_tokens: list[str], *, trailing_space: bool) -> str:
@@ -362,21 +355,6 @@ class AgentCompleter(Completer):
             if spec.key:
                 description = f"{description} (key: {spec.key})"
             self.commands[name] = description
-
-    def _current_plugin_command_specs(self):
-        if self.agent_provider is None or self.current_agent is None:
-            return {}
-
-        commands = {}
-        global_commands = plugin_commands_for_provider(self.agent_provider)
-        if global_commands:
-            commands.update(global_commands)
-
-        agent = lookup_agent(self.agent_provider, self.current_agent)
-        agent_commands = plugin_commands_for_agent(agent)
-        if agent_commands:
-            commands.update(agent_commands)
-        return commands
 
     def _current_plugin_command_spec(
         self,
@@ -1527,48 +1505,6 @@ class AgentCompleter(Completer):
                 names.add(str(server_name))
         return sorted(names)
 
-    @staticmethod
-    def _identity_name(value: object) -> str | None:
-        return strip_str_to_none(value)
-
-    @staticmethod
-    def _connected_servers_from_status(
-        status_map: object,
-    ) -> list[tuple[str, str | None]] | None:
-        if not isinstance(status_map, dict):
-            return None
-        return [
-            (
-                str(server_name),
-                AgentCompleter._identity_name(status.implementation_name)
-                if isinstance(status, _NamedServerStatus)
-                else None,
-            )
-            for server_name, status in sorted(status_map.items())
-            if isinstance(status, _ConnectedServerStatus) and status.is_connected is True
-        ]
-
-    async def _connected_servers_from_status_api(
-        self,
-        aggregator: CompleterMcpAggregator,
-    ) -> list[tuple[str, str | None]] | None:
-        try:
-            status_map = await aggregator.collect_server_status()
-        except Exception:
-            return None
-        connected = self._connected_servers_from_status(status_map)
-        return connected if connected else None
-
-    @staticmethod
-    def _connected_servers_from_attached_api(
-        aggregator: CompleterMcpAggregator,
-    ) -> list[tuple[str, str | None]]:
-        try:
-            attached = aggregator.list_attached_servers()
-        except Exception:
-            return []
-        return [(str(server_name), None) for server_name in attached]
-
     async def _list_connected_resource_servers(self) -> list[str]:
         agent = cast("CompleterMcpAgent | None", self._current_agent_object())
         if agent is None:
@@ -1583,21 +1519,6 @@ class AgentCompleter(Completer):
         if names is not None:
             return names
         return await self._resource_server_names_from_capabilities_api(aggregator)
-
-    async def _list_connected_mcp_servers_with_identity(self) -> list[tuple[str, str | None]]:
-        agent = cast("CompleterMcpAgent | None", self._current_agent_object())
-        if agent is None:
-            return []
-
-        try:
-            aggregator = agent.aggregator
-        except Exception:
-            return []
-
-        connected = await self._connected_servers_from_status_api(aggregator)
-        if connected is not None:
-            return connected
-        return self._connected_servers_from_attached_api(aggregator)
 
     def _completion_cache_get(self, key: tuple[Any, ...]) -> tuple[Completion, ...] | None:
         cached = self._mention_cache.get(key)

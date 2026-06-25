@@ -4,7 +4,6 @@ Unit tests for ACP tool permission components.
 Tests for:
 - PermissionStore file persistence
 - PermissionResult factory methods
-- NoOpToolPermissionChecker
 - ACPToolPermissionManager (using test doubles)
 """
 
@@ -17,17 +16,13 @@ import pytest
 from acp.schema import AllowedOutcome, DeniedOutcome, RequestPermissionResponse
 
 from fast_agent.acp.permission_store import (
-    DEFAULT_PERMISSIONS_FILE,
     PermissionDecision,
-    PermissionEntry,
     PermissionResult,
     PermissionStore,
 )
 from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
 from fast_agent.acp.tool_permissions import (
     ACPToolPermissionManager,
-    NoOpToolPermissionChecker,
-    ToolPermissionChecker,
     _is_acp_tool_call_id,
     _permission_options,
 )
@@ -229,15 +224,15 @@ class TestPermissionStore:
         store = PermissionStore(cwd=temp_dir)
 
         # Initially, no file
-        assert not (temp_dir / DEFAULT_PERMISSIONS_FILE).exists()
+        assert not store.file_path.exists()
 
         # Just reading doesn't create file
         await store.get("server1", "tool1")
-        assert not (temp_dir / DEFAULT_PERMISSIONS_FILE).exists()
+        assert not store.file_path.exists()
 
         # Setting permission creates file
         await store.set("server1", "tool1", PermissionDecision.ALLOW_ALWAYS)
-        assert (temp_dir / DEFAULT_PERMISSIONS_FILE).exists()
+        assert store.file_path.exists()
 
     @pytest.mark.asyncio
     async def test_handles_missing_file_gracefully(self, temp_dir: Path) -> None:
@@ -252,12 +247,11 @@ class TestPermissionStore:
     async def test_removes_permission(self, temp_dir: Path) -> None:
         """remove() deletes stored permission."""
         store = PermissionStore(cwd=temp_dir)
-        file_path = temp_dir / DEFAULT_PERMISSIONS_FILE
 
         # Set and verify
         await store.set("server1", "tool1", PermissionDecision.ALLOW_ALWAYS)
         assert await store.get("server1", "tool1") == PermissionDecision.ALLOW_ALWAYS
-        assert file_path.exists()
+        assert store.file_path.exists()
 
         # Remove
         removed = await store.remove("server1", "tool1")
@@ -265,7 +259,7 @@ class TestPermissionStore:
 
         # Verify removed
         assert await store.get("server1", "tool1") is None
-        assert not file_path.exists()
+        assert not store.file_path.exists()
 
         fresh_store = PermissionStore(cwd=temp_dir)
         assert await fresh_store.get("server1", "tool1") is None
@@ -294,40 +288,13 @@ class TestPermissionStore:
         assert await store.get("server2", "tool2") is None
 
     @pytest.mark.asyncio
-    async def test_list_all_returns_all_permissions(self, temp_dir: Path) -> None:
-        """list_all() returns all stored permissions."""
-        store = PermissionStore(cwd=temp_dir)
-
-        # Set multiple permissions
-        await store.set("server1", "tool1", PermissionDecision.ALLOW_ALWAYS)
-        await store.set("server2", "tool2", PermissionDecision.REJECT_ALWAYS)
-
-        all_perms = await store.list_all()
-        assert len(all_perms) == 2
-        assert all_perms[PermissionEntry("server1", "tool1")] == PermissionDecision.ALLOW_ALWAYS
-        assert all_perms[PermissionEntry("server2", "tool2")] == PermissionDecision.REJECT_ALWAYS
-
-    @pytest.mark.asyncio
-    async def test_list_all_preserves_slashes_in_permission_keys(self, temp_dir: Path) -> None:
-        """list_all() returns structured keys so names with slashes are not ambiguous."""
-        store = PermissionStore(cwd=temp_dir)
-        await store.set("org/server", "tools/fetch", PermissionDecision.ALLOW_ALWAYS)
-
-        all_perms = await store.list_all()
-
-        assert all_perms == {
-            PermissionEntry("org/server", "tools/fetch"): PermissionDecision.ALLOW_ALWAYS
-        }
-
-    @pytest.mark.asyncio
     async def test_file_format_is_human_readable(self, temp_dir: Path) -> None:
         """The permissions file is human-readable markdown."""
         store = PermissionStore(cwd=temp_dir)
         await store.set("my_server", "my_tool", PermissionDecision.ALLOW_ALWAYS)
 
         # Read the file content
-        file_path = temp_dir / DEFAULT_PERMISSIONS_FILE
-        content = file_path.read_text()
+        content = store.file_path.read_text()
 
         # Check it contains markdown table elements
         assert "| Server | Tool | Permission |" in content
@@ -345,8 +312,8 @@ class TestPermissionStore:
         await asyncio.gather(*[set_permission(i) for i in range(10)])
 
         # All should be stored
-        all_perms = await store.list_all()
-        assert len(all_perms) == 10
+        for i in range(10):
+            assert await store.get(f"server{i}", f"tool{i}") == PermissionDecision.ALLOW_ALWAYS
 
 
 class TestPermissionStoreEdgeCases:
@@ -490,55 +457,6 @@ class TestPermissionStoreEdgeCases:
         assert await store.get("", "tool1") is None
         assert await store.get("server1", "") is None
         assert await store.get("server2", "tool2") == PermissionDecision.ALLOW_ALWAYS
-
-
-class TestNoOpToolPermissionChecker:
-    """Tests for NoOpToolPermissionChecker - always allows."""
-
-    @pytest.mark.asyncio
-    async def test_always_allows_any_tool(self) -> None:
-        """Should always return allowed=True regardless of input."""
-        checker = NoOpToolPermissionChecker()
-
-        result = await checker.check_permission(
-            tool_name="dangerous_delete_everything",
-            server_name="any_server",
-            arguments={"recursive": True, "force": True},
-        )
-
-        assert result.allowed is True
-        assert result.remember is False
-
-    @pytest.mark.asyncio
-    async def test_allows_with_no_arguments(self) -> None:
-        """Should allow when arguments are None."""
-        checker = NoOpToolPermissionChecker()
-
-        result = await checker.check_permission(
-            tool_name="some_tool",
-            server_name="some_server",
-            arguments=None,
-        )
-
-        assert result.allowed is True
-
-    @pytest.mark.asyncio
-    async def test_allows_with_empty_arguments(self) -> None:
-        """Should allow when arguments are empty dict."""
-        checker = NoOpToolPermissionChecker()
-
-        result = await checker.check_permission(
-            tool_name="some_tool",
-            server_name="some_server",
-            arguments={},
-        )
-
-        assert result.allowed is True
-
-    def test_implements_protocol(self) -> None:
-        """Should implement ToolPermissionChecker protocol."""
-        checker = NoOpToolPermissionChecker()
-        assert isinstance(checker, ToolPermissionChecker)
 
 
 class TestACPToolPermissionAdapter:

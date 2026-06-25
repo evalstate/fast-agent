@@ -26,7 +26,6 @@ from fast_agent.skills.models import (
     MarketplaceSkill,
 )
 from fast_agent.skills.registry import SkillManifest, SkillRegistry
-from fast_agent.utils.async_utils import run_coroutine
 from fast_agent.utils.text import strip_casefold, strip_to_none
 
 DIRECT_SOURCE_TIMEOUT_SECONDS = 7.0
@@ -76,11 +75,6 @@ async def resolve_direct_skill_source(value: str) -> DirectSkillSource:
         raise DirectSkillSourceError("Only GitHub skill URLs are supported for direct installs.")
 
     return _resolve_local_source(Path(cleaned).expanduser(), source_url=cleaned)
-
-
-def resolve_direct_skill_source_sync(value: str) -> DirectSkillSource:
-
-    return run_coroutine(resolve_direct_skill_source(value))
 
 
 async def _resolve_github_source(url: str) -> DirectSkillSource:

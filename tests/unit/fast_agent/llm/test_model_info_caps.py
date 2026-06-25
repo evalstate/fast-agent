@@ -35,29 +35,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.resolved_model import ResolvedModelSpec
 
 if TYPE_CHECKING:
-    from fast_agent.interfaces import FastAgentLLMProtocol
     from fast_agent.llm.model_overlays import LoadedModelOverlay
-
-
-class DummyLLM:
-    def __init__(self, model: str, provider: Provider = Provider.GOOGLE) -> None:
-        self.model_name = model
-        self.provider = provider
-        self.resolved_model = ResolvedModelSpec(
-            raw_input=model,
-            selected_model_name=model,
-            source="direct",
-            model_config=ModelConfig(provider=provider, model_name=model),
-            provider=provider,
-            wire_model_name=model,
-        )
-        self.default_request_params = SimpleNamespace(model=model)
-
-    @property
-    def model_info(self) -> "ModelInfo | None":
-        if not self.model_name:
-            return None
-        return ModelInfo.from_name(self.model_name, self.provider)
 
 
 def test_model_alias_capabilities_match_canonical() -> None:
@@ -69,21 +47,6 @@ def test_model_alias_capabilities_match_canonical() -> None:
     assert alias.name == canonical.name
     assert alias.tokenizes == canonical.tokenizes
     assert alias.tdv_flags == (True, True, True)
-
-
-def test_model_info_from_llm_uses_canonical_name() -> None:
-    info = ModelInfo.from_llm(cast("FastAgentLLMProtocol", DummyLLM("gemini25")))
-    assert info is not None
-    assert info.name == "gemini-2.5-flash"
-    assert info.tdv_flags == (True, True, True)
-
-
-def test_model_info_from_agent_llm_capabilities() -> None:
-    llm = DummyLLM("gemini-2.5-pro", provider=Provider.GOOGLE)
-    info = ModelInfo.from_llm(cast("FastAgentLLMProtocol", llm))
-    assert info is not None
-    assert info.name == "gemini-2.5-pro"
-    assert info.tdv_flags == (True, True, True)
 
 
 def test_model_info_from_resolved_model_uses_resolved_metadata() -> None:

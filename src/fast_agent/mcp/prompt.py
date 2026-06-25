@@ -1,9 +1,7 @@
 """
 Prompt class for easily creating and working with MCP prompt content.
 
-This implementation lives in the fast_agent namespace as part of the
-migration away from fast_agent. A compatibility shim remains at
-fast_agent.core.prompt importing this Prompt.
+This implementation is the canonical prompt helper for fast-agent runtime code.
 """
 
 from pathlib import Path

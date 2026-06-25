@@ -51,22 +51,6 @@ class StreamViewport:
         self._plain_truncator = plain_truncator
         self._code_theme = code_theme
 
-    def slice_segments(
-        self,
-        segments: Iterable[StreamSegment],
-        *,
-        terminal_height: int,
-        console: Console,
-        target_ratio: float,
-    ) -> list[StreamSegment]:
-        window = self.slice_segments_with_heights(
-            segments,
-            terminal_height=terminal_height,
-            console=console,
-            target_ratio=target_ratio,
-        )
-        return window.segments
-
     def slice_segments_with_heights(
         self,
         segments: Iterable[StreamSegment],

@@ -33,9 +33,8 @@ class MockStreamManager:
         return False
 
     async def __aiter__(self):
-        # Yield no events for simplicity
-        return
-        yield  # Make this a generator
+        if asyncio.current_task() is None:  # pragma: no cover - keeps this an async generator
+            yield None
 
     async def get_final_message(self) -> BetaMessage:
         """Return the mock final message."""

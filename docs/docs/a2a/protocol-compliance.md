@@ -49,8 +49,8 @@ The deterministic A2A integration suite exercises:
 - A2A server `shared`, `connection`, and `request` instance scopes;
 - AgentCard skill advertisement and fast-agent-specific routing via message
   metadata;
-- streaming artifact updates delivered to the fast-agent client stream listener;
-- artifact replacement and append semantics on the client;
+- message events delivered to the fast-agent client stream listener;
+- artifact replacement and append semantics in the client response assembly;
 - `TASK_STATE_INPUT_REQUIRED` preservation and follow-up completion;
 - raw non-image file preservation into fast-agent blob resources and back to
   A2A raw parts;

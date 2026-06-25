@@ -31,11 +31,6 @@ class ToolPermissionResult:
         return cls(allowed=True)
 
     @classmethod
-    def deny(cls, message: str | None = None) -> "ToolPermissionResult":
-        """Create a denied result with optional error message."""
-        return cls(allowed=False, error_message=message)
-
-    @classmethod
     def cancelled(cls) -> "ToolPermissionResult":
         """Create a cancelled result."""
         return cls(allowed=False, is_cancelled=True, error_message="Permission request cancelled")

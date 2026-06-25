@@ -77,7 +77,7 @@ class Executor(ABC, ContextDependent):
         **kwargs,
     ) -> None:
         super().__init__(context=context, **kwargs)
-        self.execution_engine = engine
+        del engine
 
         if config:
             self.config = config

@@ -66,19 +66,6 @@ async def test_composite_runtime_routes_to_fallback_for_unique_tool() -> None:
 
 
 @pytest.mark.asyncio
-async def test_composite_runtime_routes_attach_resource_alias_to_attach_media() -> None:
-    primary = _Runtime("read_text_file")
-    fallback = _Runtime("attach_media")
-    runtime = CompositeFilesystemRuntime(primary=primary, fallback=fallback)
-
-    result = await runtime.call_tool("attach_resource", {"path": "image.png"})
-
-    assert result.isError is False
-    assert primary.calls == []
-    assert fallback.calls == [("attach_resource", {"path": "image.png"}, None, None)]
-
-
-@pytest.mark.asyncio
 async def test_composite_runtime_reports_unsupported_tool() -> None:
     runtime = CompositeFilesystemRuntime(
         primary=_Runtime("read_text_file"),

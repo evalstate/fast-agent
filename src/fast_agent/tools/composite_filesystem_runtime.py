@@ -6,8 +6,6 @@ from mcp.types import CallToolResult, TextContent
 
 from fast_agent.mcp.tool_result_metadata import set_fatal_tool_error
 from fast_agent.tools.filesystem_tool_definitions import (
-    ATTACH_MEDIA_TOOL_NAME,
-    ATTACH_RESOURCE_TOOL_ALIAS,
     READ_TEXT_FILE_TOOL_NAME,
     WRITE_TEXT_FILE_TOOL_NAME,
 )
@@ -21,16 +19,12 @@ if TYPE_CHECKING:
     from fast_agent.types import RequestParams
 
 
-_TOOL_ALIASES = {ATTACH_RESOURCE_TOOL_ALIAS: ATTACH_MEDIA_TOOL_NAME}
-
-
 def _tool_names(runtime: FilesystemRuntime) -> set[str]:
     return {tool.name for tool in runtime.tools}
 
 
 def _runtime_supports_tool(runtime: FilesystemRuntime, tool_name: str) -> bool:
-    names = _tool_names(runtime)
-    return tool_name in names or _TOOL_ALIASES.get(tool_name) in names
+    return tool_name in _tool_names(runtime)
 
 
 def _unsupported_tool_result(name: str) -> CallToolResult:

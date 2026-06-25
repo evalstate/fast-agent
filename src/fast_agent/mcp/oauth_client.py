@@ -245,11 +245,6 @@ class _CallbackServer:
         self._thread: threading.Thread | None = None
         self._actual_port: int | None = None
 
-    @property
-    def actual_port(self) -> int | None:
-        """Return the actual port the server bound to (may differ from preferred)."""
-        return self._actual_port
-
     def _make_handler(self) -> Callable[..., BaseHTTPRequestHandler]:
         result = self._result
         expected_path = self._path
@@ -685,11 +680,6 @@ def keyring_token_present(identity: str, service: str = "fast-agent-mcp") -> boo
         return keyring.get_password(service, token_key) is not None
     except Exception:
         return False
-
-
-def keyring_has_token(server_config: MCPServerSettings) -> bool:
-    """Check if keyring has a token stored for this server."""
-    return keyring_token_present(compute_server_identity(server_config))
 
 
 async def _print_authorization_link(auth_url: str, warn_if_no_keyring: bool = False) -> None:

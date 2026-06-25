@@ -129,7 +129,6 @@ async def test_shared_scope_refresh_defers_stale_disposal_until_release() -> Non
     await pool.maybe_refresh_shared_instance()
 
     assert pool.primary_instance is not primary
-    assert pool.stale_instances == [primary]
     assert factory.disposed == []
     assert registered == [pool.primary_instance]
 
@@ -139,15 +138,37 @@ async def test_shared_scope_refresh_defers_stale_disposal_until_release() -> Non
 
 
 @pytest.mark.asyncio
-async def test_shutdown_disposes_connection_primary_and_stale_instances() -> None:
+async def test_shutdown_disposes_connection_and_primary_instances() -> None:
     factory = _Factory()
     primary = await factory.create()
-    pool = _pool(factory, scope="shared", primary=primary)
-    connection = await factory.create()
-    stale = await factory.create()
-    pool.connection_instances[1] = connection
-    pool.stale_instances.append(stale)
+    pool = _pool(factory, scope="connection", primary=primary)
+    session = _Session()
+    ctx = _Ctx(session)
+
+    lease = await pool.acquire(ctx)
 
     await pool.shutdown()
 
-    assert factory.disposed == [connection, primary, stale]
+    assert factory.disposed == [lease.instance, primary]
+
+
+@pytest.mark.asyncio
+async def test_shutdown_disposes_stale_instances() -> None:
+    factory = _Factory()
+    primary = await factory.create()
+    version = 1
+    primary.registry_version = version
+
+    def get_registry_version() -> int:
+        return version
+
+    pool = _pool(factory, scope="shared", primary=primary)
+    pool._get_registry_version = get_registry_version
+
+    version = 2
+    await pool.maybe_refresh_shared_instance()
+    refreshed = pool.primary_instance
+
+    await pool.shutdown()
+
+    assert factory.disposed == [refreshed, primary]

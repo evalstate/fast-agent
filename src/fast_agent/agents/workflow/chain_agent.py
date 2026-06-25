@@ -16,8 +16,8 @@ from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.workflow.request_params import child_request_params
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import ModelT
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 logger = get_logger(__name__)

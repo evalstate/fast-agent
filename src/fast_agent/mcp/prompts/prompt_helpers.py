@@ -5,26 +5,14 @@ These utilities simplify extracting content from nested message structures
 without repetitive type checking.
 """
 
-from typing import cast
+from typing import TYPE_CHECKING
 
-from mcp.types import (
-    EmbeddedResource,
-    PromptMessage,
-    TextContent,
-)
+from mcp.types import PromptMessage
 
-from fast_agent.mcp.helpers.content_helpers import get_image_data, get_text
+from fast_agent.mcp.helpers.content_helpers import get_text
 
-# Forward reference for PromptMessageExtended, actual import happens at runtime
-PromptMessageExtendedType = object  # Will be replaced with actual type
-try:
+if TYPE_CHECKING:
     from fast_agent.types import PromptMessageExtended
-
-    PromptMessageExtendedType = PromptMessageExtended
-except ImportError:
-    # During initialization, there might be a circular import.
-    # We'll handle this gracefully.
-    pass
 
 
 class MessageContent:
@@ -32,43 +20,6 @@ class MessageContent:
     Helper class for working with message content in both PromptMessage and
     PromptMessageExtended objects.
     """
-
-    @staticmethod
-    def get_all_text(message: "PromptMessage | PromptMessageExtended") -> list[str]:
-        """
-        Extract all text content from a message.
-
-        Args:
-            message: A PromptMessage or PromptMessageExtended
-
-        Returns:
-            List of text strings from all text content parts
-        """
-        if isinstance(message, PromptMessage):
-            text = get_text(message.content)
-            return [text] if text is not None else []
-
-        result = []
-        for content in message.content:
-            text = get_text(content)
-            if text is not None:
-                result.append(text)
-
-        return result
-
-    @staticmethod
-    def join_text(message: "PromptMessage | PromptMessageExtended", separator: str = "\n\n") -> str:
-        """
-        Join all text content in a message with a separator.
-
-        Args:
-            message: A PromptMessage or PromptMessageExtended
-            separator: String to use as separator (default: newlines)
-
-        Returns:
-            Joined text string
-        """
-        return separator.join(MessageContent.get_all_text(message))
 
     @staticmethod
     def get_first_text(message: "PromptMessage | PromptMessageExtended") -> str | None:
@@ -90,147 +41,3 @@ class MessageContent:
                 return text
 
         return None
-
-    @staticmethod
-    def has_text_at_first_position(message: "PromptMessage | PromptMessageExtended") -> bool:
-        """
-        Check if a message has a TextContent at the first position.
-        This is a common case when dealing with messages that start with text.
-
-        Args:
-            message: A PromptMessage or PromptMessageExtended
-
-        Returns:
-            True if the message has TextContent at first position, False otherwise
-        """
-        if isinstance(message, PromptMessage):
-            return isinstance(message.content, TextContent)
-
-        # For multipart messages, check if there's at least one item and the first is TextContent
-        return bool(message.content) and isinstance(message.content[0], TextContent)
-
-    @staticmethod
-    def get_text_at_first_position(
-        message: "PromptMessage | PromptMessageExtended",
-    ) -> str | None:
-        """
-        Get the text from the first position of a message if it's TextContent.
-
-        Args:
-            message: A PromptMessage or PromptMessageExtended
-
-        Returns:
-            The text content at the first position if it's TextContent,
-            None otherwise
-        """
-        if not MessageContent.has_text_at_first_position(message):
-            return None
-
-        if isinstance(message, PromptMessage):
-            return cast("TextContent", message.content).text
-
-        # Safe to cast since we've verified the first item is TextContent
-        return cast("TextContent", message.content[0]).text
-
-    @staticmethod
-    def get_all_images(message: "PromptMessage | PromptMessageExtended") -> list[str]:
-        """
-        Extract all image data from a message.
-
-        Args:
-            message: A PromptMessage or PromptMessageExtended
-
-        Returns:
-            List of image data strings from all image content parts
-        """
-        if isinstance(message, PromptMessage):
-            img_data = get_image_data(message.content)
-            return [img_data] if img_data is not None else []
-
-        result = []
-        for content in message.content:
-            img_data = get_image_data(content)
-            if img_data is not None:
-                result.append(img_data)
-
-        return result
-
-    @staticmethod
-    def get_first_image(message: "PromptMessage | PromptMessageExtended") -> str | None:
-        """
-        Get the first available image data from a message.
-
-        Args:
-            message: A PromptMessage or PromptMessageExtended
-
-        Returns:
-            First image data or None if no image content exists
-        """
-        if isinstance(message, PromptMessage):
-            return get_image_data(message.content)
-
-        for content in message.content:
-            img_data = get_image_data(content)
-            if img_data is not None:
-                return img_data
-
-        return None
-
-    @staticmethod
-    def get_all_resources(
-        message: "PromptMessage | PromptMessageExtended",
-    ) -> list[EmbeddedResource]:
-        """
-        Extract all embedded resources from a message.
-
-        Args:
-            message: A PromptMessage or PromptMessageExtended
-
-        Returns:
-            List of EmbeddedResource objects
-        """
-        if isinstance(message, PromptMessage):
-            if isinstance(message.content, EmbeddedResource):
-                return [message.content]
-            return []
-
-        return [content for content in message.content if isinstance(content, EmbeddedResource)]
-
-    @staticmethod
-    def has_text(message: "PromptMessage | PromptMessageExtended") -> bool:
-        """
-        Check if the message has any text content.
-
-        Args:
-            message: A PromptMessage or PromptMessageExtended
-
-        Returns:
-            True if the message has text content, False otherwise
-        """
-        return bool(MessageContent.get_all_text(message))
-
-    @staticmethod
-    def has_images(message: "PromptMessage | PromptMessageExtended") -> bool:
-        """
-        Check if the message has any image content.
-
-        Args:
-            message: A PromptMessage or PromptMessageExtended
-
-        Returns:
-            True if the message has image content, False otherwise
-        """
-        return bool(MessageContent.get_all_images(message))
-
-    @staticmethod
-    def has_resources(message: "PromptMessage | PromptMessageExtended") -> bool:
-        """
-        Check if the message has any embedded resources.
-
-        Args:
-            message: A PromptMessage or PromptMessageExtended
-
-        Returns:
-            True if the message has embedded resources, False otherwise
-        """
-        return bool(MessageContent.get_all_resources(message))

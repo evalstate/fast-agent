@@ -35,36 +35,7 @@ from fast_agent.commands.model_capabilities import (
     set_text_verbosity,
 )
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.connect_targets import infer_connect_mode, parse_connect_command_text
 from fast_agent.mcp.types import McpAgentProtocol
-from fast_agent.ui.command_payloads import (
-    AgentCommand,
-    ClearCommand,
-    CommandPayload,
-    HashAgentCommand,
-    HistoryFixCommand,
-    HistoryReviewCommand,
-    HistoryRewindCommand,
-    HistoryViewCommand,
-    HistoryWebClearCommand,
-    ListToolsCommand,
-    LoadAgentCardCommand,
-    LoadHistoryCommand,
-    LoadPromptCommand,
-    McpConnectCommand,
-    McpConnectMode,
-    McpDisconnectCommand,
-    McpListCommand,
-    ReloadAgentsCommand,
-    SaveHistoryCommand,
-    SelectPromptCommand,
-    ShowMarkdownCommand,
-    ShowMcpStatusCommand,
-    ShowSystemCommand,
-    ShowUsageCommand,
-    SkillsCommand,
-    SwitchAgentCommand,
-)
 from fast_agent.ui.mcp_display import render_mcp_status
 from fast_agent.ui.model_binary_toggles import (
     WEB_FETCH_TOGGLE,
@@ -101,7 +72,6 @@ from fast_agent.ui.prompt.input_toolbar import (
 from fast_agent.ui.prompt.keybindings import ShellPrefixLexer, create_keybindings
 from fast_agent.ui.prompt.special_commands import handle_special_commands_async
 from fast_agent.ui.service_tier_display import cycle_service_tier
-from fast_agent.utils.commandline import quote_commandline_token
 from fast_agent.utils.env import env_flag
 
 if TYPE_CHECKING:
@@ -112,6 +82,7 @@ if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.interfaces import FastAgentLLMProtocol
     from fast_agent.session.session_manager import SessionManager
+    from fast_agent.ui.command_payloads import CommandPayload
 
 
 # Get the application version
@@ -180,170 +151,6 @@ def set_last_copyable_output(output: str) -> None:
     """Set the last copyable output for Ctrl+Y clipboard functionality."""
     global _last_copyable_output
     _last_copyable_output = output
-
-
-def _show_system_cmd() -> ShowSystemCommand:
-    return ShowSystemCommand()
-
-
-def _show_usage_cmd() -> ShowUsageCommand:
-    return ShowUsageCommand()
-
-
-def _show_markdown_cmd() -> ShowMarkdownCommand:
-    return ShowMarkdownCommand()
-
-
-def _show_mcp_status_cmd() -> ShowMcpStatusCommand:
-    return ShowMcpStatusCommand()
-
-
-def _mcp_list_cmd() -> McpListCommand:
-    return McpListCommand()
-
-
-def _mcp_connect_cmd(
-    target_text: str,
-    *,
-    parsed_mode: McpConnectMode,
-    server_name: str | None,
-    auth_token: str | None,
-    timeout_seconds: float | None,
-    trigger_oauth: bool | None,
-    reconnect_on_disconnect: bool | None,
-    force_reconnect: bool,
-    error: str | None,
-) -> McpConnectCommand:
-    del parsed_mode
-    if error or not target_text:
-        return McpConnectCommand(request=None, error=error)
-
-    argv: list[str] = []
-    if server_name:
-        argv.extend(["--name", quote_commandline_token(server_name, syntax="posix")])
-    if auth_token:
-        argv.extend(["--auth", quote_commandline_token(auth_token, syntax="posix")])
-    if timeout_seconds is not None:
-        argv.extend(["--timeout", str(timeout_seconds)])
-    if trigger_oauth is True:
-        argv.append("--oauth")
-    elif trigger_oauth is False:
-        argv.append("--no-oauth")
-    if reconnect_on_disconnect is False:
-        argv.append("--no-reconnect")
-    if force_reconnect:
-        argv.append("--reconnect")
-    argv.append(target_text)
-    return McpConnectCommand(
-        request=parse_connect_command_text(" ".join(argv)),
-        error=None,
-    )
-
-
-def _mcp_disconnect_cmd(server_name: str | None, error: str | None) -> McpDisconnectCommand:
-    return McpDisconnectCommand(server_name=server_name, error=error)
-
-
-def _list_tools_cmd() -> ListToolsCommand:
-    return ListToolsCommand()
-
-
-def _switch_agent_cmd(agent_name: str) -> SwitchAgentCommand:
-    return SwitchAgentCommand(agent_name=agent_name)
-
-
-def _hash_agent_cmd(agent_name: str, message: str) -> HashAgentCommand:
-    return HashAgentCommand(agent_name=agent_name, message=message)
-
-
-def _show_history_cmd(target_agent: str | None) -> HistoryViewCommand:
-    return HistoryViewCommand(agent=target_agent)
-
-
-def _clear_last_cmd(target_agent: str | None) -> ClearCommand:
-    return ClearCommand(kind="clear_last", agent=target_agent)
-
-
-def _clear_history_cmd(target_agent: str | None) -> ClearCommand:
-    return ClearCommand(kind="clear_history", agent=target_agent)
-
-
-def _save_history_cmd(filename: str | None) -> SaveHistoryCommand:
-    return SaveHistoryCommand(filename=filename)
-
-
-def _load_history_cmd(filename: str | None, error: str | None) -> LoadHistoryCommand:
-    return LoadHistoryCommand(filename=filename, error=error)
-
-
-def _load_prompt_cmd(filename: str | None, error: str | None) -> LoadPromptCommand:
-    return LoadPromptCommand(filename=filename, error=error)
-
-
-def _history_rewind_cmd(turn_index: int | None, error: str | None) -> HistoryRewindCommand:
-    return HistoryRewindCommand(turn_index=turn_index, error=error)
-
-
-def _history_review_cmd(turn_index: int | None, error: str | None) -> HistoryReviewCommand:
-    return HistoryReviewCommand(turn_index=turn_index, error=error)
-
-
-def _history_fix_cmd(target_agent: str | None) -> HistoryFixCommand:
-    return HistoryFixCommand(agent=target_agent)
-
-
-def _history_webclear_cmd(target_agent: str | None) -> HistoryWebClearCommand:
-    return HistoryWebClearCommand(agent=target_agent)
-
-
-def _load_agent_card_cmd(
-    filename: str | None, add_tool: bool, remove_tool: bool, error: str | None
-) -> LoadAgentCardCommand:
-    return LoadAgentCardCommand(
-        filename=filename, add_tool=add_tool, remove_tool=remove_tool, error=error
-    )
-
-
-def _agent_cmd(
-    agent_name: str | None, add_tool: bool, remove_tool: bool, dump: bool, error: str | None
-) -> AgentCommand:
-    return AgentCommand(
-        agent_name=agent_name,
-        add_tool=add_tool,
-        remove_tool=remove_tool,
-        dump=dump,
-        error=error,
-    )
-
-
-def _reload_agents_cmd() -> ReloadAgentsCommand:
-    return ReloadAgentsCommand()
-
-
-def _select_prompt_cmd(prompt_index: int | None, prompt_name: str | None) -> SelectPromptCommand:
-    return SelectPromptCommand(prompt_index=prompt_index, prompt_name=prompt_name)
-
-
-def _skills_cmd(action: str, argument: str | None) -> SkillsCommand:
-    return SkillsCommand(action=action, argument=argument)
-
-
-def _infer_mcp_connect_mode(target_text: str) -> McpConnectMode:
-    return infer_connect_mode(target_text)
-
-
-def _rebuild_mcp_target_text(tokens: list[str]) -> str:
-    """Rebuild target text while preserving whitespace-grouped arguments."""
-    if not tokens:
-        return ""
-
-    rebuilt_parts: list[str] = []
-    for token in tokens:
-        if token == "" or any(char.isspace() for char in token):
-            rebuilt_parts.append(quote_commandline_token(token, syntax="posix"))
-        else:
-            rebuilt_parts.append(token)
-    return " ".join(rebuilt_parts)
 
 
 # Track whether help text has been shown globally

@@ -1,5 +1,3 @@
-# Import and re-export AgentMCPServer to avoid circular imports
-from fast_agent.mcp.server.agent_server import AgentMCPServer
 from fast_agent.mcp.server.harness_app_server import (
     HarnessMCPAppRuntime,
     HarnessMCPAppRuntimeOptions,
@@ -10,7 +8,6 @@ from fast_agent.mcp.server.harness_app_server import (
 )
 
 __all__ = [
-    "AgentMCPServer",
     "HarnessMCPAppRuntime",
     "HarnessMCPAppRuntimeOptions",
     "HarnessMCPAppServer",

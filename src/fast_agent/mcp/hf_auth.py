@@ -154,32 +154,6 @@ HF_REQUEST_PASSTHROUGH_AUTH_POLICY = HuggingFaceAuthPolicy(
 )
 
 
-def should_add_hf_auth(
-    url: str,
-    existing_headers: Mapping[str, str] | None,
-    hub_token_provider: TokenProvider | None = None,
-) -> bool:
-    """
-    Determine if HuggingFace authentication should be added to the headers.
-
-    Args:
-        url: The URL to check
-        existing_headers: Existing headers dictionary (may be None)
-        hub_token_provider: Optional callable that returns a token. Defaults to
-            using huggingface_hub.get_token(). Pass a custom provider for testing.
-
-    Returns:
-        True if HF auth should be added, False otherwise
-    """
-    if not is_huggingface_url(url):
-        return False
-
-    if _has_hf_auth_header(existing_headers):
-        return False
-
-    return get_hf_token_from_env(hub_token_provider) is not None
-
-
 def add_hf_auth_header(
     url: str,
     headers: dict[str, str] | None,

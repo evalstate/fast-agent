@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from mcp.types import TextContent
@@ -12,19 +12,7 @@ from fast_agent.hooks.session_history import save_session_history
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from fast_agent.session.identity import SessionSaveIdentity
-
-
-class _SavedSessionProxy(Protocol):
-    name: str
-    message_history: list[PromptMessageExtended]
-
-    def list_attached_mcp_servers(self) -> list[str]: ...
-
-    @property
-    def agent_backed_tools(self) -> "Mapping[str, object]": ...
 
 
 class _Session:
@@ -165,7 +153,7 @@ async def test_save_session_history_uses_app_store_for_app_scoped_acp_session(
     assert identity.session_store_scope == "app"
     assert identity.session_cwd == workspace.resolve()
     assert app_manager.saved_resolved_prompts == [{"main": "Resolved ACP prompt"}]
-    saved_agent = cast("_SavedSessionProxy", app_manager.saved_agents[0])
+    saved_agent = cast("Any", app_manager.saved_agents[0])
     assert saved_agent.name == "main"
     assert saved_agent.message_history == history
     assert saved_agent.list_attached_mcp_servers() == []

@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable
 
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
+from fast_agent.mcp.prompt import Prompt
 from hf_inference_acp.hf_config import (
     CONFIG_FILE,
     copy_toad_cards_from_resources,

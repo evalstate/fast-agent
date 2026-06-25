@@ -190,11 +190,9 @@ def test_converter_skips_thought_parts_when_building_message_history() -> None:
         }
     )
 
-    message = converter.convert_from_google_content_list([content])[0]
+    parts = converter.convert_from_google_content(content)
 
-    assert [part.text for part in message.content if isinstance(part, TextContent)] == [
-        "final answer"
-    ]
+    assert [part.text for part in parts if isinstance(part, TextContent)] == ["final answer"]
 
 
 # ---------- Finish reason mapping ----------

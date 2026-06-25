@@ -103,7 +103,6 @@ def test_parse_patch_lenient_heredoc() -> None:
                 ],
             )
         ],
-        workdir=None,
     )
 
     heredoc = f"<<EOF\n{patch_text}\nEOF\n"

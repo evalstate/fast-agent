@@ -110,7 +110,7 @@ Starts the application as an MCP server.
 is_server_mode = await fast.main()
 ```
 
-Helper method for checking if the legacy `--server` flag was requested (deprecated). Server mode is also triggered by `--transport` when running from the CLI, but that check happens in `run()`.
+Helper method for checking if server mode was requested for this app. Server mode is triggered by `--transport` when running from the CLI, but that check happens in `run()`.
 
 --8<-- "docs/docs/_generated/harness_reference.md"
 

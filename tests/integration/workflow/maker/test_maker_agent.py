@@ -10,8 +10,8 @@ and red-flag filtering for statistical error correction.
 
 import pytest
 
-from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import FIXED_RESPONSE_INDICATOR
+from fast_agent.mcp.prompt import Prompt
 
 
 @pytest.mark.integration

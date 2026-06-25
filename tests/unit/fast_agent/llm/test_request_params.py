@@ -6,9 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from fast_agent.llm.request_params import (
-    RESPONSE_MODE_VALUES,
     STRUCTURED_TOOL_POLICY_VALUES,
-    TOOL_RESULT_MODE_VALUES,
     RequestParams,
     is_structured_tool_policy,
     response_mode_to_tool_result_mode,
@@ -28,14 +26,12 @@ def test_is_structured_tool_policy_rejects_unknown_values() -> None:
 
 
 def test_response_mode_values_map_to_tool_result_mode_overrides() -> None:
-    assert RESPONSE_MODE_VALUES == ("inherit", "postprocess", "passthrough")
     assert response_mode_to_tool_result_mode("inherit") is None
     assert response_mode_to_tool_result_mode("postprocess") == "postprocess"
     assert response_mode_to_tool_result_mode("passthrough") == "passthrough"
 
 
 def test_tool_result_mode_policy_helpers() -> None:
-    assert TOOL_RESULT_MODE_VALUES == ("postprocess", "passthrough", "selectable")
     assert not tool_result_mode_allows_response_mode("postprocess")
     assert not tool_result_mode_allows_response_mode("passthrough")
     assert tool_result_mode_allows_response_mode("selectable")

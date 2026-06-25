@@ -5,7 +5,6 @@ from mcp import CallToolRequest, Tool
 from mcp.types import CallToolRequestParams, PromptMessage
 
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.prompt import Prompt
 from fast_agent.llm.fastagent_llm import (
     FastAgentLLM,
     RequestParams,
@@ -13,6 +12,7 @@ from fast_agent.llm.fastagent_llm import (
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
 from fast_agent.mcp.helpers.content_helpers import tool_result_text_for_llm
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 

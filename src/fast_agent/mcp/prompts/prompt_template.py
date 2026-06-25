@@ -9,12 +9,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from mcp.types import (
-    ContentBlock,
-    EmbeddedResource,
-    TextContent,
-    TextResourceContents,
-)
 from pydantic import BaseModel, Field, field_validator
 
 from fast_agent.core.template_render import (
@@ -22,15 +16,10 @@ from fast_agent.core.template_render import (
     render_template_text,
 )
 from fast_agent.mcp.message_roles import MESSAGE_ROLE_NAMES, MessageRole, is_message_role
-from fast_agent.mcp.prompt_serialization import multipart_messages_to_delimited_format
 from fast_agent.mcp.prompts.prompt_constants import (
-    ASSISTANT_DELIMITER,
     DEFAULT_DELIMITER_MAP,
     RESOURCE_DELIMITER,
-    USER_DELIMITER,
 )
-from fast_agent.mcp.resource_utils import to_any_url
-from fast_agent.types import PromptMessageExtended
 
 
 class PromptMetadata(BaseModel):
@@ -132,43 +121,6 @@ class PromptTemplate:
         self._template_variables = self._extract_template_variables(template_text)
         self._parsed_content = self._parse_template()
 
-    @classmethod
-    def from_multipart_messages(
-        cls,
-        messages: list[PromptMessageExtended],
-        delimiter_map: dict[str, str] | None = None,
-    ) -> "PromptTemplate":
-        """
-        Create a PromptTemplate from a list of PromptMessageExtended objects.
-
-        Args:
-            messages: List of PromptMessageExtended objects
-            delimiter_map: Optional map of delimiters to roles
-
-        Returns:
-            A new PromptTemplate object
-        """
-        # Use default delimiter map if none provided
-        delimiter_map = delimiter_map or DEFAULT_DELIMITER_MAP
-
-        # Convert to delimited format
-        delimited_content = multipart_messages_to_delimited_format(
-            messages,
-            user_delimiter=next(
-                (k for k, v in delimiter_map.items() if v == "user"), USER_DELIMITER
-            ),
-            assistant_delimiter=next(
-                (k for k, v in delimiter_map.items() if v == "assistant"),
-                ASSISTANT_DELIMITER,
-            ),
-        )
-
-        # Join into a single string
-        content = "\n".join(delimited_content)
-
-        # Create and return the template
-        return cls(content, delimiter_map)
-
     @property
     def template_variables(self) -> set[str]:
         """Get the template variables in this template"""
@@ -192,65 +144,9 @@ class PromptTemplate:
         # Create a new list with substitutions applied to each section
         return [section.apply_substitutions(context) for section in self._parsed_content]
 
-    def apply_substitutions_to_extended(
-        self, context: dict[str, Any]
-    ) -> list[PromptMessageExtended]:
-        """
-        Apply variable substitutions to the template and return PromptMessageExtended objects.
-
-        Args:
-            context: Dictionary of variable names to values
-
-        Returns:
-            List of PromptMessageExtended objects with substitutions applied
-        """
-        # First create a substituted template
-        content_sections = self.apply_substitutions(context)
-
-        # Convert content sections to multipart messages
-        multiparts: list[PromptMessageExtended] = []
-        for section in content_sections:
-            # Handle text content
-            content_items: list[ContentBlock] = [TextContent(type="text", text=section.text)]
-
-            # In a real implementation, resources would be loaded here. For now,
-            # create placeholders.
-            content_items.extend(
-                _placeholder_resource(resource_path, uri_prefix="resource://fast-agent/")
-                for resource_path in section.resources
-            )
-
-            multiparts.append(PromptMessageExtended(role=section.role, content=content_items))
-
-        return multiparts
-
     def _extract_template_variables(self, text: str) -> set[str]:
         """Extract template variables from text using regex"""
         return extract_template_variables(text)
-
-    def to_extended_messages(self) -> list[PromptMessageExtended]:
-        """
-        Convert this template to a list of PromptMessageExtended objects.
-
-        Returns:
-            List of PromptMessageExtended objects
-        """
-        multiparts: list[PromptMessageExtended] = []
-
-        for section in self._parsed_content:
-            # Convert each section to a multipart message
-            content_items: list[ContentBlock] = [TextContent(type="text", text=section.text)]
-
-            # In a real implementation, resources would be loaded here. For now,
-            # create placeholders.
-            content_items.extend(
-                _placeholder_resource(resource_path, uri_prefix="resource://")
-                for resource_path in section.resources
-            )
-
-            multiparts.append(PromptMessageExtended(role=section.role, content=content_items))
-
-        return multiparts
 
     def _parse_template(self) -> list[PromptContent]:
         """
@@ -307,17 +203,6 @@ def _parse_resource_delimiter(
     return next_index
 
 
-def _placeholder_resource(resource_path: str, *, uri_prefix: str) -> EmbeddedResource:
-    return EmbeddedResource(
-        type="resource",
-        resource=TextResourceContents(
-            uri=to_any_url(f"{uri_prefix}{resource_path}"),
-            mimeType="text/plain",
-            text=f"Content of {resource_path}",
-        ),
-    )
-
-
 class PromptTemplateLoader:
     """
     Loads and processes prompt templates from files.
@@ -346,19 +231,6 @@ class PromptTemplateLoader:
             content = f.read()
 
         return PromptTemplate(content, self.delimiter_map, template_file_path=file_path)
-
-    def load_from_multipart(self, messages: list[PromptMessageExtended]) -> PromptTemplate:
-        """
-        Create a PromptTemplate from a list of PromptMessageExtended objects.
-
-        Args:
-            messages: List of PromptMessageExtended objects
-
-        Returns:
-            A PromptTemplate object
-        """
-        # Use the class method directly to avoid code duplication
-        return PromptTemplate.from_multipart_messages(messages, self.delimiter_map)
 
     def get_metadata(self, file_path: Path) -> PromptMetadata:
         """

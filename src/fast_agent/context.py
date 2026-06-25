@@ -18,7 +18,6 @@ from pydantic import BaseModel, ConfigDict
 
 from fast_agent.config import Settings, get_settings
 from fast_agent.core.executor.executor import AsyncioExecutor, Executor
-from fast_agent.core.executor.task_registry import ActivityRegistry
 from fast_agent.core.logging.events import EventFilter, StreamingExclusionFilter
 from fast_agent.core.logging.logger import LoggingConfig, get_logger
 from fast_agent.core.logging.transport import create_transport
@@ -53,12 +52,10 @@ class Context(BaseModel):
 
     config: Settings | None = None
     executor: Executor | None = None
-    human_input_handler: Any | None = None
     signal_notification: SignalWaitCallback | None = None
 
     # Registries
     server_registry: ServerRegistry | None = None
-    task_registry: ActivityRegistry | None = None
     skill_registry: SkillRegistry | None = None
     no_shell: bool = False
 
@@ -232,7 +229,6 @@ async def initialize_context(
 
     # Configure the executor
     context.executor = await configure_executor()
-    context.task_registry = ActivityRegistry()
 
     # Store the tracer in context if needed
     if config.otel:
@@ -268,12 +264,3 @@ def get_current_context() -> Context:
             raise RuntimeError("Failed to initialize global context")
         _global_context = result
     return _global_context
-
-
-def get_current_config():
-    """
-    Get the current application config.
-
-    Returns the context config if available, otherwise falls back to global settings.
-    """
-    return get_current_context().config or get_settings()

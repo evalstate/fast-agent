@@ -27,7 +27,6 @@ from fast_agent.constants import (
     CONTROL_MESSAGE_SAVE_HISTORY,
 )
 from fast_agent.history.history_exporter import HistoryExporter
-from fast_agent.interfaces import FastAgentLLMProtocol, LlmCapableProtocol
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 from fast_agent.utils.count_display import format_count
 
@@ -35,6 +34,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from fast_agent.commands.context import CommandContext
+    from fast_agent.interfaces import FastAgentLLMProtocol, LlmCapableProtocol
 
     type _HistorySaveSendFunc = Callable[[str, str], Awaitable[str]]
 
@@ -49,10 +49,6 @@ WEB_METADATA_TOOL_NAMES = frozenset({"web_search", "web_fetch"})
 WEB_METADATA_TOOL_RESULT_TYPES = frozenset(
     f"{tool_name}_tool_result" for tool_name in WEB_METADATA_TOOL_NAMES
 )
-
-
-class WebToolHistoryAgent(HistoryEditableAgent, LlmCapableProtocol, Protocol):
-    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -456,8 +452,8 @@ async def handle_history_webclear(
     outcome = CommandOutcome()
     target = _history_target(agent_name, target_agent)
 
-    agent_obj = cast("WebToolHistoryAgent", ctx.agent_provider._agent(target))
-    if not web_tools_enabled_for_agent(agent_obj):
+    raw_agent = ctx.agent_provider._agent(target)
+    if not web_tools_enabled_for_agent(cast("LlmCapableProtocol", raw_agent)):
         outcome.add_message(
             "Web metadata cleanup is only available when Anthropic web tools are enabled.",
             channel="warning",
@@ -465,6 +461,7 @@ async def handle_history_webclear(
         )
         return outcome
 
+    agent_obj = cast("HistoryEditableAgent", raw_agent)
     history = list(agent_obj.message_history)
     if not history:
         outcome.add_message("No history to clean.", channel="warning", agent_name=target)

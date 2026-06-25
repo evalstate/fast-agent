@@ -29,7 +29,6 @@ class InstanceScope(StrEnum):
 @dataclass(slots=True)
 class AgentInstanceLease:
     instance: AgentInstance
-    reuse_connection: bool = False
 
 
 class AgentInstanceLeasePool(Protocol):
@@ -66,18 +65,6 @@ class ScopedAgentInstancePool:
         self._connection_cleanup_tasks: dict[int, Callable[[], Awaitable[None]]] = {}
         self._connection_lock = asyncio.Lock()
 
-    @property
-    def connection_instances(self) -> dict[int, AgentInstance]:
-        return self._connection_instances
-
-    @property
-    def stale_instances(self) -> list[AgentInstance]:
-        return self._stale_instances
-
-    @property
-    def shared_active_requests(self) -> int:
-        return self._shared_active_requests
-
     async def acquire(self, ctx: object | None = None) -> AgentInstanceLease:
         if self.instance_scope is InstanceScope.SHARED:
             await self.maybe_refresh_shared_instance()
@@ -96,7 +83,7 @@ class ScopedAgentInstancePool:
                 instance = await self._instance_factory.create_instance()
                 self._connection_instances[session_key] = instance
                 self.register_session_cleanup(ctx, session_key)
-            return AgentInstanceLease(instance, reuse_connection=True)
+            return AgentInstanceLease(instance)
 
     async def release(self, lease: AgentInstanceLease, ctx: object | None = None) -> None:
         del ctx
@@ -107,30 +94,6 @@ class ScopedAgentInstancePool:
             return
         if self.instance_scope is InstanceScope.REQUEST:
             await self._instance_factory.dispose_instance(lease.instance)
-
-    async def reload_current_scope(self, ctx: object | None = None) -> None:
-        if self.instance_scope is InstanceScope.SHARED:
-            await self.maybe_refresh_shared_instance()
-            return
-
-        if self.instance_scope is InstanceScope.CONNECTION:
-            if ctx is None:
-                raise AssertionError("Context is required for connection-scoped instances")
-            session_key = self.connection_key(ctx)
-            new_instance = await self._instance_factory.create_instance()
-            async with self._connection_lock:
-                old_instance = self._connection_instances.get(session_key)
-                self._connection_instances[session_key] = new_instance
-            self._register_missing_agents(new_instance)
-            if old_instance is not None:
-                await self._instance_factory.dispose_instance(old_instance)
-            return
-
-        new_instance = await self._instance_factory.create_instance()
-        try:
-            self._register_missing_agents(new_instance)
-        finally:
-            await self._instance_factory.dispose_instance(new_instance)
 
     @staticmethod
     def connection_key(ctx: object) -> int:

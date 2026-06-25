@@ -1,7 +1,5 @@
-from collections.abc import Iterator
-from contextlib import contextmanager
-from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 
 import httpx
 import pytest
@@ -9,16 +7,15 @@ from fastmcp.server.auth import AccessToken
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from fast_agent.core.agent_app import AgentApp
-from fast_agent.core.fastagent import AgentInstance
-from fast_agent.mcp.auth.context import request_bearer_token
+from fast_agent.core.harness_app import AppOpenRequest
 from fast_agent.mcp.auth.middleware import HFAuthHeaderMiddleware
 from fast_agent.mcp.auth.presence import HuggingFaceTokenVerifier
 from fast_agent.mcp.helpers.content_helpers import get_text
-from fast_agent.mcp.server.agent_server import AgentMCPServer
-
-if TYPE_CHECKING:
-    from fast_agent.interfaces import AgentProtocol
+from fast_agent.mcp.server.harness_app_server import (
+    HarnessMCPAppServer,
+    HarnessMCPAppServerOptions,
+)
+from fast_agent.types import AgentRequest, AgentResponse
 
 
 @contextmanager
@@ -38,16 +35,28 @@ def _temporary_env(**env_vars: str) -> Iterator[None]:
                 os.environ[key] = original
 
 
-class _TokenEchoAgent:
-    def __init__(self) -> None:
-        self.config = SimpleNamespace(default_request_params=None, description=None)
+class _TokenEchoHarnessSession:
+    @property
+    def agent_app(self) -> object:
+        return object()
 
-    async def send(self, message: str, request_params=None) -> str:
-        del message, request_params
-        return request_bearer_token.get() or "missing"
+    @property
+    def env(self) -> object:
+        return object()
 
-    async def shutdown(self) -> None:
-        return None
+    async def invoke(self, request: AgentRequest) -> AgentResponse:
+        token = request.auth.token if request.auth is not None else None
+        return AgentResponse.text(token or "missing")
+
+
+class _TokenEchoHarnessApp:
+    @asynccontextmanager
+    async def open(
+        self,
+        request: AppOpenRequest | None = None,
+    ) -> AsyncIterator[_TokenEchoHarnessSession]:
+        del request
+        yield _TokenEchoHarnessSession()
 
 
 @pytest.fixture(autouse=True)
@@ -61,28 +70,14 @@ def _mock_hf_token_verifier(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(HuggingFaceTokenVerifier, "verify_token", verify_token)
 
 
-async def _build_server() -> AgentMCPServer:
-    agent = _TokenEchoAgent()
-
-    async def create_instance() -> AgentInstance:
-        wrapped = cast("AgentProtocol", agent)
-        app = AgentApp({"worker": wrapped})
-        return AgentInstance(app=app, agents={"worker": wrapped})
-
-    async def dispose_instance(instance: AgentInstance) -> None:
-        await instance.shutdown()
-
-    primary = await create_instance()
-    return AgentMCPServer(
-        primary_instance=primary,
-        create_instance=create_instance,
-        dispose_instance=dispose_instance,
-        instance_scope="shared",
-        host="testserver",
+def _build_server() -> HarnessMCPAppServer:
+    return HarnessMCPAppServer(
+        _TokenEchoHarnessApp(),
+        HarnessMCPAppServerOptions(server_name="auth-test", default_agent="worker"),
     )
 
 
-async def _call_worker_tool(
+async def _call_send_tool(
     headers: dict[str, str],
     *,
     wrap_hf_auth_headers: bool = False,
@@ -91,8 +86,11 @@ async def _call_worker_tool(
         FAST_AGENT_SERVE_OAUTH="huggingface",
         FAST_AGENT_OAUTH_RESOURCE_URL="http://testserver",
     ):
-        server = await _build_server()
-        starlette_app = server.http_app()
+        server = _build_server()
+        starlette_app = server.mcp_server.http_app(
+            transport="http",
+            middleware=server._http_middleware(),
+        )
         transport_app = (
             HFAuthHeaderMiddleware(starlette_app) if wrap_hf_auth_headers else starlette_app
         )
@@ -109,7 +107,7 @@ async def _call_worker_tool(
                 ) as (read_stream, write_stream, _):
                     async with ClientSession(read_stream, write_stream) as session:
                         await session.initialize()
-                        result = await session.call_tool("worker", {"message": "hello"})
+                        result = await session.call_tool("send", {"message": "hello"})
 
         assert result.content
         return get_text(result.content[0]) or ""
@@ -117,16 +115,16 @@ async def _call_worker_tool(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_streamable_http_authorization_header_token_reaches_agent_context() -> None:
-    response_text = await _call_worker_tool({"Authorization": "Bearer integration-token"})
+async def test_streamable_http_authorization_header_token_reaches_harness_request() -> None:
+    response_text = await _call_send_tool({"Authorization": "Bearer integration-token"})
 
     assert response_text == "integration-token"
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_streamable_http_hf_header_is_normalized_and_reaches_agent_context() -> None:
-    response_text = await _call_worker_tool(
+async def test_streamable_http_hf_header_is_normalized_and_reaches_harness_request() -> None:
+    response_text = await _call_send_tool(
         {"X-HF-Authorization": "Bearer hf-space-token"},
         wrap_hf_auth_headers=True,
     )
@@ -138,4 +136,4 @@ async def test_streamable_http_hf_header_is_normalized_and_reaches_agent_context
 @pytest.mark.asyncio
 async def test_streamable_http_rejects_invalid_hf_bearer_token() -> None:
     with pytest.raises(Exception):
-        await _call_worker_tool({"Authorization": "Bearer invalid-token"})
+        await _call_send_tool({"Authorization": "Bearer invalid-token"})

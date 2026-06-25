@@ -12,7 +12,6 @@ import inspect
 import os
 import pathlib
 import sys
-from collections.abc import Callable
 from dataclasses import dataclass
 from importlib.metadata import version as get_version
 from pathlib import Path
@@ -20,7 +19,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     TypeAlias,
-    TypeVar,
     cast,
 )
 
@@ -30,6 +28,7 @@ import yaml.parser
 from fast_agent import config
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.core import Core
+from fast_agent.core.agent_app import AgentRefreshResult as AgentRefreshResult
 from fast_agent.core.agent_card_runtime import AgentCardRuntimeMixin
 from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
 from fast_agent.core.default_agent import resolve_default_agent_name
@@ -62,13 +61,13 @@ from fast_agent.utils.text import strip_casefold
 from fast_agent.utils.transports import uses_protocol_stdio
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Sequence
+    from collections.abc import Awaitable, Callable, Sequence
 
     from fastmcp.tools import FunctionTool
 
     from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
-    from fast_agent.core.agent_app import AgentApp, AgentCardLoadResult, AgentRefreshResult
+    from fast_agent.core.agent_app import AgentApp, AgentCardLoadResult
     from fast_agent.core.agent_card_types import AgentCardData
     from fast_agent.core.harness import AgentHarness
     from fast_agent.interfaces import AgentProtocol, ModelFactoryFunctionProtocol
@@ -76,11 +75,14 @@ if TYPE_CHECKING:
     from fast_agent.tools.session_environment import ShellExecutor
     from fast_agent.types import PromptMessageExtended
 
-F = TypeVar("F", bound=Callable[..., Any])  # For decorated functions
 logger = get_logger(__name__)
 SkillEntry: TypeAlias = SkillManifest | SkillRegistry | Path | str
 SkillConfig: TypeAlias = SkillEntry | list[SkillEntry | None] | None | SkillsDefault
 _DEFAULT_CLI_AGENT_PLACEHOLDER = "agent"
+
+__all__ = [
+    "AgentRefreshResult",
+]
 
 
 @dataclass(frozen=True)
@@ -220,7 +222,6 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         self._skills_directory_override = self._normalize_skill_directories(skills_directory)
         self._default_skill_manifests: list[SkillManifest] = []
         self._extra_prompt_context: dict[str, str] = {}
-        self._server_instance_factory = None
         self._server_instance_dispose = None
         self._server_managed_instances: list[AgentInstance] = []
 
@@ -256,7 +257,6 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
             help="Disable progress display, tool and message logging for cleaner output",
         )
         parser.add_argument("--version", action="store_true", help="Show version and exit")
-        parser.add_argument("--server", action="store_true", help="Run as an MCP server")
         parser.add_argument(
             "--transport",
             choices=["http", "stdio", "acp", "a2a"],
@@ -336,21 +336,15 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
 
     def _normalize_constructor_cli_server_flags(self) -> None:
         cli_args = sys.argv[1:]
-        server_flag_used = "--server" in cli_args
         transport_flag_used = any(
             arg == "--transport" or arg.startswith("--transport=") for arg in cli_args
         )
 
-        if transport_flag_used and not getattr(self.args, "server", False):
+        self.args.server = False
+        if transport_flag_used:
             self.args.server = True
         if getattr(self.args, "transport", None) is None:
             self.args.transport = "http"
-        if server_flag_used:
-            print(
-                "--server is deprecated; server mode is implied when --transport is provided. "
-                "This flag will be removed in a future release.",
-                file=sys.stderr,
-            )
 
     def _handle_constructor_version_flag(self) -> None:
         if not getattr(self.args, "version", False):
@@ -446,7 +440,6 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         self._agent_card_last_removed: set[str] = set()
         self._agent_card_last_dependents: set[str] = set()
         self._agent_declared_servers: dict[str, list[str]] = {}
-        self._card_mcp_owned_servers: dict[str, set[str]] = {}
         self._dynamic_mcp_server_names: set[str] = set()
         self._base_mcp_servers: dict[str, MCPServerSettings] | None = None
         self._agent_registry_version: int = 0
@@ -503,13 +496,6 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         finally:
             # Restore the original global settings
             _config_module._settings = old_settings
-
-    def _is_acp_server_mode(self) -> bool:
-        """Return True when this instance is serving the ACP transport."""
-        return (
-            bool(getattr(self.args, "server", False))
-            and getattr(self.args, "transport", None) == "acp"
-        )
 
     @property
     def context(self) -> Context:
@@ -859,11 +845,6 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         cfg = self.app.context.config
         if cfg is not None and cfg.logger is not None:
             cfg.logger.streaming = "none"
-
-    def _print_server_startup(self, output_stream: Any) -> None:
-        from fast_agent.core.server_runtime import print_server_startup
-
-        print_server_startup(app_name=self.name, args=self.args, output_stream=output_stream)
 
     def harness(
         self,

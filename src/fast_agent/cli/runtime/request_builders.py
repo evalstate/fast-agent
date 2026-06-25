@@ -59,10 +59,6 @@ def is_multi_model(model: str | None) -> bool:
     return bool(model and "," in model)
 
 
-def use_smart_agent(model: str | None, mode: Literal["interactive", "serve"]) -> bool:
-    return resolve_smart_agent_enabled(model, mode, force_smart=False)
-
-
 def resolve_smart_agent_enabled(
     model: str | None,
     mode: Literal["interactive", "serve"],

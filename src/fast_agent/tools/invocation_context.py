@@ -49,21 +49,3 @@ def agent_tool_invocation_context(
     finally:
         _agent_tool_invocation_context.reset(token)
 
-
-def current_agent_tool_invocation_context() -> AgentToolInvocationContext | None:
-    """Return active agent-as-tool invocation metadata, if any."""
-
-    return _agent_tool_invocation_context.get()
-
-
-def current_agent_tool_arguments() -> Mapping[str, Any]:
-    """Return parent-supplied child-tool arguments for the active invocation."""
-
-    context = current_agent_tool_invocation_context()
-    return context.arguments if context is not None else {}
-
-
-def current_agent_tool_argument(name: str, default: Any = None) -> Any:
-    """Return one parent-supplied child-tool argument for the active invocation."""
-
-    return current_agent_tool_arguments().get(name, default)

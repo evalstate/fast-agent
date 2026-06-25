@@ -61,7 +61,11 @@ class _RecordingPermissionHandler:
         self.calls.append((tool_name, server_name, arguments, tool_use_id))
         if self.events is not None:
             self.events.append("permission")
-        return ToolPermissionResult.allow() if self.allowed else ToolPermissionResult.deny("denied")
+        return (
+            ToolPermissionResult.allow()
+            if self.allowed
+            else ToolPermissionResult(allowed=False, error_message="denied")
+        )
 
 
 class _RecordingToolHandler:

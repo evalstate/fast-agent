@@ -37,9 +37,9 @@ from fast_agent.cli.runtime.agent_setup import (
 )
 from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.config import Settings
+from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker import ModelPickerResult
 from fast_agent.ui.model_picker_common import (
-    ANTHROPIC_VERTEX_PROVIDER_KEY,
     LLAMACPP_PROVIDER_KEY,
     normalize_generic_model_spec,
 )
@@ -577,7 +577,7 @@ def test_resolve_model_picker_initial_selection_uses_vertex_group_for_anthropic_
         )
     )
 
-    assert initial_selection.provider == ANTHROPIC_VERTEX_PROVIDER_KEY
+    assert initial_selection.provider == Provider.ANTHROPIC_VERTEX.config_name
     assert initial_selection.model_spec == "anthropic-vertex.claude-sonnet-4-6"
 
 

@@ -4,7 +4,6 @@ import pytest
 
 from fast_agent.commands.shared_command_intents import (
     SESSION_COMMAND_COMPLETION_DESCRIPTIONS,
-    SESSION_SIMPLE_PAYLOAD_ACTIONS,
 )
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -37,7 +36,14 @@ type ExpectedParseResult = str | CommandPayload | dict[str, object]
 
 
 def test_session_payload_factory_table_matches_shared_simple_actions() -> None:
-    assert frozenset(prompt_parser._SESSION_PAYLOAD_FACTORIES) == SESSION_SIMPLE_PAYLOAD_ACTIONS
+    assert frozenset(prompt_parser._SESSION_PAYLOAD_FACTORIES) == {
+        "list",
+        "new",
+        "resume",
+        "title",
+        "fork",
+        "delete",
+    }
 
 
 def test_history_turn_error_formatters_cover_shared_error_codes() -> None:

@@ -304,10 +304,3 @@ def _is_youtube_url(source: str) -> bool:
         ".youtube.com"
     )
 
-
-# Deprecated compatibility names for callers that imported the initial resource-oriented API.
-DEFAULT_ATTACH_RESOURCE_MAX_BYTES = DEFAULT_ATTACH_MEDIA_MAX_BYTES
-AttachResourceResult = AttachMediaResult
-supported_attach_resource_mime_types = supported_attach_media_mime_types
-model_supports_attach_resource = model_supports_attach_media
-build_attach_resource = build_attach_media

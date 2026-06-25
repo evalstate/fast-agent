@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 from weakref import WeakKeyDictionary
 
@@ -19,12 +18,6 @@ if TYPE_CHECKING:
 _FATAL_TOOL_ERROR_META_KEY = "fast_agent/fatal_tool_error"
 _URL_ELICITATION_META_KEY = "fast_agent/url_elicitation_required"
 _MEDIA_PREVIEW_META_KEY = "fast_agent/media_preview_content"
-
-
-@dataclass(frozen=True, slots=True)
-class ToolResultMetadata:
-    fatal_tool_error: str | None = None
-    url_elicitation_required: "URLElicitationRequiredDisplayPayload | None" = None
 
 
 _OBJECT_URL_ELICITATION_METADATA: WeakKeyDictionary[
@@ -86,13 +79,6 @@ def url_elicitation_required_payload(
         if stored_target is not target:
             return None
     return payload if _is_url_elicitation_required_payload(payload) else None
-
-
-def tool_result_metadata(result: CallToolResult) -> ToolResultMetadata:
-    return ToolResultMetadata(
-        fatal_tool_error=fatal_tool_error(result),
-        url_elicitation_required=url_elicitation_required_payload(result),
-    )
 
 
 def _is_url_elicitation_required_payload(

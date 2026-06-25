@@ -103,63 +103,6 @@ def constrained_viterbi_np(
     return path
 
 
-def constrained_viterbi(token_scores: list[list[float]], labels: list[str]) -> list[int]:
-    """Reference pure-Python decoder. Used by tests; runtime path uses numpy."""
-
-    if not token_scores:
-        return []
-    label_count = len(labels)
-    if label_count == 0:
-        return []
-
-    valid_start = [_valid_start(label) for label in labels]
-    valid_end = [_valid_end(label) for label in labels]
-    predecessors = [
-        [
-            previous_index
-            for previous_index, previous_label in enumerate(labels)
-            if _valid_transition(previous_label, label)
-        ]
-        for label in labels
-    ]
-
-    scores: list[list[float]] = [
-        [
-            token_scores[0][label_index] if valid_start[label_index] else IMPOSSIBLE
-            for label_index in range(label_count)
-        ]
-    ]
-    backpointers: list[list[int]] = [[0] * label_count]
-
-    for token_index in range(1, len(token_scores)):
-        previous = scores[-1]
-        current: list[float] = []
-        current_backpointers: list[int] = []
-        for label_index in range(label_count):
-            best_score = IMPOSSIBLE
-            best_previous = 0
-            for previous_index in predecessors[label_index]:
-                score = previous[previous_index] + token_scores[token_index][label_index]
-                if score > best_score:
-                    best_score = score
-                    best_previous = previous_index
-            current.append(best_score)
-            current_backpointers.append(best_previous)
-        scores.append(current)
-        backpointers.append(current_backpointers)
-
-    final_scores = [
-        score if valid_end[index] else IMPOSSIBLE for index, score in enumerate(scores[-1])
-    ]
-    last = max(range(label_count), key=lambda index: final_scores[index])
-    path = [last]
-    for token_index in range(len(token_scores) - 1, 0, -1):
-        last = backpointers[token_index][last]
-        path.append(last)
-    path.reverse()
-    return path
-
-
 def token_spans_from_path(path: list[int], labels: list[str]) -> list[DecodedTokenSpan]:
     """Convert decoded label indices to token spans."""
 

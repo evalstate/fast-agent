@@ -61,26 +61,6 @@ class AgentAuth:
             claims=claims or {},
         )
 
-    @classmethod
-    def huggingface(
-        cls,
-        token: str,
-        *,
-        subject: str | None = None,
-        client_id: str | None = None,
-        scopes: tuple[str, ...] = (),
-        claims: Mapping[str, Any] | None = None,
-    ) -> AgentAuth:
-        return cls.bearer(
-            token,
-            provider="huggingface",
-            subject=subject,
-            client_id=client_id,
-            scopes=scopes,
-            claims=claims,
-        )
-
-
 @dataclass(slots=True)
 class AgentRequest:
     """An invocation request around a fast-agent prompt message."""
@@ -185,11 +165,3 @@ class AgentResponse:
 
     def text_content(self) -> str:
         return self.message.all_text()
-
-    def with_kind(self, kind: str) -> AgentResponse:
-        return AgentResponse(
-            message=self.message,
-            kind=kind,
-            metadata=dict(self.metadata),
-            artifacts=self.artifacts,
-        )

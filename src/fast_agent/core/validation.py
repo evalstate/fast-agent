@@ -160,12 +160,6 @@ def is_basic_like_agent_type(agent_type: AgentType | str | None) -> bool:
     return normalize_agent_type_value(agent_type) in _BASIC_LIKE_AGENT_TYPE_VALUES
 
 
-def get_agent_dependency_attribute_names(agent_type: AgentType | str | None) -> tuple[str, ...]:
-    return tuple(
-        field_spec.field_name for field_spec in get_agent_dependency_field_specs(agent_type)
-    )
-
-
 def get_agent_dependency_field_specs(
     agent_type: AgentType | str | None,
 ) -> tuple[DependencyFieldSpec, ...]:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime
 from types import SimpleNamespace
@@ -108,25 +109,34 @@ def _resume_result(tmp_path: Path, *, active_agent: str | None = None) -> Resume
     )
 
 
-def test_is_acp_server_mode_requires_server_flag_and_acp_transport() -> None:
-    agent = FastAgent("TestAgent", parse_cli_args=False)
-
-    agent.args = argparse.Namespace(server=True, transport="acp")
-    assert agent._is_acp_server_mode() is True
-
-    agent.args = argparse.Namespace(server=False, transport="acp")
-    assert agent._is_acp_server_mode() is False
-
-    agent.args = argparse.Namespace(server=True, transport="stdio")
-    assert agent._is_acp_server_mode() is False
-
-
 @pytest.mark.asyncio
 async def test_main_returns_false_when_args_lacks_server_flag() -> None:
     agent = FastAgent("TestAgent", parse_cli_args=False)
     agent.args = argparse.Namespace(transport="stdio")
 
     assert await agent.main() is False
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_server"),
+    [
+        (["agent.py", "--transport", "http"], True),
+        (["agent.py", "--server"], False),
+    ],
+)
+def test_constructor_cli_server_mode_is_transport_driven(
+    argv: list[str],
+    expected_server: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "argv", argv)
+    agent = FastAgent("TestAgent", parse_cli_args=False)
+    parser = FastAgent._constructor_arg_parser()
+    agent.args, _unknown = parser.parse_known_args()
+
+    agent._normalize_constructor_cli_server_flags()
+
+    assert agent.args.server is expected_server
 
 
 def test_resolve_server_instance_scope_defaults_acp_to_connection() -> None:
@@ -463,8 +473,6 @@ async def test_runtime_callback_instances_inherit_mcp_runtime_callbacks(
     callbacks = fast._build_runtime_callbacks(state, settings)
     instance = await callbacks.create_instance()
 
-    assert instance.app.can_attach_mcp_servers() is True
-    assert instance.app.can_detach_mcp_servers() is True
     assert await instance.app.list_attached_mcp_servers("main") == ["demo"]
     assert await instance.app.list_configured_detached_mcp_servers("main") == ["docs"]
     attach_result = await instance.app.attach_mcp_server("main", "runtime-demo")

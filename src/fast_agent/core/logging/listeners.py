@@ -4,7 +4,6 @@ Listeners for the logger module of MCP Agent.
 
 import asyncio
 import logging
-import time
 from abc import ABC, abstractmethod
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any, cast
@@ -414,7 +413,6 @@ class BatchingListener(FilteredListener):
         self.batch_size = batch_size
         self.flush_interval = flush_interval
         self.batch: list[Event] = []
-        self.last_flush: float = time.time()  # Time of last flush
         self._flush_task: asyncio.Task | None = None  # Task for periodic flush loop
         self._stop_event = None  # Event to signal flush task to stop
 
@@ -460,7 +458,6 @@ class BatchingListener(FilteredListener):
             return
         to_process = self.batch[:]
         self.batch.clear()
-        self.last_flush = time.time()
         await self._process_batch(to_process)
 
     async def _process_batch(self, events: list[Event]) -> None:

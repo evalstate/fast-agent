@@ -1,6 +1,6 @@
 import pytest
 
-from fast_agent.core.prompt import Prompt
+from fast_agent.mcp.prompt import Prompt
 
 
 @pytest.mark.integration

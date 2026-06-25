@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import cast
 
-from fastmcp import Context, FastMCP
+from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
 from mcp.types import AnyUrl, BlobResourceContents, EmbeddedResource, ImageContent, TextContent
 
@@ -29,9 +29,7 @@ image_path = "image.png"
     description="Returns the sample image with some descriptive text",
     output_schema=None,
 )
-async def get_image(
-    image_name: str = "default", ctx: Context | None = None
-) -> list[TextContent | ImageContent]:
+async def get_image() -> list[TextContent | ImageContent]:
     try:
         # Use the global image path
         return [

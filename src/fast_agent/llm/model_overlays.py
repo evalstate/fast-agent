@@ -59,13 +59,6 @@ def _prefixed_model_spec(provider: Provider, model_name: str) -> str:
     return f"{provider.value}.{model_name}"
 
 
-def _overlay_model_key(provider: Provider, model_name: str) -> str:
-    normalized = strip_casefold(model_name)
-    if provider == Provider.HUGGINGFACE and ":" in normalized:
-        return normalized.rsplit(":", 1)[0]
-    return normalized
-
-
 def _existing_model_params(provider: Provider, model_name: str) -> ModelParameters | None:
     return ModelDatabase.get_model_params(model_name, provider=provider)
 

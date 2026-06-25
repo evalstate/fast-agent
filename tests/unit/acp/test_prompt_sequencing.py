@@ -64,10 +64,6 @@ class StatefulAgent:
         return DummyResult(f"turn {self.turn_count}")
 
 
-class DummyApp:
-    """Placeholder for AgentInstance.app (unused by AgentACPServer.prompt path)."""
-
-
 class CapturingConnection:
     def __init__(self) -> None:
         self.notifications: list[dict[str, Any]] = []

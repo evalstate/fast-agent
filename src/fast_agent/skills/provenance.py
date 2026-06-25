@@ -84,10 +84,6 @@ def get_skill_provenance(skill_dir: Path) -> SkillProvenance:
     )
 
 
-def format_skill_provenance(skill_dir: Path) -> str:
-    return get_skill_provenance(skill_dir).summary
-
-
 def format_revision_short(revision: str | None) -> str:
     return marketplace_formatting.format_revision_short(revision)
 

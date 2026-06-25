@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -16,18 +16,13 @@ if TYPE_CHECKING:
     from fastmcp.tools import FunctionTool
 
 
-class _FastToolMetadataWritable(Protocol):
-    _fast_tool_name: str
-    _fast_tool_description: str
-
-
 def _set_fast_tool_metadata(
     func: Callable[..., Any],
     *,
     name: str,
     description: str,
 ) -> None:
-    metadata_func = cast("_FastToolMetadataWritable", func)
+    metadata_func = cast("Any", func)
     metadata_func._fast_tool_name = name
     metadata_func._fast_tool_description = description
 

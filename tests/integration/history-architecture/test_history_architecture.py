@@ -4,22 +4,22 @@ Integration tests for the new conversation history architecture.
 These tests verify that:
 1. Agent message_history is the single source of truth
 2. Provider history is diagnostic only (write-only)
-3. load_history doesn't trigger LLM calls
+3. transcript loading doesn't trigger LLM calls
 4. Templates are correctly handled
 """
 
 import pytest
 
-from fast_agent.core.prompt import Prompt
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_serialization import save_messages
-from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
+from fast_agent.mcp.prompts.prompt_load import load_transcript_into_agent
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_load_history_no_llm_call(fast_agent, tmp_path):
     """
-    Verify that load_history_into_agent() does NOT trigger an LLM API call.
+    Verify that transcript loading does NOT trigger an LLM API call.
 
     This test ensures the bug fix where load_history previously called generate().
     """
@@ -46,7 +46,7 @@ async def test_load_history_no_llm_call(fast_agent, tmp_path):
             assert initial_count == 0, "Agent should start with no history"
 
             # Load history - this should NOT make an LLM call
-            load_history_into_agent(agent_obj, history_file)
+            load_transcript_into_agent(agent_obj, history_file)
 
             # Verify history was loaded
             loaded_count = len(agent_obj.message_history)

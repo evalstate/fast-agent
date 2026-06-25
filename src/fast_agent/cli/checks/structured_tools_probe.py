@@ -467,34 +467,6 @@ def _print_text_summary(results: list[ProbeResult]) -> None:
     print(f"\nSummary: {passed}/{len(results)} passed")
 
 
-async def run_probe(
-    models: list[str],
-    *,
-    structured_tool_policy: StructuredToolPolicy,
-    mode: StructuredProbeMode = "tools",
-) -> list[ProbeResult]:
-    core = Core()
-    await core.initialize()
-    try:
-        results: list[ProbeResult] = []
-        for model in models:
-            if mode == "direct":
-                results.append(await _probe_direct_model(core, model))
-            elif mode == "pydantic":
-                results.append(await _probe_pydantic_model(core, model))
-            else:
-                results.append(
-                    await _probe_tools_model(
-                        core,
-                        model,
-                        structured_tool_policy=structured_tool_policy,
-                    )
-                )
-        return results
-    finally:
-        await core.cleanup()
-
-
 async def run_probe_suite(
     models: list[str],
     *,

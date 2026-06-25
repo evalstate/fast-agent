@@ -204,10 +204,11 @@ starts each completed turn with a fresh A2A context. The exception is
 
 ## Streaming
 
-Remote A2A `TaskArtifactUpdateEvent` updates are emitted through the normal
-fast-agent stream listener path. The client assembles final text per artifact
-and honors the A2A `append` flag, so replacement updates replace the artifact
-content and append updates extend it.
+Remote A2A message events are emitted through the normal fast-agent stream
+listener path. Task artifact updates are assembled into the returned
+`PromptMessageExtended` without being exposed as live assistant-message chunks.
+The client assembles final text per artifact and honors the A2A `append` flag,
+so replacement updates replace the artifact content and append updates extend it.
 
 The A2A client defaults to a longer HTTP request timeout than httpx's default so
 real LLM-backed servers have time to emit the first stream event. Set

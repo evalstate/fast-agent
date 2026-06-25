@@ -71,9 +71,6 @@ class ScopedToolDecoratorProtocol(Protocol):
 class DecoratedAgentProtocol(Protocol[P, R]):
     """Protocol defining the interface of a decorated agent function."""
 
-    _agent_type: AgentType
-    _agent_config: AgentConfig
-
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Coroutine[Any, Any, R]: ...
 
 
@@ -96,53 +93,6 @@ def _attach_scoped_tool_decorator(
     decorated = cast("DecoratedToolCapableAgentProtocol[P, R]", func)
     decorated.tool = tool
     return decorated
-
-
-# Protocol for orchestrator functions
-class DecoratedOrchestratorProtocol(DecoratedAgentProtocol[P, R], Protocol):
-    """Protocol for decorated orchestrator functions with additional metadata."""
-
-    _child_agents: list[str]
-    _plan_type: Literal["full", "iterative"]
-
-
-# Protocol for router functions
-class DecoratedRouterProtocol(DecoratedAgentProtocol[P, R], Protocol):
-    """Protocol for decorated router functions with additional metadata."""
-
-    _router_agents: list[str]
-
-
-# Protocol for chain functions
-class DecoratedChainProtocol(DecoratedAgentProtocol[P, R], Protocol):
-    """Protocol for decorated chain functions with additional metadata."""
-
-    _chain_agents: list[str]
-
-
-# Protocol for parallel functions
-class DecoratedParallelProtocol(DecoratedAgentProtocol[P, R], Protocol):
-    """Protocol for decorated parallel functions with additional metadata."""
-
-    _fan_out: list[str]
-    _fan_in: str
-
-
-# Protocol for evaluator-optimizer functions
-class DecoratedEvaluatorOptimizerProtocol(DecoratedAgentProtocol[P, R], Protocol):
-    """Protocol for decorated evaluator-optimizer functions with additional metadata."""
-
-    _generator: str
-    _evaluator: str
-
-
-# Protocol for maker functions
-class DecoratedMakerProtocol(DecoratedAgentProtocol[P, R], Protocol):
-    """Protocol for decorated MAKER functions with additional metadata."""
-
-    _worker: str
-    _k: int
-    _max_samples: int
 
 
 def _apply_templates(text: str) -> str:
@@ -294,13 +244,9 @@ def _agent_data_from_decorator(
 
 def _store_decorator_metadata(
     func: Callable[..., Any],
-    agent_type: AgentType,
-    config: AgentConfig,
     extra_kwargs: dict[str, Any],
 ) -> Any:
     decorated_func = cast("Any", func)
-    decorated_func._agent_type = agent_type
-    decorated_func._agent_config = config
     for key, value in extra_kwargs.items():
         setattr(decorated_func, f"_{key}", value)
     return decorated_func
@@ -416,7 +362,7 @@ def _decorator_impl(
         )
 
         self.agents[name] = _agent_data_from_decorator(config, agent_type, func, extra_kwargs)
-        _store_decorator_metadata(func, agent_type, config, extra_kwargs)
+        _store_decorator_metadata(func, extra_kwargs)
         return _attach_agent_tool_decorator_if_supported(
             func,
             agent_type,

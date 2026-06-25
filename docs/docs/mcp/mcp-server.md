@@ -97,7 +97,7 @@ uv run agent.py \
 --instance-scope request
 ```
 
-`--transport` now enables server mode automatically. The legacy `--server` flag is still accepted as an alias but is deprecated.
+`--transport` enables server mode automatically.
 
 Both approaches initialise FastAgent with the same config and skill loading pipeline;
 choose whichever fits your workflow (one-off CLI invocation vs. packaging an agent as

@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 from pathlib import Path  # noqa: TC003 - typer resolves Path annotations at runtime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import typer
 
@@ -23,11 +22,7 @@ from fast_agent.cli.runtime.request_builders import (
     ResolvedInstructionOption,
     build_command_run_request,
     build_run_agent_kwargs,
-    is_multi_model,
     merge_card_sources,
-    resolve_default_instruction,
-    resolve_instance_scope,
-    use_smart_agent,
 )
 from fast_agent.cli.runtime.request_builders import (
     collect_stdio_commands as _collect_stdio_commands,
@@ -35,15 +30,15 @@ from fast_agent.cli.runtime.request_builders import (
 from fast_agent.cli.runtime.request_builders import (
     resolve_instruction_option as _resolve_instruction_option,
 )
-from fast_agent.cli.runtime.run_request import (
-    AgentRunRequest,
-)
 from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.agent_card_paths import AGENT_CARD_EXTENSIONS as _CARD_EXTENSIONS
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.hf_auth import add_explicit_bearer_auth_header
+
+if TYPE_CHECKING:
+    from fast_agent.cli.runtime.run_request import AgentRunRequest
 
 CARD_EXTENSIONS = _CARD_EXTENSIONS
 DEFAULT_AGENT_CARDS_DIR = _DEFAULT_AGENT_CARDS_DIR
@@ -55,18 +50,6 @@ app = typer.Typer(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
     add_completion=False,
 )
-
-
-def _is_multi_model(model: str | None) -> bool:
-    return is_multi_model(model)
-
-
-def _use_smart_agent(model: str | None, mode: Literal["interactive", "serve"]) -> bool:
-    return use_smart_agent(model, mode)
-
-
-def _resolve_default_instruction(model: str | None, mode: Literal["interactive", "serve"]) -> str:
-    return resolve_default_instruction(model, mode)
 
 
 def resolve_instruction_option(
@@ -160,174 +143,6 @@ def _materialize_a2a_agent_cards(
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         paths.append(str(path))
     return tempdir, paths
-
-
-def _build_compat_run_request(**kwargs: Any) -> AgentRunRequest:
-    """Build an AgentRunRequest from legacy compatibility keyword arguments.
-
-    This wrapper intentionally accepts ``Any`` because it preserves the legacy
-    dynamic call surface used by older integrations while converting into the
-    strongly typed ``AgentRunRequest`` model at the boundary.
-    """
-    transport = kwargs.get("transport", "http")
-    instance_scope = kwargs.get("instance_scope", "shared")
-    if transport == "acp" and instance_scope == "shared":
-        instance_scope = None
-
-    return AgentRunRequest(
-        name=kwargs.get("name", "fast-agent cli"),
-        instruction=kwargs.get("instruction"),
-        config_path=kwargs.get("config_path"),
-        server_list=kwargs.get("server_list"),
-        agent_cards=kwargs.get("agent_cards"),
-        card_tools=kwargs.get("card_tools"),
-        model=kwargs.get("model"),
-        message=kwargs.get("message"),
-        prompt_file=kwargs.get("prompt_file"),
-        attachments=kwargs.get("attachments"),
-        json_schema=kwargs.get("json_schema"),
-        schema_model=kwargs.get("schema_model"),
-        structured_tool_policy=kwargs.get("structured_tool_policy"),
-        result_file=kwargs.get("result_file"),
-        resume=kwargs.get("resume"),
-        url_servers=kwargs.get("url_servers"),
-        stdio_servers=kwargs.get("stdio_servers"),
-        agent_name=kwargs.get("agent_name", "agent"),
-        target_agent_name=kwargs.get("target_agent_name"),
-        skills_directory=kwargs.get("skills_directory"),
-        environment_dir=kwargs.get("environment_dir"),
-        noenv=kwargs.get("noenv", False),
-        force_smart=kwargs.get("force_smart", False),
-        shell_runtime=kwargs.get("shell_runtime", False),
-        no_shell=kwargs.get("no_shell", False),
-        mode=kwargs.get("mode", "interactive"),
-        transport=kwargs.get("transport", "http"),
-        host=kwargs.get("host", "127.0.0.1"),
-        port=kwargs.get("port", 8000),
-        tool_description=kwargs.get("tool_description"),
-        tool_name_template=kwargs.get("tool_name_template"),
-        instance_scope=resolve_instance_scope(
-            transport=transport,
-            instance_scope=instance_scope,
-        ),
-        permissions_enabled=kwargs.get("permissions_enabled", True),
-        reload=kwargs.get("reload", False),
-        watch=kwargs.get("watch", False),
-        execution_mode=kwargs.get("execution_mode"),
-        quiet=kwargs.get("quiet", False),
-        missing_shell_cwd_policy=kwargs.get("missing_shell_cwd_policy"),
-    )
-
-
-async def _run_agent(
-    request: AgentRunRequest | None = None,
-    **kwargs: Any,
-) -> None:
-    """Compatibility wrapper for async request execution."""
-    from fast_agent.cli.runtime.agent_setup import run_agent_request
-
-    if request is not None and kwargs:
-        raise ValueError("request cannot be combined with compatibility keyword arguments")
-
-    await run_agent_request(request or _build_compat_run_request(**kwargs))
-
-
-def run_async_agent(
-    name: str,
-    instruction: str,
-    config_path: str | None = None,
-    servers: str | None = None,
-    urls: str | None = None,
-    auth: str | None = None,
-    client_metadata_url: str | None = None,
-    agent_cards: list[str] | None = None,
-    card_tools: list[str] | None = None,
-    model: str | None = None,
-    message: str | None = None,
-    prompt_file: str | None = None,
-    attachments: list[str] | None = None,
-    json_schema: str | None = None,
-    schema_model: str | None = None,
-    structured_tool_policy: str | None = None,
-    result_file: str | None = None,
-    resume: str | None = None,
-    stdio_commands: list[str] | None = None,
-    agent_name: str | None = None,
-    target_agent_name: str | None = None,
-    skills_directory: Path | None = None,
-    environment_dir: Path | None = None,
-    noenv: bool = False,
-    force_smart: bool = False,
-    shell_enabled: bool = False,
-    no_shell: bool = False,
-    mode: Literal["interactive", "serve"] = "interactive",
-    transport: str = "http",
-    host: str = "127.0.0.1",
-    port: int = 8000,
-    tool_description: str | None = None,
-    tool_name_template: str | None = None,
-    instance_scope: str = "shared",
-    permissions_enabled: bool = True,
-    reload: bool = False,
-    watch: bool = False,
-    quiet: bool = False,
-    missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
-) -> None:
-    """Run the async agent function with proper loop handling."""
-    try:
-        normalized_instance_scope: str | None = instance_scope
-        if transport == "acp" and instance_scope == "shared":
-            normalized_instance_scope = None
-        run_kwargs = _build_run_agent_kwargs(
-            name=name,
-            mode=mode,
-            noenv=noenv,
-            resume=resume,
-            model=model,
-            agent_name=agent_name,
-            target_agent_name=target_agent_name,
-            message=message,
-            prompt_file=prompt_file,
-            attachments=attachments,
-            json_schema=json_schema,
-            schema_model=schema_model,
-            structured_tool_policy=structured_tool_policy,
-            result_file=result_file,
-            skills_directory=skills_directory,
-            environment_dir=environment_dir,
-            instruction=instruction,
-            force_smart=force_smart,
-            config_path=config_path,
-            servers=servers,
-            urls=urls,
-            auth=auth,
-            client_metadata_url=client_metadata_url,
-            agent_cards=agent_cards,
-            card_tools=card_tools,
-            stdio_commands=stdio_commands,
-            shell_enabled=shell_enabled,
-            no_shell=no_shell,
-            transport=transport,
-            instance_scope=resolve_instance_scope(
-                transport=transport,
-                instance_scope=normalized_instance_scope,
-            ),
-            host=host,
-            port=port,
-            tool_description=tool_description,
-            tool_name_template=tool_name_template,
-            permissions_enabled=permissions_enabled,
-            reload=reload,
-            watch=watch,
-            quiet=quiet,
-            missing_shell_cwd_policy=missing_shell_cwd_policy,
-        )
-        request = AgentRunRequest(**run_kwargs)
-    except ValueError as exc:
-        print(f"Error parsing URLs: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
-
-    run_request(request)
 
 
 def _resolve_effective_environment_dir(

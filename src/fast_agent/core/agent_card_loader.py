@@ -1518,14 +1518,3 @@ def _serialize_skills(
         return serialized if serialized else None
     return None
 
-
-def _serialize_string_list(value: Any) -> list[str] | None:
-    if value is None:
-        return None
-    if not isinstance(value, list):
-        return None
-    if not value:
-        return []
-    if all(isinstance(item, str) for item in value):
-        return [item for item in value if isinstance(item, str)]
-    return None

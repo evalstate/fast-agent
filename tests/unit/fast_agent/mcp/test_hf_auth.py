@@ -14,7 +14,6 @@ from fast_agent.mcp.hf_auth import (
     get_hf_token_from_env,
     is_hf_space_url,
     is_huggingface_url,
-    should_add_hf_auth,
 )
 
 
@@ -126,63 +125,6 @@ class TestGetHfTokenFromEnv:
         original = _set_hf_token("")
         try:
             assert get_hf_token_from_env(hub_token_provider=_no_hub_token) is None
-        finally:
-            _restore_hf_token(original)
-
-
-class TestShouldAddHfAuth:
-    """Test the logic for determining when to add HF authentication."""
-
-    def test_hf_url_no_existing_auth_with_token(self):
-        original = _set_hf_token("test_token")
-        try:
-            assert should_add_hf_auth("https://hf.co/models", None) is True
-        finally:
-            _restore_hf_token(original)
-
-    def test_hf_url_no_existing_auth_no_token(self):
-        original = _set_hf_token(None)
-        try:
-            assert should_add_hf_auth("https://hf.co/models", None, _no_hub_token) is False
-        finally:
-            _restore_hf_token(original)
-
-    def test_hf_url_existing_auth_with_token(self):
-        original = _set_hf_token("test_token")
-        try:
-            headers = {"Authorization": "Bearer existing_token"}
-            assert should_add_hf_auth("https://hf.co/models", headers) is False
-        finally:
-            _restore_hf_token(original)
-
-    def test_hf_space_existing_x_hf_auth_with_token(self):
-        """Test that existing X-HF-Authorization prevents adding auth to .hf.space."""
-        original = _set_hf_token("test_token")
-        try:
-            headers = {"X-HF-Authorization": "Bearer existing_token"}
-            assert should_add_hf_auth("https://myspace.hf.space/api", headers) is False
-        finally:
-            _restore_hf_token(original)
-
-    def test_hf_url_existing_other_headers_with_token(self):
-        original = _set_hf_token("test_token")
-        try:
-            headers = {"Content-Type": "application/json"}
-            assert should_add_hf_auth("https://hf.co/models", headers) is True
-        finally:
-            _restore_hf_token(original)
-
-    def test_non_hf_url_with_token(self):
-        original = _set_hf_token("test_token")
-        try:
-            assert should_add_hf_auth("https://example.com/api", None) is False
-        finally:
-            _restore_hf_token(original)
-
-    def test_non_hf_url_no_token(self):
-        original = _set_hf_token(None)
-        try:
-            assert should_add_hf_auth("https://example.com/api", None) is False
         finally:
             _restore_hf_token(original)
 

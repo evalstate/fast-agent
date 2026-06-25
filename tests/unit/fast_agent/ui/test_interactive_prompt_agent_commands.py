@@ -17,7 +17,7 @@ from fast_agent.constants import (
 )
 from fast_agent.core.agent_app import AgentCardLoadResult, AgentRefreshResult
 from fast_agent.core.exceptions import PromptExitError
-from fast_agent.core.prompt import Prompt
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt, interactive_prompt

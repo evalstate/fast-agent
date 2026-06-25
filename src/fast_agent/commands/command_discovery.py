@@ -472,13 +472,6 @@ def _build_command_detail(name: str) -> CommandDetailEntry | None:
     return None
 
 
-def _build_command_action_detail(command_name: str, action_name: str) -> ActionPayload | None:
-    detail = _build_command_detail(command_name)
-    if detail is None:
-        return None
-    return _find_action_detail(detail, action_name)
-
-
 def _find_action_detail(detail: CommandDetailEntry, action_name: str) -> ActionPayload | None:
     normalized_action = normalize_action_token(action_name)
     for action_map in detail["actions"]:

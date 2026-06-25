@@ -289,7 +289,7 @@ class _CardPackManifestModel(BaseModel):
 class MarketplaceEntryModel(MarketplaceEntryFieldsModel):
     @model_validator(mode="before")
     @classmethod
-    def _normalize_entry(cls, data: Any, info: "ValidationInfo") -> Any:
+    def _normalize_entry(cls, data: Any, info: ValidationInfo) -> Any:
         if not isinstance(data, dict):
             return data
 
@@ -386,7 +386,7 @@ class MarketplacePayloadModel(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _normalize_payload(cls, data: Any, info: "ValidationInfo") -> Any:
+    def _normalize_payload(cls, data: Any, info: ValidationInfo) -> Any:
         return marketplace_fetch.normalize_marketplace_payload(
             data,
             info,
@@ -588,11 +588,6 @@ def _validate_plugin_refs(value: Any) -> list[str]:
         if cleaned not in refs:
             refs.append(cleaned)
     return refs
-
-
-async def fetch_marketplace_card_packs(url: str) -> list[MarketplaceCardPack]:
-    packs, _ = await fetch_marketplace_card_packs_with_source(url)
-    return packs
 
 
 async def fetch_marketplace_card_packs_with_source(

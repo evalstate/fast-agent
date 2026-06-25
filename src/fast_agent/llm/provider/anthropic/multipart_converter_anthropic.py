@@ -30,7 +30,6 @@ from mcp.types import (
     ContentBlock,
     EmbeddedResource,
     ImageContent,
-    PromptMessage,
     ResourceLink,
     TextContent,
     TextResourceContents,
@@ -401,23 +400,6 @@ class AnthropicConverter:
 
             if isinstance(normalized, dict):
                 destination.append(cast("BetaContentBlockParam", normalized))
-
-    @staticmethod
-    def convert_prompt_message_to_anthropic(message: PromptMessage) -> BetaMessageParam:
-        """
-        Convert a standard PromptMessage to Anthropic API format.
-
-        Args:
-            message: The PromptMessage to convert
-
-        Returns:
-            An Anthropic API BetaMessageParam object
-        """
-        # Convert the PromptMessage to a PromptMessageExtended containing a single content item
-        multipart = PromptMessageExtended(role=message.role, content=[message.content])
-
-        # Use the existing conversion method
-        return AnthropicConverter.convert_to_anthropic(multipart)
 
     @staticmethod
     def _convert_content_items(

@@ -38,7 +38,7 @@ class MarketplaceEntryModel(MarketplaceEntryFieldsModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _normalize_entry(cls, data: Any, info: "ValidationInfo") -> Any:
+    def _normalize_entry(cls, data: Any, info: ValidationInfo) -> Any:
         if not isinstance(data, dict):
             return data
 
@@ -116,7 +116,7 @@ class MarketplacePayloadModel(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _normalize_payload(cls, data: Any, info: "ValidationInfo") -> Any:
+    def _normalize_payload(cls, data: Any, info: ValidationInfo) -> Any:
         return marketplace_fetch.normalize_marketplace_payload(
             data,
             info,

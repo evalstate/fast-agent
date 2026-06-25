@@ -459,11 +459,17 @@ async def test_get_capabilities_returns_none_when_initialize_raises(monkeypatch)
         {"broken": MCPServerSettings(name="broken", transport="stdio", command="echo")}
     )
 
-    @asynccontextmanager
-    async def _exploding_initialize(self, server_name, client_session_factory=None, trigger_oauth=None):
-        del trigger_oauth
-        raise RuntimeError("server crashed on startup")
-        yield  # pragma: no cover — makes this a valid async generator
+    class _ExplodingInitialize:
+        async def __aenter__(self):
+            raise RuntimeError("server crashed on startup")
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            del exc_type, exc, tb
+            return False
+
+    def _exploding_initialize(self, server_name, client_session_factory=None, trigger_oauth=None):
+        del self, server_name, client_session_factory, trigger_oauth
+        return _ExplodingInitialize()
 
     monkeypatch.setattr(
         ServerRegistry,
@@ -587,7 +593,7 @@ async def test_fetch_server_tools_reraises_mcp_error_when_tools_advertised() -> 
 
 
 class _DummyInitializer:
-    """Stub implementing only ServerInitializerProtocol, no connection_manager."""
+    """Stub implementing only ServerInitializerProtocol, not the full registry protocol."""
 
     @asynccontextmanager
     async def initialize_server(self, server_name, client_session_factory=None, trigger_oauth=None):
@@ -608,8 +614,8 @@ async def test_gen_client_accepts_initializer_protocol() -> None:
         assert session is not None
 
 
-def test_connect_requires_full_protocol() -> None:
-    """ServerInitializerProtocol alone is not sufficient for connect/disconnect."""
+def test_initializer_protocol_does_not_satisfy_registry_protocol() -> None:
+    """ServerInitializerProtocol alone is not sufficient for aggregator registry operations."""
     from fast_agent.mcp.interfaces import ServerRegistryProtocol
 
     stub = _DummyInitializer()

@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, Protocol
 from mcp.types import TextContent
 
 from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_USAGE
-from fast_agent.core.logging.json_serializer import JsonValue, snapshot_json_value
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -141,8 +140,3 @@ def build_usage_payload(usage_accumulator: "UsageAccumulator | None") -> dict[st
         "raw_usage": turn_usage.raw_usage,
         "summary": usage_accumulator.get_summary(),
     }
-
-
-def serialize_raw_usage(raw_usage: object | None) -> JsonValue:
-    """Compatibility wrapper for callers that still snapshot ad hoc usage values."""
-    return snapshot_json_value(raw_usage)

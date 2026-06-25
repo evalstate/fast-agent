@@ -240,7 +240,7 @@ def test_find_matches():
     assert match1.group(1) == "abc123def"
 
     # Second match
-    msg2, match2 = matches[1]
+    _, match2 = matches[1]
     assert match2.group(1) == "xyz789ghi"
 
 

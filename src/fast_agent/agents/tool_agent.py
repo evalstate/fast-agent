@@ -23,11 +23,11 @@ from fast_agent.constants import (
 )
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import LlmAgentProtocol, ToolRunnerHookCapable
 from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 from fast_agent.mcp.tool_result_metadata import (
     set_url_elicitation_required_payload,
@@ -168,14 +168,6 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         return (
             self.tool_runner_hooks is not None
             and self.tool_runner_hooks.after_tool_call is not None
-        )
-
-    @property
-    def has_after_turn_complete_hook(self) -> bool:
-        """Return True if an after_turn_complete hook is configured."""
-        return (
-            self.tool_runner_hooks is not None
-            and self.tool_runner_hooks.after_turn_complete is not None
         )
 
     @property

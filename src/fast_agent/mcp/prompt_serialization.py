@@ -5,7 +5,6 @@ This module provides utilities for converting between different serialization fo
 and PromptMessageExtended objects. It includes functionality for:
 
 1. JSON Serialization:
-   - Converting PromptMessageExtended objects to MCP-compatible GetPromptResult JSON format
    - Parsing GetPromptResult JSON into PromptMessageExtended objects
    - This is ideal for programmatic use and ensures full MCP compatibility
 
@@ -24,7 +23,6 @@ from typing import cast
 from mcp.types import (
     AudioContent,
     EmbeddedResource,
-    GetPromptResult,
     ImageContent,
     PromptMessage,
     ResourceLink,
@@ -66,51 +64,11 @@ def serialize_to_dict(obj, exclude_none: bool = True):
 # -------------------------------------------------------------------------
 
 
-def to_get_prompt_result(
-    messages: list[PromptMessageExtended],
-) -> GetPromptResult:
-    """
-    Convert PromptMessageExtended objects to a GetPromptResult container.
-
-    Args:
-        messages: List of PromptMessageExtended objects
-
-    Returns:
-        GetPromptResult object containing flattened messages
-    """
-    # Convert multipart messages to regular PromptMessage objects
-    flat_messages = []
-    for message in messages:
-        flat_messages.extend(message.from_multipart())
-
-    # Create a GetPromptResult with the flattened messages
-    return GetPromptResult(messages=flat_messages)
-
-
-def to_get_prompt_result_json(messages: list[PromptMessageExtended]) -> str:
-    """
-    Convert PromptMessageExtended objects to MCP-compatible GetPromptResult JSON.
-
-    This is a lossy conversion that flattens multipart messages and loses extended fields
-    like tool_calls, channels, and stop_reason. Use for MCP server compatibility.
-
-    Args:
-        messages: List of PromptMessageExtended objects
-
-    Returns:
-        JSON string in GetPromptResult format
-    """
-    result = to_get_prompt_result(messages)
-    result_dict = serialize_to_dict(result)
-    return json.dumps(result_dict, indent=2)
-
-
 def to_json(messages: list[PromptMessageExtended]) -> str:
     """
     Convert PromptMessageExtended objects directly to JSON, preserving all extended fields.
 
-    This preserves tool_calls, tool_results, channels, and stop_reason that would be lost
-    in the standard GetPromptResult conversion.
+    This preserves tool_calls, tool_results, channels, and stop_reason.
 
     Args:
         messages: List of PromptMessageExtended objects

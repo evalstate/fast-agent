@@ -105,10 +105,6 @@ class StubMcpAgent(StubAgent):
         self._instruction_context.update(context)
 
     @property
-    def has_filesystem_runtime(self) -> bool:
-        return False
-
-    @property
     def skill_read_tool_name(self) -> str:
         return "read_skill"
 

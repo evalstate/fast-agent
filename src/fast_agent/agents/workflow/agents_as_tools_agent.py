@@ -213,7 +213,6 @@ from fast_agent.constants import (
 from fast_agent.context import get_current_context
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import ToolRunnerHookCapable
 from fast_agent.llm.request_params import (
     ToolResultMode,
@@ -221,6 +220,7 @@ from fast_agent.llm.request_params import (
     tool_result_mode_allows_response_mode,
 )
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.session import get_session_manager
 from fast_agent.session.identity import (

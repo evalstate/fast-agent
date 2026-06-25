@@ -144,9 +144,9 @@ async def test_ui_mixin_extracts_ui_resources(ui_agent):
 
 
 @pytest.mark.asyncio
-async def test_ui_mixin_respects_disabled_mode(ui_agent):
+async def test_ui_mixin_respects_disabled_mode(mock_config, mock_context):
     """Test that UI extraction is skipped when mode is disabled."""
-    ui_agent.set_ui_mode("disabled")
+    ui_agent = UIAgentForTesting(config=mock_config, context=mock_context, ui_mode="disabled")
 
     # Create tool results with UI content
     ui_resource = create_ui_resource()
@@ -165,9 +165,9 @@ async def test_ui_mixin_respects_disabled_mode(ui_agent):
 
 
 @pytest.mark.asyncio
-async def test_ui_mixin_auto_mode_only_acts_with_ui_content(ui_agent):
+async def test_ui_mixin_auto_mode_only_acts_with_ui_content(mock_config, mock_context):
     """Test that auto mode only processes when UI content is present."""
-    ui_agent.set_ui_mode("auto")
+    ui_agent = UIAgentForTesting(config=mock_config, context=mock_context, ui_mode="auto")
 
     # Test with no UI content
     text_block = create_non_ui_resource()
@@ -207,9 +207,9 @@ async def test_ui_mixin_preserves_error_status(ui_agent):
 
 
 @pytest.mark.asyncio
-async def test_ui_mixin_enabled_mode_processes_all_content(ui_agent):
+async def test_ui_mixin_enabled_mode_processes_all_content(mock_config, mock_context):
     """Test that enabled mode processes content even without UI resources."""
-    ui_agent.set_ui_mode("enabled")
+    ui_agent = UIAgentForTesting(config=mock_config, context=mock_context, ui_mode="enabled")
 
     # Test with only regular content
     text_block = create_non_ui_resource()
@@ -304,25 +304,8 @@ def test_is_ui_embedded_resource(ui_agent):
     assert ui_agent._is_ui_embedded_resource(text_content) is False
 
 
-def test_set_ui_mode(ui_agent):
-    """Test that UI mode can be set and invalid modes default to auto."""
-    # Test valid modes
-    ui_agent.set_ui_mode("disabled")
-    assert ui_agent._ui_mode == "disabled"
-
-    ui_agent.set_ui_mode("enabled")
-    assert ui_agent._ui_mode == "enabled"
-
-    ui_agent.set_ui_mode("auto")
-    assert ui_agent._ui_mode == "auto"
-
-    # Test invalid mode defaults to auto
-    ui_agent.set_ui_mode("invalid")
-    assert ui_agent._ui_mode == "auto"
-
-
 def test_constructor_normalizes_invalid_ui_mode(mock_config, mock_context):
-    """Invalid constructor modes use the same fallback as set_ui_mode."""
+    """Invalid constructor modes fall back to auto."""
     agent = UIAgentForTesting(config=mock_config, context=mock_context, ui_mode="invalid")
 
     assert agent._ui_mode == "auto"
@@ -375,7 +358,6 @@ async def test_extract_ui_from_tool_results_handles_exceptions(ui_agent):
     class BrokenResult:
         def __init__(self):
             self.isError = False
-            self._content = None
 
         @property
         def content(self):

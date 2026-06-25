@@ -441,8 +441,6 @@ class ServerConnection:
         self._oauth_wait_started_at: float | None = None
         self._oauth_wait_accumulated_seconds = 0.0
         self._oauth_callback_timed_out = False
-        self._last_oauth_error: str | None = None
-        self._last_oauth_authorization_url: str | None = None
         self._oauth_abort_event = threading.Event()
         self._stdio_stderr_lines: deque[str] = deque(maxlen=STDIO_STDERR_BUFFER_LINES)
         self._lifecycle_cancel_scope: CancelScope | None = None
@@ -450,12 +448,6 @@ class ServerConnection:
     def is_healthy(self) -> bool:
         """Check if the server connection is healthy and ready to use."""
         return self.session is not None and not self._error_occurred
-
-    def reset_error_state(self) -> None:
-        """Reset the error state, allowing reconnection attempts."""
-        self._error_occurred = False
-        self._error_message = None
-        self._stdio_stderr_lines.clear()
 
     def request_shutdown(self) -> None:
         """
@@ -1107,14 +1099,11 @@ class MCPConnectionManager(ContextDependent):
         user_event_handler: OAuthEventHandler | None,
     ) -> OAuthEventHandler:
         async def handle_event(event: OAuthEvent) -> None:
-            if event.event_type == "authorization_url" and event.url:
-                server_conn._last_oauth_authorization_url = event.url
-            elif event.event_type == "wait_start":
+            if event.event_type == "wait_start":
                 server_conn.mark_oauth_wait_start()
             elif event.event_type == "wait_end":
                 server_conn.mark_oauth_wait_end()
             elif event.event_type == "oauth_error":
-                server_conn._last_oauth_error = event.message
                 if event.is_timeout or _is_oauth_timeout_message(event.message):
                     server_conn._oauth_callback_timed_out = True
 

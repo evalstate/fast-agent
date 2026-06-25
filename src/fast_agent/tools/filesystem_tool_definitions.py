@@ -7,7 +7,6 @@ from typing import Final
 from mcp.types import Tool
 
 ATTACH_MEDIA_TOOL_NAME: Final = "attach_media"
-ATTACH_RESOURCE_TOOL_ALIAS: Final = "attach_resource"
 READ_TEXT_FILE_TOOL_NAME: Final = "read_text_file"
 WRITE_TEXT_FILE_TOOL_NAME: Final = "write_text_file"
 
@@ -65,15 +64,6 @@ def build_attach_media_tool(
             "additionalProperties": False,
         },
     )
-
-
-def build_attach_resource_tool(
-    supported_mime_types: list[str] | None = None,
-    *,
-    is_google: bool = False,
-) -> Tool:
-    """Deprecated compatibility alias for ``attach_media`` tool schema."""
-    return build_attach_media_tool(supported_mime_types, is_google=is_google)
 
 
 def build_read_text_file_tool() -> Tool:

@@ -23,8 +23,8 @@ from fast_agent.agents.workflow.orchestrator_models import (
 from fast_agent.agents.workflow.request_params import child_request_params
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import AgentProtocol, ModelT
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.workflow_telemetry import (
     NoOpPlanTelemetryProvider,

@@ -32,7 +32,6 @@ from pydantic_core import from_json
 from fast_agent.constants import FAST_AGENT_SAFETY_DETAILS, REASONING
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
@@ -63,6 +62,7 @@ from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.mime_utils import guess_mime_type
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 from fast_agent.utils.reasoning_chunk_join import (
     ReasoningTextAccumulator,

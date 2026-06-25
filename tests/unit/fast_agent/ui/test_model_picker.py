@@ -29,7 +29,6 @@ from fast_agent.ui.model_picker import (
     _SplitListPicker,
 )
 from fast_agent.ui.model_picker_common import (
-    ANTHROPIC_VERTEX_PROVIDER_KEY,
     CODEX_LOGIN_SENTINEL,
     GENERIC_CUSTOM_MODEL_SENTINEL,
     LLAMACPP_IMPORT_SENTINEL,
@@ -452,11 +451,12 @@ def test_snapshot_adds_anthropic_vertex_group_when_ready(monkeypatch) -> None:
     option = next(
         provider
         for provider in snapshot.providers
-        if provider.option_key == ANTHROPIC_VERTEX_PROVIDER_KEY
+        if provider.option_key == Provider.ANTHROPIC_VERTEX.config_name
     )
 
     assert option.active is True
-    assert option.option_display_name == Provider.ANTHROPIC_VERTEX.display_name
+    assert option.provider is Provider.ANTHROPIC_VERTEX
+    assert option.display_name is None
     assert all(entry.model.startswith("anthropic-vertex.") for entry in option.curated_entries)
 
 
@@ -486,7 +486,7 @@ def test_snapshot_disables_anthropic_vertex_group_when_adc_missing(monkeypatch) 
     option = next(
         provider
         for provider in snapshot.providers
-        if provider.option_key == ANTHROPIC_VERTEX_PROVIDER_KEY
+        if provider.option_key == Provider.ANTHROPIC_VERTEX.config_name
     )
 
     assert option.active is False
@@ -499,7 +499,7 @@ def test_snapshot_shows_anthropic_vertex_group_without_configuration() -> None:
     option = next(
         provider
         for provider in snapshot.providers
-        if provider.option_key == ANTHROPIC_VERTEX_PROVIDER_KEY
+        if provider.option_key == Provider.ANTHROPIC_VERTEX.config_name
     )
     picker = _SplitListPicker(config_path=None)
 
@@ -525,7 +525,7 @@ def test_snapshot_adds_anthropic_vertex_group_for_env_only_setup(monkeypatch) ->
     option = next(
         provider
         for provider in snapshot.providers
-        if provider.option_key == ANTHROPIC_VERTEX_PROVIDER_KEY
+        if provider.option_key == Provider.ANTHROPIC_VERTEX.config_name
     )
 
     assert option.active is True

@@ -315,7 +315,6 @@ class A2ARemoteAgent(LlmDecorator):
         with self.display.streaming_assistant_message(
             name=self.name,
             model="A2A",
-            bottom_items=[self._transport_label()],
         ) as stream_handle:
 
             def update_live_stream(chunk: StreamChunk) -> None:
@@ -463,7 +462,6 @@ class A2ARemoteAgent(LlmDecorator):
                     append=update.append,
                 )
                 self._log_a2a_progress(ProgressAction.STREAMING, details=artifact.name)
-                self._emit_stream(text)
 
         return _A2AResult(
             text="\n".join(

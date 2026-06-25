@@ -121,7 +121,7 @@ fast-agent serve [OPTIONS]
 - `--description`, `-d TEXT`: Description used for each send tool (supports `{agent}` placeholder)
 - `--tool-name-template TEXT`: Template for exposed agent tool names (supports `{agent}` placeholder)
 - `--instance-scope [shared|connection|request]`: Control how clients receive isolated agent instances (default: shared; ACP is always connection-scoped)
-- `--reload`: Enable manual AgentCard reloads (ACP: `/reload`, MCP: `reload_agent_cards`)
+- `--reload`: Enable manual AgentCard reloads where supported (ACP: `/reload`)
 - `--watch`: Watch AgentCard paths and reload
 
 ### Skills behavior

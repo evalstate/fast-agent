@@ -1,5 +1,3 @@
-import pytest
-
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
@@ -15,19 +13,5 @@ def test_llm_stop_reason_is_hashable() -> None:
     assert LlmStopReason.TOOL_USE in {LlmStopReason.TOOL_USE}
 
 
-def test_llm_stop_reason_from_string_accepts_raw_value() -> None:
-    assert LlmStopReason.from_string("toolUse") is LlmStopReason.TOOL_USE
-
-
-def test_llm_stop_reason_from_string_accepts_member() -> None:
-    assert LlmStopReason.from_string(LlmStopReason.END_TURN) is LlmStopReason.END_TURN
-
-
-def test_llm_stop_reason_from_string_reports_valid_values() -> None:
-    with pytest.raises(ValueError, match="Valid values are:"):
-        LlmStopReason.from_string("done")
-
-
-def test_llm_stop_reason_is_valid_uses_enum_values() -> None:
-    assert LlmStopReason.is_valid("endTurn") is True
-    assert LlmStopReason.is_valid("END_TURN") is False
+def test_llm_stop_reason_constructs_from_raw_value() -> None:
+    assert LlmStopReason("toolUse") is LlmStopReason.TOOL_USE

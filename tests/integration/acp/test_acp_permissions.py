@@ -66,19 +66,6 @@ def _tool_executed_successfully(client: TestClient) -> bool:
     return False
 
 
-def _tool_was_denied(client: TestClient) -> bool:
-    """Check if tool execution was denied by examining notifications.
-
-    Look for a tool_call_update notification with status 'failed'.
-    """
-    for n in client.notifications:
-        update = n["update"]
-        if hasattr(update, "sessionUpdate") and update.sessionUpdate == "tool_call_update":
-            if hasattr(update, "status") and update.status == "failed":
-                return True
-    return False
-
-
 @pytest.mark.integration
 async def test_permission_request_sent_when_tool_called(
     acp_permissions: tuple[ClientSideConnection, TestClient, InitializeResponse],

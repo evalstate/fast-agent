@@ -88,7 +88,6 @@ MODEL_VALUE_COMMAND_ACTIONS: frozenset[ModelCommandAction] = frozenset(
 MODEL_MANAGER_COMMAND_ACTIONS: frozenset[ModelCommandAction] = frozenset(
     action for action, category in MODEL_COMMAND_ACTION_CATEGORIES.items() if category == "manager"
 )
-MODEL_DIRECT_HANDLER_ACTIONS: frozenset[ModelCommandAction] = MODEL_VALUE_COMMAND_ACTIONS
 TOOL_MUTATION_ACTIONS: frozenset[ToolMutationAction] = frozenset(
     (ADD_TOOL_ACTION, REMOVE_TOOL_ACTION)
 )
@@ -597,9 +596,6 @@ SessionAction = Literal[
     "error",
     "unknown",
 ]
-SESSION_SIMPLE_PAYLOAD_ACTIONS: frozenset[SessionAction] = frozenset(
-    _SIMPLE_SESSION_ACTIONS.values()
-)
 SESSION_COMMAND_COMPLETION_DESCRIPTIONS: dict[str, str] = {
     "delete": "Delete a session (or all)",
     "pin": "Pin or unpin the current session",

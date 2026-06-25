@@ -6,7 +6,7 @@ import pytest
 from mcp.types import ImageContent
 
 from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
-from fast_agent.core.prompt import Prompt
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompts.prompt_load import (
     load_prompt,
 )

@@ -265,7 +265,7 @@ async def test_a2a_remote_agent_message_only_response_updates_context_without_ta
 
 
 @pytest.mark.asyncio
-async def test_a2a_remote_agent_streams_chunks_to_live_display() -> None:
+async def test_a2a_remote_agent_aggregates_artifact_updates_without_live_stream() -> None:
     agent = _remote_agent()
     display = _FakeDisplay(preserve=True)
     agent.display = cast("Any", display)
@@ -288,9 +288,9 @@ async def test_a2a_remote_agent_streams_chunks_to_live_display() -> None:
     )
 
     assert response.all_text() == "one two"
-    assert display.handle.chunks == ["one ", "two"]
+    assert display.handle.chunks == []
     assert display.handle.finalized
-    assert display.assistant_messages == []
+    assert [message.all_text() for message in display.assistant_messages] == ["one two"]
 
 
 @pytest.mark.asyncio
@@ -305,7 +305,7 @@ async def test_a2a_remote_agent_renders_final_message_when_live_display_cannot_p
     )
 
     assert response.all_text() == "final"
-    assert display.handle.chunks == ["final"]
+    assert display.handle.chunks == []
     assert [message.all_text() for message in display.assistant_messages] == ["final"]
 
 

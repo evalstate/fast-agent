@@ -17,8 +17,6 @@ from fast_agent.utils.markdown import escape_markdown_table_cell
 
 logger = get_logger(__name__)
 
-DEFAULT_PERMISSIONS_FILE = Path(DEFAULT_ENVIRONMENT_DIR) / "auths.md"
-
 
 class PermissionDecision(str, Enum):
     """Stored permission decisions (only 'always' variants are persisted)."""
@@ -323,14 +321,3 @@ class PermissionStore:
                     f"Failed to delete permissions file: {e}",
                     name="permission_store_delete_error",
                 )
-
-    async def list_all(self) -> dict[PermissionEntry, PermissionDecision]:
-        """
-        Get all stored permissions.
-
-        Returns:
-            Dictionary of permission entry -> decision
-        """
-        async with self._lock:
-            await self._ensure_loaded()
-            return dict(self._cache)

@@ -1,11 +1,9 @@
 """Unit tests for mermaid_utils module."""
 
 from fast_agent.ui.mermaid_utils import (
-    MermaidDiagram,
     create_mermaid_live_link,
     detect_diagram_type,
     extract_mermaid_diagrams,
-    format_mermaid_links,
 )
 
 
@@ -175,48 +173,11 @@ class TestCreateMermaidLiveLink:
         assert link.startswith("https://www.mermaidchart.com/play#pako:")
 
 
-class TestFormatMermaidLinks:
-    """Test markdown link formatting."""
-
-    def test_single_diagram_no_title(self):
-        """Test formatting single diagram without title."""
-        diagrams = [MermaidDiagram(content="graph TD\n    A --> B")]
-        links = format_mermaid_links(diagrams)
-        assert len(links) == 1
-        assert links[0].startswith("Diagram 1: [Open Diagram](")
-        assert "pako:" in links[0]
-
-    def test_single_diagram_with_title(self):
-        """Test formatting single diagram with title."""
-        diagrams = [MermaidDiagram(content="graph TD\n    A --> B", title="My Flow")]
-        links = format_mermaid_links(diagrams)
-        assert len(links) == 1
-        assert links[0].startswith("Diagram 1 - My Flow: [Open Diagram](")
-
-    def test_multiple_diagrams_mixed(self):
-        """Test formatting multiple diagrams with mixed titles."""
-        diagrams = [
-            MermaidDiagram(content="graph TD\n    A --> B"),
-            MermaidDiagram(content="pie\n    'A': 50", title="Statistics"),
-            MermaidDiagram(content="graph LR\n    X --> Y"),
-        ]
-        links = format_mermaid_links(diagrams)
-        assert len(links) == 3
-        assert links[0].startswith("Diagram 1: [Open Diagram](")
-        assert links[1].startswith("Diagram 2 - Statistics: [Open Diagram](")
-        assert links[2].startswith("Diagram 3: [Open Diagram](")
-
-    def test_empty_list(self):
-        """Test formatting empty diagram list."""
-        links = format_mermaid_links([])
-        assert len(links) == 0
-
-
 class TestIntegration:
     """Integration tests combining extraction and formatting."""
 
-    def test_full_workflow(self):
-        """Test complete workflow from text to formatted links."""
+    def test_extracts_multiple_diagrams_with_titles(self):
+        """Test extracting multiple diagrams from mixed text."""
         text = """Here's a simple flow:
 ```mermaid title={User Flow}
 graph TD
@@ -233,20 +194,10 @@ sequenceDiagram
     Bob-->>Alice: Response
 ```"""
 
-        # Extract diagrams
         diagrams = extract_mermaid_diagrams(text)
         assert len(diagrams) == 2
-
-        # Format links
-        links = format_mermaid_links(diagrams)
-        assert len(links) == 2
-        assert "Diagram 1 - User Flow:" in links[0]
-        assert "Diagram 2:" in links[1]
-
-        # Verify links are valid
-        for link in links:
-            assert "[Open Diagram](" in link
-            assert "https://www.mermaidchart.com/play#pako:" in link
+        assert diagrams[0].title == "User Flow"
+        assert diagrams[1].title is None
 
 
 class TestDetectDiagramType:

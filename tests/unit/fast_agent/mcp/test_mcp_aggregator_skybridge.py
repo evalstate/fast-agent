@@ -37,6 +37,7 @@ spec = importlib.util.spec_from_file_location("fast_agent.mcp.mcp_aggregator", M
 if spec is None or spec.loader is None:
     raise RuntimeError("Failed to load mcp_aggregator module for testing")
 _module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = _module
 spec.loader.exec_module(_module)
 
 MCPAggregator = _module.MCPAggregator
@@ -134,7 +135,6 @@ def test_mcp_app_detection_marks_valid_resources() -> None:
     _, config = asyncio.run(aggregator._evaluate_skybridge_for_server("test"))
 
     assert config.enabled is True
-    assert config.has_mcp_apps is True
     assert len(config.ui_resources) == 1
     assert config.ui_resources[0].is_mcp_app is True
     assert len(config.tools) == 1

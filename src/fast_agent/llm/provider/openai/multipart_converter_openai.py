@@ -9,7 +9,6 @@ from mcp.types import (
     CallToolResult,
     EmbeddedResource,
     ImageContent,
-    PromptMessage,
     ResourceLink,
     TextContent,
     TextResourceContents,
@@ -51,7 +50,6 @@ _logger = get_logger("multipart_converter_openai")
 
 # Define type aliases for content blocks
 ContentBlock = dict[str, Any]
-OpenAIMessage = dict[str, Any]
 McpResourceContents = BlobResourceContents | TextResourceContents
 type OpenAITextExtractableBlock = (
     ChatCompletionContentPartParam
@@ -309,28 +307,6 @@ class OpenAIConverter:
             combined_blocks.append({"type": "text", "text": current_text})
 
         return combined_blocks
-
-    @staticmethod
-    def convert_prompt_message_to_openai(
-        message: PromptMessage, concatenate_text_blocks: bool = False
-    ) -> ChatCompletionMessageParam:
-        """
-        Convert a standard PromptMessage to OpenAI API format.
-
-        Args:
-            message: The PromptMessage to convert
-            concatenate_text_blocks: If True, adjacent text blocks will be combined
-
-        Returns:
-            An OpenAI API message object
-        """
-        # Convert the PromptMessage to a PromptMessageExtended containing a single content item
-        multipart = PromptMessageExtended(role=message.role, content=[message.content])
-
-        # Use the existing conversion method with the specified concatenation option
-        # Since convert_to_openai now returns a list, we return the first element
-        messages = OpenAIConverter.convert_to_openai(multipart, concatenate_text_blocks)
-        return messages[0] if messages else OpenAIConverter._make_message(message.role, "")
 
     @staticmethod
     def _convert_image_content(content: ImageContent) -> ContentBlock:

@@ -6,7 +6,6 @@ from google.genai import types
 from mcp import Tool
 from mcp.types import (
     BlobResourceContents,
-    CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
     ContentBlock,
@@ -16,7 +15,6 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
-from pydantic import AnyUrl
 
 from fast_agent.llm.structured_schema import resolve_local_ref
 from fast_agent.mcp.helpers.content_helpers import (
@@ -267,20 +265,6 @@ class GoogleConverter:
                     )
                 )
         return fast_agent_parts
-
-    def convert_from_google_function_call(
-        self, function_call: types.FunctionCall
-    ) -> CallToolRequest:
-        """
-        Converts a single google.genai types.FunctionCall to a fast-agent CallToolRequest.
-        """
-        return CallToolRequest(
-            method="tools/call",
-            params=CallToolRequestParams(
-                name=function_call.name or "unknown_function",
-                arguments=function_call.args,
-            ),
-        )
 
     def convert_function_results_to_google(
         self, tool_results: list[GoogleToolResult]
@@ -587,50 +571,3 @@ class GoogleConverter:
             include_thoughts=True,
             thinking_level=cast("Any", "MEDIUM"),
         )
-
-    def convert_from_google_content_list(
-        self, contents: list[types.Content]
-    ) -> list[PromptMessageExtended]:
-        """
-        Converts a list of google.genai types.Content to a list of fast-agent PromptMessageExtended.
-        """
-        return [self._convert_from_google_content(content) for content in contents]
-
-    def _convert_from_google_content(self, content: types.Content | None) -> PromptMessageExtended:
-        """
-        Converts a single google.genai types.Content to a fast-agent PromptMessageExtended.
-        """
-        # Official fix for GitHub issue #207: Handle None content or content.parts
-        if content is None:
-            return PromptMessageExtended(role="assistant", content=[])
-
-        parts = content.parts
-        if parts is None:
-            return PromptMessageExtended(role="assistant", content=[])
-
-        if content.role == "model" and any(part.function_call for part in parts):
-            return PromptMessageExtended(role="assistant", content=[])
-
-        fast_agent_parts: list[ContentBlock] = []
-        for part in parts:
-            if self._is_thought_part(part):
-                continue
-            if part.text:
-                fast_agent_parts.append(TextContent(type="text", text=part.text))
-            elif part.function_response:
-                response_text = str(part.function_response.response)
-                fast_agent_parts.append(TextContent(type="text", text=response_text))
-            elif part.file_data:
-                fast_agent_parts.append(
-                    EmbeddedResource(
-                        type="resource",
-                        resource=TextResourceContents(
-                            uri=AnyUrl(part.file_data.file_uri or ""),
-                            mimeType=part.file_data.mime_type,
-                            text=f"[Resource: {part.file_data.file_uri}, MIME: {part.file_data.mime_type}]",
-                        ),
-                    )
-                )
-
-        fast_agent_role = "user" if content.role == "user" else "assistant"
-        return PromptMessageExtended(role=fast_agent_role, content=fast_agent_parts)

@@ -563,9 +563,6 @@ class ToolRunner:
 
         return tool_message
 
-    def set_request_params(self, params: RequestParams) -> None:
-        self._request_params = params
-
     @property
     def agent(self) -> object:
         """Agent currently being driven by this tool runner."""
@@ -604,10 +601,6 @@ class ToolRunner:
     @property
     def last_message(self) -> PromptMessageExtended | None:
         return self._last_message
-
-    @property
-    def has_pending_tool_response(self) -> bool:
-        return self._pending_tool_request is not None
 
     def _stage_tool_response(self, tool_message: PromptMessageExtended) -> None:
         staged_messages = [tool_message]

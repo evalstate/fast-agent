@@ -28,18 +28,10 @@ class ElicitationState:
         """Check if elicitation is active for a server."""
         return server_name in self.active_servers
 
-    def enable_server(self, server_name: str) -> None:
-        """Re-enable elicitation requests for a specific server."""
-        self.disabled_servers.discard(server_name)
-
     def clear_all(self) -> None:
         """Clear all disabled and active servers."""
         self.disabled_servers.clear()
         self.active_servers.clear()
-
-    def get_disabled_servers(self) -> set[str]:
-        """Get a copy of all disabled servers."""
-        return self.disabled_servers.copy()
 
 
 # Global instance for session-scoped Cancel All functionality

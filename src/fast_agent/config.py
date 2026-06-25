@@ -334,16 +334,6 @@ class ShellSettings(BaseModel):
     )
     model_config = ConfigDict(extra="ignore")
 
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_deprecated_attach_resource(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "enable_attach_media" not in data:
-            old_value = data.get("enable_attach_resource")
-            if old_value is not None:
-                data = dict(data)
-                data["enable_attach_media"] = old_value
-        return data
-
     @field_validator("timeout_seconds", mode="before")
     @classmethod
     def _coerce_timeout(cls, value: Any) -> int:
@@ -1663,16 +1653,6 @@ def load_implicit_settings(
     return merged, discovery
 
 
-def load_selected_settings(
-    *,
-    start_path: Path,
-    env_dir: str | Path | None = None,
-    noenv: bool = False,
-) -> tuple[dict[str, Any], ConfigDiscoveryResult]:
-    """Load first-found config/secrets settings with home then cwd precedence."""
-    return load_implicit_settings(start_path=start_path, env_dir=env_dir, noenv=noenv)
-
-
 @dataclass(frozen=True)
 class _LoadedSettingsSources:
     merged_settings: dict[str, Any]
@@ -2003,7 +1983,6 @@ class Settings(BaseSettings):
     """
 
     _config_file: str | None = PrivateAttr(default=None)
-    _secrets_file: str | None = PrivateAttr(default=None)
     _fast_agent_home: str | None = PrivateAttr(default=None)
     _fast_agent_home_source: str | None = PrivateAttr(default=None)
     _fast_agent_global_plugin_home: str | None = PrivateAttr(default=None)
@@ -2046,13 +2025,6 @@ class Settings(BaseSettings):
             normalized[namespace] = normalized_entries
 
         return normalized
-
-    @classmethod
-    def find_config(cls) -> Path | None:
-        """Find the preferred config file in the current directory."""
-        config_path = Path.cwd() / "fast-agent.yaml"
-        return config_path if config_path.exists() else None
-
 
 # Global settings object
 _settings: Settings | None = None
@@ -2249,7 +2221,6 @@ def _settings_from_sources(
 ) -> Settings:
     settings = Settings(**sources.merged_settings)
     settings._config_file = str(sources.config_file) if sources.config_file else None
-    settings._secrets_file = str(sources.secrets_file) if sources.secrets_file else None
     settings._fast_agent_home = str(sources.discovery.home.path) if sources.discovery.home else None
     settings._fast_agent_home_source = (
         sources.discovery.home.source if sources.discovery.home else None

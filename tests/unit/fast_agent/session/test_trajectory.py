@@ -4,7 +4,7 @@ import pytest
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.core.exceptions import AgentConfigError
-from fast_agent.core.prompt import Prompt
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.session.session_manager import Session, SessionInfo
 from fast_agent.session.trajectory import TrajectoryRecord, save_trajectory_record
 

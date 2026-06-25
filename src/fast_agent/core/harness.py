@@ -659,52 +659,6 @@ class AgentHarness:
             return None
         return FileHarnessSessionPersistence(settings.environment_dir)
 
-    async def _create_persisted_session(
-        self,
-        session_id: str,
-        instance: AgentInstance,
-        default_agent_name: str | None,
-    ) -> tuple[SessionManager, Session] | None:
-        settings = self._fast_agent.context.config
-        if settings is None or settings._fast_agent_noenv or not settings.session_history:
-            return None
-
-        from fast_agent.session.session_manager import SessionManager
-
-        manager = SessionManager(
-            environment_override=settings.environment_dir,
-        )
-        persisted_session = manager.create_session_with_id(
-            session_id,
-            metadata={"harness_session_id": session_id},
-            metadata_id_key="harness_session_id",
-        )
-        from fast_agent.session.context import attach_session_manager
-
-        attach_session_manager(instance, manager)
-
-        from fast_agent.session import SessionHydrator
-
-        fallback_agent_name = instance.app.resolve_target_agent_name(default_agent_name)
-        hydration = await SessionHydrator().hydrate_session(
-            session=persisted_session,
-            agents=instance.agents,
-            fallback_agent_name=fallback_agent_name,
-        )
-        return manager, hydration.session
-
-    async def _delete_persisted_session(self, session_id: str) -> None:
-        settings = self._fast_agent.context.config
-        if settings is None or settings._fast_agent_noenv or not settings.session_history:
-            return
-
-        from fast_agent.session.session_manager import SessionManager
-
-        manager = SessionManager(
-            environment_override=settings.environment_dir,
-        )
-        manager.delete_session(session_id)
-
     async def _create_instance(self) -> AgentInstance:
         if self._runtime is None:
             raise RuntimeError("Harness is not running.")

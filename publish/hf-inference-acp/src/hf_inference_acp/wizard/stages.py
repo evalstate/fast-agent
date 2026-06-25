@@ -48,7 +48,3 @@ class WizardState:
             "install_agent_examples": self.install_agent_examples,
             "error_message": self.error_message,
         }
-
-    def clear_error(self) -> None:
-        """Clear any error message."""
-        self.error_message = None

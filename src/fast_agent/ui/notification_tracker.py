@@ -195,11 +195,6 @@ def get_count() -> int:
     return len(notifications)
 
 
-def get_latest() -> dict[str, str] | None:
-    """Get the most recent completed notification."""
-    return notifications[-1] if notifications else None
-
-
 def get_counts_by_type() -> dict[str, int]:
     """Aggregate completed notifications by event type."""
     counts = Counter(notification["type"] for notification in notifications)

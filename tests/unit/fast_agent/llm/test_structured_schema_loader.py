@@ -5,7 +5,6 @@ import pytest
 from fast_agent.llm.structured_schema import (
     load_pydantic_model,
     resolve_local_ref,
-    sanitize_structured_output_schema,
 )
 
 
@@ -46,36 +45,3 @@ def test_resolve_local_ref_handles_escaped_keys_and_missing_paths() -> None:
     assert resolve_local_ref(root, "#/$defs/nullable") is None
     assert resolve_local_ref(root, "#/$defs/missing") is None
 
-
-def test_sanitize_structured_output_schema_resolves_plain_property_refs() -> None:
-    schema = {
-        "$defs": {
-            "Child": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "default": None,
-                    }
-                },
-            }
-        },
-        "type": "object",
-        "properties": {
-            "child": {
-                "$ref": "#/$defs/Child",
-            }
-        },
-    }
-
-    sanitized = sanitize_structured_output_schema(
-        schema,
-        require_all_properties=True,
-        additional_properties_false=True,
-    )
-    child_schema = sanitized["properties"]["child"]
-
-    assert "$ref" not in child_schema
-    assert child_schema["required"] == ["name"]
-    assert child_schema["additionalProperties"] is False
-    assert "default" not in child_schema["properties"]["name"]

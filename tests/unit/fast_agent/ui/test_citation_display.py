@@ -7,7 +7,6 @@ from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.ui.citation_display import (
     collect_citation_sources,
     render_sources_additional_text,
-    render_sources_footer,
     web_tool_badges,
 )
 
@@ -57,31 +56,6 @@ def test_collect_citation_sources_dedupes_by_normalized_url() -> None:
     assert sources[0].url == "https://example.com/path"
     assert sources[1].index == 2
     assert sources[1].url is None
-
-
-def test_render_sources_footer_with_markdown_links() -> None:
-    message = PromptMessageExtended(
-        role="assistant",
-        channels={
-            ANTHROPIC_CITATIONS_CHANNEL: [
-                TextContent(
-                    type="text",
-                    text=json.dumps(
-                        {
-                            "type": "web_search_result_location",
-                            "title": "Fast Agent",
-                            "url": "https://fast-agent.ai",
-                        }
-                    ),
-                )
-            ]
-        },
-    )
-
-    footer = render_sources_footer(message)
-    assert footer is not None
-    assert "Sources" in footer
-    assert "- [1] [Fast Agent](https://fast-agent.ai/)" in footer
 
 
 def test_render_sources_additional_text_multiline() -> None:

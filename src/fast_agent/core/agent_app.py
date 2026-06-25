@@ -436,14 +436,6 @@ class AgentApp:
         """Return True if agent card dumping is available."""
         return self._dump_agent_callback is not None
 
-    def can_attach_mcp_servers(self) -> bool:
-        """Return True if runtime MCP attachment is available."""
-        return self._attach_mcp_server_callback is not None
-
-    def can_detach_mcp_servers(self) -> bool:
-        """Return True if runtime MCP detachment is available."""
-        return self._detach_mcp_server_callback is not None
-
     async def load_agent_card(
         self, source: str, parent_agent: str | None = None
     ) -> AgentCardLoadResult:

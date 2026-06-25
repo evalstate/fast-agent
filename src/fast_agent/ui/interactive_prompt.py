@@ -84,10 +84,6 @@ _MCP_RUNTIME_HANDLERS_COMPAT = mcp_runtime_handlers
 SendFunc = Callable[[str | PromptMessage | PromptMessageExtended, str], Awaitable[str]]
 type PromptLoopResult = str | ShellExecutionResult
 
-# Type alias for the agent getter function
-AgentGetter = Callable[[str], object | None]
-
-
 @runtime_checkable
 class DisplayCapable(Protocol):
     @property
@@ -1263,8 +1259,6 @@ class InteractivePrompt:
             )
             if send_result is not None:
                 result = send_result
-
-        return result
 
     async def _execute_hash_send(
         self,

@@ -12,7 +12,7 @@ from hashlib import blake2b
 from typing import TYPE_CHECKING
 
 from fast_agent.ui.markdown_renderables import build_markdown_renderable
-from fast_agent.ui.streaming_buffer import StreamBuffer, Table
+from fast_agent.ui.streaming_buffer import StreamBuffer
 
 if TYPE_CHECKING:
     from rich.console import Console
@@ -104,14 +104,6 @@ class MarkdownTruncator:
         if len(self._height_cache) > self._height_cache_limit:
             self._height_cache.popitem(last=False)
         return height
-
-    def estimate_rendered_height(self, text: str, terminal_width: int) -> int:
-        """Cheap width-based estimate for markdown display height."""
-        if not text:
-            return 0
-        if terminal_width <= 0:
-            return len(text.split("\n"))
-        return self._buffer.estimate_display_lines(text, terminal_width)
 
     def truncate_to_height(
         self,
@@ -258,66 +250,6 @@ class MarkdownTruncator:
             "height_entries": len(self._height_cache),
             "truncate_entries": len(self._truncate_cache),
         }
-
-    def _ensure_table_header_if_needed(self, original_text: str, truncated_text: str) -> str:
-        """Ensure table header is prepended if truncation removed it."""
-        if not truncated_text or truncated_text == original_text:
-            return truncated_text
-
-        truncation_pos = original_text.rfind(truncated_text)
-        if truncation_pos == -1:
-            truncation_pos = max(0, len(original_text) - len(truncated_text))
-
-        header_text = self._table_header_prefix_for_truncation(
-            original_text,
-            truncated_text,
-            truncation_pos,
-        )
-        if header_text is None:
-            return truncated_text
-        return header_text + truncated_text
-
-    def _table_header_prefix_for_truncation(
-        self,
-        original_text: str,
-        truncated_text: str,
-        truncation_pos: int,
-    ) -> str | None:
-        lines = original_text.split("\n")
-        for table in self._buffer._find_tables(original_text):
-            if not (table.start_pos < truncation_pos < table.end_pos):
-                continue
-
-            if truncation_pos < _table_data_start_pos(original_text, lines, table):
-                return None
-
-            header_text = "\n".join(table.header_lines) + "\n"
-            if _truncated_text_has_table_header(truncated_text, header_text, table):
-                return None
-            return header_text
-
-        return None
-
-
-def _table_data_start_pos(original_text: str, lines: list[str], table: Table) -> int:
-    table_start_line = original_text[: table.start_pos].count("\n")
-    data_start_line = table_start_line + len(table.header_lines)
-    return sum(len(line) + 1 for line in lines[:data_start_line])
-
-
-def _truncated_text_has_table_header(
-    truncated_text: str,
-    header_text: str,
-    table: Table,
-) -> bool:
-    if truncated_text.startswith(header_text):
-        return True
-    truncated_lines = truncated_text.splitlines()
-    header_lines = [line.rstrip() for line in table.header_lines]
-    if len(truncated_lines) < len(header_lines):
-        return False
-    candidate = [line.rstrip() for line in truncated_lines[: len(header_lines)]]
-    return candidate == header_lines
 
 
 __all__ = ["MarkdownTruncator"]

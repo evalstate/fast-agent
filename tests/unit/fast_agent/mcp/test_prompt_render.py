@@ -2,17 +2,33 @@
 Unit tests for the prompt rendering utilities.
 """
 
-from mcp.types import (
-    TextContent,
-)
+from mcp.types import BlobResourceContents, EmbeddedResource, TextContent, TextResourceContents
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-from fast_agent.mcp.prompt_render import render_multipart_message
-from fast_agent.mcp.resource_utils import (
-    create_blob_resource,
-    create_image_content,
-    create_text_resource,
-)
+from fast_agent.mcp.prompt_render import render_content_blocks
+from fast_agent.mcp.resource_utils import create_image_content, to_any_url
+
+
+def create_blob_resource(resource_path: str, content: str, mime_type: str) -> EmbeddedResource:
+    return EmbeddedResource(
+        type="resource",
+        resource=BlobResourceContents(
+            uri=to_any_url(resource_path),
+            mimeType=mime_type,
+            blob=content,
+        ),
+    )
+
+
+def create_text_resource(resource_path: str, content: str, mime_type: str) -> EmbeddedResource:
+    return EmbeddedResource(
+        type="resource",
+        resource=TextResourceContents(
+            uri=to_any_url(resource_path),
+            mimeType=mime_type,
+            text=content,
+        ),
+    )
 
 
 class TestPromptRender:
@@ -29,7 +45,7 @@ class TestPromptRender:
         )
 
         # Render the message
-        result = render_multipart_message(message)
+        result = render_content_blocks(message.content)
 
         # Check the rendered output
         assert result == "Hello, world!"
@@ -46,7 +62,7 @@ class TestPromptRender:
         )
 
         # Render the message
-        result = render_multipart_message(message)
+        result = render_content_blocks(message.content)
 
         # Check the rendered output (should join with newlines)
         assert result == "Hello, world!\nHow are you today?"
@@ -68,7 +84,7 @@ class TestPromptRender:
         )
 
         # Render the message
-        result = render_multipart_message(message)
+        result = render_content_blocks(message.content)
 
         # Check the rendered output (should show image info)
         assert "Look at this image:" in result
@@ -88,7 +104,7 @@ class TestPromptRender:
         )
 
         # Render the message
-        result = render_multipart_message(message)
+        result = render_content_blocks(message.content)
 
         # Check the rendered output (should include resource info and preview)
         assert "Here's a text resource:" in result
@@ -112,7 +128,7 @@ class TestPromptRender:
         )
 
         # Render the message
-        result = render_multipart_message(message)
+        result = render_content_blocks(message.content)
 
         # Check the rendered output (should truncate with ellipsis)
         assert "Here's a long text resource:" in result
@@ -146,7 +162,7 @@ class TestPromptRender:
         )
 
         # Render the message
-        result = render_multipart_message(message)
+        result = render_content_blocks(message.content)
 
         # Check the rendered output (should show blob info)
         assert "Here's a binary blob:" in result

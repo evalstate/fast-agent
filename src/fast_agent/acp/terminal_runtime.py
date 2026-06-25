@@ -6,6 +6,8 @@ capabilities when available (e.g., in Zed editor). This provides better integrat
 compared to local process execution.
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
 import re
@@ -245,7 +247,7 @@ class ACPTerminalRuntime:
 
     def __init__(
         self,
-        connection: "AgentSideConnection",
+        connection: AgentSideConnection,
         session_id: str,
         activation_reason: str,
         logger_instance=None,

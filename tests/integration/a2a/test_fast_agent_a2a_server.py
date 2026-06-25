@@ -1175,7 +1175,7 @@ async def test_fast_agent_a2a_server_serves_http_json_transport(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_fast_agent_a2a_server_streams_live_artifact_updates_to_client(
+async def test_fast_agent_a2a_server_aggregates_live_artifact_updates_without_client_stream(
     streaming_fast_agent_a2a_server: RunningFastAgentA2AServer,
 ) -> None:
     client = A2ARemoteAgent(
@@ -1200,7 +1200,7 @@ async def test_fast_agent_a2a_server_streams_live_artifact_updates_to_client(
     finally:
         await client.shutdown()
 
-    assert chunks == ["stream ", "from ", "server"]
+    assert chunks == []
     assert response.all_text() == "stream from server"
 
 

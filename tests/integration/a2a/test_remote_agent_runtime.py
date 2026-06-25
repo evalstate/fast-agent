@@ -7,7 +7,7 @@ from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.a2a.remote_agent import A2ARemoteAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.types import LlmStopReason, PromptMessageExtended
-from tests.integration.a2a.conftest import FAKE_A2A_HELP, LONG_STREAM_CHUNKS
+from tests.integration.a2a.conftest import FAKE_A2A_HELP
 
 
 async def _send_text(base_url: str, transport: str) -> A2ARemoteAgent:
@@ -53,7 +53,9 @@ async def test_a2a_remote_agent_sends_text_over_supported_transports(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_a2a_remote_agent_emits_stream_chunks(a2a_test_server) -> None:
+async def test_a2a_remote_agent_aggregates_task_artifacts_without_stream_chunks(
+    a2a_test_server,
+) -> None:
     agent = A2ARemoteAgent(
         config=AgentConfig(name="remote_stream", agent_type=AgentType.A2A, use_history=False),
         a2a_config=A2AAgentConfig(url=a2a_test_server.base_url, transport="JSONRPC"),
@@ -75,12 +77,14 @@ async def test_a2a_remote_agent_emits_stream_chunks(a2a_test_server) -> None:
 
     assert "stream chunk one" in response.all_text()
     assert "stream chunk two" in response.all_text()
-    assert chunks == ["stream chunk one", "stream chunk two"]
+    assert chunks == []
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_a2a_remote_agent_emits_long_stream_chunks(a2a_test_server) -> None:
+async def test_a2a_remote_agent_aggregates_long_task_artifacts_without_stream_chunks(
+    a2a_test_server,
+) -> None:
     agent = A2ARemoteAgent(
         config=AgentConfig(name="remote_long_stream", agent_type=AgentType.A2A, use_history=False),
         a2a_config=A2AAgentConfig(url=a2a_test_server.base_url, transport="JSONRPC"),
@@ -100,7 +104,7 @@ async def test_a2a_remote_agent_emits_long_stream_chunks(a2a_test_server) -> Non
     finally:
         await agent.shutdown()
 
-    assert chunks == LONG_STREAM_CHUNKS
+    assert chunks == []
     assert "Starting the remote analysis task." in response.all_text()
     assert "Step 1 — Reading the request and identifying the goal." in response.all_text()
     assert "Remote analysis complete." in response.all_text()
@@ -263,7 +267,7 @@ async def test_a2a_remote_agent_honors_artifact_append_semantics(a2a_test_server
         await agent.shutdown()
 
     assert response.all_text() == "final\nrepeat\nrepeat"
-    assert chunks == ["draft", "final", "\nrepeat", "\nrepeat"]
+    assert chunks == []
 
 
 @pytest.mark.integration

@@ -46,17 +46,6 @@ def missing_gepa_dependencies() -> list[str]:
     ]
 
 
-def format_missing_gepa_dependencies(packages: list[str]) -> str:
-    """Render an actionable missing-dependency error for GEPA optimizer workflows."""
-
-    package_lines = "\n".join(f"  - {package}" for package in packages)
-    return (
-        "GEPA optimization requires optional dependencies that are not installed:\n"
-        f"{package_lines}\n\n"
-        f"{GEPA_EXTRA_INSTALL_MESSAGE}"
-    )
-
-
 def gepa_trackio_init_kwargs(
     *,
     project: str = "fast-agent-gepa",

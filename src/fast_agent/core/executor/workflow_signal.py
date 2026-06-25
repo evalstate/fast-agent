@@ -92,12 +92,6 @@ class BaseSignalHandler(ABC, Generic[SignalValueT]):
                 self._handlers.clear()
                 self._pending_signals.clear()
 
-    def validate_signal(self, signal: Signal[SignalValueT]) -> None:
-        """Validate signal properties."""
-        if not signal.name:
-            raise ValueError("Signal name is required")
-        # Subclasses can override to add more validation
-
     def on_signal(self, signal_name: str) -> Callable:
         """Register a handler for a signal."""
 
@@ -130,64 +124,6 @@ class BaseSignalHandler(ABC, Generic[SignalValueT]):
         timeout_seconds: int | None = None,
     ) -> SignalValueT:
         """Wait for a signal to be emitted."""
-
-
-class ConsoleSignalHandler(SignalHandler[str]):
-    """Simple console-based signal handling (blocks on input)."""
-
-    def __init__(self) -> None:
-        self._pending_signals: dict[str, list[PendingSignal]] = {}
-        self._handlers: dict[str, list[Callable]] = {}
-
-    async def wait_for_signal(self, signal, timeout_seconds=None):
-        """Block and wait for console input."""
-        print(f"\n[SIGNAL: {signal.name}] {signal.description}")
-        if timeout_seconds:
-            print(f"(Timeout in {timeout_seconds} seconds)")
-
-        # Use asyncio.get_running_loop().run_in_executor to make input non-blocking
-        loop = asyncio.get_running_loop()
-        if timeout_seconds is not None:
-            try:
-                value = await asyncio.wait_for(
-                    loop.run_in_executor(None, input, "Enter value: "), timeout_seconds
-                )
-            except asyncio.TimeoutError:
-                print("\nTimeout waiting for input")
-                raise
-        else:
-            value = await loop.run_in_executor(None, input, "Enter value: ")
-
-        return value
-
-        # value = input(f"[SIGNAL: {signal.name}] {signal.description}: ")
-        # return value
-
-    def on_signal(self, signal_name):
-        def decorator(func):
-            async def wrapped(value: SignalValueT) -> None:
-                if inspect.iscoroutinefunction(func):
-                    await func(value)
-                else:
-                    func(value)
-
-            self._handlers.setdefault(signal_name, []).append(wrapped)
-            return wrapped
-
-        return decorator
-
-    async def signal(self, signal) -> None:
-        print(f"[SIGNAL SENT: {signal.name}] Value: {signal.payload}")
-
-        handlers = self._handlers.get(signal.name, [])
-        await gather_with_cancel(handler(signal) for handler in handlers)
-
-        # Notify any waiting coroutines
-        if signal.name in self._pending_signals:
-            for ps in self._pending_signals[signal.name]:
-                ps.value = signal.payload
-                if ps.event is not None:
-                    ps.event.set()
 
 
 class AsyncioSignalHandler(BaseSignalHandler[SignalValueT]):
@@ -270,43 +206,6 @@ class AsyncioSignalHandler(BaseSignalHandler[SignalValueT]):
             tasks.append(handler(signal))
 
         await gather_with_cancel(tasks)
-
-
-# TODO: saqadri - check if we need to do anything to combine this and AsyncioSignalHandler
-class LocalSignalStore:
-    """
-    Simple in-memory structure that allows coroutines to wait for a signal
-    and triggers them when a signal is emitted.
-    """
-
-    def __init__(self) -> None:
-        # For each signal_name, store a list of futures that are waiting for it
-        self._waiters: dict[str, list[asyncio.Future]] = {}
-
-    async def emit(self, signal_name: str, payload: Any) -> None:
-        # If we have waiting futures, set their result
-        if signal_name in self._waiters:
-            for future in self._waiters[signal_name]:
-                if not future.done():
-                    future.set_result(payload)
-            self._waiters[signal_name].clear()
-
-    async def wait_for(self, signal_name: str, timeout_seconds: int | None = None) -> Any:
-        loop = asyncio.get_running_loop()
-        future = loop.create_future()
-
-        self._waiters.setdefault(signal_name, []).append(future)
-
-        if timeout_seconds is not None:
-            try:
-                return await asyncio.wait_for(future, timeout=timeout_seconds)
-            except asyncio.TimeoutError:
-                # remove the fut from list
-                if not future.done():
-                    self._waiters[signal_name].remove(future)
-                raise
-        else:
-            return await future
 
 
 class SignalWaitCallback(Protocol):

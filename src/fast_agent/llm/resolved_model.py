@@ -41,19 +41,6 @@ class ResolvedModelSpec:
         return overlay.name
 
     @property
-    def overlay_display_name(self) -> str | None:
-        overlay = self.overlay
-        if overlay is None:
-            return None
-        return overlay.display_label
-
-    @property
-    def selected_model_token(self) -> str:
-        selected_model_name = self.selected_model_name.strip()
-        selected_token = selected_model_name.partition("?")[0].strip()
-        return selected_token or selected_model_name
-
-    @property
     def display_name(self) -> str:
         return resolve_resolved_model_display_name(self) or self.wire_model_name
 

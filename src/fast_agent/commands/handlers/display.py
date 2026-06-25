@@ -29,15 +29,6 @@ if TYPE_CHECKING:
     from fast_agent.types import PromptMessageExtended
 
 
-def _last_assistant_message(
-    message_history: Sequence["PromptMessageExtended"],
-) -> "PromptMessageExtended | None":
-    return next(
-        (message for message in reversed(message_history) if message.role == "assistant"),
-        None,
-    )
-
-
 def _last_assistant_text(message_history: Sequence["PromptMessageExtended"]) -> str | None:
     for message in reversed(message_history):
         if message.role != "assistant":

@@ -18,8 +18,6 @@ from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import CatalogModelEntry
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker_common import (
-    ANTHROPIC_VERTEX_PROVIDER_KEY,
-    DEFAULT_VALUE,
     GENERIC_CUSTOM_MODEL_SENTINEL,
     LLAMACPP_IMPORT_SENTINEL,
     LLAMACPP_PROVIDER_KEY,
@@ -27,18 +25,14 @@ from fast_agent.ui.model_picker_common import (
     ModelPickerSnapshot,
     ProviderOption,
     _provider_is_active,
-    apply_option_overrides,
     build_snapshot,
     format_catalog_model_entry_label,
     has_explicit_provider_prefix,
     infer_initial_picker_provider,
-    is_model_availability,
     model_capabilities,
     model_options_for_option,
     model_options_for_provider,
     provider_option_count_label,
-    provider_option_status_label,
-    web_search_display,
 )
 
 if TYPE_CHECKING:
@@ -47,11 +41,6 @@ if TYPE_CHECKING:
 
 def _overlay_group(snapshot: ModelPickerSnapshot):
     return next(option for option in snapshot.providers if option.overlay_group)
-
-
-def test_is_model_availability_narrows_known_values() -> None:
-    assert is_model_availability("attention")
-    assert not is_model_availability("disabled")
 
 
 def test_generic_provider_uses_custom_local_model_option() -> None:
@@ -232,14 +221,13 @@ def test_46_models_do_not_report_optional_long_context() -> None:
 
     assert capabilities.provider == Provider.ANTHROPIC
     assert capabilities.supports_long_context is False
-    assert capabilities.current_long_context is False
     assert capabilities.long_context_window is None
 
 
 def test_infer_initial_picker_provider_uses_vertex_group_for_anthropic_vertex() -> None:
     assert (
         infer_initial_picker_provider("anthropic-vertex.claude-sonnet-4-6")
-        == ANTHROPIC_VERTEX_PROVIDER_KEY
+        == Provider.ANTHROPIC_VERTEX.config_name
     )
 
 
@@ -266,7 +254,7 @@ def test_build_snapshot_surfaces_overlays_as_a_separate_group(tmp_path: Path) ->
         snapshot = build_snapshot(config_payload={})
         overlay_group = _overlay_group(snapshot)
         assert overlay_group.option_key == "overlays"
-        assert overlay_group.option_display_name == "Overlays"
+        assert overlay_group.display_name == "Overlays"
         assert overlay_group.overlay_group is True
         assert all(option.option_key != "openresponses" for option in snapshot.providers)
         assert any(option.option_key == "openrouter" for option in snapshot.providers)
@@ -360,7 +348,7 @@ def test_build_snapshot_includes_llamacpp_import_flow(tmp_path: Path) -> None:
         provider for provider in snapshot.providers if provider.option_key == LLAMACPP_PROVIDER_KEY
     )
 
-    assert option.option_display_name == "llama.cpp"
+    assert option.display_name == "llama.cpp"
     assert option.active is False
     assert model_options_for_option(option, source="curated") == [
         ModelOption(
@@ -380,7 +368,7 @@ def test_build_snapshot_includes_llamacpp_import_flow(tmp_path: Path) -> None:
         for provider in snapshot.providers
         if provider.option_key == Provider.GENERIC.config_name
     )
-    assert generic_option.option_display_name == "Generic (ollama)"
+    assert generic_option.display_name == "Generic (ollama)"
 
 
 def test_build_snapshot_places_deepseek_under_llamacpp() -> None:
@@ -401,47 +389,9 @@ def test_build_snapshot_uses_xai_brand_casing() -> None:
         if provider.option_key == Provider.XAI.config_name
     )
 
-    assert option.option_display_name == "xAI"
-
-
-def test_provider_option_status_label_is_explicit() -> None:
-    active = ProviderOption(provider=Provider.ANTHROPIC, active=True, curated_entries=())
-    disabled = ProviderOption(
-        provider=Provider.GOOGLE,
-        active=False,
-        curated_entries=(),
-        disabled_reason="missing ADC",
-    )
-    inactive = ProviderOption(provider=Provider.GENERIC, active=False, curated_entries=())
-    import_flow = ProviderOption(
-        provider=None,
-        active=False,
-        curated_entries=(),
-        key=LLAMACPP_PROVIDER_KEY,
-        display_name="llama.cpp",
-    )
-
-    assert provider_option_status_label(active) == "active"
-    assert provider_option_status_label(disabled) == "disabled"
-    assert provider_option_status_label(inactive) == "inactive"
-    assert provider_option_status_label(import_flow) == "active"
-
-
-def test_apply_option_overrides_sets_and_clears_query_values() -> None:
-    result = apply_option_overrides(
-        "responses.gpt-5?reasoning=high&web_search=on&context=1m",
-        reasoning_value="low",
-        web_search_value=DEFAULT_VALUE,
-        context_value="2m",
-    )
-
-    assert result == "responses.gpt-5?reasoning=low&context=2m"
-
-
-def test_web_search_display_formats_optional_boolean_state() -> None:
-    assert web_search_display(None) == "default"
-    assert web_search_display(True) == "on"
-    assert web_search_display(False) == "off"
+    assert option.provider is Provider.XAI
+    assert option.display_name is None
+    assert Provider.XAI.display_name == "xAI"
 
 
 def test_has_explicit_provider_prefix_handles_supported_delimiters() -> None:

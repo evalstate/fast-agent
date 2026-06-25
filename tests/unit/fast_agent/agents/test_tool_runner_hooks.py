@@ -7,13 +7,13 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.constants import FAST_AGENT_PENDING_MEDIA_ATTACHMENTS
-from fast_agent.core.prompt import Prompt
 from fast_agent.hooks import show_hook_message
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler
 from fast_agent.types.llm_stop_reason import LlmStopReason

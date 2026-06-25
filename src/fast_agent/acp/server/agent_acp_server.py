@@ -64,9 +64,8 @@ from fast_agent.acp.server.session_runtime import ACPServerSessionRuntime, Sessi
 from fast_agent.acp.server.session_store import ACPServerSessionStore, SessionStoreHost
 from fast_agent.acp.server.slash_runtime import ACPServerSlashRuntime, SlashRuntimeHost
 from fast_agent.agents.tool_runner import ToolRunnerHooks
-from fast_agent.commands.model_capabilities import resolve_model_name, resolve_resolved_model
 from fast_agent.config import MCPServerSettings, get_settings
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.agent_app import AgentCardLoadResult
 from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
@@ -74,10 +73,6 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol, LlmCapableProtocol
-from fast_agent.llm.terminal_output_limits import (
-    calculate_terminal_output_limit_for_model,
-    calculate_terminal_output_limit_for_resolved_model,
-)
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.paths import resolve_environment_paths
@@ -171,14 +166,6 @@ class AgentACPServer(ACPAgent):
         self.sessions = self._live_sessions.sessions
         self._session_lock = asyncio.Lock()
 
-        # Per-session prompt locks to serialize prompt turns.
-        # ACP session/update notifications are correlated only by sessionId, so overlapping
-        # prompts would interleave updates and become ambiguous.
-        self._prompt_locks = self._live_sessions.prompt_locks
-
-        # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
-        self._active_prompts = self._live_sessions.active_prompts
-
         # Track asyncio tasks per session for proper task-based cancellation
         self._session_tasks = self._live_sessions.session_tasks
 
@@ -214,28 +201,6 @@ class AgentACPServer(ACPAgent):
             agent_count=len(bootstrap_instance.agents),
             primary_agent=self.primary_agent_name,
         )
-
-    def _calculate_terminal_output_limit(self, agent: Any) -> int:
-        """
-        Determine a default terminal output byte limit based on the agent's model.
-
-        Args:
-            agent: Agent instance that may expose an llm with model metadata.
-        """
-        # Some workflow agents (e.g., chain/parallel) don't attach an LLM directly.
-        llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
-        resolved_model = resolve_resolved_model(llm)
-        if resolved_model is not None:
-            return calculate_terminal_output_limit_for_resolved_model(resolved_model)
-        model_name = resolve_model_name(llm)
-        return self._calculate_terminal_output_limit_for_model(model_name)
-
-    @staticmethod
-    def _calculate_terminal_output_limit_for_model(model_name: str | None) -> int:
-        if not model_name:
-            return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
-
-        return calculate_terminal_output_limit_for_model(model_name)
 
     def _build_auth_meta(self) -> dict[str, Any]:
         """Return static setup guidance shared by initialize/authenticate/auth errors."""
@@ -453,11 +418,6 @@ class AgentACPServer(ACPAgent):
 
         return normalized
 
-    def _build_session_modes(
-        self, instance: AgentInstance, session_state: ACPSessionState | None = None
-    ) -> SessionModeState:
-        return self._session_runtime.build_session_modes(instance, session_state)
-
     async def _build_session_request_params(
         self, agent: AgentProtocol, session_state: ACPSessionState | None
     ) -> RequestParams | None:
@@ -544,11 +504,6 @@ class AgentACPServer(ACPAgent):
             await_refresh_session_state=await_refresh_session_state,
         )
 
-    async def _refresh_session_state(
-        self, session_state: ACPSessionState, instance: AgentInstance
-    ) -> None:
-        await self._session_runtime.refresh_session_state(session_state, instance)
-
     async def _hydrate_session_state_from_persisted_session(
         self,
         session_state: ACPSessionState,
@@ -613,46 +568,6 @@ class AgentACPServer(ACPAgent):
         instance: AgentInstance,
     ) -> Any:
         return self._slash_runtime.create_slash_handler(session_state, instance)
-
-    async def _load_agent_card_for_session(
-        self,
-        session_state: ACPSessionState,
-        source: str,
-        *,
-        attach_to: str | None = None,
-    ) -> tuple[AgentInstance, AgentCardLoadResult]:
-        return await self._slash_runtime.load_agent_card_for_session(
-            session_state,
-            source,
-            attach_to=attach_to,
-        )
-
-    async def _attach_agent_tools_for_session(
-        self,
-        session_state: ACPSessionState,
-        parent_name: str,
-        child_names: Sequence[str],
-    ) -> tuple[AgentInstance, list[str]]:
-        return await self._slash_runtime.attach_agent_tools_for_session(
-            session_state,
-            parent_name,
-            child_names,
-        )
-
-    async def _detach_agent_tools_for_session(
-        self,
-        session_state: ACPSessionState,
-        parent_name: str,
-        child_names: Sequence[str],
-    ) -> tuple[AgentInstance, list[str]]:
-        return await self._slash_runtime.detach_agent_tools_for_session(
-            session_state,
-            parent_name,
-            child_names,
-        )
-
-    async def _reload_agent_cards_for_session(self, session_id: str) -> bool:
-        return await self._slash_runtime.reload_agent_cards_for_session(session_id)
 
     def _build_status_line_meta(
         self, agent: Any, turn_start_index: int | None

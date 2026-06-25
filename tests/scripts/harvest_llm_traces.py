@@ -9,7 +9,7 @@ import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Literal, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
 os.environ.setdefault("FAST_AGENT_LLM_TRACE", "1")
 
@@ -36,19 +36,6 @@ DEFAULT_CONFIG_PATH = REPO_ROOT / "tests" / "e2e" / "llm" / "fastagent.config.ya
 STREAM_DEBUG_DIR = REPO_ROOT / "stream-debug"
 
 ScenarioKind = Literal["plain_text", "tool_use", "web_search"]
-
-
-class ScenarioSpecDict(TypedDict):
-    kind: ScenarioKind
-    prompt_file: str
-    max_tokens: NotRequired[int]
-    toolset: NotRequired[str]
-    enable_web_search: NotRequired[bool]
-
-
-class TraceMatrixDict(TypedDict):
-    scenarios: dict[str, ScenarioSpecDict]
-    targets: dict[str, list[str]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,19 +132,20 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _load_trace_matrix(path: Path) -> tuple[dict[str, ScenarioSpec], dict[str, list[str]]]:
-    payload = cast("TraceMatrixDict", json.loads(path.read_text(encoding="utf-8")))
+    payload = cast("dict[str, Any]", json.loads(path.read_text(encoding="utf-8")))
+    scenario_specs = cast("dict[str, dict[str, Any]]", payload["scenarios"])
     scenarios = {
         name: ScenarioSpec(
             name=name,
-            kind=spec["kind"],
+            kind=cast("ScenarioKind", spec["kind"]),
             prompt_file=(path.parent.parent / spec["prompt_file"]).resolve(),
             max_tokens=spec.get("max_tokens"),
             toolset=spec.get("toolset"),
             enable_web_search=spec.get("enable_web_search", False),
         )
-        for name, spec in payload["scenarios"].items()
+        for name, spec in scenario_specs.items()
     }
-    return scenarios, payload["targets"]
+    return scenarios, cast("dict[str, list[str]]", payload["targets"])
 
 
 def _model_slug(model: str) -> str:

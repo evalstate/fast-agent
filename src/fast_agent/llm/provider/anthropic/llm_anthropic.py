@@ -39,7 +39,6 @@ from anthropic.types.beta import (
     BetaToolParam,
     BetaToolUseBlock,
     BetaToolUseBlockParam,
-    BetaUsage,
 )
 from mcp import Tool
 from mcp.types import (
@@ -70,7 +69,6 @@ from fast_agent.constants import (
 )
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import ModelT
 from fast_agent.llm.fastagent_llm import (
@@ -111,6 +109,7 @@ from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 from fast_agent.llm.tool_tracking import ToolCallTracker
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES, guess_mime_type, normalize_mime_type
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.provider_management import build_anthropic_provider_managed_mcp_payload
 from fast_agent.tool_activity_presentation import build_tool_activity_presentation
 from fast_agent.types import PromptMessageExtended
@@ -2947,26 +2946,3 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                     content.append(cast("BetaContentBlockParam", payload))
 
         return BetaMessageParam(role="assistant", content=content, **kwargs)
-
-    def _show_usage(self, raw_usage: BetaUsage, turn_usage: TurnUsage) -> None:
-        """This is a debug routine, leaving in for convenience"""
-        # Print raw usage for debugging
-        print(f"\n=== USAGE DEBUG ({turn_usage.model}) ===")
-        print(f"Raw usage: {raw_usage}")
-        print(
-            f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}"
-        )
-        print(
-            f"Cache: read={turn_usage.cache_usage.cache_read_tokens}, write={turn_usage.cache_usage.cache_write_tokens}"
-        )
-        print(f"Effective input: {turn_usage.effective_input_tokens}")
-        print(
-            f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}"
-        )
-        if self.usage_accumulator.context_usage_percentage:
-            print(
-                f"Context usage: {self.usage_accumulator.context_usage_percentage:.1f}% of {self.usage_accumulator.context_window_size}"
-            )
-        if self.usage_accumulator.cache_hit_rate:
-            print(f"Cache hit rate: {self.usage_accumulator.cache_hit_rate:.1f}%")
-        print("===========================\n")

@@ -7,7 +7,7 @@ EmbeddedResource, and other MCP content types with minimal boilerplate.
 
 import base64
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from mcp.types import (
     Annotations,
@@ -326,18 +326,3 @@ def Assistant(
 ) -> list[dict]:
     """Create assistant message(s) with various content types."""
     return MCPPrompt(*content_items, role="assistant")
-
-
-def create_message(content: Any, role: MessageRole = "user") -> dict:
-    """
-    Create a single prompt message from content of various types.
-
-    Args:
-        content: Content of various types (str, Path, bytes, etc.)
-        role: Role of the message
-
-    Returns:
-        A dictionary with role and content that can be used in a prompt
-    """
-    messages = MCPPrompt(content, role=role)
-    return messages[0] if messages else {}

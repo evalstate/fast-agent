@@ -256,7 +256,7 @@ metadata:
         snapshot = build_snapshot(config_payload={})
         overlay_group = _overlay_group(snapshot)
         assert overlay_group.option_key == "overlays"
-        assert overlay_group.option_display_name == "Overlays"
+        assert overlay_group.display_name == "Overlays"
         picker_entry = next(
             entry for entry in overlay_group.curated_entries if entry.alias == "picker-local"
         )

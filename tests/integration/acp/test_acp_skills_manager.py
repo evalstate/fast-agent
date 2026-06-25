@@ -83,10 +83,6 @@ class SkillAgent:
         self._skill_manifests = list(manifests)
 
     @property
-    def has_filesystem_runtime(self) -> bool:
-        return False
-
-    @property
     def skill_read_tool_name(self) -> str:
         return "read_skill"
 

@@ -1,14 +1,38 @@
+import json
 import sys
 from typing import Annotated
 
 import pytest
 from pydantic import BaseModel, Field
 
-from fast_agent.core.prompt import Prompt
 from fast_agent.llm.provider.bedrock.bedrock_utils import all_bedrock_models
 from fast_agent.llm.provider.bedrock.llm_bedrock import BedrockLLM
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.helpers.content_helpers import split_thinking_content
+from fast_agent.mcp.prompt import Prompt
+
+
+def _format_capabilities_cache() -> str:
+    return json.dumps(
+        {
+            model: {
+                "schema": caps.schema.name if caps.schema else None,
+                "system_mode": caps.system_mode.name if caps.system_mode else None,
+                "stream_with_tools": caps.stream_with_tools.name
+                if caps.stream_with_tools
+                else None,
+                "tool_name_policy": caps.tool_name_policy.name if caps.tool_name_policy else None,
+                "structured_strategy": caps.structured_strategy.name
+                if caps.structured_strategy
+                else None,
+                "reasoning_support": caps.reasoning_support,
+                "supports_tools": caps.supports_tools,
+            }
+            for model, caps in BedrockLLM.capabilities.items()
+        },
+        indent=2,
+        sort_keys=True,
+    )
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -16,7 +40,8 @@ def debug_cache_at_end():
     """Print cache state after all tests in this module complete."""
     yield
     sys.stdout.write("\n=== FINAL CACHE STATE (test_e2e_smoke_bedrock.py) ===\n")
-    BedrockLLM.debug_cache()
+    sys.stdout.write(f"{_format_capabilities_cache()}\n")
+    sys.stdout.flush()
 
 
 def _bedrock_models_for_smoke() -> list[str]:
@@ -202,18 +227,6 @@ async def test_bedrock_basic_tool_calling(fast_agent, model_name):
             assert "sunny" in response.lower()
 
     await weather_forecast()
-
-
-def _bedrock_models_for_structured() -> list[str]:
-    """Return Bedrock models suitable for structured-output tests.
-
-    Prefer Nova and Claude 3.x families.
-    """
-    candidates = all_bedrock_models(prefix="")
-    filtered = [
-        m for m in candidates if m.startswith("amazon.nova-") or m.startswith("anthropic.claude-3")
-    ]
-    return filtered
 
 
 @pytest.mark.integration

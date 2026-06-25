@@ -20,9 +20,6 @@ class BedrockConverter:
         """
         Convert a PromptMessageExtended message to Bedrock API format.
 
-        This is a wrapper around the instance method _convert_multipart_to_bedrock_message
-        to provide a static interface similar to AnthropicConverter.
-
         Args:
             multipart_msg: The PromptMessageExtended message to convert
 

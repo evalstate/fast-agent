@@ -2653,18 +2653,6 @@ def test_resource_mention_builtin_attachment_server_completion_meta() -> None:
     assert meta_by_text["demo:"] == "connected mcp server (resources)"
 
 
-def test_connected_servers_from_status_keeps_missing_identity() -> None:
-    connected = AgentCompleter._connected_servers_from_status(
-        {
-            "demo": SimpleNamespace(is_connected=True),
-            "named": SimpleNamespace(is_connected=True, implementation_name=" Named Server "),
-            "offline": SimpleNamespace(is_connected=False, implementation_name="Offline"),
-        }
-    )
-
-    assert connected == [("demo", None), ("named", "Named Server")]
-
-
 def test_resource_mention_resource_and_template_completion() -> None:
     completer = AgentCompleter(
         agents=["agent1"],

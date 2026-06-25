@@ -2,8 +2,6 @@ from typing import Any
 
 from pydantic import BaseModel
 
-HUMAN_INPUT_SIGNAL_NAME = "__human_input__"
-
 
 class HumanInputRequest(BaseModel):
     """Represents a request for human input."""

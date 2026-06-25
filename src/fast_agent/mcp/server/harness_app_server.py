@@ -25,10 +25,11 @@ from fast_agent.core.harness_app import (
 from fast_agent.core.harness_persistence import FileHarnessSessionPersistence
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.auth.middleware import HFAuthHeaderMiddleware
-from fast_agent.mcp.server.agent_server import (
-    _get_fast_agent_version,
-    _get_oauth_config,
-    _normalize_serve_oauth_provider,
+from fast_agent.mcp.server.common import (
+    TransportMode,
+    get_fast_agent_version,
+    get_oauth_config,
+    normalize_serve_oauth_provider,
 )
 from fast_agent.mcp.tool_progress import MCPToolProgressManager
 from fast_agent.types import AgentAuth, AgentRequest
@@ -39,7 +40,6 @@ if TYPE_CHECKING:
     from fast_agent.config import Settings
     from fast_agent.core.agent_instance_factory import AgentInstanceFactory
     from fast_agent.core.harness_app import HarnessAppSession
-    from fast_agent.mcp.server.agent_server import TransportMode
     from fast_agent.mcp.server.instance_lease_pool import InstanceScopeValue
     from fast_agent.tools.session_environment import ShellExecutor
 
@@ -53,6 +53,7 @@ class HarnessMCPAppServerOptions:
     tool_name: str = "send"
     tool_description: str | None = None
     default_agent: str | None = None
+    stateless_http: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +64,7 @@ class HarnessMCPAppRuntimeOptions:
     server_description: str | None = None
     tool_description: str | None = None
     default_agent: str | None = None
-    transport: "TransportMode" = "http"
+    transport: TransportMode = "http"
     host: str = "127.0.0.1"
     port: int = 8000
     instance_scope: InstanceScopeValue = "shared"
@@ -89,14 +90,14 @@ class HarnessMCPAppServer:
         self.mcp_server = FastMCP(
             name=options.server_name,
             instructions=self._instructions(),
-            version=_get_fast_agent_version(),
+            version=get_fast_agent_version(),
             auth=self._auth_provider(),
         )
         self._register_routes()
         self._register_tools()
 
     def _auth_provider(self) -> RemoteAuthProvider | None:
-        oauth_provider, oauth_scopes, resource_url = _get_oauth_config()
+        oauth_provider, oauth_scopes, resource_url = get_oauth_config()
         if oauth_provider != "huggingface":
             return None
 
@@ -121,7 +122,7 @@ class HarnessMCPAppServer:
             del request
             from starlette.responses import PlainTextResponse
 
-            version = _get_fast_agent_version() or "unknown"
+            version = get_fast_agent_version() or "unknown"
             return PlainTextResponse(
                 f"fast-agent harness mcp server (v{version}) - see https://fast-agent.ai for more information."
             )
@@ -209,14 +210,14 @@ class HarnessMCPAppServer:
         return f"{description} Use `{self._options.tool_name}` to send messages."
 
     def _http_middleware(self) -> list[Middleware] | None:
-        oauth_provider = _normalize_serve_oauth_provider(os.environ.get("FAST_AGENT_SERVE_OAUTH"))
+        oauth_provider = normalize_serve_oauth_provider(os.environ.get("FAST_AGENT_SERVE_OAUTH"))
         if oauth_provider != "huggingface":
             return None
         return [Middleware(cast("Any", HFAuthHeaderMiddleware))]
 
     async def run_async(
         self,
-        transport: "TransportMode" = "http",
+        transport: TransportMode = "http",
         host: str = "127.0.0.1",
         port: int = 8000,
     ) -> None:
@@ -226,6 +227,7 @@ class HarnessMCPAppServer:
                 host=host,
                 port=port,
                 middleware=self._http_middleware(),
+                stateless_http=self._options.stateless_http,
             )
             return
         if transport == "stdio":
@@ -245,7 +247,7 @@ class RequestScopedHarnessApp:
     async def open(
         self,
         request: AppOpenRequest | None = None,
-    ) -> "AsyncIterator[HarnessAppSession]":
+    ) -> AsyncIterator[HarnessAppSession]:
         resolved = request or AppOpenRequest()
         request_session_id = f"request-{uuid4().hex}"
         transient_request = AppOpenRequest(
@@ -262,9 +264,9 @@ class RequestScopedHarnessApp:
 
 def create_harness_mcp_app_runtime(
     *,
-    instance_factory: "AgentInstanceFactory",
-    shell_executor: "ShellExecutor",
-    settings: "Settings | None",
+    instance_factory: AgentInstanceFactory,
+    shell_executor: ShellExecutor,
+    settings: Settings | None,
     options: HarnessMCPAppRuntimeOptions,
 ) -> HarnessMCPAppRuntime:
     """Create the default harness MCP app runtime without starting transport."""
@@ -292,6 +294,7 @@ def create_harness_mcp_app_runtime(
             server_description=options.server_description,
             tool_description=options.tool_description,
             default_agent=options.default_agent,
+            stateless_http=options.instance_scope == "request",
         ),
     )
     return HarnessMCPAppRuntime(server=server, sessions=sessions)
@@ -299,9 +302,9 @@ def create_harness_mcp_app_runtime(
 
 async def run_harness_mcp_app_server(
     *,
-    instance_factory: "AgentInstanceFactory",
-    shell_executor: "ShellExecutor",
-    settings: "Settings | None",
+    instance_factory: AgentInstanceFactory,
+    shell_executor: ShellExecutor,
+    settings: Settings | None,
     options: HarnessMCPAppRuntimeOptions,
 ) -> None:
     """Run the default harness MCP app server and close sessions on exit."""

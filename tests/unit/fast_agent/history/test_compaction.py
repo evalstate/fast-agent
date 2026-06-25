@@ -1,19 +1,26 @@
 """Unit tests for conversation history compaction."""
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp.types import (
+    CallToolRequest,
+    CallToolRequestParams,
+    CallToolResult,
+    ImageContent,
+    TextContent,
+)
 
 from fast_agent.config import CompactionSettings, Settings, get_settings
 from fast_agent.context import Context
 from fast_agent.history.compaction import (
     DEFAULT_COMPACTION_PROMPT,
+    FAST_AGENT_COMPACTION_CHANNEL,
     CompactionSkipped,
     build_summary_message,
     compact_conversation,
-    compaction_metadata,
     estimate_tokens,
     is_compaction_message,
     persist_compacted_session,
@@ -169,8 +176,10 @@ class TestSummaryMessage:
         assert is_compaction_message(message)
         assert "the summary" in message.first_text()
 
-        metadata = compaction_metadata(message)
-        assert metadata is not None
+        assert message.channels is not None
+        blocks = message.channels[FAST_AGENT_COMPACTION_CHANNEL]
+        assert isinstance(blocks[0], TextContent)
+        metadata = json.loads(blocks[0].text)
         assert metadata["messages_compacted"] == 10
         assert metadata["prompt"] == "the prompt"
         assert metadata["instructions"] == "focus"
@@ -178,7 +187,6 @@ class TestSummaryMessage:
 
     def test_regular_messages_are_not_compaction(self):
         assert not is_compaction_message(_user("hello"))
-        assert compaction_metadata(_user("hello")) is None
 
     def test_survives_serialization_round_trip(self):
         message = build_summary_message(
@@ -272,6 +280,14 @@ class TestEstimateTokens:
         with_tools = estimate_tokens(_tool_turn("hello there"))
         assert with_tools > plain > 0
 
+    def test_counts_non_text_content_and_channels(self):
+        plain = estimate_tokens([_user("hello")])
+        msg = _user("hello")
+        msg.content.append(ImageContent(type="image", data="x" * 20_000, mimeType="image/png"))
+        msg.channels = {"diagnostics": [TextContent(type="text", text="y" * 20_000)]}
+
+        assert estimate_tokens([msg]) > plain + 5_000
+
 
 class _FakeLLM:
     def __init__(self, summary: str = "SUMMARY OF WORK") -> None:
@@ -348,6 +364,23 @@ class TestCompactConversation:
         final = request[-1].first_text()
         assert DEFAULT_COMPACTION_PROMPT in final
         assert "focus on X" in final
+
+    async def test_reduces_retained_tail_when_tail_exceeds_budget(self):
+        huge_tail = _user("latest huge artifact")
+        huge_tail.content.append(
+            ImageContent(type="image", data="x" * 300_000, mimeType="image/png")
+        )
+        history = _turn("one", "1") + _turn("two", "2") + [huge_tail, _assistant("after huge")]
+        agent = _FakeAgent(history, summary="summary including huge artifact")
+        agent.usage_accumulator.set_context_window_size(20_000)
+        settings = CompactionSettings(keep_turns=2, threshold=0.85)
+
+        await compact_conversation(agent, settings=settings)
+
+        assert len(agent.message_history) == 1
+        assert is_compaction_message(agent.message_history[0])
+        request = agent.llm.requests[0]
+        assert any(message.first_text() == "latest huge artifact" for message in request)
 
     async def test_empty_summary_leaves_history_unchanged(self):
         from fast_agent.history.compaction import CompactionError

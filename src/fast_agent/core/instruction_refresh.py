@@ -88,9 +88,6 @@ class McpInstructionCapable(InstructionCapable, Protocol):
     def set_instruction_context(self, context: dict[str, str]) -> None: ...
 
     @property
-    def has_filesystem_runtime(self) -> bool: ...
-
-    @property
     def skill_read_tool_name(self) -> str: ...
 
 

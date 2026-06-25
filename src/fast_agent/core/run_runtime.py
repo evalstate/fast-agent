@@ -374,29 +374,6 @@ class FastAgentRunMixin:
             if original_args:
                 self.args = original_args
 
-    async def run_with_mcp_server(
-        self,
-        transport: str = "http",
-        host: str = "127.0.0.1",
-        port: int = 8000,
-        server_name: str | None = None,
-        server_description: str | None = None,
-        tool_description: str | None = None,
-        instance_scope: str | None = None,
-        tool_name_template: str | None = None,
-    ) -> None:
-        """Run the application and expose agents through an MCP server."""
-        await self.start_server(
-            transport=transport,
-            host=host,
-            port=port,
-            server_name=server_name,
-            server_description=server_description,
-            tool_description=tool_description,
-            tool_name_template=tool_name_template,
-            instance_scope=instance_scope,
-        )
-
     async def main(self) -> bool:
         """Return True when server mode was requested for this app."""
         return bool(getattr(getattr(self, "args", None), "server", False))

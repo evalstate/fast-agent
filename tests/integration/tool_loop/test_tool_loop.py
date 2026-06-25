@@ -8,10 +8,10 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
-from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.session import SessionManager, reset_session_manager, set_session_manager
@@ -253,7 +253,10 @@ async def test_resume_preserves_completed_tool_result_after_followup_llm_failure
         resumed_agent = ToolAgent(AgentConfig("tool-loop-resume"), [side_effect_tool])
         resumed_agent._llm = resumed_llm
 
-        resumed = await manager.resume_session_async(resumed_agent)
+        resumed = await manager.resume_session_agents_async(
+            {resumed_agent.name: resumed_agent},
+            fallback_agent_name=resumed_agent.name,
+        )
         assert resumed is not None
 
         result = await resumed_agent.generate("after resume")

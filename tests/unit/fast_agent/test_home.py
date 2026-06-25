@@ -78,8 +78,6 @@ def test_discovers_preferred_config_in_home(tmp_path: Path) -> None:
     assert result.home == home
     assert result.config_path == config.resolve()
     assert result.secrets_path == secrets.resolve()
-    assert result.config_source == "home"
-    assert result.secrets_source == "same_dir"
 
 
 def test_discovers_preferred_config_in_cwd_without_home(tmp_path: Path) -> None:
@@ -88,7 +86,6 @@ def test_discovers_preferred_config_in_cwd_without_home(tmp_path: Path) -> None:
     result = discover_config_files(cwd=tmp_path, home=None)
 
     assert result.config_path == config.resolve()
-    assert result.config_source == "cwd"
 
 
 def test_discovers_legacy_and_transitional_aliases(tmp_path: Path) -> None:
@@ -166,8 +163,6 @@ def test_explicit_config_path_is_exact_and_uses_same_directory_secrets(
 
     assert result.config_path == config.resolve()
     assert result.secrets_path == secrets.resolve()
-    assert result.config_source == "explicit"
-    assert result.secrets_source == "same_dir"
 
 
 def test_config_selected_secrets_come_only_from_config_directory(tmp_path: Path) -> None:
@@ -198,9 +193,7 @@ def test_secrets_only_searches_home_then_cwd(tmp_path: Path) -> None:
 
     assert home_result.config_path is None
     assert home_result.secrets_path == home_secrets.resolve()
-    assert home_result.secrets_source == "home"
     assert cwd_result.secrets_path == (tmp_path / "fast-agent.secrets.yaml").resolve()
-    assert cwd_result.secrets_source == "cwd"
 
 
 def test_home_and_cwd_same_directory_is_searched_once(tmp_path: Path) -> None:
@@ -210,7 +203,6 @@ def test_home_and_cwd_same_directory_is_searched_once(tmp_path: Path) -> None:
     result = discover_config_files(cwd=tmp_path, home=home)
 
     assert result.config_path == config.resolve()
-    assert result.config_source == "home"
 
 
 def test_child_environment_exports_runtime_home_and_legacy_alias(tmp_path: Path) -> None:

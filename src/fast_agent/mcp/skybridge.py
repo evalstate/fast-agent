@@ -184,15 +184,3 @@ class SkybridgeServerConfig(BaseModel):
     def enabled(self) -> bool:
         """Return True when at least one resource advertises a supported app MIME type."""
         return any(resource.is_valid_app_resource for resource in self.ui_resources)
-
-    @property
-    def has_mcp_apps(self) -> bool:
-        return any(resource.is_mcp_app for resource in self.ui_resources) or any(
-            tool.kind is AppIntegrationKind.MCP_APP for tool in self.tools
-        )
-
-    @property
-    def has_skybridge(self) -> bool:
-        return any(resource.is_skybridge for resource in self.ui_resources) or any(
-            tool.kind is AppIntegrationKind.SKYBRIDGE for tool in self.tools
-        )

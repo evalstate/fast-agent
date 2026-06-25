@@ -19,8 +19,6 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES, normalize_mime_type
 
 if TYPE_CHECKING:
-    # Import behind TYPE_CHECKING to avoid import cycles at runtime
-    from fast_agent.interfaces import FastAgentLLMProtocol
     from fast_agent.llm.resolved_model import ResolvedModelSpec
 
 
@@ -92,15 +90,6 @@ class ModelInfo:
     def tdv_flags(self) -> tuple[bool, bool, bool]:
         """Convenience tuple: (text, document, vision)."""
         return (self.supports_text, self._supports_document_indicator(), self.supports_vision)
-
-    @classmethod
-    def from_llm(cls, llm: "FastAgentLLMProtocol") -> "ModelInfo" | None:
-        """Build ModelInfo from an LLM instance.
-
-        Delegates to ``llm.model_info`` so that provider-level overrides
-        for explicit extended-context requests are reflected automatically.
-        """
-        return llm.model_info
 
     @classmethod
     def from_resolved_model(

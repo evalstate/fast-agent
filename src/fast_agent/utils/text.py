@@ -35,11 +35,6 @@ def starts_with_casefold(value: str, prefix: str) -> bool:
     return value.casefold().startswith(prefix.casefold())
 
 
-def starts_with_any_casefold(value: str, prefixes: Sequence[str]) -> bool:
-    folded_value = value.casefold()
-    return any(folded_value.startswith(prefix.casefold()) for prefix in prefixes)
-
-
 def format_english_list(items: Sequence[str]) -> str:
     if not items:
         return ""

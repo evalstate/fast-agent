@@ -17,7 +17,6 @@ from mcp import ClientSession
 from fast_agent.config import (
     MCPServerSettings,
     Settings,
-    get_settings,
 )
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.interfaces import ClientSessionFactory
@@ -50,31 +49,9 @@ class ServerRegistry:
             config (Settings): The Settings object containing the server configurations.
             config_path (str): Path to the YAML configuration file.
         """
-        self._init_results: dict[str, "InitializeResult"] = {}
+        self._init_results: dict[str, InitializeResult] = {}
         self._config = config
         self.registry = config.mcp.servers if config is not None and config.mcp is not None else {}
-
-    ## TODO-- leaving this here to support more file formats to add servers
-    def load_registry_from_file(
-        self, config_path: str | None = None
-    ) -> dict[str, MCPServerSettings]:
-        """
-        Load the YAML configuration file and validate it.
-
-        Returns:
-            dict[str, MCPServerSettings]: A dictionary of server configurations.
-
-        Raises:
-            ValueError: If the configuration is invalid.
-        """
-        servers = {}
-
-        settings = get_settings(config_path)
-
-        if settings.mcp is not None:
-            return settings.mcp.servers
-
-        return servers
 
     def get_server_config(self, server_name: str) -> MCPServerSettings | None:
         """
@@ -162,7 +139,7 @@ class ServerRegistry:
                     )
 
                 async with session:
-                    result: "InitializeResult" = await session.initialize()
+                    result: InitializeResult = await session.initialize()
                     self._init_results[server_name] = result
                     yield session
 

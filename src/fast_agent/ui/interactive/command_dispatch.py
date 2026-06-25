@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeGuard, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeGuard, cast
 
 from rich import print as rich_print
 from rich.text import Text
@@ -180,19 +180,6 @@ _CommandRouteKind = Literal[
     "mcp_server",
     "value",
 ]
-
-
-class _ValueCommandPayload(Protocol):
-    value: str | None
-
-
-class _ArgumentCommandPayload(Protocol):
-    argument: str | None
-
-
-class _McpServerCommandPayload(Protocol):
-    server_name: str | None
-    error: str | None
 
 
 @dataclass(frozen=True)
@@ -377,7 +364,7 @@ def _command_route_handler(
         return partial(route.handler, agent_name=agent)
 
     if route.kind == "argument":
-        argument_payload = cast("_ArgumentCommandPayload", payload)
+        argument_payload = cast("Any", payload)
         return partial(
             route.handler,
             agent_name=agent,
@@ -412,7 +399,7 @@ def _command_route_handler(
         )
 
     if route.kind == "mcp_server":
-        server_payload = cast("_McpServerCommandPayload", payload)
+        server_payload = cast("Any", payload)
         if message := _mcp_server_command_error(server_payload.server_name, server_payload.error):
             _print_styled(message, "red")
             return None
@@ -423,7 +410,7 @@ def _command_route_handler(
             server_name=cast("str", server_payload.server_name),
         )
 
-    value_payload = cast("_ValueCommandPayload", payload)
+    value_payload = cast("Any", payload)
     return partial(route.handler, agent_name=agent, value=value_payload.value)
 
 

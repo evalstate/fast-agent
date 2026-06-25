@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, cast
 
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.hooks.lifecycle_hook_types import VALID_LIFECYCLE_HOOK_TYPES, LifecycleHookType
@@ -14,13 +14,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from fast_agent.hooks.lifecycle_hook_context import AgentLifecycleContext
-
-
-class LifecycleHookFunction(Protocol):
-    __name__: str
-
-    def __call__(self, ctx: AgentLifecycleContext) -> Awaitable[None]: ...
-
 
 @dataclass(frozen=True)
 class AgentLifecycleHooks:

@@ -107,15 +107,3 @@ async def ask(
     """
     return await form(schema, message)
 
-
-def ask_sync(
-    schema: FormSchema | ElicitRequestedSchema | dict[str, Any],
-    message: str = "Please provide the requested information",
-) -> dict[str, Any] | None:
-    """
-    Synchronous version of ask().
-
-    Example:
-        result = ask_sync(schema, "What's your info?")
-    """
-    return form_sync(schema, message)

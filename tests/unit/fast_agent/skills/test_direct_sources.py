@@ -11,12 +11,13 @@ import pytest
 from fast_agent.skills.direct_sources import (
     DirectSkillSourceError,
     is_direct_skill_source,
-    resolve_direct_skill_source_sync,
+    resolve_direct_skill_source,
 )
 from fast_agent.skills.service import install_direct_skill_sync
 
 
-def test_direct_local_source_uses_manifest_name_and_copies_assets(tmp_path):
+@pytest.mark.asyncio
+async def test_direct_local_source_uses_manifest_name_and_copies_assets(tmp_path):
     source_dir = tmp_path / "repo-name"
     source_dir.mkdir()
     source_dir.joinpath("SKILL.md").write_text(
@@ -26,7 +27,7 @@ def test_direct_local_source_uses_manifest_name_and_copies_assets(tmp_path):
     source_dir.joinpath("references").mkdir()
     source_dir.joinpath("references", "notes.md").write_text("notes", encoding="utf-8")
 
-    direct = resolve_direct_skill_source_sync(source_dir.as_posix())
+    direct = await resolve_direct_skill_source(source_dir.as_posix())
 
     assert direct.skill.name == "canonical-name"
     assert direct.skill.description == "Test skill"
@@ -34,14 +35,15 @@ def test_direct_local_source_uses_manifest_name_and_copies_assets(tmp_path):
     assert direct.skill.repo_path == "."
 
 
-def test_direct_local_source_accepts_mixed_case_manifest_file(tmp_path):
+@pytest.mark.asyncio
+async def test_direct_local_source_accepts_mixed_case_manifest_file(tmp_path):
     manifest_path = tmp_path / "Skill.MD"
     manifest_path.write_text(
         "---\nname: canonical-name\ndescription: Test skill\n---\n\nBody.\n",
         encoding="utf-8",
     )
 
-    direct = resolve_direct_skill_source_sync(manifest_path.as_posix())
+    direct = await resolve_direct_skill_source(manifest_path.as_posix())
 
     assert direct.skill.name == "canonical-name"
     assert direct.skill.repo_path == "."
@@ -57,7 +59,8 @@ def test_direct_local_source_accepts_mixed_case_manifest_file(tmp_path):
         "a" * 65,
     ],
 )
-def test_direct_source_rejects_skill_names_outside_agent_skills_spec(tmp_path, name):
+@pytest.mark.asyncio
+async def test_direct_source_rejects_skill_names_outside_agent_skills_spec(tmp_path, name):
     source_dir = tmp_path / "skill"
     source_dir.mkdir()
     source_dir.joinpath("SKILL.md").write_text(
@@ -66,19 +69,21 @@ def test_direct_source_rejects_skill_names_outside_agent_skills_spec(tmp_path, n
     )
 
     with pytest.raises(DirectSkillSourceError, match="Does not meet Agent Skills specification"):
-        resolve_direct_skill_source_sync(source_dir.as_posix())
+        await resolve_direct_skill_source(source_dir.as_posix())
 
 
-def test_direct_source_rejects_missing_frontmatter(tmp_path):
+@pytest.mark.asyncio
+async def test_direct_source_rejects_missing_frontmatter(tmp_path):
     source_dir = tmp_path / "skill"
     source_dir.mkdir()
     source_dir.joinpath("SKILL.md").write_text("No frontmatter.\n", encoding="utf-8")
 
     with pytest.raises(DirectSkillSourceError, match="Invalid SKILL.md frontmatter"):
-        resolve_direct_skill_source_sync(source_dir.as_posix())
+        await resolve_direct_skill_source(source_dir.as_posix())
 
 
-def test_direct_source_wraps_git_root_mismatch(
+@pytest.mark.asyncio
+async def test_direct_source_wraps_git_root_mismatch(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -97,7 +102,7 @@ def test_direct_source_wraps_git_root_mismatch(
     )
 
     with pytest.raises(DirectSkillSourceError, match="inside its detected git root"):
-        resolve_direct_skill_source_sync(source_dir.as_posix())
+        await resolve_direct_skill_source(source_dir.as_posix())
 
 
 def test_github_skill_url_is_direct_source():
@@ -124,7 +129,8 @@ def test_non_skill_github_file_url_is_not_direct_source(url: str):
     assert not is_direct_skill_source(url)
 
 
-def test_github_skill_url_with_slash_branch_resolves_direct_source(monkeypatch):
+@pytest.mark.asyncio
+async def test_github_skill_url_with_slash_branch_resolves_direct_source(monkeypatch):
     skill_md = "---\nname: example\ndescription: Demo\n---\n\nBody.\n"
     requested_urls: list[str] = []
 
@@ -150,7 +156,7 @@ def test_github_skill_url_with_slash_branch_resolves_direct_source(monkeypatch):
 
     monkeypatch.setattr("fast_agent.skills.direct_sources.httpx.AsyncClient", _AsyncClient)
 
-    direct = resolve_direct_skill_source_sync(
+    direct = await resolve_direct_skill_source(
         "https://github.com/org/repo/blob/feature/demo/skills/example/SKILL.md"
     )
 

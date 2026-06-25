@@ -91,7 +91,6 @@ class Colours:
 
     # Channel arrow states
     ARROW_ERROR = "bright_red"
-    ARROW_DISABLED = "bright_yellow"  # For explicitly disabled/off
     ARROW_METHOD_NOT_ALLOWED = "cyan"  # For 405 method not allowed (notification color)
     ARROW_OFF = "black dim"
     ARROW_IDLE = "bright_cyan"  # Connected but no activity
@@ -100,9 +99,7 @@ class Colours:
     # Capability token states
     TOKEN_ERROR = "bright_red"
     TOKEN_WARNING = "bright_cyan"
-    TOKEN_CAUTION = "bright_yellow"
     TOKEN_DISABLED = "dim"
-    TOKEN_HIGHLIGHTED = "bright_yellow"
     TOKEN_ENABLED = "bright_green"
 
     # MCP capability token states (reverse for visibility across themes)
@@ -113,7 +110,6 @@ class Colours:
     # Text elements
     TEXT_DIM = "dim"
     TEXT_DEFAULT = "default"  # Use terminal's default text color
-    TEXT_BRIGHT = "bright_white"
     TEXT_ERROR = "bright_red"
     TEXT_WARNING = "bright_yellow"
     TEXT_SUCCESS = "bright_green"
@@ -496,39 +492,6 @@ def _get_ping_attempts(status: ServerStatus) -> int:
     ok = status.ping_ok_count or 0
     fail = status.ping_fail_count or 0
     return ok + fail
-
-
-def _format_label(label: str, width: int = 10) -> str:
-    return f"{label:<{width}}" if len(label) < width else label
-
-
-def _build_inline_timeline(
-    buckets: Iterable[str],
-    *,
-    bucket_seconds: int | None = None,
-    bucket_count: int | None = None,
-) -> str:
-    """Build a compact timeline string for inline display."""
-    bucket_list = list(buckets)
-    count = bucket_count or len(bucket_list)
-    if count <= 0:
-        count = len(bucket_list) or 1
-
-    seconds = bucket_seconds or 30
-    total_window = seconds * count
-    timeline = f"  [dim]{_format_timeline_label(total_window)}[/dim] "
-
-    if len(bucket_list) < count:
-        bucket_list.extend(["none"] * (count - len(bucket_list)))
-    elif len(bucket_list) > count:
-        bucket_list = bucket_list[-count:]
-
-    for state in bucket_list:
-        color = TIMELINE_COLORS.get(state, Colours.NONE)
-        symbol = _timeline_symbol_for_state(state)
-        timeline += f"[bold {color}]{symbol}[/bold {color}]"
-    timeline += " [dim]now[/dim]"
-    return timeline
 
 
 def _timeline_symbol_for_state(state: str, *, is_stdio: bool = False) -> str:

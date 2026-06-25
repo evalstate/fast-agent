@@ -98,8 +98,6 @@ class SessionRuntimeHost(Protocol):
 
     def _resolve_primary_agent_name(self, instance: AgentInstance) -> str | None: ...
 
-    def _calculate_terminal_output_limit(self, agent: Any) -> int: ...
-
     def _create_slash_handler(
         self,
         session_state: ACPSessionState,

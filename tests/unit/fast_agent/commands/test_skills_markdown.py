@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 from fast_agent.commands.renderers.skills_markdown import (
     render_marketplace_skills,
     render_skills_by_directory,
-    render_skills_registry_overview,
     render_skills_remove_list,
 )
 from fast_agent.skills.models import InstalledSkillSource, MarketplaceSkill
@@ -102,16 +101,10 @@ def test_skills_markdown_renderers_escape_headings(tmp_path: Path) -> None:
         cwd=tmp_path,
     )
     marketplace_rendered = render_marketplace_skills([], heading="market_[draft]*")
-    registry_rendered = render_skills_registry_overview(
-        heading="registry_[draft]*",
-        current_registry="registry",
-        configured_urls=[],
-    )
 
     assert directory_rendered.startswith("# skills\\_\\[draft\\]\\*\n")
     assert remove_rendered.startswith("# remove\\_\\[draft\\]\\*\n")
     assert marketplace_rendered.startswith("# market\\_\\[draft\\]\\*\n")
-    assert registry_rendered.startswith("# registry\\_\\[draft\\]\\*\n")
 
 
 def test_render_skills_by_directory_code_spans_directory_headings(tmp_path: Path) -> None:
@@ -267,27 +260,3 @@ def test_render_marketplace_skills_truncates_bundle_description_blockquote() -> 
     assert rendered.count("> ") == 5
     assert "> …" in rendered
 
-
-def test_render_skills_registry_overview_code_spans_registry_values() -> None:
-    rendered = render_skills_registry_overview(
-        heading="skills registry",
-        current_registry="repo`name",
-        configured_urls=["local_[repo]", "https://example.test/registry"],
-    )
-
-    assert "Registry: `` repo`name ``" in rendered
-    assert "- [1] `local_[repo]`" in rendered
-    assert "- [2] `https://example.test/registry`" in rendered
-
-
-def test_render_skills_registry_overview_strips_and_skips_blank_registry_values() -> None:
-    rendered = render_skills_registry_overview(
-        heading="skills registry",
-        current_registry=" repo ",
-        configured_urls=[" local ", "   ", "\tremote\n"],
-    )
-
-    assert "Registry: `repo`" in rendered
-    assert "- [1] `local`" in rendered
-    assert "- [2] `remote`" in rendered
-    assert "`   `" not in rendered

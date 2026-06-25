@@ -108,10 +108,6 @@ def anthropic_vertex_intent(config: Any) -> bool:
     )
 
 
-def anthropic_vertex_enabled(config: Any) -> bool:
-    return anthropic_vertex_config(config).enabled
-
-
 def detect_google_adc() -> GoogleAdcStatus:
     try:
         import google.auth

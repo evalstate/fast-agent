@@ -45,10 +45,6 @@ class SlashRuntimeHost(Protocol):
         await_refresh_session_state: bool,
     ) -> AgentInstance: ...
 
-    async def _refresh_session_state(
-        self, session_state: ACPSessionState, instance: AgentInstance
-    ) -> None: ...
-
     async def _hydrate_session_state_from_persisted_session(
         self,
         session_state: ACPSessionState,

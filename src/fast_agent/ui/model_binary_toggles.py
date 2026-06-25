@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from fast_agent.commands.model_capabilities import (
     resolve_web_fetch_enabled,
@@ -20,12 +20,8 @@ if TYPE_CHECKING:
 
     from fast_agent.interfaces import FastAgentLLMProtocol
 
-ModelBinaryToggleId = Literal["web_search", "web_fetch"]
-
-
 @dataclass(frozen=True, slots=True)
 class ModelBinaryToggle:
-    toggle_id: ModelBinaryToggleId
     shortcut_key: str
     label: str
     glyph: str
@@ -35,7 +31,6 @@ class ModelBinaryToggle:
 
 
 WEB_SEARCH_TOGGLE = ModelBinaryToggle(
-    toggle_id="web_search",
     shortcut_key="F8",
     label="Web search",
     glyph="⊕",
@@ -44,7 +39,6 @@ WEB_SEARCH_TOGGLE = ModelBinaryToggle(
     set_enabled=set_web_search_enabled,
 )
 WEB_FETCH_TOGGLE = ModelBinaryToggle(
-    toggle_id="web_fetch",
     shortcut_key="F9",
     label="Web fetch",
     glyph=" ⇣",

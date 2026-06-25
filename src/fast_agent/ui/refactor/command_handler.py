@@ -4,7 +4,7 @@ shared command handlers. This is an incremental migration step; more
 commands will be moved here in later commits.
 """
 
-from typing import Any, cast
+from typing import cast
 
 from fast_agent.commands.context import AgentProvider, CommandContext
 from fast_agent.commands.handlers import prompts as prompt_handlers
@@ -22,9 +22,6 @@ from fast_agent.ui.command_payloads import (
 
 class CommandHandler:
     """Minimal CommandHandler that delegates a few read-only commands."""
-
-    def __init__(self, agent_types: dict[str, Any] | None = None) -> None:
-        self._agent_types = agent_types
 
     async def handle(self, payload: CommandPayload, agent: str, prompt_provider, display) -> None:
         """Handle a parsed CommandPayload for read-only commands.

@@ -5,10 +5,10 @@ from httpx import Request
 from openai import APIError
 
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
-from fast_agent.core.prompt import Prompt
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 
 

@@ -94,7 +94,7 @@ async def test_acp_filesystem_denied_write_has_no_filesystem_or_diff_side_effect
             tool_use_id: str | None = None,
         ) -> ToolPermissionResult:
             del tool_name, server_name, arguments, tool_use_id
-            return ToolPermissionResult.deny("no")
+            return ToolPermissionResult(allowed=False, error_message="no")
 
     class _ToolHandler:
         def __init__(self) -> None:

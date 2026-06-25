@@ -531,7 +531,7 @@ async def test_refresh_result_rehydrates_only_updated_agents_on_partial_refresh(
         )
 
     monkeypatch.setattr(
-        "fast_agent.core.fastagent.hydrate_current_session_for_refresh",
+        "fast_agent.core.managed_runtime.hydrate_current_session_for_refresh",
         fake_hydrate_current_session_for_refresh,
     )
 

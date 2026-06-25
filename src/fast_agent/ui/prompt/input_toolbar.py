@@ -346,15 +346,6 @@ def _resolve_toolbar_mode(multiline_mode: bool) -> ToolbarMode:
     return ToolbarMode(style="ansigreen", text="NRML")
 
 
-def _resolve_toolbar_agent_state(
-    agent_name: str,
-    agent_provider: "AgentApp | None",
-) -> ToolbarAgentState:
-    agent = _resolve_current_agent(agent_provider, agent_name)
-    llm = _resolve_agent_llm(agent) if agent is not None else None
-    return _build_toolbar_agent_state(agent, llm=llm)
-
-
 def _resolve_toolbar_agent_state_cached(
     agent_name: str,
     agent_provider: "AgentApp | None",

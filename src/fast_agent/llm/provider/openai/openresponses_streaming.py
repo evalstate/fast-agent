@@ -56,9 +56,6 @@ else:
 _DONE_RESULT_TOOL_TYPES = {"mcp_call"}
 
 
-STREAM_CAPTURE_DISABLED_MESSAGE = "Stream capture disabled"
-
-
 @dataclass(slots=True)
 class _OpenResponsesStreamState:
     estimated_tokens: int = 0

@@ -1259,7 +1259,7 @@ async def test_reload_agent_cards_rehydrates_persisted_session_state(
     monkeypatch.setattr(server, "_get_session_manager", lambda *, cwd=None: _Manager())
     monkeypatch.setattr("fast_agent.acp.server.session_store.SessionHydrator", _Hydrator)
 
-    changed = await server._reload_agent_cards_for_session("s-1")
+    changed = await server._slash_runtime.reload_agent_cards_for_session("s-1")
 
     assert changed is True
     assert session_state.instance is refreshed_instance
