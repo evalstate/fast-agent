@@ -47,3 +47,33 @@ async def test_save_trajectory_record_writes_replay_fields(tmp_path) -> None:
     assert '"tool_arguments"' in text
     assert '"effective_tool_arguments"' in text
     assert '"messages"' in text
+
+
+@pytest.mark.asyncio
+async def test_trajectory_only_session_is_not_deleted_as_empty(tmp_path) -> None:
+    now = datetime.now(UTC)
+    session = Session(
+        SessionInfo(name="session-1", created_at=now, last_activity=now),
+        tmp_path,
+    )
+    record = TrajectoryRecord(
+        trajectory_id="traj_1",
+        session_id=session.info.name,
+        parent_agent_name="parent",
+        agent_name="child[1]",
+        template_agent_name="child",
+        tool_name="agent__child",
+        parent_tool_call_id="call_1",
+        use_history=False,
+        started_at="2026-06-20T12:00:00Z",
+        completed_at="2026-06-20T12:00:01Z",
+        tool_input_schema=None,
+        tool_arguments={"query": "hello"},
+        effective_tool_arguments={"query": "hello"},
+        rendered_child_input="hello",
+        messages=[Prompt.user("hello"), Prompt.assistant("done")],
+    )
+    path = await save_trajectory_record(session, record)
+
+    assert session.delete_if_empty() is False
+    assert path.exists()

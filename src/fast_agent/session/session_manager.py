@@ -34,6 +34,7 @@ from fast_agent.session.snapshot import (
     session_info_from_snapshot,
     snapshot_from_session_info,
 )
+from fast_agent.session.trajectory import TRAJECTORIES_DIR
 from fast_agent.utils.async_utils import run_coroutine
 from fast_agent.utils.text import strip_to_none
 
@@ -454,6 +455,9 @@ class Session:
             return True
         history_map = self.info.metadata.get("last_history_by_agent")
         if isinstance(history_map, dict) and history_map:
+            return True
+        trajectory_dir = self.directory / TRAJECTORIES_DIR
+        if trajectory_dir.is_dir() and any(trajectory_dir.iterdir()):
             return True
         return any(self.directory.glob(f"{HISTORY_PREFIX}*{HISTORY_SUFFIX}"))
 
