@@ -116,6 +116,7 @@ class _GoogleToolBuffer:
     buffer: str = ""
     provider_call_id: str | None = None
     thought_signature: bytes | None = None
+    partial_args: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -446,6 +447,115 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         except Exception:
             return str(args)
 
+    @staticmethod
+    def _google_partial_arg_value(partial_arg: types.PartialArg) -> Any:
+        if partial_arg.bool_value is not None:
+            return partial_arg.bool_value
+        if partial_arg.number_value is not None:
+            return partial_arg.number_value
+        if partial_arg.string_value is not None:
+            return partial_arg.string_value
+        if partial_arg.null_value is not None:
+            return None
+        return None
+
+    @staticmethod
+    def _google_partial_arg_path(path: str | None) -> list[str | int]:
+        if not path:
+            return []
+
+        path = path.removeprefix("$").removeprefix(".")
+        tokens: list[str | int] = []
+        cursor = 0
+        while cursor < len(path):
+            if path[cursor] == ".":
+                cursor += 1
+                continue
+            if path[cursor] == "[":
+                end = path.find("]", cursor)
+                if end < 0:
+                    return []
+                index_text = path[cursor + 1 : end]
+                if not index_text.isdigit():
+                    return []
+                tokens.append(int(index_text))
+                cursor = end + 1
+                continue
+
+            end = cursor
+            while end < len(path) and path[end] not in ".[":
+                end += 1
+            tokens.append(path[cursor:end])
+            cursor = end
+        return tokens
+
+    @classmethod
+    def _assign_google_partial_arg(
+        cls,
+        root: dict[str, Any],
+        *,
+        path: str | None,
+        value: Any,
+        append: bool,
+    ) -> None:
+        tokens = cls._google_partial_arg_path(path)
+        if not tokens:
+            return
+
+        current: Any = root
+        for index, token in enumerate(tokens[:-1]):
+            next_token = tokens[index + 1]
+            if isinstance(token, int):
+                if not isinstance(current, list):
+                    return
+                while len(current) <= token:
+                    current.append({} if isinstance(next_token, str) else [])
+                current = current[token]
+                continue
+
+            if not isinstance(current, dict):
+                return
+            if token not in current:
+                current[token] = [] if isinstance(next_token, int) else {}
+            current = current[token]
+
+        leaf = tokens[-1]
+        if isinstance(leaf, int):
+            if not isinstance(current, list):
+                return
+            while len(current) <= leaf:
+                current.append(None)
+            if append and isinstance(current[leaf], str) and isinstance(value, str):
+                current[leaf] += value
+            else:
+                current[leaf] = value
+            return
+
+        if not isinstance(current, dict):
+            return
+        if append and isinstance(current.get(leaf), str) and isinstance(value, str):
+            current[leaf] += value
+        else:
+            current[leaf] = value
+
+    @classmethod
+    def _apply_google_partial_args(
+        cls,
+        tool_buffer: _GoogleToolBuffer,
+        partial_args: list[types.PartialArg] | None,
+    ) -> str:
+        for partial_arg in partial_args or []:
+            path = partial_arg.json_path
+            value = cls._google_partial_arg_value(partial_arg)
+            append = isinstance(value, str)
+            cls._assign_google_partial_arg(
+                tool_buffer.partial_args,
+                path=path,
+                value=value,
+                append=append,
+            )
+        return cls._serialize_google_tool_args(tool_buffer.partial_args)
+
     def _start_google_tool_stream(
         self,
         *,
@@ -679,8 +789,12 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if thought_signature is not None:
             tool_buffer.thought_signature = thought_signature
 
-        serialized_args = self._serialize_google_tool_args(
-            getattr(function_call, "args", None) or {}
+        raw_args = getattr(function_call, "args", None)
+        partial_args = getattr(function_call, "partial_args", None)
+        serialized_args = (
+            self._serialize_google_tool_args(raw_args or {})
+            if raw_args is not None
+            else self._apply_google_partial_args(tool_buffer, partial_args)
         )
         delta = self._google_tool_buffer_delta(tool_buffer.buffer, serialized_args)
         tool_buffer.buffer = serialized_args

@@ -11,7 +11,9 @@ from typing import Any, Protocol, runtime_checkable
 
 from fast_agent.core.logging.logger import get_logger
 
-STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
+STREAM_CAPTURE_ENABLED = bool(
+    os.environ.get("FAST_AGENT_LLM_TRACE") or os.environ.get("LLM_STREAM_DEBUG")
+)
 STREAM_CAPTURE_DIR = Path("stream-debug")
 
 

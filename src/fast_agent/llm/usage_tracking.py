@@ -12,8 +12,10 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from anthropic.types.beta import BetaUsage as AnthropicUsage
-    from google.genai.types import GenerateContentResponseUsageMetadata as GoogleUsage
+    from google.genai.types import GenerateContentResponseUsageMetadata, UsageMetadata
     from openai.types.completion_usage import CompletionUsage as OpenAIUsage
+
+    GoogleUsage = GenerateContentResponseUsageMetadata | UsageMetadata
 from pydantic import BaseModel, Field, PrivateAttr, computed_field, field_validator
 
 from fast_agent.core.logging.json_serializer import JsonValue, snapshot_json_value
@@ -73,6 +75,9 @@ class TurnUsage(BaseModel):
 
     # Tool call count for this turn
     tool_calls: int = Field(default=0, description="Number of tool calls made in this turn")
+
+    # Provider-observed service tier when returned in usage metadata.
+    service_tier: str | None = Field(default=None, description="Observed provider service tier")
 
     # JSON-safe raw usage telemetry snapshot captured at ingestion time.
     raw_usage: JsonValue = None
@@ -176,13 +181,20 @@ class TurnUsage(BaseModel):
     def from_google(cls, usage: GoogleUsage, model: str) -> "TurnUsage":
         # Extract token counts with proper null handling
         prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
-        candidates_tokens = getattr(usage, "candidates_token_count", 0) or 0
+        candidates_tokens = (
+            getattr(usage, "candidates_token_count", None)
+            or getattr(usage, "response_token_count", 0)
+            or 0
+        )
         total_tokens = getattr(usage, "total_token_count", 0) or 0
         cached_content_tokens = getattr(usage, "cached_content_token_count", 0) or 0
 
         # Extract additional Google-specific token types
         tool_use_tokens = getattr(usage, "tool_use_prompt_token_count", 0) or 0
         thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
+        service_tier = getattr(usage, "service_tier", None)
+        if service_tier is not None:
+            service_tier = str(getattr(service_tier, "value", service_tier))
 
         # Google cache tokens are read hits (75% discount on Gemini 2.5)
         cache_usage = CacheUsage(cache_hit_tokens=cached_content_tokens)
@@ -196,6 +208,7 @@ class TurnUsage(BaseModel):
             cache_usage=cache_usage,
             tool_use_tokens=tool_use_tokens,
             reasoning_tokens=thinking_tokens,
+            service_tier=service_tier,
             raw_usage=snapshot_json_value(usage),
         )
 

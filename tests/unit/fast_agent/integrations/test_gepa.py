@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from fast_agent.batch import BatchRunResult
+from fast_agent.batch import BatchRunner, BatchRunResult
 from fast_agent.integrations.gepa import (
     FastAgentBatchEvaluator,
     FastAgentGEPATrackioCallback,
@@ -288,8 +288,8 @@ def test_row_wise_batch_adapter_evaluates_minibatch_and_builds_reflection_rows(t
 
 
 def test_single_task_adapter_evaluates_batch_of_one_and_exposes_metrics(tmp_path):
-    class Runner:
-        async def run(self, **kwargs):
+    class Runner(BatchRunner):
+        async def run(self, **kwargs: Any) -> BatchRunResult:
             output_path = Path(kwargs["output_path"])
             output_path.write_text(
                 json.dumps({"ok": True, "result": "Once upon a moon."}) + "\n",
@@ -325,9 +325,9 @@ def test_single_task_adapter_evaluates_batch_of_one_and_exposes_metrics(tmp_path
         agent_card=tmp_path / "card.md",
         model="test-model",
         input_builder=lambda candidate, example=None: candidate["prompt"],
-        scorer=lambda output, candidate, evaluation, example=None: RowWiseScore(
+        scorer=lambda output_row, candidate, evaluation, example=None: RowWiseScore(
             score=0.75,
-            trajectory={"response": output["result"]},
+            trajectory={"response": output_row["result"]},
             objective_scores={"gepa_score": 0.75},
         ),
         run_dir=tmp_path / "runs",
@@ -354,8 +354,8 @@ def test_single_task_adapter_evaluates_batch_of_one_and_exposes_metrics(tmp_path
 def test_single_task_prompt_adapter_uses_default_worker(tmp_path):
     calls = []
 
-    class Runner:
-        async def run(self, **kwargs):
+    class Runner(BatchRunner):
+        async def run(self, **kwargs: Any) -> BatchRunResult:
             calls.append(kwargs)
             output_path = Path(kwargs["output_path"])
             output_path.write_text(json.dumps({"result": "ok"}) + "\n", encoding="utf-8")
@@ -370,7 +370,7 @@ def test_single_task_prompt_adapter_uses_default_worker(tmp_path):
 
     adapter = FastAgentSingleTaskAdapter.prompt(
         model="test-model",
-        scorer=lambda output, candidate, evaluation, example=None: 1.0,
+        scorer=lambda output_row, candidate, evaluation, example=None: 1.0,
         run_dir=tmp_path / "runs",
         batch_runner_factory=lambda env_dir, *, backend: Runner(),
     )
@@ -675,7 +675,10 @@ def test_trackio_callback_omits_trackio_global_step(monkeypatch):
         def pop_pending_gepa_eval_metrics(self):
             return {"fast_agent/eval/ttft_mean_seconds": 0.1}
 
-    class ReflectionLM:
+    class ReflectionLM(FastAgentReflectionLM):
+        def __init__(self) -> None:
+            pass
+
         def pop_pending_gepa_reflection_metrics(self):
             return [{"fast_agent/reflection/duration_seconds": 1.2}]
 

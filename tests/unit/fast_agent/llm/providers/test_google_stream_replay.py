@@ -281,3 +281,60 @@ async def test_google_stream_tool_call_uses_final_arguments_and_closes_stream() 
     assert parts[0].function_call.args == {"city": "Paris"}
     assert parts[0].function_call.id == "call_weather"
     assert parts[0].thought_signature == b"sig"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_google_stream_tool_call_reconstructs_partial_arguments() -> None:
+    harness = _GoogleReplayHarness()
+    stream = _SyntheticGoogleStream(
+        [
+            _google_chunk(
+                function_call={
+                    "id": "call_trip",
+                    "name": "plan_trip",
+                    "partial_args": [
+                        {
+                            "json_path": "$.destination",
+                            "string_value": "San ",
+                            "will_continue": True,
+                        },
+                    ],
+                    "will_continue": True,
+                },
+            ),
+            _google_chunk(
+                function_call={
+                    "id": "call_trip",
+                    "name": "plan_trip",
+                    "partial_args": [
+                        {"json_path": "$.destination", "string_value": "Francisco"},
+                        {"json_path": "$.days", "number_value": 3},
+                        {"json_path": "$.activities[0]", "string_value": "museums"},
+                    ],
+                },
+                finish_reason="STOP",
+            ),
+        ]
+    )
+
+    final_response = await harness._consume_google_stream(
+        stream,
+        model="gemini-2.0-flash",
+    )
+
+    assert stream.closed is True
+    assert final_response is not None
+    candidates = final_response.candidates or []
+    assert candidates
+    content = candidates[0].content
+    assert content is not None
+    parts = content.parts or []
+    assert len(parts) == 1
+    assert parts[0].function_call is not None
+    assert parts[0].function_call.name == "plan_trip"
+    assert parts[0].function_call.args == {
+        "destination": "San Francisco",
+        "days": 3,
+        "activities": ["museums"],
+    }
