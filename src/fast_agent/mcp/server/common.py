@@ -6,6 +6,9 @@ import os
 from importlib.metadata import version as get_version
 from typing import Literal
 
+from fastmcp.utilities.auth import parse_scopes
+
+from fast_agent.mcp.auth.providers.huggingface import DEFAULT_HUGGINGFACE_SCOPES
 from fast_agent.utils.text import strip_casefold
 
 TransportMode = Literal["http", "stdio"]
@@ -34,9 +37,14 @@ def normalize_serve_oauth_provider(provider: str | None) -> str | None:
 
 def get_oauth_config() -> tuple[str | None, list[str], str]:
     oauth_provider = normalize_serve_oauth_provider(os.environ.get("FAST_AGENT_SERVE_OAUTH"))
-    oauth_scopes_str = os.environ.get("FAST_AGENT_OAUTH_SCOPES", "")
-    oauth_scopes = [scope.strip() for scope in oauth_scopes_str.split(",") if scope.strip()] or [
-        "access"
-    ]
-    resource_url = os.environ.get("FAST_AGENT_OAUTH_RESOURCE_URL", "http://localhost:8000")
+    oauth_scopes_str = os.environ.get("FAST_AGENT_OAUTH_SCOPES") or os.environ.get(
+        "OAUTH_SCOPES",
+        "",
+    )
+    oauth_scopes = parse_scopes(oauth_scopes_str) or list(DEFAULT_HUGGINGFACE_SCOPES)
+    resource_url = os.environ.get("FAST_AGENT_OAUTH_RESOURCE_URL")
+    if resource_url is None and oauth_provider == "huggingface" and os.environ.get("SPACE_HOST"):
+        resource_url = f"https://{os.environ['SPACE_HOST']}"
+    if resource_url is None:
+        resource_url = "http://localhost:8000"
     return oauth_provider, oauth_scopes, resource_url

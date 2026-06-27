@@ -350,6 +350,30 @@ async def test_run_cli_flow_uses_harness_for_local_repl() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_cli_flow_prepare_runs_after_harness_startup() -> None:
+    request = _make_request(result_file=None, message=None)
+    fast = _DummyFastRuntime()
+    calls: list[str] = []
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_app, request, session_manager, harness_session
+        calls.append("flow")
+
+    def prepare() -> None:
+        calls.append(f"prepare:{fast.harness_calls}:{fast.run_calls}")
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow, prepare=prepare)
+
+    assert calls == ["prepare:1:0", "flow"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -383,6 +407,32 @@ async def test_run_cli_flow_uses_direct_run_for_resume_and_noenv(
     assert fast.harness_calls == 0
     assert fast.run_calls == 1
     assert calls == [(fast.direct_app, None, None)]
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_prepare_runs_before_direct_startup() -> None:
+    request = _make_request(result_file=None, message=None)
+    request.noenv = True
+    fast = _DummyFastRuntime()
+    calls: list[str] = []
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_app, request, session_manager, harness_session
+        calls.append("flow")
+
+    def prepare() -> None:
+        calls.append(f"prepare:{fast.harness_calls}:{fast.run_calls}")
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow, prepare=prepare)
+
+    assert calls == ["prepare:0:0", "flow"]
+    assert fast.run_calls == 1
 
 
 @pytest.mark.asyncio

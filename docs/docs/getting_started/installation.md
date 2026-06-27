@@ -8,7 +8,7 @@ social:
   alt: fast-agent social card — Install fast-agent
 ---
 
-Getting started with **`fast-agent`** requires Python 3.13.5 or newer and
+Getting started with **`fast-agent`** requires Python 3.12 or newer and
 [`uv`](https://docs.astral.sh/uv/).
 
 Install or upgrade the CLI:
@@ -20,7 +20,7 @@ uv tool install fast-agent-mcp -U
 If you have multiple Python versions installed, pin the supported Python version:
 
 ```bash
-uv tool install fast-agent-mcp -U --python 3.13.5
+uv tool install fast-agent-mcp -U --python 3.12
 ```
 
 Verify the install:

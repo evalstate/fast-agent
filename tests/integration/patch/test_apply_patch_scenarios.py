@@ -10,6 +10,11 @@ from typing import Literal
 import pytest
 
 
+def _read_text(path: Path) -> str:
+    with path.open(encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
 @dataclass(frozen=True)
 class SnapshotEntry:
     kind: Literal["file", "dir"]
@@ -33,7 +38,7 @@ def _run_apply_patch_scenario(scenario_dir: Path) -> None:
         if input_dir.is_dir():
             _copy_dir_recursive(input_dir, tmp_path)
 
-        patch = (scenario_dir / "patch.txt").read_text(encoding="utf-8", newline="")
+        patch = _read_text(scenario_dir / "patch.txt")
 
         subprocess.run(
             ["uv", "run", "python", "-m", "fast_agent.patch.cli", patch],

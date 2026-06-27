@@ -291,7 +291,7 @@ class A2ARemoteAgent(LlmDecorator):
         if self._client is None:
             raise RuntimeError("A2A remote agent is not initialized")
 
-        use_history = request_params.use_history if request_params else self.config.use_history
+        use_history = self._resolve_turn_use_history(request_params)
         self._prepare_turn_state(use_history=use_history)
         self._timestamp_messages(messages)
         self._display_user_messages(messages)
@@ -362,6 +362,11 @@ class A2ARemoteAgent(LlmDecorator):
         if use_history:
             self._persist_history(messages, assistant_message)
         return assistant_message
+
+    def _resolve_turn_use_history(self, request_params: RequestParams | None) -> bool:
+        if request_params is not None and "use_history" in request_params.model_fields_set:
+            return request_params.use_history
+        return self.config.use_history
 
     def _prepare_turn_state(self, *, use_history: bool) -> None:
         if use_history:

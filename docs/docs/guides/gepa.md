@@ -74,6 +74,21 @@ candidate instructions/card variables
   -> score + ASI
 ```
 
+**Single-task evals** are the same `optimize_anything()` shape, but the
+fast-agent batch size is one. Use this for prompt-only experiments, tool-using
+tasks with a single scenario, small smoke tests, and early GEPA development
+before you have a full dataset. `FastAgentSingleTaskAdapter` builds the one-row
+input, runs fast-agent, writes candidate artifacts, and returns
+`score + side_info`.
+
+```text
+candidate prompt/instructions + optional example
+  -> fast-agent batch run with one row
+  -> result row + telemetry + summary
+  -> scorer
+  -> score + ASI
+```
+
 **Row-wise batch evals** still use fast-agent batch execution, but expose each
 input row as a GEPA optimization instance. Use this when GEPA should sample
 minibatches, compare per-row scores, and reflect over row-level trajectories.
@@ -282,12 +297,21 @@ abort the optimization without evidence.
 
 ## Make Trackio the default dashboard
 
-GEPA runs can be long-lived. [Trackio](https://github.com/gradio-app/trackio) is recommended to provide a live view of GEPA optimize metrics, and other metadata you want to track. Use one Trackio run for both GEPA's optimizer metrics and your evaluator-specific candidate metrics:
+GEPA runs can be long-lived. [Trackio](https://github.com/gradio-app/trackio) is
+recommended to provide a live view of optimizer progress, reflection cost, batch
+health, candidate scores, and other metadata you want to track. Use one Trackio
+run for both GEPA's optimizer metrics and your evaluator-specific fast-agent
+metrics:
 
 - GEPA logs frontier, candidate, proposal, validation, objective, and summary
   data under the `gepa/` prefix.
 - Your scorer can log task-specific candidate metrics under `candidate/` and
   `candidate/detail/`.
+- `FastAgentGEPATrackioCallback` logs fast-agent reflection telemetry, and
+  evaluation telemetry from adapters that expose it, under `fast_agent/eval/`,
+  `fast_agent/reflection/`, and optional `fast_agent/gepa_context/` prefixes.
+- `make_gepa_trackio_dashboard()` wires GEPA's own Trackio configuration and
+  fast-agent callback telemetry together for `optimize_anything()`.
 - Keep `side_info["scores"]` frontier-safe: every value should be numeric and
   higher-is-better. Put raw lower-is-better diagnostics in
   `side_info["score_details"]` or `side_info["raw_metrics"]`.
@@ -314,6 +338,20 @@ side_info = {
 metrics such as `candidate/gepa_score` and
 `candidate/detail/failure_count`; `safe_trackio_log()` makes that logging
 best-effort so a dashboard outage does not fail an evaluator.
+
+Good Trackio screenshots for this guide would show:
+
+- the main optimizer view with `gepa/iteration`, best score, frontier size, and
+  `gepa/total_metric_calls`;
+- candidate metric charts such as `candidate/gepa_score`,
+  `candidate/valid_output_rate`, and `candidate/detail/failure_count`;
+- fast-agent evaluation health charts such as
+  `fast_agent/eval/duration_seconds_per_row`, rows per second, token usage, and
+  cache hit rate;
+- reflection-cost charts under `fast_agent/reflection/usage/*`, especially when
+  comparing reflection models;
+- a run table grouped by experiment name or split, with config fields for agent,
+  model, dataset, GEPA mode, and run directory.
 
 ## Call fast-agent from GEPA
 
@@ -346,7 +384,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import trackio
 from gepa.optimize_anything import GEPAConfig, EngineConfig, ReflectionConfig, optimize_anything
 from fast_agent.batch import BatchRunResult
 from fast_agent.eval import CandidateRun
@@ -354,8 +391,7 @@ from fast_agent.integrations.gepa import (
     FastAgentBatchEvaluator,
     FastAgentReflectionLM,
     gepa_numeric_metrics,
-    gepa_trackio_init_kwargs,
-    make_gepa_tracking_config,
+    make_gepa_trackio_dashboard,
     safe_trackio_log,
 )
 
@@ -413,16 +449,17 @@ reflection_lm = FastAgentReflectionLM(
     audit_dir=ROOT / "runs" / "reflection",
 )
 
-trackio.init(
-    **gepa_trackio_init_kwargs(
-        project="fast-agent-gepa",
-        name="classifier-policy",
-        config={
-            "mode": "aggregate",
-            "agent": "classifier",
-            "run_dir": str(ROOT / "runs"),
-        },
-    )
+dashboard = make_gepa_trackio_dashboard(
+    project="fast-agent-gepa",
+    name="classifier-policy",
+    config={
+        "mode": "aggregate",
+        "agent": "classifier",
+        "run_dir": str(ROOT / "runs"),
+    },
+    eval_adapter=evaluator,
+    reflection_lm=reflection_lm,
+    include_gepa_context=True,
 )
 
 result = optimize_anything(
@@ -432,11 +469,9 @@ result = optimize_anything(
     config=GEPAConfig(
         engine=EngineConfig(max_metric_calls=24, cache_evaluation=True),
         reflection=ReflectionConfig(reflection_lm=reflection_lm),
-        tracking=make_gepa_tracking_config(
-            name="classifier-policy",
-            attach_existing=True,
-        ),
+        tracking=dashboard.tracking,
     ),
+    callbacks=dashboard.callbacks,
 )
 
 Path("runs/best-policy.md").write_text(result.best_candidate["policy"], encoding="utf-8")
@@ -446,6 +481,90 @@ Replace `score_rows()` and `summarize_failures()` with your deterministic
 checker. The checker is the most important part of the loop: it should encode
 the product decision you actually care about and explain failures in language a
 reflection model can act on.
+
+### Use `FastAgentSingleTaskAdapter` for batch size 1
+
+When your GEPA loop is naturally one task per candidate, use
+`FastAgentSingleTaskAdapter` instead of creating a one-line JSONL file by hand.
+It still goes through `BatchRunner`, so you get the same `results.jsonl`,
+`batch-summary.json`, `telemetry.jsonl`, candidate directory, and Trackio
+evaluation metrics as larger batch runs.
+
+```python title="single-task-gepa.py"
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from gepa.optimize_anything import GEPAConfig, EngineConfig, ReflectionConfig, optimize_anything
+
+from fast_agent.integrations.gepa import (
+    FastAgentReflectionLM,
+    FastAgentSingleTaskAdapter,
+    RowWiseScore,
+    make_gepa_trackio_dashboard,
+)
+
+
+def score_story(
+    output_row: dict[str, Any],
+    candidate: dict[str, str],
+    evaluation,
+    example=None,
+) -> RowWiseScore:
+    text = str(output_row.get("result", ""))
+    has_moon = "moon" in text.lower()
+    score = 1.0 if has_moon else 0.0
+    return RowWiseScore(
+        score=score,
+        trajectory={
+            "scores": {"gepa_score": score},
+            "response_excerpt": text[:400],
+            "feedback": "Mention the moon clearly." if not has_moon else "Good.",
+        },
+        objective_scores={"gepa_score": score},
+    )
+
+
+evaluator = FastAgentSingleTaskAdapter.prompt(
+    model="responses.gpt-5.4-mini",
+    scorer=score_story,
+    run_dir=Path("runs/single-task-gepa"),
+)
+
+reflection_lm = FastAgentReflectionLM(
+    model="responses.gpt-5.5?reasoning=high",
+    audit_dir="runs/single-task-gepa/reflection",
+)
+
+dashboard = make_gepa_trackio_dashboard(
+    project="fast-agent-gepa",
+    name="single-task-story",
+    config={"mode": "single-task", "batch_size": 1},
+    eval_adapter=evaluator,
+    reflection_lm=reflection_lm,
+)
+
+result = optimize_anything(
+    seed_candidate={"prompt": "Write a one-paragraph bedtime story."},
+    evaluator=evaluator,
+    objective="Improve the prompt so the story reliably includes the moon.",
+    config=GEPAConfig(
+        engine=EngineConfig(max_metric_calls=12, cache_evaluation=True),
+        reflection=ReflectionConfig(reflection_lm=reflection_lm),
+        tracking=dashboard.tracking,
+    ),
+    callbacks=dashboard.callbacks,
+)
+
+Path("runs/best-story-prompt.md").write_text(result.best_candidate["prompt"], encoding="utf-8")
+```
+
+If you already have an AgentCard or need a richer input row, instantiate
+`FastAgentSingleTaskAdapter` directly with `agent_card=...` and an
+`input_builder(candidate, example)` function. The `example` argument lets GEPA
+or your own driver pass one held-out scenario while keeping the optimizer API
+as simple as `evaluator(candidate, example)`.
 
 ### Use row-wise GEPA when each row is an optimization instance
 
@@ -643,3 +762,10 @@ with this guide:
 - use `FastAgentBatchEvaluator` or `EvalRun`/`CandidateRun` rather than
   duplicating candidate directory and subprocess boilerplate;
 - audit every `side_info["scores"]` key as higher-is-better.
+
+## Resources
+
+- [GEPA repository](https://github.com/gepa-ai/gepa)
+- [Trackio repository](https://github.com/gradio-app/trackio)
+- [GEPA presentation deck](https://evalstate-presentations.static.hf.space/2026/arize-gepa/index.html#/1)
+- [GEPA demo card pack](https://github.com/fast-agent-ai/card-packs/tree/main/packs/gepa-demo)

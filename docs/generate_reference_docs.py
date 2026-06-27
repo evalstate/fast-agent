@@ -447,12 +447,15 @@ def generate_extension_reference() -> str:
         FastAgentBatchEvaluator,
         FastAgentReflectionLM,
         FastAgentRowWiseBatchAdapter,
+        FastAgentSingleTaskAdapter,
         RowWiseEvaluationRun,
         RowWiseScore,
+        SingleTaskEvaluationRun,
         gepa_api_trackio_kwargs,
         gepa_numeric_metrics,
         gepa_trackio_init_kwargs,
         make_gepa_tracking_config,
+        make_gepa_trackio_dashboard,
         safe_trackio_log,
     )
 
@@ -506,6 +509,34 @@ def generate_extension_reference() -> str:
         )
     )
 
+    lines.append("### `FastAgentSingleTaskAdapter`\n\n")
+    lines.append(
+        "`optimize_anything()`-friendly evaluator for one fast-agent task at a\n"
+        "time. It runs a batch of one, records the same candidate artifacts,\n"
+        "`results.jsonl`, summary, and telemetry files as larger batch evals, and\n"
+        "exposes evaluation metrics for `FastAgentGEPATrackioCallback`. Use this\n"
+        "when you want the simple `candidate -> score + side_info` API without\n"
+        "building a JSONL dataset first.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_constructor_signature("FastAgentSingleTaskAdapter", FastAgentSingleTaskAdapter),
+        )
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature("FastAgentSingleTaskAdapter.prompt", FastAgentSingleTaskAdapter.prompt),
+        )
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature("adapter.__call__", FastAgentSingleTaskAdapter.__call__),
+        )
+    )
+
     lines.append("### `FastAgentRowWiseBatchAdapter`\n\n")
     lines.append(
         "Lower-level GEPA adapter protocol implementation for `gepa.api.optimize`: GEPA\n"
@@ -554,17 +585,31 @@ def generate_extension_reference() -> str:
         )
     )
 
+    lines.append("### `SingleTaskEvaluationRun`\n\n")
+    lines.append(
+        "Metadata passed to a single-task scorer, including the candidate directory,\n"
+        "one-row input file, `BatchRunResult`, and `CandidateRun`.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_constructor_signature("SingleTaskEvaluationRun", SingleTaskEvaluationRun),
+        )
+    )
+
     lines.append("### Trackio helpers\n\n")
     lines.append(
         "Trackio helpers provide fast-agent defaults for GEPA dashboards. Use\n"
         "`gepa_trackio_init_kwargs()` when your script initializes Trackio, use\n"
         "`gepa_api_trackio_kwargs()` with `gepa.api.optimize()`, and use\n"
-        "`make_gepa_tracking_config()` with `optimize_anything()`.\n\n"
+        "`make_gepa_trackio_dashboard()` or `make_gepa_tracking_config()` with\n"
+        "`optimize_anything()`.\n\n"
     )
     for name, func in (
         ("gepa_trackio_init_kwargs", gepa_trackio_init_kwargs),
         ("gepa_api_trackio_kwargs", gepa_api_trackio_kwargs),
         ("make_gepa_tracking_config", make_gepa_tracking_config),
+        ("make_gepa_trackio_dashboard", make_gepa_trackio_dashboard),
     ):
         lines.append(_md_code("python", _format_method_signature(name, func)))
 

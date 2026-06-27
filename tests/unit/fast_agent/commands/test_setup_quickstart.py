@@ -72,7 +72,7 @@ def test_python_requires_falls_back_when_metadata_unavailable(monkeypatch: Monke
 
     monkeypatch.setattr("importlib.metadata.metadata", _raise_metadata_error)
 
-    assert setup._python_requires() == ">=3.13.7"
+    assert setup._python_requires() == ">=3.12"
 
 
 def test_quickstart_copies_preferred_config_filename(

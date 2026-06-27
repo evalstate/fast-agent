@@ -849,12 +849,16 @@ class SessionManager:
             resolved_prompts=resolved_prompts,
         )
 
-    def load_latest_session(self) -> Session | None:
+    def load_latest_session(self, *, require_content: bool = False) -> Session | None:
         """Load the most recently used session."""
         sessions = self.list_sessions()
-        if not sessions:
-            return None
-        return self.load_session(sessions[0].name)
+        for info in sessions:
+            if not require_content:
+                return self.load_session(info.name)
+            session = self.get_session(info.name)
+            if session is not None and session.has_persisted_content():
+                return self.load_session(info.name)
+        return None
 
     async def _hydrate_session_agents_async(
         self,
@@ -866,7 +870,9 @@ class SessionManager:
 
         session_name = self._resolve_session_name(name)
         session = (
-            self.load_latest_session() if session_name is None else self.load_session(session_name)
+            self.load_latest_session(require_content=True)
+            if session_name is None
+            else self.load_session(session_name)
         )
         if session is None:
             return None

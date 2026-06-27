@@ -45,6 +45,7 @@ class RecordingAppSession:
 
     async def invoke(self, request: AgentRequest) -> AgentResponse:
         self.requests.append(request)
+        await request.report("working", progress=1, total=2)
         return AgentResponse.text(f"{request.session_id}:{request.agent}:{request.message.all_text()}")
 
 
@@ -117,7 +118,10 @@ class RuntimeShellExecutor:
         return ShellExecutionResult(stdout="", stderr="", exit_code=0)
 
 
-def mcp_context_with_session(session_id: str) -> "MCPContext":
+def mcp_context_with_session(
+    session_id: str,
+    progress_events: list[tuple[float, float | None, str | None]] | None = None,
+) -> "MCPContext":
     headers = {"mcp-session-id": session_id}
     request = SimpleNamespace(headers=headers)
     request_context = SimpleNamespace(request=request)
@@ -127,7 +131,8 @@ def mcp_context_with_session(session_id: str) -> "MCPContext":
         total: float | None = None,
         message: str | None = None,
     ) -> None:
-        del progress, total, message
+        if progress_events is not None:
+            progress_events.append((progress, total, message))
 
     return cast(
         "MCPContext",
@@ -158,17 +163,49 @@ def test_get_oauth_config_normalizes_provider_from_environment(
     assert oauth_provider == "huggingface"
 
 
+@pytest.mark.unit
+def test_get_oauth_config_accepts_space_and_comma_separated_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FAST_AGENT_OAUTH_SCOPES", "openid profile,inference-api")
+
+    _provider, scopes, _resource_url = get_oauth_config()
+
+    assert scopes == ["openid", "profile", "inference-api"]
+
+
+@pytest.mark.unit
+def test_get_oauth_config_defaults_to_spaces_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FAST_AGENT_SERVE_OAUTH", "huggingface")
+    monkeypatch.delenv("FAST_AGENT_OAUTH_RESOURCE_URL", raising=False)
+    monkeypatch.delenv("FAST_AGENT_OAUTH_SCOPES", raising=False)
+    monkeypatch.setenv("OAUTH_SCOPES", "openid profile jobs")
+    monkeypatch.setenv("SPACE_HOST", "demo-space.hf.space")
+
+    _provider, scopes, resource_url = get_oauth_config()
+
+    assert scopes == ["openid", "profile", "jobs"]
+    assert resource_url == "https://demo-space.hf.space"
+
+
 @pytest.mark.asyncio
 async def test_harness_mcp_send_uses_mcp_session_and_default_agent() -> None:
     app = RecordingApp()
+    progress_events: list[tuple[float, float | None, str | None]] = []
     server = HarnessMCPAppServer(
         app,
-        HarnessMCPAppServerOptions(server_name="test", default_agent="support"),
+        HarnessMCPAppServerOptions(
+            server_name="test",
+            default_agent="support",
+            tool_description="Interact with {agent}",
+        ),
     )
 
     response = await server._send(
         "hello",
-        ctx=mcp_context_with_session("mcp-123"),
+        ctx=mcp_context_with_session("mcp-123", progress_events),
         session_id=None,
         agent=None,
     )
@@ -178,6 +215,9 @@ async def test_harness_mcp_send_uses_mcp_session_and_default_agent() -> None:
     assert app.session.requests[0].session_id == "mcp-123"
     assert app.session.requests[0].agent == "support"
     assert app.session.requests[0].params is not None
+    assert app.session.requests[0].progress is not None
+    assert progress_events == [(1, 2, "working")]
+    assert server._tool_description() == "Interact with support"
 
 
 @pytest.mark.asyncio

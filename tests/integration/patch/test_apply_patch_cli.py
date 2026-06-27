@@ -7,6 +7,11 @@ from tempfile import TemporaryDirectory
 import pytest
 
 
+def _read_text(path: Path) -> str:
+    with path.open(encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
 @pytest.mark.integration
 def test_apply_patch_cli_add_and_update() -> None:
     with TemporaryDirectory() as tmp:
@@ -18,7 +23,7 @@ def test_apply_patch_cli_add_and_update() -> None:
         add_result = _run_cli(add_patch, tmp_path)
         assert add_result.returncode == 0
         assert add_result.stdout == (f"Success. Updated the following files:\nA {file_name}\n")
-        assert absolute_path.read_text(encoding="utf-8", newline="") == "hello\n"
+        assert _read_text(absolute_path) == "hello\n"
 
         update_patch = (
             f"*** Begin Patch\n*** Update File: {file_name}\n@@\n-hello\n+world\n*** End Patch"
@@ -26,7 +31,7 @@ def test_apply_patch_cli_add_and_update() -> None:
         update_result = _run_cli(update_patch, tmp_path)
         assert update_result.returncode == 0
         assert update_result.stdout == (f"Success. Updated the following files:\nM {file_name}\n")
-        assert absolute_path.read_text(encoding="utf-8", newline="") == "world\n"
+        assert _read_text(absolute_path) == "world\n"
 
 
 @pytest.mark.integration
@@ -40,7 +45,7 @@ def test_apply_patch_cli_stdin_add_and_update() -> None:
         add_result = _run_cli(None, tmp_path, stdin_patch=add_patch)
         assert add_result.returncode == 0
         assert add_result.stdout == (f"Success. Updated the following files:\nA {file_name}\n")
-        assert absolute_path.read_text(encoding="utf-8", newline="") == "hello\n"
+        assert _read_text(absolute_path) == "hello\n"
 
         update_patch = (
             f"*** Begin Patch\n*** Update File: {file_name}\n@@\n-hello\n+world\n*** End Patch"
@@ -48,7 +53,7 @@ def test_apply_patch_cli_stdin_add_and_update() -> None:
         update_result = _run_cli(None, tmp_path, stdin_patch=update_patch)
         assert update_result.returncode == 0
         assert update_result.stdout == (f"Success. Updated the following files:\nM {file_name}\n")
-        assert absolute_path.read_text(encoding="utf-8", newline="") == "world\n"
+        assert _read_text(absolute_path) == "world\n"
 
 
 @pytest.mark.integration
@@ -79,10 +84,10 @@ def test_apply_patch_cli_applies_multiple_operations() -> None:
             "Success. Updated the following files:\nA nested/new.txt\nM modify.txt\nD delete.txt\n"
         )
 
-        assert (tmp_path / "nested/new.txt").read_text(encoding="utf-8", newline="") == (
+        assert _read_text(tmp_path / "nested/new.txt") == (
             "created\n"
         )
-        assert modify_path.read_text(encoding="utf-8", newline="") == "line1\nchanged\n"
+        assert _read_text(modify_path) == "line1\nchanged\n"
         assert not delete_path.exists()
 
 
@@ -109,7 +114,7 @@ def test_apply_patch_cli_applies_multiple_chunks() -> None:
         assert result.returncode == 0
         assert result.stdout == "Success. Updated the following files:\nM multi.txt\n"
         assert (
-            target_path.read_text(encoding="utf-8", newline="")
+            _read_text(target_path)
             == "line1\nchanged2\nline3\nchanged4\n"
         )
 
@@ -137,7 +142,7 @@ def test_apply_patch_cli_moves_file_to_new_directory() -> None:
         assert result.returncode == 0
         assert result.stdout == ("Success. Updated the following files:\nM renamed/dir/name.txt\n")
         assert not original_path.exists()
-        assert new_path.read_text(encoding="utf-8", newline="") == "new content\n"
+        assert _read_text(new_path) == "new content\n"
 
 
 @pytest.mark.integration
@@ -161,7 +166,7 @@ def test_apply_patch_cli_reports_missing_context() -> None:
         result = _run_cli(patch, tmp_path)
         assert result.returncode == 1
         assert result.stderr == "Failed to find expected lines in modify.txt:\nmissing\n"
-        assert target_path.read_text(encoding="utf-8", newline="") == "line1\nline2\n"
+        assert _read_text(target_path) == "line1\nline2\n"
 
 
 @pytest.mark.integration
@@ -228,7 +233,7 @@ def test_apply_patch_cli_move_overwrites_existing_destination() -> None:
         assert result.returncode == 0
         assert result.stdout == ("Success. Updated the following files:\nM renamed/dir/name.txt\n")
         assert not original_path.exists()
-        assert destination.read_text(encoding="utf-8", newline="") == "new\n"
+        assert _read_text(destination) == "new\n"
 
 
 @pytest.mark.integration
@@ -242,7 +247,7 @@ def test_apply_patch_cli_add_overwrites_existing_file() -> None:
         result = _run_cli(patch, tmp_path)
         assert result.returncode == 0
         assert result.stdout == "Success. Updated the following files:\nA duplicate.txt\n"
-        assert path.read_text(encoding="utf-8", newline="") == "new content\n"
+        assert _read_text(path) == "new content\n"
 
 
 @pytest.mark.integration
@@ -291,7 +296,7 @@ def test_apply_patch_cli_updates_file_appends_trailing_newline() -> None:
         result = _run_cli(patch, tmp_path)
         assert result.returncode == 0
         assert result.stdout == ("Success. Updated the following files:\nM no_newline.txt\n")
-        contents = target_path.read_text(encoding="utf-8", newline="")
+        contents = _read_text(target_path)
         assert contents.endswith("\n")
         assert contents == "first line\nsecond line\n"
 
@@ -320,7 +325,7 @@ def test_apply_patch_cli_failure_after_partial_success_leaves_changes() -> None:
             result.stderr
             == "Failed to read file to update missing.txt: No such file or directory (os error 2)\n"
         )
-        assert new_file.read_text(encoding="utf-8", newline="") == "hello\n"
+        assert _read_text(new_file) == "hello\n"
 
 
 def _run_cli(

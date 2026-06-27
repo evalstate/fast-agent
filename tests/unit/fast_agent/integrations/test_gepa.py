@@ -2,7 +2,8 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Mapping
+import types
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -12,13 +13,17 @@ from fast_agent.integrations.gepa import (
     FastAgentGEPATrackioCallback,
     FastAgentReflectionLM,
     FastAgentRowWiseBatchAdapter,
+    FastAgentSingleTaskAdapter,
+    GEPATrackioDashboard,
     RowWiseEvaluationRun,
     RowWiseScore,
+    _budget_event_metrics,
     _evaluation_batch,
     _evaluation_event_metrics,
     gepa_api_trackio_kwargs,
     gepa_numeric_metrics,
     gepa_trackio_init_kwargs,
+    make_gepa_trackio_dashboard,
 )
 
 
@@ -109,10 +114,9 @@ def test_reflection_lm_logs_usage_metrics(monkeypatch, tmp_path):
 
     assert lm("think about this") == "reflection"
     assert not logged
-    FastAgentGEPATrackioCallback(reflection_lm=lm).on_proposal_end(
+    FastAgentGEPATrackioCallback(reflection_lm=lm, include_gepa_context=True).on_proposal_end(
         {
             "iteration": 3,
-            "total_metric_calls": 123,
             "new_instructions": {"policy": "new"},
             "prompts": {"policy": "prompt"},
             "raw_lm_outputs": {"policy": "raw"},
@@ -120,7 +124,7 @@ def test_reflection_lm_logs_usage_metrics(monkeypatch, tmp_path):
     )
     assert logged
     assert logged[0]["gepa/iteration"] == 3
-    assert logged[0]["gepa/total_metric_calls"] == 123
+    assert "gepa/total_metric_calls" not in logged[0]
     assert logged[0]["fast_agent/gepa_context/proposed_components"] == 1
     assert logged[0]["fast_agent/reflection/usage/cumulative_billing_tokens"] == 12
     assert logged[0]["fast_agent/reflection/usage/billing_tokens_per_turn"] == 12
@@ -283,6 +287,101 @@ def test_row_wise_batch_adapter_evaluates_minibatch_and_builds_reflection_rows(t
     assert reflective["policy"][0]["selected_row_score"] == 0.0
 
 
+def test_single_task_adapter_evaluates_batch_of_one_and_exposes_metrics(tmp_path):
+    class Runner:
+        async def run(self, **kwargs):
+            output_path = Path(kwargs["output_path"])
+            output_path.write_text(
+                json.dumps({"ok": True, "result": "Once upon a moon."}) + "\n",
+                encoding="utf-8",
+            )
+            return BatchRunResult(
+                rows=[{"ok": True, "result": "Once upon a moon."}],
+                output_path=output_path,
+                summary={
+                    "processed_rows": 1,
+                    "duration_ms": 500,
+                    "timing_ms": {
+                        "duration": {"count": 1, "mean": 400},
+                        "ttft": {"count": 1, "mean": 100},
+                    },
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 5,
+                        "billing_tokens": 15,
+                        "rows_with_usage": 1,
+                    },
+                },
+                telemetry_path=kwargs["telemetry_path"],
+                error_output_path=None,
+                summary_path=kwargs["summary_path"],
+            )
+
+    def runner_factory(env_dir, *, backend):
+        return Runner()
+
+    adapter = FastAgentSingleTaskAdapter(
+        env_dir=tmp_path / "env",
+        agent_card=tmp_path / "card.md",
+        model="test-model",
+        input_builder=lambda candidate, example=None: candidate["prompt"],
+        scorer=lambda output, candidate, evaluation, example=None: RowWiseScore(
+            score=0.75,
+            trajectory={"response": output["result"]},
+            objective_scores={"gepa_score": 0.75},
+        ),
+        run_dir=tmp_path / "runs",
+        batch_runner_factory=runner_factory,
+    )
+
+    score, side_info = adapter({"prompt": "Write a story."})
+
+    assert score == 0.75
+    assert side_info == {"response": "Once upon a moon."}
+    metrics = adapter.pop_pending_gepa_eval_metrics()
+    assert metrics is not None
+    assert metrics["fast_agent/eval/batch_size"] == 1
+    assert metrics["fast_agent/eval/duration_seconds"] == 0.5
+    assert metrics["fast_agent/eval/duration_seconds_per_row"] == 0.5
+    assert metrics["fast_agent/eval/rows_per_second"] == 2
+    assert metrics["fast_agent/eval/ttft_mean_seconds"] == 0.1
+    assert metrics["fast_agent/eval/usage/input_tokens_per_row"] == 10
+    assert metrics["fast_agent/eval/usage/output_tokens_per_second"] == 5 / 0.3
+    assert "fast_agent/eval/usage/output_tokens_per_generation_second" not in metrics
+    assert "fast_agent/eval/objective_avg/gepa_score" not in metrics
+
+
+def test_single_task_prompt_adapter_uses_default_worker(tmp_path):
+    calls = []
+
+    class Runner:
+        async def run(self, **kwargs):
+            calls.append(kwargs)
+            output_path = Path(kwargs["output_path"])
+            output_path.write_text(json.dumps({"result": "ok"}) + "\n", encoding="utf-8")
+            return BatchRunResult(
+                rows=[{"result": "ok"}],
+                output_path=output_path,
+                summary={"processed_rows": 1},
+                telemetry_path=kwargs["telemetry_path"],
+                error_output_path=None,
+                summary_path=kwargs["summary_path"],
+            )
+
+    adapter = FastAgentSingleTaskAdapter.prompt(
+        model="test-model",
+        scorer=lambda output, candidate, evaluation, example=None: 1.0,
+        run_dir=tmp_path / "runs",
+        batch_runner_factory=lambda env_dir, *, backend: Runner(),
+    )
+
+    assert adapter({"prompt": "hello"}) == (1.0, {})
+    assert calls[0]["agent_card"] is None
+    assert calls[0]["agent"] is None
+    assert calls[0]["model"] == "test-model"
+    assert calls[0]["template"] == "{{prompt}}"
+
+
 def test_row_wise_batch_adapter_logs_batch_usage_and_cache(monkeypatch, tmp_path):
     logged: list[dict[str, Any]] = []
     runner = RecordingBatchRunner(
@@ -292,6 +391,10 @@ def test_row_wise_batch_adapter_logs_batch_usage_and_cache(monkeypatch, tmp_path
             "skipped_rows": 0,
             "selected_rows": 2,
             "duration_ms": 1000,
+            "timing_ms": {
+                "duration": {"count": 2, "mean": 400},
+                "ttft": {"count": 2, "mean": 100},
+            },
             "usage": {
                 "input_tokens": 100,
                 "output_tokens": 20,
@@ -348,7 +451,7 @@ def test_row_wise_batch_adapter_logs_batch_usage_and_cache(monkeypatch, tmp_path
     )
 
     assert not logged
-    FastAgentGEPATrackioCallback(row_wise_adapter=adapter).on_evaluation_end(
+    FastAgentGEPATrackioCallback(eval_adapter=adapter, include_gepa_context=True).on_evaluation_end(
         {
             "iteration": 7,
             "candidate_idx": 4,
@@ -361,22 +464,33 @@ def test_row_wise_batch_adapter_logs_batch_usage_and_cache(monkeypatch, tmp_path
             "trajectories": None,
             "objective_scores": None,
             "is_seed_candidate": False,
+            "metric_calls_before": 10,
+            "metric_calls_delta": 2,
+            "metric_calls_after": 12,
         }
     )
     assert logged
     payload = logged[0]
     assert payload["gepa/iteration"] == 7
-    assert payload["gepa/candidate_idx"] == 4
+    assert payload["gepa/total_metric_calls"] == 12
+    assert payload["gepa/metric_calls_delta"] == 2
+    assert payload["fast_agent/eval/gepa_iteration"] == 7
+    assert payload["fast_agent/eval/gepa_candidate_idx"] == 4
     assert payload["fast_agent/gepa_context/parent_count"] == 1
     assert payload["fast_agent/gepa_context/score_mean"] == 0.5
+    assert payload["fast_agent/eval/step"] == 1
     assert payload["fast_agent/eval/batch_size"] == 2
     assert payload["fast_agent/eval/objective_avg/gepa_score"] == 0.5
     assert payload["fast_agent/eval/duration_seconds"] == 1
     assert payload["fast_agent/eval/duration_seconds_per_row"] == 0.5
     assert payload["fast_agent/eval/rows_per_second"] == 2
+    assert payload["fast_agent/eval/ttft_mean_seconds"] == 0.1
     assert payload["fast_agent/eval/failed_rows"] == 0
+    assert payload["fast_agent/eval/error_rate_percent"] == 0
     assert payload["fast_agent/eval/usage/billing_tokens_per_row"] == 60
     assert payload["fast_agent/eval/usage/input_tokens_per_row"] == 50
+    assert payload["fast_agent/eval/usage/output_tokens_per_second"] == 20 / 0.3
+    assert "fast_agent/eval/usage/output_tokens_per_generation_second" not in payload
     assert payload["fast_agent/eval/usage/reasoning_tokens_per_row"] == 3.5
     assert payload["fast_agent/eval/usage/tool_use_tokens_per_row"] == 1.5
     assert payload["fast_agent/eval/usage/tool_calls_per_row"] == 0.5
@@ -388,12 +502,13 @@ def test_row_wise_batch_adapter_logs_batch_usage_and_cache(monkeypatch, tmp_path
     assert "fast_agent/eval/processed_rows" not in payload
     assert "fast_agent/eval/selected_rows" not in payload
     assert "fast_agent/eval/usage/input_tokens" not in payload
+    assert "fast_agent/eval/usage/usage_coverage_percent" not in payload
     assert "fast_agent/eval/usage/total_tokens_per_row" not in payload
     assert "fast_agent/eval/cache/served_tokens" not in payload
     assert "fast_agent/eval/cache/write_rate_percent" not in payload
 
 
-def test_trackio_callback_can_log_operational_metrics_only(monkeypatch, tmp_path):
+def test_trackio_callback_omits_score_summaries_for_single_row_batches(monkeypatch, tmp_path):
     logged: list[dict[str, Any]] = []
     runner = RecordingBatchRunner(
         summary={
@@ -435,9 +550,8 @@ def test_trackio_callback_can_log_operational_metrics_only(monkeypatch, tmp_path
     adapter.evaluate([{"id": "row-1"}], {"policy": "route carefully"})
 
     FastAgentGEPATrackioCallback(
-        row_wise_adapter=adapter,
+        eval_adapter=adapter,
         include_gepa_context=False,
-        include_eval_score_summary=False,
     ).on_evaluation_end(
         {
             "iteration": 7,
@@ -451,38 +565,195 @@ def test_trackio_callback_can_log_operational_metrics_only(monkeypatch, tmp_path
             "trajectories": None,
             "objective_scores": None,
             "is_seed_candidate": False,
+            "metric_calls_before": 10,
+            "metric_calls_delta": 1,
+            "metric_calls_after": 11,
         }
     )
 
     assert logged
     payload = logged[0]
     assert payload["gepa/iteration"] == 7
-    assert payload["gepa/candidate_idx"] == 4
+    assert payload["gepa/total_metric_calls"] == 11
+    assert payload["fast_agent/eval/gepa_iteration"] == 7
+    assert payload["fast_agent/eval/gepa_candidate_idx"] == 4
     assert "fast_agent/gepa_context/score_mean" not in payload
     assert "fast_agent/gepa_context/batch_size" not in payload
+    assert payload["fast_agent/eval/step"] == 1
     assert payload["fast_agent/eval/batch_size"] == 1
     assert "fast_agent/eval/avg_score" not in payload
     assert "fast_agent/eval/num_metric_calls" not in payload
     assert "fast_agent/eval/objective_avg/gepa_score" not in payload
+    assert payload["fast_agent/eval/error_rate_percent"] == 0
     assert payload["fast_agent/eval/usage/billing_tokens_per_row"] == 60
     assert payload["fast_agent/eval/cache/hit_rate_percent"] == 60.0
 
 
-def test_evaluation_event_metrics_maps_gepa_budget_fields_without_minibatch_confusion():
+def test_eval_metrics_include_error_rate_for_failed_rows(monkeypatch, tmp_path):
+    logged: list[dict[str, Any]] = []
+    runner = RecordingBatchRunner(
+        summary={
+            "processed_rows": 4,
+            "failed_rows": 1,
+            "skipped_rows": 0,
+            "duration_ms": 1000,
+        }
+    )
+
+    def runner_factory(env_dir, *, backend):
+        return runner
+
+    def row_scorer(output_row, input_row, candidate, evaluation):
+        return RowWiseScore(score=1.0)
+
+    monkeypatch.setattr(
+        "fast_agent.integrations.gepa.safe_trackio_log",
+        lambda payload, **kwargs: logged.append(dict(payload)) or True,
+    )
+
+    adapter = FastAgentRowWiseBatchAdapter(
+        env_dir=tmp_path / "env",
+        agent_card=tmp_path / "card.md",
+        candidate_variables={"policy": "policy"},
+        template="{{row_json}}",
+        row_scorer=row_scorer,
+        run_dir=tmp_path / "runs",
+        batch_runner_factory=runner_factory,
+    )
+    adapter.evaluate([{}, {}, {}, {}], {"policy": "route carefully"})
+
+    FastAgentGEPATrackioCallback(eval_adapter=adapter).on_evaluation_end(
+        {"iteration": 1, "metric_calls_before": 4, "metric_calls_delta": 4, "metric_calls_after": 8}
+    )
+
+    assert logged[0]["fast_agent/eval/step"] == 1
+    assert logged[0]["gepa/iteration"] == 1
+    assert logged[0]["gepa/total_metric_calls"] == 8
+    assert logged[0]["fast_agent/eval/failed_rows"] == 1
+    assert logged[0]["fast_agent/eval/error_rate_percent"] == 25
+
+
+def test_trackio_callback_adds_monotonic_fast_agent_eval_step(monkeypatch):
+    logged: list[dict[str, Any]] = []
+
+    class Adapter:
+        def __init__(self) -> None:
+            self.pending = [
+                {"fast_agent/eval/batch_size": 1},
+                {"fast_agent/eval/batch_size": 1},
+            ]
+
+        def pop_pending_gepa_eval_metrics(self):
+            return self.pending.pop(0) if self.pending else None
+
+    monkeypatch.setattr(
+        "fast_agent.integrations.gepa.safe_trackio_log",
+        lambda payload, **kwargs: logged.append(dict(payload)) or True,
+    )
+
+    callback = FastAgentGEPATrackioCallback(eval_adapter=Adapter())
+    callback.on_valset_evaluated(
+        {"iteration": 0, "candidate_idx": 0, "metric_calls_before": 0, "metric_calls_delta": 1, "metric_calls_after": 1}
+    )
+    callback.on_evaluation_end({"iteration": 1, "candidate_idx": 1})
+    callback.on_budget_updated(
+        {"iteration": 1, "metric_calls_used": 2, "metric_calls_delta": 1, "metric_calls_remaining": None}
+    )
+
+    eval_rows = [row for row in logged if "fast_agent/eval/step" in row]
+    assert [row["fast_agent/eval/step"] for row in eval_rows] == [1, 2]
+    assert [row["fast_agent/eval/gepa_iteration"] for row in eval_rows] == [0, 1]
+    assert [row["fast_agent/eval/gepa_candidate_idx"] for row in eval_rows] == [0, 1]
+    assert [row["gepa/iteration"] for row in eval_rows] == [0, 1]
+    assert [row["gepa/total_metric_calls"] for row in eval_rows] == [1, 2]
+
+
+def test_trackio_callback_omits_trackio_global_step(monkeypatch):
+    calls: list[tuple[dict[str, Any], dict[str, Any]]] = []
+
+    class Adapter:
+        def pop_pending_gepa_eval_metrics(self):
+            return {"fast_agent/eval/ttft_mean_seconds": 0.1}
+
+    class ReflectionLM:
+        def pop_pending_gepa_reflection_metrics(self):
+            return [{"fast_agent/reflection/duration_seconds": 1.2}]
+
+    monkeypatch.setattr(
+        "fast_agent.integrations.gepa.safe_trackio_log",
+        lambda payload, **kwargs: calls.append((dict(payload), dict(kwargs))) or True,
+    )
+
+    callback = FastAgentGEPATrackioCallback(eval_adapter=Adapter(), reflection_lm=ReflectionLM())
+    callback.on_budget_updated({"iteration": 1, "metric_calls_used": 2, "metric_calls_delta": 1})
+    callback.on_evaluation_end({"iteration": 2, "metric_calls_after": 3})
+    callback.on_proposal_end({"iteration": 2})
+
+    assert [kwargs for _, kwargs in calls] == [{}, {}, {}]
+    assert [payload["gepa/iteration"] for payload, _ in calls] == [1, 2, 2]
+
+
+def test_evaluation_event_metrics_maps_authoritative_gepa_axes():
     payload = _evaluation_event_metrics(
         {
             "iteration": 7,
             "candidate_idx": 4,
             "total_metric_calls": 123,
-            "metric_calls_used": 999,
+            "metric_calls_after": 124,
+            "metric_calls_delta": 2,
             "num_metric_calls": 2,
         }
     )
 
     assert payload["gepa/iteration"] == 7
-    assert payload["gepa/candidate_idx"] == 4
-    assert payload["gepa/total_metric_calls"] == 123
+    assert payload["gepa/total_metric_calls"] == 124
+    assert payload["gepa/metric_calls_delta"] == 2
+    assert payload["fast_agent/eval/gepa_iteration"] == 7
+    assert payload["fast_agent/eval/gepa_candidate_idx"] == 4
     assert "gepa/num_metric_calls" not in payload
+
+
+def test_budget_event_metrics_maps_authoritative_gepa_budget_fields():
+    payload = _budget_event_metrics(
+        {
+            "iteration": 7,
+            "metric_calls_used": 123,
+            "metric_calls_delta": 2,
+            "metric_calls_remaining": 9,
+        }
+    )
+
+    assert payload == {
+        "gepa/iteration": 7,
+        "gepa/total_metric_calls": 123,
+        "gepa/metric_calls_delta": 2,
+        "gepa/metric_calls_remaining": 9,
+    }
+
+
+def test_trackio_callback_logs_budget_updates(monkeypatch):
+    logged: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "fast_agent.integrations.gepa.safe_trackio_log",
+        lambda payload, **kwargs: logged.append(dict(payload)) or True,
+    )
+
+    FastAgentGEPATrackioCallback().on_budget_updated(
+        {
+            "iteration": 3,
+            "metric_calls_used": 12,
+            "metric_calls_delta": 4,
+            "metric_calls_remaining": None,
+        }
+    )
+
+    assert logged == [
+        {
+            "gepa/iteration": 3,
+            "gepa/total_metric_calls": 12,
+            "gepa/metric_calls_delta": 4,
+        }
+    ]
 
 
 def test_gepa_numeric_metrics_flattens_scores_and_details():
@@ -552,6 +823,60 @@ def test_gepa_trackio_kwargs_are_sensible_defaults():
         "trackio_step_metric": "gepa/iteration",
         "tracking_key_prefix": "gepa/",
     }
+
+
+def test_make_gepa_trackio_dashboard_builds_tracking_and_callbacks(monkeypatch, tmp_path):
+    optimize_anything = types.ModuleType("gepa.optimize_anything")
+
+    class TrackingConfig:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    optimize_anything_any: Any = optimize_anything
+    optimize_anything_any.TrackingConfig = TrackingConfig
+    gepa = types.ModuleType("gepa")
+    gepa.__path__ = []
+    monkeypatch.setitem(sys.modules, "gepa", gepa)
+    monkeypatch.setitem(sys.modules, "gepa.optimize_anything", optimize_anything)
+
+    def fake_command_runner(
+        command: Sequence[str],
+        cwd: Path | None,
+        timeout_seconds: float | None,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    lm = FastAgentReflectionLM(
+        model="passthrough",
+        audit_dir=tmp_path / "reflection",
+        command_runner=fake_command_runner,
+    )
+    dashboard = make_gepa_trackio_dashboard(
+        project="demo",
+        name="run",
+        group="group",
+        config={"regime": "story"},
+        reflection_lm=lm,
+    )
+
+    assert isinstance(dashboard, GEPATrackioDashboard)
+    assert dashboard.tracking.kwargs == {
+        "use_trackio": True,
+        "trackio_init_kwargs": {
+            "project": "demo",
+            "name": "run",
+            "group": "group",
+            "embed": False,
+            "auto_log_gpu": False,
+            "config": {"regime": "story"},
+        },
+        "trackio_attach_existing": False,
+        "trackio_step_metric": "gepa/iteration",
+        "key_prefix": "gepa/",
+    }
+    assert len(dashboard.callbacks) == 1
+    assert isinstance(dashboard.callbacks[0], FastAgentGEPATrackioCallback)
+    assert dashboard.callbacks[0].include_gepa_context is False
 
 
 def test_evaluation_batch_falls_back_when_gepa_is_not_installed():

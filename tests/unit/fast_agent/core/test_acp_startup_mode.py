@@ -121,7 +121,7 @@ async def test_main_returns_false_when_args_lacks_server_flag() -> None:
     ("argv", "expected_server"),
     [
         (["agent.py", "--transport", "http"], True),
-        (["agent.py", "--server"], False),
+        (["agent.py"], False),
     ],
 )
 def test_constructor_cli_server_mode_is_transport_driven(

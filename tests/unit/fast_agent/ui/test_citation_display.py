@@ -79,9 +79,7 @@ def test_render_sources_additional_text_multiline() -> None:
 
     rendered = render_sources_additional_text(message)
     assert rendered is not None
-    assert "Sources" in rendered.plain
-    assert "[1] Fast Agent" in rendered.plain
-    assert "https://fast-agent.ai/" in rendered.plain
+    assert rendered.plain == "\n\nSources\n [1] Fast Agent — https://fast-agent.ai/\n"
 
 
 def test_web_tool_badges_count_server_tool_use_blocks() -> None:

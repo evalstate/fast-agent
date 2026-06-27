@@ -16,6 +16,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def _read_text(path: Path) -> str:
+    with path.open(encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
 def _build_agent(tmp_path: Path) -> McpAgent:
     agent = McpAgent(
         config=AgentConfig(name="test", instruction="Instruction", servers=[]),
@@ -84,7 +89,7 @@ async def test_edit_file_replaces_unique_multiline_match_and_returns_structured_
         payload = _result_payload(result)
 
         assert result.isError is False
-        assert project_file.read_text(encoding="utf-8", newline="") == (
+        assert _read_text(project_file) == (
             'def hello():\n    print("hello")\n'
         )
         assert payload["success"] is True
@@ -120,7 +125,7 @@ async def test_edit_file_replace_all_updates_each_non_overlapping_match(tmp_path
         payload = _result_payload(result)
 
         assert result.isError is False
-        assert target_file.read_text(encoding="utf-8", newline="") == "item one\nitem two\n"
+        assert _read_text(target_file) == "item one\nitem two\n"
         assert payload["success"] is True
         assert payload["replacements"] == 2
         assert payload["line_start"] == 1
@@ -148,7 +153,7 @@ async def test_edit_file_reports_multiple_matches_with_line_locations(tmp_path: 
         payload = _result_payload(result)
 
         assert result.isError is True
-        assert target_file.read_text(encoding="utf-8", newline="") == "alpha\nvalue\nbeta\nvalue\n"
+        assert _read_text(target_file) == "alpha\nvalue\nbeta\nvalue\n"
         assert payload == {
             "success": False,
             "error": "multiple_matches",
@@ -187,7 +192,7 @@ async def test_edit_file_reports_no_match_without_modifying_file(tmp_path: Path)
         payload = _result_payload(result)
 
         assert result.isError is True
-        assert target_file.read_text(encoding="utf-8", newline="") == "alpha\nbeta\n"
+        assert _read_text(target_file) == "alpha\nbeta\n"
         assert payload == {
             "success": False,
             "error": "no_match",
@@ -263,7 +268,7 @@ async def test_edit_file_deletion_preserves_missing_trailing_newline(tmp_path: P
         payload = _result_payload(result)
 
         assert result.isError is False
-        assert target_file.read_text(encoding="utf-8", newline="") == "alpha\nomega"
+        assert _read_text(target_file) == "alpha\nomega"
         assert payload["success"] is True
         assert payload["line_start"] == 2
         assert payload["line_end"] == 2
@@ -292,7 +297,7 @@ async def test_edit_file_can_replace_entire_file_and_preserve_trailing_newline(
         payload = _result_payload(result)
 
         assert result.isError is False
-        assert target_file.read_text(encoding="utf-8", newline="") == "gamma\ndelta\n"
+        assert _read_text(target_file) == "gamma\ndelta\n"
         assert payload["success"] is True
         assert payload["line_start"] == 1
         assert payload["line_end"] == 2
@@ -319,7 +324,7 @@ async def test_edit_file_can_delete_entire_file_to_empty_contents(tmp_path: Path
         payload = _result_payload(result)
 
         assert result.isError is False
-        assert target_file.read_text(encoding="utf-8", newline="") == ""
+        assert _read_text(target_file) == ""
         assert payload["success"] is True
         assert payload["line_start"] == 1
         assert payload["line_end"] == 1
@@ -406,7 +411,7 @@ async def test_edit_file_is_whitespace_exact_and_supports_unicode_success(tmp_pa
             "path": "indent.py",
         }
         assert unicode_result.isError is False
-        assert unicode_file.read_text(encoding="utf-8", newline="") == "naïve\n"
+        assert _read_text(unicode_file) == "naïve\n"
     finally:
         await agent._aggregator.close()
 

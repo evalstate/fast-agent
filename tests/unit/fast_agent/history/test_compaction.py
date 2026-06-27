@@ -19,6 +19,7 @@ from fast_agent.history.compaction import (
     DEFAULT_COMPACTION_PROMPT,
     FAST_AGENT_COMPACTION_CHANNEL,
     CompactionSkipped,
+    _plan_compaction_with_budget,
     build_summary_message,
     compact_conversation,
     estimate_tokens,
@@ -123,6 +124,30 @@ class TestPlanCompaction:
 
         assert len(plan.compact_region) == 4
         assert plan.retained_tail == []
+
+    def test_budget_planner_can_preserve_active_turn_tail(self):
+        history = _turn("one", "1") + [_user("two"), _assistant("calling", tool_call=True)]
+
+        plan = _plan_compaction_with_budget(
+            history,
+            keep_turns=0,
+            max_tokens_after=None,
+            min_keep_turns=1,
+        )
+
+        assert [m.first_text() for m in plan.compact_region] == ["one", "1"]
+        assert [m.first_text() for m in plan.retained_tail] == ["two", "calling"]
+
+    def test_budget_planner_skips_when_active_turn_is_only_turn(self):
+        history = [_user("one"), _assistant("calling", tool_call=True)]
+
+        with pytest.raises(CompactionSkipped):
+            _plan_compaction_with_budget(
+                history,
+                keep_turns=0,
+                max_tokens_after=None,
+                min_keep_turns=1,
+            )
 
     def test_skips_tiny_history(self):
         with pytest.raises(CompactionSkipped):

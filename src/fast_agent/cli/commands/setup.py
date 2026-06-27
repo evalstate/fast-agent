@@ -114,7 +114,7 @@ def _python_requires() -> str:
         req = metadata("fast-agent-mcp").get("Requires-Python")
         if req:
             return req
-    return ">=3.13.7"
+    return ">=3.12"
 
 
 def _create_scaffold_files(config_path: Path, *, force: bool, needs_gitignore: bool) -> list[str]:

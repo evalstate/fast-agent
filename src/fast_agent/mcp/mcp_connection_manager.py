@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, Protocol, runtime_checkable
+from urllib.parse import urlsplit
 
 import httpx
 from anyio import CancelScope, Event, Lock, create_task_group
@@ -927,11 +928,22 @@ def _format_oauth_registration_404_details(error_text: str, server_url: str | No
         "- Configure a Client ID Metadata URL (CIMD): auth.client_metadata_url or --client-metadata-url\n"
         "- Use direct bearer authentication with --auth <token>\n"
     )
-    normalized_url = strip_casefold(server_url or "")
-    if "githubcopilot.com" in normalized_url:
+    if _server_url_host_matches(server_url, "githubcopilot.com"):
         details += "GitHub Copilot MCP commonly expects token auth for external hosts. Try --auth $GITHUB_TOKEN.\n"
     details += f"\nOriginal error:\n{error_text}"
     return details
+
+
+def _server_url_host_matches(server_url: str | None, expected_host: str) -> bool:
+    if not server_url:
+        return False
+    try:
+        hostname = urlsplit(server_url).hostname
+    except ValueError:
+        return False
+    if hostname is None:
+        return False
+    return strip_casefold(hostname) == expected_host
 
 
 def _is_oauth_cancelled_message(message: str | None) -> bool:

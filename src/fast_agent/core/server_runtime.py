@@ -61,6 +61,12 @@ def resolve_server_instance_scope(
     return instance_scope
 
 
+def render_mcp_tool_name(tool_name_template: str | None, *, agent: str | None) -> str | None:
+    if tool_name_template is None:
+        return None
+    return tool_name_template.format(agent=agent or "agent")
+
+
 async def run_server_mode(context: ServerRuntimeContext) -> None:
     settings = context.settings
     if not settings.server_mode:
@@ -132,6 +138,7 @@ async def run_mcp_server(context: ServerRuntimeContext) -> None:
     )
 
     server_name = getattr(context.args, "server_name", None)
+    default_agent = getattr(context.args, "agent", None)
     await run_harness_mcp_app_server(
         instance_factory=context.callbacks.instance_factory(),
         shell_executor=context.state.runtime.shell_executor,
@@ -139,8 +146,12 @@ async def run_mcp_server(context: ServerRuntimeContext) -> None:
         options=HarnessMCPAppRuntimeOptions(
             server_name=server_name or f"{context.app_name}-MCP-Server",
             server_description=getattr(context.args, "server_description", None),
+            tool_name=render_mcp_tool_name(
+                getattr(context.args, "tool_name_template", None),
+                agent=default_agent,
+            ),
             tool_description=getattr(context.args, "tool_description", None),
-            default_agent=getattr(context.args, "agent", None),
+            default_agent=default_agent,
             transport=context.args.transport,
             host=context.args.host,
             port=context.args.port,
@@ -171,6 +182,7 @@ async def run_a2a_server(context: ServerRuntimeContext) -> None:
 __all__ = [
     "ServerRuntimeContext",
     "print_server_startup",
+    "render_mcp_tool_name",
     "resolve_server_instance_scope",
     "run_a2a_server",
     "run_acp_server",

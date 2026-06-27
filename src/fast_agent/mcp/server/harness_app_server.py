@@ -35,7 +35,7 @@ from fast_agent.mcp.tool_progress import MCPToolProgressManager
 from fast_agent.types import AgentAuth, AgentRequest
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Mapping
 
     from fast_agent.config import Settings
     from fast_agent.core.agent_instance_factory import AgentInstanceFactory
@@ -62,6 +62,7 @@ class HarnessMCPAppRuntimeOptions:
 
     server_name: str
     server_description: str | None = None
+    tool_name: str | None = None
     tool_description: str | None = None
     default_agent: str | None = None
     transport: TransportMode = "http"
@@ -79,6 +80,24 @@ class HarnessMCPAppRuntime:
 
     async def close(self) -> None:
         await self.sessions.close_all()
+
+
+class MCPProgressReporter:
+    """Bridge harness app progress reports to MCP progress notifications."""
+
+    def __init__(self, ctx: MCPContext) -> None:
+        self._ctx = ctx
+
+    async def report(
+        self,
+        message: str,
+        *,
+        progress: float | None = None,
+        total: float | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        del metadata
+        await self._ctx.report_progress(progress or 0, total, message)
 
 
 class HarnessMCPAppServer:
@@ -101,13 +120,9 @@ class HarnessMCPAppServer:
         if oauth_provider != "huggingface":
             return None
 
-        from fast_agent.mcp.auth.presence import HuggingFaceTokenVerifier
+        from fast_agent.mcp.auth.providers.huggingface import HuggingFaceTokenVerifier
 
-        token_verifier = HuggingFaceTokenVerifier(
-            provider="huggingface",
-            scopes=oauth_scopes,
-            base_url=resource_url,
-        )
+        token_verifier = HuggingFaceTokenVerifier()
         return RemoteAuthProvider(
             token_verifier=token_verifier,
             authorization_servers=[AnyHttpUrl("https://huggingface.co")],
@@ -158,6 +173,7 @@ class HarnessMCPAppServer:
             auth=self._agent_auth(),
             params=self._request_params(ctx),
             metadata={"transport": "mcp"},
+            progress=MCPProgressReporter(ctx),
         )
         async with self._app.open(
             AppOpenRequest(session_id=resolved_session_id, agent=resolved_agent)
@@ -203,7 +219,10 @@ class HarnessMCPAppServer:
         return report_progress
 
     def _tool_description(self) -> str:
-        return self._options.tool_description or "Send a message to the fast-agent application."
+        description = (
+            self._options.tool_description or "Send a message to the fast-agent application."
+        )
+        return description.replace("{agent}", self._options.default_agent or "agent")
 
     def _instructions(self) -> str:
         description = self._options.server_description or "This server exposes a fast-agent app."
@@ -292,6 +311,7 @@ def create_harness_mcp_app_runtime(
         HarnessMCPAppServerOptions(
             server_name=options.server_name,
             server_description=options.server_description,
+            tool_name=options.tool_name or "send",
             tool_description=options.tool_description,
             default_agent=options.default_agent,
             stateless_http=options.instance_scope == "request",
@@ -329,6 +349,7 @@ __all__ = [
     "HarnessMCPAppRuntimeOptions",
     "HarnessMCPAppServer",
     "HarnessMCPAppServerOptions",
+    "MCPProgressReporter",
     "create_harness_mcp_app_runtime",
     "run_harness_mcp_app_server",
 ]

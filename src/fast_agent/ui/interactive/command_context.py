@@ -31,13 +31,18 @@ def build_command_context(
         agent_name=agent_name,
         settings=settings,
     )
+    effective_session_manager = session_manager
+    if effective_session_manager is None and not noenv_mode:
+        from fast_agent.session import get_session_manager
+
+        effective_session_manager = get_session_manager()
     return CommandContext(
         agent_provider=cast("AgentProvider", prompt_provider),
         current_agent_name=agent_name,
         io=io,
         settings=settings,
         noenv=noenv_mode,
-        session_manager=session_manager,
+        session_manager=effective_session_manager,
     )
 
 

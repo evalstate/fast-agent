@@ -155,6 +155,8 @@ def _attach_cli_servers_to_selected_agent(fast, request: AgentRunRequest) -> Non
     selected_agent_data = None
     if request.target_agent_name and request.target_agent_name in fast.agents:
         selected_agent_data = fast.agents.get(request.target_agent_name)
+    elif request.agent_name and request.agent_name in fast.agents:
+        selected_agent_data = fast.agents.get(request.agent_name)
 
     if selected_agent_data is None:
         for agent_data in fast.agents.values():
@@ -164,11 +166,14 @@ def _attach_cli_servers_to_selected_agent(fast, request: AgentRunRequest) -> Non
                 break
 
     if selected_agent_data is None and fast.agents:
-        selected_agent_data = next(iter(fast.agents.values()))
+        for agent_data in fast.agents.values():
+            if not agent_data.get("tool_only", False):
+                selected_agent_data = agent_data
+                break
 
     if selected_agent_data:
         config = selected_agent_data.get("config")
-        if config:
+        if isinstance(config, AgentConfig):
             existing = list(config.servers) if config.servers else []
             config.servers = existing + [
                 server for server in request.server_list if server not in existing
@@ -843,6 +848,7 @@ def _build_card_cli_agent(
             fast,
             request,
             flow=_run_cli_flow,
+            prepare=lambda: _attach_cli_servers_to_selected_agent(fast, request),
         )
 
     return cli_agent

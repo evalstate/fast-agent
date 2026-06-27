@@ -171,8 +171,10 @@ Trackio is optional and explicit opt-in. Install `fast-agent-mcp[trackio]` or
 | `--no-trackio`                 | Explicitly disable Trackio monitoring.                                                      |
 
 Trackio logs aggregate `batch/` metrics only: progress, timing, usage, and
-cache behavior. Row contents, prompts, full outputs, and full errors are not
-logged by default.
+cache behavior. Common keys include `batch/progress_fraction`,
+`batch/error_rate`, `batch/rows_per_second`, `batch/timing/*`,
+`batch/usage/*`, and `batch/cache/*`. Row contents, prompts, full outputs, and
+full errors are not logged by default.
 
 ### Trace export
 

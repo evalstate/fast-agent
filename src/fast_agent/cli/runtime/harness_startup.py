@@ -16,6 +16,7 @@ from fast_agent.core.exceptions import (
 from fast_agent.core.harness_app import AppOpenRequest
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from contextlib import AbstractAsyncContextManager
 
     from fast_agent.cli.runtime.run_request import AgentRunRequest
@@ -77,10 +78,13 @@ async def run_harness_cli_flow(
     request: AgentRunRequest,
     *,
     flow: CliFlow,
+    prepare: Callable[[], None] | None = None,
 ) -> None:
     session_id = new_harness_session_id(request)
     try:
         async with fast.harness() as harness:
+            if prepare is not None:
+                prepare()
             app = harness.app()
             async with app.open(
                 AppOpenRequest(session_id=session_id, agent=request.target_agent_name)
@@ -111,11 +115,14 @@ async def run_cli_flow(
     request: AgentRunRequest,
     *,
     flow: CliFlow,
+    prepare: Callable[[], None] | None = None,
 ) -> None:
     if should_use_harness_startup(request):
-        await run_harness_cli_flow(fast, request, flow=flow)
+        await run_harness_cli_flow(fast, request, flow=flow, prepare=prepare)
         return
 
+    if prepare is not None:
+        prepare()
     async with fast.run() as agent_app:
         await flow(agent_app, request)
 

@@ -17,7 +17,7 @@ uv tool install -U fast-agent-mcp
 If you have multiple Python versions installed, pin the one required by fast-agent:
 
 ```bash
-uv tool install -U fast-agent-mcp --python 3.13.5
+uv tool install -U fast-agent-mcp --python 3.12
 ```
 
 ## Run

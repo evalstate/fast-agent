@@ -214,13 +214,26 @@ def _plan_compaction_with_budget(
     *,
     keep_turns: int,
     max_tokens_after: int | None,
+    min_keep_turns: int = 0,
 ) -> CompactionPlan:
     """Return a compaction plan, reducing kept turns when the tail is too large."""
-    plan = plan_compaction(history, keep_turns=keep_turns)
+    min_keep_turns = max(min_keep_turns, 0)
+    if min_keep_turns > 0:
+        template_count = 0
+        for message in history:
+            if message.is_template:
+                template_count += 1
+            else:
+                break
+        real_turns = _turn_start_indices(list(history[template_count:]))
+        if len(real_turns) <= min_keep_turns:
+            raise CompactionSkipped("No older turns to compact while preserving the active turn.")
+
+    plan = plan_compaction(history, keep_turns=max(keep_turns, min_keep_turns))
     if max_tokens_after is None or max_tokens_after <= 0:
         return plan
 
-    for candidate_keep in range(max(keep_turns, 0), -1, -1):
+    for candidate_keep in range(max(keep_turns, min_keep_turns, 0), min_keep_turns - 1, -1):
         candidate = plan_compaction(history, keep_turns=candidate_keep)
         projected = (
             estimate_tokens(candidate.templates + candidate.retained_tail)
@@ -404,6 +417,7 @@ async def compact_conversation(
     *,
     settings: "CompactionSettings",
     instructions: str | None = None,
+    min_keep_turns: int = 0,
 ) -> CompactionResult:
     """
     Compact the agent's history into a checkpoint summary plus recent turns.
@@ -433,6 +447,7 @@ async def compact_conversation(
         history,
         keep_turns=settings.keep_turns,
         max_tokens_after=max_tokens_after,
+        min_keep_turns=min_keep_turns,
     )
 
     prompt_text = resolve_compaction_prompt(settings)

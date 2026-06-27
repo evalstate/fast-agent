@@ -9,7 +9,7 @@ from mcp.client.streamable_http import streamable_http_client
 
 from fast_agent.core.harness_app import AppOpenRequest
 from fast_agent.mcp.auth.middleware import HFAuthHeaderMiddleware
-from fast_agent.mcp.auth.presence import HuggingFaceTokenVerifier
+from fast_agent.mcp.auth.providers.huggingface import HuggingFaceTokenVerifier
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.server.harness_app_server import (
     HarnessMCPAppServer,
@@ -61,7 +61,7 @@ class _TokenEchoHarnessApp:
 
 @pytest.fixture(autouse=True)
 def _mock_hf_token_verifier(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def verify_token(self: HuggingFaceTokenVerifier, token: str) -> AccessToken | None:
+    async def verify_token(self: object, token: str) -> AccessToken | None:
         del self
         if token == "invalid-token":
             return None

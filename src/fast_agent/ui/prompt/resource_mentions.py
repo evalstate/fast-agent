@@ -29,7 +29,7 @@ _TOKEN_RE = re.compile(r"(?P<prefix>^|\s)(?P<token>\^[^\s]+)")
 _PLACEHOLDER_RE = re.compile(r"\{([^{}]+)\}")
 _TEMPLATE_ARG_KEY_RE = re.compile(r"(?:^|,)(?P<key>[A-Za-z0-9_.-]+)=")
 _TEMPLATE_ARGS_RE = re.compile(
-    r"^(?P<template>.+)\{(?P<args>[A-Za-z0-9_.-]+=[^{}]*(?:,[A-Za-z0-9_.-]+=[^{}]*)*)\}$"
+    r"^(?P<template>[^{]*)\{(?P<args>[A-Za-z0-9_.-]+=[^{}]*(?:,[A-Za-z0-9_.-]+=[^{}]*)*)\}$"
 )
 _TEMPLATE_OPERATORS = "+#./;?&"
 

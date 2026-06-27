@@ -190,6 +190,7 @@ class ToolRunner:
         if staged is not None:
             return staged
 
+        await self._maybe_auto_compact_before_followup_llm()
         await self._ensure_tools_ready()
         await self._run_before_llm_hook()
         assistant_message = await self._call_llm()
@@ -335,6 +336,26 @@ class ToolRunner:
             self._clear_deferred_hook_status_messages()
             await self._persist_exception_turn_state()
             raise
+
+    async def _maybe_auto_compact_before_followup_llm(self) -> None:
+        message = self._last_message
+        if message is None or message.stop_reason != LlmStopReason.TOOL_USE:
+            return
+        try:
+            from fast_agent.hooks.compaction import auto_compact_history_mid_turn
+            from fast_agent.hooks.hook_context import HookContext
+
+            await auto_compact_history_mid_turn(
+                HookContext(
+                    runner=self,
+                    agent=cast("HookAgentProtocol", self._agent),
+                    message=message,
+                    hook_type="before_followup_llm_call",
+                )
+            )
+        except Exception:
+            # Mid-turn compaction is opportunistic; never break a tool loop.
+            _logger.exception("Auto-compaction failed during tool loop; history unchanged")
 
     def _record_cancelled_turn(
         self,

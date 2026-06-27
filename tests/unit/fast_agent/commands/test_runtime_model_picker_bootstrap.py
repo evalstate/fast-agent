@@ -198,6 +198,43 @@ def test_attach_cli_servers_prefers_typed_default_agent_config() -> None:
     assert fallback_config.servers == []
 
 
+def test_attach_cli_servers_prefers_explicit_agent_over_default() -> None:
+    default_config = AgentConfig("primary", default=True, servers=[])
+    explicit_config = AgentConfig("target", servers=["existing"])
+    fast = SimpleNamespace(
+        agents={
+            "primary": {"config": default_config},
+            "target": {"config": explicit_config},
+        }
+    )
+    request = _make_request()
+    request.agent_name = "target"
+    request.server_list = ["existing", "from-cli"]
+
+    _attach_cli_servers_to_selected_agent(fast, request)
+
+    assert default_config.servers == []
+    assert explicit_config.servers == ["existing", "from-cli"]
+
+
+def test_attach_cli_servers_skips_tool_only_fallback_agent() -> None:
+    tool_config = AgentConfig("tool", tool_only=True, servers=[])
+    runnable_config = AgentConfig("runnable", servers=[])
+    fast = SimpleNamespace(
+        agents={
+            "tool": {"config": tool_config, "tool_only": True},
+            "runnable": {"config": runnable_config},
+        }
+    )
+    request = _make_request()
+    request.server_list = ["from-cli"]
+
+    _attach_cli_servers_to_selected_agent(fast, request)
+
+    assert tool_config.servers == []
+    assert runnable_config.servers == ["from-cli"]
+
+
 def test_explicit_remote_agent_card_model_suppresses_startup_model_selection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

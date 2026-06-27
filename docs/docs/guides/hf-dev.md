@@ -35,7 +35,7 @@ Use the `compaction-strategies` skill to set up your preferred compaction scheme
 
 ## Installation
 
-**fast-agent** requires Python 3.13.5 or newer. Install with:
+**fast-agent** requires Python 3.12 or newer. Install with:
 
 ```bash
 uv tool install -U fast-agent-mcp
@@ -44,7 +44,7 @@ uv tool install -U fast-agent-mcp
 Or a specific version of Python:
 
 ```bash
-uv tool install --python 3.13.5 -U fast-agent-mcp
+uv tool install --python 3.12 -U fast-agent-mcp
 ```
 
 This installs the `fast-agent` executable.

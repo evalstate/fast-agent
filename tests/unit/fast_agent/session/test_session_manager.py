@@ -415,6 +415,36 @@ async def test_resume_session_agents_uses_hydrator_active_agent_and_prompt_resto
     assert _message_texts(runtime_bar) == ["hello bar", "done bar"]
 
 
+@pytest.mark.asyncio
+async def test_resume_session_agents_without_id_skips_latest_empty_session(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        environment_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    previous = manager.create_session()
+    saved = _Agent(
+        name="foo",
+        instruction="Stored prompt",
+        history=[_message("user", "hello"), _message("assistant", "done")],
+    )
+    await previous.save_history(cast("AgentProtocol", saved))
+
+    empty = manager.create_session()
+    assert manager.list_sessions()[0].name == empty.info.name
+
+    runtime = _Agent(name="foo", instruction="Runtime prompt")
+    result = await manager.resume_session_agents_async(
+        {"foo": cast("AgentProtocol", runtime)},
+        None,
+        fallback_agent_name="foo",
+    )
+
+    assert result is not None
+    assert result.session.info.name == previous.info.name
+    assert _message_texts(runtime) == ["hello", "done"]
+
+
 def test_resume_session_includes_hydrator_warnings_in_notices(tmp_path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
