@@ -116,6 +116,10 @@ class MCPServerAuthSettings(BaseModel):
     # and escalates to OAuth on a 401 challenge.
     oauth: bool = True
 
+    # Forward the inbound request bearer token to matching upstream services.
+    # "huggingface" applies only to hf.co, huggingface.co, and *.hf.space URLs.
+    forward: Literal["huggingface"] | None = None
+
     # Local callback server configuration
     redirect_port: int = 3030
     redirect_path: str = "/callback"
@@ -253,6 +257,15 @@ class PluginsSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class HarnessAppSettings(BaseModel):
+    """Configuration for the harness application boundary."""
+
+    entrypoint: str | None = None
+    """Import path for a custom harness app factory, as module:function."""
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class ShellSettings(BaseModel):
     """Configuration for shell execution behavior."""
 
@@ -320,16 +333,6 @@ class ShellSettings(BaseModel):
         ),
     )
     model_config = ConfigDict(extra="ignore")
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_deprecated_attach_resource(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "enable_attach_media" not in data:
-            old_value = data.get("enable_attach_resource")
-            if old_value is not None:
-                data = dict(data)
-                data["enable_attach_media"] = old_value
-        return data
 
     @field_validator("timeout_seconds", mode="before")
     @classmethod
@@ -636,6 +639,7 @@ class MCPServerSettings(BaseModel):
                 url=self.url,
                 headers=self.headers,
                 access_token=self.access_token,
+                forward_huggingface=(self.auth is not None and self.auth.forward == "huggingface"),
             )
             self.url = normalized_server.url
             self.headers = normalized_server.headers
@@ -1649,16 +1653,6 @@ def load_implicit_settings(
     return merged, discovery
 
 
-def load_selected_settings(
-    *,
-    start_path: Path,
-    env_dir: str | Path | None = None,
-    noenv: bool = False,
-) -> tuple[dict[str, Any], ConfigDiscoveryResult]:
-    """Load first-found config/secrets settings with home then cwd precedence."""
-    return load_implicit_settings(start_path=start_path, env_dir=env_dir, noenv=noenv)
-
-
 @dataclass(frozen=True)
 class _LoadedSettingsSources:
     merged_settings: dict[str, Any]
@@ -1854,6 +1848,9 @@ class Settings(BaseSettings):
     mcp: MCPSettings | None = Field(default_factory=MCPSettings)
     """MCP config, such as MCP servers"""
 
+    harness_app: HarnessAppSettings = Field(default_factory=HarnessAppSettings)
+    """Harness application boundary configuration."""
+
     execution_engine: Literal["asyncio"] = "asyncio"
     """Execution engine for the fast-agent application"""
 
@@ -1865,7 +1862,7 @@ class Settings(BaseSettings):
     Default model for agents. Format is provider.model?reasoning=<value>,
     for example openai.o3-mini?reasoning=high.
     Built-in model presets are provided for common models e.g. sonnet, haiku, gpt-4.1, o3-mini etc.
-    If not set, falls back to FAST_AGENT_MODEL env var, then to "gpt-5-mini?reasoning=low".
+    If not set, falls back to FAST_AGENT_MODEL env var, then to "gpt-5.4-mini?reasoning=low".
     """
 
     model_references: dict[str, dict[str, str]] = Field(default_factory=dict)
@@ -1986,7 +1983,6 @@ class Settings(BaseSettings):
     """
 
     _config_file: str | None = PrivateAttr(default=None)
-    _secrets_file: str | None = PrivateAttr(default=None)
     _fast_agent_home: str | None = PrivateAttr(default=None)
     _fast_agent_home_source: str | None = PrivateAttr(default=None)
     _fast_agent_global_plugin_home: str | None = PrivateAttr(default=None)
@@ -2029,13 +2025,6 @@ class Settings(BaseSettings):
             normalized[namespace] = normalized_entries
 
         return normalized
-
-    @classmethod
-    def find_config(cls) -> Path | None:
-        """Find the preferred config file in the current directory."""
-        config_path = Path.cwd() / "fast-agent.yaml"
-        return config_path if config_path.exists() else None
-
 
 # Global settings object
 _settings: Settings | None = None
@@ -2232,7 +2221,6 @@ def _settings_from_sources(
 ) -> Settings:
     settings = Settings(**sources.merged_settings)
     settings._config_file = str(sources.config_file) if sources.config_file else None
-    settings._secrets_file = str(sources.secrets_file) if sources.secrets_file else None
     settings._fast_agent_home = str(sources.discovery.home.path) if sources.discovery.home else None
     settings._fast_agent_home_source = (
         sources.discovery.home.source if sources.discovery.home else None

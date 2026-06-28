@@ -58,16 +58,6 @@ class McpUIMixin:
         """Initialize the mixin with UI mode configuration."""
         super().__init__(*args, **kwargs)
         self._ui_mode: McpUIMode = normalize_mcp_ui_mode(ui_mode)
-        self._pending_ui_resources: list[ContentBlock] = []
-
-    def set_ui_mode(self, mode: object) -> None:
-        """
-        Set the UI mode for handling MCP-UI resources.
-
-        Args:
-            mode: One of "disabled", "enabled", or "auto"
-        """
-        self._ui_mode = normalize_mcp_ui_mode(mode)
 
     async def run_tools(
         self,
@@ -101,9 +91,6 @@ class McpUIMixin:
                 current = channels.get(MCP_UI, [])
                 channels[MCP_UI] = current + extraction.ui_blocks
                 result.channels = channels
-
-                # Store for display after assistant message
-                self._pending_ui_resources = extraction.ui_blocks
 
         return result
 

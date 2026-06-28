@@ -3,8 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, TypeGuard
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from typing import TYPE_CHECKING, Any, Literal
 
 from fast_agent.config import get_settings
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, FAST_AGENT_RUNTIME_ENVIRONMENT
@@ -17,7 +16,6 @@ from fast_agent.llm.provider.anthropic.vertex_config import (
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import available_reasoning_values, format_reasoning_setting
-from fast_agent.utils.action_normalization import on_off_label
 from fast_agent.utils.collections import unique_preserve_order
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.text import strip_str_to_none
@@ -28,13 +26,6 @@ if TYPE_CHECKING:
 ModelSource = Literal["curated", "all"]
 ProviderActivationAction = Literal["codex-login"]
 ModelAvailability = Literal["active", "attention", "inactive"]
-MODEL_AVAILABILITIES: tuple[ModelAvailability, ...] = ("active", "attention", "inactive")
-KEEP_VALUE = "__keep__"
-DEFAULT_VALUE = "__default__"
-
-
-def is_model_availability(value: object) -> TypeGuard[ModelAvailability]:
-    return value in MODEL_AVAILABILITIES
 
 
 PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
@@ -65,7 +56,6 @@ REFER_TO_DOCS_PROVIDERS: tuple[Provider, ...] = (
 
 GENERIC_CUSTOM_MODEL_SENTINEL = "generic.__custom__"
 CODEX_LOGIN_SENTINEL = "codexresponses.__login__"
-ANTHROPIC_VERTEX_PROVIDER_KEY = "anthropic-vertex"
 LLAMACPP_PROVIDER_KEY = "llamacpp"
 LLAMACPP_IMPORT_SENTINEL = "llamacpp.__import__"
 PROVIDER_PREFIX_DELIMITERS = ("/", ".")
@@ -91,14 +81,6 @@ class ProviderOption:
             raise ValueError("Provider option requires key when provider is unset")
         return self.provider.config_name
 
-    @property
-    def option_display_name(self) -> str:
-        if self.display_name is not None:
-            return self.display_name
-        if self.provider is None:
-            raise ValueError("Provider option requires display_name when provider is unset")
-        return self.provider.display_name
-
 
 @dataclass(frozen=True)
 class ModelOption:
@@ -106,7 +88,6 @@ class ModelOption:
     label: str
     preset_token: str | None = None
     fast: bool = False
-    curated: bool = False
     activation_action: ProviderActivationAction | None = None
 
 
@@ -118,12 +99,9 @@ class ModelCapabilities:
     provider: Provider
     model_name: str
     reasoning_values: tuple[str, ...]
-    current_reasoning: str
     default_reasoning: str
     web_search_supported: bool
-    current_web_search: bool | None
     supports_long_context: bool
-    current_long_context: bool
     long_context_window: int | None
     cache_ttl_default: str | None
 
@@ -206,7 +184,6 @@ def _catalog_options_from_entries(
                 label=format_catalog_model_entry_label(entry, spec=spec),
                 preset_token=entry.alias,
                 fast=entry.fast,
-                curated=entry.current,
             )
         )
 
@@ -555,16 +532,6 @@ def find_provider(snapshot: ModelPickerSnapshot, provider_name: str) -> Provider
     raise ValueError(f"Unknown provider: {provider_name}")
 
 
-def provider_option_status_label(option: ProviderOption) -> str:
-    if option.option_key == LLAMACPP_PROVIDER_KEY:
-        return "active"
-    if option.active:
-        return "active"
-    if option.disabled_reason:
-        return "disabled"
-    return "inactive"
-
-
 def provider_option_count_label(option: ProviderOption) -> str:
     if option.option_key == LLAMACPP_PROVIDER_KEY:
         return "import flow"
@@ -573,17 +540,6 @@ def provider_option_count_label(option: ProviderOption) -> str:
     if option.overlay_group:
         return format_count(curated_count, "overlay")
     return format_count(curated_count, "curated model")
-
-
-def build_provider_label(option: ProviderOption) -> str:
-    count_text = provider_option_count_label(option)
-    return (
-        f"{option.option_display_name:<16} [{provider_option_status_label(option)}] · {count_text}"
-    )
-
-
-def active_provider_names(snapshot: ModelPickerSnapshot) -> list[str]:
-    return [option.option_display_name for option in snapshot.providers if option.active]
 
 
 def has_explicit_provider_prefix(model_spec: str) -> bool:
@@ -708,7 +664,6 @@ def model_capabilities(model_spec: str) -> ModelCapabilities:
         provider=parsed.provider,
         model_name=parsed.model_name,
         reasoning_values=reasoning_values,
-        current_reasoning=format_reasoning_setting(parsed.reasoning_effort),
         default_reasoning=default_reasoning,
         web_search_supported=(
             parsed.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES, Provider.XAI}
@@ -717,62 +672,7 @@ def model_capabilities(model_spec: str) -> ModelCapabilities:
                 and resolved.anthropic_web_search_version is not None
             )
         ),
-        current_web_search=parsed.web_search,
         supports_long_context=supports_long_context,
-        current_long_context=parsed.long_context and supports_long_context,
         long_context_window=long_context_window,
         cache_ttl_default=cache_ttl_default,
     )
-
-
-def _update_query_param(model_spec: str, *, key: str, value: str | None) -> str:
-    parsed = urlsplit(model_spec)
-    query_pairs = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if k != key]
-
-    if value is not None:
-        query_pairs.append((key, value))
-
-    return urlunsplit(
-        (
-            parsed.scheme,
-            parsed.netloc,
-            parsed.path,
-            urlencode(query_pairs),
-            parsed.fragment,
-        )
-    )
-
-
-def apply_option_overrides(
-    model_spec: str,
-    *,
-    reasoning_value: str | None = None,
-    web_search_value: str | None = None,
-    context_value: str | None = None,
-) -> str:
-    """Apply optional overrides to a model spec query string.
-
-    Values:
-    - ``None``: keep existing value
-    - ``DEFAULT_VALUE``: remove explicit query override
-    - anything else: set query override to that value
-    """
-
-    result = model_spec
-    overrides = {
-        "reasoning": reasoning_value,
-        "web_search": web_search_value,
-        "context": context_value,
-    }
-    for key, selected_value in overrides.items():
-        if selected_value is None:
-            continue
-        target = None if selected_value == DEFAULT_VALUE else selected_value
-        result = _update_query_param(result, key=key, value=target)
-    return result
-
-
-def web_search_display(value: bool | None) -> str:
-    if value is None:
-        return "default"
-    return on_off_label(value)

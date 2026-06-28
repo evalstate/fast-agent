@@ -17,7 +17,6 @@ from fast_agent.mcp.mcp_content import (
     MCPPrompt,
     MCPText,
     User,
-    create_message,
 )
 
 
@@ -189,7 +188,6 @@ def test_prompt_function():
         # to a stringified object prompt.
         messages = MCPPrompt(ReadResourceResult(contents=[]))
         assert messages == []
-        assert create_message(ReadResourceResult(contents=[])) == {}
 
         # Test with direct TextContent
         text_content = TextContent(type="text", text="Direct text content")

@@ -1,0 +1,214 @@
+{
+  "casts": [
+    {
+      "embedded": [
+        {
+          "autoplay": false,
+          "cols": 96,
+          "fit": "width",
+          "idle_time_limit": 1.0,
+          "page": "docs/docs/a2a/client.md",
+          "poster": null,
+          "reference": "../../assets/a2a/a2a-client-input-required.cast",
+          "rows": 18
+        }
+      ],
+      "height": 18,
+      "idle_time_limit": 1.0,
+      "line_count": 3,
+      "notes": "Deterministic turn-continuation transcript; regenerated with the A2A batch.",
+      "path": "docs/docs/assets/a2a/a2a-client-input-required.cast",
+      "present": true,
+      "problems": [],
+      "record_command": "uv run scripts/a2a_docs_pipeline.py record",
+      "recorder": "a2a-client-input-required",
+      "timestamp": 1780860643,
+      "title": "fast-agent A2A input-required continuation",
+      "width": 96
+    },
+    {
+      "embedded": [
+        {
+          "autoplay": false,
+          "cols": 104,
+          "fit": "width",
+          "idle_time_limit": 1.0,
+          "page": "docs/docs/a2a/server.md",
+          "poster": null,
+          "reference": "../../assets/a2a/a2a-server-card.cast",
+          "rows": 20
+        }
+      ],
+      "height": 20,
+      "idle_time_limit": 1.0,
+      "line_count": 4,
+      "notes": "Deterministic A2A server card recording; regenerated with the A2A batch.",
+      "path": "docs/docs/assets/a2a/a2a-server-card.cast",
+      "present": true,
+      "problems": [],
+      "record_command": "uv run scripts/a2a_docs_pipeline.py record",
+      "recorder": "a2a-server-card",
+      "timestamp": 1780860643,
+      "title": "fast-agent A2A server card and transports",
+      "width": 104
+    },
+    {
+      "embedded": [
+        {
+          "autoplay": true,
+          "cols": 96,
+          "fit": "width",
+          "idle_time_limit": 1.3,
+          "page": "docs/docs/models/index.md",
+          "poster": "npt:0:03",
+          "reference": "../../assets/models/model-picker.cast",
+          "rows": 21
+        }
+      ],
+      "height": 21,
+      "idle_time_limit": 1.3,
+      "line_count": 25,
+      "notes": "",
+      "path": "docs/docs/assets/models/model-picker.cast",
+      "present": true,
+      "problems": [],
+      "record_command": "uv run scripts/docs.py cast-build model-picker",
+      "recorder": "model-picker",
+      "timestamp": 1780593766,
+      "title": "fast-agent model picker",
+      "width": 96
+    },
+    {
+      "embedded": [
+        {
+          "autoplay": false,
+          "cols": 120,
+          "fit": "width",
+          "idle_time_limit": 1.3,
+          "page": "docs/docs/guides/tui.md",
+          "poster": "npt:0:36",
+          "reference": "../../assets/tui/hf-image-generation.cast",
+          "rows": 34
+        }
+      ],
+      "height": 34,
+      "idle_time_limit": 1.3,
+      "line_count": 699,
+      "notes": "",
+      "path": "docs/docs/assets/tui/hf-image-generation.cast",
+      "present": true,
+      "problems": [],
+      "record_command": "uv run scripts/docs.py cast-build hf-image-generation",
+      "recorder": "hf-image-generation",
+      "timestamp": 1779781999,
+      "title": "fast-agent Hugging Face image generation",
+      "width": 120
+    },
+    {
+      "embedded": [
+        {
+          "autoplay": false,
+          "cols": 96,
+          "fit": "width",
+          "idle_time_limit": 1.3,
+          "page": "docs/docs/guides/skills.md",
+          "poster": "npt:0:01",
+          "reference": "../../assets/tui/skills-direct-install.cast",
+          "rows": 20
+        }
+      ],
+      "height": 20,
+      "idle_time_limit": 1.3,
+      "line_count": 285,
+      "notes": "",
+      "path": "docs/docs/assets/tui/skills-direct-install.cast",
+      "present": true,
+      "problems": [],
+      "record_command": "uv run scripts/docs.py cast-build skills-direct-install",
+      "recorder": "skills-direct-install",
+      "timestamp": 1780593777,
+      "title": "fast-agent direct skill install",
+      "width": 96
+    },
+    {
+      "embedded": [
+        {
+          "autoplay": false,
+          "cols": 96,
+          "fit": "width",
+          "idle_time_limit": 1.3,
+          "page": "docs/docs/mcp/skills-over-mcp.md",
+          "poster": "npt:0:02",
+          "reference": "../../assets/tui/skills-over-mcp.cast",
+          "rows": 22
+        }
+      ],
+      "height": 22,
+      "idle_time_limit": 1.3,
+      "line_count": 347,
+      "notes": "",
+      "path": "docs/docs/assets/tui/skills-over-mcp.cast",
+      "present": true,
+      "problems": [],
+      "record_command": "uv run scripts/docs.py cast-build skills-over-mcp",
+      "recorder": "skills-over-mcp",
+      "timestamp": 1782369652,
+      "title": "fast-agent Skills over MCP",
+      "width": 96
+    },
+    {
+      "embedded": [
+        {
+          "autoplay": false,
+          "cols": 96,
+          "fit": "width",
+          "idle_time_limit": 1.3,
+          "page": "docs/docs/guides/skills.md",
+          "poster": "npt:0:05",
+          "reference": "../../assets/tui/skills-slash-commands.cast",
+          "rows": 24
+        }
+      ],
+      "height": 24,
+      "idle_time_limit": 1.3,
+      "line_count": 301,
+      "notes": "",
+      "path": "docs/docs/assets/tui/skills-slash-commands.cast",
+      "present": true,
+      "problems": [],
+      "record_command": "uv run scripts/docs.py cast-build skills-slash-commands",
+      "recorder": "skills-slash-commands",
+      "timestamp": 1780593801,
+      "title": "fast-agent skills slash commands",
+      "width": 96
+    },
+    {
+      "embedded": [
+        {
+          "autoplay": true,
+          "cols": 96,
+          "fit": "width",
+          "idle_time_limit": 1.3,
+          "page": "docs/docs/guides/tui.md",
+          "poster": "npt:0:03",
+          "reference": "../../assets/tui/tui-shell.cast",
+          "rows": 22
+        }
+      ],
+      "height": 22,
+      "idle_time_limit": 1.3,
+      "line_count": 114,
+      "notes": "",
+      "path": "docs/docs/assets/tui/tui-shell.cast",
+      "present": true,
+      "problems": [],
+      "record_command": "uv run scripts/docs.py cast-build tui-shell",
+      "recorder": "tui-shell",
+      "timestamp": 1780593730,
+      "title": "fast-agent TUI shell commands",
+      "width": 96
+    }
+  ],
+  "description": "Internal review index for committed asciinema docs recordings.",
+  "schema": 1
+}

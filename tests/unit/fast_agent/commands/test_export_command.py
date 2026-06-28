@@ -68,6 +68,10 @@ def test_export_command_exports_latest_session(tmp_path: Path, monkeypatch) -> N
     _write_session_fixture(env_dir, session_id=session_id)
     output_path = tmp_path / "cli-trace.jsonl"
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "fast_agent.session.get_session_manager",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected global manager")),
+    )
 
     runner = CliRunner()
     result = runner.invoke(
@@ -100,6 +104,10 @@ def test_export_command_implicit_target_uses_latest_session(tmp_path: Path, monk
     _write_session_fixture(env_dir, session_id=session_id)
     output_path = tmp_path / "implicit-trace.jsonl"
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "fast_agent.session.get_session_manager",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected global manager")),
+    )
 
     runner = CliRunner()
     result = runner.invoke(
@@ -125,9 +133,13 @@ def test_export_command_implicit_target_uses_latest_session(tmp_path: Path, monk
     assert records[0]["payload"]["id"] == session_id
 
 
-def test_export_command_lists_sessions(tmp_path: Path) -> None:
+def test_export_command_lists_sessions(tmp_path: Path, monkeypatch) -> None:
     env_dir = tmp_path / "env"
     _write_session_fixture(env_dir, session_id="2604201303-x5MNlH")
+    monkeypatch.setattr(
+        "fast_agent.session.get_session_manager",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected global manager")),
+    )
 
     runner = CliRunner()
     result = runner.invoke(

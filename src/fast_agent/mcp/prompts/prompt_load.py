@@ -229,28 +229,6 @@ def load_prompt(
         return PromptMessageExtended.to_extended(messages)
 
 
-def load_prompt_as_get_prompt_result(file: Path):
-    """
-    Load a prompt from a file and convert to GetPromptResult format for MCP compatibility.
-
-    This loses extended fields (tool_calls, channels, etc.) but provides
-    compatibility with MCP prompt servers.
-
-    Args:
-        file: Path to the prompt file
-
-    Returns:
-        GetPromptResult object for MCP compatibility
-    """
-    from fast_agent.mcp.prompt_serialization import to_get_prompt_result
-
-    # Load with full data
-    messages = load_prompt(file)
-
-    # Convert to GetPromptResult (loses extended fields)
-    return to_get_prompt_result(messages)
-
-
 def _history_messages(
     history: Path | str | list[PromptMessageExtended],
 ) -> list[PromptMessageExtended]:
@@ -428,33 +406,3 @@ def rehydrate_usage_from_history(
     messages = _history_messages(history)
     return _rehydrate_responses_usage(agent, messages)
 
-
-def load_history_into_agent(agent: AgentProtocol, file_path: Path) -> str | None:
-    """
-    Load conversation history directly into agent without triggering LLM call.
-
-    Compatibility wrapper around transcript restore plus usage rehydration.
-
-    This function restores saved conversation state by directly setting the
-    agent's _message_history. No LLM API calls are made.
-
-    Args:
-        agent: Agent instance to restore history into (FastAgentLLM or subclass)
-        file_path: Path to saved history file (JSON or template format)
-
-    Note:
-        - The agent's history is cleared before loading
-        - Provider diagnostic history will be updated on the next API call
-        - Templates are NOT cleared by this function
-
-    Returns:
-        Optional resume notice string when usage state cannot be restored.
-    """
-    messages = load_prompt(file_path)
-    usage_accumulator = agent.usage_accumulator
-    if usage_accumulator is not None:
-        usage_accumulator.reset()
-    load_transcript_into_agent(agent, messages)
-
-    # Note: Provider diagnostic history will be updated on next API call
-    return rehydrate_usage_from_history(agent, messages)

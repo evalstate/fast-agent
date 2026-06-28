@@ -7,9 +7,9 @@ import inspect
 import os
 import re
 import sys
+import types
 from pathlib import Path
-from types import NoneType, UnionType
-from typing import Any, Literal, Union, get_args, get_origin
+from typing import Any, get_args, get_origin
 
 from pydantic_core import PydanticUndefined
 
@@ -79,6 +79,46 @@ def _clean_signature_text(text: str) -> str:
     )
 
 
+def _normalize_signature_text(signature: str) -> str:
+    """Normalize Python-version-specific details in inspect signature output."""
+    return _clean_signature_text(signature)
+
+
+def _format_type(annotation: object) -> str:
+    """Format type annotations for stable, readable generated docs."""
+    if annotation is None or annotation is types.NoneType:
+        return "None"
+    if annotation is Any:
+        return "Any"
+
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+    if origin is types.UnionType or str(origin) == "typing.Union":
+        parts = [_format_type(arg) for arg in args]
+        return " | ".join(
+            [part for part in parts if part != "None"]
+            + [part for part in parts if part == "None"]
+        )
+    if str(origin) == "typing.Literal":
+        values = [repr(arg) if isinstance(arg, str) else _format_type(arg) for arg in args]
+        return f"Literal[{', '.join(values)}]"
+    if origin is not None:
+        origin_name = _format_type(origin)
+        if args:
+            return f"{origin_name}[{', '.join(_format_type(arg) for arg in args)}]"
+        return origin_name
+    if isinstance(annotation, str):
+        return annotation
+
+    name = getattr(annotation, "__qualname__", None) or getattr(annotation, "__name__", None)
+    module = getattr(annotation, "__module__", None)
+    if name:
+        if module and module not in {"builtins", "typing", "types"}:
+            return f"{module}.{name}".replace("pathlib._local.Path", "pathlib.Path")
+        return name.replace("NoneType", "None")
+    return str(annotation).replace("typing.", "").replace("NoneType", "None")
+
+
 def _wrap_workflow_return_annotation(text: str) -> str:
     return text.replace(
         "Callable[[Callable[~P, Coroutine[Any, Any, +R]]], Callable[~P, Coroutine[Any, Any, +R]]]",
@@ -133,42 +173,6 @@ def _field_default_text(field_info: Any) -> str:
     return f"`{default!r}`"
 
 
-def _annotation_text(annotation: Any) -> str:
-    if annotation is Any:
-        return "Any"
-    if annotation is NoneType:
-        return "None"
-    if annotation is Ellipsis:
-        return "..."
-    if isinstance(annotation, str):
-        return annotation
-
-    origin = get_origin(annotation)
-    args = get_args(annotation)
-    if origin in (Union, UnionType):
-        return " | ".join(_annotation_text(arg) for arg in args)
-    if origin is Literal:
-        values = ", ".join(repr(arg) for arg in args)
-        return f"Literal[{values}]"
-    if origin is not None:
-        origin_text = _annotation_text(origin)
-        if args:
-            args_text = ", ".join(_annotation_text(arg) for arg in args)
-            return f"{origin_text}[{args_text}]"
-        return origin_text
-
-    name = getattr(annotation, "__qualname__", None)
-    if name is not None:
-        module = getattr(annotation, "__module__", None)
-        if module in (None, "builtins"):
-            return name
-        if module == "typing":
-            return name
-        return f"{module}.{name}"
-
-    return str(annotation).removeprefix("typing.")
-
-
 def generate_workflows_reference() -> str:
     from fast_agent.core.fastagent import FastAgent
 
@@ -214,7 +218,7 @@ def generate_request_params_reference() -> str:
     lines.append("| --- | --- | --- | --- |\n")
 
     for field_name, field_info in RequestParams.model_fields.items():
-        type_str = _annotation_text(field_info.annotation)
+        type_str = _format_type(field_info.annotation)
         default_str = _field_default_text(field_info)
 
         desc = (field_info.description or "").replace("\n", " ").strip()
@@ -443,12 +447,15 @@ def generate_extension_reference() -> str:
         FastAgentBatchEvaluator,
         FastAgentReflectionLM,
         FastAgentRowWiseBatchAdapter,
+        FastAgentSingleTaskAdapter,
         RowWiseEvaluationRun,
         RowWiseScore,
+        SingleTaskEvaluationRun,
         gepa_api_trackio_kwargs,
         gepa_numeric_metrics,
         gepa_trackio_init_kwargs,
         make_gepa_tracking_config,
+        make_gepa_trackio_dashboard,
         safe_trackio_log,
     )
 
@@ -502,6 +509,34 @@ def generate_extension_reference() -> str:
         )
     )
 
+    lines.append("### `FastAgentSingleTaskAdapter`\n\n")
+    lines.append(
+        "`optimize_anything()`-friendly evaluator for one fast-agent task at a\n"
+        "time. It runs a batch of one, records the same candidate artifacts,\n"
+        "`results.jsonl`, summary, and telemetry files as larger batch evals, and\n"
+        "exposes evaluation metrics for `FastAgentGEPATrackioCallback`. Use this\n"
+        "when you want the simple `candidate -> score + side_info` API without\n"
+        "building a JSONL dataset first.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_constructor_signature("FastAgentSingleTaskAdapter", FastAgentSingleTaskAdapter),
+        )
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature("FastAgentSingleTaskAdapter.prompt", FastAgentSingleTaskAdapter.prompt),
+        )
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_method_signature("adapter.__call__", FastAgentSingleTaskAdapter.__call__),
+        )
+    )
+
     lines.append("### `FastAgentRowWiseBatchAdapter`\n\n")
     lines.append(
         "Lower-level GEPA adapter protocol implementation for `gepa.api.optimize`: GEPA\n"
@@ -550,17 +585,31 @@ def generate_extension_reference() -> str:
         )
     )
 
+    lines.append("### `SingleTaskEvaluationRun`\n\n")
+    lines.append(
+        "Metadata passed to a single-task scorer, including the candidate directory,\n"
+        "one-row input file, `BatchRunResult`, and `CandidateRun`.\n\n"
+    )
+    lines.append(
+        _md_code(
+            "python",
+            _format_constructor_signature("SingleTaskEvaluationRun", SingleTaskEvaluationRun),
+        )
+    )
+
     lines.append("### Trackio helpers\n\n")
     lines.append(
         "Trackio helpers provide fast-agent defaults for GEPA dashboards. Use\n"
         "`gepa_trackio_init_kwargs()` when your script initializes Trackio, use\n"
         "`gepa_api_trackio_kwargs()` with `gepa.api.optimize()`, and use\n"
-        "`make_gepa_tracking_config()` with `optimize_anything()`.\n\n"
+        "`make_gepa_trackio_dashboard()` or `make_gepa_tracking_config()` with\n"
+        "`optimize_anything()`.\n\n"
     )
     for name, func in (
         ("gepa_trackio_init_kwargs", gepa_trackio_init_kwargs),
         ("gepa_api_trackio_kwargs", gepa_api_trackio_kwargs),
         ("make_gepa_tracking_config", make_gepa_tracking_config),
+        ("make_gepa_trackio_dashboard", make_gepa_trackio_dashboard),
     ):
         lines.append(_md_code("python", _format_method_signature(name, func)))
 

@@ -118,33 +118,6 @@ def create_mermaid_live_link(diagram_content: str) -> str:
     return f"{MERMAID_VIEWER_URL}pako:{encoded}"
 
 
-def format_mermaid_links(diagrams: list[MermaidDiagram]) -> list[str]:
-    """
-    Format Mermaid diagrams as markdown links.
-
-    Args:
-        diagrams: List of MermaidDiagram objects
-
-    Returns:
-        List of formatted markdown strings
-    """
-    links = []
-
-    for i, diagram in enumerate(diagrams, 1):
-        link = create_mermaid_live_link(diagram.content)
-
-        if diagram.title:
-            # Use the title from the diagram with number
-            markdown = f"Diagram {i} - {diagram.title}: [Open Diagram]({link})"
-        else:
-            # Use generic numbering
-            markdown = f"Diagram {i}: [Open Diagram]({link})"
-
-        links.append(markdown)
-
-    return links
-
-
 def detect_diagram_type(content: str) -> str:
     """
     Detect the type of mermaid diagram from content.

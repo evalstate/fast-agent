@@ -1,7 +1,7 @@
 """Custom form elements for elicitation forms."""
 
 from collections.abc import Sequence
-from typing import Optional, TypeVar
+from typing import TypeVar
 
 from prompt_toolkit.formatted_text import AnyFormattedText
 from prompt_toolkit.validation import ValidationError
@@ -16,9 +16,9 @@ class ValidatedCheckboxList(CheckboxList[_T]):
     def __init__(
         self,
         values: Sequence[tuple[_T, AnyFormattedText]],
-        default_values: Optional[Sequence[_T]] = None,
-        min_items: Optional[int] = None,
-        max_items: Optional[int] = None,
+        default_values: Sequence[_T] | None = None,
+        min_items: int | None = None,
+        max_items: int | None = None,
     ):
         """
         Initialize checkbox list with validation.
@@ -34,7 +34,7 @@ class ValidatedCheckboxList(CheckboxList[_T]):
         self.max_items = max_items
 
     @property
-    def validation_error(self) -> Optional[ValidationError]:
+    def validation_error(self) -> ValidationError | None:
         """
         Check if current selection is valid.
 

@@ -12,6 +12,7 @@ from mcp.client.session import ElicitationFnT
 
 from fast_agent.command_actions import PluginCommandActionSpec
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.hooks.lifecycle_hook_types import LifecycleHookType
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
 from fast_agent.tools.function_tool_config import FunctionToolSpec
@@ -34,6 +35,7 @@ class AgentType(StrEnum):
     CHAIN = auto()
     ITERATIVE_PLANNER = auto()
     MAKER = auto()
+    A2A = auto()
 
 
 SkillConfig: TypeAlias = (
@@ -111,6 +113,7 @@ class AgentConfig:
     skill_manifests: list[SkillManifest] = field(default_factory=list, repr=False)
     model: str | None = None
     use_history: bool = True
+    save_trajectory: bool = False
     default_request_params: RequestParams | None = None
     human_input: bool = False
     agent_type: AgentType = AgentType.BASIC
@@ -130,6 +133,8 @@ class AgentConfig:
 
     def __post_init__(self):
         """Ensure default_request_params exists with proper history setting"""
+        if self.save_trajectory and self.use_history:
+            raise AgentConfigError("save_trajectory requires use_history=False")
         if self.default_request_params is None:
             self.default_request_params = RequestParams(
                 use_history=self.use_history, systemPrompt=self.instruction

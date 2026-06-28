@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
@@ -55,6 +54,7 @@ from fast_agent.marketplace.formatting import (
 )
 from fast_agent.paths import resolve_environment_paths
 from fast_agent.utils.action_normalization import is_help_flag
+from fast_agent.utils.async_utils import run_in_thread
 from fast_agent.utils.count_display import format_count
 
 if TYPE_CHECKING:
@@ -663,7 +663,7 @@ async def handle_update_card_pack(
         )
         return outcome
 
-    applied = await asyncio.to_thread(
+    applied = await run_in_thread(
         card_service.apply_update_plan,
         plan.selected,
         environment_paths=env_paths,
@@ -726,7 +726,7 @@ async def handle_publish_card_pack(
         return outcome
 
     try:
-        result = await asyncio.to_thread(
+        result = await run_in_thread(
             card_service.publish_pack,
             environment_paths=env_paths,
             selector=parsed.selector,

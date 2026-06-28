@@ -4,9 +4,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from fast_agent.acp.server.prompt_flow import ACPPromptFlow, PromptFlowHost
+from fast_agent.acp.server.prompt_flow import ACPInvokeSession, ACPPromptFlow, PromptFlowHost
 from fast_agent.agents.tool_runner import ToolRunnerHooks
-from fast_agent.core.prompt import Prompt
+from fast_agent.mcp.prompt import Prompt
+from fast_agent.types import AgentRequest
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
@@ -77,6 +78,38 @@ class _FakeHookCapableAgent:
         await after_llm_call(cast("Any", None), message)
         self.hook_stop_reasons.append(message.stop_reason)
         return message
+
+
+class _EnvelopeAgent:
+    def __init__(self) -> None:
+        self.requests: list[tuple[Any, Any]] = []
+
+    async def generate(
+        self,
+        prompt_message: Any,
+        request_params: Any = None,
+    ) -> PromptMessageExtended:
+        self.requests.append((prompt_message, request_params))
+        return Prompt.assistant("ok")
+
+
+@pytest.mark.asyncio
+async def test_acp_invoke_session_wraps_agent_response() -> None:
+    agent = _EnvelopeAgent()
+    session = ACPInvokeSession(agent=agent, structured_output=None)
+    request = AgentRequest.from_message(
+        Prompt.user("hi"),
+        agent="main",
+        session_id="session-1",
+        params=cast("Any", object()),
+        metadata={"transport": "acp"},
+    )
+
+    response = await session.invoke(request)
+
+    assert response.text_content() == "ok"
+    assert response.metadata == {"structured_parsed": None, "transport": "acp"}
+    assert agent.requests == [(request.message, request.params)]
 
 
 @pytest.mark.asyncio

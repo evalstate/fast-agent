@@ -3,20 +3,15 @@ A derived client session for the MCP Agent framework.
 It adds logging and supports sampling requests.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import sys
 from contextlib import suppress
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from mcp import ClientSession, ServerNotification
-from mcp.shared.context import RequestContext
-from mcp.shared.message import MessageMetadata
-from mcp.shared.session import (
-    ProgressFnT,
-    ReceiveResultT,
-)
 from mcp.types import (
     URL_ELICITATION_REQUIRED,
     CallToolRequest,
@@ -64,7 +59,12 @@ from fast_agent.utils.env import env_flag
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
+    from datetime import timedelta
+
     from mcp.client.session import ListRootsFnT, SamplingFnT
+    from mcp.shared.context import RequestContext
+    from mcp.shared.message import MessageMetadata
+    from mcp.shared.session import ProgressFnT, ReceiveResultT
 
     from fast_agent.config import MCPServerSettings
     from fast_agent.mcp.transport_tracking import TransportChannelMetrics
@@ -184,12 +184,12 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         fast_agent_version = version("fast-agent-mcp") or "dev"
         return Implementation(name="fast-agent-mcp", version=fast_agent_version)
 
-    def _make_list_roots_callback(self) -> "ListRootsFnT | None":
+    def _make_list_roots_callback(self) -> ListRootsFnT | None:
         if self.server_config and self.server_config.roots:
             return cast("ListRootsFnT", list_roots)
         return None
 
-    def _make_sampling_callback(self) -> "SamplingFnT | None":
+    def _make_sampling_callback(self) -> SamplingFnT | None:
         if (
             self.server_config and self.server_config.sampling
         ) or self._should_enable_auto_sampling():
@@ -198,7 +198,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
     @staticmethod
     def _make_sampling_capabilities(
-        sampling_cb: "SamplingFnT | None",
+        sampling_cb: SamplingFnT | None,
     ) -> SamplingCapability | None:
         if sampling_cb is None:
             return None

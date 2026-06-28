@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import BaseModel
 
-from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import FIXED_RESPONSE_INDICATOR
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 
 if TYPE_CHECKING:

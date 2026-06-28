@@ -28,6 +28,13 @@ def test_parse_history_detail_with_turn() -> None:
     assert result.error is None
 
 
+def test_parse_history_bare_turn_shows_turn_detail() -> None:
+    result = parse_special_input("/history 3")
+    assert isinstance(result, HistoryReviewCommand)
+    assert result.turn_index == 3
+    assert result.error is None
+
+
 def test_parse_history_detail_requires_turn() -> None:
     result = parse_special_input("/history detail")
     assert isinstance(result, HistoryReviewCommand)

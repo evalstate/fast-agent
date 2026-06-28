@@ -179,7 +179,7 @@ async def test_alt_v_pastes_clipboard_image_as_attachment(monkeypatch, tmp_path)
     async def fake_to_thread(*_args: Any, **_kwargs: Any) -> _PastedImage:
         return _PastedImage()
 
-    monkeypatch.setattr("fast_agent.ui.prompt.keybindings.asyncio.to_thread", fake_to_thread)
+    monkeypatch.setattr("fast_agent.ui.prompt.keybindings.run_in_thread", fake_to_thread)
     await paste_clipboard_image_attachment_into_buffer(buffer)
 
     assert buffer.text.startswith("describe this ^file:")
@@ -201,7 +201,7 @@ async def test_clipboard_image_paste_error_prints_bracketed_text_literally(
     async def fake_to_thread(*_args: Any, **_kwargs: Any) -> None:
         raise RuntimeError("[draft] image unavailable")
 
-    monkeypatch.setattr("fast_agent.ui.prompt.keybindings.asyncio.to_thread", fake_to_thread)
+    monkeypatch.setattr("fast_agent.ui.prompt.keybindings.run_in_thread", fake_to_thread)
 
     buffer = Buffer()
     buffer.text = "describe this"

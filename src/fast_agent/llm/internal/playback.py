@@ -3,11 +3,11 @@ from typing import Any
 from mcp import Tool
 
 from fast_agent.core.exceptions import ModelConfigError
-from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import ModelT
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompts.prompt_helpers import MessageContent
 from fast_agent.types import PromptMessageExtended, RequestParams
 

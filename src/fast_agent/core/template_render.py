@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
@@ -48,3 +49,20 @@ def render_template_text(text: str, values: Mapping[str, Any]) -> TemplateRender
 
     rendered = _PLACEHOLDER_RE.sub(replace, text)
     return TemplateRenderResult(text=rendered, missing=tuple(dict.fromkeys(missing)))
+
+
+def render_mapping_template(
+    template: str,
+    values: Mapping[str, Any],
+    *,
+    json_placeholder: str,
+) -> TemplateRenderResult:
+    """Render a prompt template from mapping fields plus a full JSON placeholder."""
+    rendered_values: dict[str, str] = {
+        json_placeholder: json.dumps(dict(values), ensure_ascii=False, indent=2)
+    }
+    for field_name, value in values.items():
+        rendered_values[field_name] = (
+            value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        )
+    return render_template_text(template, rendered_values)

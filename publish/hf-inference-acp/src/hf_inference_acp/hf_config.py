@@ -178,17 +178,6 @@ def update_model_in_config(model: str) -> None:
         _yaml.dump(config, f)
 
 
-def get_api_key_from_config() -> str | None:
-    """Get the hf.api_key from the config file.
-
-    Returns:
-        The API key if set, None otherwise
-    """
-    config = load_config()
-    hf_config = config.get("hf") or {}
-    return hf_config.get("api_key")
-
-
 def get_default_model() -> str:
     """Get the default model from config, or return the default.
 

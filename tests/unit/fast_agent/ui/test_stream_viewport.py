@@ -10,20 +10,14 @@ class _FakeMarkdownTruncator(MarkdownTruncator):
     def __init__(
         self,
         *,
-        estimate_height: int,
         measured_heights: dict[str, int],
         truncated_text: str = "trimmed",
     ) -> None:
         super().__init__()
-        self._estimate_height = estimate_height
         self._measured_heights = measured_heights
         self._truncated_text = truncated_text
         self.measure_calls = 0
         self.truncate_calls = 0
-
-    def estimate_rendered_height(self, text: str, terminal_width: int) -> int:
-        del text, terminal_width
-        return self._estimate_height
 
     def measure_rendered_height(
         self,
@@ -61,7 +55,6 @@ def test_estimate_plain_text_height_expands_tabs_and_clamps_width() -> None:
 
 def test_markdown_viewport_measures_precisely_before_skipping_truncation() -> None:
     truncator = _FakeMarkdownTruncator(
-        estimate_height=2,
         measured_heights={"hello": 31, "trimmed": 10},
     )
     viewport = StreamViewport(
@@ -86,7 +79,6 @@ def test_markdown_viewport_measures_precisely_before_skipping_truncation() -> No
 
 def test_markdown_viewport_measures_precisely_near_budget() -> None:
     truncator = _FakeMarkdownTruncator(
-        estimate_height=13,
         measured_heights={"hello": 12},
     )
     viewport = StreamViewport(
@@ -109,7 +101,6 @@ def test_markdown_viewport_measures_precisely_near_budget() -> None:
 
 def test_reasoning_viewport_uses_markdown_measurement() -> None:
     truncator = _FakeMarkdownTruncator(
-        estimate_height=13,
         measured_heights={"thinking": 12},
     )
     viewport = StreamViewport(

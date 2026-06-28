@@ -67,7 +67,6 @@ class _UpdateHunkHeader:
 class ApplyPatchArgs:
     patch: str
     hunks: list[Hunk]
-    workdir: str | None
 
 
 class ParseMode(Enum):
@@ -95,7 +94,7 @@ def parse_patch_text(patch: str, mode: ParseMode) -> ApplyPatchArgs:
         remaining_lines = remaining_lines[hunk_lines:]
 
     patch_text = "\n".join(lines)
-    return ApplyPatchArgs(patch=patch_text, hunks=hunks, workdir=None)
+    return ApplyPatchArgs(patch=patch_text, hunks=hunks)
 
 
 def _check_patch_boundaries(lines: list[str], mode: ParseMode) -> list[str]:

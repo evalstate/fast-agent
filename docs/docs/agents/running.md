@@ -95,7 +95,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-`--transport` now implies server mode when running a Python module directly. The legacy `--server` flag remains as an alias but is deprecated.
+`--transport` implies server mode when running a Python module directly.
 
 
 ## Python Program Integration

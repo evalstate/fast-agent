@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -11,6 +13,15 @@ from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import sessions as session_handlers
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import ResumeSessionAgentsResult
+
+REPO_ROOT = next(
+    parent for parent in Path(__file__).resolve().parents if (parent / "tests" / "support").is_dir()
+)
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+_session_runtime = importlib.import_module("tests.support.session_runtime")
+StubSessionRuntime = _session_runtime.StubSessionRuntime
 
 
 class _StubIO:
@@ -127,6 +138,22 @@ def _build_context(*, session_cwd: Path | None = None) -> CommandContext:
     )
 
 
+def _build_scoped_context(
+    *,
+    session_cwd: Path | None = None,
+    session_store_scope: str = "workspace",
+    session_store_cwd: Path | None = None,
+) -> CommandContext:
+    return CommandContext(
+        agent_provider=_StubAgentProvider(),
+        current_agent_name="agent",
+        io=_StubIO(),
+        session_cwd=session_cwd,
+        session_store_scope=cast("Any", session_store_scope),
+        session_store_cwd=session_store_cwd,
+    )
+
+
 def _assistant_message(text: str) -> PromptMessageExtended:
     return PromptMessageExtended(
         role="assistant",
@@ -170,55 +197,43 @@ def test_strip_wrapping_quotes_preserves_unmatched_quotes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_session_uses_context_session_cwd(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    manager_calls: list[Path | None] = []
-
-    class _Manager:
-        def create_session(self, name: str | None = None):
-            del name
-            return SimpleNamespace(info=SimpleNamespace(metadata={}, name="s-1"))
-
-    def fake_get_session_manager(
-        *,
-        cwd: Path | None = None,
-        environment_override=None,
-        respect_env_override: bool = True,
-    ):
-        del environment_override, respect_env_override
-        manager_calls.append(cwd)
-        return _Manager()
-
-    monkeypatch.setattr("fast_agent.session.get_session_manager", fake_get_session_manager)
-
+async def test_create_session_requires_explicit_session_runtime() -> None:
     outcome = await session_handlers.handle_create_session(
-        _build_context(session_cwd=workspace.resolve()),
+        _build_context(),
         session_name="Title",
     )
 
     assert outcome.messages
-    assert manager_calls == [workspace.resolve()]
+    assert str(outcome.messages[0].text) == session_handlers.SESSION_UNAVAILABLE_MESSAGE
 
 
 @pytest.mark.asyncio
-async def test_resume_session_switches_to_hydrated_active_agent(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_create_session_uses_explicit_session_runtime() -> None:
+    runtime = StubSessionRuntime()
+    ctx = CommandContext(
+        agent_provider=_StubAgentProvider(),
+        current_agent_name="agent",
+        io=_StubIO(),
+        session_runtime=runtime,
+    )
+
+    outcome = await session_handlers.handle_create_session(
+        ctx,
+        session_name="Title",
+    )
+
+    assert outcome.messages
+    assert runtime.created == ["Title"]
+
+
+@pytest.mark.asyncio
+async def test_resume_session_switches_to_hydrated_active_agent() -> None:
     alpha = _Agent("alpha", history=[_assistant_message("alpha preview")])
     beta = _Agent("beta", history=[_assistant_message("beta preview")])
     io = _StubIO()
-    ctx = CommandContext(
-        agent_provider=_ResumeAgentProvider({"alpha": alpha, "beta": beta}),
-        current_agent_name="alpha",
-        io=io,
-    )
     session = SimpleNamespace(info=SimpleNamespace(name="s-1", metadata={}))
 
-    async def _resume_session_agents_async(*args, **kwargs):
+    async def _resume_agents(*args, **kwargs):
         del args, kwargs
         return ResumeSessionAgentsResult(
             session=cast("Any", session),
@@ -227,9 +242,13 @@ async def test_resume_session_switches_to_hydrated_active_agent(
             active_agent="beta",
         )
 
-    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
-
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: manager)
+    manager = StubSessionRuntime(resumed=await _resume_agents())
+    ctx = CommandContext(
+        agent_provider=_ResumeAgentProvider({"alpha": alpha, "beta": beta}),
+        current_agent_name="alpha",
+        io=io,
+        session_runtime=manager,
+    )
 
     outcome = await session_handlers.handle_resume_session(
         ctx,

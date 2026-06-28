@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+from datetime import datetime
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -14,6 +16,8 @@ from fast_agent.session import (
     SessionAgentSnapshot,
     SessionAttachmentRef,
     SessionContinuationSnapshot,
+    SessionGitSnapshot,
+    SessionGitStateSnapshot,
     SessionHydrationPolicy,
     SessionHydrator,
     SessionRequestSettingsSnapshot,
@@ -167,6 +171,28 @@ def _write_snapshot(session: Session, snapshot: SessionSnapshot) -> None:
     )
 
 
+def _git(workspace: Path, *args: str) -> str:
+    result = subprocess.run(
+        ("git", "-C", str(workspace), *args),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _init_git_repo(workspace: Path) -> str:
+    workspace.mkdir(parents=True)
+    _git(workspace, "init")
+    _git(workspace, "config", "user.email", "test@example.com")
+    _git(workspace, "config", "user.name", "Test User")
+    _git(workspace, "checkout", "-b", "main")
+    (workspace / "README.md").write_text("first\n", encoding="utf-8")
+    _git(workspace, "add", "README.md")
+    _git(workspace, "commit", "-m", "first")
+    return _git(workspace, "rev-parse", "HEAD")
+
+
 @pytest.mark.asyncio
 async def test_hydrate_session_restores_transcript_prompt_and_active_agent(
     tmp_path: Path,
@@ -273,6 +299,99 @@ async def test_hydrate_session_warns_for_missing_agent_and_history_file(tmp_path
         "missing-agent",
         "missing-history-file",
     }
+
+
+@pytest.mark.asyncio
+async def test_hydrate_session_warns_when_git_commit_or_branch_changed(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    first_commit = _init_git_repo(workspace)
+    manager = SessionManager(
+        cwd=workspace,
+        environment_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    snapshot = SessionSnapshot(
+        session_id=session.info.name,
+        created_at=session.info.created_at,
+        last_activity=session.info.last_activity,
+        continuation=SessionContinuationSnapshot(
+            active_agent="foo",
+            git=SessionGitStateSnapshot(
+                current=SessionGitSnapshot(
+                    cwd=str(workspace),
+                    repository_root=str(workspace),
+                    commit=first_commit,
+                    captured_at=datetime.now(),
+                    branch="main",
+                    dirty=False,
+                )
+            ),
+            agents={"foo": SessionAgentSnapshot()},
+        ),
+    )
+    _write_snapshot(session, snapshot)
+
+    _git(workspace, "checkout", "-b", "feature")
+    (workspace / "README.md").write_text("second\n", encoding="utf-8")
+    _git(workspace, "commit", "-am", "second")
+
+    result = await SessionHydrator().hydrate_session(
+        session=session,
+        agents={"foo": cast("AgentProtocol", _Agent(name="foo", instruction="Stored prompt"))},
+        fallback_agent_name=None,
+    )
+
+    warning = next(warning for warning in result.warnings if warning.code == "git-state-changed")
+    assert "branch main -> feature" in warning.message
+    assert f"commit {first_commit[:7]} -> " in warning.message
+
+
+@pytest.mark.asyncio
+async def test_hydrate_session_warns_when_git_dirty_state_changed(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    first_commit = _init_git_repo(workspace)
+    manager = SessionManager(
+        cwd=workspace,
+        environment_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    snapshot = SessionSnapshot(
+        session_id=session.info.name,
+        created_at=session.info.created_at,
+        last_activity=session.info.last_activity,
+        continuation=SessionContinuationSnapshot(
+            active_agent="foo",
+            git=SessionGitStateSnapshot(
+                current=SessionGitSnapshot(
+                    cwd=str(workspace),
+                    repository_root=str(workspace),
+                    commit=first_commit,
+                    captured_at=datetime.now(),
+                    branch="main",
+                    dirty=False,
+                )
+            ),
+            agents={"foo": SessionAgentSnapshot()},
+        ),
+    )
+    _write_snapshot(session, snapshot)
+
+    (workspace / "README.md").write_text("dirty\n", encoding="utf-8")
+
+    result = await SessionHydrator().hydrate_session(
+        session=session,
+        agents={"foo": cast("AgentProtocol", _Agent(name="foo", instruction="Stored prompt"))},
+        fallback_agent_name=None,
+    )
+
+    warning = next(warning for warning in result.warnings if warning.code == "git-state-changed")
+    assert "working tree clean -> dirty" in warning.message
 
 
 @pytest.mark.asyncio

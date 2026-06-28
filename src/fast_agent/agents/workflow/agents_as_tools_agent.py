@@ -189,11 +189,12 @@ References
 from __future__ import annotations
 
 import asyncio
-import json
 from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, assert_never
 
 from mcp import ListToolsResult, Tool
@@ -208,45 +209,46 @@ from fast_agent.constants import (
     FORCE_SEQUENTIAL_TOOL_CALLS,
     should_parallelize_tool_calls,
 )
+from fast_agent.context import get_current_context
+from fast_agent.core.agent_tool_shape import (
+    render_agent_tool_arguments,
+    resolved_agent_tool_schema,
+    response_mode_control_enabled,
+    split_response_mode_control,
+    tool_result_mode_allows_agent_response_mode,
+)
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import ToolRunnerHookCapable
-from fast_agent.llm.request_params import (
-    ToolResultMode,
-    response_mode_to_tool_result_mode,
-    tool_result_mode_allows_response_mode,
-)
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompts.prompt_load import load_prompt
+from fast_agent.session import get_session_manager
+from fast_agent.session.identity import (
+    SessionSaveContext,
+    normalize_session_store_scope,
+    resolve_session_for_save,
+)
+from fast_agent.session.trajectory import (
+    TrajectoryRecord,
+    new_trajectory_id,
+    save_trajectory_record,
+)
+from fast_agent.tools.invocation_context import agent_tool_invocation_context
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.utils.async_utils import gather_with_cancel
-from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
-    from pathlib import Path
 
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.agents.llm_agent import LlmAgent
+    from fast_agent.agents.tool_runner import ToolRunner
+    from fast_agent.llm.request_params import ToolResultMode
+    from fast_agent.session.session_manager import Session, SessionManager
 
 logger = get_logger(__name__)
-
-_RESPONSE_MODE_OVERRIDES: Mapping[str, ToolResultMode | None] = {
-    "inherit": None,
-    "postprocess": response_mode_to_tool_result_mode("postprocess"),
-    "passthrough": response_mode_to_tool_result_mode("passthrough"),
-}
-_RESPONSE_MODE_FIELD = "response_mode"
-_MISSING_RESPONSE_MODE = object()
-
-
-@dataclass(frozen=True, slots=True)
-class _ResponseModeControl:
-    arguments: dict[str, Any]
-    tool_result_mode_override: ToolResultMode | None = None
-    error: str | None = None
-
 
 _ChildToolStatus = Literal["pending", "done", "error", "missing"]
 
@@ -273,6 +275,23 @@ class _ChildHookInstall:
 
 
 @dataclass(slots=True)
+class _ChildTrajectoryCapture:
+    started_at: str
+    messages: list[PromptMessageExtended] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ChildInvocationTrace:
+    tool_input_schema: dict[str, Any]
+    tool_arguments: dict[str, Any]
+    effective_tool_arguments: dict[str, Any]
+    rendered_child_input: str
+    messages: list[PromptMessageExtended] | None
+    started_at: str
+    completed_at: str
+
+
+@dataclass(slots=True)
 class _ChildToolRunPlan:
     tool_results: dict[str, CallToolResult]
     tool_loop_error: str | None
@@ -280,14 +299,25 @@ class _ChildToolRunPlan:
     descriptor_by_id: dict[str, _ChildToolDescriptor]
     id_list: list[str]
 
+def _trajectory_timestamp() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
-def _response_mode_schema() -> dict[str, Any]:
-    return {
-        "type": "string",
-        "description": "Override how the child agent returns tool results for this call.",
-        "enum": list(_RESPONSE_MODE_OVERRIDES),
-        "default": "inherit",
-    }
+
+def _resolved_path(raw_path: object | None) -> Path | None:
+    if not raw_path:
+        return None
+    return Path(str(raw_path)).expanduser().resolve()
+
+
+def _resolve_active_session_manager(
+    manager: "SessionManager",
+    cwd: Path | None,
+) -> "SessionManager":
+    if cwd is not None and cwd.resolve() != manager.workspace_dir:
+        raise RuntimeError(
+            "Trajectory persistence requested a different cwd than the active session manager."
+        )
+    return manager
 
 
 class HistorySource(str, Enum):
@@ -463,19 +493,6 @@ class AgentsAsToolsAgent(McpAgent):
         return kwargs
 
     @staticmethod
-    def _default_child_tool_schema() -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string",
-                    "description": "Message to send to the agent",
-                },
-            },
-            "required": ["message"],
-        }
-
-    @staticmethod
     def _child_tool_result_mode(child: LlmAgent) -> ToolResultMode:
         request_params = child.config.default_request_params
         if request_params is None:
@@ -484,24 +501,7 @@ class AgentsAsToolsAgent(McpAgent):
 
     @classmethod
     def _child_response_mode_enabled(cls, child: LlmAgent) -> bool:
-        return tool_result_mode_allows_response_mode(cls._child_tool_result_mode(child))
-
-    @classmethod
-    def _augment_schema_with_response_mode(cls, schema: dict[str, Any]) -> dict[str, Any]:
-        if schema.get("type") != "object":
-            return schema
-
-        properties = schema.get("properties")
-        if properties is not None and not isinstance(properties, dict):
-            return schema
-
-        updated_schema = deepcopy(schema)
-        updated_properties = updated_schema.setdefault("properties", {})
-        if not isinstance(updated_properties, dict):
-            return schema
-
-        updated_properties.setdefault(_RESPONSE_MODE_FIELD, _response_mode_schema())
-        return updated_schema
+        return tool_result_mode_allows_agent_response_mode(cls._child_tool_result_mode(child))
 
     @staticmethod
     def _configured_child_tool_schema(child: LlmAgent) -> dict[str, Any] | None:
@@ -510,78 +510,16 @@ class AgentsAsToolsAgent(McpAgent):
 
     @classmethod
     def _child_response_mode_control_enabled(cls, child: LlmAgent) -> bool:
-        if not cls._child_response_mode_enabled(child):
-            return False
-        schema = cls._configured_child_tool_schema(child)
-        if schema is None:
-            return True
-        if schema.get("type") != "object":
-            return False
-        properties = schema.get("properties")
-        if properties is None:
-            return True
-        return isinstance(properties, dict) and _RESPONSE_MODE_FIELD not in properties
+        return response_mode_control_enabled(
+            cls._configured_child_tool_schema(child),
+            response_mode_enabled=cls._child_response_mode_enabled(child),
+        )
 
     @classmethod
     def _resolved_child_tool_schema(cls, child: LlmAgent) -> dict[str, Any]:
-        configured_schema = cls._configured_child_tool_schema(child)
-        schema = (
-            configured_schema if configured_schema is not None else cls._default_child_tool_schema()
-        )
-        if cls._child_response_mode_control_enabled(child):
-            return cls._augment_schema_with_response_mode(schema)
-        return schema
-
-    @classmethod
-    def _child_uses_structured_args(cls, child: LlmAgent) -> bool:
-        configured_schema = cls._configured_child_tool_schema(child)
-        if configured_schema is None:
-            return False
-        properties = configured_schema.get("properties")
-        if not isinstance(properties, dict):
-            return True
-        if cls._child_response_mode_control_enabled(child):
-            property_names = {name for name in properties if name != _RESPONSE_MODE_FIELD}
-        else:
-            property_names = set(properties)
-        return property_names != {"message"}
-
-    @staticmethod
-    def _render_structured_args(arguments: dict[str, Any]) -> str:
-        return json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)
-
-    @staticmethod
-    def _split_response_mode_control(
-        arguments: dict[str, Any],
-        *,
-        enabled: bool,
-    ) -> _ResponseModeControl:
-        if not enabled:
-            return _ResponseModeControl(arguments=dict(arguments))
-
-        sanitized_arguments = dict(arguments)
-        raw_mode = sanitized_arguments.pop("response_mode", _MISSING_RESPONSE_MODE)
-        if raw_mode is _MISSING_RESPONSE_MODE:
-            return _ResponseModeControl(arguments=sanitized_arguments)
-        if not isinstance(raw_mode, str):
-            return _ResponseModeControl(
-                arguments=sanitized_arguments,
-                error="response_mode must be one of: inherit, postprocess, passthrough",
-            )
-
-        normalized = strip_casefold(raw_mode)
-        if normalized not in _RESPONSE_MODE_OVERRIDES:
-            return _ResponseModeControl(
-                arguments=sanitized_arguments,
-                error=(
-                    f"Invalid response_mode '{raw_mode}'. "
-                    "Expected one of: inherit, postprocess, passthrough"
-                ),
-            )
-
-        return _ResponseModeControl(
-            arguments=sanitized_arguments,
-            tool_result_mode_override=_RESPONSE_MODE_OVERRIDES[normalized],
+        return resolved_agent_tool_schema(
+            cls._configured_child_tool_schema(child),
+            response_mode_control=cls._child_response_mode_control_enabled(child),
         )
 
     @staticmethod
@@ -715,14 +653,11 @@ class AgentsAsToolsAgent(McpAgent):
         return messages
 
     def _child_input_text(self, child: LlmAgent, args: dict[str, Any]) -> str:
-        if self._child_uses_structured_args(child):
-            return self._render_structured_args(args)
-        # Extract message from arguments for legacy child tool schemas.
-        if isinstance(args.get("message"), str):
-            return args["message"]
-        if isinstance(args.get("text"), str):  # backwards compat
-            return args["text"]
-        return str(args) if args else ""
+        return render_agent_tool_arguments(
+            args,
+            configured_schema=self._configured_child_tool_schema(child),
+            response_mode_control=self._child_response_mode_control_enabled(child),
+        )
 
     @staticmethod
     def _child_tool_result_from_response(
@@ -734,6 +669,16 @@ class AgentsAsToolsAgent(McpAgent):
             error_blocks = list(response.channels.get(FAST_AGENT_ERROR_CHANNEL) or [])
             if error_blocks:
                 content_blocks.extend(error_blocks)
+
+        if not content_blocks and response.stop_reason == LlmStopReason.TOOL_USE:
+            error_blocks = [
+                text_content(
+                    "Runtime budget exhausted: child agent stopped while requesting another tool "
+                    "and produced no final content. Return a best-effort answer or retry with a "
+                    "larger budget."
+                )
+            ]
+            content_blocks.extend(error_blocks)
 
         return (
             CallToolResult(
@@ -842,8 +787,13 @@ class AgentsAsToolsAgent(McpAgent):
         tool_handler: Any,
         tool_call_id: str | None,
         emit_progress: Callable[[], Any],
+        trajectory_capture: _ChildTrajectoryCapture | None = None,
     ) -> _ChildHookInstall:
-        if not tool_handler or not tool_call_id or not isinstance(child, ToolRunnerHookCapable):
+        capture_enabled = trajectory_capture is not None
+        progress_enabled = bool(tool_handler and tool_call_id)
+        if not (progress_enabled or capture_enabled) or not isinstance(
+            child, ToolRunnerHookCapable
+        ):
             return _ChildHookInstall(installed=False)
 
         previous_hooks = child.tool_runner_hooks
@@ -856,19 +806,34 @@ class AgentsAsToolsAgent(McpAgent):
         async def handle_before_llm_call(runner, messages):
             if before_llm_call:
                 await before_llm_call(runner, messages)
-            await emit_progress()
+            if progress_enabled:
+                await emit_progress()
 
         async def handle_before_tool_call(runner, message):
             if before_tool_call:
                 await before_tool_call(runner, message)
-            await emit_progress()
+            if progress_enabled:
+                await emit_progress()
+
+        async def handle_after_turn_complete(
+            runner: "ToolRunner",
+            message: PromptMessageExtended,
+        ) -> None:
+            if after_turn_complete:
+                await after_turn_complete(runner, message)
+            if trajectory_capture is None:
+                return
+            trajectory_capture.messages = [
+                *[item.model_copy(deep=True) for item in runner.delta_messages],
+                message.model_copy(deep=True),
+            ]
 
         child.tool_runner_hooks = ToolRunnerHooks(
             before_llm_call=handle_before_llm_call,
             after_llm_call=after_llm_call,
             before_tool_call=handle_before_tool_call,
             after_tool_call=after_tool_call,
-            after_turn_complete=after_turn_complete,
+            after_turn_complete=handle_after_turn_complete,
         )
         return _ChildHookInstall(installed=True, previous_hooks=previous_hooks)
 
@@ -878,6 +843,8 @@ class AgentsAsToolsAgent(McpAgent):
         child: LlmAgent,
         child_request: PromptMessageExtended,
         child_request_params: RequestParams | None,
+        child_arguments: dict[str, Any],
+        child_tool_name: str | None,
         suppress_display: bool,
         tool_handler: Any,
         tool_call_id: str | None,
@@ -890,7 +857,13 @@ class AgentsAsToolsAgent(McpAgent):
             else acp_tool_call_context()
         )
         display_scope = self._child_display_suppressed(child) if suppress_display else nullcontext()
-        with scope, display_scope:
+        invocation_scope = agent_tool_invocation_context(
+            agent_name=child.name,
+            arguments=child_arguments,
+            tool_name=child_tool_name,
+            tool_use_id=tool_call_id,
+        )
+        with scope, display_scope, invocation_scope:
             if tool_handler and tool_call_id and not hooks_set:
                 await emit_progress()
             return await child.generate(
@@ -907,11 +880,12 @@ class AgentsAsToolsAgent(McpAgent):
         tool_name: str | None = None,
         tool_use_id: str | None = None,
         request_params: RequestParams | None = None,
+        trace_sink: list[_ChildInvocationTrace] | None = None,
     ) -> CallToolResult:
         """Shared helper to execute a child agent with standard serialization and display rules."""
 
         raw_args = arguments or {}
-        response_mode_control = self._split_response_mode_control(
+        response_mode_control = split_response_mode_control(
             raw_args,
             enabled=self._child_response_mode_control_enabled(child),
         )
@@ -925,7 +899,13 @@ class AgentsAsToolsAgent(McpAgent):
             response_mode_control.tool_result_mode_override,
         )
         args = response_mode_control.arguments
-        child_request = Prompt.user(self._child_input_text(child, args))
+        rendered_child_input = self._child_input_text(child, args)
+        child_request = Prompt.user(rendered_child_input)
+        trajectory_capture = (
+            _ChildTrajectoryCapture(started_at=_trajectory_timestamp())
+            if trace_sink is not None
+            else None
+        )
 
         tool_handler = self._get_tool_handler(request_params)
         progress_step = 0
@@ -949,6 +929,7 @@ class AgentsAsToolsAgent(McpAgent):
             tool_handler=tool_handler,
             tool_call_id=tool_call_id,
             emit_progress=emit_progress,
+            trajectory_capture=trajectory_capture,
         )
         hooks_set = hook_install.installed
 
@@ -957,6 +938,8 @@ class AgentsAsToolsAgent(McpAgent):
                 child=child,
                 child_request=child_request,
                 child_request_params=child_request_params,
+                child_arguments=args,
+                child_tool_name=tool_name,
                 suppress_display=suppress_display,
                 tool_handler=tool_handler,
                 tool_call_id=tool_call_id,
@@ -970,6 +953,18 @@ class AgentsAsToolsAgent(McpAgent):
                 tool_result=tool_result,
                 error_blocks=error_blocks,
             )
+            if trace_sink is not None and trajectory_capture is not None:
+                trace_sink.append(
+                    _ChildInvocationTrace(
+                        tool_input_schema=self._resolved_child_tool_schema(child),
+                        tool_arguments=deepcopy(raw_args),
+                        effective_tool_arguments=deepcopy(args),
+                        rendered_child_input=rendered_child_input,
+                        messages=trajectory_capture.messages,
+                        started_at=trajectory_capture.started_at,
+                        completed_at=_trajectory_timestamp(),
+                    )
+                )
             return tool_result
         except asyncio.CancelledError:
             await self._fail_child_tool_call(
@@ -1105,6 +1100,9 @@ class AgentsAsToolsAgent(McpAgent):
             correlation_id=correlation_id,
             tool_name=tool_name,
         )
+        trace_sink: list[_ChildInvocationTrace] | None = (
+            [] if child.config.save_trajectory else None
+        )
         try:
             call_coro = self._invoke_child_agent(
                 clone,
@@ -1112,11 +1110,21 @@ class AgentsAsToolsAgent(McpAgent):
                 tool_name=tool_name,
                 tool_use_id=correlation_id,
                 request_params=request_params,
+                trace_sink=trace_sink,
             )
             timeout = self._options.child_timeout_sec
             if timeout:
-                return await asyncio.wait_for(call_coro, timeout=timeout)
-            return await call_coro
+                result = await asyncio.wait_for(call_coro, timeout=timeout)
+            else:
+                result = await call_coro
+            await self._save_child_trajectory(
+                trace_sink=trace_sink,
+                child=child,
+                instance_name=instance_name,
+                tool_name=tool_name,
+                correlation_id=correlation_id,
+            )
+            return result
         finally:
             await self._cleanup_child_clone(
                 child=child,
@@ -1127,6 +1135,95 @@ class AgentsAsToolsAgent(McpAgent):
                 correlation_id=correlation_id,
                 tool_name=tool_name,
             )
+
+    async def _save_child_trajectory(
+        self,
+        *,
+        trace_sink: list[_ChildInvocationTrace] | None,
+        child: LlmAgent,
+        instance_name: str,
+        tool_name: str,
+        correlation_id: str,
+    ) -> None:
+        if trace_sink is None or not trace_sink:
+            return
+        trace = trace_sink[-1]
+        if trace.messages is None:
+            return
+        try:
+            session = self._resolve_trajectory_session(child.name)
+            await save_trajectory_record(
+                session,
+                TrajectoryRecord(
+                    trajectory_id=new_trajectory_id(),
+                    session_id=session.info.name,
+                    parent_agent_name=self.name,
+                    agent_name=instance_name,
+                    template_agent_name=child.name,
+                    tool_name=tool_name,
+                    parent_tool_call_id=correlation_id,
+                    use_history=child.config.use_history,
+                    started_at=trace.started_at,
+                    completed_at=trace.completed_at,
+                    tool_input_schema=trace.tool_input_schema,
+                    tool_arguments=trace.tool_arguments,
+                    effective_tool_arguments=trace.effective_tool_arguments,
+                    rendered_child_input=trace.rendered_child_input,
+                    messages=trace.messages,
+                ),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to save child trajectory",
+                data={
+                    "parent_agent_name": self.name,
+                    "agent_name": instance_name,
+                    "tool_name": tool_name,
+                    "correlation_id": correlation_id,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
+
+    def _resolve_trajectory_session(self, child_name: str) -> "Session":
+        current_context = get_current_context()
+        agent_context = self.context
+        acp_context = agent_context.acp if agent_context else None
+        session_store_scope = normalize_session_store_scope(
+            getattr(acp_context, "session_store_scope", "workspace")
+            if acp_context is not None
+            else "workspace"
+        )
+        session_store_cwd = _resolved_path(
+            getattr(acp_context, "session_store_cwd", None) if acp_context is not None else None
+        )
+        session_cwd = _resolved_path(
+            getattr(acp_context, "session_cwd", None) if acp_context is not None else None
+        )
+        manager = agent_context.session_manager if agent_context else current_context.session_manager
+        if manager is None:
+            manager = get_session_manager()
+        identity = resolve_session_for_save(
+            current_session=None,
+            get_manager=lambda cwd: _resolve_active_session_manager(manager, cwd),
+            context=SessionSaveContext(
+                acp_session_id=(
+                    getattr(acp_context, "session_id", None) if acp_context is not None else None
+                ),
+                session_cwd=session_cwd,
+                session_store_scope=session_store_scope,
+                session_store_cwd=session_store_cwd,
+            ),
+            seed_metadata={
+                "agent_name": self.name,
+                "trajectory_agent_name": child_name,
+            },
+        )
+        if current_context is not None and current_context.config is not None:
+            app_name = getattr(current_context.config, "name", None)
+            if app_name:
+                identity.session.info.metadata.setdefault("application", app_name)
+        return identity.session
 
     def _load_history_into_clone(
         self,

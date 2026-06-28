@@ -4,10 +4,10 @@ from openai.types.chat import ChatCompletionMessageParam
 
 from fast_agent.constants import REASONING
 from fast_agent.context import Context
-from fast_agent.core.prompt import Prompt
 from fast_agent.llm.provider.openai.llm_deepseek import DeepSeekLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.request_params import RequestParams
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import PromptMessageExtended
 
 

@@ -61,7 +61,9 @@ def installed_plugin_roots(
     if project_plugins is None:
         project_plugins = get_manager_directory(settings)
     roots: list[tuple[str, Path]] = [("project", project_plugins)]
-    global_home = strip_to_none(settings._fast_agent_global_plugin_home) if settings is not None else None
+    global_home = (
+        strip_to_none(settings._fast_agent_global_plugin_home) if settings is not None else None
+    )
     if global_home is None:
         return roots
     global_plugins = Path(global_home).expanduser() / "plugins"

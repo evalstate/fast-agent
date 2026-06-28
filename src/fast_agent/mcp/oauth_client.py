@@ -8,7 +8,6 @@ passed to SSE/HTTP transports as the `auth` parameter.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import socket
 import sys
@@ -50,6 +49,7 @@ from rich.text import Text
 from fast_agent.core.keyring_utils import maybe_print_keyring_access_notice
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
+from fast_agent.utils.async_utils import run_in_thread
 from fast_agent.utils.text import strip_to_none
 from fast_agent.utils.transports import uses_mcp_remote_transport
 
@@ -244,11 +244,6 @@ class _CallbackServer:
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._actual_port: int | None = None
-
-    @property
-    def actual_port(self) -> int | None:
-        """Return the actual port the server bound to (may differ from preferred)."""
-        return self._actual_port
 
     def _make_handler(self) -> Callable[..., BaseHTTPRequestHandler]:
         result = self._result
@@ -687,11 +682,6 @@ def keyring_token_present(identity: str, service: str = "fast-agent-mcp") -> boo
         return False
 
 
-def keyring_has_token(server_config: MCPServerSettings) -> bool:
-    """Check if keyring has a token stored for this server."""
-    return keyring_token_present(compute_server_identity(server_config))
-
-
 async def _print_authorization_link(auth_url: str, warn_if_no_keyring: bool = False) -> None:
     """Emit a clickable authorization link using rich console markup.
 
@@ -882,7 +872,7 @@ async def _capture_local_oauth_callback(
         )
 
         try:
-            code, state = await asyncio.to_thread(
+            code, state = await run_in_thread(
                 server.wait,
                 timeout_seconds=300,
                 abort_event=context.abort_event,
@@ -925,7 +915,7 @@ async def _capture_pasted_oauth_callback(
         if context.emit_console_output:
             _safe_stderr_write("Paste the full callback URL after authorization:")
         callback_url = (
-            await asyncio.to_thread(
+            await run_in_thread(
                 _read_callback_url_with_abort,
                 "Callback URL:",
                 context.abort_event,

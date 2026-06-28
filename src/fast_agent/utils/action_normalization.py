@@ -18,19 +18,6 @@ def normalize_action_token(value: str | None) -> str:
     return strip_casefold(value) if value is not None else ""
 
 
-def normalize_action_alias(
-    action: str | None,
-    aliases: dict[str, str],
-    *,
-    default: str = "list",
-) -> str:
-    raw_action = normalize_action_token(action) or normalize_action_token(default)
-    normalized_aliases = {
-        normalize_action_token(alias): target for alias, target in aliases.items()
-    }
-    return normalized_aliases.get(raw_action, raw_action)
-
-
 def is_help_flag(value: str | None) -> bool:
     return normalize_action_token(value) in HELP_ACTION_ALIASES
 

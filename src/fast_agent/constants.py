@@ -71,8 +71,11 @@ TERMINAL_OUTPUT_TOKEN_HEADROOM_RATIO = 0.2
 TERMINAL_BYTES_PER_TOKEN = 3.3
 """Bytes-per-token estimate for terminal output limits and display."""
 
-MAX_TERMINAL_OUTPUT_BYTE_LIMIT = 100000
-"""Hard cap on default ACP terminal output (~30k tokens with TERMINAL_BYTES_PER_TOKEN=3.3)."""
+MAX_TERMINAL_OUTPUT_TOKEN_LIMIT = 10_000
+"""Hard cap on default ACP terminal output tokens."""
+
+MAX_TERMINAL_OUTPUT_BYTE_LIMIT = int(MAX_TERMINAL_OUTPUT_TOKEN_LIMIT * TERMINAL_BYTES_PER_TOKEN)
+"""Hard cap on default ACP terminal output (~10k tokens with TERMINAL_BYTES_PER_TOKEN=3.3)."""
 
 DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 

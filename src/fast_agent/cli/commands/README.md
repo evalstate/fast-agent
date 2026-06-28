@@ -114,14 +114,14 @@ fast-agent serve [OPTIONS]
 - `--npx TEXT`: NPX package and args to run as an MCP server (quoted)
 - `--uvx TEXT`: UVX package and args to run as an MCP server (quoted)
 - `--stdio TEXT`: Command to run as STDIO MCP server (quoted)
-- `--transport [http|stdio|acp]`: Transport protocol to expose (default: http)
+- `--transport [http|stdio|acp|a2a]`: Transport protocol to expose (default: http)
 - `--host TEXT`: Host address when using HTTP transport (default: 127.0.0.1)
 - `--port INTEGER`: Port when using HTTP transport (default: 8000)
 - `--shell`, `-x`: Enable a local shell runtime and expose the execute tool
 - `--description`, `-d TEXT`: Description used for each send tool (supports `{agent}` placeholder)
 - `--tool-name-template TEXT`: Template for exposed agent tool names (supports `{agent}` placeholder)
 - `--instance-scope [shared|connection|request]`: Control how clients receive isolated agent instances (default: shared; ACP is always connection-scoped)
-- `--reload`: Enable manual AgentCard reloads (ACP: `/reload`, MCP: `reload_agent_cards`)
+- `--reload`: Enable manual AgentCard reloads where supported (ACP: `/reload`)
 - `--watch`: Watch AgentCard paths and reload
 
 ### Skills behavior

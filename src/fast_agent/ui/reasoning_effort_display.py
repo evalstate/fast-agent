@@ -21,7 +21,6 @@ if TYPE_CHECKING:
         ReasoningEffortSpec,
     )
 
-FULL_BLOCK = STANDALONE_GAUGE_GLYPHS.full_block
 INACTIVE_COLOR = "ansibrightblack"
 AUTO_COLOR = "ansiblue"
 MAX_LEVEL = MAX_GAUGE_LEVEL

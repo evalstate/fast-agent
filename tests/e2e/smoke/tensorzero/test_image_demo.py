@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.usefixtures("tensorzero_docker_env")
+pytestmark = pytest.mark.usefixtures("tensorzero_docker_env", "chdir_to_tensorzero_example")
 
 
 def import_from_path(module_name: str, file_path: Path):
@@ -20,7 +20,7 @@ def import_from_path(module_name: str, file_path: Path):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_tensorzero_image_demo_smoke(project_root, chdir_to_tensorzero_example):
+async def test_tensorzero_image_demo_smoke(project_root):
     """
     Smoke test for the TensorZero image demo script.
     Ensures the script runs to completion without errors.

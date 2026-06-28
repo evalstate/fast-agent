@@ -308,7 +308,6 @@ class ElicitationForm:
             title=self._dialog_title(),
             style="class:dialog",
         )
-        self._dialog = dialog
         return VSplit([Window(width=4), dialog, Window(width=4)])
 
     def _toolbar_text(self) -> FormattedText:
@@ -402,15 +401,12 @@ class ElicitationForm:
         return kb
 
     def _build_root_layout(self, constrained_dialog: VSplit) -> HSplit:
-        self._get_toolbar = self._toolbar_text
         self._toolbar_window = Window(
             FormattedTextControl(self._toolbar_text),
             height=1,
             style="class:bottom-toolbar",
         )
-        root_layout = HSplit([constrained_dialog, self._toolbar_window])
-        self._root_layout = root_layout
-        return root_layout
+        return HSplit([constrained_dialog, self._toolbar_window])
 
     def _set_initial_focus(self, submit_btn: Button) -> None:
         try:

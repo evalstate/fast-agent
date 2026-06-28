@@ -109,7 +109,7 @@ async def test_google_completion_injects_search_tool() -> None:
         await llm._google_completion(message=[])
 
         # Capture the GenerateContentConfig object passed to the API
-        called_args, called_kwargs = mock_stream_gen.call_args
+        _, called_kwargs = mock_stream_gen.call_args
         config_passed = called_kwargs.get("config")
 
         assert config_passed is not None
@@ -151,7 +151,7 @@ async def test_google_completion_injects_search_tool_with_custom_tools() -> None
     ):
         await llm._google_completion(message=[], tools=[custom_tool])
 
-        called_args, called_kwargs = mock_stream_gen.call_args
+        _, called_kwargs = mock_stream_gen.call_args
         config_passed = called_kwargs.get("config")
 
         assert config_passed is not None

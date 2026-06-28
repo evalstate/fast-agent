@@ -215,27 +215,6 @@ async def test_attach_media_local_png_stages_image_content(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_attach_resource_call_tool_aliases_attach_media(tmp_path: Path) -> None:
-    image_path = tmp_path / "pixel.png"
-    image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
-    runtime = LocalFilesystemRuntime(
-        logging.getLogger("local-filesystem-runtime-test"),
-        enable_attach_media="on",
-        working_directory=tmp_path,
-        model_info=_model_info("image/png"),
-    )
-
-    result = await runtime.call_tool("attach_resource", {"source": "pixel.png"})
-
-    assert result.isError is False
-    assert runtime.has_tool("attach_resource") is False
-    assert _tool_by_name(runtime, "attach_resource") is None
-    pending = runtime.consume_pending_media_attachments()
-    assert len(pending) == 1
-    assert isinstance(pending[0], ImageContent)
-
-
-@pytest.mark.asyncio
 async def test_attach_media_local_pdf_stages_embedded_blob(tmp_path: Path) -> None:
     pdf_path = tmp_path / "sample.pdf"
     pdf_path.write_bytes(b"%PDF-1.4\n")

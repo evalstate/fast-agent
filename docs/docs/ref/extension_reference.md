@@ -43,8 +43,12 @@ short:
 
 - use `FastAgentBatchEvaluator` with `optimize_anything()` for aggregate
   candidate scoring over a full JSONL batch;
+- use `FastAgentSingleTaskAdapter` with `optimize_anything()` when the
+  evaluator is naturally one fast-agent call at a time;
 - use `FastAgentRowWiseBatchAdapter` with `gepa.api.optimize()` when GEPA should
   treat each input row as an optimization instance;
+- use `make_gepa_trackio_dashboard()` to combine GEPA Trackio config with
+  fast-agent evaluation/reflection callback metrics;
 - use `FastAgentReflectionLM` when GEPA reflection calls should use fast-agent
   model aliases, configuration, and audit artifacts.
 

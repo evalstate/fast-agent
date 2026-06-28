@@ -412,18 +412,6 @@ def test_streaming_truncation_does_not_wrap_nested_list_as_code() -> None:
     assert saw_group, "expected at least one height to produce a Group renderable"
 
 
-def test_streaming_truncation_avoids_duplicate_table_header() -> None:
-    truncator = MarkdownTruncator(target_height_ratio=0.5)
-    original = (
-        "Intro\n| Mission | Date |\n| --- | --- |\n| Apollo 11 | 1969 |\n| Apollo 12 | 1969 |\n"
-    )
-
-    truncated = "| Mission | Date |\n| --- | --- |\n| Apollo 12 | 1969 |\n"
-
-    result = truncator._ensure_table_header_if_needed(original, truncated)
-    assert result.count("| Mission | Date |") == 1
-
-
 def test_streaming_table_scrolls_latest_rows() -> None:
     truncator = MarkdownTruncator(target_height_ratio=0.75)
     test_console = Console(width=200)

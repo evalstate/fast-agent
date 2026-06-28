@@ -115,15 +115,27 @@ def _resolve_reference_recursive(
             details += f" Available namespaces: {available_namespaces}."
         raise ModelConfigError(f"Model reference '{token}' could not be resolved", details)
 
-    raw_value = namespace_map.get(key)
-    if raw_value is None:
+    missing = object()
+    if key in namespace_map:
+        raw_value = namespace_map[key]
+    elif key == "default":
+        # ``$<namespace>.default`` falls back to ``$<namespace>.last_used`` when no
+        # explicit ``default`` reference is configured. The model picker persists its
+        # selection as ``$system.last_used``; treating that as the current default
+        # keeps ``default_model: $system.default`` resolvable without a pinned
+        # ``default`` entry. ``$``-valued ``last_used`` entries recurse with the
+        # same cycle protection as a direct lookup.
+        raw_value = namespace_map.get("last_used", missing)
+    else:
+        raw_value = missing
+    if raw_value is missing:
         available_keys = ", ".join(sorted(namespace_map.keys()))
         details = f"Unknown key '{key}' in namespace '{namespace}'."
         if available_keys:
             details += f" Available keys: {available_keys}."
         raise ModelConfigError(f"Model reference '{token}' could not be resolved", details)
 
-    value = strip_to_none(raw_value)
+    value = strip_to_none(raw_value if isinstance(raw_value, str) else None)
     if value is None:
         raise ModelConfigError(
             f"Model reference '{token}' could not be resolved",

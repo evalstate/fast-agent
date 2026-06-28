@@ -296,11 +296,10 @@ class TestCallbackServerPortFallback:
         server = _CallbackServer(port=0, path="/callback")  # Use ephemeral port
         try:
             server.start()
-            assert server.actual_port is not None
-            assert server.actual_port > 0
             # The server is bound to 127.0.0.1
             assert server._server is not None
             assert server._server.server_address[0] == "127.0.0.1"
+            assert server._server.server_address[1] > 0
         finally:
             server.stop()
 
@@ -310,8 +309,8 @@ class TestCallbackServerPortFallback:
         try:
             server.start()
             # Should get a real port assigned
-            assert server.actual_port is not None
-            assert server.actual_port > 0
+            assert server._server is not None
+            assert server._server.server_address[1] > 0
         finally:
             server.stop()
 
@@ -323,7 +322,8 @@ class TestCallbackServerPortFallback:
             redirect_uri = server.get_redirect_uri()
             assert redirect_uri.startswith("http://127.0.0.1:")
             assert redirect_uri.endswith("/callback")
-            assert f":{server.actual_port}/" in redirect_uri
+            assert server._server is not None
+            assert f":{server._server.server_address[1]}/" in redirect_uri
         finally:
             server.stop()
 
@@ -341,8 +341,8 @@ class TestCallbackServerPortFallback:
             try:
                 server.start()
                 # Should have fallen back to a different port
-                assert server.actual_port != 13030
-                assert server.actual_port is not None
+                assert server._server is not None
+                assert server._server.server_address[1] != 13030
             finally:
                 server.stop()
         finally:

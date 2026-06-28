@@ -21,6 +21,8 @@ _OPTIONS_WITHOUT_VALUES = {
     "--watch",
     "--reload",
     "--smart",
+    "--a2a-oauth",
+    "--no-a2a-oauth",
     "-x",
 }
 
@@ -37,6 +39,42 @@ _SHORT_OPTIONS_WITH_VALUES = {
     and not option.startswith("--")
     and option not in _OPTIONS_WITHOUT_VALUES
 }
+
+
+def _normalize_root_serve_args(args: list[str]) -> None:
+    """Route root ``--serve`` aliases to the serve subcommand."""
+    if len(args) <= 1:
+        return
+
+    index = 1
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            return
+        if arg == "--serve" or arg.startswith("--serve="):
+            transport = None
+            if arg.startswith("--serve="):
+                transport = arg.partition("=")[2].strip() or None
+                del args[index]
+            else:
+                del args[index]
+                if index < len(args) and not args[index].startswith("-"):
+                    transport = args.pop(index).strip() or None
+
+            args.insert(index, "serve")
+            _apply_root_serve_transport(args, index + 1, transport)
+            return
+        index += 1
+
+
+def _apply_root_serve_transport(
+    args: list[str],
+    insert_index: int,
+    transport: str | None,
+) -> None:
+    if transport is None or transport == "mcp":
+        return
+    args[insert_index:insert_index] = ["--transport", transport]
 
 
 def _first_positional_argument(arguments: list[str]) -> str | None:
@@ -101,6 +139,7 @@ def main():
     except RuntimeError:
         # No running loop yet (rare for sync entry), safe to ignore
         pass
+    _normalize_root_serve_args(sys.argv)
     # Check if we should auto-route to 'go'
     if len(sys.argv) > 1:
         # Detect explicit subcommands even when global options (like --env)

@@ -1,6 +1,7 @@
 """Tests for namespaced model reference resolution."""
 
 import os
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -71,6 +72,57 @@ def test_resolve_model_reference_recursive() -> None:
         resolve_model_reference("$custom.indirect", context.config.model_references)
         == "claude-haiku-4-5"
     )
+
+
+def test_resolve_model_reference_default_falls_back_to_last_used() -> None:
+    # The 0.7.21 model picker persists selections as ``$system.last_used``; when no
+    # explicit ``default`` reference exists, ``$system.default`` resolves to it.
+    assert (
+        resolve_model_reference(
+            "$system.default",
+            {"system": {"last_used": "codexresponses.gpt-5.5?reasoning=medium"}},
+        )
+        == "codexresponses.gpt-5.5?reasoning=medium"
+    )
+
+
+def test_resolve_model_reference_default_prefers_explicit_default_over_last_used() -> None:
+    assert (
+        resolve_model_reference(
+            "$system.default",
+            {"system": {"default": "claude-haiku-4-5", "last_used": "gpt-5.5"}},
+        )
+        == "claude-haiku-4-5"
+    )
+
+
+def test_resolve_model_reference_default_last_used_recurses_through_references() -> None:
+    assert (
+        resolve_model_reference(
+            "$system.default",
+            {"system": {"last_used": "$system.fast", "fast": "claude-haiku-4-5"}},
+        )
+        == "claude-haiku-4-5"
+    )
+
+
+def test_resolve_model_reference_default_last_used_cycle_is_detected() -> None:
+    with pytest.raises(ModelConfigError, match="cycle"):
+        resolve_model_reference(
+            "$system.default",
+            {"system": {"last_used": "$system.default"}},
+        )
+
+
+def test_resolve_model_reference_default_without_default_or_last_used_is_unknown_key() -> None:
+    with pytest.raises(ModelConfigError, match="Unknown key 'default'"):
+        resolve_model_reference("$system.default", {"system": {"fast": "claude-haiku-4-5"}})
+
+
+def test_resolve_model_reference_default_null_does_not_fall_back_to_last_used() -> None:
+    references: Any = {"system": {"default": None, "last_used": "claude-haiku-4-5"}}
+    with pytest.raises(ModelConfigError, match="maps to an empty value"):
+        resolve_model_reference("$system.default", references)
 
 
 def test_resolve_model_reference_unknown_namespace() -> None:

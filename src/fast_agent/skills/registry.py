@@ -46,7 +46,6 @@ class SkillRegistry:
         directories: Sequence[Path | str] | None = None,
     ) -> None:
         self._base_dir = base_dir or Path.cwd()
-        self._base_dir_explicit = base_dir is not None
         self._directories: list[Path] = []
         self._errors: list[dict[str, str]] = []
         self._warnings: list[str] = []

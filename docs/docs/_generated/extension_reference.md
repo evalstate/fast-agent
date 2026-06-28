@@ -57,6 +57,49 @@ FastAgentBatchEvaluator(
 ```python
 evaluator.__call__(candidate: Mapping[str, str]) -> tuple[float, Any]
 ```
+### `FastAgentSingleTaskAdapter`
+
+`optimize_anything()`-friendly evaluator for one fast-agent task at a
+time. It runs a batch of one, records the same candidate artifacts,
+`results.jsonl`, summary, and telemetry files as larger batch evals, and
+exposes evaluation metrics for `FastAgentGEPATrackioCallback`. Use this
+when you want the simple `candidate -> score + side_info` API without
+building a JSONL dataset first.
+
+```python
+FastAgentSingleTaskAdapter(
+    *,
+    env_dir: str | Path | None = None,
+    agent_card: str | Path | None = None,
+    agent: str | None = None,
+    model: str | None = None,
+    input_builder: SingleTaskInputBuilder,
+    scorer: SingleTaskScorer,
+    run_dir: str | Path,
+    template: str | None = '{{prompt}}',
+    template_source: str | Path | None = None,
+    schema: str | Path | None = None,
+    backend: BatchBackend = 'harness',
+    include_input: bool = True,
+    batch_runner_factory: BatchRunnerFactory | None = None
+) -> None
+```
+```python
+FastAgentSingleTaskAdapter.prompt(
+    *,
+    model: str | None = None,
+    scorer: SingleTaskScorer,
+    run_dir: str | Path,
+    candidate_key: str = 'prompt',
+    env_dir: str | Path | None = None,
+    template: str = '{{prompt}}',
+    backend: BatchBackend = 'harness',
+    batch_runner_factory: BatchRunnerFactory | None = None
+) -> FastAgentSingleTaskAdapter
+```
+```python
+adapter.__call__(candidate: Mapping[str, str], example: Any | None = None) -> tuple[float, Any]
+```
 ### `FastAgentRowWiseBatchAdapter`
 
 Lower-level GEPA adapter protocol implementation for `gepa.api.optimize`: GEPA
@@ -123,12 +166,27 @@ RowWiseEvaluationRun(
     result: BatchRunResult
 ) -> None
 ```
+### `SingleTaskEvaluationRun`
+
+Metadata passed to a single-task scorer, including the candidate directory,
+one-row input file, `BatchRunResult`, and `CandidateRun`.
+
+```python
+SingleTaskEvaluationRun(
+    index: int,
+    path: Path,
+    input_path: Path,
+    result: BatchRunResult,
+    candidate_run: CandidateRun
+) -> None
+```
 ### Trackio helpers
 
 Trackio helpers provide fast-agent defaults for GEPA dashboards. Use
 `gepa_trackio_init_kwargs()` when your script initializes Trackio, use
 `gepa_api_trackio_kwargs()` with `gepa.api.optimize()`, and use
-`make_gepa_tracking_config()` with `optimize_anything()`.
+`make_gepa_trackio_dashboard()` or `make_gepa_tracking_config()` with
+`optimize_anything()`.
 
 ```python
 gepa_trackio_init_kwargs(
@@ -167,6 +225,22 @@ make_gepa_tracking_config(
     attach_existing: bool = False,
     **trackio_init_overrides: Any
 ) -> Any
+```
+```python
+make_gepa_trackio_dashboard(
+    *,
+    project: str = 'fast-agent-gepa',
+    name: str | None = None,
+    group: str | None = None,
+    config: Mapping[str, Any] | None = None,
+    reflection_lm: FastAgentReflectionLM | None = None,
+    eval_adapter: Any | None = None,
+    step_metric: str = 'gepa/iteration',
+    key_prefix: str = 'gepa/',
+    attach_existing: bool = False,
+    include_gepa_context: bool = False,
+    **trackio_init_overrides: Any
+) -> GEPATrackioDashboard
 ```
 ### Evaluator metric helpers
 

@@ -148,14 +148,6 @@ class AgentRunRequest:
         return not self.noenv
 
     @property
-    def allow_implicit_cards(self) -> bool:
-        return not self.noenv
-
-    @property
-    def allow_permission_store(self) -> bool:
-        return not self.noenv
-
-    @property
     def is_repl(self) -> bool:
         return self.execution_mode == "repl"
 

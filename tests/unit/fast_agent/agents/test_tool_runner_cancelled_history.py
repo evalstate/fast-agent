@@ -8,13 +8,13 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks
 from fast_agent.config import get_settings, update_global_settings
-from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompts.prompt_load import load_prompt
-from fast_agent.session import get_session_manager, reset_session_manager
+from fast_agent.session import SessionManager, reset_session_manager, set_session_manager
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
@@ -24,6 +24,12 @@ async def cancel_tool() -> None:
 
 async def ok_tool() -> str:
     return "ok"
+
+
+def _register_session_manager(environment_dir) -> SessionManager:
+    manager = SessionManager(environment_override=environment_dir)
+    set_session_manager(manager)
+    return manager
 
 
 class ExternalCancelledToolUseLlm(PassthroughLLM):
@@ -396,6 +402,7 @@ async def test_cancelled_turn_is_persisted_to_session_history(tmp_path) -> None:
     reset_session_manager()
 
     try:
+        manager = _register_session_manager(tmp_path / "env")
         llm = CancelledToolUseLlm()
         agent = ToolAgent(AgentConfig("cancelled-persist"), [cancel_tool])
         agent._llm = llm
@@ -410,7 +417,6 @@ async def test_cancelled_turn_is_persisted_to_session_history(tmp_path) -> None:
         with pytest.raises(asyncio.CancelledError):
             await agent.generate("trigger")
 
-        manager = get_session_manager()
         session = manager.current_session
         assert session is not None
 
@@ -446,6 +452,7 @@ async def test_externally_cancelled_turn_is_persisted_to_session_history(tmp_pat
         return "ok"
 
     try:
+        manager = _register_session_manager(tmp_path / "env")
         llm = ExternalCancelledToolUseLlm()
         agent = ToolAgent(AgentConfig("cancelled-persist-external"), [slow_tool])
         agent._llm = llm
@@ -464,7 +471,6 @@ async def test_externally_cancelled_turn_is_persisted_to_session_history(tmp_pat
         with pytest.raises(asyncio.CancelledError):
             await task
 
-        manager = get_session_manager()
         session = manager.current_session
         assert session is not None
 
@@ -493,6 +499,7 @@ async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(tmp_pat
     reset_session_manager()
 
     try:
+        manager = _register_session_manager(tmp_path / "env")
         llm = CancelledStopReasonLlm()
         agent = ToolAgent(AgentConfig("after-llm-hook-persist"), [ok_tool])
         agent._llm = llm
@@ -505,7 +512,6 @@ async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(tmp_pat
         with pytest.raises(RuntimeError, match="after llm boom"):
             await agent.generate("trigger")
 
-        manager = get_session_manager()
         session = manager.current_session
         assert session is not None
 
@@ -531,6 +537,7 @@ async def test_second_llm_error_after_tool_use_persists_resumable_checkpoint(tmp
     reset_session_manager()
 
     try:
+        manager = _register_session_manager(tmp_path / "env")
         llm = ExplodingSecondTurnLlm()
         agent = ToolAgent(AgentConfig("checkpointed-mid-loop"), [ok_tool])
         agent._llm = llm
@@ -538,7 +545,6 @@ async def test_second_llm_error_after_tool_use_persists_resumable_checkpoint(tmp
         with pytest.raises(RuntimeError, match="llm boom"):
             await agent.generate("trigger")
 
-        manager = get_session_manager()
         session = manager.current_session
         assert session is not None
 
@@ -577,6 +583,7 @@ async def test_resumed_tool_result_history_does_not_rerun_completed_tool(tmp_pat
         return f"ok {tool_runs}"
 
     try:
+        manager = _register_session_manager(tmp_path / "env")
         exploding_llm = ExplodingSecondTurnLlm()
         agent = ToolAgent(AgentConfig("checkpointed-side-effect"), [ok_tool])
         agent._llm = exploding_llm
@@ -590,7 +597,6 @@ async def test_resumed_tool_result_history_does_not_rerun_completed_tool(tmp_pat
         resumed_agent = ToolAgent(AgentConfig("checkpointed-side-effect"), [ok_tool])
         resumed_agent._llm = resumed_llm
 
-        manager = get_session_manager()
         resumed = await manager.resume_session_agents_async(
             {resumed_agent.name: resumed_agent},
             fallback_agent_name=resumed_agent.name,

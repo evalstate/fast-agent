@@ -2,7 +2,7 @@ import json
 import os
 import re
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal, Protocol, Union, cast, runtime_checkable
+from typing import Any, Literal, Protocol, cast, runtime_checkable
 from urllib.parse import urlparse
 
 from anthropic.types.beta import (
@@ -30,7 +30,6 @@ from mcp.types import (
     ContentBlock,
     EmbeddedResource,
     ImageContent,
-    PromptMessage,
     ResourceLink,
     TextContent,
     TextResourceContents,
@@ -403,23 +402,6 @@ class AnthropicConverter:
                 destination.append(cast("BetaContentBlockParam", normalized))
 
     @staticmethod
-    def convert_prompt_message_to_anthropic(message: PromptMessage) -> BetaMessageParam:
-        """
-        Convert a standard PromptMessage to Anthropic API format.
-
-        Args:
-            message: The PromptMessage to convert
-
-        Returns:
-            An Anthropic API BetaMessageParam object
-        """
-        # Convert the PromptMessage to a PromptMessageExtended containing a single content item
-        multipart = PromptMessageExtended(role=message.role, content=[message.content])
-
-        # Use the existing conversion method
-        return AnthropicConverter.convert_to_anthropic(multipart)
-
-    @staticmethod
     def _convert_content_items(
         content_items: Sequence[ContentBlock],
         document_mode: bool = True,
@@ -739,7 +721,7 @@ class AnthropicConverter:
 
     @staticmethod
     def _determine_mime_type(
-        resource: Union[TextResourceContents, BlobResourceContents],
+        resource: TextResourceContents | BlobResourceContents,
     ) -> str:
         """
         Determine the MIME type of a resource.

@@ -5,9 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from rich import print as rich_print
-from rich.text import Text
-
 from fast_agent.commands.protocols import HistoryEditableAgent
 from fast_agent.commands.results import CommandMessage
 from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
@@ -16,6 +13,8 @@ from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
+
+    from rich.text import Text
 
     from fast_agent.commands.context import CommandContext
     from fast_agent.commands.results import CommandOutcome
@@ -46,18 +45,6 @@ def load_prompt_messages_result(
         return LoadedPromptMessagesResult(error=f"Error loading {label}: {error_text}")
     except Exception as exc:
         return LoadedPromptMessagesResult(error=f"Error loading {label}: {exc}")
-
-
-def load_prompt_messages_from_file(
-    filename: str,
-    *,
-    label: str,
-    arguments: "Mapping[str, str] | None" = None,
-) -> list[PromptMessageExtended] | None:
-    result = load_prompt_messages_result(filename, label=label, arguments=arguments)
-    if result.error is not None:
-        rich_print(Text(result.error, style="red"))
-    return result.messages
 
 
 def replace_agent_history(agent_obj: object, messages: list[PromptMessageExtended]) -> None:

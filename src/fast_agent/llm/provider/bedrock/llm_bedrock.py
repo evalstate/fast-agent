@@ -6,7 +6,7 @@ import sys
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from types import UnionType
-from typing import TYPE_CHECKING, Any, ClassVar, Union, cast, get_args, get_origin
+from typing import TYPE_CHECKING, Any, ClassVar, cast, get_args, get_origin
 
 from mcp import Tool
 from mcp.types import (
@@ -33,10 +33,6 @@ from fast_agent.llm.reasoning_effort import (
     validate_reasoning_setting,
 )
 from fast_agent.llm.usage_tracking import TurnUsage
-from fast_agent.mcp.helpers.content_helpers import (
-    canonicalize_tool_result_content_for_llm,
-    tool_result_text_for_llm,
-)
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.utils.text import casefold_text, strip_casefold
@@ -49,12 +45,6 @@ BEDROCK_STOP_REASON_MAP: dict[str, LlmStopReason] = {
     "stop_sequence": LlmStopReason.STOP_SEQUENCE,
     "max_tokens": LlmStopReason.MAX_TOKENS,
 }
-BEDROCK_TO_MCP_STOP_REASON = {
-    stop_reason: mapped.value
-    for stop_reason, mapped in BEDROCK_STOP_REASON_MAP.items()
-    if mapped is not LlmStopReason.TOOL_USE
-}
-
 if TYPE_CHECKING:
     from mcp import ListToolsResult
 
@@ -105,7 +95,7 @@ _SIMPLIFIED_SCHEMA_SCALARS = {
 
 def _bedrock_union_members(field_type: Any) -> tuple[Any, ...] | None:
     origin = get_origin(field_type)
-    if origin not in {Union, UnionType}:
+    if origin is not UnionType and str(origin) != "typing.Union":
         return None
     return tuple(arg for arg in get_args(field_type) if arg is not type(None))
 
@@ -441,7 +431,7 @@ class ModelCapabilities:
 @dataclass
 class BedrockAttemptConfig:
     converse_args: dict[str, Any]
-    tools_payload: Union[list[dict[str, Any]], str, None]
+    tools_payload: list[dict[str, Any]] | str | None
     tool_name_mapping: dict[str, str] | None
     name_policy: ToolNamePolicy
     system_text: str | None
@@ -467,39 +457,6 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
     # Class-level capabilities cache shared across all instances
     capabilities: ClassVar[dict[str, ModelCapabilities]] = {}
-
-    @classmethod
-    def debug_cache(cls) -> None:
-        """Print human-readable JSON representation of the capabilities cache.
-
-        Useful for debugging and understanding what capabilities have been
-        discovered and cached for each model. Uses sys.stdout to bypass
-        any logging hijacking.
-        """
-        if not cls.capabilities:
-            sys.stdout.write("{}\n")
-            sys.stdout.flush()
-            return
-
-        cache_dict = {}
-        for model, caps in cls.capabilities.items():
-            cache_dict[model] = {
-                "schema": caps.schema.name if caps.schema else None,
-                "system_mode": caps.system_mode.name if caps.system_mode else None,
-                "stream_with_tools": caps.stream_with_tools.name
-                if caps.stream_with_tools
-                else None,
-                "tool_name_policy": caps.tool_name_policy.name if caps.tool_name_policy else None,
-                "structured_strategy": caps.structured_strategy.name
-                if caps.structured_strategy
-                else None,
-                "reasoning_support": caps.reasoning_support,
-                "supports_tools": caps.supports_tools,
-            }
-
-        output = json.dumps(cache_dict, indent=2, sort_keys=True)
-        sys.stdout.write(f"{output}\n")
-        sys.stdout.flush()
 
     @classmethod
     def matches_model_pattern(cls, model_name: str) -> bool:
@@ -535,7 +492,6 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         super().__init__(Provider.BEDROCK, *args, **kwargs)
 
         self._resolve_aws_configuration()
-        self._bedrock_client = None
         self._bedrock_runtime_client = None
 
         # One-shot hint to force non-streaming on next completion (used by structured outputs)
@@ -614,20 +570,6 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             setting = ReasoningEffortSetting(kind="budget", value=budget)
 
         self._reasoning_effort = validate_reasoning_setting(setting, spec)
-
-    def _get_bedrock_client(self):
-        """Get or create Bedrock client."""
-        if self._bedrock_client is None:
-            try:
-                boto3 = _require_boto3()
-                session = boto3.Session(profile_name=self.aws_profile)
-                self._bedrock_client = session.client("bedrock", region_name=self.aws_region)
-            except _NO_CREDENTIALS_ERROR as e:
-                raise ProviderKeyError(
-                    "AWS credentials not found",
-                    "Please configure AWS credentials using AWS CLI, environment variables, or IAM roles.",
-                ) from e
-        return self._bedrock_client
 
     def _get_bedrock_runtime_client(self):
         """Get or create Bedrock Runtime client."""
@@ -1119,87 +1061,6 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         )
         return LlmStopReason.END_TURN
 
-    def _convert_multipart_to_bedrock_message(
-        self, msg: PromptMessageExtended
-    ) -> BedrockMessageParam:
-        """
-        Convert a PromptMessageExtended to Bedrock message parameter format.
-        Handles tool results and regular content.
-
-        Args:
-            msg: PromptMessageExtended message to convert
-
-        Returns:
-            Bedrock message parameter dictionary
-        """
-        content_blocks: list[dict[str, Any]] = []
-        bedrock_msg = {"role": msg.role, "content": content_blocks}
-
-        # Handle tool results first (if present)
-        if msg.tool_results:
-            # Get the cached schema type to determine result formatting
-            caps = self.capabilities.get(self.model) or ModelCapabilities()
-            # Check if any tool ID indicates system prompt format
-            has_system_prompt_tools = any(
-                tool_id.startswith("system_prompt_") for tool_id in msg.tool_results
-            )
-            is_system_prompt_schema = (
-                caps.schema == ToolSchemaType.SYSTEM_PROMPT or has_system_prompt_tools
-            )
-
-            if is_system_prompt_schema:
-                # For system prompt models: format as human-readable text
-                tool_result_parts = []
-                for tool_id, tool_result in msg.tool_results.items():
-                    result_text = tool_result_text_for_llm(
-                        tool_result,
-                        logger=self.logger,
-                        source="bedrock",
-                    )
-                    result_payload = {
-                        "tool_name": tool_id,  # Use tool_id as name for system prompt
-                        "status": "error" if tool_result.isError else "success",
-                        "result": result_text,
-                    }
-                    tool_result_parts.append(json.dumps(result_payload))
-
-                if tool_result_parts:
-                    full_result_text = f"Tool Results:\n{', '.join(tool_result_parts)}"
-                    content_blocks.append({"type": "text", "text": full_result_text})
-            else:
-                # For Nova/Anthropic models: use structured tool_result format
-                for tool_id, tool_result in msg.tool_results.items():
-                    result_content_blocks = [
-                        {"text": part.text}
-                        for part in canonicalize_tool_result_content_for_llm(
-                            tool_result,
-                            logger=self.logger,
-                            source="bedrock",
-                        )
-                        if isinstance(part, TextContent)
-                    ]
-
-                    if not result_content_blocks:
-                        result_content_blocks.append({"text": "[No content in tool result]"})
-
-                    content_blocks.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": tool_id,
-                            "content": result_content_blocks,
-                            "status": "error" if tool_result.isError else "success",
-                        }
-                    )
-
-        # Handle regular content
-        content_blocks.extend(
-            {"type": "text", "text": content_item.text}
-            for content_item in msg.content
-            if isinstance(content_item, TextContent)
-        )
-
-        return bedrock_msg
-
     def _convert_messages_to_bedrock(
         self, messages: list[BedrockMessageParam]
     ) -> list[dict[str, Any]]:
@@ -1671,7 +1532,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         self.history.set(messages)
         self._log_chat_finished(model=model)
 
-        from fast_agent.core.prompt import Prompt
+        from fast_agent.mcp.prompt import Prompt
 
         return Prompt.assistant(
             *response_content_blocks,
@@ -1828,7 +1689,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         self,
         converse_args: dict[str, Any],
         schema_choice: ToolSchemaType,
-        tools_payload: Union[list[dict[str, Any]], str, None],
+        tools_payload: list[dict[str, Any]] | str | None,
         *,
         has_tool_results: bool,
         has_tool_use: bool,
@@ -1844,7 +1705,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
     @staticmethod
     def _bedrock_has_tools_payload(
-        tools_payload: Union[list[dict[str, Any]], str, None],
+        tools_payload: list[dict[str, Any]] | str | None,
     ) -> bool:
         if isinstance(tools_payload, list):
             return bool(tools_payload)
@@ -1877,7 +1738,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         model: str,
         schema_choice: ToolSchemaType,
         tool_list: "ListToolsResult | None",
-    ) -> tuple[Union[list[dict[str, Any]], str, None], dict[str, str] | None, ToolNamePolicy]:
+    ) -> tuple[list[dict[str, Any]] | str | None, dict[str, str] | None, ToolNamePolicy]:
         name_policy = (
             self.capabilities.get(model) or ModelCapabilities()
         ).tool_name_policy or ToolNamePolicy.PRESERVE
@@ -1916,7 +1777,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         base_system_text: str | None,
         model: str,
         schema_choice: ToolSchemaType,
-        tools_payload: Union[list[dict[str, Any]], str, None],
+        tools_payload: list[dict[str, Any]] | str | None,
     ) -> str | None:
         system_text = base_system_text
         if (

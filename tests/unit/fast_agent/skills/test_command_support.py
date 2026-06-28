@@ -52,7 +52,6 @@ def test_parse_skills_slash_options_extracts_common_overrides() -> None:
 
     assert parsed.error is None
     assert parsed.argument == "alpha"
-    assert parsed.argument_tokens == ("alpha",)
     assert parsed.registry == "./marketplace.json"
     assert parsed.skills_dir == "My Skills"
 
@@ -70,7 +69,6 @@ def test_parse_skills_slash_options_does_not_quote_single_path_selector() -> Non
 
     assert parsed.error is None
     assert parsed.argument == "My Skills/foo"
-    assert parsed.argument_tokens == ("My Skills/foo",)
 
 
 def test_parse_skills_slash_options_preserves_quoted_search_argument() -> None:
@@ -80,7 +78,6 @@ def test_parse_skills_slash_options_preserves_quoted_search_argument() -> None:
 
     assert parsed.error is None
     assert parsed.argument == "docker 'image build'"
-    assert parsed.argument_tokens == ("docker", "image build")
     assert parsed.registry == "https://example.test/marketplace.json"
 
 

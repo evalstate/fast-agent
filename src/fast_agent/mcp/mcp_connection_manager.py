@@ -12,7 +12,8 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppres
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn, Protocol, Union, runtime_checkable
+from typing import TYPE_CHECKING, NoReturn, Protocol, runtime_checkable
+from urllib.parse import urlsplit
 
 import httpx
 from anyio import CancelScope, Event, Lock, create_task_group
@@ -37,6 +38,7 @@ from fast_agent.core.exceptions import ServerInitializationError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.home import build_child_environment
+from fast_agent.mcp.hf_auth import add_forwarded_hf_auth_header
 from fast_agent.mcp.interfaces import ClientSessionFactory
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
@@ -80,8 +82,13 @@ def _pingable_session(session: object | None) -> PingableClientSession | None:
 @dataclass(frozen=True, slots=True)
 class PreparedHttpAuth:
     headers: dict[str, str]
-    oauth_provider: Union["OAuthClientProvider", None]
+    oauth_provider: "OAuthClientProvider | None"
     user_auth_keys: set[str]
+
+    def __iter__(self):
+        yield self.headers
+        yield self.oauth_provider
+        yield self.user_auth_keys
 
 
 def _format_ping_shutdown_error(missed: int, exc: Exception) -> str:
@@ -146,6 +153,24 @@ def _prepare_headers_and_auth(
     auth_header_keys = {"authorization", "x-hf-authorization"}
     user_provided_auth_keys = {key for key in headers if strip_casefold(key) in auth_header_keys}
 
+    if (
+        server_config.auth is not None
+        and server_config.auth.forward == "huggingface"
+        and server_config.url
+        and not user_provided_auth_keys
+    ):
+        headers = add_forwarded_hf_auth_header(server_config.url, headers) or {}
+        user_provided_auth_keys = {
+            key for key in headers if strip_casefold(key) in auth_header_keys
+        }
+
+    if server_config.auth is not None and server_config.auth.forward == "huggingface":
+        return PreparedHttpAuth(
+            headers=headers,
+            oauth_provider=None,
+            user_auth_keys=user_provided_auth_keys,
+        )
+
     force_oauth = oauth_mode == "force" or (oauth_mode is None and trigger_oauth is True)
     auto_oauth = oauth_mode == "auto"
     oauth_requested = force_oauth or auto_oauth
@@ -197,6 +222,8 @@ def _resolve_oauth_mode(
     if trigger_oauth is False:
         return "disabled"
     auth_config = server_config.auth
+    if auth_config is not None and auth_config.forward == "huggingface":
+        return "disabled"
     if auth_config is not None and auth_config.oauth is False:
         return "disabled"
     if trigger_oauth is True:
@@ -415,8 +442,6 @@ class ServerConnection:
         self._oauth_wait_started_at: float | None = None
         self._oauth_wait_accumulated_seconds = 0.0
         self._oauth_callback_timed_out = False
-        self._last_oauth_error: str | None = None
-        self._last_oauth_authorization_url: str | None = None
         self._oauth_abort_event = threading.Event()
         self._stdio_stderr_lines: deque[str] = deque(maxlen=STDIO_STDERR_BUFFER_LINES)
         self._lifecycle_cancel_scope: CancelScope | None = None
@@ -424,12 +449,6 @@ class ServerConnection:
     def is_healthy(self) -> bool:
         """Check if the server connection is healthy and ready to use."""
         return self.session is not None and not self._error_occurred
-
-    def reset_error_state(self) -> None:
-        """Reset the error state, allowing reconnection attempts."""
-        self._error_occurred = False
-        self._error_message = None
-        self._stdio_stderr_lines.clear()
 
     def request_shutdown(self) -> None:
         """
@@ -909,11 +928,22 @@ def _format_oauth_registration_404_details(error_text: str, server_url: str | No
         "- Configure a Client ID Metadata URL (CIMD): auth.client_metadata_url or --client-metadata-url\n"
         "- Use direct bearer authentication with --auth <token>\n"
     )
-    normalized_url = strip_casefold(server_url or "")
-    if "githubcopilot.com" in normalized_url:
+    if _server_url_host_matches(server_url, "githubcopilot.com"):
         details += "GitHub Copilot MCP commonly expects token auth for external hosts. Try --auth $GITHUB_TOKEN.\n"
     details += f"\nOriginal error:\n{error_text}"
     return details
+
+
+def _server_url_host_matches(server_url: str | None, expected_host: str) -> bool:
+    if not server_url:
+        return False
+    try:
+        hostname = urlsplit(server_url).hostname
+    except ValueError:
+        return False
+    if hostname is None:
+        return False
+    return strip_casefold(hostname) == expected_host
 
 
 def _is_oauth_cancelled_message(message: str | None) -> bool:
@@ -961,9 +991,7 @@ class MCPConnectionManager(ContextDependent):
     Integrates with the application context system for proper resource management.
     """
 
-    def __init__(
-        self, server_registry: "ServerRegistry", context: Union["Context", None] = None
-    ) -> None:
+    def __init__(self, server_registry: "ServerRegistry", context: "Context | None" = None) -> None:
         super().__init__(context=context)
         self.server_registry = server_registry
         self.running_servers: dict[str, ServerConnection] = {}
@@ -1083,14 +1111,11 @@ class MCPConnectionManager(ContextDependent):
         user_event_handler: OAuthEventHandler | None,
     ) -> OAuthEventHandler:
         async def handle_event(event: OAuthEvent) -> None:
-            if event.event_type == "authorization_url" and event.url:
-                server_conn._last_oauth_authorization_url = event.url
-            elif event.event_type == "wait_start":
+            if event.event_type == "wait_start":
                 server_conn.mark_oauth_wait_start()
             elif event.event_type == "wait_end":
                 server_conn.mark_oauth_wait_end()
             elif event.event_type == "oauth_error":
-                server_conn._last_oauth_error = event.message
                 if event.is_timeout or _is_oauth_timeout_message(event.message):
                     server_conn._oauth_callback_timed_out = True
 
@@ -1400,7 +1425,7 @@ class MCPConnectionManager(ContextDependent):
         allow_oauth_paste_fallback: bool,
         transport_metrics: TransportChannelMetrics | None,
         suppress_transport_errors: Callable[[], None],
-    ) -> tuple[dict[str, str], Union["OAuthClientProvider", None], Callable | None]:
+    ) -> tuple[dict[str, str], "OAuthClientProvider | None", Callable | None]:
         suppress_transport_errors()
         self._suppress_mcp_oauth_cancel_errors()
         prepared_auth = _prepare_headers_and_auth(

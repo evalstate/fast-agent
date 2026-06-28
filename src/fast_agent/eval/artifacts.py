@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -102,13 +101,6 @@ class CandidateRun:
         self.write_json("candidate.json", candidate)
         if variables is not None:
             self.write_json("variables.json", variables)
-
-    def copy_tree(self, source: str | Path, relative_dest: str | Path) -> Path:
-        destination = self.path / relative_dest
-        if destination.exists():
-            shutil.rmtree(destination)
-        shutil.copytree(source, destination)
-        return destination
 
     def run_command(
         self,

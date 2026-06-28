@@ -1,7 +1,7 @@
 import pytest
 
 from fast_agent.agents import McpAgent
-from fast_agent.core.prompt import Prompt
+from fast_agent.mcp.prompt import Prompt
 
 
 @pytest.mark.integration
@@ -98,7 +98,7 @@ async def test_mixed_message_types(fast_agent):
     """Test that the agent can handle mixed message types seamlessly."""
     from mcp.types import PromptMessage, TextContent
 
-    from fast_agent.core.prompt import Prompt
+    from fast_agent.mcp.prompt import Prompt
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
     # Use the FastAgent instance from the test directory fixture
@@ -547,7 +547,7 @@ async def test_generate_with_various_input_types(fast_agent):
     """Test that generate() accepts strings, PromptMessage, PromptMessageExtended, and lists."""
     from mcp.types import PromptMessage, TextContent
 
-    from fast_agent.core.prompt import Prompt
+    from fast_agent.mcp.prompt import Prompt
 
     # Use the FastAgent instance from the test directory fixture
     fast = fast_agent

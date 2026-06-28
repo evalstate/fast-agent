@@ -12,6 +12,7 @@ from typing import Any, cast
 import frontmatter
 import yaml
 
+from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.agents.agent_types import (
     AgentConfig,
     AgentType,
@@ -20,7 +21,7 @@ from fast_agent.agents.agent_types import (
     MCPConnectTarget,
 )
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
-from fast_agent.config import MCPServerSettings, resolve_env_vars
+from fast_agent.config import MCPServerAuthSettings, MCPServerSettings, resolve_env_vars
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
 from fast_agent.core.agent_card_paths import (
     is_agent_card_path,
@@ -452,6 +453,7 @@ def _build_agent_data(
 
     model = raw.get("model")
     use_history = _default_use_history(type_key, raw.get("use_history"))
+    save_trajectory = _ensure_bool(raw.get("save_trajectory"), "save_trajectory", path)
     request_params = _ensure_request_params(raw.get("request_params"), path)
     human_input = _ensure_bool(raw.get("human_input"), "human_input", path, default=False)
     default, tool_only = _ensure_default_flags(raw, name, path)
@@ -480,6 +482,7 @@ def _build_agent_data(
         skills=raw.get("skills") if raw.get("skills") is not None else SKILLS_DEFAULT,
         model=model,
         use_history=use_history,
+        save_trajectory=save_trajectory,
         human_input=human_input,
         default=default,
         tool_only=tool_only,
@@ -493,6 +496,7 @@ def _build_agent_data(
         trim_tool_history=trim_tool_history,
         mcp_connect=mcp_connect,
         source_path=path,
+        agent_type=agent_type,
     )
 
     _apply_request_params_defaults(config, request_params)
@@ -669,6 +673,40 @@ def _apply_maker_data(
     agent_data["red_flag_max_length"] = red_flag
 
 
+def _apply_a2a_data(
+    raw: dict[str, Any],
+    path: Path,
+    agent_data: AgentCardData,
+    instruction: str,
+) -> None:
+    del instruction
+    transport = raw.get("transport")
+    if transport is not None:
+        transport = _ensure_a2a_transport(transport, path)
+    auth = raw.get("auth")
+    if auth is not None and not isinstance(auth, dict):
+        raise AgentConfigError(f"'auth' must be a mapping in {path}")
+    agent_data["a2a"] = A2AAgentConfig(
+        url=_ensure_str(raw.get("url"), "url", path),
+        transport=transport,
+        streaming=_ensure_bool(raw.get("streaming"), "streaming", path, default=True),
+        polling=_ensure_bool(raw.get("polling"), "polling", path, default=False),
+        accepted_output_modes=_ensure_str_list(
+            raw.get("accepted_output_modes", []), "accepted_output_modes", path
+        ),
+        headers=_ensure_headers_map(raw.get("headers"), "headers", path) or {},
+        auth=MCPServerAuthSettings.model_validate(auth) if auth is not None else None,
+        relative_card_path=_ensure_optional_str(
+            raw.get("relative_card_path"), "relative_card_path", path
+        ),
+        request_timeout_seconds=(
+            _ensure_float(raw.get("request_timeout_seconds"), "request_timeout_seconds", path)
+            if raw.get("request_timeout_seconds") is not None
+            else 120.0
+        ),
+    )
+
+
 _CARD_TYPE_DATA_HANDLERS: dict[CardType, CardTypeDataHandler] = {
     "agent": _apply_basic_agent_data,
     "smart": _apply_basic_agent_data,
@@ -679,6 +717,7 @@ _CARD_TYPE_DATA_HANDLERS: dict[CardType, CardTypeDataHandler] = {
     "orchestrator": _apply_orchestrator_data,
     "iterative_planner": _apply_iterative_planner_data,
     "MAKER": _apply_maker_data,
+    "a2a": _apply_a2a_data,
 }
 
 
@@ -715,6 +754,13 @@ def _ensure_optional_str(value: Any, field: str, path: Path) -> str | None:
     if normalized is None:
         raise AgentConfigError(f"'{field}' must be a non-empty string in {path}")
     return normalized
+
+
+def _ensure_a2a_transport(value: Any, path: Path) -> str:
+    transport = _ensure_str(value, "transport", path)
+    if transport not in {"JSONRPC", "HTTP+JSON"}:
+        raise AgentConfigError(f"'transport' must be one of JSONRPC, HTTP+JSON in {path}")
+    return transport
 
 
 def _ensure_str_list(value: Any, field: str, path: Path) -> list[str]:
@@ -1137,6 +1183,13 @@ def _serialize_optional_common_fields(
     )
     _set_allowed(card, allowed_fields, "model", config.model, when=bool(config.model))
     _set_allowed(card, allowed_fields, "human_input", True, when=config.human_input)
+    _set_allowed(
+        card,
+        allowed_fields,
+        "save_trajectory",
+        True,
+        when=config.save_trajectory,
+    )
     _set_allowed(card, allowed_fields, "api_key", config.api_key, when=bool(config.api_key))
     _set_allowed(
         card,
@@ -1375,6 +1428,36 @@ def _serialize_maker_fields(
         card["red_flag_max_length"] = red_flag
 
 
+def _serialize_a2a_fields(
+    card: dict[str, Any],
+    agent_data: AgentCardData,
+    _config: AgentConfig,
+) -> None:
+    a2a_config = agent_data.get("a2a")
+    if not isinstance(a2a_config, A2AAgentConfig):
+        raise AgentConfigError("A2A agent is missing A2A configuration")
+
+    card["url"] = a2a_config.url
+    if a2a_config.transport:
+        card["transport"] = a2a_config.transport
+    if not a2a_config.streaming:
+        card["streaming"] = False
+    if a2a_config.polling:
+        card["polling"] = True
+    if a2a_config.accepted_output_modes:
+        card["accepted_output_modes"] = list(a2a_config.accepted_output_modes)
+    if a2a_config.headers:
+        card["headers"] = dict(a2a_config.headers)
+    if a2a_config.auth is not None:
+        auth = a2a_config.auth.model_dump(mode="python", exclude_none=True, exclude_defaults=True)
+        auth["oauth"] = a2a_config.auth.oauth
+        card["auth"] = auth
+    if a2a_config.relative_card_path:
+        card["relative_card_path"] = a2a_config.relative_card_path
+    if a2a_config.request_timeout_seconds != 120.0:
+        card["request_timeout_seconds"] = a2a_config.request_timeout_seconds
+
+
 _CARD_SERIALIZERS: dict[CardType, CardTypeSerializer] = {
     "agent": _serialize_agent_like_fields,
     "smart": _serialize_agent_like_fields,
@@ -1385,6 +1468,7 @@ _CARD_SERIALIZERS: dict[CardType, CardTypeSerializer] = {
     "orchestrator": _serialize_orchestrator_fields,
     "iterative_planner": _serialize_iterative_planner_fields,
     "MAKER": _serialize_maker_fields,
+    "a2a": _serialize_a2a_fields,
 }
 
 
@@ -1434,14 +1518,3 @@ def _serialize_skills(
         return serialized if serialized else None
     return None
 
-
-def _serialize_string_list(value: Any) -> list[str] | None:
-    if value is None:
-        return None
-    if not isinstance(value, list):
-        return None
-    if not value:
-        return []
-    if all(isinstance(item, str) for item in value):
-        return [item for item in value if isinstance(item, str)]
-    return None

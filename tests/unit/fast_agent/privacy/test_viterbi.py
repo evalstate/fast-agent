@@ -6,7 +6,6 @@ import pytest
 
 from fast_agent.privacy.viterbi import (
     build_viterbi_tables,
-    constrained_viterbi,
     constrained_viterbi_np,
     token_spans_from_path,
 )
@@ -28,20 +27,22 @@ _LABELS = [
 ]
 
 
-def _random_logits(timesteps: int, label_count: int, *, seed: int):
-    rng = np.random.default_rng(seed)
-    return rng.standard_normal((timesteps, label_count)).astype(np.float32)
-
-
-@pytest.mark.parametrize("seed", [0, 1, 7, 42])
-def test_numpy_viterbi_matches_pure_python_reference(seed: int) -> None:
-    logits = _random_logits(timesteps=24, label_count=len(_LABELS), seed=seed)
+def test_numpy_viterbi_decodes_expected_path() -> None:
+    logits = np.full((4, len(_LABELS)), -5.0, dtype=np.float32)
+    logits[0, _LABELS.index("B-private_email")] = 10.0
+    logits[1, _LABELS.index("I-private_email")] = 10.0
+    logits[2, _LABELS.index("E-private_email")] = 10.0
+    logits[3, _LABELS.index("O")] = 10.0
     tables = build_viterbi_tables(_LABELS, np)
 
-    reference = constrained_viterbi(logits.tolist(), _LABELS)
     actual = constrained_viterbi_np(logits, tables, np)
 
-    assert actual == reference
+    assert [_LABELS[index] for index in actual] == [
+        "B-private_email",
+        "I-private_email",
+        "E-private_email",
+        "O",
+    ]
 
 
 def test_numpy_viterbi_respects_bioes_constraints() -> None:

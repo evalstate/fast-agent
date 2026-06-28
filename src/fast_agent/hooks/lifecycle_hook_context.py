@@ -27,10 +27,6 @@ class AgentLifecycleContext:
         return self.agent.name
 
     @property
-    def has_context(self) -> bool:
-        return self.context is not None
-
-    @property
     def agent_registry(self) -> "Mapping[str, AgentProtocol] | None":
         """Return the active agent registry when configured."""
         return self.agent.agent_registry

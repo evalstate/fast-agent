@@ -38,23 +38,25 @@ class GEPAIntegrationError(RuntimeError):
     """Raised when an installed GEPA package does not provide the expected API."""
 
 
+@dataclass(frozen=True)
+class GEPATrackioDashboard:
+    """Trackio wiring for a GEPA run.
+
+    ``tracking`` is a GEPA ``TrackingConfig`` suitable for
+    ``gepa.optimize_anything.GEPAConfig``. ``callbacks`` contains fast-agent
+    telemetry callbacks that log on the same GEPA axes.
+    """
+
+    tracking: Any
+    callbacks: list[Any]
+
+
 def missing_gepa_dependencies() -> list[str]:
     """Return package names missing for GEPA optimizer integration."""
 
     return [
         package for module, package in GEPA_EXTRA_REQUIREMENTS.items() if find_spec(module) is None
     ]
-
-
-def format_missing_gepa_dependencies(packages: list[str]) -> str:
-    """Render an actionable missing-dependency error for GEPA optimizer workflows."""
-
-    package_lines = "\n".join(f"  - {package}" for package in packages)
-    return (
-        "GEPA optimization requires optional dependencies that are not installed:\n"
-        f"{package_lines}\n\n"
-        f"{GEPA_EXTRA_INSTALL_MESSAGE}"
-    )
 
 
 def gepa_trackio_init_kwargs(
@@ -164,6 +166,53 @@ def make_gepa_tracking_config(
     )
 
 
+def make_gepa_trackio_dashboard(
+    *,
+    project: str = "fast-agent-gepa",
+    name: str | None = None,
+    group: str | None = None,
+    config: Mapping[str, Any] | None = None,
+    reflection_lm: FastAgentReflectionLM | None = None,
+    eval_adapter: Any | None = None,
+    step_metric: str = "gepa/iteration",
+    key_prefix: str = "gepa/",
+    attach_existing: bool = False,
+    include_gepa_context: bool = False,
+    **trackio_init_overrides: Any,
+) -> GEPATrackioDashboard:
+    """Return fast-agent's default Trackio dashboard wiring for GEPA.
+
+    This is the high-level helper applications should prefer for
+    ``gepa.optimize_anything``. It combines GEPA's own Trackio tracking config
+    with fast-agent callback telemetry, using ``gepa/iteration`` as the default
+    injected GEPA step metric and ``gepa/`` as the default GEPA metric prefix.
+    """
+
+    callbacks: list[Any] = []
+    if eval_adapter is not None or reflection_lm is not None:
+        callbacks.append(
+            FastAgentGEPATrackioCallback(
+                eval_adapter=eval_adapter,
+                reflection_lm=reflection_lm,
+                include_gepa_context=include_gepa_context,
+            )
+        )
+
+    return GEPATrackioDashboard(
+        tracking=make_gepa_tracking_config(
+            project=project,
+            name=name,
+            group=group,
+            config=config,
+            step_metric=step_metric,
+            key_prefix=key_prefix,
+            attach_existing=attach_existing,
+            **trackio_init_overrides,
+        ),
+        callbacks=callbacks,
+    )
+
+
 def gepa_numeric_metrics(
     side_info: Mapping[str, Any],
     *,
@@ -238,6 +287,35 @@ class RowWiseBatchScorer(Protocol):
         input_row: JsonRow,
         candidate: Mapping[str, str],
         evaluation: RowWiseEvaluationRun,
+    ) -> RowWiseScore | float | tuple[float, Any] | tuple[float, Any, Mapping[str, float]]: ...
+
+
+@dataclass(frozen=True)
+class SingleTaskEvaluationRun:
+    """Inspectable directory and batch result for one single-task GEPA evaluation."""
+
+    index: int
+    path: Path
+    input_path: Path
+    result: BatchRunResult
+    candidate_run: CandidateRun
+
+
+class SingleTaskInputBuilder(Protocol):
+    def __call__(
+        self,
+        candidate: Mapping[str, str],
+        example: Any | None = None,
+    ) -> str | Mapping[str, Any]: ...
+
+
+class SingleTaskScorer(Protocol):
+    def __call__(
+        self,
+        output_row: JsonRow,
+        candidate: Mapping[str, str],
+        evaluation: SingleTaskEvaluationRun,
+        example: Any | None = None,
     ) -> RowWiseScore | float | tuple[float, Any] | tuple[float, Any, Mapping[str, float]]: ...
 
 
@@ -507,6 +585,144 @@ class FastAgentBatchEvaluator:
         )
 
 
+class FastAgentSingleTaskAdapter:
+    """Callable GEPA evaluator for one fast-agent task, treated as batch size 1.
+
+    This is the simple ``optimize_anything``-friendly adapter: GEPA calls the
+    instance like a normal evaluator, while fast-agent still captures structured
+    eval telemetry for ``FastAgentGEPATrackioCallback``.
+    """
+
+    def __init__(
+        self,
+        *,
+        env_dir: str | Path | None = None,
+        agent_card: str | Path | None = None,
+        agent: str | None = None,
+        model: str | None = None,
+        input_builder: SingleTaskInputBuilder,
+        scorer: SingleTaskScorer,
+        run_dir: str | Path,
+        template: str | None = "{{prompt}}",
+        template_source: str | Path | None = None,
+        schema: str | Path | None = None,
+        backend: "BatchBackend" = "harness",
+        include_input: bool = True,
+        batch_runner_factory: BatchRunnerFactory | None = None,
+    ) -> None:
+        self.env_dir = Path(env_dir) if env_dir is not None else None
+        self.agent_card = agent_card
+        self.agent = agent
+        self.model = model
+        self.input_builder = input_builder
+        self.scorer = scorer
+        self.run = ArtifactRun(run_dir)
+        self.template = template
+        self.template_source = template_source
+        self.schema = schema
+        self.backend = backend
+        self.include_input = include_input
+        self.batch_runner_factory = batch_runner_factory or BatchRunner
+        self._evaluations = 0
+        self._pending_gepa_eval_metrics: deque[dict[str, NumericMetric]] = deque()
+
+    @classmethod
+    def prompt(
+        cls,
+        *,
+        model: str | None = None,
+        scorer: SingleTaskScorer,
+        run_dir: str | Path,
+        candidate_key: str = "prompt",
+        env_dir: str | Path | None = None,
+        template: str = "{{prompt}}",
+        backend: "BatchBackend" = "harness",
+        batch_runner_factory: BatchRunnerFactory | None = None,
+    ) -> "FastAgentSingleTaskAdapter":
+        """Create a simple prompt-only adapter using fast-agent's default worker.
+
+        The candidate value at ``candidate_key`` is sent to a default fast-agent
+        agent with no AgentCard required.
+        """
+
+        return cls(
+            env_dir=env_dir,
+            model=model,
+            input_builder=lambda candidate, example=None: {"prompt": candidate[candidate_key]},
+            scorer=scorer,
+            run_dir=run_dir,
+            template=template,
+            backend=backend,
+            batch_runner_factory=batch_runner_factory,
+        )
+
+    def pop_pending_gepa_eval_metrics(self) -> dict[str, NumericMetric] | None:
+        if not self._pending_gepa_eval_metrics:
+            return None
+        return self._pending_gepa_eval_metrics.popleft()
+
+    def __call__(self, candidate: Mapping[str, str], example: Any | None = None) -> tuple[float, Any]:
+        self._evaluations += 1
+        candidate_run = self.run.candidate()
+        candidate_dict = dict(candidate)
+        candidate_run.materialize_candidate(candidate_dict, variables=candidate_dict)
+
+        eval_dir = candidate_run.path
+        built_input = self.input_builder(candidate_dict, example)
+        input_row = dict(built_input) if isinstance(built_input, Mapping) else {"prompt": str(built_input)}
+        input_path = eval_dir / "input.jsonl"
+        _write_jsonl(input_path, [input_row])
+
+        result = run_coroutine(self._run_batch(eval_dir, input_path))
+        evaluation = SingleTaskEvaluationRun(
+            index=self._evaluations,
+            path=eval_dir,
+            input_path=input_path,
+            result=result,
+            candidate_run=candidate_run,
+        )
+        output_row = result.rows[0] if result.rows else {}
+        parsed = _parse_row_wise_score(self.scorer(output_row, candidate_dict, evaluation, example))
+        if parsed.trajectory is None:
+            side_info = {}
+        elif isinstance(parsed.trajectory, Mapping):
+            side_info = dict(parsed.trajectory)
+        else:
+            side_info = {"trajectory": parsed.trajectory}
+        candidate_run.write_score(parsed.score, side_info)
+        summary = {
+            "eval_index": self._evaluations,
+            "batch_size": 1,
+            "avg_score": parsed.score,
+            "num_metric_calls": 1,
+            "objective_averages": dict(parsed.objective_scores or {}),
+        }
+        (eval_dir / "single-task-score.json").write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        self._pending_gepa_eval_metrics.append(_row_wise_eval_metrics(result.summary, summary))
+        return parsed.score, side_info
+
+    async def _run_batch(self, eval_dir: Path, input_path: Path) -> BatchRunResult:
+        runner = self.batch_runner_factory(self.env_dir, backend=self.backend)
+        return await runner.run(
+            input=input_path,
+            output_path=eval_dir / "results.jsonl",
+            agent_card=self.agent_card,
+            agent=self.agent,
+            template=self.template,
+            template_source=self.template_source,
+            json_schema=self.schema,
+            model=self.model,
+            parallel=1,
+            include_input=self.include_input,
+            summary_path=eval_dir / "batch-summary.json",
+            telemetry_path=eval_dir / "telemetry.jsonl",
+            overwrite=True,
+        )
+
+
 class FastAgentRowWiseBatchAdapter:
     """GEPA adapter protocol implementation for row-wise fast-agent batch evaluation.
 
@@ -673,37 +889,72 @@ class FastAgentGEPATrackioCallback:
     def __init__(
         self,
         *,
-        row_wise_adapter: FastAgentRowWiseBatchAdapter | None = None,
+        eval_adapter: Any | None = None,
         reflection_lm: FastAgentReflectionLM | None = None,
-        include_gepa_context: bool = True,
-        include_eval_score_summary: bool = True,
+        include_gepa_context: bool = False,
     ) -> None:
-        self.row_wise_adapter = row_wise_adapter
+        self.eval_adapter = eval_adapter
         self.reflection_lm = reflection_lm
         self.include_gepa_context = include_gepa_context
-        self.include_eval_score_summary = include_eval_score_summary
+        self._eval_step = 0
+        self._pending_gepa_eval_contexts: deque[dict[str, NumericMetric]] = deque()
 
     def on_evaluation_end(self, event: Mapping[str, Any]) -> None:
-        if self.row_wise_adapter is None:
+        if self.eval_adapter is None or not callable(getattr(self.eval_adapter, "pop_pending_gepa_eval_metrics", None)):
             return
-        metrics = self.row_wise_adapter.pop_pending_gepa_eval_metrics()
-        if metrics is not None:
-            safe_trackio_log(
-                {
-                    **_evaluation_event_metrics(event, include_context=self.include_gepa_context),
-                    **_filter_eval_metrics(
-                        metrics,
-                        include_score_summary=self.include_eval_score_summary,
-                    ),
-                }
+        context = _evaluation_event_metrics(event, include_context=self.include_gepa_context)
+        if "gepa/total_metric_calls" in context:
+            self._log_pending_eval_metrics(context)
+        else:
+            self._pending_gepa_eval_contexts.append(context)
+
+    def on_valset_evaluated(self, event: Mapping[str, Any]) -> None:
+        context = _evaluation_event_metrics(event, include_context=self.include_gepa_context)
+        if "gepa/total_metric_calls" in context:
+            self._log_pending_eval_metrics(context)
+
+    def on_budget_updated(self, event: Mapping[str, Any]) -> None:
+        metrics = _budget_event_metrics(event)
+        if metrics:
+            safe_trackio_log(metrics)
+        if self._pending_gepa_eval_contexts:
+            self._log_pending_eval_metrics(
+                {**self._pending_gepa_eval_contexts[0], **metrics},
+                consume_queued_context=True,
             )
+
+    def _log_pending_eval_metrics(
+        self,
+        context: Mapping[str, NumericMetric],
+        *,
+        consume_queued_context: bool = False,
+    ) -> None:
+        if self.eval_adapter is None:
+            return
+        pop_metrics = getattr(self.eval_adapter, "pop_pending_gepa_eval_metrics", None)
+        if not callable(pop_metrics):
+            return
+        if "gepa/total_metric_calls" not in context:
+            return
+        metrics = pop_metrics()
+        if metrics is not None:
+            if consume_queued_context and self._pending_gepa_eval_contexts:
+                self._pending_gepa_eval_contexts.popleft()
+            self._eval_step += 1
+            payload = {
+                **context,
+                "fast_agent/eval/step": self._eval_step,
+                **metrics,
+            }
+            safe_trackio_log(payload)
 
     def on_proposal_end(self, event: Mapping[str, Any]) -> None:
         if self.reflection_lm is None:
             return
         context = _proposal_event_metrics(event, include_context=self.include_gepa_context)
         for metrics in self.reflection_lm.pop_pending_gepa_reflection_metrics():
-            safe_trackio_log({**context, **metrics})
+            payload = {**context, **metrics}
+            safe_trackio_log(payload)
 
 
 @dataclass
@@ -805,20 +1056,26 @@ def _row_wise_eval_metrics(
         value = row_score_summary.get(key)
         if _is_numeric_metric(value):
             metrics[f"fast_agent/eval/{key}"] = value
-    objective_averages = row_score_summary.get("objective_averages")
-    _extend_numeric_metrics(
-        metrics,
-        objective_averages,
-        prefix="fast_agent/eval/objective_avg/",
-    )
-    if not isinstance(objective_averages, Mapping):
-        avg_score = row_score_summary.get("avg_score")
-        if _is_numeric_metric(avg_score):
-            metrics["fast_agent/eval/avg_score"] = avg_score
+    batch_size = row_score_summary.get("batch_size")
+    if _is_numeric_metric(batch_size) and batch_size > 1:
+        objective_averages = row_score_summary.get("objective_averages")
+        _extend_numeric_metrics(
+            metrics,
+            objective_averages,
+            prefix="fast_agent/eval/objective_avg/",
+        )
+        if not isinstance(objective_averages, Mapping):
+            avg_score = row_score_summary.get("avg_score")
+            if _is_numeric_metric(avg_score):
+                metrics["fast_agent/eval/avg_score"] = avg_score
     for key in ("failed_rows", "skipped_rows"):
         value = batch_summary.get(key)
         if _is_numeric_metric(value):
             metrics[f"fast_agent/eval/{key}"] = value
+    batch_size = row_score_summary.get("batch_size")
+    failed_rows = batch_summary.get("failed_rows")
+    if _is_numeric_metric(batch_size) and batch_size > 0 and _is_numeric_metric(failed_rows):
+        metrics["fast_agent/eval/error_rate_percent"] = (failed_rows / batch_size) * 100
     duration_ms = batch_summary.get("duration_ms")
     selected_rows = batch_summary.get("selected_rows")
     if not _is_numeric_metric(selected_rows) or selected_rows <= 0:
@@ -826,9 +1083,22 @@ def _row_wise_eval_metrics(
     if _is_numeric_metric(duration_ms) and _is_numeric_metric(selected_rows) and selected_rows > 0:
         duration_seconds = duration_ms / 1000
         metrics["fast_agent/eval/duration_seconds"] = duration_seconds
-        metrics["fast_agent/eval/duration_seconds_per_row"] = duration_seconds / selected_rows
+        processed_rows = batch_summary.get("processed_rows")
+        throughput_rows = (
+            processed_rows
+            if _is_numeric_metric(processed_rows) and processed_rows > 0
+            else selected_rows
+        )
         if duration_seconds > 0:
-            metrics["fast_agent/eval/rows_per_second"] = selected_rows / duration_seconds
+            metrics["fast_agent/eval/rows_per_second"] = throughput_rows / duration_seconds
+            metrics["fast_agent/eval/duration_seconds_per_row"] = duration_seconds / throughput_rows
+    timing = batch_summary.get("timing_ms")
+    if isinstance(timing, Mapping):
+        ttft = timing.get("ttft")
+        if isinstance(ttft, Mapping):
+            ttft_mean_ms = ttft.get("mean")
+            if _is_numeric_metric(ttft_mean_ms):
+                metrics["fast_agent/eval/ttft_mean_seconds"] = ttft_mean_ms / 1000
     usage = batch_summary.get("usage")
     if isinstance(usage, Mapping):
         _copy_selected_metrics(
@@ -838,7 +1108,6 @@ def _row_wise_eval_metrics(
             names=(
                 "billing_tokens",
                 "tool_calls",
-                "usage_coverage_percent",
             ),
         )
         rows_with_usage = usage.get("rows_with_usage")
@@ -854,6 +1123,27 @@ def _row_wise_eval_metrics(
                 value = usage.get(key)
                 if _is_numeric_metric(value):
                     metrics[f"fast_agent/eval/usage/{key}_per_row"] = value / rows_with_usage
+            if isinstance(timing, Mapping):
+                duration = timing.get("duration")
+                if isinstance(duration, Mapping):
+                    duration_mean_ms = duration.get("mean")
+                    output_tokens = usage.get("output_tokens")
+                    if (
+                        _is_numeric_metric(output_tokens)
+                        and output_tokens >= 0
+                        and _is_numeric_metric(duration_mean_ms)
+                    ):
+                        ttft = timing.get("ttft")
+                        ttft_mean_ms = ttft.get("mean") if isinstance(ttft, Mapping) else None
+                        generation_ms = (
+                            duration_mean_ms - ttft_mean_ms
+                            if _is_numeric_metric(ttft_mean_ms)
+                            else duration_mean_ms
+                        )
+                        if generation_ms > 0:
+                            metrics["fast_agent/eval/usage/output_tokens_per_second"] = output_tokens / (
+                                generation_ms / 1000
+                            )
     cache = batch_summary.get("cache")
     if isinstance(cache, Mapping):
         _copy_selected_metrics(
@@ -866,24 +1156,6 @@ def _row_wise_eval_metrics(
             ),
         )
     return metrics
-
-
-def _filter_eval_metrics(
-    metrics: Mapping[str, NumericMetric],
-    *,
-    include_score_summary: bool,
-) -> dict[str, NumericMetric]:
-    if include_score_summary:
-        return dict(metrics)
-    blocked = {
-        "fast_agent/eval/avg_score",
-        "fast_agent/eval/num_metric_calls",
-    }
-    return {
-        key: value
-        for key, value in metrics.items()
-        if key not in blocked and not key.startswith("fast_agent/eval/objective_avg/")
-    }
 
 
 def _reflection_usage_metrics(
@@ -930,9 +1202,10 @@ def _evaluation_event_metrics(
     include_context: bool = True,
 ) -> dict[str, NumericMetric]:
     metrics: dict[str, NumericMetric] = {}
+    _add_gepa_axis_metrics(metrics, event)
     metric_names = {
-        "iteration": "gepa/iteration",
-        "candidate_idx": "gepa/candidate_idx",
+        "iteration": "fast_agent/eval/gepa_iteration",
+        "candidate_idx": "fast_agent/eval/gepa_candidate_idx",
     }
     if include_context:
         metric_names.update(
@@ -948,11 +1221,6 @@ def _evaluation_event_metrics(
             metrics[metric_key] = int(value)
         elif _is_numeric_metric(value):
             metrics[metric_key] = value
-    total_metric_calls = event.get("total_metric_calls")
-    if not _is_numeric_metric(total_metric_calls):
-        total_metric_calls = event.get("metric_calls_used")
-    if _is_numeric_metric(total_metric_calls):
-        metrics["gepa/total_metric_calls"] = total_metric_calls
     if not include_context:
         return metrics
     parent_ids = event.get("parent_ids")
@@ -962,7 +1230,9 @@ def _evaluation_event_metrics(
     if isinstance(scores, Sequence) and not isinstance(scores, str | bytes):
         numeric_scores = [score for score in scores if _is_numeric_metric(score)]
         if numeric_scores:
-            metrics["fast_agent/gepa_context/score_mean"] = sum(numeric_scores) / len(numeric_scores)
+            metrics["fast_agent/gepa_context/score_mean"] = sum(numeric_scores) / len(
+                numeric_scores
+            )
     return metrics
 
 
@@ -972,14 +1242,7 @@ def _proposal_event_metrics(
     include_context: bool = True,
 ) -> dict[str, NumericMetric]:
     metrics: dict[str, NumericMetric] = {}
-    iteration = event.get("iteration")
-    if _is_numeric_metric(iteration):
-        metrics["gepa/iteration"] = iteration
-    total_metric_calls = event.get("total_metric_calls")
-    if not _is_numeric_metric(total_metric_calls):
-        total_metric_calls = event.get("metric_calls_used")
-    if _is_numeric_metric(total_metric_calls):
-        metrics["gepa/total_metric_calls"] = total_metric_calls
+    _add_gepa_axis_metrics(metrics, event)
     if not include_context:
         return metrics
     new_instructions = event.get("new_instructions")
@@ -989,6 +1252,49 @@ def _proposal_event_metrics(
     if isinstance(prompts, Mapping):
         metrics["fast_agent/gepa_context/proposal_prompts"] = len(prompts)
     return metrics
+
+
+def _budget_event_metrics(event: Mapping[str, Any]) -> dict[str, NumericMetric]:
+    metrics: dict[str, NumericMetric] = {}
+    metric_names = {
+        "iteration": "gepa/iteration",
+        "metric_calls_used": "gepa/total_metric_calls",
+        "metric_calls_delta": "gepa/metric_calls_delta",
+        "metric_calls_remaining": "gepa/metric_calls_remaining",
+    }
+    for source_key, metric_key in metric_names.items():
+        value = event.get(source_key)
+        if _is_numeric_metric(value):
+            metrics[metric_key] = value
+    return metrics
+
+
+def _add_gepa_axis_metrics(metrics: dict[str, NumericMetric], event: Mapping[str, Any]) -> None:
+    iteration = event.get("iteration")
+    if _is_numeric_metric(iteration):
+        metrics["gepa/iteration"] = iteration
+
+    total_metric_calls = (
+        event.get("metric_calls_after")
+        if _is_numeric_metric(event.get("metric_calls_after"))
+        else event.get("metric_calls_used")
+        if _is_numeric_metric(event.get("metric_calls_used"))
+        else event.get("total_metric_calls")
+    )
+    if _is_numeric_metric(total_metric_calls):
+        metrics["gepa/total_metric_calls"] = total_metric_calls
+
+    metric_calls_delta = event.get("metric_calls_delta")
+    if _is_numeric_metric(metric_calls_delta):
+        metrics["gepa/metric_calls_delta"] = metric_calls_delta
+
+
+def _trackio_step_from_metrics(metrics: Mapping[str, Any]) -> int | None:
+    for key in ("gepa/total_metric_calls", "gepa/iteration"):
+        value = metrics.get(key)
+        if _is_numeric_metric(value):
+            return int(value)
+    return None
 
 
 def _copy_selected_metrics(

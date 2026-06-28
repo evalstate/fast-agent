@@ -93,7 +93,7 @@ def marketplace_source_context(source_url: str | None) -> MarketplaceSourceConte
 
 def normalize_marketplace_payload(
     data: Any,
-    info: "ValidationInfo",
+    info: ValidationInfo,
     *,
     extract_entries: "Callable[[Any], list[dict[str, Any]]]",
 ) -> dict[str, list[dict[str, Any]]]:

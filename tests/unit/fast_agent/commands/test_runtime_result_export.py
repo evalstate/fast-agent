@@ -14,6 +14,7 @@ from mcp.types import CallToolRequestParams, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.cli.runtime.agent_setup import (
+    _apply_fast_args,
     _apply_shell_cwd_policy_preflight,
     _build_fan_out_result_paths,
     _build_result_file_with_suffix,
@@ -21,15 +22,22 @@ from fast_agent.cli.runtime.agent_setup import (
     _export_result_histories,
     _find_last_assistant_text,
     _resume_session_if_requested,
-    _run_single_agent_cli_flow,
+    _run_cli_flow,
     _select_loaded_card_agent,
+)
+from fast_agent.cli.runtime.harness_startup import (
+    run_cli_flow,
+    should_use_harness_startup,
 )
 from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.cli.runtime.runner import _should_convert_keyboard_interrupt_to_task_cancel
 from fast_agent.config import Settings, ShellSettings
+from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.harness_app import DefaultHarnessApp
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.session import ResumeSessionAgentsResult
+from fast_agent.session.hydrator import SessionHydrationWarning
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
@@ -78,6 +86,7 @@ class _DummyAgentApp:
     def __init__(self, agent_names: list[str], *, default_agent: str | None = None) -> None:
         self._agents = {name: _DummyAgent(name) for name in agent_names}
         self._default_agent = default_agent or agent_names[0]
+        self._session_restore_result = None
 
     def _agent(self, agent_name: str | None):
         if agent_name is None:
@@ -90,15 +99,116 @@ class _DummyAgentApp:
     def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
         return self._default_agent if agent_name is None else agent_name
 
+    def resolve_agent(self, agent_name: str | None = None):
+        return self._agent(self.resolve_target_agent_name(agent_name))
+
     def registered_agents(self):
         return self._agents
 
-    async def interactive(self, agent_name: str | None = None) -> None:
-        del agent_name
+    def latest_session_restore_result(self):
+        return self._session_restore_result
+
+    async def interactive(
+        self,
+        agent_name: str | None = None,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_name, session_manager, harness_session
 
     async def send(self, message: str, agent_name: str | None = None) -> str:
         del agent_name
         return message
+
+
+class _AsyncContext:
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+    async def __aenter__(self) -> object:
+        return self.value
+
+    async def __aexit__(self, *args: object) -> None:
+        del args
+
+
+class _FailingAsyncContext(_AsyncContext):
+    def __init__(self, exc: Exception) -> None:
+        super().__init__(object())
+        self.exc = exc
+
+    async def __aenter__(self) -> object:
+        raise self.exc
+
+
+class _DummyHarness:
+    def __init__(self, agent_app: _DummyAgentApp, session_manager: object) -> None:
+        self.agent_app = agent_app
+        self.session_manager = session_manager
+        self.generated_messages: list[tuple[object, str | None]] = []
+
+    async def session(self, session_id: str, *, agent_name: str | None = None):
+        del session_id, agent_name
+        return self
+
+    def app(self):
+        return DefaultHarnessApp(cast("Any", self))
+
+    async def generate(
+        self,
+        messages: object,
+        *,
+        agent_name: str | None = None,
+        request_params: object | None = None,
+    ) -> PromptMessageExtended:
+        del request_params
+        self.generated_messages.append((messages, agent_name))
+        return await self.agent_app._agent(agent_name).generate(messages)
+
+    async def structured_schema(
+        self,
+        messages: object,
+        schema: dict[str, Any],
+        *,
+        agent_name: str | None = None,
+        request_params: object | None = None,
+    ) -> tuple[object | None, PromptMessageExtended]:
+        del request_params
+        self.generated_messages.append((messages, agent_name))
+        return await self.agent_app._agent(agent_name).structured_schema(messages, schema)
+
+
+class _DummyFastRuntime:
+    def __init__(self) -> None:
+        self.direct_app = _DummyAgentApp(["agent"])
+        self.harness_app = _DummyAgentApp(["agent"])
+        self.session_manager = object()
+        self.harness_session = _DummyHarness(self.harness_app, self.session_manager)
+        self.run_calls = 0
+        self.harness_calls = 0
+
+    def run(self) -> _AsyncContext:
+        self.run_calls += 1
+        return _AsyncContext(self.direct_app)
+
+    def harness(self) -> _AsyncContext:
+        self.harness_calls += 1
+        return _AsyncContext(self.harness_session)
+
+
+class _FailingHarnessRuntime(_DummyFastRuntime):
+    def __init__(self, exc: Exception) -> None:
+        super().__init__()
+        self.exc = exc
+        self.handled_errors: list[Exception] = []
+
+    def harness(self) -> _FailingAsyncContext:
+        self.harness_calls += 1
+        return _FailingAsyncContext(self.exc)
+
+    def _handle_error(self, exc: Exception, error_type: str | None = None) -> None:
+        del error_type
+        self.handled_errors.append(exc)
 
 
 def _make_request(
@@ -189,6 +299,200 @@ def test_should_convert_keyboard_interrupt_to_task_cancel_only_for_interactive_r
         prompt_file="prompt.txt",
     )
     assert _should_convert_keyboard_interrupt_to_task_cancel(prompt_file_request) is False
+
+
+def test_apply_fast_args_threads_resume_into_runtime_settings() -> None:
+    request = _make_request(result_file=None)
+    request.resume = "session-123"
+    fast = SimpleNamespace(args=SimpleNamespace())
+
+    _apply_fast_args(fast, request)
+
+    assert fast.args.resume_requested is True
+    assert fast.args.resume_session_id == "session-123"
+
+
+def test_apply_fast_args_rejects_noenv_resume_before_enabling_restore() -> None:
+    request = _make_request(result_file=None)
+    request.noenv = True
+    request.resume = "session-123"
+    fast = SimpleNamespace(args=SimpleNamespace())
+
+    with pytest.raises(typer.Exit):
+        _apply_fast_args(fast, request)
+
+    assert "resume_requested" not in vars(fast.args)
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_uses_harness_for_local_repl() -> None:
+    request = _make_request(result_file=None, message=None)
+    fast = _DummyFastRuntime()
+    calls: list[tuple[object, object | None, object | None]] = []
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del request
+        calls.append((agent_app, session_manager, harness_session))
+
+    assert should_use_harness_startup(request)
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert fast.harness_calls == 1
+    assert fast.run_calls == 0
+    assert calls == [(fast.harness_app, fast.session_manager, fast.harness_session)]
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_prepare_runs_after_harness_startup() -> None:
+    request = _make_request(result_file=None, message=None)
+    fast = _DummyFastRuntime()
+    calls: list[str] = []
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_app, request, session_manager, harness_session
+        calls.append("flow")
+
+    def prepare() -> None:
+        calls.append(f"prepare:{fast.harness_calls}:{fast.run_calls}")
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow, prepare=prepare)
+
+    assert calls == ["prepare:1:0", "flow"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("resume", "latest"),
+        ("noenv", True),
+    ],
+)
+async def test_run_cli_flow_uses_direct_run_for_resume_and_noenv(
+    field: str,
+    value: object,
+) -> None:
+    request = _make_request(result_file=None, message=None)
+    setattr(request, field, value)
+    fast = _DummyFastRuntime()
+    calls: list[tuple[object, object | None, object | None]] = []
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del request
+        calls.append((agent_app, session_manager, harness_session))
+
+    assert not should_use_harness_startup(request)
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert fast.harness_calls == 0
+    assert fast.run_calls == 1
+    assert calls == [(fast.direct_app, None, None)]
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_prepare_runs_before_direct_startup() -> None:
+    request = _make_request(result_file=None, message=None)
+    request.noenv = True
+    fast = _DummyFastRuntime()
+    calls: list[str] = []
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_app, request, session_manager, harness_session
+        calls.append("flow")
+
+    def prepare() -> None:
+        calls.append(f"prepare:{fast.harness_calls}:{fast.run_calls}")
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow, prepare=prepare)
+
+    assert calls == ["prepare:0:0", "flow"]
+    assert fast.run_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "value", "execution_mode"),
+    [
+        ("message", "hello", "one_shot_message"),
+        ("prompt_file", "prompt.json", "one_shot_prompt_file"),
+    ],
+)
+async def test_run_cli_flow_uses_harness_for_one_shot_modes(
+    field: str,
+    value: object,
+    execution_mode: str,
+) -> None:
+    request = _make_request(result_file=None, message=None)
+    setattr(request, field, value)
+    request.execution_mode = cast("Any", execution_mode)
+    fast = _DummyFastRuntime()
+    calls: list[tuple[object, object | None, object | None]] = []
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del request
+        calls.append((agent_app, session_manager, harness_session))
+
+    assert should_use_harness_startup(request)
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert fast.harness_calls == 1
+    assert fast.run_calls == 0
+    assert calls == [(fast.harness_app, fast.session_manager, fast.harness_session)]
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_handles_harness_startup_errors_like_cli_run() -> None:
+    request = _make_request(result_file=None, message=None)
+    error = AgentConfigError("bad agent")
+    fast = _FailingHarnessRuntime(error)
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_app, request, session_manager, harness_session
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert exc_info.value.code == 1
+    assert fast.handled_errors == [error]
 
 
 def test_build_fan_out_result_paths_disambiguates_collisions() -> None:
@@ -284,7 +588,7 @@ def test_find_last_assistant_text_prefers_text_over_pending_tool_summary() -> No
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_exports_transient_turn_when_history_disabled(
+async def test_run_cli_flow_exports_transient_turn_when_history_disabled(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -293,7 +597,7 @@ async def test_run_single_agent_cli_flow_exports_transient_turn_when_history_dis
     app._agents["agent"] = agent
     output = tmp_path / "out.json"
 
-    await _run_single_agent_cli_flow(app, _make_request(result_file=str(output), message="hello"))
+    await _run_cli_flow(app, _make_request(result_file=str(output), message="hello"))
 
     assert agent.message_history == []
     exported = load_messages(str(output))
@@ -305,7 +609,27 @@ async def test_run_single_agent_cli_flow_exports_transient_turn_when_history_dis
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_prompt_file_is_one_shot_and_exports_results(
+async def test_run_cli_flow_one_shot_uses_harness_session_when_available(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    agent = _NonPersistentMessageAgent("agent", "done")
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+    harness_session = _DummyHarness(app, object())
+
+    await _run_cli_flow(
+        app,
+        _make_request(result_file=None, message="hello"),
+        harness_session=cast("Any", harness_session),
+    )
+
+    assert harness_session.generated_messages == [("hello", "agent")]
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "done"
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_prompt_file_is_one_shot_and_exports_results(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -315,8 +639,13 @@ async def test_run_single_agent_cli_flow_prompt_file_is_one_shot_and_exports_res
             super().__init__(["agent"])
             self.interactive_calls = 0
 
-        async def interactive(self, agent_name: str | None = None) -> None:
-            del agent_name
+        async def interactive(
+            self,
+            agent_name: str | None = None,
+            session_manager: object | None = None,
+            harness_session: object | None = None,
+        ) -> None:
+            del agent_name, session_manager, harness_session
             self.interactive_calls += 1
 
     prompt = [
@@ -338,7 +667,7 @@ async def test_run_single_agent_cli_flow_prompt_file_is_one_shot_and_exports_res
         lambda _path: prompt,
     )
 
-    await _run_single_agent_cli_flow(
+    await _run_cli_flow(
         app,
         _make_request(
             result_file=str(output),
@@ -357,7 +686,7 @@ async def test_run_single_agent_cli_flow_prompt_file_is_one_shot_and_exports_res
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_message_attaches_files(
+async def test_run_cli_flow_message_attaches_files(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -367,7 +696,7 @@ async def test_run_single_agent_cli_flow_message_attaches_files(
     app = _DummyAgentApp(["agent"])
     app._agents["agent"] = agent
 
-    await _run_single_agent_cli_flow(
+    await _run_cli_flow(
         app,
         _make_request(
             result_file=None,
@@ -390,7 +719,7 @@ def test_cli_attachment_token_normalizes_remote_scheme_case() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_prompt_file_attaches_to_last_user_message(
+async def test_run_cli_flow_prompt_file_attaches_to_last_user_message(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -422,7 +751,7 @@ async def test_run_single_agent_cli_flow_prompt_file_attaches_to_last_user_messa
         lambda _path: prompt,
     )
 
-    await _run_single_agent_cli_flow(
+    await _run_cli_flow(
         app,
         _make_request(
             result_file=None,
@@ -442,7 +771,7 @@ async def test_run_single_agent_cli_flow_prompt_file_attaches_to_last_user_messa
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_json_schema_message_emits_only_json(
+async def test_run_cli_flow_json_schema_message_emits_only_json(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -459,7 +788,7 @@ async def test_run_single_agent_cli_flow_json_schema_message_emits_only_json(
     app = _DummyAgentApp(["agent"])
     app._agents["agent"] = agent
 
-    await _run_single_agent_cli_flow(
+    await _run_cli_flow(
         app,
         _make_request(
             result_file=None,
@@ -475,7 +804,7 @@ async def test_run_single_agent_cli_flow_json_schema_message_emits_only_json(
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_json_schema_prompt_file_emits_only_json(
+async def test_run_cli_flow_json_schema_prompt_file_emits_only_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -507,7 +836,7 @@ async def test_run_single_agent_cli_flow_json_schema_prompt_file_emits_only_json
         lambda _path: prompt,
     )
 
-    await _run_single_agent_cli_flow(
+    await _run_cli_flow(
         app,
         _make_request(
             result_file=None,
@@ -524,7 +853,7 @@ async def test_run_single_agent_cli_flow_json_schema_prompt_file_emits_only_json
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_json_schema_invalid_output_exits_nonzero(
+async def test_run_cli_flow_json_schema_invalid_output_exits_nonzero(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -545,7 +874,7 @@ async def test_run_single_agent_cli_flow_json_schema_invalid_output_exits_nonzer
     app._agents["agent"] = agent
 
     with pytest.raises(typer.Exit) as exc_info:
-        await _run_single_agent_cli_flow(
+        await _run_cli_flow(
             app,
             _make_request(
                 result_file=None,
@@ -648,15 +977,11 @@ async def test_resume_session_interactive_queues_markdown_preview(
         )
     )
 
-    async def _resume_session_agents_async(*args, **kwargs):
-        del args, kwargs
-        return ResumeSessionAgentsResult(
-            session=cast("Any", session),
-            loaded={"alpha": Path("history_alpha.json")},
-            missing_agents=[],
-        )
-
-    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
+    app._session_restore_result = ResumeSessionAgentsResult(
+        session=cast("Any", session),
+        loaded={"alpha": Path("history_alpha.json")},
+        missing_agents=[],
+    )
 
     markdown_notices: list[tuple[str, dict[str, str | None]]] = []
     plain_notices: list[str] = []
@@ -664,7 +989,6 @@ async def test_resume_session_interactive_queues_markdown_preview(
     def _capture_markdown_notice(text: str, **kwargs: str | None) -> None:
         markdown_notices.append((text, kwargs))
 
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
     monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", plain_notices.append)
     monkeypatch.setattr(
         "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
@@ -677,6 +1001,60 @@ async def test_resume_session_interactive_queues_markdown_preview(
     assert markdown_notices
     assert markdown_notices[0][0] == "## Welcome back\n\n- item"
     assert markdown_notices[0][1]["title"] == "Last assistant message"
+
+
+@pytest.mark.asyncio
+async def test_resume_session_interactive_queues_git_warning_after_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _make_request(result_file=None, message=None, prompt_file=None)
+    request.resume = "latest"
+
+    agent = _DummyAgent("agent")
+    agent.message_history = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="last response")],
+        )
+    ]
+    app = _DummyAgentApp(["agent"], default_agent="agent")
+    app._agents["agent"] = agent
+
+    session = SimpleNamespace(
+        info=SimpleNamespace(
+            name="session-1",
+            last_activity=datetime(2026, 2, 26, 12, 0, 0),
+        )
+    )
+    app._session_restore_result = ResumeSessionAgentsResult(
+        session=cast("Any", session),
+        loaded={"agent": Path("history_agent.json")},
+        missing_agents=[],
+        warnings=[
+            SessionHydrationWarning(
+                code="git-state-changed",
+                message="Git state changed since session save: commit 746b5a9 -> af77669.",
+            )
+        ],
+    )
+
+    events: list[str] = []
+
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_notice",
+        lambda notice: events.append(str(notice)),
+    )
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
+        lambda text, **kwargs: events.append(f"preview:{text}"),
+    )
+
+    await _resume_session_if_requested(app, request)
+
+    assert events[-2:] == [
+        "preview:last response",
+        "[yellow]Git state changed since session save: commit 746b5a9 -> af77669.[/yellow]",
+    ]
 
 
 @pytest.mark.asyncio
@@ -710,24 +1088,19 @@ async def test_resume_session_preview_fallback_preserves_loaded_order(
         )
     )
 
-    async def _resume_session_agents_async(*args, **kwargs):
-        del args, kwargs
-        return ResumeSessionAgentsResult(
-            session=cast("Any", session),
-            loaded={
-                "beta": Path("history_beta.json"),
-                "alpha": Path("history_alpha.json"),
-            },
-            missing_agents=[],
-        )
-
-    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
+    app._session_restore_result = ResumeSessionAgentsResult(
+        session=cast("Any", session),
+        loaded={
+            "beta": Path("history_beta.json"),
+            "alpha": Path("history_alpha.json"),
+        },
+        missing_agents=[],
+    )
     markdown_notices: list[tuple[str, dict[str, str | None]]] = []
 
     def _capture_markdown_notice(text: str, **kwargs: str | None) -> None:
         markdown_notices.append((text, kwargs))
 
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
     monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", lambda *_args: None)
     monkeypatch.setattr(
         "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
@@ -763,20 +1136,15 @@ async def test_resume_session_interactive_handles_usage_notices_from_result(
         )
     )
 
-    async def _resume_session_agents_async(*args, **kwargs):
-        del args, kwargs
-        return ResumeSessionAgentsResult(
-            session=cast("Any", session),
-            loaded={"agent": Path("history_agent.json")},
-            missing_agents=[],
-            usage_notices=["[dim]Usage restored[/dim]"],
-        )
-
-    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
+    app._session_restore_result = ResumeSessionAgentsResult(
+        session=cast("Any", session),
+        loaded={"agent": Path("history_agent.json")},
+        missing_agents=[],
+        usage_notices=["[dim]Usage restored[/dim]"],
+    )
 
     plain_notices: list[str] = []
 
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
     monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", plain_notices.append)
     monkeypatch.setattr(
         "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
@@ -819,26 +1187,21 @@ async def test_resume_session_applies_hydrated_active_agent_to_request(
         )
     )
 
-    async def _resume_session_agents_async(*args, **kwargs):
-        del args, kwargs
-        return ResumeSessionAgentsResult(
-            session=cast("Any", session),
-            loaded={
-                "alpha": Path("history_alpha.json"),
-                "beta": Path("history_beta.json"),
-            },
-            missing_agents=[],
-            active_agent="alpha",
-        )
-
-    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
+    app._session_restore_result = ResumeSessionAgentsResult(
+        session=cast("Any", session),
+        loaded={
+            "alpha": Path("history_alpha.json"),
+            "beta": Path("history_beta.json"),
+        },
+        missing_agents=[],
+        active_agent="alpha",
+    )
 
     markdown_notices: list[tuple[str, dict[str, str | None]]] = []
 
     def _capture_markdown_notice(text: str, **kwargs: str | None) -> None:
         markdown_notices.append((text, kwargs))
 
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
     monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", lambda *_args: None)
     monkeypatch.setattr(
         "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
@@ -865,26 +1228,17 @@ async def test_resume_session_prefers_explicit_target_agent_for_fallback_history
     request.resume = "latest"
 
     app = _DummyAgentApp(["alpha", "beta"], default_agent="alpha")
-    captured_kwargs: dict[str, object] = {}
     session = SimpleNamespace(
         info=SimpleNamespace(
             name="session-3",
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
         )
     )
-
-    async def _resume_session_agents_async(*args, **kwargs):
-        del args
-        captured_kwargs.update(kwargs)
-        return ResumeSessionAgentsResult(
-            session=cast("Any", session),
-            loaded={"beta": Path("history_beta.json")},
-            missing_agents=[],
-        )
-
-    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
-
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
+    app._session_restore_result = ResumeSessionAgentsResult(
+        session=cast("Any", session),
+        loaded={"beta": Path("history_beta.json")},
+        missing_agents=[],
+    )
     monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", lambda *_args: None)
     monkeypatch.setattr(
         "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
@@ -893,11 +1247,11 @@ async def test_resume_session_prefers_explicit_target_agent_for_fallback_history
 
     await _resume_session_if_requested(app, request)
 
-    assert captured_kwargs["fallback_agent_name"] == "beta"
+    assert request.target_agent_name == "beta"
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_retries_interactive_after_keyboard_interrupt(
+async def test_run_cli_flow_retries_interactive_after_keyboard_interrupt(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     class _InterruptingAgentApp(_DummyAgentApp):
@@ -905,8 +1259,13 @@ async def test_run_single_agent_cli_flow_retries_interactive_after_keyboard_inte
             super().__init__(["agent"])
             self.interactive_calls = 0
 
-        async def interactive(self, agent_name: str | None = None) -> None:
-            del agent_name
+        async def interactive(
+            self,
+            agent_name: str | None = None,
+            session_manager: object | None = None,
+            harness_session: object | None = None,
+        ) -> None:
+            del agent_name, session_manager, harness_session
             self.interactive_calls += 1
             if self.interactive_calls == 1:
                 raise KeyboardInterrupt()
@@ -914,7 +1273,7 @@ async def test_run_single_agent_cli_flow_retries_interactive_after_keyboard_inte
     app = _InterruptingAgentApp()
     request = _make_request(result_file=None, message=None)
 
-    await _run_single_agent_cli_flow(app, request)
+    await _run_cli_flow(app, request)
 
     captured = capsys.readouterr()
     assert app.interactive_calls == 2
@@ -922,7 +1281,7 @@ async def test_run_single_agent_cli_flow_retries_interactive_after_keyboard_inte
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_exits_after_double_keyboard_interrupt(
+async def test_run_cli_flow_exits_after_double_keyboard_interrupt(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     class _InterruptingAgentApp(_DummyAgentApp):
@@ -930,8 +1289,13 @@ async def test_run_single_agent_cli_flow_exits_after_double_keyboard_interrupt(
             super().__init__(["agent"])
             self.interactive_calls = 0
 
-        async def interactive(self, agent_name: str | None = None) -> None:
-            del agent_name
+        async def interactive(
+            self,
+            agent_name: str | None = None,
+            session_manager: object | None = None,
+            harness_session: object | None = None,
+        ) -> None:
+            del agent_name, session_manager, harness_session
             self.interactive_calls += 1
             raise KeyboardInterrupt()
 
@@ -939,7 +1303,7 @@ async def test_run_single_agent_cli_flow_exits_after_double_keyboard_interrupt(
     request = _make_request(result_file=None, message=None)
 
     with pytest.raises(KeyboardInterrupt):
-        await _run_single_agent_cli_flow(app, request)
+        await _run_cli_flow(app, request)
 
     captured = capsys.readouterr()
     assert app.interactive_calls == 2
@@ -947,7 +1311,7 @@ async def test_run_single_agent_cli_flow_exits_after_double_keyboard_interrupt(
 
 
 @pytest.mark.asyncio
-async def test_run_single_agent_cli_flow_retries_interactive_after_cancelled_error(
+async def test_run_cli_flow_retries_interactive_after_cancelled_error(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     class _CancelledAgentApp(_DummyAgentApp):
@@ -955,8 +1319,13 @@ async def test_run_single_agent_cli_flow_retries_interactive_after_cancelled_err
             super().__init__(["agent"])
             self.interactive_calls = 0
 
-        async def interactive(self, agent_name: str | None = None) -> None:
-            del agent_name
+        async def interactive(
+            self,
+            agent_name: str | None = None,
+            session_manager: object | None = None,
+            harness_session: object | None = None,
+        ) -> None:
+            del agent_name, session_manager, harness_session
             self.interactive_calls += 1
             if self.interactive_calls == 1:
                 raise asyncio.CancelledError()
@@ -964,7 +1333,7 @@ async def test_run_single_agent_cli_flow_retries_interactive_after_cancelled_err
     app = _CancelledAgentApp()
     request = _make_request(result_file=None, message=None)
 
-    await _run_single_agent_cli_flow(app, request)
+    await _run_cli_flow(app, request)
 
     captured = capsys.readouterr()
     assert app.interactive_calls == 2

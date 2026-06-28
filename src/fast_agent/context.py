@@ -18,7 +18,6 @@ from pydantic import BaseModel, ConfigDict
 
 from fast_agent.config import Settings, get_settings
 from fast_agent.core.executor.executor import AsyncioExecutor, Executor
-from fast_agent.core.executor.task_registry import ActivityRegistry
 from fast_agent.core.logging.events import EventFilter, StreamingExclusionFilter
 from fast_agent.core.logging.logger import LoggingConfig, get_logger
 from fast_agent.core.logging.transport import create_transport
@@ -30,11 +29,13 @@ if TYPE_CHECKING:
     from fast_agent.acp.acp_context import ACPContext
     from fast_agent.core.executor.workflow_signal import SignalWaitCallback
     from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
+    from fast_agent.session.session_manager import SessionManager
 else:
     # Runtime placeholders for the types
     ACPContext = Any
     SignalWaitCallback = Any
     MCPConnectionManager = Any
+    SessionManager = Any
 
 logger = get_logger(__name__)
 
@@ -51,12 +52,10 @@ class Context(BaseModel):
 
     config: Settings | None = None
     executor: Executor | None = None
-    human_input_handler: Any | None = None
     signal_notification: SignalWaitCallback | None = None
 
     # Registries
     server_registry: ServerRegistry | None = None
-    task_registry: ActivityRegistry | None = None
     skill_registry: SkillRegistry | None = None
     no_shell: bool = False
 
@@ -66,6 +65,7 @@ class Context(BaseModel):
     # ACP context - set when running in ACP mode
     # Provides agents access to ACP capabilities (mode switching, commands, etc.)
     acp: "ACPContext | None" = None
+    session_manager: "SessionManager | None" = None
 
     model_config = ConfigDict(
         extra="allow",
@@ -209,6 +209,11 @@ async def initialize_context(
     context = Context()
     context.config = config
     context.server_registry = ServerRegistry(config=config)
+    if config.session_history and not config._fast_agent_noenv:
+        from fast_agent.session.session_manager import SessionManager, set_session_manager
+
+        context.session_manager = SessionManager(environment_override=config.environment_dir)
+        set_session_manager(context.session_manager)
 
     override_directories = None
     if config.skills.directories:
@@ -224,7 +229,6 @@ async def initialize_context(
 
     # Configure the executor
     context.executor = await configure_executor()
-    context.task_registry = ActivityRegistry()
 
     # Store the tracer in context if needed
     if config.otel:
@@ -260,12 +264,3 @@ def get_current_context() -> Context:
             raise RuntimeError("Failed to initialize global context")
         _global_context = result
     return _global_context
-
-
-def get_current_config():
-    """
-    Get the current application config.
-
-    Returns the context config if available, otherwise falls back to global settings.
-    """
-    return get_current_context().config or get_settings()

@@ -1,7 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 from fast_agent.agents.workflow.orchestrator_prompts import (
-    PLAN_RESULT_TEMPLATE,
     STEP_RESULT_TEMPLATE,
     TASK_RESULT_TEMPLATE,
 )
@@ -11,15 +10,6 @@ class Task(BaseModel):
     """An individual task that needs to be executed"""
 
     description: str = Field(description="Description of the task")
-
-
-class ServerTask(Task):
-    """An individual task that can be accomplished by one or more MCP servers"""
-
-    servers: list[str] = Field(
-        description="Names of MCP servers that the LLM has access to for this task",
-        default_factory=list,
-    )
 
 
 class AgentTask(Task):
@@ -127,24 +117,6 @@ def format_step_result_text(step_result: StepResult) -> str:
         step_description=step_result.step.description,
         step_result=step_result.result,
         tasks_str=tasks_str,
-    )
-
-
-def format_plan_result_text(plan_result: PlanResult) -> str:
-    """Format the full plan execution state as plain text for display"""
-    steps_str = (
-        "\n\n".join(
-            f"{i + 1}:\n{format_step_result_text(step)}"
-            for i, step in enumerate(plan_result.step_results)
-        )
-        if plan_result.step_results
-        else "No steps executed yet"
-    )
-
-    return PLAN_RESULT_TEMPLATE.format(
-        plan_objective=plan_result.objective,
-        steps_str=steps_str,
-        plan_result=plan_result.result if plan_result.is_complete else "In Progress",
     )
 
 

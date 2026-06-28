@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import pathlib
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Literal, cast
@@ -19,6 +18,7 @@ from fast_agent.session import (
     get_session_manager,
     load_session_snapshot,
     reset_session_manager,
+    set_session_manager,
 )
 
 if TYPE_CHECKING:
@@ -67,6 +67,16 @@ def _message_texts(agent: _Agent) -> list[str]:
     ]
 
 
+def _registered_manager(tmp_path: pathlib.Path) -> SessionManager:
+    manager = SessionManager(
+        cwd=tmp_path,
+        environment_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    set_session_manager(manager)
+    return manager
+
+
 def test_prune_sessions_skips_pinned(tmp_path) -> None:
     old_settings = get_settings()
     env_dir = tmp_path / "env"
@@ -80,7 +90,7 @@ def test_prune_sessions_skips_pinned(tmp_path) -> None:
     reset_session_manager()
 
     try:
-        manager = get_session_manager()
+        manager = _registered_manager(tmp_path)
         first = manager.create_session()
         first.set_pinned(True)
 
@@ -114,60 +124,52 @@ def test_session_history_window_rejects_boolean_config(tmp_path) -> None:
         update_global_settings(old_settings)
 
 
-def test_get_session_manager_resolves_relative_environment_dir_without_mutating_env(
-    tmp_path,
-) -> None:
-    original_env = os.environ.get("ENVIRONMENT_DIR")
-    first_cwd = tmp_path / "first"
-    second_cwd = tmp_path / "second"
-    first_cwd.mkdir(parents=True)
-    second_cwd.mkdir(parents=True)
-
-    os.environ["ENVIRONMENT_DIR"] = ".dev"
+def test_get_session_manager_requires_registered_manager() -> None:
     reset_session_manager()
 
     try:
-        manager_first = get_session_manager(cwd=first_cwd)
-        assert os.environ.get("ENVIRONMENT_DIR") == ".dev"
-
-        manager_second = get_session_manager(cwd=second_cwd)
-        assert manager_second is not manager_first
-        assert manager_first.base_dir == (first_cwd / ".dev" / "sessions").resolve()
-        assert manager_second.base_dir == (second_cwd / ".dev" / "sessions").resolve()
-        assert manager_second.workspace_dir == second_cwd.resolve()
+        with pytest.raises(RuntimeError, match="No active session manager"):
+            get_session_manager()
     finally:
         reset_session_manager()
-        if original_env is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
-        else:
-            os.environ["ENVIRONMENT_DIR"] = original_env
 
 
-def test_get_session_manager_refreshes_workspace_dir_for_shared_environment(tmp_path) -> None:
-    original_env = os.environ.get("ENVIRONMENT_DIR")
-    env_dir = tmp_path / "shared-env"
-    first_cwd = tmp_path / "first"
-    second_cwd = tmp_path / "second"
-    first_cwd.mkdir(parents=True)
-    second_cwd.mkdir(parents=True)
-
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
-    reset_session_manager()
+def test_get_session_manager_returns_registered_manager_for_matching_context(tmp_path) -> None:
+    manager = _registered_manager(tmp_path)
 
     try:
-        manager_first = get_session_manager(cwd=first_cwd)
-        assert manager_first.workspace_dir == first_cwd.resolve()
-
-        manager_second = get_session_manager(cwd=second_cwd)
-        assert manager_second is manager_first
-        assert manager_second.base_dir == (env_dir / "sessions").resolve()
-        assert manager_second.workspace_dir == second_cwd.resolve()
+        assert (
+            get_session_manager(cwd=tmp_path, environment_override=tmp_path / ".fast-agent")
+            is manager
+        )
     finally:
         reset_session_manager()
-        if original_env is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
-        else:
-            os.environ["ENVIRONMENT_DIR"] = original_env
+
+
+def test_get_session_manager_rejects_workspace_switch_for_registered_store(tmp_path) -> None:
+    manager = _registered_manager(tmp_path)
+    other_cwd = tmp_path / "other"
+    other_cwd.mkdir()
+
+    try:
+        assert (
+            get_session_manager(cwd=tmp_path, environment_override=tmp_path / ".fast-agent")
+            is manager
+        )
+        with pytest.raises(RuntimeError, match="workspace does not match"):
+            get_session_manager(cwd=other_cwd, environment_override=tmp_path / ".fast-agent")
+        assert manager.workspace_dir == tmp_path.resolve()
+    finally:
+        reset_session_manager()
+
+
+def test_get_session_manager_rejects_store_switch(tmp_path) -> None:
+    _registered_manager(tmp_path)
+    try:
+        with pytest.raises(RuntimeError, match="does not match the requested session store"):
+            get_session_manager(cwd=tmp_path, environment_override=tmp_path / "other-env")
+    finally:
+        reset_session_manager()
 
 
 @pytest.mark.asyncio
@@ -206,7 +208,7 @@ def test_apply_session_window_appends_pinned_overflow(tmp_path) -> None:
     reset_session_manager()
 
     try:
-        manager = get_session_manager()
+        manager = _registered_manager(tmp_path)
         oldest = manager.create_session()
         oldest.set_pinned(True)
         middle = manager.create_session()
@@ -234,7 +236,7 @@ def test_resolve_session_name_ordinal_includes_pinned_overflow(tmp_path) -> None
     reset_session_manager()
 
     try:
-        manager = get_session_manager()
+        manager = _registered_manager(tmp_path)
         oldest = manager.create_session()
         oldest.set_pinned(True)
         manager.create_session()
@@ -300,7 +302,7 @@ def test_load_session_marks_loaded_session_as_latest(tmp_path) -> None:
     reset_session_manager()
 
     try:
-        manager = get_session_manager()
+        manager = _registered_manager(tmp_path)
         older = manager.create_session()
         newer = manager.create_session()
 
@@ -411,6 +413,36 @@ async def test_resume_session_agents_uses_hydrator_active_agent_and_prompt_resto
     assert runtime_bar.instruction == "Stored bar prompt"
     assert _message_texts(runtime_foo) == ["hello foo", "done foo"]
     assert _message_texts(runtime_bar) == ["hello bar", "done bar"]
+
+
+@pytest.mark.asyncio
+async def test_resume_session_agents_without_id_skips_latest_empty_session(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        environment_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    previous = manager.create_session()
+    saved = _Agent(
+        name="foo",
+        instruction="Stored prompt",
+        history=[_message("user", "hello"), _message("assistant", "done")],
+    )
+    await previous.save_history(cast("AgentProtocol", saved))
+
+    empty = manager.create_session()
+    assert manager.list_sessions()[0].name == empty.info.name
+
+    runtime = _Agent(name="foo", instruction="Runtime prompt")
+    result = await manager.resume_session_agents_async(
+        {"foo": cast("AgentProtocol", runtime)},
+        None,
+        fallback_agent_name="foo",
+    )
+
+    assert result is not None
+    assert result.session.info.name == previous.info.name
+    assert _message_texts(runtime) == ["hello", "done"]
 
 
 def test_resume_session_includes_hydrator_warnings_in_notices(tmp_path) -> None:

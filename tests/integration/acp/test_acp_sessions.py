@@ -16,7 +16,7 @@ from mcp.types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-from fast_agent.session import get_session_manager
+from fast_agent.session import SessionManager
 from fast_agent.session import session_manager as session_manager_module
 
 TEST_DIR = Path(__file__).parent
@@ -370,7 +370,7 @@ async def test_acp_session_resume_emits_current_mode_update(
     os.chdir(tmp_path)
     session_manager_module._session_manager = None
     try:
-        manager = get_session_manager()
+        manager = SessionManager(cwd=tmp_path, environment_override=environment_dir)
         session = manager.create_session()
         history_message = PromptMessageExtended(
             role="user",
@@ -452,7 +452,7 @@ async def test_acp_session_list_returns_saved_sessions(
     session_manager_module._session_manager = None
     session = None
     try:
-        manager = get_session_manager()
+        manager = SessionManager(cwd=tmp_path, environment_override=environment_dir)
         session = manager.create_session(
             metadata={"title": "ACP list test", "cwd": str(tmp_path.resolve())}
         )
@@ -512,7 +512,7 @@ async def test_acp_session_list_reads_workspace_scoped_sessions_when_server_runs
     session = None
     try:
         os.chdir(session_cwd)
-        manager = get_session_manager(
+        manager = SessionManager(
             cwd=session_cwd,
             environment_override=".fast-agent",
         )
@@ -579,7 +579,7 @@ async def test_acp_load_session_streams_history(
     session_manager_module._session_manager = None
     session = None
     try:
-        manager = get_session_manager()
+        manager = SessionManager(cwd=tmp_path, environment_override=environment_dir)
         session = manager.create_session(metadata={"title": "History load"})
         history_messages = [
             PromptMessageExtended(
@@ -690,7 +690,7 @@ async def test_acp_load_session_reads_workspace_scoped_session_when_server_runs_
     session = None
     try:
         os.chdir(session_cwd)
-        manager = get_session_manager(
+        manager = SessionManager(
             cwd=session_cwd,
             environment_override=".fast-agent",
         )

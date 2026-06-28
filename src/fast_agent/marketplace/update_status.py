@@ -33,24 +33,6 @@ MarketplaceUpdateStatus: TypeAlias = (
     ]
 )
 
-ALL_MARKETPLACE_UPDATE_STATUSES: tuple[MarketplaceUpdateStatus, ...] = (
-    "up_to_date",
-    "update_available",
-    "updated",
-    "unmanaged",
-    "invalid_metadata",
-    "invalid_local_skill",
-    "invalid_local_plugin",
-    "invalid_local_pack",
-    "unknown_revision",
-    "source_unreachable",
-    "source_ref_missing",
-    "source_path_missing",
-    "skipped_dirty",
-    "integrity_error",
-    "ownership_conflict",
-)
-
 APPLICABLE_UPDATE_STATUSES: frozenset[MarketplaceUpdateStatus] = frozenset({"update_available"})
 APPLIED_UPDATE_STATUSES: frozenset[MarketplaceUpdateStatus] = frozenset({"updated"})
 COMMON_UPDATE_STATUS_LABELS: dict[MarketplaceUpdateStatus, str] = {
@@ -86,7 +68,6 @@ COMMON_UPDATE_DETAIL_STATUSES: frozenset[MarketplaceUpdateStatus] = frozenset(
         "integrity_error",
     }
 )
-UNSTYLED_UPDATE_STATUSES: frozenset[MarketplaceUpdateStatus] = frozenset({"unmanaged"})
 COMMON_UPDATE_STATUS_STYLES: dict[MarketplaceUpdateStatus, str] = {
     "up_to_date": "green",
     "updated": "green",
@@ -126,8 +107,8 @@ def format_update_status_text(
     status: MarketplaceUpdateStatus,
     *,
     detail: str | None = None,
-    labels: "Mapping[MarketplaceUpdateStatus, str] | None" = None,
-    detail_statuses: "Set[MarketplaceUpdateStatus] | None" = None,
+    labels: Mapping[MarketplaceUpdateStatus, str] | None = None,
+    detail_statuses: Set[MarketplaceUpdateStatus] | None = None,
 ) -> str:
     """Return display text for a marketplace-style update status."""
     merged_labels = dict(COMMON_UPDATE_STATUS_LABELS)

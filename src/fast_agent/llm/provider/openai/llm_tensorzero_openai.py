@@ -23,7 +23,6 @@ class TensorZeroOpenAILLM(OpenAILLM):
             **kwargs: Arbitrary keyword arguments.
         """
         self._t0_episode_id = kwargs.pop("episode_id", None)
-        self._t0_function_name = kwargs.get("model", "")
         kwargs.pop("provider", None)
         super().__init__(provider=Provider.TENSORZERO, **kwargs)
         self.logger.info("TensorZeroOpenAILLM initialized.")

@@ -170,28 +170,6 @@ def _collect_agent_card_warnings(context: "Context | None") -> list[str]:
     return cleaned
 
 
-async def _lookup_and_format_providers(model: str) -> str | None:
-    """Look up inference providers for a model and return a formatted message.
-
-    Returns None if the model is not a HuggingFace model (no '/').
-    """
-    from fast_agent.llm.hf_inference_lookup import (
-        format_provider_help_message,
-        lookup_inference_providers,
-        normalize_hf_model_id,
-    )
-
-    model_id = normalize_hf_model_id(model)
-    if model_id is None:
-        return None
-
-    try:
-        result = await lookup_inference_providers(model_id)
-        return format_provider_help_message(result)
-    except Exception:
-        return None
-
-
 class SetupAgent(ACPAwareMixin, McpAgent):
     """
     Setup agent for configuring HuggingFace inference.
@@ -505,28 +483,6 @@ class SetupAgent(ACPAwareMixin, McpAgent):
                 "Example files not found. Ensure fast-agent-mcp is installed correctly."
             )
         return created
-
-    async def _get_model_provider_info(self, model: str) -> str | None:
-        """Get a brief provider info string for a model.
-
-        Returns None if providers cannot be looked up or model is not a HF model.
-        """
-        from fast_agent.llm.hf_inference_lookup import (
-            format_provider_summary,
-            lookup_inference_providers,
-            normalize_hf_model_id,
-        )
-
-        model_id = normalize_hf_model_id(model)
-        if model_id is None:
-            return None
-
-        try:
-            result = await lookup_inference_providers(model_id)
-            return format_provider_summary(result)
-        except Exception:
-            return None
-
 
 class HuggingFaceAgent(ACPAwareMixin, McpAgent):
     """

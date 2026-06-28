@@ -9,7 +9,6 @@ from fast_agent.tools.filesystem_tool_args import (
     coerce_required_string_argument,
     coerce_tool_arguments,
 )
-from fast_agent.utils.tool_names import matches_tool_name
 
 EDIT_FILE_TOOL_NAME: Final = "edit_file"
 EDIT_FILE_TOOL_DESCRIPTION: Final = (
@@ -59,10 +58,6 @@ def build_edit_file_tool() -> Tool:
             "additionalProperties": False,
         },
     )
-
-
-def is_edit_file_tool_name(tool_name: str | None) -> bool:
-    return matches_tool_name(tool_name, EDIT_FILE_TOOL_NAME)
 
 
 def extract_edit_file_input(arguments: dict[str, Any] | None) -> EditFileInput | None:

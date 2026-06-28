@@ -59,10 +59,6 @@ class PageCard:
     def source_rel(self) -> Path:
         return self.source.relative_to(CONTENT_DIR)
 
-    @property
-    def section_key(self) -> str:
-        return self.source_rel.parts[0]
-
 
 def _frontmatter(markdown: str) -> tuple[dict[str, object], str]:
     if not markdown.startswith("---\n"):

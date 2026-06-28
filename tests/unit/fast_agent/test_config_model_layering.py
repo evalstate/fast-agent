@@ -397,7 +397,6 @@ def test_get_settings_pairs_secrets_with_selected_config_directory(tmp_path: Pat
         settings = get_settings()
 
         assert settings.default_model == "cwd-default"
-        assert settings._secrets_file is None
     finally:
         os.chdir(previous_cwd)
         config_module._settings = previous_settings

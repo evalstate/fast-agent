@@ -33,6 +33,14 @@ class ShowMcpStatusCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class A2ACommand(CommandBase):
+    action: str
+    argument: str | None
+    error: str | None = None
+    kind: Literal["a2a_command"] = "a2a_command"
+
+
+@dataclass(frozen=True, slots=True)
 class CheckCommand(CommandBase):
     argument: str | None = None
     kind: Literal["check"] = "check"
@@ -319,9 +327,13 @@ class ClearSessionsCommand(CommandBase):
 
 @dataclass(frozen=True, slots=True)
 class PinSessionCommand(CommandBase):
-    value: str | None
-    target: str | None
+    title: str | None
     kind: Literal["pin_session"] = "pin_session"
+
+
+@dataclass(frozen=True, slots=True)
+class UnpinSessionCommand(CommandBase):
+    kind: Literal["unpin_session"] = "unpin_session"
 
 
 @dataclass(frozen=True, slots=True)
@@ -431,6 +443,7 @@ CommandPayload = (
     | ShowSystemCommand
     | ShowMarkdownCommand
     | ShowMcpStatusCommand
+    | A2ACommand
     | CheckCommand
     | CommandsCommand
     | McpListCommand
@@ -468,6 +481,7 @@ CommandPayload = (
     | ForkSessionCommand
     | ClearSessionsCommand
     | PinSessionCommand
+    | UnpinSessionCommand
     | ExportSessionCommand
     | ShellCommand
     | AttachCommand

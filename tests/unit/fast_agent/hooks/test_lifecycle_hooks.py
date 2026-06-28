@@ -51,7 +51,7 @@ async def start_hook(ctx: AgentLifecycleContext) -> None:
     marker_path = {str(marker_file)!r}
     payload = {{
         "agent_name": ctx.agent_name,
-        "has_context": ctx.has_context,
+        "has_context": ctx.context is not None,
         "config_name": ctx.config.name,
         "hook_type": ctx.hook_type,
     }}

@@ -177,7 +177,9 @@ def _plugin_status(
     if len(copies) < 2:
         return "-"
 
-    active_scope = _active_scope_for(name, home_enabled=home_enabled, project_enabled=project_enabled)
+    active_scope = _active_scope_for(
+        name, home_enabled=home_enabled, project_enabled=project_enabled
+    )
     if active_scope is None:
         return "-"
     return "active" if active_scope == scope else f"shadowed by {active_scope}"

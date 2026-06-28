@@ -28,10 +28,6 @@ class BatchRunResult:
     summary_path: Path | None
 
     @property
-    def error_rows(self) -> list[dict[str, Any]]:
-        return [row for row in self.rows if row.get("ok") is False]
-
-    @property
     def artifact_paths(self) -> dict[str, Path]:
         paths = {"output": self.output_path}
         if self.telemetry_path is not None:

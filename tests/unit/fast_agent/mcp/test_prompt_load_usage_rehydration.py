@@ -8,15 +8,15 @@ from mcp.types import TextContent
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.constants import FAST_AGENT_USAGE
-from fast_agent.core.prompt import Prompt
 from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import FastAgentUsage, TurnUsage
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_serialization import save_messages
 from fast_agent.mcp.prompts.prompt_load import (
-    load_history_into_agent,
+    load_prompt,
     load_transcript_into_agent,
     rehydrate_usage_from_history,
 )
@@ -75,6 +75,15 @@ def _history_with_usage(
         ]
     }
     return [Prompt.user("hello"), assistant]
+
+
+def _load_history_for_rehydration_test(agent: LlmAgent, history_path) -> str | None:
+    messages = load_prompt(history_path)
+    usage_accumulator = agent.usage_accumulator
+    if usage_accumulator is not None:
+        usage_accumulator.reset()
+    load_transcript_into_agent(agent, messages)
+    return rehydrate_usage_from_history(agent, messages)
 
 
 @pytest.mark.unit
@@ -139,7 +148,7 @@ def test_load_history_rehydrates_responses_usage_when_model_matches(tmp_path) ->
     llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
     agent._llm = llm
 
-    notice = load_history_into_agent(agent, history_path)
+    notice = _load_history_for_rehydration_test(agent, history_path)
 
     assert notice is None
     assert [message.role for message in agent.message_history] == ["user", "assistant"]
@@ -172,7 +181,7 @@ def test_load_history_skips_responses_usage_when_model_changes(tmp_path) -> None
     )
     agent._llm = llm
 
-    notice = load_history_into_agent(agent, history_path)
+    notice = _load_history_for_rehydration_test(agent, history_path)
 
     assert notice == "Model changed from gpt-5.2 to gpt-5.3-codex -- usage info not available"
     assert llm.usage_accumulator.turn_count == 0
@@ -192,7 +201,7 @@ def test_load_history_rehydrates_when_switching_between_responses_and_codex(tmp_
     llm = CodexResponsesLLM(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex")
     agent._llm = llm
 
-    notice = load_history_into_agent(agent, history_path)
+    notice = _load_history_for_rehydration_test(agent, history_path)
 
     assert notice is None
     assert llm.usage_accumulator.turn_count == 1
@@ -215,7 +224,7 @@ def test_load_history_rehydrates_openresponses_usage(tmp_path) -> None:
     llm = OpenResponsesLLM(provider=Provider.OPENRESPONSES, model="openai/gpt-5")
     agent._llm = llm
 
-    notice = load_history_into_agent(agent, history_path)
+    notice = _load_history_for_rehydration_test(agent, history_path)
 
     assert notice is None
     assert llm.usage_accumulator.turn_count == 1
@@ -249,7 +258,7 @@ def test_load_history_preserves_raw_usage_snapshot_shape(tmp_path) -> None:
     llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
     agent._llm = llm
 
-    notice = load_history_into_agent(agent, history_path)
+    notice = _load_history_for_rehydration_test(agent, history_path)
 
     assert notice is None
     assert llm.usage_accumulator.turn_count == 1
@@ -278,7 +287,7 @@ def test_load_history_clears_stale_usage_when_history_has_no_usage_payload(tmp_p
     )
     agent._llm = llm
 
-    notice = load_history_into_agent(agent, history_path)
+    notice = _load_history_for_rehydration_test(agent, history_path)
 
     assert notice is None
     assert llm.usage_accumulator.turn_count == 0

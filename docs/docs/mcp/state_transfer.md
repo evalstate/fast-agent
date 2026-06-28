@@ -37,7 +37,7 @@ The quick start also uses the MCP Inspector - check [here](https://modelcontextp
     mkdir fast-agent && cd fast-agent
 
     # create and activate a Python environment
-    uv venv --python 3.13.5
+    uv venv --python 3.12
     source .venv/bin/activate
 
     # setup fast-agent
@@ -53,7 +53,7 @@ The quick start also uses the MCP Inspector - check [here](https://modelcontextp
     md fast-agent |cd
 
     # create and activate a Python environment
-    uv venv --python 3.13.5
+    uv venv --python 3.12
     .venv\Scripts\activate
 
     # setup fast-agent

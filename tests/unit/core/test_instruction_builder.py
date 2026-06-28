@@ -125,26 +125,6 @@ class TestInstructionBuilder:
         builder = InstructionBuilder("{{a}} {{b}}").set("a", "1").set_resolver("b", resolver)
         assert isinstance(builder, InstructionBuilder)
 
-    def test_get_placeholders(self):
-        """get_placeholders should extract placeholder names."""
-        builder = InstructionBuilder("Hello {{name}}, {{greeting}}. File: {{file:test.md}}")
-        placeholders = builder.get_placeholders()
-        # Should not include file: patterns
-        assert placeholders == {"name", "greeting"}
-
-    def test_get_placeholders_ignores_escaped(self):
-        """Escaped placeholders should be ignored in placeholder extraction."""
-        builder = InstructionBuilder(r"\{{ignored}} {{real}}")
-        placeholders = builder.get_placeholders()
-        assert placeholders == {"real"}
-
-    def test_get_unresolved_placeholders(self):
-        """get_unresolved_placeholders should return placeholders without sources."""
-        builder = InstructionBuilder("{{a}} {{b}} {{c}}")
-        builder.set("a", "1")
-        unresolved = builder.get_unresolved_placeholders()
-        assert unresolved == {"b", "c"}
-
     def test_copy(self):
         """copy() should create independent copy."""
         builder1 = InstructionBuilder("{{a}}")
@@ -254,14 +234,6 @@ class TestInstructionBuilderInternalPatterns:
 
         with pytest.raises(AgentConfigError, match="Unknown internal resource"):
             await builder.build()
-
-    def test_get_placeholders_ignores_internal_patterns(self):
-        """{{internal:...}} should be treated as a special pattern."""
-        builder = InstructionBuilder("{{name}} {{internal:smart_prompt}}")
-
-        placeholders = builder.get_placeholders()
-        assert placeholders == {"name"}
-
 
 class TestInstructionBuilderUrlPatterns:
     """Tests for URL pattern resolution."""

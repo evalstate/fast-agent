@@ -27,7 +27,7 @@ from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.resolved_model import ResolvedModelSpec, resolve_base_model_params
 from fast_agent.llm.task_budget import format_task_budget_tokens
 from fast_agent.llm.text_verbosity import TextVerbositySpec
-from fast_agent.ui.model_picker_common import ANTHROPIC_VERTEX_PROVIDER_KEY
+from fast_agent.session import SessionManager
 
 
 def _build_overlay(
@@ -748,6 +748,7 @@ async def test_model_switch_starts_new_session_before_setting_model(tmp_path: Pa
         current_agent_name="test",
         io=_StubIO(),
         settings=Settings(environment_dir=str(tmp_path / "fast-agent")),
+        session_manager=SessionManager(environment_override=tmp_path / "fast-agent"),
     )
 
     outcome = await handle_model_switch(ctx, agent_name="test", value="gpt-4.1-mini")
@@ -830,7 +831,7 @@ async def test_model_switch_reopens_vertex_selection_for_anthropic_vertex_model(
 
     outcome = await handle_model_switch(ctx, agent_name="test", value=None)
 
-    assert io.last_initial_provider == ANTHROPIC_VERTEX_PROVIDER_KEY
+    assert io.last_initial_provider == Provider.ANTHROPIC_VERTEX.config_name
     assert io.last_default_model == "anthropic-vertex.claude-sonnet-4-6"
     assert any("already active" in str(message.text) for message in outcome.messages)
 
@@ -847,6 +848,7 @@ async def test_model_switch_does_not_start_session_when_model_is_already_active(
         current_agent_name="test",
         io=_StubIO(),
         settings=Settings(environment_dir=str(tmp_path / "fast-agent")),
+        session_manager=SessionManager(environment_override=tmp_path / "fast-agent"),
     )
 
     outcome = await handle_model_switch(ctx, agent_name="test", value="gpt-5-mini")

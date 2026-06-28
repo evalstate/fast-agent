@@ -53,9 +53,6 @@ class PluginCommandActionRegistry:
     def resolve(self, name: str) -> PluginCommandAction | None:
         return self._actions.get(normalize_plugin_command_name(name))
 
-    def list_actions(self) -> list[PluginCommandAction]:
-        return list(self._actions.values())
-
     async def execute(
         self,
         name: str,

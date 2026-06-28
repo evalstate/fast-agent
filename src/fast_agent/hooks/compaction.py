@@ -1,4 +1,4 @@
-"""Built-in auto-compaction hook.
+"""Built-in auto-compaction hooks.
 
 After a turn completes, compacts the agent's history when server-observed
 context usage crosses the configured threshold (``compaction.threshold`` in
@@ -47,7 +47,16 @@ async def auto_compact_history(ctx: "HookContext") -> None:
     """Compact history after the turn when context usage crossed the threshold."""
     if not ctx.is_turn_complete:
         return
+    await _auto_compact_history(ctx, min_keep_turns=0)
 
+async def auto_compact_history_mid_turn(ctx: "HookContext") -> None:
+    """Compact history during a tool loop while preserving the active turn."""
+    if ctx.is_turn_complete:
+        return
+    await _auto_compact_history(ctx, min_keep_turns=1)
+
+
+async def _auto_compact_history(ctx: "HookContext", *, min_keep_turns: int) -> None:
     settings = _resolve_compaction_settings(ctx)
     if settings is None or not settings.auto:
         return
@@ -63,9 +72,12 @@ async def auto_compact_history(ctx: "HookContext") -> None:
 
     usage = ctx.usage
     percent = usage.context_usage_percentage if usage else None
+    suffix = " mid-turn" if min_keep_turns else ""
     show_hook_message(
         ctx,
-        f"context at {percent:.0f}% — compacting history" if percent else "compacting history",
+        f"context at {percent:.0f}% — compacting history{suffix}"
+        if percent
+        else f"compacting history{suffix}",
         hook_name=_HOOK_NAME,
         style="cyan",
     )
@@ -74,6 +86,7 @@ async def auto_compact_history(ctx: "HookContext") -> None:
         result = await compact_conversation(
             cast("CompactableAgent", ctx.agent),
             settings=settings,
+            min_keep_turns=min_keep_turns,
         )
     except CompactionSkipped as exc:
         logger.info("Auto-compaction skipped", data={"reason": str(exc)})

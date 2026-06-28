@@ -5,11 +5,6 @@ def test_warning_notifications_are_tracked_in_counts_and_summary() -> None:
     notification_tracker.clear()
 
     notification_tracker.add_warning(" skills placeholder missing ")
-    assert notification_tracker.get_latest() == {
-        "type": "warning",
-        "message": "skills placeholder missing",
-    }
-
     notification_tracker.add_warning("another warning")
 
     counts = notification_tracker.get_counts_by_type()

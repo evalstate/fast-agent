@@ -14,6 +14,51 @@ Additionally, there is a convenient `serve` command enabling rapid, command line
 
 This feature also works with [Agent Skills](../guides/skills/), enabling powerful adaptable behaviours.
 
+This page describes **managed MCP server mode**: fast-agent owns the FastMCP
+server process. Use [Custom MCP Servers](harness-adapter.md) when you want to
+own the FastMCP server and call fast-agent through the harness adapter.
+
+#### Ways to build an MCP server
+
+Choose the smallest surface that fits what you are building:
+
+| Goal | Use |
+| --- | --- |
+| Expose an existing agent quickly | `fast-agent serve` |
+| Package an `agent.py` as a server | `uv run agent.py --transport http` |
+| Design your own FastMCP tools | [Custom MCP Servers](harness-adapter.md) |
+| Deploy with Hugging Face OAuth | [Host on Hugging Face Spaces](huggingface-spaces.md) |
+| Return interactive UI | [FastMCP Apps](fastmcp-apps.md) |
+
+The default server and custom FastMCP integrations use the same harness-backed
+application boundary:
+
+```text
+Agent definitions
+├─ Python decorators: @fast.agent() in agent.py
+├─ AgentCards/config: fast-agent serve --agent-cards ./agents
+└─ Harness app: harness_app.entrypoint for custom orchestration
+
+FastAgent runtime
+└─ HarnessSessions
+   └─ HarnessApp
+      └─ MCP adapter
+         ├─ default send tool
+         ├─ custom FastMCP tools
+         └─ FastMCP Apps
+```
+
+Use the Python form when you want a packaged application, the `serve` form when
+you want a declarative/card-based server, and `harness_app.entrypoint` when you
+need custom session orchestration around the same agents.
+
+For hosted MCP, prefer request-scoped serving. Each tool call opens a transient
+harness session and durable state lives in storage you control. For stateful MCP
+clients, connection-scoped serving can use the current `Mcp-Session-Id` as the
+default harness session key. Server authors can also expose their own handle
+arguments on custom MCP tools and pass any chosen key to the Harness API;
+fast-agent does not require a universal state-handle convention.
+
 #### Using the CLI (fast-agent serve)
 
 ```bash
@@ -22,7 +67,7 @@ fast-agent serve [OPTIONS]
 
 Key options:
 
-- `--transport [http|stdio|acp]` (default http). Note: `acp` exposes Agent Client Protocol instead of MCP (see [ACP](../acp/)).
+- `--transport [http|stdio|acp|a2a]` (default http). Note: `acp` exposes Agent Client Protocol instead of MCP (see [ACP](../acp/)); `a2a` exposes A2A instead of MCP.
 - `--port / --host` (for HTTP; host defaults to `127.0.0.1`)
 - `--instance-scope [shared|connection|request] `– choose how agent state is isolated
     - `shared` (default) reuses a single agent for all clients
@@ -47,6 +92,10 @@ HTTP serving binds to loopback by default. Use `--host 0.0.0.0` or another
 non-loopback address only when remote clients should connect; `fast-agent serve`
 prints a warning for remote HTTP binds, and an additional warning when `--shell`
 is also enabled.
+
+For public or multi-user hosted servers, prefer `--instance-scope request`.
+Use `shared` only for trusted deployments or application-level shared state you
+intend all callers to see.
 
 Examples:
 
@@ -97,7 +146,7 @@ uv run agent.py \
 --instance-scope request
 ```
 
-`--transport` now enables server mode automatically. The legacy `--server` flag is still accepted as an alias but is deprecated.
+`--transport` enables server mode automatically.
 
 Both approaches initialise FastAgent with the same config and skill loading pipeline;
 choose whichever fits your workflow (one-off CLI invocation vs. packaging an agent as

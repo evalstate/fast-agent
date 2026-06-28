@@ -117,12 +117,10 @@ fast-agent go --model=generic.qwen2.5  # use ollama qwen 2.5
 fast-agent go --pack analyst --model haiku  # install/reuse a card pack and launch it
 fast-agent scaffold                    # create an example agent and config files
 uv run agent.py                        # run your first agent
-uv run agent.py --model='o3-mini?reasoning=low'    # specify a model
+uv run agent.py --model='gpt-5.4-mini?reasoning=low'    # specify a model
 uv run agent.py --transport http --port 8001  # expose as MCP server (server mode implied)
 fast-agent quickstart workflow  # create "building effective agents" examples
 ```
-
-`--server` remains available for backward compatibility but is deprecated; `--transport` now automatically switches an agent into server mode.
 
 For packaged starter agents, use `fast-agent go --pack <name> --model <model>`.
 This installs the pack into the selected fast-agent environment if needed, then
@@ -483,7 +481,7 @@ await agent.greeter()                           # If no message is specified, a 
 await agent.greeter.prompt()                    # that can be made more explicit
 await agent.greeter.prompt(default_prompt="OK") # and supports setting a default prompt
 
-agent["greeter"].send("Good Evening!")          # Dictionary access is supported if preferred
+await agent["greeter"].send("Good Evening!")    # Dictionary access is supported if preferred
 ```
 
 ### Defining Agents
@@ -495,7 +493,7 @@ agent["greeter"].send("Good Evening!")          # Dictionary access is supported
   name="agent",                          # name of the agent
   instruction="You are a helpful Agent", # base instruction for the agent
   servers=["filesystem"],                # list of MCP Servers for the agent
-  model="o3-mini?reasoning=high",        # specify a model for the agent
+  model="gpt-5.4-mini?reasoning=high",   # specify a model for the agent
   use_history=True,                      # agent maintains chat history
   request_params=RequestParams(temperature= 0.7), # additional parameters for the LLM (or RequestParams())
   human_input=True,                      # agent can request human input
@@ -544,8 +542,8 @@ agent["greeter"].send("Good Evening!")          # Dictionary access is supported
 @fast.router(
   name="route",                          # name of the router
   agents=["agent1", "agent2", "agent3"], # list of agent names router can delegate to
-  model="o3-mini?reasoning=high",        # specify routing model
-  use_history=False,                     # router maintains conversation history
+  model="gpt-5.4-mini?reasoning=high",   # specify routing model
+  use_history=False,                     # router does not maintain conversation history
   human_input=False,                     # whether router can request human input
 )
 ```
@@ -557,7 +555,7 @@ agent["greeter"].send("Good Evening!")          # Dictionary access is supported
   name="orchestrator",                   # name of the orchestrator
   instruction="instruction",             # base instruction for the orchestrator
   agents=["agent1", "agent2"],           # list of agent names this orchestrator can use
-  model="o3-mini?reasoning=high",        # specify orchestrator planning model
+  model="gpt-5.4-mini?reasoning=high",   # specify orchestrator planning model
   use_history=False,                     # orchestrator doesn't maintain chat history (no effect).
   human_input=False,                     # whether orchestrator can request human input
   plan_type="full",                      # planning approach: "full" or "iterative"

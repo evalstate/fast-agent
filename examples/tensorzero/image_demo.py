@@ -2,13 +2,12 @@ import asyncio
 import base64
 import mimetypes
 from pathlib import Path
-from typing import Union
 
 from mcp.types import ImageContent, TextContent
 
 from fast_agent import FastAgent
-from fast_agent.core.prompt import Prompt
 from fast_agent.llm.request_params import RequestParams
+from fast_agent.mcp.prompt import Prompt
 
 AGENT_NAME = "tensorzero_image_tester"
 TENSORZERO_MODEL = "tensorzero.test_chat"
@@ -37,7 +36,7 @@ fast = FastAgent("TensorZero Image Demo - Base64 Only")
     request_params=RequestParams(template_vars=MY_T0_SYSTEM_VARS),
 )
 async def main():
-    content_parts: list[Union[TextContent, ImageContent]] = []
+    content_parts: list[TextContent | ImageContent] = []
     content_parts.append(TextContent(type="text", text=TEXT_PROMPT))
 
     for file_path in LOCAL_IMAGE_FILES:

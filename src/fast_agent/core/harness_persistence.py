@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
+from fast_agent.session.context import attach_session_manager
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
     from pathlib import Path
@@ -57,6 +59,7 @@ class FileHarnessSessionPersistence:
             metadata={"harness_session_id": session_id},
             metadata_id_key="harness_session_id",
         )
+        attach_session_manager(instance, manager)
         fallback_agent_name = instance.app.resolve_target_agent_name(default_agent_name)
         hydration = await SessionHydrator().hydrate_session(
             session=persisted_session,
@@ -106,7 +109,8 @@ class CallbackHarnessSessionPersistence:
         )
         if persisted is None:
             return None
-        _manager, session = persisted
+        manager, session = persisted
+        attach_session_manager(instance, manager)
         return session
 
     async def save(

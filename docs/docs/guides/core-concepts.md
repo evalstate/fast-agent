@@ -69,7 +69,7 @@ The defaults are deliberately useful:
 - ToolCards in `<env>/tool-cards/` are loaded and attached as tools.
 - Sessions are saved in `<env>/sessions/` so you can resume work later.
 - Skills are discovered from the active environment's `skills/` directory
-  (normally `.fast-agent/skills`), plus `.guides/skills` and `.claude/skills`.
+  (normally `.fast-agent/skills`), plus `.agents/skills` and `.claude/skills`.
 
 <section class="fa-grid fa-grid--3" markdown="1">
 <article class="fa-card" markdown="1">
@@ -370,7 +370,7 @@ references and assets. They let agents load specialized procedures only when
 needed. By default, fast-agent looks in:
 
 - the active environment's `skills/` directory — normally `.fast-agent/skills`
-- `.guides/skills`
+- `.agents/skills`
 - `.claude/skills`
 
 The easiest way to get started is to install skills from an existing registry
@@ -575,6 +575,6 @@ as Markdown files, then publish the bundle when it becomes useful.
   setting, including providers, MCP, sessions, skills and model references.
 - [fast-agent go](../ref/go_command/) — all CLI switches for environments,
   packs, models, cards, skills and non-interactive runs.
-- [MCP configuration](../mcp/) — configure and inspect MCP servers.
+- [MCP configuration](../mcp/client-servers/) — configure and inspect MCP servers.
 - [Model Features](../models/) — model strings, provider web tools and overlays.
 - [fast-agent skills](https://github.com/fast-agent-ai/skills) - Skills to work with Agent Cards, Hooks, Plugins, Automations and more.

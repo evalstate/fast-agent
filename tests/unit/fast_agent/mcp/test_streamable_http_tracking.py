@@ -39,12 +39,27 @@ class _FakeEventSourceResponse:
         return None
 
 
+class _DroppedSSEIterator:
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise RuntimeError("stream dropped")
+
+
+class _EmptySSEIterator:
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise StopAsyncIteration
+
+
 class _DropEventSource:
     response = _FakeEventSourceResponse()
 
-    async def aiter_sse(self):
-        raise RuntimeError("stream dropped")
-        yield  # pragma: no cover
+    def aiter_sse(self):
+        return _DroppedSSEIterator()
 
 
 class _StopEventSource:
@@ -52,10 +67,9 @@ class _StopEventSource:
         self.response = _FakeEventSourceResponse()
         self._on_complete = on_complete
 
-    async def aiter_sse(self):
+    def aiter_sse(self):
         self._on_complete()
-        if False:  # pragma: no cover
-            yield
+        return _EmptySSEIterator()
 
 
 class _ScriptedSSEConnection:

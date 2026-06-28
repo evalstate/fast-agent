@@ -5,16 +5,20 @@ Bridges ACPToolPermissionManager to the MCP ToolPermissionHandler protocol,
 allowing ACP permission checking to be injected into the MCP aggregator.
 """
 
-from pathlib import Path
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Any, Protocol
 
-from fast_agent.acp.permission_store import PermissionStore
 from fast_agent.acp.tool_permissions import ACPToolPermissionManager
 from fast_agent.mcp.common import create_namespaced_name
 from fast_agent.mcp.tool_permission_handler import ToolPermissionHandler, ToolPermissionResult
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from acp import AgentSideConnection
+
+    from fast_agent.acp.permission_store import PermissionStore
 
 
 class _ToolCallIdLookup(Protocol):
@@ -31,7 +35,7 @@ class ACPToolPermissionAdapter(ToolPermissionHandler):
 
     def __init__(
         self,
-        connection: "AgentSideConnection",
+        connection: AgentSideConnection,
         session_id: str,
         store: PermissionStore | None = None,
         cwd: str | Path | None = None,

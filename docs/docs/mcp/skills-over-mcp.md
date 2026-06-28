@@ -7,8 +7,7 @@ social:
   alt: fast-agent social card - Skills over MCP
 ---
 
-`fast-agent` supports the draft 
-[SEP-2640: Skills over MCP Extension](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/93d7a9ddb20d4b3594f4a1be7508ee47f0718f17/seps/2640-skills-extension.md).
+`fast-agent` supports the draft [SEP-2640: Skills over MCP Extension](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/93d7a9ddb20d4b3594f4a1be7508ee47f0718f17/seps/2640-skills-extension.md).
 
 When a connected MCP server advertises this capability, `fast-agent` shows it as
 an MCP-backed skills registry. Opening `/skills registry` reads

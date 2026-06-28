@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -27,11 +27,8 @@ def enabled_tool_specs(specs: Iterable[FilesystemToolSpec]) -> tuple[FilesystemT
 def enabled_tool_spec(
     specs: Iterable[FilesystemToolSpec],
     tool_name: str,
-    *,
-    aliases: Mapping[str, str] | None = None,
 ) -> FilesystemToolSpec | None:
-    resolved_name = aliases.get(tool_name, tool_name) if aliases else tool_name
     return next(
-        (spec for spec in specs if spec.name == resolved_name and spec.enabled()),
+        (spec for spec in specs if spec.name == tool_name and spec.enabled()),
         None,
     )

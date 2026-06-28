@@ -80,7 +80,7 @@ class ACPFilesystemRuntime:
 
     def __init__(
         self,
-        connection: "AgentSideConnection",
+        connection: AgentSideConnection,
         session_id: str,
         activation_reason: str,
         logger_instance=None,
@@ -135,25 +135,9 @@ class ACPFilesystemRuntime:
         )
 
     @property
-    def read_tool(self) -> Tool:
-        """Get the read_text_file tool definition."""
-        return self._read_tool
-
-    @property
-    def write_tool(self) -> Tool:
-        """Get the write_text_file tool definition."""
-        return self._write_tool
-
-    @property
     def tools(self) -> list[Tool]:
         """Get all enabled filesystem tools."""
-        return [spec.tool() for spec in self._enabled_tool_specs()]
-
-    def _enabled_tool_specs(self) -> tuple[FilesystemToolSpec, ...]:
-        return enabled_tool_specs(self._tool_specs)
-
-    def _enabled_tool_spec(self, tool_name: str) -> FilesystemToolSpec | None:
-        return enabled_tool_spec(self._tool_specs, tool_name)
+        return [spec.tool() for spec in enabled_tool_specs(self._tool_specs)]
 
     async def call_tool(
         self,
@@ -166,7 +150,7 @@ class ACPFilesystemRuntime:
         del request_params
 
         payload = arguments if arguments is not None else {}
-        spec = self._enabled_tool_spec(name)
+        spec = enabled_tool_spec(self._tool_specs, name)
         if spec is not None:
             return await spec.handler(payload, tool_use_id)
 
@@ -366,7 +350,7 @@ class ACPFilesystemRuntime:
             "type": ACP_FILESYSTEM_TOOL_SOURCE,
             "session_id": self.session_id,
             "activation_reason": self.activation_reason,
-            "tools": [spec.name for spec in self._enabled_tool_specs()],
+            "tools": [spec.name for spec in enabled_tool_specs(self._tool_specs)],
         }
 
     async def _permission_error(

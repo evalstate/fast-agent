@@ -4,9 +4,9 @@ import json
 import pytest
 
 from fast_agent.constants import FAST_AGENT_TIMING
-from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.mcp.prompt import Prompt
 
 
 class ReasoningStreamingPassthroughLLM(PassthroughLLM):

@@ -11,7 +11,6 @@ from typing import (
     Any,
     TypeGuard,
     TypeVar,
-    Union,
 )
 
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -74,11 +73,11 @@ class Executor(ABC, ContextDependent):
         engine: str,
         config: ExecutorConfig | None = None,
         signal_bus: SignalHandler | None = None,
-        context: Union["Context", None] = None,
+        context: "Context | None" = None,
         **kwargs,
     ) -> None:
         super().__init__(context=context, **kwargs)
-        self.execution_engine = engine
+        del engine
 
         if config:
             self.config = config

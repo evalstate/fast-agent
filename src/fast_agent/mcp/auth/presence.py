@@ -1,50 +1,36 @@
-"""Presence-only token verifier for MCP server authentication."""
+"""Backward-compatible Hugging Face bearer token verifier import."""
 
-from fastmcp.server.auth import AccessToken, TokenVerifier
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from fast_agent.mcp.auth.providers._huggingface_compat import (
+    DEFAULT_HUGGINGFACE_SCOPES,
+)
+from fast_agent.mcp.auth.providers._huggingface_compat import (
+    HuggingFaceTokenVerifier as _FastMCPHuggingFaceTokenVerifier,
+)
+
+if TYPE_CHECKING:
+    import httpx
 
 
-class PresenceTokenVerifier(TokenVerifier):
-    """
-    Simple token verifier that only checks token presence.
-
-    Does not validate the token against any external service - downstream
-    services (e.g., HuggingFace inference API) handle actual validation.
-    """
+class HuggingFaceTokenVerifier(_FastMCPHuggingFaceTokenVerifier):
+    """FastMCP-compatible Hugging Face verifier with legacy constructor args."""
 
     def __init__(
         self,
-        provider: str = "generic",
+        provider: str = "huggingface",
         scopes: list[str] | None = None,
         *,
         base_url: str | None = None,
-    ):
-        """
-        Initialize the presence token verifier.
-
-        Args:
-            provider: Name of the OAuth provider (for logging/debugging).
-            scopes: List of scopes to assign to valid tokens. Defaults to ["access"].
-            base_url: Optional protected resource base URL for auth metadata.
-        """
-        super().__init__(base_url=base_url, required_scopes=scopes or ["access"])
+        timeout_seconds: int = 10,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
+        del base_url
+        super().__init__(required_scopes=None, timeout_seconds=timeout_seconds, http_client=http_client)
         self.provider = provider
-        self.scopes = scopes or ["access"]
+        self.scopes = scopes or list(DEFAULT_HUGGINGFACE_SCOPES)
 
-    async def verify_token(self, token: str) -> AccessToken | None:
-        """
-        Verify that a token is present (non-empty).
 
-        Args:
-            token: The bearer token to verify.
-
-        Returns:
-            AccessToken if token is present, None otherwise.
-        """
-        if not token or not token.strip():
-            return None
-
-        return AccessToken(
-            token=token,
-            client_id="bearer-client",
-            scopes=self.scopes,
-        )
+__all__ = ["HuggingFaceTokenVerifier"]

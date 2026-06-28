@@ -235,7 +235,8 @@ def _session_detail_entry() -> CommandIndexEntry:
                 usage="/session delete <id|number|all>",
                 aliases=["clear"],
             ),
-            _session_action_payload("pin", usage="/session pin [on|off|id|number]"),
+            _session_action_payload("pin", usage="/session pin <title>"),
+            _session_action_payload("unpin", usage="/session unpin"),
             _session_export_action_payload(),
             {"name": "help", "summary": "Show session usage"},
         ],
@@ -330,12 +331,12 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         {
             "name": "history",
             "summary": "Inspect, save, load, or edit chat history",
-            "usage": "/history [list|show|detail|review|save|load|clear|rewind|fix|webclear] [args]",
+            "usage": "/history [turn|list|show|detail|review|save|load|clear|rewind|fix|webclear] [args]",
             "actions": [
                 {"name": name, "summary": summary}
                 for name, summary in HISTORY_COMMAND_COMPLETION_DESCRIPTIONS.items()
             ],
-            "examples": ["/history", "/history detail 3", "/history save history.json"],
+            "examples": ["/history", "/history 3", "/history detail 3", "/history save history.json"],
         },
         _simple_command_entry(
             "load",
@@ -470,13 +471,6 @@ def _build_command_detail(name: str) -> CommandDetailEntry | None:
             "examples": entry["examples"],
         }
     return None
-
-
-def _build_command_action_detail(command_name: str, action_name: str) -> ActionPayload | None:
-    detail = _build_command_detail(command_name)
-    if detail is None:
-        return None
-    return _find_action_detail(detail, action_name)
 
 
 def _find_action_detail(detail: CommandDetailEntry, action_name: str) -> ActionPayload | None:

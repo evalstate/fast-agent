@@ -10,8 +10,6 @@ from typing import Final, Literal, cast
 from fast_agent.commands.command_catalog import command_action_names, normalize_command_action
 from fast_agent.commands.option_parsing import ParsedValueOption, ValueOption, read_value_option
 from fast_agent.utils.action_normalization import (
-    FALSE_WORD_BOOLEAN_ALIASES,
-    TRUE_WORD_BOOLEAN_ALIASES,
     is_help_flag,
     normalize_action_token,
     split_action_arguments,
@@ -88,7 +86,6 @@ MODEL_VALUE_COMMAND_ACTIONS: frozenset[ModelCommandAction] = frozenset(
 MODEL_MANAGER_COMMAND_ACTIONS: frozenset[ModelCommandAction] = frozenset(
     action for action, category in MODEL_COMMAND_ACTION_CATEGORIES.items() if category == "manager"
 )
-MODEL_DIRECT_HANDLER_ACTIONS: frozenset[ModelCommandAction] = MODEL_VALUE_COMMAND_ACTIONS
 TOOL_MUTATION_ACTIONS: frozenset[ToolMutationAction] = frozenset(
     (ADD_TOOL_ACTION, REMOVE_TOOL_ACTION)
 )
@@ -227,8 +224,7 @@ class _ExportArgument:
 
 @dataclass(frozen=True, slots=True)
 class _PinArgument:
-    value: str | None = None
-    target: str | None = None
+    title: str | None = None
 
 
 @dataclass(slots=True)
@@ -285,14 +281,8 @@ _SIMPLE_SESSION_ACTIONS: dict[str, "SessionAction"] = {
     "fork": "fork",
     "delete": "delete",
     "clear": "delete",
+    "unpin": "unpin",
 }
-_PIN_VALUE_TOKENS = frozenset(
-    {
-        "toggle",
-        *TRUE_WORD_BOOLEAN_ALIASES,
-        *FALSE_WORD_BOOLEAN_ALIASES,
-    }
-)
 ADD_TOOL_TOKEN_DESCRIPTIONS: Final[dict[str, str]] = {
     "tool": "Add as tool",
     "--tool": "Add as tool",
@@ -518,6 +508,8 @@ def parse_current_agent_history_intent(remainder: str) -> HistoryActionIntent:
         return HistoryActionIntent(action="overview")
 
     subcmd = normalize_action_token(tokens[0])
+    if subcmd.isdigit():
+        return _parse_turn_history_intent("detail", subcmd)
 
     action = _SIMPLE_HISTORY_ACTIONS.get(subcmd)
     if action is not None:
@@ -591,16 +583,15 @@ SessionAction = Literal[
     "fork",
     "delete",
     "pin",
+    "unpin",
     "export",
     "error",
     "unknown",
 ]
-SESSION_SIMPLE_PAYLOAD_ACTIONS: frozenset[SessionAction] = frozenset(
-    _SIMPLE_SESSION_ACTIONS.values()
-)
 SESSION_COMMAND_COMPLETION_DESCRIPTIONS: dict[str, str] = {
     "delete": "Delete a session (or all)",
-    "pin": "Pin or unpin the current session",
+    "pin": "Set the current session title and pin it",
+    "unpin": "Unpin the current session",
     "clear": "Alias for delete",
     "list": "List recent sessions",
     "new": "Create a new session",
@@ -615,8 +606,7 @@ SESSION_COMMAND_COMPLETION_DESCRIPTIONS: dict[str, str] = {
 class SessionCommandIntent:
     action: SessionAction
     argument: str | None = None
-    pin_value: str | None = None
-    pin_target: str | None = None
+    pin_title: str | None = None
     export_target: str | None = None
     export_agent: str | None = None
     export_output: str | None = None
@@ -674,37 +664,14 @@ def parse_session_command_intent(remainder: str) -> SessionCommandIntent:
 
 
 def _parse_pin_argument(argument: str) -> _PinArgument:
-    stripped = strip_to_none(argument)
-    if stripped is None:
-        return _PinArgument()
-
-    try:
-        pin_tokens = split_commandline(stripped, syntax="posix")
-    except ValueError:
-        action_token, remainder = split_action_arguments(stripped)
-        if action_token is None:
-            pin_tokens = []
-        elif remainder:
-            pin_tokens = [action_token, remainder]
-        else:
-            pin_tokens = [action_token]
-
-    if not pin_tokens:
-        return _PinArgument()
-
-    first = normalize_action_token(pin_tokens[0])
-    if first in _PIN_VALUE_TOKENS:
-        target = strip_to_none(" ".join(pin_tokens[1:]))
-        return _PinArgument(value=first, target=target)
-    return _PinArgument(target=stripped)
+    return _PinArgument(title=strip_to_none(argument))
 
 
 def _parse_pin_session_intent(argument: str | None) -> SessionCommandIntent:
     pin = _parse_pin_argument(argument or "")
     return SessionCommandIntent(
         action="pin",
-        pin_value=pin.value,
-        pin_target=pin.target,
+        pin_title=pin.title,
     )
 
 

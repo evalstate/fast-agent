@@ -4,7 +4,6 @@ import pytest
 
 from fast_agent.commands.shared_command_intents import (
     SESSION_COMMAND_COMPLETION_DESCRIPTIONS,
-    SESSION_SIMPLE_PAYLOAD_ACTIONS,
 )
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -17,6 +16,7 @@ from fast_agent.ui.command_payloads import (
     CreateSessionCommand,
     ForkSessionCommand,
     HashAgentCommand,
+    HistoryReviewCommand,
     HistoryViewCommand,
     ListPromptsCommand,
     LoadAgentCardCommand,
@@ -36,7 +36,14 @@ type ExpectedParseResult = str | CommandPayload | dict[str, object]
 
 
 def test_session_payload_factory_table_matches_shared_simple_actions() -> None:
-    assert frozenset(prompt_parser._SESSION_PAYLOAD_FACTORIES) == SESSION_SIMPLE_PAYLOAD_ACTIONS
+    assert frozenset(prompt_parser._SESSION_PAYLOAD_FACTORIES) == {
+        "list",
+        "new",
+        "resume",
+        "title",
+        "fork",
+        "delete",
+    }
 
 
 def test_history_turn_error_formatters_cover_shared_error_codes() -> None:
@@ -53,6 +60,7 @@ def test_session_completion_descriptions_cover_parser_actions() -> None:
         "delete",
         "clear",
         "pin",
+        "unpin",
         "export",
     }
 
@@ -76,6 +84,8 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
         "session",
         "card",
         "agent",
+        "a2a",
+        "tasks",
         "mcp",
         "connect",
         "prompt",
@@ -135,6 +145,11 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
             "/history show analyst",
             HistoryViewCommand(agent="analyst", view="table"),
             id="history-show-target",
+        ),
+        pytest.param(
+            "/history 3",
+            HistoryReviewCommand(turn_index=3, error=None),
+            id="history-bare-turn-detail",
         ),
         pytest.param(
             "/history load",

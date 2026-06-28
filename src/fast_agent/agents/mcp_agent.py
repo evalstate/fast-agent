@@ -20,7 +20,6 @@ from typing import (
     Any,
     Literal,
     TypeVar,
-    Union,
     cast,
 )
 
@@ -333,7 +332,6 @@ class McpAgent(ABC, ToolAgent):
         self._activate_shell_runtime(
             self._shell_runtime_activation_reason,
             working_directory=self.config.cwd,
-            skills_directory=self._skills_directory_from_manifests(),
             access_modes=self._shell_access_modes,
         )
 
@@ -369,14 +367,6 @@ class McpAgent(ABC, ToolAgent):
         if shell_flag_requested:
             modes.append("switch")
         return tuple(modes)
-
-    def _skills_directory_from_manifests(self) -> Path | None:
-        if not self._skill_manifests:
-            return None
-        first_manifest = self._skill_manifests[0]
-        if first_manifest.path:
-            return first_manifest.path.parent.parent
-        return None
 
     def _initial_human_input_tool(self) -> Tool | None:
         if not self.config.human_input:
@@ -573,11 +563,6 @@ class McpAgent(ABC, ToolAgent):
         """List of skill manifests configured for this agent."""
         return self._skill_manifests
 
-    @property
-    def has_filesystem_runtime(self) -> bool:
-        """Whether any filesystem runtime is attached."""
-        return self._filesystem_runtime is not None
-
     def _local_filesystem_runtime(self) -> LocalFilesystemRuntime | None:
         runtime = self._filesystem_runtime
         if isinstance(runtime, LocalFilesystemRuntime):
@@ -720,16 +705,8 @@ class McpAgent(ABC, ToolAgent):
         if self._external_runtime is not None:
             return
 
-        # Derive skills directory from manifests (respects per-agent config)
-        skills_directory = None
-        if self._skill_manifests:
-            first_manifest = self._skill_manifests[0]
-            if first_manifest.path:
-                skills_directory = first_manifest.path.parent.parent
-
         self._activate_shell_runtime(
             "because agent skills are configured",
-            skills_directory=skills_directory,
             working_directory=self.config.cwd,
             access_modes=("skills",),
             show_shell_notice=True,
@@ -934,7 +911,6 @@ class McpAgent(ABC, ToolAgent):
         activation_reason: str | None,
         *,
         working_directory: Path | None = None,
-        skills_directory: Path | None = None,
         access_modes: tuple[str, ...] = (),
         show_shell_notice: bool = False,
     ) -> None:
@@ -951,7 +927,6 @@ class McpAgent(ABC, ToolAgent):
             self.logger,
             timeout_seconds=shell_settings.timeout_seconds,
             warning_interval_seconds=shell_settings.warning_interval_seconds,
-            skills_directory=skills_directory,
             working_directory=working_directory,
             output_byte_limit=shell_settings.output_byte_limit,
             config=self._context.config if self._context else None,
@@ -979,13 +954,6 @@ class McpAgent(ABC, ToolAgent):
     @property
     def shell_runtime(self) -> ShellRuntime | None:
         return self._shell_runtime
-
-    def shell_notice_line(self) -> "Text | None":
-        if not self._shell_runtime_enabled or self._shell_runtime is None:
-            return None
-        from fast_agent.ui.shell_notice import format_shell_notice
-
-        return format_shell_notice(self._shell_access_modes, self._shell_runtime)
 
     def _record_warning(
         self,
@@ -1024,12 +992,10 @@ class McpAgent(ABC, ToolAgent):
 
     async def __call__(
         self,
-        message: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
+        message: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
     ) -> str:
         return await self.send(message)
 
@@ -1360,7 +1326,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def apply_prompt(
         self,
-        prompt: Union[str, GetPromptResult],
+        prompt: str | GetPromptResult,
         arguments: dict[str, str] | None = None,
         as_template: bool = False,
         namespace: str | None = None,
@@ -1476,7 +1442,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def with_resource(
         self,
-        prompt_content: Union[str, PromptMessage, PromptMessageExtended],
+        prompt_content: str | PromptMessage | PromptMessageExtended,
         resource_uri: str,
         namespace: str | None = None,
         server_name: str | None = None,
@@ -2367,7 +2333,7 @@ class McpAgent(ABC, ToolAgent):
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
-        additional_message: Union["Text", None] = None,
+        additional_message: "Text | None" = None,
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
         render_message: bool = True,
@@ -2577,7 +2543,7 @@ class McpAgent(ABC, ToolAgent):
         return super().message_history
 
     @property
-    def usage_accumulator(self) -> Union["UsageAccumulator", None]:
+    def usage_accumulator(self) -> "UsageAccumulator | None":
         """
         Return the usage accumulator for tracking token usage across turns.
 

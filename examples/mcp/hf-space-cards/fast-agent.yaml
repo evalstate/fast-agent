@@ -1,0 +1,2 @@
+harness_app:
+  entrypoint: "space_app:create_app"

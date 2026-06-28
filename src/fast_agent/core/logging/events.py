@@ -3,7 +3,6 @@ Events and event filters for the logger module for the MCP Agent
 """
 
 import logging
-import random
 from datetime import datetime
 from typing import Any, Literal
 
@@ -95,21 +94,6 @@ class EventFilter(BaseModel):
                 return False
 
         return True
-
-
-class SamplingFilter(EventFilter):
-    """
-    Random sampling on top of base filter.
-    Only pass an event if it meets the base filter AND random() < sample_rate.
-    """
-
-    sample_rate: float = 0.1
-    """Fraction of events to pass through"""
-
-    def matches(self, event: Event) -> bool:
-        if not super().matches(event):
-            return False
-        return random.random() < self.sample_rate
 
 
 class StreamingExclusionFilter(EventFilter):

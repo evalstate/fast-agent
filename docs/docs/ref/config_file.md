@@ -370,7 +370,7 @@ groq:
 ```yaml
 aliyun:
   api_key: "your_aliyun_key"  # Provide via secrets/env as appropriate
-  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"  # Optional, defaults to this value
+  base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"  # Optional, defaults to this value
 ```
 
 ### Hugging Face (Inference Providers)

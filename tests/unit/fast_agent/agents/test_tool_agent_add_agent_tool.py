@@ -4,8 +4,8 @@ from mcp import Tool
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.tool_agent import ToolAgent
-from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 

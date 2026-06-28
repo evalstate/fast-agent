@@ -74,10 +74,9 @@ async def test_openai_client_with_default_azure_credential(monkeypatch):
     class DummyAzureOpenAI:
         def __init__(self, **kwargs):
             assert "azure_ad_token_provider" in kwargs
-            self.token_provider = kwargs["azure_ad_token_provider"]
             self.chat = types.SimpleNamespace(
                 completions=types.SimpleNamespace(
-                    create=lambda **kw: types.SimpleNamespace(
+                    create=lambda **_kwargs: types.SimpleNamespace(
                         choices=[
                             types.SimpleNamespace(
                                 message=types.SimpleNamespace(content="tokenpong")

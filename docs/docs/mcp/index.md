@@ -1,290 +1,124 @@
 ---
-title: Configuring Servers
+title: MCP with fast-agent
 social:
-  title: Configure MCP Servers
-  tagline: Connect local and remote MCP servers to fast-agent.
-  description: Connect local and remote MCP servers to fast-agent.
-  alt: fast-agent social card — Configure MCP Servers
+  title: MCP with fast-agent
+  tagline: Connect to MCP servers, expose agents over MCP, and use MCP protocol features.
+  description: Connect to MCP servers, expose agents over MCP, and use MCP protocol features.
+  alt: fast-agent social card — MCP Overview
 ---
 
+**`fast-agent`** provides comprehensive MCP support as  both Clients and Server:
 
-MCP Servers are configured in the `fast-agent.yaml` file. Secrets can be kept in `fast-agent.secrets.yaml`, which follows the same format (**fast-agent** merges the contents of the two files).
+- **Client**: connect agents to local or remote MCP servers.
+- **Server**: expose fast-agent agents, AgentCards, and Harness apps as MCP servers with [FastMCP](https://gofastmcp.com/getting-started/welcome).
+- **Protocol features**: work with MCP types, resources, elicitations, state transfer,
+  OAuth, UI content, and MCP Apps.
 
-`mcp.servers.<name>` supports canonical server blocks and shorthand `target` entries:
+## Choose your path
 
-```yaml
-mcp:
-  servers:
-    remote_api:
-      target: "https://api.example.com/mcp"
-      headers:
-        Authorization: "Bearer ${EXAMPLE_TOKEN}"
-      auth:
-        oauth: true
+| I want to...                                   | Start here                                                                              |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Connect an agent to MCP tools                  | [Connect to MCP Servers](client-servers.md)                                             |
+| Authenticate to remote MCP servers             | [Client OAuth](mcp-oauth.md)                                                            |
+| Inspect tools, transports, and server metadata | [Inspect MCP Servers](mcp_display.md)                                                   |
+| Serve a fast-agent agent over MCP              | [Run an MCP Server](mcp-server.md)                                                      |
+| Build custom FastMCP tools backed by agents    | [Custom MCP Servers](harness-adapter.md)                                                |
+| Host an MCP server on Hugging Face Spaces      | [Host on Hugging Face Spaces](huggingface-spaces.md)                                    |
+| Build interactive UI with FastMCP Apps         | [FastMCP Apps](fastmcp-apps.md)                                                         |
+| Understand fast-agent's MCP content handling   | [Integration with MCP Types](#integration-with-mcp-types) and [Resources](resources.md) |
+
+## Deployment modes
+
+We use these names throughout the MCP docs:
+
+| Mode                         | Use it when...                                     | Start here                                       |
+| ---------------------------- | -------------------------------------------------- | ------------------------------------------------ |
+| **MCP client mode**          | fast-agent should connect agents to MCP servers    | [Connect to MCP Servers](client-servers.md)      |
+| **Managed MCP server mode**  | fast-agent should own the MCP server process       | [Run an MCP Server](mcp-server.md)               |
+| **Custom tool adapter mode** | you want normal MCP tools backed by agents         | [Custom MCP Servers](harness-adapter.md)         |
+| **MCP Apps adapter mode**    | you want interactive MCP Apps backed by agents     | [FastMCP Apps](fastmcp-apps.md)                  |
+| **Direct Harness mode**      | you are embedding fast-agent in Python without MCP | [Harness API](../agents/defining/harness-api.md) |
+
+`--transport http` and `--transport stdio` choose the wire transport for
+managed MCP server mode. They are not separate deployment modes. Session scope
+(`request`, `connection`, or legacy `shared`) is a separate choice.
+
+The two adapter modes both use `HarnessMCPAdapter`; they differ only in the
+FastMCP surface. Custom tool adapter mode uses ordinary `@mcp.tool()` handlers.
+MCP Apps adapter mode uses `FastMCPApp.ui()` and `FastMCPApp.tool()` handlers so
+FastMCP can serve UI resources, app metadata, CSP, permissions, and app-only
+backend tools.
+
+## Integration with MCP Types
+
+fast-agent uses MCP protocol types throughout the runtime, so MCP content can
+move between servers, agents, workflows, and protocol adapters without being
+flattened to plain strings too early.
+
+Conversations are based on `PromptMessageExtended`, fast-agent's extension of
+the MCP `PromptMessage` type. It supports multiple content sections and is used
+for:
+
+- normal chat turns;
+- MCP tool results and resource content;
+- history transfer between agents;
+- Harness API `AgentRequest` / `AgentResponse` messages;
+- protocol adapters such as MCP, A2A, and ACP.
+
+That means an agent can receive MCP-native text, images, embedded resources, or
+other content blocks where the provider and client support them. When a target
+only supports text, fast-agent projects the content to text at the adapter or
+provider boundary.
+
+Example: transfer one agent's message history to another agent:
+
+```python title="history_transfer.py"
+@fast.agent(name="haiku", model="haiku")
+@fast.agent(name="openai", model="gpt-5.5")
+async def main() -> None:
+    async with fast.run() as agent:
+        await agent.interactive(agent_name="haiku")
+        await agent.openai.generate(agent.haiku.message_history)
+        await agent.interactive(agent_name="openai")
 ```
 
-You can also supply a list of target-first entries via `mcp.targets`:
+For MCP resources and linked content, see [Resources](resources.md). For UI
+content returned by MCP servers, see [mcp-ui and fast-agent](mcp-ui.md).
 
-```yaml
-mcp:
-  targets:
-    - target: "https://demo.hf.space"
-    - target: "@modelcontextprotocol/server-filesystem /workspace"
-      name: "filesystem"
-      load_on_start: false
-```
+## Client mode
 
-`mcp.targets` entries are normalized into named `mcp.servers` aliases. If both
-forms define the same alias, the explicit `mcp.servers.<name>` entry wins.
+In client mode, fast-agent connects your agents to MCP servers. Configure MCP
+servers in `fast-agent.yaml`, AgentCards, or with CLI flags such as `--url`,
+`--stdio`, `--npx`, and `--uvx`.
 
-`target` must be a pure target string (URL/package/command only). Do not embed
-fast-agent CLI flags like `--auth`/`--oauth` inside `target`; use `headers` and
-`auth` fields instead.
+Common client topics:
 
-## AgentCard runtime MCP connections (`mcp_connect`)
+- [Connect to MCP Servers](client-servers.md)
+- [Client OAuth](mcp-oauth.md)
+- [Inspect MCP Servers](mcp_display.md)
+- [MCP Resources](resources.md)
+- [mcp-ui and fast-agent](mcp-ui.md)
 
-AgentCards can also declare runtime MCP targets directly with `mcp_connect`.
-This is useful when a card depends on MCP servers that are not predeclared in
-`fast-agent.yaml`.
+## Server mode
 
-```yaml
-mcp_connect:
-  - target: "https://demo.hf.space"
-    headers:
-      Authorization: "Bearer ${DEMO_TOKEN}"
-    auth:
-      oauth: true
-  - target: "@modelcontextprotocol/server-everything"
-    name: "everything"
-```
+In server mode, fast-agent exposes agents and workflows over MCP. Use the CLI for
+simple deployments, or use the Harness API with FastMCP when you want a custom
+server surface.
 
-`mcp.servers` remains the place for reusable, preconfigured aliases.
-`mcp_connect` is card-scoped runtime declaration.
+Common server topics:
 
-## Provider-managed MCP
+- [Run an MCP Server](mcp-server.md)
+- [Custom MCP Servers](harness-adapter.md)
+- [Host on Hugging Face Spaces](huggingface-spaces.md)
+- [FastMCP Apps](fastmcp-apps.md)
+- [OpenAI Apps SDK](openai-apps-sdk.md)
 
-For remote HTTP/SSE MCP servers, you can ask the model provider to manage the
-connection natively instead of having fast-agent connect to the server locally.
+## MCP features
 
-```yaml title="fast-agent.yaml"
-mcp:
-  servers:
-    huggingface:
-      management: provider
-      transport: "http"
-      url: "https://huggingface.co/mcp"
-      access_token: "${HF_TOKEN}"
-      description: "Hugging Face MCP"
-```
+fast-agent supports several MCP protocol features directly in the agent runtime:
 
-AgentCards can use the same mode in `mcp_connect`:
-
-```yaml
-mcp_connect:
-  - target: "https://huggingface.co/mcp"
-    name: "huggingface"
-    management: provider
-    access_token: "${HF_TOKEN}"
-```
-
-Use provider-managed MCP when you want the upstream model API to handle remote
-tool discovery and execution itself.
-
-Notes:
-
-- Supported providers: `anthropic` and OpenAI `responses`.
-- Not supported with `codexresponses` / Codex OAuth aliases such as
-  `codexplan`, `codexplan54`, and `codexspark`.
-- Not supported with `openresponses`, `openai`, `anthropic-vertex`, or other
-  client-managed providers.
-- Provider-managed remote MCP is URL-only: use remote `http`/`sse` servers, not
-  stdio/package targets.
-- Use `access_token` for bearer auth. Provider-managed remote MCP does not use
-  arbitrary local `headers` / `auth` settings.
-- Tool filters must use exact tool names. Wildcards, prompt filters, and
-  resource filters are not supported for provider-managed attachments.
-
-### OpenAI Responses connectors
-
-The OpenAI `responses` provider can also manage OpenAI hosted connectors through
-the same `management: provider` lane. Configure exactly one of `url` or
-`connector_id`:
-
-```yaml title="fast-agent.yaml"
-mcp:
-  servers:
-    dropbox:
-      management: provider
-      connector_id: connector_dropbox
-      access_token: "${DROPBOX_OAUTH_ACCESS_TOKEN}"
-      description: "Dropbox connector"
-      defer_loading: true
-```
-
-For connector-backed entries, set `name`, omit `transport` and `url`, and provide
-`access_token`. `defer_loading: true` enables server-side lazy tool loading for
-Responses provider-managed remote MCP and connectors.
-
-## Adding a STDIO Server
-
-The below shows an example of configuring an MCP Server named `server_one`.
-
-```yaml title="fast-agent.yaml"
-mcp:
-  servers:
-    # name used in agent servers array
-    server_one:
-      # command to run
-      command: "npx"
-      # list of arguments for the command
-      args: ["@modelcontextprotocol/server-brave-search"]
-      # key/value pairs of environment variables
-      env:
-        BRAVE_API_KEY: your_key
-        KEY: value
-    server_two:
-      # and so on ...
-
-```
-
-This MCP Server can then be used with an agent as follows:
-```python
-@fast.agent(name="Search", servers=["server_one"])
-```
-
-
-## Adding an SSE or HTTP Server
-
-To use remote MCP Servers, specify either `http` or `sse` transport and the endpoint URL and headers:
-
-```yaml title="fast-agent.yaml"
-mcp:
-  servers:
-    # name used in agent servers array
-    server_two:
-      transport: "http"
-      # url to connect
-      url: "http://localhost:8000/mcp"
-      # timeout in seconds to use for HTTP/SSE sessions (optional)
-      read_transport_sse_timeout_seconds: 300
-      # request headers for connection
-      headers:
-        Authorization: "Bearer <secret>"
-
-    # name used in agent servers array
-    server_three:
-      transport: "sse"
-      # url to connect
-      url: "http://localhost:8001/sse"
-
-```
-
-## MCP Filtering
-
-Agents and Workflows supporting the `servers` parameter have the ability to filter the tools, resources and prompts available to the agent.  This can greatly reduce the amount of context generated for the agents - which can both increase the accuracy of the responses and reduce costs due to the lower token count of the context.
-
-The default behavior is to include all tools, prompts and resources from the configured MCP servers, but this can be overridden by the `tools`, `prompts` and `resources` parameters. These parameters accept a dict where each key is the server name to filter and each value is a list of tool, resource, or prompt names.
-
-For example:
-```python
-@fast.agent(
-  name="Search",
-  instruction="You are a search agent that helps users find files using the provided tools.",
-  servers=["server_one", "server_two"],  # use two MCP servers
-
-  # Filter some of the MCP tools available to the agent
-  tools={
-    "server_one": ["search_files", "search_directory"],
-    "server_two": ["regex_search"],
-  },
-  prompts=None,  # don't filter prompts (default behavior)
-  resources={
-    "server_two": ["file://get_tree"], # only filter resources on server_two
-  },
-)
-
-```
-
-## Implementation Spoofing
-
-**`fast-agent`** can specify the implementation details sent to the MCP Server, enabling testing of servers that adapt their configuration based on the client connection. By default **`fast-agent`** uses `fast-agent-mcp` and its current version number.
-
-```yaml title="fast-agent.yaml"
-mcp:
-  servers:
-    server_one:
-      transport: "http"
-      url: "http://localhost:8000/mcp"
-      implementation:
-        name: "spoof-server"
-        version: "9.9.9"
-```
-
-
-## Elicitations
-
-Elicitations are configured by specifying a strategy for the MCP Server. The handler can be overridden with a custom handler in the Agent definition.
-
-```yaml title="fast-agent.yaml"
-mcp:
-  servers:
-    server_four:
-      transport: "http"
-      url: "http://localhost:8000/mcp"
-      elicitation:
-        mode: "forms"
-```
-
-`mode` can be one of:
-
-- **`forms`** (default). Displays a form to respond to elicitations.
-- **`auto-cancel`** The elicitation capability is advertised to the Server, but all solicitations are automatically cancelled.
-- **`none`** No elicitation capability is advertised to the Server.
-
-
-## Roots
-
-!!! warning
-
-    Roots are [being deprecated](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) in future versions of MCP. They will remain supported in fast-agent.
-
-
-**fast-agent** supports MCP Roots. Roots are configured on a per-server basis:
-
-```yaml title="fast-agent.yaml"
-mcp:
-  servers:
-    server_three:
-      transport: "http"
-      url: "http://localhost:8000/mcp"
-      roots:
-        - uri: "file:///path/to/workspace"
-          name: "Optional Name"
-          server_uri_alias: "file:///mnt/data" # optional
-```
-
-As per the [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/630db617baa801ef8ec99e64aa4b00e99c7165ec/schema/2025-11-25/schema.ts#L2108-L2133) roots MUST be a valid URI starting with `file://`.
-
-If a server_uri_alias is supplied, **fast-agent** presents this to the MCP Server. This allows you to present a consistent interface to the MCP Server. An example of this usage would be mounting a local directory to a docker volume, and presenting it as `/mnt/data` to the MCP Server for consistency.
-
-The data analysis example (`fast-agent quickstart data-analysis`) has a working example of MCP Roots.
-
-## Sampling
-
-!!! warning
-
-    Sampling is [being deprecated](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577) in future versions of MCP. 
-
-Sampling is configured by specifying a sampling model for the MCP Server.
-
-```yaml title="fast-agent.yaml"
-mcp:
-  servers:
-    server_four:
-      transport: "http"
-      url: "http://localhost:8000/mcp"
-      sampling:
-        model: "provider.model.<reasoning_effort>"
-```
-
-Read more about the model string and settings [here](../models/). Sampling requests support vision - try [`@llmindset/mcp-webcam`](https://github.com/evalstate/mcp-webcam) for an example.
+- [Skills over MCP](skills-over-mcp.md)
+- [Elicitations](elicitations.md)
+- [State Transfer](state_transfer.md)
+- [Resources](resources.md)
+- [mcp-ui](mcp-ui.md)

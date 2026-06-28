@@ -44,7 +44,6 @@ from fast_agent.skills.provenance import (
     write_installed_skill_source,
 )
 from fast_agent.skills.registry import SkillRegistry
-from fast_agent.utils.async_utils import run_coroutine
 
 if TYPE_CHECKING:
     from mcp.types import ListResourcesResult, ReadResourceResult
@@ -316,9 +315,7 @@ def _parse_archives(
         if validated is None:
             continue
         url, digest = validated
-        archives.append(
-            McpRegistryArchive(url=url, mime_type=mime_type.strip(), digest=digest)
-        )
+        archives.append(McpRegistryArchive(url=url, mime_type=mime_type.strip(), digest=digest))
     return archives
 
 
@@ -783,9 +780,7 @@ async def _walk_skill_directory(
                 )
                 continue
             if len(data) > MAX_SUPPORTING_FILE_BYTES:
-                raise ValueError(
-                    f"MCP skill supporting file exceeds size limit: {child_uri}"
-                )
+                raise ValueError(f"MCP skill supporting file exceeds size limit: {child_uri}")
             budget.add(len(data))
             destination = dest_dir / PurePosixPath(relative)
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -997,8 +992,3 @@ def _safe_install_dir_name(name: str) -> str:
         raise ValueError(f"Invalid MCP skill name for local install: {name}")
     return name
 
-
-def scan_mcp_skill_registry_sync(
-    aggregator: McpSkillRegistryClient, server_name: str
-) -> McpSkillRegistry | None:
-    return run_coroutine(scan_mcp_skill_registry(aggregator, server_name))

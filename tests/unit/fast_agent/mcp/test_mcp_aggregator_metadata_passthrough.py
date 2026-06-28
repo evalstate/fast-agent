@@ -38,7 +38,6 @@ class _RawCallToolSession(MCPAgentClientSession):
     def __init__(self) -> None:
         self.last_request: ClientRequest | None = None
         self.last_timeout = None
-        self.last_progress_callback = None
 
     async def send_request(
         self,
@@ -48,10 +47,9 @@ class _RawCallToolSession(MCPAgentClientSession):
         metadata=None,
         progress_callback=None,
     ):
-        del result_type, metadata
+        del result_type, metadata, progress_callback
         self.last_request = request
         self.last_timeout = request_read_timeout_seconds
-        self.last_progress_callback = progress_callback
         return CallToolResult(content=[TextContent(type="text", text="legacy result")])
 
 

@@ -40,7 +40,7 @@ from fast_agent.llm.text_verbosity import TextVerbositySpec
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.plugins.models import InstalledPluginSource
 from fast_agent.plugins.provenance import write_installed_plugin_source
-from fast_agent.session import get_session_manager, reset_session_manager
+from fast_agent.session import SessionManager, reset_session_manager
 from fast_agent.skills.mcp_registry import McpRegistrySkill, McpSkillRegistry
 from fast_agent.skills.models import (
     DEFAULT_SKILL_REGISTRIES,
@@ -51,6 +51,7 @@ from fast_agent.skills.provenance import (
 )
 from fast_agent.ui.enhanced_prompt import AgentCompleter
 from fast_agent.ui.prompt import completion_sources
+from fast_agent.utils.async_utils import run_in_thread
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -1008,27 +1009,20 @@ def test_get_completions_for_session_pin(tmp_path: Path) -> None:
     reset_session_manager()
 
     try:
-        manager = get_session_manager()
-        session = manager.create_session()
+        manager = SessionManager(environment_override=env_dir)
+        manager.create_session()
 
-        completer = AgentCompleter(agents=["agent1"])
+        completer = AgentCompleter(agents=["agent1"], session_manager=manager)
         doc = Document("/session pin ", cursor_position=len("/session pin "))
         completions = list(completer.get_completions(doc, None))
-        names = [c.text for c in completions]
+        displays = [str(c.display_text) for c in completions]
 
-        assert "on" in names
-        assert "off" in names
-        assert session.info.name in names
+        assert "<title>" in displays
+        assert '"Important thread"' in displays
 
-        doc = Document("/session pin O", cursor_position=len("/session pin O"))
+        doc = Document("/session pin Sprint", cursor_position=len("/session pin Sprint"))
         completions = list(completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert names == ["on", "off"]
-
-        doc = Document("/session pin on ", cursor_position=len("/session pin on "))
-        completions = list(completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert session.info.name in names
+        assert completions == []
     finally:
         update_global_settings(old_settings)
         reset_session_manager()
@@ -1068,10 +1062,10 @@ def test_get_completions_for_session_export(tmp_path: Path) -> None:
     reset_session_manager()
 
     try:
-        manager = get_session_manager()
+        manager = SessionManager(environment_override=env_dir)
         session = manager.create_session()
 
-        completer = AgentCompleter(agents=["agent1"])
+        completer = AgentCompleter(agents=["agent1"], session_manager=manager)
         doc = Document("/session export ", cursor_position=len("/session export "))
         completions = list(completer.get_completions(doc, None))
         names = [c.text for c in completions]
@@ -1151,7 +1145,7 @@ def test_session_completion_uses_shared_title_extraction(tmp_path: Path) -> None
     reset_session_manager()
 
     try:
-        manager = get_session_manager()
+        manager = SessionManager(environment_override=env_dir)
         session = manager.create_session(
             metadata={
                 "title": {"text": "structured"},
@@ -1160,7 +1154,7 @@ def test_session_completion_uses_shared_title_extraction(tmp_path: Path) -> None
             }
         )
 
-        completer = AgentCompleter(agents=["agent1"])
+        completer = AgentCompleter(agents=["agent1"], session_manager=manager)
         completions = list(completer._complete_session_ids(""))
 
         completion = next(item for item in completions if item.text == session.info.name)
@@ -2653,18 +2647,6 @@ def test_resource_mention_builtin_attachment_server_completion_meta() -> None:
     assert meta_by_text["demo:"] == "connected mcp server (resources)"
 
 
-def test_connected_servers_from_status_keeps_missing_identity() -> None:
-    connected = AgentCompleter._connected_servers_from_status(
-        {
-            "demo": SimpleNamespace(is_connected=True),
-            "named": SimpleNamespace(is_connected=True, implementation_name=" Named Server "),
-            "offline": SimpleNamespace(is_connected=False, implementation_name="Offline"),
-        }
-    )
-
-    assert connected == [("demo", None), ("named", "Named Server")]
-
-
 def test_resource_mention_resource_and_template_completion() -> None:
     completer = AgentCompleter(
         agents=["agent1"],
@@ -2935,7 +2917,7 @@ async def _async_identity(value):
 async def test_run_async_completion_uses_owner_loop_from_worker_thread() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
-    result = await asyncio.to_thread(
+    result = await run_in_thread(
         lambda: completer._run_async_completion(lambda: _async_identity("ok"))
     )
 

@@ -7,8 +7,6 @@ from fast_agent.interfaces import AgentProtocol
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from rich.text import Text
-
     from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
     from fast_agent.mcp.mcp_aggregator import (
@@ -58,9 +56,6 @@ class McpAgentProtocol(AgentProtocol, Protocol):
     def skill_manifests(self) -> Sequence["SkillManifest"]: ...
 
     @property
-    def has_filesystem_runtime(self) -> bool: ...
-
-    @property
     def skill_read_tool_name(self) -> str: ...
 
     def set_skill_manifests(self, manifests: Sequence["SkillManifest"]) -> None: ...
@@ -81,5 +76,3 @@ class McpAgentProtocol(AgentProtocol, Protocol):
 
     @property
     def shell_runtime(self) -> "ShellRuntime | None": ...
-
-    def shell_notice_line(self) -> "Text | None": ...

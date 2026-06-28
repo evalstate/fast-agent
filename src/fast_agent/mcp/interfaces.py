@@ -35,7 +35,6 @@ __all__ = [
     "FastAgentLLMProtocol",
     "LLMFactoryProtocol",
     "LlmAgentProtocol",
-    "MCPConnectionManagerProtocol",
     "ModelFactoryFunctionProtocol",
     "ModelT",
     "ServerConnection",
@@ -57,21 +56,6 @@ class ClientSessionFactory(Protocol):
         server_config: "MCPServerSettings | None" = None,
         transport_metrics: "TransportChannelMetrics | None" = None,
     ) -> ClientSession: ...
-
-
-@runtime_checkable
-class MCPConnectionManagerProtocol(Protocol):
-    """Protocol for MCPConnectionManager functionality needed by ServerRegistry."""
-
-    async def get_server(
-        self,
-        server_name: str,
-        client_session_factory: ClientSessionFactory | None = None,
-    ) -> "ServerConnection": ...
-
-    async def disconnect_server(self, server_name: str) -> None: ...
-
-    async def disconnect_all_servers(self) -> None: ...
 
 
 @runtime_checkable
@@ -98,9 +82,6 @@ class ServerRegistryProtocol(ServerInitializerProtocol, Protocol):
 
     @property
     def registry(self) -> dict[str, "MCPServerSettings"]: ...
-
-    @property
-    def connection_manager(self) -> MCPConnectionManagerProtocol: ...
 
     def get_server_config(self, server_name: str) -> "MCPServerSettings | None": ...
 

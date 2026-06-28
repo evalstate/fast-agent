@@ -2,7 +2,6 @@ import asyncio
 import os
 import subprocess
 import sys
-from typing import TYPE_CHECKING
 
 import httpx
 import pytest
@@ -10,9 +9,6 @@ from mcp import ClientSession, types
 from mcp.client.streamable_http import streamable_http_client
 
 from fast_agent.mcp.helpers.content_helpers import get_text
-
-if TYPE_CHECKING:
-    from mcp import GetPromptResult
 
 
 @pytest.mark.integration
@@ -184,7 +180,9 @@ async def test_agent_server_option_stdio(fast_agent):
     async def agent_function():
         async with fast_agent.run() as agent:
             assert "connected" == await agent.send("connected")
-            result = await agent.send('***CALL_TOOL test {"message": "stdio server test"}')
+            result = await agent.send(
+                '***CALL_TOOL send {"message": "stdio server test", "agent": "test"}'
+            )
             assert "stdio server test" == result
 
     await agent_function()
@@ -199,14 +197,17 @@ async def test_agent_server_option_stdio_and_prompt_history(fast_agent):
     async def agent_function():
         async with fast_agent.run() as agent:
             assert "connected" == await agent.send("connected")
-            result = await agent.send('***CALL_TOOL test {"message": "message one"}')
+            result = await agent.send(
+                '***CALL_TOOL send {"message": "message one", "agent": "test"}'
+            )
             assert "message one" == result
-            result = await agent.send('***CALL_TOOL test {"message": "message two"}')
+            result = await agent.send(
+                '***CALL_TOOL send {"message": "message two", "agent": "test"}'
+            )
             assert "message two" == result
 
-            history: GetPromptResult = await agent.get_prompt("test_history", server_name="std_io")
-            assert len(history.messages) == 4
-            assert "message one" == get_text(history.messages[1].content)
+            prompts = await agent.list_prompts("std_io")
+            assert prompts == {"std_io": []}
 
     await agent_function()
 
@@ -295,7 +296,7 @@ async def test_serve_request_scope_disables_session_header(mcp_test_ports, wait_
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_agent_server_option_http(fast_agent, mcp_test_ports, wait_for_port):
-    """Test that FastAgent still accepts the legacy --server flag with HTTP transport."""
+    """Test that --transport starts FastAgent in HTTP server mode."""
 
     # Start the HTTP server in a subprocess
     import os
@@ -314,7 +315,6 @@ async def test_agent_server_option_http(fast_agent, mcp_test_ports, wait_for_por
             "uv",
             "run",
             test_agent_path,
-            "--server",
             "--transport",
             "http",
             "--port",
@@ -336,7 +336,9 @@ async def test_agent_server_option_http(fast_agent, mcp_test_ports, wait_for_por
             async with fast_agent.run() as agent:
                 # Try connecting and sending a message
                 assert "connected" == await agent.send("connected")
-                result = await agent.send('***CALL_TOOL test {"message": "http server test"}')
+                result = await agent.send(
+                    '***CALL_TOOL send {"message": "http server test", "agent": "test"}'
+                )
                 assert "http server test" == result
 
         await agent_function()
@@ -432,7 +434,6 @@ async def test_agent_server_emits_mcp_progress_notifications(
             "uv",
             "run",
             test_agent_path,
-            "--server",
             "--transport",
             "http",
             "--port",
@@ -461,7 +462,7 @@ async def test_agent_server_emits_mcp_progress_notifications(
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
                 params = types.CallToolRequestParams(
-                    name="test", arguments={"message": "progress check"}
+                    name="send", arguments={"message": "progress check", "agent": "test"}
                 )
                 request = types.CallToolRequest(method="tools/call", params=params)
                 result = await session.send_request(

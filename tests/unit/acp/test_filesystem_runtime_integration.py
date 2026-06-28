@@ -9,8 +9,8 @@ from mcp.types import CallToolRequestParams, CallToolResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
-from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 

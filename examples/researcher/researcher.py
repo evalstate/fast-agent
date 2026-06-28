@@ -26,10 +26,10 @@ contain at least the following:
 3 - A PESTLE analysis
 4 - An investment thesis for the next 3 years. Include both 'buy side' and 'sell side' arguments, and a final 
 summary and recommendation.
-Todays date is 15 February 2025. Include the main data sources consulted in presenting the report."""  # noqa: F841
+Todays date is 15 February 2025. Include the main data sources consulted in presenting the report."""
 
     async with agents.run() as agent:
-        await agent.prompt()
+        await agent.prompt(research_prompt)
 
 
 if __name__ == "__main__":

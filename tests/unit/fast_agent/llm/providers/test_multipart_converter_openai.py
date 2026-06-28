@@ -13,7 +13,6 @@ from mcp.types import (
     CallToolResult,
     EmbeddedResource,
     ImageContent,
-    PromptMessage,
     ResourceLink,
     TextContent,
     TextResourceContents,
@@ -436,10 +435,10 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
         """Test conversion of a standard PromptMessage with assistant role to OpenAI format."""
         # Create a PromptMessage with TextContent
         text_content = TextContent(type="text", text=self.sample_text)
-        prompt_message = PromptMessage(role="assistant", content=text_content)
+        prompt_message = PromptMessageExtended(role="assistant", content=[text_content])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_prompt_message_to_openai(prompt_message)
+        openai_msg = OpenAIConverter.convert_to_openai(prompt_message)[0]
 
         # Assertions - assistant should have string content in OpenAI
         self.assertEqual(openai_msg["role"], "assistant")
@@ -449,10 +448,10 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
         """Test conversion of a standard PromptMessage with user role and text content."""
         # Create a PromptMessage with TextContent
         text_content = TextContent(type="text", text="User message")
-        prompt_message = PromptMessage(role="user", content=text_content)
+        prompt_message = PromptMessageExtended(role="user", content=[text_content])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_prompt_message_to_openai(prompt_message)
+        openai_msg = OpenAIConverter.convert_to_openai(prompt_message)[0]
 
         # Assertions - user should have array content in OpenAI
         self.assertEqual(openai_msg["role"], "user")
@@ -463,10 +462,10 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
         # Create a PromptMessage with ImageContent
         image_base64 = base64.b64encode(b"fake_image_data").decode("utf-8")
         image_content = ImageContent(type="image", data=image_base64, mimeType="image/jpeg")
-        prompt_message = PromptMessage(role="user", content=image_content)
+        prompt_message = PromptMessageExtended(role="user", content=[image_content])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_prompt_message_to_openai(prompt_message)
+        openai_msg = OpenAIConverter.convert_to_openai(prompt_message)[0]
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
@@ -487,10 +486,10 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
             text="This is a text resource",
         )
         embedded_resource = EmbeddedResource(type="resource", resource=text_resource)
-        prompt_message = PromptMessage(role="user", content=embedded_resource)
+        prompt_message = PromptMessageExtended(role="user", content=[embedded_resource])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_prompt_message_to_openai(prompt_message)
+        openai_msg = OpenAIConverter.convert_to_openai(prompt_message)[0]
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")

@@ -25,7 +25,7 @@ import re
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
-from typing import Optional, cast
+from typing import cast
 from urllib.parse import quote, urlparse
 
 JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
@@ -43,7 +43,7 @@ class ReviewComment:
     id: int
     reviewer: str
     path: str
-    original_line: Optional[int]
+    original_line: int | None
     original_text: str
     comment_type: str  # "suggestion", "feedback", or "reply"
     suggestion_texts: list[str] = field(default_factory=list)  # supports multiple suggestion blocks
@@ -51,7 +51,7 @@ class ReviewComment:
     commit_id: str = ""
     created_at: str = ""
     html_url: str = ""
-    in_reply_to_id: Optional[int] = None
+    in_reply_to_id: int | None = None
 
 
 @dataclass
@@ -60,10 +60,10 @@ class FileEvolution:
 
     final_path: str
     all_paths: list[str]  # All names this file had during the PR
-    first_content: Optional[str] = None
-    first_commit: Optional[str] = None
-    final_content: Optional[str] = None
-    final_commit: Optional[str] = None
+    first_content: str | None = None
+    first_commit: str | None = None
+    final_content: str | None = None
+    final_commit: str | None = None
 
 
 @dataclass
@@ -152,7 +152,7 @@ def _get_required_str(data: JsonDict, key: str) -> str:
     raise ValueError(f"Missing or invalid '{key}'")
 
 
-def _get_optional_str(data: JsonDict, key: str) -> Optional[str]:
+def _get_optional_str(data: JsonDict, key: str) -> str | None:
     value = data.get(key)
     if isinstance(value, str):
         return value
@@ -257,7 +257,7 @@ def count_suggestion_lines(suggestion_text: str) -> int:
 # -----------------
 
 
-def get_file_content_at_ref(owner: str, repo: str, path: str, ref: str) -> Optional[str]:
+def get_file_content_at_ref(owner: str, repo: str, path: str, ref: str) -> str | None:
     """Get file content at a specific ref using the contents API."""
 
     encoded_path = quote(path, safe="")
@@ -319,7 +319,7 @@ def trace_file_through_commits(
 
 def find_first_content(
     owner: str, repo: str, commits: list[dict], paths: list[str]
-) -> tuple[Optional[str], Optional[str]]:
+) -> tuple[str | None, str | None]:
     """Find the first version of a file, trying all known paths at each commit."""
 
     if not commits:

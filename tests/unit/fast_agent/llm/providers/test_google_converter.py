@@ -107,18 +107,6 @@ def test_convert_from_google_content_handles_missing_content_parts():
     assert converter.convert_from_google_content(types.Content(role="model", parts=None)) == []
 
 
-def test_convert_from_google_content_list_handles_missing_content_parts():
-    converter = GoogleConverter()
-
-    missing_content = converter._convert_from_google_content(None)
-    missing_parts = converter.convert_from_google_content_list(
-        [types.Content(role="model", parts=None)]
-    )[0]
-
-    assert missing_content.content == []
-    assert missing_parts.content == []
-
-
 def test_convert_video_resource():
     converter = GoogleConverter()
 

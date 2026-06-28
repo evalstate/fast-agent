@@ -122,11 +122,6 @@ def test_shell_settings_write_text_file_mode_accepts_yaml_boolean_values() -> No
     )
 
 
-def test_shell_settings_accepts_deprecated_attach_resource_config_name() -> None:
-    settings = ShellSettings.model_validate({"enable_attach_resource": "on"})
-    assert settings.enable_attach_media == "on"
-
-
 def test_normalize_shell_updates_accepts_apply_patch_mode() -> None:
     updates = _normalize_shell_updates(
         {

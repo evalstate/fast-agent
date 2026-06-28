@@ -12,9 +12,15 @@ if TYPE_CHECKING:
     from fast_agent.commands.context import AgentProvider
     from fast_agent.commands.results import CommandOutcome
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.session.session_manager import SessionManager
 
 
-def build_command_context(prompt_provider: "AgentApp", agent_name: str) -> CommandContext:
+def build_command_context(
+    prompt_provider: "AgentApp",
+    agent_name: str,
+    *,
+    session_manager: "SessionManager | None" = None,
+) -> CommandContext:
     settings = get_settings()
     try:
         noenv_mode = prompt_provider.noenv_mode
@@ -31,6 +37,7 @@ def build_command_context(prompt_provider: "AgentApp", agent_name: str) -> Comma
         io=io,
         settings=settings,
         noenv=noenv_mode,
+        session_manager=session_manager,
     )
 
 

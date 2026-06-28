@@ -15,7 +15,6 @@ from fast_agent.mcp.prompt_serialization import (
     load_messages,
     multipart_messages_to_delimited_format,
     save_messages,
-    to_get_prompt_result_json,
     to_json,
 )
 from fast_agent.types import COMMENTARY_PHASE
@@ -52,7 +51,7 @@ class TestPromptSerialization:
         ]
 
         # Convert to JSON
-        json_str = to_get_prompt_result_json(original_messages)
+        json_str = to_json(original_messages)
 
         # Verify JSON contains expected elements
         assert "user" in json_str

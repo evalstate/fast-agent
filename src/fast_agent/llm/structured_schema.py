@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-from copy import deepcopy
-from dataclasses import dataclass
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
@@ -17,13 +15,6 @@ if TYPE_CHECKING:
 
 PydanticModel = type[BaseModel]
 StructuredSchemaSource = dict[str, Any] | PydanticModel
-
-
-@dataclass(frozen=True, slots=True)
-class _SchemaSanitizeOptions:
-    require_all_properties: bool
-    additional_properties_false: bool
-    strip_none_defaults: bool
 
 
 def validate_json_schema_definition(schema: dict[str, Any]) -> dict[str, Any]:
@@ -101,156 +92,6 @@ def load_structured_schema_source(
     return load_json_schema_file(json_schema)
 
 
-def sanitize_structured_output_schema(
-    schema: dict[str, Any],
-    *,
-    require_all_properties: bool = False,
-    additional_properties_false: bool = False,
-    strip_none_defaults: bool = True,
-) -> dict[str, Any]:
-    """Return a provider-ready copy of a JSON Schema for structured outputs."""
-    copied = deepcopy(schema)
-    options = _SchemaSanitizeOptions(
-        require_all_properties=require_all_properties,
-        additional_properties_false=additional_properties_false,
-        strip_none_defaults=strip_none_defaults,
-    )
-    return _sanitize_structured_output_schema_node(copied, copied, options)
-
-
-def _sanitize_structured_output_schema_node(
-    node: Any,
-    root: dict[str, Any],
-    options: _SchemaSanitizeOptions,
-) -> Any:
-    if isinstance(node, list):
-        return _sanitize_schema_list(node, root, options)
-
-    if not isinstance(node, dict):
-        return node
-
-    _sanitize_schema_definitions(node, root, options)
-    _sanitize_schema_properties(node, root, options)
-    _sanitize_schema_items(node, root, options)
-    _sanitize_union_keywords(node, root, options)
-    _sanitize_all_of(node, root, options)
-
-    if options.strip_none_defaults and node.get("default") is None:
-        node.pop("default", None)
-
-    dereferenced = _sanitize_schema_ref(node, root, options)
-    return node if dereferenced is None else dereferenced
-
-
-def _sanitize_schema_list(
-    values: list[Any],
-    root: dict[str, Any],
-    options: _SchemaSanitizeOptions,
-) -> list[Any]:
-    return [_sanitize_structured_output_schema_node(item, root, options) for item in values]
-
-
-def _sanitize_schema_mapping(
-    values: dict[str, Any],
-    root: dict[str, Any],
-    options: _SchemaSanitizeOptions,
-) -> dict[str, Any]:
-    return {
-        key: _sanitize_structured_output_schema_node(value, root, options)
-        for key, value in values.items()
-    }
-
-
-def _sanitize_schema_definitions(
-    node: dict[str, Any],
-    root: dict[str, Any],
-    options: _SchemaSanitizeOptions,
-) -> None:
-    for defs_key in ("$defs", "definitions"):
-        defs = node.get(defs_key)
-        if isinstance(defs, dict):
-            node[defs_key] = _sanitize_schema_mapping(defs, root, options)
-
-
-def _sanitize_schema_properties(
-    node: dict[str, Any],
-    root: dict[str, Any],
-    options: _SchemaSanitizeOptions,
-) -> None:
-    properties = node.get("properties")
-    if isinstance(properties, dict):
-        if options.require_all_properties:
-            node["required"] = list(properties.keys())
-        node["properties"] = _sanitize_schema_mapping(properties, root, options)
-
-    if (
-        options.additional_properties_false
-        and (node.get("type") == "object" or isinstance(properties, dict))
-        and "additionalProperties" not in node
-    ):
-        node["additionalProperties"] = False
-
-
-def _sanitize_schema_items(
-    node: dict[str, Any],
-    root: dict[str, Any],
-    options: _SchemaSanitizeOptions,
-) -> None:
-    items = node.get("items")
-    if isinstance(items, dict):
-        node["items"] = _sanitize_structured_output_schema_node(items, root, options)
-
-
-def _sanitize_union_keywords(
-    node: dict[str, Any],
-    root: dict[str, Any],
-    options: _SchemaSanitizeOptions,
-) -> None:
-    for union_key in ("anyOf", "oneOf"):
-        union = node.get(union_key)
-        if isinstance(union, list):
-            node[union_key] = _sanitize_schema_list(union, root, options)
-
-
-def _sanitize_all_of(
-    node: dict[str, Any],
-    root: dict[str, Any],
-    options: _SchemaSanitizeOptions,
-) -> None:
-    all_of = node.get("allOf")
-    if not isinstance(all_of, list):
-        return
-
-    if len(all_of) == 1 and isinstance(all_of[0], dict):
-        merged = _sanitize_structured_output_schema_node(all_of[0], root, options)
-        node.update(merged)
-        node.pop("allOf", None)
-        return
-
-    node["allOf"] = _sanitize_schema_list(all_of, root, options)
-
-
-def _sanitize_schema_ref(
-    node: dict[str, Any],
-    root: dict[str, Any],
-    options: _SchemaSanitizeOptions,
-) -> Any | None:
-    ref = node.get("$ref")
-    if not isinstance(ref, str):
-        return None
-
-    resolved = resolve_local_ref(root, ref)
-    if not isinstance(resolved, dict):
-        return None
-
-    if len(node) == 1:
-        return _sanitize_structured_output_schema_node(deepcopy(resolved), root, options)
-
-    node.update({**deepcopy(resolved), **node})
-    node.pop("$ref", None)
-    return _sanitize_structured_output_schema_node(node, root, options)
-
-
 def resolve_local_ref(root: dict[str, Any], ref: str) -> Any:
     if not ref.startswith("#/"):
         return None
@@ -264,6 +105,3 @@ def resolve_local_ref(root: dict[str, Any], ref: str) -> Any:
             return None
         target = target[key]
     return target
-
-
-_resolve_local_ref = resolve_local_ref

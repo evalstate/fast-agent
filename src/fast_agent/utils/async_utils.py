@@ -1,9 +1,12 @@
 import asyncio
 import concurrent.futures
+import functools
 import sys
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from importlib.util import find_spec
 from typing import Any, ParamSpec, TypeVar
+
+from anyio import to_thread
 
 from fast_agent.utils.env import optional_env_flag
 
@@ -94,6 +97,13 @@ def run_sync(func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs)
             return _run_in_new_loop(func, *args, **kwargs)
         return loop.run_until_complete(func(*args, **kwargs))
     return _run_in_new_loop(func, *args, **kwargs)
+
+
+async def run_in_thread(func: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
+    """Run a synchronous callable in a worker thread without uvloop deprecation noise."""
+    if kwargs:
+        return await to_thread.run_sync(functools.partial(func, *args, **kwargs))
+    return await to_thread.run_sync(func, *args)
 
 
 def _run_in_new_loop(func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs) -> T:

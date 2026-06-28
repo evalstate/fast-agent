@@ -448,6 +448,23 @@ behavior under `batch/` metric names. Charts use processed rows as the natural
 step, so cumulative token counters and cache/rate percentages can be compared
 across repeated runs.
 
+Useful charts include:
+
+- `batch/progress_fraction`, `batch/processed_rows`, `batch/error_rate`, and
+  `batch/rows_per_second` for run health;
+- `batch/timing/duration_ms_mean`, `batch/timing/ttft_ms_mean`, and
+  `batch/timing/time_to_response_ms_mean` for latency;
+- `batch/usage/input_tokens`, `batch/usage/output_tokens`,
+  `batch/usage/billing_tokens`, and their `*_per_row` variants for cost;
+- `batch/cache/hit_rate_percent`, `batch/cache/write_rate_percent`,
+  `batch/cache/served_tokens_per_row`, and
+  `batch/cache/served_to_effective_input_ratio` for prompt-cache behavior.
+
+The Trackio run config records input/output paths, selected row counts, agent,
+model, template, schema, and any JSON object passed with
+`--trackio-config-json`, which makes repeated label builds or GEPA evaluator
+runs easier to compare.
+
 By default fast-agent does **not** send row contents, rendered prompts, full
 model outputs, or full errors to Trackio. Keep full-fidelity artifacts in local
 `--output`, `--telemetry-output`, `--error-output`, and `--summary-output` files.

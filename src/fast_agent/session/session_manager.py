@@ -34,6 +34,7 @@ from fast_agent.session.snapshot import (
     session_info_from_snapshot,
     snapshot_from_session_info,
 )
+from fast_agent.session.trajectory import TRAJECTORIES_DIR
 from fast_agent.utils.async_utils import run_coroutine
 from fast_agent.utils.text import strip_to_none
 
@@ -279,7 +280,11 @@ class Session:
         self.info = info
         self.directory = directory
         self._manager = manager
-        self._dirty = False
+
+    @property
+    def manager(self) -> SessionManager | None:
+        """Return the manager that owns this session, when available."""
+        return self._manager
 
     async def save_history(
         self,
@@ -294,7 +299,6 @@ class Session:
         from fast_agent.history.history_exporter import HistoryExporter
 
         self.info.last_activity = datetime.now()
-        self._dirty = True
 
         rotating = filename is None
         current_filename: str | None = None
@@ -408,7 +412,6 @@ class Session:
         payload = snapshot.model_dump(mode="json")
         with self._metadata_lock():
             self._atomic_write_json(metadata_file, payload)
-        self._dirty = False
 
     def _default_save_identity(self) -> "SessionSaveIdentity":
         """Build a compatibility save identity when a caller does not supply one."""
@@ -423,8 +426,10 @@ class Session:
         acp_session_id = metadata.get("acp_session_id")
         manager = self._manager
         if manager is None:
-            manager = SessionManager(cwd=self.directory.parent)
-            self._manager = manager
+            raise RuntimeError(
+                "Session save requires an owning SessionManager. Load or create sessions through "
+                "SessionManager, or pass an explicit SessionSaveIdentity."
+            )
 
         return SessionSaveIdentity(
             manager=manager,
@@ -443,6 +448,31 @@ class Session:
         else:
             self.info.metadata.pop("pinned", None)
         self._save_metadata()
+
+    def has_persisted_content(self) -> bool:
+        """Return True when this session has saved conversation history."""
+        if self.info.history_files:
+            return True
+        history_map = self.info.metadata.get("last_history_by_agent")
+        if isinstance(history_map, dict) and history_map:
+            return True
+        trajectory_dir = self.directory / TRAJECTORIES_DIR
+        if trajectory_dir.is_dir() and any(trajectory_dir.iterdir()):
+            return True
+        return any(self.directory.glob(f"{HISTORY_PREFIX}*{HISTORY_SUFFIX}"))
+
+    def delete_if_empty(self) -> bool:
+        """Delete this session when it only contains startup metadata."""
+        if self.has_persisted_content() or is_session_pinned(self.info):
+            return False
+        title = self.info.metadata.get("title")
+        label = self.info.metadata.get("label")
+        if (isinstance(title, str) and strip_to_none(title)) or (
+            isinstance(label, str) and strip_to_none(label)
+        ):
+            return False
+        self.delete()
+        return True
 
     def _atomic_write_json(self, path: pathlib.Path, payload: dict[str, Any]) -> None:
         temp_path: pathlib.Path | None = None
@@ -553,10 +583,6 @@ class Session:
                 return data if isinstance(data, dict) else None
         except Exception:
             return None
-
-    def get_history_file(self, filename: str) -> pathlib.Path:
-        """Get path to a history file."""
-        return self.directory / filename
 
     def delete(self) -> None:
         """Delete this session."""
@@ -823,12 +849,16 @@ class SessionManager:
             resolved_prompts=resolved_prompts,
         )
 
-    def load_latest_session(self) -> Session | None:
+    def load_latest_session(self, *, require_content: bool = False) -> Session | None:
         """Load the most recently used session."""
         sessions = self.list_sessions()
-        if not sessions:
-            return None
-        return self.load_session(sessions[0].name)
+        for info in sessions:
+            if not require_content:
+                return self.load_session(info.name)
+            session = self.get_session(info.name)
+            if session is not None and session.has_persisted_content():
+                return self.load_session(info.name)
+        return None
 
     async def _hydrate_session_agents_async(
         self,
@@ -840,7 +870,9 @@ class SessionManager:
 
         session_name = self._resolve_session_name(name)
         session = (
-            self.load_latest_session() if session_name is None else self.load_session(session_name)
+            self.load_latest_session(require_content=True)
+            if session_name is None
+            else self.load_session(session_name)
         )
         if session is None:
             return None
@@ -854,48 +886,11 @@ class SessionManager:
             return await hydration
         return hydration
 
-    def _hydrate_session_agents(
-        self,
-        agents: Mapping[str, AgentProtocol],
-        name: str | None = None,
-        fallback_agent_name: str | None = None,
-    ) -> SessionHydrationResult | None:
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return run_coroutine(
-                self._hydrate_session_agents_async(
-                    agents,
-                    name,
-                    fallback_agent_name=fallback_agent_name,
-                )
-            )
-        raise RuntimeError(
-            "SessionManager._hydrate_session_agents() cannot be used from an async context; "
-            "use _hydrate_session_agents_async() instead."
-        )
-
     def resume_session(
         self, agent: AgentProtocol, name: str | None = None
     ) -> tuple[Session, pathlib.Path | None, list[str]] | None:
         """Resume a session through the hydrator compatibility path."""
         result = self.resume_session_agents(
-            {agent.name: agent},
-            name,
-            fallback_agent_name=agent.name,
-        )
-        if result is None:
-            return None
-
-        notices = list(result.usage_notices)
-        notices.extend(warning.message for warning in result.warnings)
-        return result.session, result.loaded.get(agent.name), notices
-
-    async def resume_session_async(
-        self, agent: AgentProtocol, name: str | None = None
-    ) -> tuple[Session, pathlib.Path | None, list[str]] | None:
-        """Async resume_session companion for callers already running in an event loop."""
-        result = await self.resume_session_agents_async(
             {agent.name: agent},
             name,
             fallback_agent_name=agent.name,
@@ -999,10 +994,6 @@ class SessionManager:
         except Exception as e:
             logger.error(f"Failed to get session {name}: {e}")
             return None
-
-    def _sanitize_name(self, name: str) -> str:
-        """Sanitize session name for filesystem safety."""
-        return _sanitize_component(name)
 
     def _prune_sessions(self, max_sessions: int | None = None) -> None:
         """Remove older sessions beyond the rolling window."""
@@ -1133,14 +1124,24 @@ def reset_session_manager() -> None:
     _session_manager = None
 
 
+def set_session_manager(manager: SessionManager) -> None:
+    """Set the process-level session manager for legacy consumers."""
+    global _session_manager
+    _session_manager = manager
+
+
 def get_session_manager(
     *,
     cwd: pathlib.Path | None = None,
     environment_override: str | pathlib.Path | None = None,
     respect_env_override: bool = True,
 ) -> SessionManager:
-    """Get or create the global session manager."""
-    global _session_manager
+    """Return the registered process-level session manager.
+
+    Session managers are created by explicit runtime/session boundaries. This
+    accessor exists only for legacy paths that receive that established manager
+    through process context.
+    """
     explicit_cwd = cwd is not None
     resolved_cwd = cwd.resolve() if cwd is not None else pathlib.Path.cwd().resolve()
     env_override = _session_environment_override(
@@ -1151,18 +1152,18 @@ def get_session_manager(
     )
     expected_paths = resolve_environment_paths(cwd=resolved_cwd, override=env_override)
     if _session_manager is None:
-        _session_manager = SessionManager(
-            cwd=cwd,
-            environment_override=env_override,
-            respect_env_override=respect_env_override,
+        raise RuntimeError(
+            "No active session manager has been registered. Create a SessionManager at the "
+            "runtime/session boundary and pass it through Context or CommandContext."
         )
-        return _session_manager
     if _session_manager.base_dir != expected_paths.sessions:
-        _session_manager = SessionManager(
-            cwd=cwd,
-            environment_override=env_override,
-            respect_env_override=respect_env_override,
+        raise RuntimeError(
+            "Active session manager does not match the requested session store. Pass the "
+            "correct SessionManager explicitly instead of resolving a new one."
         )
-    elif _session_manager.workspace_dir != resolved_cwd:
-        _session_manager.workspace_dir = resolved_cwd
+    if explicit_cwd and _session_manager.workspace_dir != resolved_cwd:
+        raise RuntimeError(
+            "Active session manager workspace does not match the requested cwd. Pass the "
+            "correct SessionManager explicitly instead of switching the global manager."
+        )
     return _session_manager

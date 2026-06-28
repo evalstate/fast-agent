@@ -691,21 +691,6 @@ class _SplitListPicker:
         return None
 
 
-def run_model_picker(
-    *,
-    config_path: Path | None = None,
-    start_path: Path | None = None,
-    initial_provider: str | None = None,
-) -> ModelPickerResult | None:
-    """Run the interactive model picker and return the selected model configuration."""
-    picker = _SplitListPicker(
-        config_path=config_path,
-        start_path=start_path,
-        initial_provider=initial_provider,
-    )
-    return picker.run()
-
-
 async def run_model_picker_async(
     *,
     config_path: Path | None = None,

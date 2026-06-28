@@ -82,7 +82,7 @@ class DenyingPermissionHandler:
         tool_use_id: str | None = None,
     ) -> ToolPermissionResult:
         del tool_name, server_name, arguments, tool_use_id
-        return ToolPermissionResult.deny("terminal denied")
+        return ToolPermissionResult(allowed=False, error_message="terminal denied")
 
 
 def build_runtime(

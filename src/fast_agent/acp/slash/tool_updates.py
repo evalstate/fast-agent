@@ -10,10 +10,6 @@ from acp.schema import ToolCallProgress, ToolCallStart
 if TYPE_CHECKING:
     from acp.schema import ContentToolCallContent, FileEditToolCallContent, TerminalToolCallContent
 
-    type ToolCallContent = (
-        ContentToolCallContent | FileEditToolCallContent | TerminalToolCallContent
-    )
-
 ToolCallStatus = Literal["pending", "in_progress", "completed", "failed"]
 
 
@@ -21,7 +17,9 @@ class SessionUpdateSender(Protocol):
     async def send_session_update(self, update: object) -> None: ...
 
 
-def _message_content(message: str | None) -> "list[ToolCallContent] | None":
+def _message_content(
+    message: str | None,
+) -> list[ContentToolCallContent | FileEditToolCallContent | TerminalToolCallContent] | None:
     return [tool_content(text_block(message))] if message else None
 
 

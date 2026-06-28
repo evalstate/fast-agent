@@ -4,8 +4,7 @@ Helper functions for working with content objects (Fast Agent namespace).
 """
 
 import json
-from collections.abc import Sequence
-from typing import TYPE_CHECKING, Protocol, TypeGuard, Union, cast
+from typing import TYPE_CHECKING, Protocol, TypeGuard, cast
 
 from mcp.types import (
     BlobResourceContents,
@@ -22,6 +21,8 @@ from mcp.types import (
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
@@ -364,7 +365,7 @@ def audio_link(
 
 
 def ensure_multipart_messages(
-    messages: list[Union["PromptMessageExtended", PromptMessage]],
+    messages: list["PromptMessageExtended | PromptMessage"],
 ) -> list["PromptMessageExtended"]:
     """Ensure all messages in a list are PromptMessageExtended objects."""
     # Import here to avoid circular dependency
@@ -384,12 +385,7 @@ def ensure_multipart_messages(
 
 
 def normalize_to_extended_list(
-    messages: Union[
-        str,
-        PromptMessage,
-        "PromptMessageExtended",
-        Sequence[Union[str, PromptMessage, "PromptMessageExtended"]],
-    ],
+    messages: "str | PromptMessage | PromptMessageExtended | Sequence[str | PromptMessage | PromptMessageExtended]",
 ) -> list["PromptMessageExtended"]:
     """Normalize various input types to a list of PromptMessageExtended objects."""
     # Import here to avoid circular dependency

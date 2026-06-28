@@ -114,7 +114,7 @@ def _python_requires() -> str:
         req = metadata("fast-agent-mcp").get("Requires-Python")
         if req:
             return req
-    return ">=3.13.7"
+    return ">=3.12"
 
 
 def _create_scaffold_files(config_path: Path, *, force: bool, needs_gitignore: bool) -> list[str]:
@@ -167,7 +167,7 @@ def _print_secrets_next_steps(created: list[str]) -> None:
     )
     console.print("2. Keep fast-agent.secrets.yaml secure and never commit it to version control")
     console.print(
-        "3. Update fast-agent.yaml to set a default model (currently system default is 'gpt-5-mini?reasoning=low')"
+        "3. Update fast-agent.yaml to set a default model (currently system default is 'gpt-5.4-mini?reasoning=low')"
     )
 
 

@@ -1,12 +1,14 @@
 ---
 social:
-  title: MCP OAuth
+  title: Connect with OAuth (MCP)
   tagline: Authenticate MCP servers with OAuth and store tokens securely.
   description: Authenticate MCP servers with OAuth and store tokens securely.
   alt: fast-agent social card — MCP OAuth
 ---
 
-Adds OAuth v2.1 to HTTP/SSE MCP servers (STDIO excluded).
+# Connect with OAuth (MCP)
+
+**`fast-agent`** supports connecting to HTTP MCP Servers with OAuth:
 
 - Uses PKCE and prints a clickable authorization link (no auto‑open).
 - Persists tokens in the OS keychain (via keyring) by default; falls back to memory if no keychain is available.
@@ -122,3 +124,23 @@ to an empty value to disable the built-in default.
 
 - STDIO not listed
   - Expected; STDIO transport does not use OAuth.
+
+## Hosting fast-agent MCP on Hugging Face
+
+For the full hosted-server guide, see
+[Host MCP Servers on Hugging Face Spaces](huggingface-spaces.md).
+
+When deploying `fast-agent serve --transport http` on Hugging Face infrastructure, set
+`FAST_AGENT_SERVE_OAUTH=huggingface` to require Hugging Face bearer
+authentication for HTTP MCP requests. The server accepts `Authorization: Bearer
+<token>` and, when the ingress forwards it, `X-HF-Authorization: Bearer <token>`.
+Both forms are validated against Hugging Face before MCP initialization,
+`tools/list`, or `tools/call` can reach fast-agent tools.
+
+Validated request tokens are stored in fast-agent request context while the tool
+call runs. Hugging Face provider calls and MCP servers configured with
+`auth.forward: huggingface` can then use the caller's token. If you leave
+`FAST_AGENT_SERVE_OAUTH` unset, inbound HTTP requests are not gated by
+fast-agent; any `HF_TOKEN` in the Space environment is treated as the server's
+own credential. Use that mode only for trusted/private deployments or with
+least-privilege service tokens.

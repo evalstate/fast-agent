@@ -24,10 +24,6 @@ from fast_agent.tools.python_file_loader import (
 logger = get_logger(__name__)
 
 
-class _SignatureWritable(Protocol):
-    __signature__: inspect.Signature
-
-
 @runtime_checkable
 class _FastToolMetadataCallable(Protocol):
     _fast_tool_name: str | None
@@ -42,7 +38,7 @@ FunctionToolConfig: TypeAlias = (
 
 
 def _set_signature(wrapper: Callable[..., Any], source: Callable[..., Any]) -> None:
-    signature_wrapper = cast("_SignatureWritable", wrapper)
+    signature_wrapper = cast("Any", wrapper)
     signature_wrapper.__signature__ = inspect.signature(source)
 
 

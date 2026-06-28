@@ -150,18 +150,6 @@ def message_tool_error_count(
     )
 
 
-def message_tool_success_count(
-    message: "PromptMessageExtended",
-    *,
-    tool_name_lookup: Mapping[str, str] | None = None,
-) -> int:
-    return sum(
-        1
-        for activity in tool_activities_for_message(message, tool_name_lookup=tool_name_lookup)
-        if activity.kind == "result" and not activity.is_error
-    )
-
-
 def display_remote_tool_activities(
     display: Any,
     message: "PromptMessageExtended",

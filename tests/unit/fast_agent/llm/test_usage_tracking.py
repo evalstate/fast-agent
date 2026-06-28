@@ -1,5 +1,6 @@
 from anthropic.types.beta import BetaUsage as AnthropicUsage
 from google.genai.types import GenerateContentResponseUsageMetadata as GoogleUsage
+from google.genai.types import ServiceTier, UsageMetadata
 from openai.types.completion_usage import (
     CompletionTokensDetails,
     PromptTokensDetails,
@@ -133,6 +134,22 @@ def test_google_usage_calculation():
     assert turn.raw_usage["candidates_token_count"] == 750
     assert turn.raw_usage["total_token_count"] == 2250
     assert turn.raw_usage["cached_content_token_count"] == 500
+
+
+def test_google_usage_captures_observed_service_tier():
+    """Google interaction usage can report service tier; preserve it on turn usage."""
+    google_usage = UsageMetadata(
+        prompt_token_count=10,
+        response_token_count=5,
+        total_token_count=15,
+        service_tier=ServiceTier.PRIORITY,
+    )
+
+    turn = TurnUsage.from_google(google_usage, "gemini-3.5-flash")
+
+    assert turn.service_tier == "priority"
+    assert isinstance(turn.raw_usage, dict)
+    assert turn.raw_usage["service_tier"] == "priority"
 
 
 def test_fast_agent_usage_calculation():

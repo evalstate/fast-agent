@@ -36,7 +36,9 @@ def patched_dispatch(monkeypatch: pytest.MonkeyPatch) -> _FakeProgressDisplay:
     progress = _FakeProgressDisplay()
     monkeypatch.setattr(command_dispatch, "progress_display", progress)
     monkeypatch.setattr(
-        command_dispatch, "build_command_context", lambda provider, agent: object()
+        command_dispatch,
+        "build_command_context",
+        lambda provider, agent, **_kwargs: object(),
     )
 
     async def _noop_emit(_context: object, _outcome: CommandOutcome) -> None:
@@ -66,6 +68,7 @@ async def test_compact_run_wraps_model_call_in_progress_display(
         CompactCommand(action="run", instructions="focus on X"),
         prompt_provider=cast("AgentApp", _Provider()),
         agent="default",
+        session_manager=None,
     )
 
     assert result is not None and result.handled is True
@@ -92,6 +95,7 @@ async def test_compact_run_pauses_display_even_on_error(
             CompactCommand(action="run"),
             prompt_provider=cast("AgentApp", _Provider()),
             agent="default",
+            session_manager=None,
         )
 
     # The display is restored to paused even when the handler raises.
@@ -123,6 +127,7 @@ async def test_compact_preview_and_prompt_do_not_touch_progress_display(
         CompactCommand(action=action),
         prompt_provider=cast("AgentApp", _Provider()),
         agent="default",
+        session_manager=None,
     )
 
     assert result is not None and result.handled is True
@@ -141,5 +146,6 @@ async def test_compact_dispatch_ignores_non_compact_payload(
         ShowUsageCommand(),
         prompt_provider=cast("AgentApp", _Provider()),
         agent="default",
+        session_manager=None,
     )
     assert result is None

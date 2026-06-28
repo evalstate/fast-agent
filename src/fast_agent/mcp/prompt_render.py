@@ -13,23 +13,6 @@ from fast_agent.mcp.helpers.content_helpers import (
     is_resource_content,
     is_text_content,
 )
-from fast_agent.types import PromptMessageExtended
-
-
-def render_multipart_message(message: PromptMessageExtended) -> str:
-    """
-    Render a multipart message for display purposes.
-
-    This function formats the message content for user-friendly display,
-    handling different content types appropriately.
-
-    Args:
-        message: A PromptMessageExtended object to render
-
-    Returns:
-        A string representation of the message's content
-    """
-    return render_content_blocks(message.content)
 
 
 def render_content_blocks(content_blocks: Sequence[ContentBlock]) -> str:

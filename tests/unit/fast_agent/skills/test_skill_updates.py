@@ -19,8 +19,8 @@ from fast_agent.skills.operations import (
     resolve_source_revision,
 )
 from fast_agent.skills.provenance import (
-    format_skill_provenance,
     format_skill_provenance_details,
+    get_skill_provenance,
     read_installed_skill_source,
     write_installed_skill_source,
 )
@@ -537,7 +537,7 @@ def test_format_skill_provenance_states(tmp_path: Path) -> None:
     unmanaged_dir = tmp_path / "unmanaged"
     unmanaged_dir.mkdir(parents=True)
     (unmanaged_dir / "SKILL.md").write_text("---\nname: x\ndescription: y\n---\n", encoding="utf-8")
-    assert format_skill_provenance(unmanaged_dir) == "unmanaged (no sidecar)"
+    assert get_skill_provenance(unmanaged_dir).summary == "unmanaged (no sidecar)"
 
     invalid_dir = tmp_path / "invalid"
     invalid_dir.mkdir(parents=True)
@@ -546,7 +546,7 @@ def test_format_skill_provenance_states(tmp_path: Path) -> None:
         '{"schema_version": 1, "installed_via": "marketplace", "source_origin": "remote", "repo_url": "https://example.com/repo", "repo_path": "../escape"}',
         encoding="utf-8",
     )
-    assert "invalid metadata" in format_skill_provenance(invalid_dir)
+    assert "invalid metadata" in get_skill_provenance(invalid_dir).summary
 
 
 def test_format_skill_provenance_details(tmp_path: Path) -> None:

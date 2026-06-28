@@ -540,9 +540,6 @@ class StreamingMessageHandle:
         self,
         *,
         display: "ConsoleDisplay",
-        bottom_items: list[str] | None,
-        highlight_index: int | None,
-        max_item_length: int | None,
         use_plain_text: bool = False,
         header_left: str = "",
         header_right: str = "",
@@ -552,9 +549,6 @@ class StreamingMessageHandle:
         performance_hook: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self._display = display
-        self._bottom_items = bottom_items
-        self._highlight_index = highlight_index
-        self._max_item_length = max_item_length
         self._use_plain_text = use_plain_text
         self._header_left = header_left
         self._header_right = header_right
@@ -563,7 +557,6 @@ class StreamingMessageHandle:
         self._tool_header_color: str | None = None
         self._progress_display = progress_display
         self._progress_paused = False
-        self._plain_text_style: str | None = None
         self._render_reasoning_markdown = not use_plain_text
         self._set_tool_header_prefix(tool_header_name)
         self._setup_segment_rendering(
@@ -636,7 +629,6 @@ class StreamingMessageHandle:
         self._scrolling_started = False
         self._scroll_start_time: float | None = None
         self._pre_scroll_throttle_started = False
-        self._display_truncated = False
         self._scroll_indicator_visible = False
         self._scroll_indicator_pending_since: float | None = None
         self._header_cache: dict[tuple[int, bool], Text] = {}
@@ -801,7 +793,6 @@ class StreamingMessageHandle:
         self._set_scroll_indicator_visible(False)
 
     def _update_scroll_status(self, *, is_truncated: bool, now: float) -> None:
-        self._display_truncated = is_truncated
         if is_truncated and not self._scrolling_started:
             self._scrolling_started = True
             self._scroll_start_time = now

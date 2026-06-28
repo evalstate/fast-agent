@@ -11,6 +11,11 @@ from fast_agent.tools.edit_file_engine import (
 )
 
 
+def _read_text(path: Path) -> str:
+    with path.open(encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
 def _is_success(result: EditFileResult) -> TypeGuard[EditFileSuccess]:
     return result["success"] is True
 
@@ -48,7 +53,7 @@ def test_edit_file_reports_multiple_matches_with_locations(tmp_path: Path) -> No
         {"line_start": 1, "line_end": 1},
         {"line_start": 2, "line_end": 2},
     ]
-    assert target_file.read_text(encoding="utf-8", newline="") == "one\none\n"
+    assert _read_text(target_file) == "one\none\n"
 
 
 def test_edit_file_reports_overlapping_matches_as_ambiguous(tmp_path: Path) -> None:
@@ -68,7 +73,7 @@ def test_edit_file_reports_overlapping_matches_as_ambiguous(tmp_path: Path) -> N
         {"line_start": 1, "line_end": 1},
         {"line_start": 1, "line_end": 1},
     ]
-    assert target_file.read_text(encoding="utf-8", newline="") == "aaa"
+    assert _read_text(target_file) == "aaa"
 
 
 def test_edit_file_replace_all_uses_non_overlapping_single_pass(tmp_path: Path) -> None:
@@ -85,7 +90,7 @@ def test_edit_file_replace_all_uses_non_overlapping_single_pass(tmp_path: Path) 
 
     assert _is_success(result)
     success = result
-    assert target_file.read_text(encoding="utf-8", newline="") == "bb"
+    assert _read_text(target_file) == "bb"
     assert success["replacements"] == 2
     assert success["line_start"] == 1
     assert success["line_end"] == 1
@@ -105,7 +110,7 @@ def test_edit_file_replace_all_does_not_loop_when_new_contains_old(tmp_path: Pat
 
     assert _is_success(result)
     success = result
-    assert target_file.read_text(encoding="utf-8", newline="") == "aaaa"
+    assert _read_text(target_file) == "aaaa"
     assert success["replacements"] == 2
     assert success["line_start"] == 1
     assert success["line_end"] == 1
@@ -124,4 +129,4 @@ def test_edit_file_reports_no_op_before_writing(tmp_path: Path) -> None:
 
     assert _is_error(result)
     assert result["error"] == "no_op"
-    assert target_file.read_text(encoding="utf-8", newline="") == "keep\n"
+    assert _read_text(target_file) == "keep\n"

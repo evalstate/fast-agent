@@ -1,13 +1,17 @@
 from typing import Any, cast
 
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
-from fast_agent.ui.gauge_glyph_palette import PAIRED_REASONING_GAUGE_GLYPHS
+from fast_agent.ui.gauge_glyph_palette import (
+    PAIRED_REASONING_GAUGE_GLYPHS,
+    STANDALONE_GAUGE_GLYPHS,
+)
 from fast_agent.ui.reasoning_effort_display import (
     AUTO_COLOR,
-    FULL_BLOCK,
     INACTIVE_COLOR,
     render_reasoning_effort_gauge,
 )
+
+FULL_BLOCK = STANDALONE_GAUGE_GLYPHS.full_block
 
 
 def test_toggle_reasoning_gauge_defaults_to_three_high_peak() -> None:

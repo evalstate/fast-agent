@@ -62,7 +62,7 @@ uvx fast-agent-mcp@latest model setup
 
 ## Installation
 
-**fast-agent** requires Python 3.13.5 or above. Install with:
+**fast-agent** requires Python 3.12 or above. Install with:
 
 ```bash
 uv tool install -U fast-agent-mcp
@@ -71,7 +71,7 @@ uv tool install -U fast-agent-mcp
 Or a specific version of Python:
 
 ```bash
-uv tool install --python 3.13.5 -U fast-agent-mcp
+uv tool install --python 3.12 -U fast-agent-mcp
 ```
 
 This installs the `fast-agent` executable.

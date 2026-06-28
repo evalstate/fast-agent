@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import ntpath
 import os
 import signal
 import subprocess
@@ -332,6 +333,73 @@ def _start_pipe_shell_process(
     )
 
 
+def _start_attached_shell_process(
+    command: str,
+    *,
+    shell_env: dict[str, str],
+) -> subprocess.Popen[Any]:
+    if executable := _windows_interactive_shell_executable(command):
+        return subprocess.Popen(
+            [executable],
+            start_new_session=True,
+            env=shell_env,
+        )
+
+    return subprocess.Popen(
+        command,
+        shell=True,
+        start_new_session=True,
+        env=shell_env,
+    )
+
+
+def _run_attached_shell_loop(proc: subprocess.Popen[Any]) -> int:
+    return proc.wait()
+
+
+def _windows_shell_token(command: str) -> tuple[str, int]:
+    stripped = command.strip()
+    if not stripped:
+        return "", 0
+    if stripped[0] in {"'", '"'}:
+        quote = stripped[0]
+        end = stripped.find(quote, 1)
+        return (stripped[1:end], end + 1) if end != -1 else (stripped[1:], len(stripped))
+    token = stripped.split(maxsplit=1)[0]
+    return token, len(token)
+
+
+def _is_windows_interactive_shell_command(command: str) -> bool:
+    return _windows_interactive_shell_executable(command) is not None
+
+
+def _windows_interactive_shell_executable(command: str) -> str | None:
+    if os.name != "nt":
+        return None
+
+    from fast_agent.utils.shell_detection import default_shell_command
+
+    stripped = command.strip()
+    shell = default_shell_command()
+    if stripped.lower() == shell.lower():
+        return shell
+
+    token, token_end = _windows_shell_token(stripped)
+    if not token:
+        return None
+    remainder = command.strip()[token_end:].strip()
+    if remainder:
+        return None
+
+    shell_name = ntpath.basename(shell).lower()
+    normalized_token = token.lower()
+    token_name = ntpath.basename(normalized_token)
+    shell_names = {shell_name, shell_name.removesuffix(".exe")}
+    if normalized_token in {shell.lower(), *shell_names} or token_name in shell_names:
+        return token
+    return None
+
+
 def _run_pipe_shell_loop(
     proc: subprocess.Popen[str],
     *,
@@ -350,14 +418,22 @@ def _run_pipe_shell_loop(
 
 
 def _interrupt_shell_process(proc: subprocess.Popen[Any]) -> int:
-    with suppress(ProcessLookupError):
-        os.killpg(proc.pid, signal.SIGINT)
+    if os.name == "nt":
+        with suppress(ProcessLookupError, ValueError, OSError):
+            proc.send_signal(signal.CTRL_BREAK_EVENT)
+    else:
+        with suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGINT)
 
     try:
         return_code = proc.wait(timeout=2)
     except subprocess.TimeoutExpired:
-        with suppress(ProcessLookupError):
-            os.killpg(proc.pid, signal.SIGKILL)
+        if os.name == "nt":
+            with suppress(ProcessLookupError):
+                proc.kill()
+        else:
+            with suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
         return_code = proc.wait()
 
     rich_print("[yellow]Shell command interrupted[/yellow]")
@@ -466,12 +542,16 @@ def run_interactive_shell_command(
                 output_capture=output_capture,
             )
         else:
-            proc = _start_pipe_shell_process(command, shell_env=shell_env)
-            return_code = _run_pipe_shell_loop(
-                proc,
-                show_output=show_output,
-                output_capture=output_capture,
-            )
+            if _is_windows_interactive_shell_command(command):
+                proc = _start_attached_shell_process(command, shell_env=shell_env)
+                return_code = _run_attached_shell_loop(proc)
+            else:
+                proc = _start_pipe_shell_process(command, shell_env=shell_env)
+                return_code = _run_pipe_shell_loop(
+                    proc,
+                    show_output=show_output,
+                    output_capture=output_capture,
+                )
     except KeyboardInterrupt:
         return_code = _interrupt_shell_process(proc) if proc is not None else 1
     finally:

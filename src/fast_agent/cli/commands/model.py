@@ -452,7 +452,11 @@ def _build_common_setup_items(
     items: list[ModelReferenceSetupItem] = []
     hidden_tokens = suppressed_tokens or set()
     system_references = valid_references.get("system", {})
-    if "default" not in system_references and "$system.default" not in hidden_tokens:
+    if (
+        "default" not in system_references
+        and "last_used" not in system_references
+        and "$system.default" not in hidden_tokens
+    ):
         items.append(
             ModelReferenceSetupItem(
                 token="$system.default",
@@ -747,7 +751,6 @@ def _load_cli_settings(
 
     settings = Settings(**merged_settings)
     settings._config_file = str(config_file) if config_file else None
-    settings._secrets_file = str(secrets_path) if secrets_path and secrets_path.exists() else None
     return settings
 
 

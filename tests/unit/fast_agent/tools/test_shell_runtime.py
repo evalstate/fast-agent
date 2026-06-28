@@ -68,7 +68,6 @@ class DummyProcess:
         self.pid = 1234
         self.sent_signals: list[Any] = []
         self.terminated = False
-        self.killed = False
 
     async def wait(self) -> int:
         if self.returncode is None:
@@ -83,7 +82,6 @@ class DummyProcess:
         self.returncode = 1 if self.returncode is None else self.returncode
 
     def kill(self) -> None:
-        self.killed = True
         self.returncode = 1 if self.returncode is None else self.returncode
 
 

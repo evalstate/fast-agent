@@ -5,11 +5,15 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Literal, Protocol, TypeGuard, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeGuard, cast
 
 from rich import print as rich_print
 from rich.text import Text
 
+from fast_agent.a2a.config import A2AAgentConfig
+from fast_agent.a2a.connect import parse_a2a_connect_arguments
+from fast_agent.a2a.remote_agent import A2ARemoteAgent
+from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.command_actions import (
     PluginCommandActionContext,
     PluginCommandActionRegistry,
@@ -40,6 +44,7 @@ from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
+    A2ACommand,
     AgentCommand,
     AttachCommand,
     CardsCommand,
@@ -95,6 +100,7 @@ from fast_agent.ui.command_payloads import (
     SwitchAgentCommand,
     TitleSessionCommand,
     UnknownCommand,
+    UnpinSessionCommand,
 )
 from fast_agent.ui.history_display import display_history_show
 from fast_agent.ui.progress_display import progress_display
@@ -116,6 +122,7 @@ if TYPE_CHECKING:
 
     from fast_agent.command_actions.models import PluginCommandAgentProtocol
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.session.session_manager import SessionManager
     from fast_agent.ui.interactive_prompt import InteractivePrompt
 
 logger = get_logger(__name__)
@@ -174,19 +181,6 @@ _CommandRouteKind = Literal[
     "mcp_server",
     "value",
 ]
-
-
-class _ValueCommandPayload(Protocol):
-    value: str | None
-
-
-class _ArgumentCommandPayload(Protocol):
-    argument: str | None
-
-
-class _McpServerCommandPayload(Protocol):
-    server_name: str | None
-    error: str | None
 
 
 @dataclass(frozen=True)
@@ -371,7 +365,7 @@ def _command_route_handler(
         return partial(route.handler, agent_name=agent)
 
     if route.kind == "argument":
-        argument_payload = cast("_ArgumentCommandPayload", payload)
+        argument_payload = cast("Any", payload)
         return partial(
             route.handler,
             agent_name=agent,
@@ -406,7 +400,7 @@ def _command_route_handler(
         )
 
     if route.kind == "mcp_server":
-        server_payload = cast("_McpServerCommandPayload", payload)
+        server_payload = cast("Any", payload)
         if message := _mcp_server_command_error(server_payload.server_name, server_payload.error):
             _print_styled(message, "red")
             return None
@@ -417,7 +411,7 @@ def _command_route_handler(
             server_name=cast("str", server_payload.server_name),
         )
 
-    value_payload = cast("_ValueCommandPayload", payload)
+    value_payload = cast("Any", payload)
     return partial(route.handler, agent_name=agent, value=value_payload.value)
 
 
@@ -426,8 +420,9 @@ async def _run_command_handler(
     prompt_provider: "AgentApp",
     agent: str,
     handler: CommandOutcomeHandler,
+    session_manager: "SessionManager | None",
 ) -> CommandOutcome:
-    context = build_command_context(prompt_provider, agent)
+    context = build_command_context(prompt_provider, agent, session_manager=session_manager)
     outcome = await handler(context)
     await emit_command_outcome(context, outcome)
     return outcome
@@ -438,11 +433,12 @@ async def _local_attach_paths(
     prompt_provider: "AgentApp",
     agent_name: str,
     paths: tuple[str, ...],
+    session_manager: "SessionManager | None",
 ) -> list[str] | None:
     if paths:
         return list(paths)
 
-    context = build_command_context(prompt_provider, agent_name)
+    context = build_command_context(prompt_provider, agent_name, session_manager=session_manager)
     prompted_path = await context.io.prompt_text(
         "Attach file path or HTTP(S) URL:",
         allow_empty=False,
@@ -488,6 +484,7 @@ async def _dispatch_attach_command(
     agent_name: str,
     buffer_prefill: str,
     shell_working_dir: "Path | None",
+    session_manager: "SessionManager | None",
 ) -> DispatchResult:
     result = DispatchResult(handled=True)
     if payload.error:
@@ -502,6 +499,7 @@ async def _dispatch_attach_command(
         prompt_provider=prompt_provider,
         agent_name=agent_name,
         paths=payload.paths,
+        session_manager=session_manager,
     )
     if paths is None:
         result.buffer_prefill = buffer_prefill
@@ -557,6 +555,7 @@ async def _dispatch_local_ui_payload(
     agent_name: str,
     buffer_prefill: str,
     shell_working_dir: Path | None = None,
+    session_manager: "SessionManager | None" = None,
 ) -> DispatchResult | None:
     match payload:
         case InterruptCommand():
@@ -579,6 +578,7 @@ async def _dispatch_local_ui_payload(
                 agent_name=agent_name,
                 buffer_prefill=buffer_prefill,
                 shell_working_dir=shell_working_dir,
+                session_manager=session_manager,
             )
         case _:
             return _dispatch_simple_local_ui_payload(payload)
@@ -603,6 +603,7 @@ async def _dispatch_prompt_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     handler = _prompt_handler(payload, agent=agent)
     if handler is None:
@@ -612,6 +613,7 @@ async def _dispatch_prompt_payload(
         prompt_provider=prompt_provider,
         agent=agent,
         handler=handler,
+        session_manager=session_manager,
     )
     result = DispatchResult(handled=True)
     if isinstance(payload, (SelectPromptCommand, LoadPromptCommand)):
@@ -650,6 +652,7 @@ async def _dispatch_catalog_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     handler = _catalog_handler(payload, prompt_provider=prompt_provider, agent=agent)
     if handler is None:
@@ -659,6 +662,7 @@ async def _dispatch_catalog_payload(
         prompt_provider=prompt_provider,
         agent=agent,
         handler=handler,
+        session_manager=session_manager,
     )
     return DispatchResult(handled=True)
 
@@ -680,11 +684,204 @@ def _catalog_handler(
     )
 
 
+def _default_a2a_agent_name(existing: set[str]) -> str:
+    base = "a2a_remote"
+    if base not in existing:
+        return base
+    index = 2
+    while f"{base}_{index}" in existing:
+        index += 1
+    return f"{base}_{index}"
+
+
+def _print_a2a_help() -> None:
+    rich_print("[bold]A2A commands[/bold]")
+    for line in [
+        "/a2a list",
+        "/a2a status [agent]",
+        "/tasks [agent]",
+        "/a2a card [agent]",
+        "/a2a transport [agent]",
+        "/a2a reset [agent]",
+        "/a2a connect <url> [--transport JSONRPC|HTTP+JSON] [--name NAME] [--card-path PATH] [--oauth|--no-oauth]",
+        "/a2a help",
+    ]:
+        rich_print(f"  {line}")
+
+
+async def _dispatch_a2a_payload(
+    owner: "InteractivePrompt",
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+    available_agents_set: set[str],
+) -> DispatchResult | None:
+    if not isinstance(payload, A2ACommand):
+        return None
+
+    result = DispatchResult(handled=True)
+    if payload.error:
+        rich_print(f"[red]{payload.error}[/red]")
+        return result
+
+    if payload.action in {"help", "?", "-h", "--help", "commands"}:
+        _print_a2a_help()
+        return result
+
+    if payload.action == "list":
+        names = sorted(
+            name for name in available_agents_set if owner.agent_types.get(name) == AgentType.A2A
+        )
+        if not names:
+            rich_print("[yellow]No A2A agents are currently registered.[/yellow]")
+            return result
+        rich_print("[bold]A2A agents[/bold]")
+        for name in names:
+            rich_print(f"  • {name}")
+        return result
+
+    if payload.action == "connect":
+        return await _dispatch_a2a_connect_payload(
+            owner,
+            payload,
+            prompt_provider=prompt_provider,
+            available_agents_set=available_agents_set,
+        )
+
+    if payload.action in {"status", "tasks", "card", "reset", "transport"}:
+        target = payload.argument or agent
+        remote_agent = owner._get_agent_or_warn(prompt_provider, target)
+        if remote_agent is None:
+            return result
+        if not isinstance(remote_agent, A2ARemoteAgent):
+            rich_print(f"[red]Agent '{target}' is not an A2A agent.[/red]")
+            return result
+        return _dispatch_a2a_existing_agent_action(
+            remote_agent,
+            action=payload.action,
+            target=target,
+        )
+
+    rich_print(f"[red]Unknown /a2a action: {payload.action}[/red]")
+    return result
+
+
+async def _dispatch_a2a_connect_payload(
+    owner: "InteractivePrompt",
+    payload: A2ACommand,
+    *,
+    prompt_provider: "AgentApp",
+    available_agents_set: set[str],
+) -> DispatchResult:
+    result = DispatchResult(handled=True)
+    request, error = parse_a2a_connect_arguments(payload.argument)
+    if error or request is None:
+        rich_print(f"[red]{error}[/red]")
+        return result
+
+    name = request.name or _default_a2a_agent_name(available_agents_set)
+    if name in available_agents_set:
+        rich_print(f"[red]Agent '{name}' already exists. Choose --name NAME.[/red]")
+        return result
+
+    remote_agent = A2ARemoteAgent(
+        config=AgentConfig(name=name, agent_type=AgentType.A2A, use_history=True),
+        a2a_config=A2AAgentConfig(
+            url=request.url,
+            transport=request.transport,
+            auth=request.auth,
+            relative_card_path=request.relative_card_path,
+        ),
+    )
+    try:
+        await remote_agent.initialize()
+    except Exception as exc:
+        await remote_agent.shutdown()
+        rich_print(f"[red]Unable to connect to A2A agent: {exc}[/red]")
+        return result
+
+    agents = cast("dict[str, Any]", prompt_provider.registered_agents())
+    agents[name] = remote_agent
+    prompt_provider._apply_agent_registry()
+    owner.agent_types[name] = AgentType.A2A
+    result.next_agent = name
+    result.available_agents = prompt_provider.visible_agent_names(force_include=name)
+    result.available_agents_set = set(result.available_agents)
+    rich_print(f"[green]Connected A2A agent '{name}'.[/green]")
+    rich_print(f"  URL: {request.url}")
+    rich_print(f"  Transport: {request.transport or 'auto'}")
+    if remote_agent.remote_card is not None:
+        rich_print(f"  Remote: {remote_agent.remote_card.name}")
+    return result
+
+
+def _dispatch_a2a_existing_agent_action(
+    remote_agent: A2ARemoteAgent,
+    *,
+    action: str,
+    target: str,
+) -> DispatchResult:
+    result = DispatchResult(handled=True)
+    if action == "transport":
+        diagnostics = remote_agent.diagnostics()
+        rich_print(f"[bold]A2A transport: {target}[/bold]")
+        rich_print(f"  Requested: {diagnostics.transport or 'auto'}")
+        rich_print(f"  Selected client: {diagnostics.selected_transport_class or 'uninitialized'}")
+        card = remote_agent.remote_card
+        if card is not None:
+            rich_print("  Advertised interfaces:")
+            for interface in card.supported_interfaces:
+                rich_print(
+                    f"    • {interface.protocol_binding} "
+                    f"{interface.protocol_version}: {interface.url}"
+                )
+        return result
+
+    if action == "reset":
+        remote_agent.reset_a2a_state()
+        rich_print(f"[green]Reset A2A state for {target}.[/green]")
+        return result
+
+    if action in {"status", "tasks"}:
+        diagnostics = remote_agent.diagnostics()
+        summary = remote_agent.task_status_summary()
+        title = "A2A tasks" if action == "tasks" else "A2A status"
+        rich_print(f"[bold]{title}: {target}[/bold]")
+        rich_print(f"  URL: {diagnostics.url}")
+        rich_print(f"  Transport: {diagnostics.transport or 'auto'}")
+        rich_print(f"  Remote: {diagnostics.remote_name or 'unresolved'}")
+        rich_print(f"  Context: {diagnostics.context_id or '-'}")
+        rich_print(f"  Task: {diagnostics.current_task_id or '-'}")
+        rich_print(f"  Last state: {diagnostics.last_task_state or '-'}")
+        rich_print(f"  Last event: {diagnostics.last_event_kind or '-'}")
+        rich_print(f"  Tasks: {summary.finished} finished, {summary.pending} pending")
+        if summary.pending_task_ids:
+            rich_print(f"  Pending tasks: {', '.join(summary.pending_task_ids)}")
+        rich_print(f"  Client transport: {diagnostics.selected_transport_class or '-'}")
+        return result
+
+    card = remote_agent.remote_card
+    if card is None:
+        rich_print(f"[yellow]Agent '{target}' has not resolved a remote card yet.[/yellow]")
+        return result
+    rich_print(f"[bold]A2A card: {card.name}[/bold]")
+    rich_print(f"  Description: {card.description}")
+    rich_print(f"  Version: {card.version}")
+    rich_print("  Interfaces:")
+    for interface in card.supported_interfaces:
+        rich_print(
+            f"    • {interface.protocol_binding} {interface.protocol_version}: {interface.url}"
+        )
+    return result
+
+
 async def _dispatch_display_payload(
     payload: CommandPayload,
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     route = _command_route(payload, group="display")
     if route is None:
@@ -702,6 +899,7 @@ async def _dispatch_display_payload(
         prompt_provider=prompt_provider,
         agent=agent,
         handler=handler,
+        session_manager=session_manager,
     )
     return DispatchResult(handled=True)
 
@@ -818,6 +1016,7 @@ async def _dispatch_mcp_connect_command(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult:
     result = DispatchResult(handled=True)
     if payload.error:
@@ -827,7 +1026,7 @@ async def _dispatch_mcp_connect_command(
         rich_print("[red]Connection target is required[/red]")
         return result
 
-    context = build_command_context(prompt_provider, agent)
+    context = build_command_context(prompt_provider, agent, session_manager=session_manager)
     outcome = await handle_mcp_connect(
         context=context,
         prompt_provider=prompt_provider,
@@ -869,12 +1068,13 @@ async def _dispatch_compact_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     if not isinstance(payload, CompactCommand):
         return None
 
     result = DispatchResult(handled=True)
-    context = build_command_context(prompt_provider, agent)
+    context = build_command_context(prompt_provider, agent, session_manager=session_manager)
 
     if payload.action == "run":
         # Resume the streaming token progress display around the summarization
@@ -903,6 +1103,7 @@ async def _dispatch_history_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
@@ -927,6 +1128,7 @@ async def _dispatch_history_payload(
                 prompt_provider=prompt_provider,
                 agent=agent,
                 handler=handler,
+                session_manager=session_manager,
             )
             if isinstance(payload, HistoryRewindCommand):
                 result.buffer_prefill = outcome.buffer_prefill
@@ -938,6 +1140,7 @@ async def _dispatch_mcp_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
@@ -946,6 +1149,7 @@ async def _dispatch_mcp_payload(
                 payload,
                 prompt_provider=prompt_provider,
                 agent=agent,
+                session_manager=session_manager,
             )
         case _:
             handler = _mcp_handler(
@@ -968,6 +1172,7 @@ async def _dispatch_mcp_payload(
                 prompt_provider=prompt_provider,
                 agent=agent,
                 handler=handler,
+                session_manager=session_manager,
             )
             return result
 
@@ -977,6 +1182,7 @@ async def _dispatch_model_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     handler = _model_handler(payload, prompt_provider=prompt_provider, agent=agent)
@@ -985,13 +1191,14 @@ async def _dispatch_model_payload(
             prompt_provider=prompt_provider,
             agent=agent,
             handler=handler,
+            session_manager=session_manager,
         )
         return result
 
     if not isinstance(payload, ModelSwitchCommand):
         return None
 
-    context = build_command_context(prompt_provider, agent)
+    context = build_command_context(prompt_provider, agent, session_manager=session_manager)
     outcome = await model_handlers.handle_model_switch(
         context,
         agent_name=agent,
@@ -1023,9 +1230,10 @@ async def _dispatch_create_session_command(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult:
     result = DispatchResult(handled=True)
-    context = build_command_context(prompt_provider, agent)
+    context = build_command_context(prompt_provider, agent, session_manager=session_manager)
     outcome = await sessions_handlers.handle_create_session(
         context,
         session_name=payload.session_name,
@@ -1051,12 +1259,13 @@ def _session_handler(
                 sessions_handlers.handle_clear_sessions,
                 target=target,
             )
-        case PinSessionCommand(value=value, target=target):
+        case PinSessionCommand(title=title):
             handler = partial(
                 sessions_handlers.handle_pin_session,
-                value=value,
-                target=target,
+                title=title,
             )
+        case UnpinSessionCommand():
+            handler = sessions_handlers.handle_unpin_session
         case ResumeSessionCommand(session_id=session_id):
             handler = partial(
                 sessions_handlers.handle_resume_session,
@@ -1082,9 +1291,9 @@ def _active_session_id_or_empty(context: CommandContext, target: str | None) -> 
     if context.noenv:
         return None
 
-    manager = context.resolve_session_manager()
-    current_session = manager.current_session
-    current_session_id = current_session.info.name if current_session is not None else None
+    if context.session_runtime is None:
+        return ""
+    current_session_id = context.session_runtime.current_session_id()
     if target is None and current_session_id is None:
         return ""
     return current_session_id
@@ -1095,9 +1304,10 @@ async def _dispatch_session_export_command(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult:
     result = DispatchResult(handled=True)
-    context = build_command_context(prompt_provider, agent)
+    context = build_command_context(prompt_provider, agent, session_manager=session_manager)
     if payload.show_help:
         outcome = CommandOutcome()
         outcome.add_message(render_session_export_help_markdown(), render_markdown=True)
@@ -1148,6 +1358,7 @@ async def _dispatch_session_payload(
     *,
     prompt_provider: "AgentApp",
     agent: str,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
@@ -1156,12 +1367,14 @@ async def _dispatch_session_payload(
                 payload,
                 prompt_provider=prompt_provider,
                 agent=agent,
+                session_manager=session_manager,
             )
         case ExportSessionCommand():
             return await _dispatch_session_export_command(
                 payload,
                 prompt_provider=prompt_provider,
                 agent=agent,
+                session_manager=session_manager,
             )
         case _:
             handler = _session_handler(payload, agent=agent)
@@ -1171,6 +1384,7 @@ async def _dispatch_session_payload(
                 prompt_provider=prompt_provider,
                 agent=agent,
                 handler=handler,
+                session_manager=session_manager,
             )
             if isinstance(payload, ResumeSessionCommand) and outcome.switch_agent:
                 result.next_agent = outcome.switch_agent
@@ -1235,6 +1449,7 @@ async def _dispatch_agent_card_payload(
     prompt_provider: "AgentApp",
     agent: str,
     merge_pinned_agents: Callable[[list[str]], list[str]],
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
@@ -1247,7 +1462,11 @@ async def _dispatch_agent_card_payload(
             if error:
                 _print_styled(error, "red")
                 return result
-            context = build_command_context(prompt_provider, agent)
+            context = build_command_context(
+                prompt_provider,
+                agent,
+                session_manager=session_manager,
+            )
             outcome = await agent_card_handlers.handle_card_load(
                 context,
                 manager=prompt_provider,
@@ -1281,7 +1500,11 @@ async def _dispatch_agent_card_payload(
             if error:
                 _print_styled(error, "red")
                 return result
-            context = build_command_context(prompt_provider, agent)
+            context = build_command_context(
+                prompt_provider,
+                agent,
+                session_manager=session_manager,
+            )
             outcome = await agent_card_handlers.handle_agent_command(
                 context,
                 manager=prompt_provider,
@@ -1304,11 +1527,16 @@ async def _dispatch_reload_payload(
     prompt_provider: "AgentApp",
     agent: str,
     merge_pinned_agents: Callable[[list[str]], list[str]],
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
         case ReloadAgentsCommand():
-            context = build_command_context(prompt_provider, agent)
+            context = build_command_context(
+                prompt_provider,
+                agent,
+                session_manager=session_manager,
+            )
             outcome = await agent_card_handlers.handle_reload_agents(
                 context,
                 manager=prompt_provider,
@@ -1358,6 +1586,7 @@ async def dispatch_command_payload(
     merge_pinned_agents: Callable[[list[str]], list[str]],
     buffer_prefill: str = "",
     shell_working_dir: Path | None = None,
+    session_manager: "SessionManager | None" = None,
 ) -> DispatchResult:
     del available_agents
 
@@ -1373,6 +1602,7 @@ async def dispatch_command_payload(
                     available_agents_set=available_agents_set,
                     merge_pinned_agents=merge_pinned_agents,
                     shell_working_dir=shell_working_dir,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1384,6 +1614,7 @@ async def dispatch_command_payload(
                     agent_name=agent,
                     buffer_prefill=buffer_prefill,
                     shell_working_dir=shell_working_dir,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1392,6 +1623,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1400,6 +1632,17 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
+                ),
+            ),
+            _DispatchStep(
+                name="a2a command",
+                run=lambda: _dispatch_a2a_payload(
+                    owner,
+                    payload,
+                    prompt_provider=prompt_provider,
+                    agent=agent,
+                    available_agents_set=available_agents_set,
                 ),
             ),
             _DispatchStep(
@@ -1408,6 +1651,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1416,6 +1660,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1425,6 +1670,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1433,6 +1679,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1441,6 +1688,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1449,6 +1697,7 @@ async def dispatch_command_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1459,6 +1708,7 @@ async def dispatch_command_payload(
                     prompt_provider=prompt_provider,
                     agent=agent,
                     merge_pinned_agents=merge_pinned_agents,
+                    session_manager=session_manager,
                 ),
             ),
             _DispatchStep(
@@ -1469,6 +1719,7 @@ async def dispatch_command_payload(
                     prompt_provider=prompt_provider,
                     agent=agent,
                     merge_pinned_agents=merge_pinned_agents,
+                    session_manager=session_manager,
                 ),
             ),
         )
@@ -1672,6 +1923,7 @@ async def _dispatch_plugin_command_payload(
     available_agents_set: set[str],
     merge_pinned_agents: Callable[[list[str]], list[str]],
     shell_working_dir: Path | None,
+    session_manager: "SessionManager | None",
 ) -> DispatchResult | None:
     request = _plugin_command_request(
         payload,
@@ -1682,7 +1934,7 @@ async def _dispatch_plugin_command_payload(
         return None
 
     try:
-        context = build_command_context(prompt_provider, agent)
+        context = build_command_context(prompt_provider, agent, session_manager=session_manager)
         plugin_context = _plugin_command_context(
             command_name=request.command_name,
             arguments=request.arguments,

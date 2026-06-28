@@ -7,6 +7,11 @@ from tempfile import TemporaryDirectory
 from fast_agent.patch.engine import apply_patch
 
 
+def _read_text(path: Path) -> str:
+    with path.open(encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
 def _run_patch(patch: str) -> tuple[str, str]:
     stdout = StringIO()
     stderr = StringIO()
@@ -25,7 +30,7 @@ def test_update_file_hunk_modifies_content() -> None:
 
         assert stdout == f"Success. Updated the following files:\nM {path}\n"
         assert stderr == ""
-        assert path.read_text(encoding="utf-8", newline="") == "foo\nbaz\n"
+        assert _read_text(path) == "foo\nbaz\n"
 
 
 def test_update_file_hunk_can_move_file() -> None:
@@ -49,7 +54,7 @@ def test_update_file_hunk_can_move_file() -> None:
         assert stdout == f"Success. Updated the following files:\nM {dest}\n"
         assert stderr == ""
         assert not src.exists()
-        assert dest.read_text(encoding="utf-8", newline="") == "line2\n"
+        assert _read_text(dest) == "line2\n"
 
 
 def test_update_file_end_of_file_anchor() -> None:
@@ -65,7 +70,7 @@ def test_update_file_end_of_file_anchor() -> None:
 
         assert stdout == f"Success. Updated the following files:\nM {path}\n"
         assert stderr == ""
-        assert path.read_text(encoding="utf-8", newline="") == "a\nb\nc\nd\n"
+        assert _read_text(path) == "a\nb\nc\nd\n"
 
 
 def test_update_file_change_context_disambiguates() -> None:
@@ -79,7 +84,7 @@ def test_update_file_change_context_disambiguates() -> None:
 
         assert stdout == f"Success. Updated the following files:\nM {path}\n"
         assert stderr == ""
-        assert path.read_text(encoding="utf-8", newline="") == "header\nfoo\nnew\nfoo\nold\n"
+        assert _read_text(path) == "header\nfoo\nnew\nfoo\nold\n"
 
 
 def test_update_line_with_unicode_dash() -> None:
@@ -101,7 +106,7 @@ def test_update_line_with_unicode_dash() -> None:
 
         assert stdout == f"Success. Updated the following files:\nM {path}\n"
         assert stderr == ""
-        assert path.read_text(encoding="utf-8", newline="") == "import asyncio  # HELLO\n"
+        assert _read_text(path) == "import asyncio  # HELLO\n"
 
 
 def test_pure_addition_chunk_followed_by_removal() -> None:
@@ -128,6 +133,6 @@ def test_pure_addition_chunk_followed_by_removal() -> None:
         assert stdout == f"Success. Updated the following files:\nM {path}\n"
         assert stderr == ""
         assert (
-            path.read_text(encoding="utf-8", newline="")
+            _read_text(path)
             == "line1\nline2-replacement\nafter-context\nsecond-line\n"
         )

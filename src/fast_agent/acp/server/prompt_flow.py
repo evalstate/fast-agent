@@ -26,7 +26,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol, StreamingAgentProtocol, ToolRunnerHookCapable
 from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.mcp.helpers.content_helpers import is_text_content
-from fast_agent.types import LlmStopReason, PromptMessageExtended
+from fast_agent.types import AgentRequest, AgentResponse, LlmStopReason, PromptMessageExtended
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 
 if TYPE_CHECKING:
@@ -73,6 +73,40 @@ class PromptTurn:
     current_agent_name: str | None
     slash_handler: Any
     prompt_text: str
+
+
+class ACPInvokeSession:
+    """ACP protocol adapter over one selected agent turn."""
+
+    def __init__(
+        self,
+        *,
+        agent: Any,
+        structured_output: StructuredOutputRequest | None,
+    ) -> None:
+        self._agent = agent
+        self._structured_output = structured_output
+
+    async def invoke(self, request: AgentRequest) -> AgentResponse:
+        if self._structured_output is None:
+            result = await self._agent.generate(
+                request.message,
+                request_params=request.params,
+            )
+            parsed = None
+        else:
+            parsed, result = await self._agent.structured_schema(
+                request.message,
+                self._structured_output.schema,
+                request_params=request.params,
+            )
+        return AgentResponse(
+            message=result,
+            metadata={
+                "structured_parsed": parsed,
+                **dict(request.metadata),
+            },
+        )
 
 
 class PromptFlowHost(Protocol):
@@ -313,6 +347,7 @@ class ACPPromptFlow:
                 active_agent = agent
                 acp_stop_reason, status_line_meta = await self._send_prompt_to_agent(
                     agent=agent,
+                    agent_name=turn.current_agent_name,
                     session_id=session_id,
                     session_state=turn.session_state,
                     prompt_message=turn.prompt_message,
@@ -354,6 +389,7 @@ class ACPPromptFlow:
         self,
         *,
         agent: Any,
+        agent_name: str | None,
         session_id: str,
         session_state: ACPSessionState | None,
         prompt_message: PromptMessageExtended,
@@ -370,6 +406,7 @@ class ACPPromptFlow:
             turn_start_index = self._turn_start_index(agent)
             with_status_hooks = await self._run_with_status_hooks(
                 agent=agent,
+                agent_name=agent_name,
                 session_id=session_id,
                 turn_start_index=turn_start_index,
                 prompt_message=prompt_message,
@@ -624,6 +661,7 @@ class ACPPromptFlow:
         self,
         *,
         agent: Any,
+        agent_name: str | None = None,
         session_id: str,
         turn_start_index: int | None,
         prompt_message: PromptMessageExtended,
@@ -657,18 +695,18 @@ class ACPPromptFlow:
                 restore_hooks = False
 
         try:
-            if structured_output is None:
-                result = await agent.generate(
+            session = ACPInvokeSession(agent=agent, structured_output=structured_output)
+            response = await session.invoke(
+                AgentRequest.from_message(
                     prompt_message,
-                    request_params=session_request_params,
+                    agent=agent_name,
+                    session_id=session_id,
+                    params=session_request_params,
+                    metadata={"transport": "acp"},
                 )
-                parsed = None
-            else:
-                parsed, result = await agent.structured_schema(
-                    prompt_message,
-                    structured_output.schema,
-                    request_params=session_request_params,
-                )
+            )
+            result = response.message
+            parsed = response.metadata.get("structured_parsed")
         finally:
             if restore_hooks and tool_hook_agent is not None:
                 tool_hook_agent.tool_runner_hooks = previous_hooks

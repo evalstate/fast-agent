@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
     from fast_agent.config import MCPServerSettings
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.core.agent_instance_factory import AgentInstanceFactory
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.core.instruction_refresh import ConfiguredMcpInstructionCapable
     from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
@@ -78,8 +79,7 @@ class _SessionInitialization:
 
 
 class SessionRuntimeHost(Protocol):
-    _create_instance_task: Any
-    _dispose_instance_task: Any
+    _instance_factory: AgentInstanceFactory
     server_name: str
     server_version: str
     _live_sessions: ACPLiveSessionRegistry
@@ -97,8 +97,6 @@ class SessionRuntimeHost(Protocol):
     _permissions_enabled: bool
 
     def _resolve_primary_agent_name(self, instance: AgentInstance) -> str | None: ...
-
-    def _calculate_terminal_output_limit(self, agent: Any) -> int: ...
 
     def _create_slash_handler(
         self,
@@ -578,7 +576,7 @@ class ACPServerSessionRuntime:
         dispose_error_name: str,
         await_refresh_session_state: bool,
     ) -> AgentInstance:
-        instance = await self._host._create_instance_task()
+        instance = await self._host._instance_factory.create_instance()
         old_instance = session_state.instance
         session_state.instance = instance
         async with self._host._session_lock:
@@ -591,7 +589,7 @@ class ACPServerSessionRuntime:
                 name=f"acp-refresh-session-state:{session_state.session_id}",
             )
         try:
-            await self._host._dispose_instance_task(old_instance)
+            await self._host._instance_factory.dispose_instance(old_instance)
         except Exception as exc:
             logger.warning(
                 "Failed to dispose old session instance",
@@ -632,6 +630,9 @@ class ACPServerSessionRuntime:
         bind_runtimes: bool,
         register_stream_listeners: bool,
     ) -> None:
+        if session_state.session_manager is not None:
+            session_state.attach_session_manager(session_state.session_manager)
+
         tool_handler = session_state.progress_manager
         permission_handler = session_state.permission_handler
         workflow_telemetry = (
@@ -773,10 +774,7 @@ class ACPServerSessionRuntime:
                 client_capabilities=self._host._parsed_client_capabilities,
                 client_info=self._host._parsed_client_info,
                 protocol_version=self._host._protocol_version,
-                set_current_mode_callback=lambda mode_id: self._set_agent_initiated_mode(
-                    session_state,
-                    mode_id,
-                ),
+                set_current_mode_callback=session_state.set_current_agent,
             )
             session_state.acp_context = acp_context
         else:
@@ -795,15 +793,6 @@ class ACPServerSessionRuntime:
         if session_state.progress_manager:
             acp_context.set_progress_manager(session_state.progress_manager)
         return acp_context
-
-    @staticmethod
-    def _set_agent_initiated_mode(
-        session_state: ACPSessionState,
-        mode_id: str,
-    ) -> None:
-        session_state.current_agent_name = mode_id
-        if session_state.slash_handler:
-            session_state.slash_handler.set_current_agent(mode_id)
 
     async def _finalize_session_instance_state(
         self,
@@ -841,8 +830,6 @@ class ACPServerSessionRuntime:
             instance,
             primary_agent_name,
         )
-        if current_agent:
-            slash_handler.set_current_agent(current_agent)
 
         session_modes = self._build_session_modes_for_current_agent(
             session_state,
@@ -850,7 +837,7 @@ class ACPServerSessionRuntime:
             current_agent,
         )
         if acp_context is not None:
-            self._publish_acp_modes(acp_context, session_modes, current_agent)
+            self._publish_acp_modes(session_state, session_modes, current_agent)
         if self._host._connection:
             self._create_background_task(
                 self._host._send_available_commands_update(session_state.session_id),
@@ -908,7 +895,8 @@ class ACPServerSessionRuntime:
         if current_agent and current_agent in instance.agents:
             return current_agent
         current_agent = primary_agent_name or next(iter(instance.agents), None)
-        session_state.current_agent_name = current_agent
+        if current_agent:
+            session_state.set_current_agent(current_agent, sync_context=False)
         return current_agent
 
     def _build_session_modes_for_current_agent(
@@ -927,13 +915,16 @@ class ACPServerSessionRuntime:
 
     @staticmethod
     def _publish_acp_modes(
-        acp_context: ACPContext,
+        session_state: ACPSessionState,
         session_modes: SessionModeState,
         current_agent: str | None,
     ) -> None:
+        acp_context = session_state.acp_context
+        if acp_context is None:
+            return
         acp_context.set_available_modes(session_modes.available_modes)
         if current_agent:
-            acp_context.set_current_mode(current_agent)
+            session_state.set_current_agent(current_agent)
 
     async def _prepare_session_initialization(
         self,
@@ -959,7 +950,7 @@ class ACPServerSessionRuntime:
                 session_state.session_mcp_servers = requested_mcp_servers
             instance = session_state.instance
         else:
-            instance = await self._host._create_instance_task()
+            instance = await self._host._instance_factory.create_instance()
             live_sessions.sessions[session_id] = instance
             session_state = ACPSessionState(session_id=session_id, instance=instance)
             session_state.session_mcp_servers = requested_mcp_servers

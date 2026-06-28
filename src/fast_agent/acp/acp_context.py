@@ -119,7 +119,7 @@ class ACPContext:
 
     def __init__(
         self,
-        connection: "AgentSideConnection",
+        connection: AgentSideConnection,
         session_id: str,
         *,
         session_cwd: str | None = None,
@@ -208,7 +208,7 @@ class ACPContext:
         return self._session_store_cwd
 
     @property
-    def connection(self) -> "AgentSideConnection":
+    def connection(self) -> AgentSideConnection:
         """Get the ACP connection (for advanced use cases)."""
         return self._connection
 

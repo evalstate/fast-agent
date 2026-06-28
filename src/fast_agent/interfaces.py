@@ -12,7 +12,6 @@ from typing import (
     Literal,
     Protocol,
     TypeVar,
-    Union,
     runtime_checkable,
 )
 
@@ -267,56 +266,46 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
 
     async def __call__(
         self,
-        message: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
+        message: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
     ) -> str: ...
 
     async def send(
         self,
-        message: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
+        message: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
         request_params: RequestParams | None = None,
     ) -> str: ...
 
     async def generate(
         self,
-        messages: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
+        messages: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
         request_params: RequestParams | None = None,
     ) -> PromptMessageExtended: ...
 
     async def structured(
         self,
-        messages: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
+        messages: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
         model: type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageExtended]: ...
 
     async def structured_schema(
         self,
-        messages: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
+        messages: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
         schema: dict[str, Any],
         request_params: RequestParams | None = None,
     ) -> tuple[Any | None, PromptMessageExtended]: ...
@@ -329,7 +318,7 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
 
     async def apply_prompt(
         self,
-        prompt: Union[str, "GetPromptResult"],
+        prompt: str | GetPromptResult,
         arguments: dict[str, str] | None = None,
         as_template: bool = False,
         namespace: str | None = None,
@@ -356,7 +345,7 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
 
     async def with_resource(
         self,
-        prompt_content: Union[str, PromptMessage, PromptMessageExtended],
+        prompt_content: str | PromptMessage | PromptMessageExtended,
         resource_uri: str,
         namespace: str | None = None,
     ) -> str: ...

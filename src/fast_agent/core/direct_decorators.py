@@ -71,9 +71,6 @@ class ScopedToolDecoratorProtocol(Protocol):
 class DecoratedAgentProtocol(Protocol[P, R]):
     """Protocol defining the interface of a decorated agent function."""
 
-    _agent_type: AgentType
-    _agent_config: AgentConfig
-
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Coroutine[Any, Any, R]: ...
 
 
@@ -96,53 +93,6 @@ def _attach_scoped_tool_decorator(
     decorated = cast("DecoratedToolCapableAgentProtocol[P, R]", func)
     decorated.tool = tool
     return decorated
-
-
-# Protocol for orchestrator functions
-class DecoratedOrchestratorProtocol(DecoratedAgentProtocol[P, R], Protocol):
-    """Protocol for decorated orchestrator functions with additional metadata."""
-
-    _child_agents: list[str]
-    _plan_type: Literal["full", "iterative"]
-
-
-# Protocol for router functions
-class DecoratedRouterProtocol(DecoratedAgentProtocol[P, R], Protocol):
-    """Protocol for decorated router functions with additional metadata."""
-
-    _router_agents: list[str]
-
-
-# Protocol for chain functions
-class DecoratedChainProtocol(DecoratedAgentProtocol[P, R], Protocol):
-    """Protocol for decorated chain functions with additional metadata."""
-
-    _chain_agents: list[str]
-
-
-# Protocol for parallel functions
-class DecoratedParallelProtocol(DecoratedAgentProtocol[P, R], Protocol):
-    """Protocol for decorated parallel functions with additional metadata."""
-
-    _fan_out: list[str]
-    _fan_in: str
-
-
-# Protocol for evaluator-optimizer functions
-class DecoratedEvaluatorOptimizerProtocol(DecoratedAgentProtocol[P, R], Protocol):
-    """Protocol for decorated evaluator-optimizer functions with additional metadata."""
-
-    _generator: str
-    _evaluator: str
-
-
-# Protocol for maker functions
-class DecoratedMakerProtocol(DecoratedAgentProtocol[P, R], Protocol):
-    """Protocol for decorated MAKER functions with additional metadata."""
-
-    _worker: str
-    _k: int
-    _max_samples: int
 
 
 def _apply_templates(text: str) -> str:
@@ -250,6 +200,7 @@ def _agent_config_from_decorator(
     skills: SkillConfig,
     model: str | None,
     use_history: bool,
+    save_trajectory: bool,
     human_input: bool,
     default: bool,
     request_params: RequestParams | None,
@@ -265,6 +216,7 @@ def _agent_config_from_decorator(
         skills=skills,
         model=model,
         use_history=use_history,
+        save_trajectory=save_trajectory,
         human_input=human_input,
         default=default,
         elicitation_handler=extra_kwargs.get("elicitation_handler"),
@@ -292,13 +244,9 @@ def _agent_data_from_decorator(
 
 def _store_decorator_metadata(
     func: Callable[..., Any],
-    agent_type: AgentType,
-    config: AgentConfig,
     extra_kwargs: dict[str, Any],
 ) -> Any:
     decorated_func = cast("Any", func)
-    decorated_func._agent_type = agent_type
-    decorated_func._agent_config = config
     for key, value in extra_kwargs.items():
         setattr(decorated_func, f"_{key}", value)
     return decorated_func
@@ -368,6 +316,7 @@ def _decorator_impl(
     servers: list[str] | None = None,
     model: str | None = None,
     use_history: bool = True,
+    save_trajectory: bool = False,
     request_params: RequestParams | None = None,
     human_input: bool = False,
     default: bool = False,
@@ -405,6 +354,7 @@ def _decorator_impl(
             skills=skills,
             model=model,
             use_history=use_history,
+            save_trajectory=save_trajectory,
             human_input=human_input,
             default=default,
             request_params=request_params,
@@ -412,7 +362,7 @@ def _decorator_impl(
         )
 
         self.agents[name] = _agent_data_from_decorator(config, agent_type, func, extra_kwargs)
-        _store_decorator_metadata(func, agent_type, config, extra_kwargs)
+        _store_decorator_metadata(func, extra_kwargs)
         return _attach_agent_tool_decorator_if_supported(
             func,
             agent_type,
@@ -496,6 +446,7 @@ class DecoratorMixin:
         function_tools: FunctionToolsConfig = None,
         model: str | None = None,
         use_history: bool = True,
+        save_trajectory: bool = False,
         request_params: RequestParams | None = None,
         human_input: bool = False,
         default: bool = False,
@@ -554,6 +505,7 @@ class DecoratorMixin:
                 servers=servers,
                 model=model,
                 use_history=use_history,
+                save_trajectory=save_trajectory,
                 request_params=request_params,
                 human_input=human_input,
                 default=default,
@@ -589,6 +541,7 @@ class DecoratorMixin:
         function_tools: FunctionToolsConfig = None,
         model: str | None = None,
         use_history: bool = True,
+        save_trajectory: bool = False,
         request_params: RequestParams | None = None,
         human_input: bool = False,
         default: bool = False,
@@ -624,6 +577,7 @@ class DecoratorMixin:
                 servers=servers,
                 model=model,
                 use_history=use_history,
+                save_trajectory=save_trajectory,
                 request_params=request_params,
                 human_input=human_input,
                 default=default,
@@ -660,6 +614,7 @@ class DecoratorMixin:
         function_tools: FunctionToolsConfig = None,
         model: str | None = None,
         use_history: bool = True,
+        save_trajectory: bool = False,
         request_params: RequestParams | None = None,
         human_input: bool = False,
         default: bool = False,
@@ -706,6 +661,7 @@ class DecoratorMixin:
             servers=servers,
             model=model,
             use_history=use_history,
+            save_trajectory=save_trajectory,
             request_params=request_params,
             human_input=human_input,
             agent_class=cls,
@@ -734,6 +690,7 @@ class DecoratorMixin:
         model: str | None = None,
         request_params: RequestParams | None = None,
         use_history: bool = False,
+        save_trajectory: bool = False,
         human_input: bool = False,
         plan_type: Literal["full", "iterative"] = "full",
         plan_iterations: int = 5,
@@ -770,6 +727,7 @@ class DecoratorMixin:
             servers=[],  # Orchestrators don't connect to servers directly
             model=model,
             use_history=use_history,
+            save_trajectory=save_trajectory,
             request_params=request_params,
             human_input=human_input,
             child_agents=agents,
@@ -840,6 +798,7 @@ class DecoratorMixin:
         prompts: dict[str, list[str]] | None = None,
         model: str | None = None,
         use_history: bool = False,
+        save_trajectory: bool = False,
         request_params: RequestParams | None = None,
         human_input: bool = False,
         default: bool = False,
@@ -874,6 +833,7 @@ class DecoratorMixin:
             servers=servers,
             model=model,
             use_history=use_history,
+            save_trajectory=save_trajectory,
             request_params=request_params,
             human_input=human_input,
             default=default,

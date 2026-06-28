@@ -13,19 +13,10 @@ from pydantic import AnyUrl, TypeAdapter
 
 import fast_agent.mcp.mime_utils as mime_utils
 
-HTTP_TIMEOUT = 10  # Default timeout for HTTP requests
-
 
 @dataclass(frozen=True, slots=True)
 class ResourceContent:
     content: str
-    mime_type: str
-    is_binary: bool
-
-
-@dataclass(frozen=True, slots=True)
-class _ResourceMarkerHeader:
-    uri: str
     mime_type: str
     is_binary: bool
 
@@ -91,33 +82,6 @@ def create_resource_uri(path: str) -> AnyUrl:
     return to_any_url(f"resource://fast-agent/{Path(path).name}")
 
 
-def create_resource_reference(uri: AnyUrl | str, mime_type: str) -> "EmbeddedResource":
-    """
-    Create a reference to a resource without embedding its content directly.
-
-    This creates an EmbeddedResource that references another resource URI.
-    When the client receives this, it will make a separate request to fetch
-    the resource content using the provided URI.
-
-    Args:
-        uri: URI for the resource
-        mime_type: MIME type of the resource
-
-    Returns:
-        An EmbeddedResource object
-    """
-    from mcp.types import EmbeddedResource, TextResourceContents
-
-    # Create a resource reference
-    resource_contents = TextResourceContents(
-        uri=to_any_url(uri),
-        mimeType=mime_type,
-        text="",  # Empty text as we're just referencing
-    )
-
-    return EmbeddedResource(type="resource", resource=resource_contents)
-
-
 def create_embedded_resource(
     resource_path: str, content: str, mime_type: str, is_binary: bool = False
 ) -> EmbeddedResource:
@@ -151,109 +115,6 @@ def create_image_content(data: str, mime_type: str) -> ImageContent:
         data=data,
         mimeType=mime_type,
     )
-
-
-def create_blob_resource(
-    resource_path: str | AnyUrl, content: str, mime_type: str
-) -> EmbeddedResource:
-    """Create an embedded resource for binary data"""
-    return EmbeddedResource(
-        type="resource",
-        resource=BlobResourceContents(
-            uri=to_any_url(resource_path),
-            mimeType=mime_type,
-            blob=content,  # Content should already be base64 encoded
-        ),
-    )
-
-
-def create_text_resource(
-    resource_path: str | AnyUrl, content: str, mime_type: str
-) -> EmbeddedResource:
-    """Create an embedded resource for text data"""
-    return EmbeddedResource(
-        type="resource",
-        resource=TextResourceContents(
-            uri=to_any_url(resource_path),
-            mimeType=mime_type,
-            text=content,
-        ),
-    )
-
-
-RESOURCE_MARKER_PREFIXES = ("[Resource:", "[Binary Resource:")
-
-
-def _parse_resource_marker_header(header: str) -> _ResourceMarkerHeader | None:
-    if not header.endswith("]") or "MIME:" not in header:
-        return None
-
-    if header.startswith("[Resource:"):
-        uri = header.removeprefix("[Resource:").split(",", 1)[0].strip()
-        is_binary = False
-    elif header.startswith("[Binary Resource:"):
-        uri = header.removeprefix("[Binary Resource:").split(",", 1)[0].strip()
-        is_binary = True
-    else:
-        return None
-
-    mime_type = header.split("MIME:", 1)[1].removesuffix("]").strip()
-    if not uri or not mime_type:
-        return None
-    return _ResourceMarkerHeader(uri=uri, mime_type=mime_type, is_binary=is_binary)
-
-
-def parse_resource_marker(text: str) -> EmbeddedResource | None:
-    if not text or not text.startswith(RESOURCE_MARKER_PREFIXES) or "\n" not in text:
-        return None
-
-    header, content_text = text.split("\n", 1)
-    parsed_header = _parse_resource_marker_header(header)
-    if (
-        parsed_header is None
-        or mime_utils.normalize_mime_type(parsed_header.mime_type) == "text/plain"
-    ):
-        return None
-
-    if not parsed_header.is_binary:
-        return EmbeddedResource(
-            type="resource",
-            resource=TextResourceContents(
-                uri=to_any_url(parsed_header.uri),
-                mimeType=parsed_header.mime_type,
-                text=content_text,
-            ),
-        )
-
-    return None
-
-
-def normalize_uri(uri_or_filename: str) -> str:
-    """
-    Normalize a URI or filename to ensure it's a valid URI.
-    Converts simple filenames to file:// URIs if needed.
-
-    Args:
-        uri_or_filename: A URI string or simple filename
-
-    Returns:
-        A properly formatted URI string
-    """
-    if not uri_or_filename:
-        return ""
-
-    # Check if it's already a valid URI with a scheme
-    if "://" in uri_or_filename:
-        return uri_or_filename
-
-    # Handle Windows-style paths with backslashes
-    normalized_path = uri_or_filename.replace("\\", "/")
-
-    # If it's a simple filename or relative path, convert to file:// URI
-    # Make sure it has three slashes for an absolute path
-    if normalized_path.startswith("/"):
-        return f"file://{normalized_path}"
-    return f"file:///{normalized_path}"
 
 
 def extract_title_from_uri(uri: AnyUrl) -> str:

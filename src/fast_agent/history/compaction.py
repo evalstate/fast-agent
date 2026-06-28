@@ -22,14 +22,15 @@ from mcp.types import TextContent
 
 from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
+from fast_agent.mcp.prompt import Prompt
 
 if TYPE_CHECKING:
     from fast_agent.config import CompactionSettings
     from fast_agent.context import Context
     from fast_agent.interfaces import FastAgentLLMProtocol
     from fast_agent.llm.usage_tracking import UsageAccumulator
+    from fast_agent.session.session_manager import SessionManager
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
@@ -55,6 +56,7 @@ SUMMARY_NOTICE = (
 
 _CHARS_PER_TOKEN = 4
 _MIN_COMPACTABLE_MESSAGES = 2
+_SUMMARY_TOKEN_ALLOWANCE = 2048
 
 
 class CompactionSkipped(Exception):
@@ -118,23 +120,6 @@ def is_compaction_message(message: PromptMessageExtended) -> bool:
     return bool(message.channels and FAST_AGENT_COMPACTION_CHANNEL in message.channels)
 
 
-def compaction_metadata(message: PromptMessageExtended) -> dict[str, object] | None:
-    """Return the recorded compaction metadata (prompt, counts) when present."""
-    if not message.channels:
-        return None
-    blocks = message.channels.get(FAST_AGENT_COMPACTION_CHANNEL)
-    if not blocks:
-        return None
-    block = blocks[0]
-    if not isinstance(block, TextContent):
-        return None
-    try:
-        data = json.loads(block.text)
-    except (TypeError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
-
-
 def resolve_compaction_prompt(settings: "CompactionSettings | None") -> str:
     """Resolve the active summarization prompt (config override or built-in)."""
     configured = settings.prompt if settings else None
@@ -187,10 +172,21 @@ def _turn_start_indices(messages: list[PromptMessageExtended]) -> list[int]:
 
 
 def estimate_tokens(messages: list[PromptMessageExtended]) -> int:
-    """Rough token estimate for a message list (text plus serialized tool traffic)."""
+    """Rough token estimate for a message list.
+
+    Count text plus serialized non-text payloads. Compaction relies on this
+    estimate after replacing history; ignoring image/data blocks or diagnostic
+    channels can make a compacted history look small while still replaying a
+    provider-sized payload.
+    """
     chars = 0
     for message in messages:
         chars += len(message.all_text())
+        for content in message.content:
+            try:
+                chars += len(content.model_dump_json())
+            except Exception:
+                chars += 64
         if message.tool_calls:
             for call in message.tool_calls.values():
                 try:
@@ -203,7 +199,50 @@ def estimate_tokens(messages: list[PromptMessageExtended]) -> int:
                     chars += len(result.model_dump_json())
                 except Exception:
                     chars += 64
+        if message.channels:
+            for blocks in message.channels.values():
+                for block in blocks:
+                    try:
+                        chars += len(block.model_dump_json())
+                    except Exception:
+                        chars += 64
     return max(1, chars // _CHARS_PER_TOKEN)
+
+
+def _plan_compaction_with_budget(
+    history: list[PromptMessageExtended],
+    *,
+    keep_turns: int,
+    max_tokens_after: int | None,
+    min_keep_turns: int = 0,
+) -> CompactionPlan:
+    """Return a compaction plan, reducing kept turns when the tail is too large."""
+    min_keep_turns = max(min_keep_turns, 0)
+    if min_keep_turns > 0:
+        template_count = 0
+        for message in history:
+            if message.is_template:
+                template_count += 1
+            else:
+                break
+        real_turns = _turn_start_indices(list(history[template_count:]))
+        if len(real_turns) <= min_keep_turns:
+            raise CompactionSkipped("No older turns to compact while preserving the active turn.")
+
+    plan = plan_compaction(history, keep_turns=max(keep_turns, min_keep_turns))
+    if max_tokens_after is None or max_tokens_after <= 0:
+        return plan
+
+    for candidate_keep in range(max(keep_turns, min_keep_turns, 0), min_keep_turns - 1, -1):
+        candidate = plan_compaction(history, keep_turns=candidate_keep)
+        projected = (
+            estimate_tokens(candidate.templates + candidate.retained_tail)
+            + _SUMMARY_TOKEN_ALLOWANCE
+        )
+        if projected <= max_tokens_after:
+            return candidate
+        plan = candidate
+    return plan
 
 
 def plan_compaction(
@@ -313,6 +352,9 @@ def _archive_history(
         context = agent.context or get_current_context()
         if not _session_persistence_enabled(agent):
             return None
+        manager = context.session_manager if context is not None else None
+        if manager is None:
+            manager = get_session_manager()
 
         acp_context = context.acp if context else None
         session_context = SessionSaveContext(
@@ -321,15 +363,16 @@ def _archive_history(
             session_store_scope=normalize_session_store_scope(
                 acp_context.session_store_scope if acp_context else "workspace"
             ),
-            session_store_cwd=_resolved_path(acp_context.session_store_cwd) if acp_context else None,
+            session_store_cwd=_resolved_path(acp_context.session_store_cwd)
+            if acp_context
+            else None,
         )
         identity = resolve_session_for_save(
             current_session=None,
-            get_manager=lambda cwd: get_session_manager(cwd=cwd),
+            get_manager=lambda cwd: _resolve_active_session_manager(manager, cwd),
             context=session_context,
             seed_metadata={"agent_name": agent.name},
         )
-        manager = identity.manager
         session = identity.session
 
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -339,12 +382,28 @@ def _archive_history(
         save_messages(history, str(filepath))
         manager.set_current_session(session)
         return str(filepath)
+    except RuntimeError as exc:
+        if "session manager" in str(exc).lower():
+            raise
+        logger.warning(
+            "Failed to archive pre-compaction history",
+            data={"error": str(exc), "error_type": type(exc).__name__},
+        )
+        return None
     except Exception as exc:
         logger.warning(
             "Failed to archive pre-compaction history",
             data={"error": str(exc), "error_type": type(exc).__name__},
         )
         return None
+
+
+def _resolve_active_session_manager(manager: "SessionManager", cwd: Path | None) -> "SessionManager":
+    if cwd is not None and cwd.resolve() != manager.workspace_dir:
+        raise RuntimeError(
+            "Compaction archive requested a different cwd than the active session manager."
+        )
+    return manager
 
 
 def _resolved_path(raw_path: object | None) -> Path | None:
@@ -358,6 +417,7 @@ async def compact_conversation(
     *,
     settings: "CompactionSettings",
     instructions: str | None = None,
+    min_keep_turns: int = 0,
 ) -> CompactionResult:
     """
     Compact the agent's history into a checkpoint summary plus recent turns.
@@ -371,14 +431,24 @@ async def compact_conversation(
     if llm is None:
         raise CompactionError(f"Agent '{agent.name}' has no attached LLM.")
 
-    history = list(agent.message_history)
-    plan = plan_compaction(history, keep_turns=settings.keep_turns)
-
     usage = agent.usage_accumulator
     tokens_before = usage.current_context_tokens if usage else None
     context_window = usage.context_window_size if usage else None
     if tokens_before is not None and tokens_before <= 0:
         tokens_before = None
+
+    history = list(agent.message_history)
+    max_tokens_after = (
+        int(context_window * settings.threshold)
+        if context_window is not None and context_window > 0
+        else None
+    )
+    plan = _plan_compaction_with_budget(
+        history,
+        keep_turns=settings.keep_turns,
+        max_tokens_after=max_tokens_after,
+        min_keep_turns=min_keep_turns,
+    )
 
     prompt_text = resolve_compaction_prompt(settings)
     request_text = prompt_text
@@ -391,7 +461,9 @@ async def compact_conversation(
     previous_verb = llm.verb
     llm.verb = ProgressAction.COMPACTING
     try:
-        response = await llm.generate(summary_source + [Prompt.user(request_text)], None, tools=None)
+        response = await llm.generate(
+            summary_source + [Prompt.user(request_text)], None, tools=None
+        )
     finally:
         llm.verb = previous_verb
     summary_text = (response.last_text() or "").strip()

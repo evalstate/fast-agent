@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from fast_agent.commands.context import CommandContext
@@ -19,6 +19,3 @@ class CommandRegistry:
 
     def register(self, name: str, handler: CommandHandler) -> None:
         self.handlers[name] = handler
-
-    def as_mapping(self) -> Mapping[str, CommandHandler]:
-        return dict(self.handlers)

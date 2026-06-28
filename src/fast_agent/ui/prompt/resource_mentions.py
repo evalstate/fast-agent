@@ -6,9 +6,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
-from urllib.parse import quote
 
 from mcp.types import ContentBlock, EmbeddedResource, ReadResourceResult, TextContent
+from uritemplate import URITemplate
 
 from fast_agent.mcp.helpers.content_helpers import image_link, resource_link
 from fast_agent.mcp.mcp_content import MCPFile, MCPImage
@@ -26,12 +26,8 @@ if TYPE_CHECKING:
 
 
 _TOKEN_RE = re.compile(r"(?P<prefix>^|\s)(?P<token>\^[^\s]+)")
-_PLACEHOLDER_RE = re.compile(r"\{([^{}]+)\}")
 _TEMPLATE_ARG_KEY_RE = re.compile(r"(?:^|,)(?P<key>[A-Za-z0-9_.-]+)=")
-_TEMPLATE_ARGS_RE = re.compile(
-    r"^(?P<template>.+)\{(?P<args>[A-Za-z0-9_.-]+=[^{}]*(?:,[A-Za-z0-9_.-]+=[^{}]*)*)\}$"
-)
-_TEMPLATE_OPERATORS = "+#./;?&"
+_SLASH_SENTINEL = "__fast_agent_slash__"
 
 
 @dataclass(frozen=True)
@@ -80,146 +76,14 @@ def _as_resource_mention_resolver(agent: Any) -> _ResourceMentionResolver | None
     return agent
 
 
-@dataclass(frozen=True)
-class _TemplateVarSpec:
-    name: str
-    explode: bool
-    prefix: int | None
-
-
 @dataclass(frozen=True, slots=True)
 class _ParsedTemplateArgs:
     template_uri: str
     args: dict[str, str]
 
 
-@dataclass(frozen=True, slots=True)
-class _TemplateOperatorStyle:
-    prefix: str = ""
-    separator: str = ","
-    named: bool = False
-    if_empty: str = ""
-
-
-_TEMPLATE_OPERATOR_STYLES: dict[str, _TemplateOperatorStyle] = {
-    "#": _TemplateOperatorStyle(prefix="#"),
-    ".": _TemplateOperatorStyle(prefix=".", separator="."),
-    "/": _TemplateOperatorStyle(prefix="/", separator="/"),
-    ";": _TemplateOperatorStyle(prefix=";", separator=";", named=True),
-    "?": _TemplateOperatorStyle(prefix="?", separator="&", named=True, if_empty="="),
-    "&": _TemplateOperatorStyle(prefix="&", separator="&", named=True, if_empty="="),
-}
-
-
-def _parse_template_varspec(raw_spec: str) -> _TemplateVarSpec | None:
-    spec = raw_spec.strip()
-    if not spec:
-        return None
-
-    explode = spec.endswith("*")
-    if explode:
-        spec = spec[:-1]
-
-    prefix: int | None = None
-    if ":" in spec:
-        var_name, prefix_str = spec.split(":", 1)
-        var_name = var_name.strip()
-        prefix = int(prefix_str) if prefix_str.isdigit() else None
-    else:
-        var_name = spec.strip()
-
-    if not var_name:
-        return None
-
-    return _TemplateVarSpec(name=var_name, explode=explode, prefix=prefix)
-
-
-def _iter_template_varspecs(expression_body: str) -> list[_TemplateVarSpec]:
-    if not expression_body:
-        return []
-
-    body = expression_body
-    if body[0] in _TEMPLATE_OPERATORS:
-        body = body[1:]
-
-    specs: list[_TemplateVarSpec] = []
-    for raw_spec in body.split(","):
-        parsed = _parse_template_varspec(raw_spec)
-        if parsed is None:
-            continue
-        specs.append(parsed)
-    return specs
-
-
-def _encode_template_value(
-    value: str,
-    *,
-    allow_reserved: bool,
-    preserve_slashes: bool,
-) -> str:
-    safe_chars = "%"
-    if allow_reserved:
-        safe_chars += "/:?#[]@!$&'()*+,;="
-    if preserve_slashes and "/" not in safe_chars:
-        safe_chars += "/"
-    return quote(value, safe=safe_chars)
-
-
-def _expand_template_expression(expression_body: str, args: dict[str, str]) -> str:
-    if not expression_body:
-        return ""
-
-    operator = ""
-    body = expression_body
-    if body[0] in _TEMPLATE_OPERATORS:
-        operator = body[0]
-        body = body[1:]
-
-    varspecs = _iter_template_varspecs(body)
-    if not varspecs:
-        return ""
-
-    style = _TEMPLATE_OPERATOR_STYLES.get(operator, _TemplateOperatorStyle())
-    allow_reserved = operator in {"+", "#"}
-
-    expanded_parts: list[str] = []
-    for spec in varspecs:
-        value = args.get(spec.name, "")
-        if spec.prefix is not None:
-            value = value[: spec.prefix]
-
-        encoded_value = _encode_template_value(
-            value,
-            allow_reserved=allow_reserved,
-            # Preserve legacy behavior for simple `{var}` path-like values.
-            preserve_slashes=spec.explode or operator == "",
-        )
-
-        if style.named:
-            if encoded_value:
-                expanded_parts.append(f"{spec.name}={encoded_value}")
-            else:
-                expanded_parts.append(f"{spec.name}{style.if_empty}")
-        else:
-            expanded_parts.append(encoded_value)
-
-    if not expanded_parts:
-        return ""
-    return style.prefix + style.separator.join(expanded_parts)
-
-
 def template_argument_names(template_uri: str) -> list[str]:
-    names: list[str] = []
-    seen: set[str] = set()
-
-    for raw_expression in _PLACEHOLDER_RE.findall(template_uri):
-        for spec in _iter_template_varspecs(raw_expression):
-            if spec.name in seen:
-                continue
-            seen.add(spec.name)
-            names.append(spec.name)
-
-    return names
+    return list(URITemplate(template_uri).variable_names)
 
 
 def _template_arg_pairs(args_str: str) -> list[tuple[str, str]]:
@@ -232,13 +96,26 @@ def _template_arg_pairs(args_str: str) -> list[tuple[str, str]]:
     return pairs
 
 
+def _looks_like_template_args(args_str: str) -> bool:
+    matches = list(_TEMPLATE_ARG_KEY_RE.finditer(args_str))
+    if not matches or matches[0].start() != 0:
+        return False
+    return all(match.group("key").strip() for match in matches)
+
+
 def _parse_template_args(value: str) -> _ParsedTemplateArgs:
-    match = _TEMPLATE_ARGS_RE.match(value)
-    if not match:
+    if not value.endswith("}"):
         return _ParsedTemplateArgs(template_uri=value, args={})
 
-    template_uri = match.group("template")
-    args_str = match.group("args")
+    args_start = value.rfind("{")
+    if args_start < 0:
+        return _ParsedTemplateArgs(template_uri=value, args={})
+
+    args_str = value[args_start + 1 : -1]
+    if not _looks_like_template_args(args_str):
+        return _ParsedTemplateArgs(template_uri=value, args={})
+
+    template_uri = value[:args_start]
     args = dict(_template_arg_pairs(args_str))
     return _ParsedTemplateArgs(template_uri=template_uri, args=args)
 
@@ -253,11 +130,20 @@ def _render_template_uri(template_uri: str, args: dict[str, str]) -> str:
         missing_str = ", ".join(sorted(set(missing)))
         raise ResourceMentionError(f"Missing template arguments: {missing_str}")
 
-    def _replace(match: re.Match[str]) -> str:
-        expression_body = match.group(1).strip()
-        return _expand_template_expression(expression_body, args)
+    template = URITemplate(template_uri)
+    expansion_args: dict[str, Any] = dict(args)
+    for variable in template.variables:
+        operator = getattr(variable.operator, "value", "")
+        for name, options in variable.variables:
+            value = args.get(name)
+            if value is None:
+                continue
+            if operator == "/" and options.get("explode") and "/" in value:
+                expansion_args[name] = value.split("/")
+            elif operator == "" and options.get("prefix") is None and "/" in value:
+                expansion_args[name] = value.replace("/", _SLASH_SENTINEL)
 
-    return _PLACEHOLDER_RE.sub(_replace, template_uri)
+    return template.expand(expansion_args).replace(_SLASH_SENTINEL, "/")
 
 
 def _parse_token(
@@ -411,11 +297,6 @@ def build_prompt_with_resources(
     content: list[ContentBlock] = [text_content]
     content.extend(resolved.resources)
     return PromptMessageExtended(role="user", content=content)
-
-
-def mentions_in_text(text: str, *, cwd: Path | None = None) -> Sequence[ParsedMention]:
-    """Convenience helper primarily for tests."""
-    return parse_mentions(text, cwd=cwd).mentions
 
 
 def _resolve_local_content_block(path_text: str) -> ContentBlock:

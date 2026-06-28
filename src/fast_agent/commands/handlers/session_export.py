@@ -402,8 +402,15 @@ async def handle_session_export(
         download_privacy_filter=download_privacy_filter,
         privacy_filter_variant=privacy_filter_variant,
     )
+    if ctx.session_runtime is None:
+        outcome.add_message(
+            "Session commands are unavailable in this context.",
+            channel="warning",
+            right_info="session",
+        )
+        return outcome
     exporter = SessionTraceExporter(
-        session_manager=ctx.resolve_session_manager(),
+        session_manager=ctx.session_runtime.resolve_manager(),
         privacy_sanitizer=privacy_sanitizer,
         progress_callback=progress_callback,
     )

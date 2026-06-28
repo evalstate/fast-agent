@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, TypeGuard
+from typing import TYPE_CHECKING, Literal
 
 from rich.text import Text
 
@@ -13,16 +13,11 @@ if TYPE_CHECKING:
     from rich.console import RenderableType
 
 CommandChannel = Literal["system", "info", "warning", "error"]
-COMMAND_CHANNELS: tuple[CommandChannel, ...] = ("system", "info", "warning", "error")
 COMMAND_CHANNEL_LABELS: dict[CommandChannel, str] = {
     "info": "Info",
     "warning": "Warning",
     "error": "Error",
 }
-
-
-def is_command_channel(value: object) -> TypeGuard[CommandChannel]:
-    return isinstance(value, str) and value in COMMAND_CHANNELS
 
 
 def command_channel_label(channel: CommandChannel) -> str | None:

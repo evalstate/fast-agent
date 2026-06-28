@@ -5,7 +5,7 @@ import math
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Union
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.types import Tool as McpTool
 from pydantic import BaseModel, Field
@@ -33,7 +33,7 @@ This module lives in fast_agent to avoid circular imports and provides:
 
 
 class OptionItem(BaseModel):
-    value: Union[str, int, float, bool]
+    value: str | int | float | bool
     label: str | None = None
 
 
@@ -42,7 +42,7 @@ class FormField(BaseModel):
     type: Literal["text", "textarea", "number", "checkbox", "radio"]
     label: str | None = None
     help: str | None = None
-    default: Union[str, int, float, bool] | None = None
+    default: str | int | float | bool | None = None
     required: bool | None = None
     # number constraints
     min: float | None = None

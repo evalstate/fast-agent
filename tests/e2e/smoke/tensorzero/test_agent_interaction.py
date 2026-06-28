@@ -3,12 +3,12 @@ import pytest
 from fast_agent import FastAgent
 from fast_agent.llm.request_params import RequestParams
 
-pytestmark = pytest.mark.usefixtures("tensorzero_docker_env")
+pytestmark = pytest.mark.usefixtures("tensorzero_docker_env", "chdir_to_tensorzero_example")
 
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_tensorzero_agent_smoke(project_root, chdir_to_tensorzero_example):
+async def test_tensorzero_agent_smoke():
     """
     Smoke test for the TensorZero agent interaction defined in examples/tensorzero/agent.py.
     Sends a predefined sequence of messages.

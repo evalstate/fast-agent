@@ -15,20 +15,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.utils.collections import unique_preserve_order
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
     from pathlib import Path
-
-
-@dataclass(frozen=True)
-class ProviderModelSuggestions:
-    """Current/listed and fast model suggestions for a provider."""
-
-    provider: Provider
-    current_models: tuple[str, ...]
-    current_aliases: tuple[str, ...]
-    non_current_aliases: tuple[str, ...]
-    fast_models: tuple[str, ...]
-    all_models: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -316,7 +303,7 @@ class ModelSelectionCatalog:
             ),
             CatalogModelEntry(
                 alias="codexplan53",
-                model="codexresponses.gpt-5.3-codex?reasoning=high",
+                model="codexresponses.gpt-5.3-codex?reasoning=medium",
             ),
             CatalogModelEntry(
                 alias="codexspark",
@@ -551,75 +538,6 @@ class ModelSelectionCatalog:
         )
         return unique_preserve_order(entry.model for entry in entries if entry.fast)
 
-    # Backward-compatible aliases
-    @classmethod
-    def list_curated_entries(
-        cls,
-        provider: Provider | None = None,
-        *,
-        overlay_registry: ModelOverlayRegistry | None = None,
-        start_path: Path | None = None,
-        env_dir: str | Path | None = None,
-    ) -> list[CatalogModelEntry]:
-        """Backward-compatible alias for current entries."""
-        return cls.list_current_entries(
-            provider,
-            overlay_registry=overlay_registry,
-            start_path=start_path,
-            env_dir=env_dir,
-        )
-
-    @classmethod
-    def list_curated_models(
-        cls,
-        provider: Provider | None = None,
-        *,
-        overlay_registry: ModelOverlayRegistry | None = None,
-        start_path: Path | None = None,
-        env_dir: str | Path | None = None,
-    ) -> list[str]:
-        """Backward-compatible alias for current models."""
-        return cls.list_current_models(
-            provider,
-            overlay_registry=overlay_registry,
-            start_path=start_path,
-            env_dir=env_dir,
-        )
-
-    @classmethod
-    def list_curated_aliases(
-        cls,
-        provider: Provider | None = None,
-        *,
-        overlay_registry: ModelOverlayRegistry | None = None,
-        start_path: Path | None = None,
-        env_dir: str | Path | None = None,
-    ) -> list[str]:
-        """Backward-compatible alias for current aliases."""
-        return cls.list_current_aliases(
-            provider,
-            overlay_registry=overlay_registry,
-            start_path=start_path,
-            env_dir=env_dir,
-        )
-
-    @classmethod
-    def list_legacy_aliases(
-        cls,
-        provider: Provider | None = None,
-        *,
-        overlay_registry: ModelOverlayRegistry | None = None,
-        start_path: Path | None = None,
-        env_dir: str | Path | None = None,
-    ) -> list[str]:
-        """Backward-compatible alias for non-current aliases."""
-        return cls.list_non_current_aliases(
-            provider,
-            overlay_registry=overlay_registry,
-            start_path=start_path,
-            env_dir=env_dir,
-        )
-
     @classmethod
     def list_all_models(
         cls,
@@ -651,77 +569,6 @@ class ModelSelectionCatalog:
     def is_fast_model(cls, model: str) -> bool:
         """Return True when the provided model spec belongs to the fast catalog."""
         return ModelDatabase.is_fast_model(model)
-
-    @classmethod
-    def suggestions_for_providers(
-        cls,
-        providers: Iterable[Provider],
-        *,
-        config: Any | None = None,
-        overlay_registry: ModelOverlayRegistry | None = None,
-        start_path: Path | None = None,
-        env_dir: str | Path | None = None,
-    ) -> list[ProviderModelSuggestions]:
-        """Build provider-specific current, non-current, and fast model suggestions."""
-        config_payload = cls._as_mapping(config)
-        resolved_overlay_registry = cls._resolve_overlay_registry(
-            overlay_registry,
-            start_path=start_path,
-            env_dir=env_dir,
-        )
-        suggestions: list[ProviderModelSuggestions] = []
-        for provider in providers:
-            discovered = ProviderModelCatalogRegistry.discover(provider, config_payload)
-
-            current_models = tuple(
-                unique_preserve_order(
-                    [
-                        *cls.list_current_models(
-                            provider, overlay_registry=resolved_overlay_registry
-                        ),
-                        *discovered.current_models,
-                    ]
-                )
-            )
-            current_aliases = tuple(
-                cls.list_current_aliases(provider, overlay_registry=resolved_overlay_registry)
-            )
-            non_current_aliases = tuple(
-                cls.list_non_current_aliases(provider, overlay_registry=resolved_overlay_registry)
-            )
-            fast = tuple(cls.list_fast_models(provider, overlay_registry=resolved_overlay_registry))
-            all_models = tuple(
-                unique_preserve_order(
-                    [
-                        *cls._list_static_models_for_provider(
-                            provider,
-                            overlay_registry=resolved_overlay_registry,
-                        ),
-                        *discovered.all_models,
-                    ]
-                )
-            )
-
-            if (
-                not current_models
-                and not current_aliases
-                and not non_current_aliases
-                and not fast
-                and not all_models
-            ):
-                continue
-            suggestions.append(
-                ProviderModelSuggestions(
-                    provider=provider,
-                    current_models=current_models,
-                    current_aliases=current_aliases,
-                    non_current_aliases=non_current_aliases,
-                    fast_models=fast,
-                    all_models=all_models,
-                )
-            )
-
-        return suggestions
 
     @classmethod
     def configured_providers(

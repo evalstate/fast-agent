@@ -3,7 +3,7 @@ name = "fast-agent-app"
 version = "0.1.0"
 description = "a simple fast-agent application"
 readme = "README.md"
-requires-python = ">=3.13.7"
+requires-python = ">=3.12"
 dependencies = [
   "fast-agent-mcp",
   "fastapi>=0.116.1",

@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 import sys
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar, Union
+from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
 from mcp.types import PromptMessage
 from pydantic import BaseModel
@@ -23,14 +23,23 @@ from fast_agent.core.harness_persistence import (
 )
 from fast_agent.core.live_session_registry import InMemoryLiveSessionRegistry
 from fast_agent.core.run_lifecycle import FastAgentRunLifecycle, FastAgentRunLifecycleState
-from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.types import (
+    AgentAuth,
+    AgentRequest,
+    AgentResponse,
+    PromptMessageExtended,
+    RequestParams,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
     from types import TracebackType
 
+    from fast_agent.a2a.task_api import A2ATaskHandle
     from fast_agent.config import CompactionSettings
+    from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.fastagent import AgentInstance, FastAgent, RunRuntime, RunSettings
+    from fast_agent.core.harness_app import HarnessApp
     from fast_agent.history.compaction import CompactionResult
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.session.session_manager import Session, SessionManager
@@ -41,12 +50,12 @@ HARNESS_SESSION_ID_MAX_LENGTH = 128
 HARNESS_SESSION_ID_PATTERN = re.compile(
     rf"^[A-Za-z0-9](?:[A-Za-z0-9_-]{{0,{HARNESS_SESSION_ID_MAX_LENGTH - 2}}}[A-Za-z0-9])?$"
 )
-MessageParam: TypeAlias = Union[
-    str,
-    PromptMessage,
-    PromptMessageExtended,
-    Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-]
+MessageParam: TypeAlias = (
+    str
+    | PromptMessage
+    | PromptMessageExtended
+    | Sequence[str | PromptMessage | PromptMessageExtended]
+)
 
 
 @dataclass(slots=True)
@@ -76,6 +85,21 @@ class HarnessSession:
     def default_agent_name(self) -> str | None:
         """Default agent used when calls omit ``agent_name``."""
         return self._record.default_agent_name
+
+    @property
+    def agent_app(self) -> "AgentApp":
+        """AgentApp owned by this session."""
+        return self._record.instance.app
+
+    @property
+    def session_manager(self) -> "SessionManager | None":
+        """Persisted session manager when this session has file-backed state."""
+        from fast_agent.session.session_manager import Session
+
+        handle = self._record.persistence_handle
+        if isinstance(handle, Session):
+            return handle.manager
+        return None
 
     async def send(
         self,
@@ -108,6 +132,16 @@ class HarnessSession:
             return result
         finally:
             await self._end_operation("generate")
+
+    async def invoke(self, request: AgentRequest) -> AgentResponse:
+        """Invoke the session's target agent using an AgentRequest envelope."""
+        with _agent_auth_context(request.auth):
+            message = await self.generate(
+                request.message,
+                agent_name=request.agent,
+                request_params=request.params,
+            )
+        return AgentResponse(message=message, metadata=dict(request.metadata))
 
     async def structured(
         self,
@@ -272,6 +306,14 @@ class HarnessSession:
         persistence = self._manager._persistence
         if persistence_handle is None or persistence is None:
             return
+        from fast_agent.session.session_manager import Session
+
+        if isinstance(persistence_handle, Session):
+            manager = persistence_handle.manager
+            current_session = manager.current_session if manager is not None else None
+            if current_session is not None and current_session is not persistence_handle:
+                persistence_handle = current_session
+                self._record.persistence_handle = current_session
         await persistence.save(
             persistence_handle,
             agent,
@@ -384,6 +426,10 @@ class HarnessSessions:
     async def _close_all(self) -> None:
         await self._registry.close_all()
 
+    async def close_all(self) -> None:
+        """Close all live harness sessions and dispose their instances."""
+        await self._close_all()
+
     async def _create_record(
         self,
         session_id: str,
@@ -415,6 +461,13 @@ class HarnessSessions:
     @staticmethod
     def _close_record(record: _HarnessSessionRecord) -> None:
         record.closed = True
+        persistence_handle = record.persistence_handle
+        if persistence_handle is None:
+            return
+        from fast_agent.session.session_manager import Session
+
+        if isinstance(persistence_handle, Session):
+            persistence_handle.delete_if_empty()
 
     @staticmethod
     def _raise_if_active(record: _HarnessSessionRecord) -> None:
@@ -509,6 +562,36 @@ class AgentHarness:
         """Return an existing session or create it."""
         return await self.sessions.get_or_create(session_id, agent_name=agent_name)
 
+    def app(self, *, entrypoint: str | None = None) -> "HarnessApp":
+        """Return the configured harness app for this running harness."""
+        from fast_agent.core.harness_app import load_harness_app
+
+        return load_harness_app(
+            session_provider=self,
+            settings=self._fast_agent.context.config,
+            entrypoint=entrypoint,
+        )
+
+    @contextmanager
+    def request_context(
+        self,
+        request: AgentRequest | None = None,
+        *,
+        auth: AgentAuth | None = None,
+        bearer_token: str | None = None,
+    ):
+        """Set request-scoped auth for provider and MCP pass-through calls."""
+        resolved_auth = auth if auth is not None else request.auth if request is not None else None
+        if bearer_token is not None:
+            resolved_auth = AgentAuth.bearer(bearer_token)
+        with _agent_auth_context(resolved_auth):
+            yield
+
+    async def invoke(self, request: AgentRequest) -> AgentResponse:
+        """Invoke an agent through the harness session manager."""
+        session = await self.session(request.session_id, agent_name=request.agent)
+        return await session.invoke(request)
+
     async def shell(
         self,
         command: str,
@@ -526,6 +609,38 @@ class AgentHarness:
             env=env,
             timeout=timeout,
         )
+
+    async def start_task(self, message: str = "fast-agent is working") -> A2ATaskHandle:
+        """Publish an A2A task working update when the harness is used inside A2A serving."""
+        from fast_agent.a2a.task_api import start_task
+
+        return await start_task(message)
+
+    async def return_artifact(
+        self,
+        text: str,
+        *,
+        name: str = "response",
+        artifact_id: str | None = None,
+        append: bool = False,
+        last_chunk: bool = True,
+    ) -> A2ATaskHandle:
+        """Publish an A2A task artifact when the harness is used inside A2A serving."""
+        from fast_agent.a2a.task_api import return_artifact
+
+        return await return_artifact(
+            text,
+            name=name,
+            artifact_id=artifact_id,
+            append=append,
+            last_chunk=last_chunk,
+        )
+
+    async def return_message(self, text: str) -> A2ATaskHandle:
+        """Publish a standalone A2A message when the harness is used inside A2A serving."""
+        from fast_agent.a2a.task_api import return_message
+
+        return await return_message(text)
 
     def _load_environment_agent_cards(self) -> None:
         from fast_agent.core.agent_card_paths import is_agent_card_path
@@ -550,62 +665,43 @@ class AgentHarness:
             return None
         return FileHarnessSessionPersistence(settings.environment_dir)
 
-    async def _create_persisted_session(
-        self,
-        session_id: str,
-        instance: AgentInstance,
-        default_agent_name: str | None,
-    ) -> tuple[SessionManager, Session] | None:
-        settings = self._fast_agent.context.config
-        if settings is None or settings._fast_agent_noenv or not settings.session_history:
-            return None
-
-        from fast_agent.session.session_manager import SessionManager
-
-        manager = SessionManager(
-            environment_override=settings.environment_dir,
-        )
-        persisted_session = manager.create_session_with_id(
-            session_id,
-            metadata={"harness_session_id": session_id},
-            metadata_id_key="harness_session_id",
-        )
-
-        from fast_agent.session import SessionHydrator
-
-        fallback_agent_name = instance.app.resolve_target_agent_name(default_agent_name)
-        hydration = await SessionHydrator().hydrate_session(
-            session=persisted_session,
-            agents=instance.agents,
-            fallback_agent_name=fallback_agent_name,
-        )
-        return manager, hydration.session
-
-    async def _delete_persisted_session(self, session_id: str) -> None:
-        settings = self._fast_agent.context.config
-        if settings is None or settings._fast_agent_noenv or not settings.session_history:
-            return
-
-        from fast_agent.session.session_manager import SessionManager
-
-        manager = SessionManager(
-            environment_override=settings.environment_dir,
-        )
-        manager.delete_session(session_id)
-
     async def _create_instance(self) -> AgentInstance:
         if self._runtime is None:
             raise RuntimeError("Harness is not running.")
-        settings = self._fast_agent.context.config
-        original_session_history = settings.session_history if settings is not None else None
-        if settings is not None:
-            settings.session_history = False
+        if self._settings is None:
+            raise RuntimeError("Harness run settings are not initialized.")
+
+        config_settings = self._fast_agent.context.config
+        original_session_history = (
+            config_settings.session_history if config_settings is not None else None
+        )
+        if config_settings is not None:
+            config_settings.session_history = False
         try:
             instance = await self._fast_agent._instantiate_agent_instance(self._runtime)
         finally:
-            if settings is not None and original_session_history is not None:
-                settings.session_history = original_session_history
-        self._fast_agent._configure_runtime_mcp_callbacks(instance.app)
+            if config_settings is not None and original_session_history is not None:
+                config_settings.session_history = original_session_history
+
+        from fast_agent.core.fastagent import ManagedRunState
+
+        refresh_result = await self._fast_agent._finalize_initial_agent_instance(
+            self._runtime,
+            instance,
+        )
+        instance.app.set_refresh_result(refresh_result)
+        state = ManagedRunState(
+            runtime=self._runtime,
+            primary_instance=instance,
+            wrapper=instance.app,
+            active_agents=instance.agents,
+        )
+        callbacks = self._fast_agent._build_runtime_callbacks(state, self._settings)
+        self._fast_agent._configure_wrapper_callbacks(state, callbacks, self._settings)
+        await self._fast_agent._apply_card_tool_cli_option(
+            state,
+            callbacks.refresh_shared_instance,
+        )
         self._fast_agent._configure_streaming_for_run(instance.agents)
         return instance
 
@@ -671,6 +767,21 @@ def _resolve_persistence(
         create_persisted_session=create_persisted_session,
         delete_persisted_session=delete_persisted_session,
     )
+
+
+@contextmanager
+def _agent_auth_context(auth: AgentAuth | None):
+    from fast_agent.mcp.auth.context import request_bearer_token
+
+    if auth is None:
+        yield
+        return
+
+    saved_token = request_bearer_token.set(auth.token)
+    try:
+        yield
+    finally:
+        request_bearer_token.reset(saved_token)
 
 
 def _normalize_session_id(session_id: str | None) -> str:

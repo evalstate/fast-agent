@@ -200,10 +200,6 @@ class McpSkillSource:
         return None
 
 
-def mcp_skill_digest(entry: SkillCatalogEntry) -> str | None:
-    return entry.digest if isinstance(entry, McpRegistrySkill) else None
-
-
 class UnavailableMcpSkillSource:
     def __init__(self, *, server_name: str, detail: str) -> None:
         self._server_name = server_name

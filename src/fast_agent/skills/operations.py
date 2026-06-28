@@ -10,7 +10,6 @@ keeping the interface path- and URI-oriented:
 
 from __future__ import annotations
 
-import asyncio
 import shutil
 import subprocess
 import tempfile
@@ -48,6 +47,7 @@ from fast_agent.skills.provenance import (
     write_installed_skill_source,
 )
 from fast_agent.skills.registry import SkillManifest, SkillRegistry
+from fast_agent.utils.async_utils import run_in_thread
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
@@ -116,7 +116,7 @@ async def fetch_marketplace_skills_with_source(
             source_url=source_url,
         ),
     )
-    return await asyncio.to_thread(_expand_implicit_skill_bundles, skills), resolved_source
+    return await run_in_thread(_expand_implicit_skill_bundles, skills), resolved_source
 
 
 async def install_marketplace_skill(
@@ -124,7 +124,7 @@ async def install_marketplace_skill(
     *,
     destination_root: Path,
 ) -> Path:
-    return await asyncio.to_thread(install_marketplace_skill_sync, skill, destination_root)
+    return await run_in_thread(install_marketplace_skill_sync, skill, destination_root)
 
 
 def install_marketplace_skill_sync(skill: MarketplaceSkill, destination_root: Path) -> Path:

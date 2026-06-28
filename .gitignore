@@ -185,6 +185,7 @@ project_contents.md
 fastagent.secrets.yaml
 CLAUDE.md
 example-outputs/
+stream-debug/
 
 tests/integration/api/weather_location.txt
 tests/integration/prompt-state/simple.txt
@@ -207,6 +208,7 @@ tests/integration/roots/fastagent.jsonl
 
 # Runtime session data
 sessions/
+hf-dev/sessions/
 
 # Auth configuration (local/secrets)
 auths.md
@@ -216,6 +218,9 @@ auths.md
 upskill
 .demo
 .fast-agent
+!examples/a2a/research/.fast-agent/
+!examples/a2a/research/.fast-agent/agent-cards/
+!examples/a2a/research/.fast-agent/agent-cards/*.md
 
 /fastagent.config.yaml
 

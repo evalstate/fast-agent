@@ -369,10 +369,6 @@ def _delete_keyring_password() -> None:
     remove_identity_from_index(CODEX_KEYRING_SERVICE, CODEX_KEYRING_IDENTITY)
 
 
-def keyring_available() -> bool:
-    return get_keyring_status().writable
-
-
 def _normalize_codex_cli_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
     if "access_token" in payload:
         return {

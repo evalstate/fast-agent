@@ -143,7 +143,6 @@ class ShellRuntime:
         logger,
         timeout_seconds: int = 90,
         warning_interval_seconds: int = 30,
-        skills_directory: Path | None = None,
         working_directory: Path | None = None,
         output_byte_limit: int | None = None,
         config: Settings | None = None,
@@ -161,7 +160,6 @@ class ShellRuntime:
         self._logger = logger
         self._timeout_seconds = timeout_seconds
         self._warning_interval_seconds = warning_interval_seconds
-        self._skills_directory = skills_directory
         self._output_byte_limit = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
         self.set_output_byte_limit(output_byte_limit)
         self.enabled: bool = activation_reason is not None
@@ -249,15 +247,6 @@ class ShellRuntime:
     def set_working_directory(self, working_directory: Path | None) -> None:
         """Set the working directory used for shell execution."""
         self._executor.set_working_directory(working_directory)
-
-    @staticmethod
-    def _resolve_working_directory(path: Path) -> Path:
-        """Resolve working directory to an absolute path for subprocess execution."""
-        return LocalShellExecutor.resolve_working_directory(path)
-
-    def _validate_working_directory(self, configured_path: Path) -> str | None:
-        """Return an actionable validation error when cwd is missing/invalid."""
-        return LocalShellExecutor.validate_working_directory(configured_path)
 
     def runtime_info(self) -> dict[str, str | None]:
         """Best-effort detection of the shell runtime used for local execution.

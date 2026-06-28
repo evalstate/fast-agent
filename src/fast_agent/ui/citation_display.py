@@ -9,7 +9,6 @@ from urllib.parse import SplitResult, urlsplit, urlunsplit
 from rich.text import Text
 
 from fast_agent.constants import ANTHROPIC_CITATIONS_CHANNEL, ANTHROPIC_SERVER_TOOLS_CHANNEL
-from fast_agent.utils.markdown import escape_markdown_text
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
@@ -124,10 +123,6 @@ def _normalize_netloc(split: SplitResult, scheme: str) -> str:
     return netloc
 
 
-def _escape_markdown_link_destination(url: str) -> str:
-    return url.replace("\\", "\\\\").replace("(", r"\(").replace(")", r"\)")
-
-
 def _metadata_key_part(value: str | None) -> str:
     return strip_casefold(value) if value is not None else ""
 
@@ -183,22 +178,6 @@ def collect_citation_sources(message: "PromptMessageExtended") -> list[CitationS
         )
 
     return sources
-
-
-def render_sources_footer(message: "PromptMessageExtended") -> str | None:
-    sources = collect_citation_sources(message)
-    if not sources:
-        return None
-
-    lines: list[str] = ["", "Sources", ""]
-    for source in sources:
-        display_title = escape_markdown_text(source.display_title)
-        if source.url:
-            destination = _escape_markdown_link_destination(source.url)
-            lines.append(f"- [{source.index}] [{display_title}]({destination})")
-        else:
-            lines.append(f"- [{source.index}] {display_title}")
-    return "\n".join(lines)
 
 
 def _render_sources_text(

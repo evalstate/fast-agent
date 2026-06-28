@@ -25,7 +25,6 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     build_ws_headers,
     connect_websocket,
     resolve_responses_ws_url,
-    send_response_create,
     send_response_request,
 )
 from fast_agent.llm.provider.openai.streaming_utils import (
@@ -229,12 +228,15 @@ class _FinalResponseDelayedStream(_DelayedStream):
 
 
 @pytest.mark.asyncio
-async def test_send_response_create_envelope() -> None:
+async def test_send_response_request_create_envelope_from_planned_request() -> None:
     websocket = _FakeWebSocket()
 
-    await send_response_create(
+    await send_response_request(
         websocket,
-        {"model": "gpt-5.3-codex", "input": [], "store": False},
+        PlannedWsRequest(
+            event_type=RESPONSES_CREATE_EVENT_TYPE,
+            arguments={"model": "gpt-5.3-codex", "input": [], "store": False},
+        ),
     )
 
     assert len(websocket.sent_payloads) == 1
@@ -345,17 +347,20 @@ def test_validate_incomplete_tool_entries_raises_formatted_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_response_create_envelope_preserves_service_tier() -> None:
+async def test_send_response_request_create_envelope_preserves_service_tier() -> None:
     websocket = _FakeWebSocket()
 
-    await send_response_create(
+    await send_response_request(
         websocket,
-        {
-            "model": "gpt-5.3-codex",
-            "input": [],
-            "store": False,
-            "service_tier": "priority",
-        },
+        PlannedWsRequest(
+            event_type=RESPONSES_CREATE_EVENT_TYPE,
+            arguments={
+                "model": "gpt-5.3-codex",
+                "input": [],
+                "store": False,
+                "service_tier": "priority",
+            },
+        ),
     )
 
     assert len(websocket.sent_payloads) == 1
@@ -641,12 +646,15 @@ async def test_send_response_request_continuation_envelope() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_response_create_delegates_to_generic_sender() -> None:
+async def test_send_response_request_uses_planned_event_type() -> None:
     websocket = _FakeWebSocket()
 
-    await send_response_create(
+    await send_response_request(
         websocket,
-        {"model": "gpt-5.3-codex", "input": [_build_input_message("one")]},
+        PlannedWsRequest(
+            event_type=RESPONSES_CREATE_EVENT_TYPE,
+            arguments={"model": "gpt-5.3-codex", "input": [_build_input_message("one")]},
+        ),
     )
 
     assert len(websocket.sent_payloads) == 1

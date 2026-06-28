@@ -4,7 +4,6 @@ from fast_agent.utils.action_normalization import (
     enabled_disabled_label,
     is_cancel_action,
     is_help_flag,
-    normalize_action_alias,
     normalize_action_token,
     on_off_label,
     parse_boolean_alias,
@@ -16,35 +15,6 @@ from fast_agent.utils.action_normalization import (
 def test_normalize_action_token_strips_and_lowercases_values() -> None:
     assert normalize_action_token(" Install ") == "install"
     assert normalize_action_token(None) == ""
-
-
-def test_normalize_action_alias_uses_default_and_aliases() -> None:
-    aliases = {
-        "": "list",
-        "install": "add",
-        "rm": "remove",
-    }
-
-    assert normalize_action_alias(None, aliases) == "list"
-    assert normalize_action_alias(" install ", aliases) == "add"
-    assert normalize_action_alias("RM", aliases) == "remove"
-    assert normalize_action_alias("custom", aliases) == "custom"
-
-
-def test_normalize_action_alias_uses_default_for_blank_action() -> None:
-    aliases = {"list": "show"}
-
-    assert normalize_action_alias("   ", aliases, default="list") == "show"
-
-
-def test_normalize_action_alias_normalizes_alias_keys() -> None:
-    aliases = {
-        " Install ": "add",
-        "RM": "remove",
-    }
-
-    assert normalize_action_alias("install", aliases) == "add"
-    assert normalize_action_alias(" rm ", aliases) == "remove"
 
 
 def test_is_help_flag_matches_help_aliases() -> None:

@@ -24,6 +24,7 @@ from fast_agent.commands.shared_command_intents import (
 )
 from fast_agent.mcp.connect_targets import parse_connect_command_text
 from fast_agent.ui.command_payloads import (
+    A2ACommand,
     AgentCommand,
     AttachCommand,
     CardsCommand,
@@ -77,6 +78,7 @@ from fast_agent.ui.command_payloads import (
     SwitchAgentCommand,
     TitleSessionCommand,
     UnknownCommand,
+    UnpinSessionCommand,
 )
 from fast_agent.utils.commandline import split_commandline
 from fast_agent.utils.shell_detection import default_shell_command
@@ -389,7 +391,9 @@ def _parse_session_command(remainder: str) -> CommandPayload:
             show_help=intent.export_help,
             error=intent.export_error,
         )
-    return PinSessionCommand(value=intent.pin_value, target=intent.pin_target)
+    if intent.action == "unpin":
+        return UnpinSessionCommand()
+    return PinSessionCommand(title=intent.pin_title)
 
 
 def _simple_session_payload_from_intent(
@@ -557,6 +561,30 @@ def _parse_models_slash_command(remainder: str) -> CommandPayload:
     return _parse_models_command(remainder)
 
 
+def _parse_a2a_command(remainder: str) -> CommandPayload:
+    if not remainder:
+        return A2ACommand(action="status", argument=None)
+    tokens = remainder.split(maxsplit=1)
+    action = tokens[0].lower()
+    argument = tokens[1].strip() if len(tokens) > 1 else None
+    if action in {
+        "list",
+        "status",
+        "tasks",
+        "card",
+        "reset",
+        "connect",
+        "transport",
+        "help",
+        "?",
+        "-h",
+        "--help",
+        "commands",
+    }:
+        return A2ACommand(action=action, argument=argument)
+    return A2ACommand(action=action, argument=argument, error=f"Unknown /a2a action: {action}")
+
+
 def _parse_action_argument_command(
     command_name: str,
     remainder: str,
@@ -664,6 +692,8 @@ def _parse_slash_alias_command(
 
 
 _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
+    "a2a": _parse_a2a_command,
+    "tasks": lambda remainder: A2ACommand(action="tasks", argument=remainder or None),
     "compact": _parse_compact_command,
     "history": _parse_history_command,
     "session": _parse_session_command,

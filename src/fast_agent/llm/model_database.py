@@ -51,9 +51,6 @@ class ModelParameters(BaseModel):
     stream_mode: Literal["openai", "manual"] = "openai"
     """Determines how streaming deltas should be processed."""
 
-    system_role: None | str = "system"
-    """Role to use for the System Prompt"""
-
     cache_ttl: Literal["5m", "1h"] | None = None
     """Cache TTL for providers that support caching. None if not supported."""
 
@@ -302,20 +299,6 @@ class ModelDatabase:
     ANTHROPIC_LONG_CONTEXT_WINDOW = 1_000_000
 
     # Common parameter configurations
-    OPENAI_STANDARD = ModelParameters(
-        context_window=128000,
-        max_output_tokens=16384,
-        tokenizes=OPENAI_MULTIMODAL,
-        default_provider=Provider.OPENAI,
-    )
-
-    OPENAI_4_1_STANDARD = ModelParameters(
-        context_window=1047576,
-        max_output_tokens=32768,
-        tokenizes=OPENAI_MULTIMODAL,
-        default_provider=Provider.OPENAI,
-    )
-
     OPENAI_O_SERIES = ModelParameters(
         context_window=200000,
         max_output_tokens=100000,
@@ -325,34 +308,9 @@ class ModelDatabase:
         default_provider=Provider.RESPONSES,
     )
 
-    ANTHROPIC_LEGACY = ModelParameters(
-        context_window=200000,
-        max_output_tokens=4096,
-        tokenizes=ANTHROPIC_MULTIMODAL,
-        json_mode=None,
-        structured_tool_policy="defer",
-        cache_ttl="5m",
-        anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
-        anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
-        default_provider=Provider.ANTHROPIC,
-    )
-
     ANTHROPIC_35_SERIES = ModelParameters(
         context_window=200000,
         max_output_tokens=8192,
-        tokenizes=ANTHROPIC_MULTIMODAL,
-        json_mode=None,
-        structured_tool_policy="defer",
-        cache_ttl="5m",
-        anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
-        anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
-        default_provider=Provider.ANTHROPIC,
-    )
-
-    # TODO--- TO USE 64,000 NEED TO SUPPORT STREAMING
-    ANTHROPIC_37_SERIES = ModelParameters(
-        context_window=200000,
-        max_output_tokens=16384,
         tokenizes=ANTHROPIC_MULTIMODAL,
         json_mode=None,
         structured_tool_policy="defer",
@@ -586,21 +544,6 @@ class ModelDatabase:
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
         default_provider=Provider.ANTHROPIC,
     )
-    # Claude 3.7 Sonnet supports extended thinking (deprecated but still available)
-    ANTHROPIC_37_SERIES_THINKING = ModelParameters(
-        context_window=200000,
-        max_output_tokens=16384,
-        tokenizes=ANTHROPIC_MULTIMODAL,
-        reasoning="anthropic_thinking",
-        reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
-        json_mode=None,
-        structured_tool_policy="defer",
-        cache_ttl="5m",
-        anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
-        anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
-        default_provider=Provider.ANTHROPIC,
-    )
-
     DEEPSEEK_V4_FLASH = ModelParameters(
         context_window=1_048_576,
         max_output_tokens=393_216,
@@ -638,7 +581,6 @@ class ModelDatabase:
         tokenizes=TEXT_ONLY,
         json_mode="object",
         reasoning="gpt_oss",
-        system_role="developer",
     )
 
     GEMINI_25_STANDARD = ModelParameters(

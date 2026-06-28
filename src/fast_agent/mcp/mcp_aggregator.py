@@ -12,7 +12,6 @@ from typing import (
     Literal,
     Protocol,
     TypeVar,
-    Union,
     cast,
     runtime_checkable,
 )
@@ -51,6 +50,7 @@ from fast_agent.core.model_resolution import (
     resolve_model_spec,
 )
 from fast_agent.event_progress import ProgressAction
+from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -86,7 +86,6 @@ from fast_agent.skills.mcp_registry import (
     server_supports_mcp_skills,
 )
 from fast_agent.ui.tool_call_ids import format_tool_call_id
-from fast_agent.utils.async_utils import gather_with_cancel
 from fast_agent.utils.collections import unique_preserve_order
 from fast_agent.utils.env import env_flag
 from fast_agent.utils.text import strip_casefold
@@ -123,6 +122,10 @@ R = TypeVar("R")
 class _ServerOperationRecovery(Generic[R]):
     result: R | None
     success: bool
+
+    def __iter__(self):
+        yield self.result
+        yield self.success
 
 
 @dataclass(frozen=True, slots=True)
@@ -352,7 +355,7 @@ class MCPAggregator(ContextDependent):
         self,
         server_names: list[str],
         connection_persistence: bool = True,
-        context: Union["Context", None] = None,
+        context: "Context | None" = None,
         name: str | None = None,
         config: Any | None = None,  # Accept the agent config for elicitation_handler access
         tool_handler: ToolExecutionHandler | None = None,
@@ -463,6 +466,18 @@ class MCPAggregator(ContextDependent):
         if server_registry is None:
             raise RuntimeError("Context is missing server registry for MCP connections")
         return cast("ServerRegistryProtocol", server_registry)
+
+    def _should_use_request_scoped_connection(self, server_name: str) -> bool:
+        """Use a fresh MCP transport when auth.forward depends on request context."""
+        if not request_bearer_token.get():
+            return False
+        try:
+            config = self._require_server_registry().get_server_config(server_name)
+        except Exception:
+            return False
+        return (
+            config is not None and config.auth is not None and config.auth.forward == "huggingface"
+        )
 
     def _require_connection_manager(self) -> MCPConnectionManager:
         if self._persistent_connection_manager is None:
@@ -999,23 +1014,6 @@ class MCPAggregator(ContextDependent):
             configured.update(server_registry.registry.keys())
         return sorted(configured - set(self.list_attached_servers()))
 
-    async def _initialize_skybridge_configs(self, server_names: list[str] | None = None) -> None:
-        """Discover Skybridge resources across servers."""
-        target_servers = server_names if server_names is not None else self.server_names
-        if not target_servers:
-            return
-
-        tasks = [self._evaluate_skybridge_for_server(server_name) for server_name in target_servers]
-        results = await gather_with_cancel(tasks)
-
-        for result in results:
-            if isinstance(result, BaseException):
-                logger.debug("Skybridge discovery failed: %s", str(result))
-                continue
-
-            server_name, config = result
-            self._skybridge_configs[server_name] = config
-
     async def _evaluate_skybridge_for_server(
         self, server_name: str
     ) -> tuple[str, SkybridgeServerConfig]:
@@ -1496,15 +1494,6 @@ class MCPAggregator(ContextDependent):
             tools.append(tool_copy)
 
         return ListToolsResult(tools=tools)
-
-    async def refresh_all_tools(self) -> None:
-        """
-        Refresh the tools for all servers.
-        This is useful when you know tools have changed but haven't received notifications.
-        """
-        logger.info("Refreshing tools for all servers")
-        for server_name in self.server_names:
-            await self._refresh_server_tools(server_name)
 
     async def _record_server_call(
         self, server_name: str, operation_type: str, success: bool
@@ -2023,7 +2012,9 @@ class MCPAggregator(ContextDependent):
         server_name: str,
         try_execute: Callable[[ClientSession], Awaitable[R]],
     ) -> R:
-        if self.connection_persistence:
+        if self.connection_persistence and not self._should_use_request_scoped_connection(
+            server_name
+        ):
             return await self._execute_persistent_server_operation(server_name, try_execute)
         return await self._execute_temporary_server_operation(server_name, try_execute)
 
@@ -2102,6 +2093,7 @@ class MCPAggregator(ContextDependent):
         server_name: str,
         try_execute: Callable,
         error_factory: Callable[[str], R] | None,
+        _exc: Exception | None = None,
     ) -> _ServerOperationRecovery[R]:
         from fast_agent.ui import console
 

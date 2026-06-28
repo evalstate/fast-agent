@@ -718,15 +718,6 @@ def _show_toad_cards_completion_message(created: list[str]) -> None:
         console.print("\n[yellow]No files were created.[/yellow]")
 
 
-@app.command(name="t0", help="Alias for the TensorZero quickstart.", hidden=True)
-def t0_alias(
-    directory: Path = typer.Argument(Path(), help="Directory for the 'tensorzero' project folder."),
-    force: bool = typer.Option(False, "--force", "-f", help="Force overwrite"),
-):
-    """Alias for the `tensorzero` command."""
-    tensorzero(directory, force)
-
-
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context) -> None:
     """Quickstart applications for fast-agent."""

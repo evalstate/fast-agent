@@ -80,7 +80,11 @@ async def _dispatch_raw(
 def patched_context(monkeypatch: pytest.MonkeyPatch) -> list[CommandOutcome]:
     emitted: list[CommandOutcome] = []
     context = SimpleNamespace(settings=None)
-    monkeypatch.setattr(command_dispatch, "build_command_context", lambda provider, agent: context)
+    monkeypatch.setattr(
+        command_dispatch,
+        "build_command_context",
+        lambda provider, agent, **_kwargs: context,
+    )
 
     async def collect_outcome(_context: object, outcome: CommandOutcome) -> None:
         emitted.append(outcome)

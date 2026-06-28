@@ -5,13 +5,23 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from mcp.types import TextContent
 
-from fast_agent import AgentHarness, FastAgent, HarnessSession, HarnessSessions
+from fast_agent import (
+    AgentAuth,
+    AgentHarness,
+    AgentRequest,
+    AgentResponse,
+    FastAgent,
+    HarnessSession,
+    HarnessSessions,
+)
+from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
-from fast_agent.core.fastagent import AgentInstance
+from fast_agent.core.fastagent import AgentInstance, RunRuntime, RunSettings
 from fast_agent.tools.session_environment import ShellExecutionResult
-from fast_agent.types import PromptMessageExtended
+from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -27,6 +37,9 @@ def test_public_harness_exports_and_factory() -> None:
     harness = fast.harness()
 
     assert isinstance(harness, AgentHarness)
+    assert AgentAuth.__name__ == "AgentAuth"
+    assert AgentRequest.__name__ == "AgentRequest"
+    assert AgentResponse.__name__ == "AgentResponse"
     assert HarnessSession.__name__ == "HarnessSession"
     assert HarnessSessions.__name__ == "HarnessSessions"
 
@@ -48,23 +61,22 @@ async def test_harness_loads_environment_agent_cards(tmp_path: "Path") -> None:
 
 
 @pytest.mark.asyncio
-async def test_harness_session_creates_persisted_session_folder(tmp_path: "Path") -> None:
-    fast = FastAgent("test", parse_cli_args=False, environment_dir=tmp_path)
-    agents = {"support": cast("AgentProtocol", FakeAgent("support", default=True))}
-    instance = AgentInstance(AgentApp(agents), agents)
+async def test_file_harness_persistence_attaches_session_manager(tmp_path: "Path") -> None:
+    from fast_agent.context import Context
+    from fast_agent.core.harness_persistence import FileHarnessSessionPersistence
 
-    await fast.app.initialize()
-    try:
-        persisted = await fast.harness()._create_persisted_session(
-            "customer-123",
-            instance,
-            "support",
-        )
-    finally:
-        await fast.app.cleanup()
+    support = FakeAgent("support", default=True)
+    support.context = Context()
+    agents = {"support": cast("AgentProtocol", support)}
+    instance = AgentInstance(AgentApp(agents), agents)
+    persistence = FileHarnessSessionPersistence(tmp_path)
+
+    persisted = await persistence.create_or_load("customer-123", instance, "support")
 
     assert persisted is not None
-    assert (tmp_path / "sessions" / "customer-123" / "session.json").exists()
+    manager = support.context.session_manager
+    assert manager is not None
+    assert manager.current_session is persisted
 
 
 class FakeAgent:
@@ -77,8 +89,16 @@ class FakeAgent:
         release_generate: asyncio.Event | None = None,
     ) -> None:
         self.name = name
-        self.config = SimpleNamespace(default=default)
+        self.instruction = "instruction"
+        self.config = AgentConfig(
+            name=name,
+            default=default,
+            default_request_params=RequestParams(),
+        )
         self.context: Any = None
+        self.llm: Any = None
+        self.message_history: list[PromptMessageExtended] = []
+        self.usage_accumulator: Any = None
         self.received: list[str] = []
         self.clears: list[bool] = []
         self.shutdown_count = 0
@@ -149,6 +169,18 @@ class InstanceFactory:
         await instance.shutdown()
 
 
+class TokenEchoAgent(FakeAgent):
+    async def generate(self, messages: Any, request_params: Any = None) -> PromptMessageExtended:
+        del messages, request_params
+        from fast_agent.mcp.auth.context import request_bearer_token
+
+        token = request_bearer_token.get() or "missing"
+        return PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text=token)],
+        )
+
+
 class FakePersistence:
     def __init__(self) -> None:
         self.created: list[tuple[str, str | None]] = []
@@ -192,6 +224,99 @@ class FakeShellExecutor:
     ) -> ShellExecutionResult:
         self.calls.append((command, cwd, env, timeout))
         return ShellExecutionResult(stdout="out", stderr="err", exit_code=7)
+
+
+@pytest.mark.asyncio
+async def test_harness_create_instance_runs_run_path_setup() -> None:
+    events: list[str] = []
+    agent = FakeAgent("main", default=True)
+    agents = {"main": cast("AgentProtocol", agent)}
+    instance = AgentInstance(AgentApp(agents), agents)
+    config = SimpleNamespace(session_history=True)
+
+    async def refresh_shared_instance() -> object:
+        return object()
+
+    class _Fast:
+        context = SimpleNamespace(config=config)
+
+        async def _instantiate_agent_instance(self, runtime: RunRuntime) -> AgentInstance:
+            assert runtime is harness._runtime
+            assert config.session_history is False
+            events.append("instantiate")
+            return instance
+
+        async def _finalize_initial_agent_instance(
+            self,
+            runtime: RunRuntime,
+            created: AgentInstance,
+        ) -> object:
+            assert runtime is harness._runtime
+            assert created is instance
+            assert config.session_history is True
+            events.append("finalize")
+            return object()
+
+        def _build_runtime_callbacks(self, state: object, settings: RunSettings) -> object:
+            assert settings is harness._settings
+            events.append("callbacks")
+            return SimpleNamespace(refresh_shared_instance=refresh_shared_instance)
+
+        def _configure_wrapper_callbacks(
+            self,
+            state: object,
+            callbacks: object,
+            settings: RunSettings,
+        ) -> None:
+            del state, callbacks
+            assert settings is harness._settings
+            events.append("wrapper_callbacks")
+
+        async def _apply_card_tool_cli_option(
+            self,
+            state: object,
+            refresh_callback: object,
+        ) -> None:
+            del state
+            assert refresh_callback is refresh_shared_instance
+            events.append("card_tool")
+
+        def _configure_streaming_for_run(self, agents: dict[str, object]) -> None:
+            assert agents is instance.agents
+            events.append("streaming")
+
+    harness = AgentHarness(cast("FastAgent", _Fast()))
+    harness._runtime = RunRuntime(
+        model_factory_func=cast("Any", None),
+        global_prompt_context=None,
+        is_acp_server_mode=False,
+        noenv_mode=False,
+        managed_instances=[],
+        instance_lock=asyncio.Lock(),
+        shell_executor=FakeShellExecutor(),
+    )
+    harness._settings = RunSettings(
+        quiet_mode=False,
+        cli_model_override=None,
+        noenv_mode=False,
+        server_mode=False,
+        transport=None,
+        is_acp_server_mode=False,
+        reload_enabled=True,
+    )
+
+    created = await harness._create_instance()
+
+    assert created is instance
+    assert config.session_history is True
+    assert events == [
+        "instantiate",
+        "finalize",
+        "callbacks",
+        "wrapper_callbacks",
+        "card_tool",
+        "streaming",
+    ]
 
 
 @pytest.fixture
@@ -257,6 +382,165 @@ async def test_harness_sessions_uses_persistence_protocol() -> None:
     assert persistence.created == [("demo", "support")]
     assert persistence.saved == [({"session_id": "demo"}, "support-0")]
     assert persistence.deleted == ["demo"]
+
+
+@pytest.mark.asyncio
+async def test_harness_session_saves_to_current_managed_session_after_session_switch(
+    tmp_path: "Path",
+) -> None:
+    from fast_agent.session.session_manager import SessionManager
+
+    factory = InstanceFactory()
+    manager = SessionManager(environment_override=tmp_path)
+
+    async def create_persisted_session(
+        session_id: str,
+        instance: AgentInstance,
+        default_agent_name: str | None,
+    ):
+        del instance, default_agent_name
+        return manager, manager.create_session_with_id(session_id)
+
+    sessions = HarnessSessions(
+        create_instance=factory.create,
+        dispose_instance=factory.dispose,
+        create_persisted_session=create_persisted_session,
+    )
+
+    session = await sessions.create("initial")
+    initial_session = manager.current_session
+    assert initial_session is not None
+
+    next_session = manager.create_session_with_id("next")
+    await session.send("hello")
+
+    assert not (initial_session.directory / "history_main-0.json").exists()
+    assert (next_session.directory / "history_main-0.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_harness_close_removes_untitled_empty_persisted_session(tmp_path: "Path") -> None:
+    from fast_agent.session.session_manager import SessionManager
+
+    factory = InstanceFactory()
+    manager = SessionManager(environment_override=tmp_path)
+
+    async def create_persisted_session(
+        session_id: str,
+        instance: AgentInstance,
+        default_agent_name: str | None,
+    ):
+        del instance, default_agent_name
+        return manager, manager.create_session_with_id(
+            session_id,
+            metadata={"harness_session_id": session_id},
+            metadata_id_key="harness_session_id",
+        )
+
+    sessions = HarnessSessions(
+        create_instance=factory.create,
+        dispose_instance=factory.dispose,
+        create_persisted_session=create_persisted_session,
+    )
+
+    await sessions.create("empty")
+    assert (tmp_path / "sessions" / "empty" / "session.json").exists()
+
+    await sessions.close_all()
+
+    assert not (tmp_path / "sessions" / "empty").exists()
+
+
+@pytest.mark.asyncio
+async def test_harness_close_keeps_titled_empty_persisted_session(tmp_path: "Path") -> None:
+    from fast_agent.session.session_manager import SessionManager
+
+    factory = InstanceFactory()
+    manager = SessionManager(environment_override=tmp_path)
+
+    async def create_persisted_session(
+        session_id: str,
+        instance: AgentInstance,
+        default_agent_name: str | None,
+    ):
+        del instance, default_agent_name
+        return manager, manager.create_session_with_id(
+            session_id,
+            metadata={"harness_session_id": session_id, "title": "keep me"},
+            metadata_id_key="harness_session_id",
+        )
+
+    sessions = HarnessSessions(
+        create_instance=factory.create,
+        dispose_instance=factory.dispose,
+        create_persisted_session=create_persisted_session,
+    )
+
+    await sessions.create("empty")
+    await sessions.close_all()
+
+    assert (tmp_path / "sessions" / "empty" / "session.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_harness_session_invoke_uses_agent_request_auth_context() -> None:
+    async def create_instance() -> AgentInstance:
+        agent = cast("AgentProtocol", TokenEchoAgent("main", default=True))
+        return AgentInstance(AgentApp({"main": agent}), {"main": agent})
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        await instance.shutdown()
+
+    sessions = HarnessSessions(create_instance=create_instance, dispose_instance=dispose_instance)
+    session = await sessions.create("demo")
+
+    response = await session.invoke(
+        AgentRequest.text(
+            "hello",
+            auth=AgentAuth.bearer("hf_request_token", provider="huggingface"),
+        )
+    )
+
+    assert response.kind == "message"
+    assert response.text_content() == "hf_request_token"
+
+
+@pytest.mark.asyncio
+async def test_harness_request_context_can_wrap_unauthed_agent_request() -> None:
+    async def create_instance() -> AgentInstance:
+        agent = cast("AgentProtocol", TokenEchoAgent("main", default=True))
+        return AgentInstance(AgentApp({"main": agent}), {"main": agent})
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        await instance.shutdown()
+
+    sessions = HarnessSessions(create_instance=create_instance, dispose_instance=dispose_instance)
+    session = await sessions.create("demo")
+    harness = object.__new__(AgentHarness)
+    harness._sessions = sessions
+
+    with harness.request_context(bearer_token="outer_token"):
+        response = await session.invoke(AgentRequest.text("hello"))
+
+    assert response.text_content() == "outer_token"
+
+
+@pytest.mark.asyncio
+async def test_harness_invoke_resolves_session_and_agent_from_request() -> None:
+    factory = InstanceFactory()
+    sessions = HarnessSessions(create_instance=factory.create, dispose_instance=factory.dispose)
+    harness = object.__new__(AgentHarness)
+    harness._sessions = sessions
+
+    response = await harness.invoke(
+        AgentRequest.text("hello", agent="support", session_id="customer-123")
+    )
+
+    assert response.kind == "message"
+    assert len(factory.instances) == 1
+    assert response.message.role == "assistant"
+    support = cast("FakeAgent", factory.instances[0].agents["support"])
+    assert support.received
 
 
 @pytest.mark.asyncio

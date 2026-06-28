@@ -7,7 +7,6 @@ from typing import (
     TYPE_CHECKING,
     Literal,
     Protocol,
-    Union,
     cast,
 )
 
@@ -191,6 +190,7 @@ class ToolRunner:
         if staged is not None:
             return staged
 
+        await self._maybe_auto_compact_before_followup_llm()
         await self._ensure_tools_ready()
         await self._run_before_llm_hook()
         assistant_message = await self._call_llm()
@@ -336,6 +336,26 @@ class ToolRunner:
             self._clear_deferred_hook_status_messages()
             await self._persist_exception_turn_state()
             raise
+
+    async def _maybe_auto_compact_before_followup_llm(self) -> None:
+        message = self._last_message
+        if message is None or message.stop_reason != LlmStopReason.TOOL_USE:
+            return
+        try:
+            from fast_agent.hooks.compaction import auto_compact_history_mid_turn
+            from fast_agent.hooks.hook_context import HookContext
+
+            await auto_compact_history_mid_turn(
+                HookContext(
+                    runner=self,
+                    agent=cast("HookAgentProtocol", self._agent),
+                    message=message,
+                    hook_type="before_followup_llm_call",
+                )
+            )
+        except Exception:
+            # Mid-turn compaction is opportunistic; never break a tool loop.
+            _logger.exception("Auto-compaction failed during tool loop; history unchanged")
 
     def _record_cancelled_turn(
         self,
@@ -564,9 +584,6 @@ class ToolRunner:
 
         return tool_message
 
-    def set_request_params(self, params: RequestParams) -> None:
-        self._request_params = params
-
     @property
     def agent(self) -> object:
         """Agent currently being driven by this tool runner."""
@@ -577,7 +594,7 @@ class ToolRunner:
         """Current request params driving this tool-loop turn."""
         return self._request_params
 
-    def append_messages(self, *messages: Union[str, PromptMessageExtended]) -> None:
+    def append_messages(self, *messages: str | PromptMessageExtended) -> None:
         for message in messages:
             if isinstance(message, str):
                 self._delta_messages.append(
@@ -605,10 +622,6 @@ class ToolRunner:
     @property
     def last_message(self) -> PromptMessageExtended | None:
         return self._last_message
-
-    @property
-    def has_pending_tool_response(self) -> bool:
-        return self._pending_tool_request is not None
 
     def _stage_tool_response(self, tool_message: PromptMessageExtended) -> None:
         staged_messages = [tool_message]
@@ -677,7 +690,10 @@ class ToolRunner:
         return staged
 
     def _use_history_enabled(self) -> bool:
-        if self._request_params is not None:
+        if (
+            self._request_params is not None
+            and "use_history" in self._request_params.model_fields_set
+        ):
             return self._request_params.use_history
         return self._agent.config.use_history
 

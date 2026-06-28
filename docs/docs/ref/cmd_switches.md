@@ -25,8 +25,7 @@ When running a **fast-agent** application (typically `uv run agent.py`), you hav
 | `-p, --prompt-file <path-or-uri>` | Load and apply a prompt file from a path, HTTP(S) URL, `file://` URI, or `hf://` URI | `--prompt-file conversation.txt` |
 | `--quiet` | Disable progress display, tool and message logging | `--quiet` |
 | `--version` | Show version and exit | `--version` |
-| `--server` | Deprecated alias for server mode; use `--transport` instead | `--server` |
-| `--transport {http,stdio,acp}` | Transport protocol; enabling it also turns on server mode | `--transport http` |
+| `--transport {http,stdio,acp,a2a}` | Transport protocol; enabling it also turns on server mode | `--transport http` |
 | `--port PORT` | Port for HTTP server (default: 8000) | `--port 8080` |
 | `--host HOST` | Host for HTTP server (default: 127.0.0.1; use 0.0.0.0 to accept remote clients) | `--host 0.0.0.0` |
 | `--instance-scope {shared,connection,request}` | Control server-side agent instancing (default: shared) | `--instance-scope connection` |
@@ -35,7 +34,7 @@ When running a **fast-agent** application (typically `uv run agent.py`), you hav
 | `--dump DIR` | Export loaded agents as Markdown AgentCards | `--dump ./agent-cards` |
 | `--dump-yaml DIR` | Export loaded agents as YAML AgentCards | `--dump-yaml ./agent-cards` |
 
-`--transport` now implies server mode when running a Python module directly. Without `--transport` or the legacy `--server` flag, the module runs in interactive/message mode; when server mode is enabled and no transport is specified, the transport defaults to `http`. `--server` remains available for backward compatibility but will be removed in a future release.
+`--transport` implies server mode when running a Python module directly. Without `--transport`, the module runs in interactive/message mode.
 
 ### Examples
 

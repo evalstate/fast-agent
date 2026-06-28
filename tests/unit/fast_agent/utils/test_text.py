@@ -4,7 +4,6 @@ from fast_agent.utils.text import (
     casefold_text,
     collapse_whitespace,
     format_english_list,
-    starts_with_any_casefold,
     starts_with_casefold,
     strip_casefold,
     strip_str_to_none,
@@ -49,12 +48,6 @@ def test_starts_with_casefold_handles_case_insensitive_prefixes() -> None:
     assert starts_with_casefold("Project", "pro")
     assert starts_with_casefold("stra\u00dfe", "STRASS")
     assert not starts_with_casefold("Project", "env")
-
-
-def test_starts_with_any_casefold_handles_case_insensitive_prefixes() -> None:
-    assert starts_with_any_casefold("HTTPS://example.com", ("http://", "https://"))
-    assert starts_with_any_casefold("stra\u00dfe", ("env", "STRASS"))
-    assert not starts_with_any_casefold("stdio", ("http://", "https://"))
 
 
 def test_format_english_list_handles_empty_and_single_item_lists() -> None:

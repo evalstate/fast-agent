@@ -8,8 +8,6 @@ social:
   alt: fast-agent social card — Harness API
 ---
 
-# Harness API
-
 The Harness API runs **fast-agent** from Python without entering the TUI or
 starting an MCP/ACP transport server.
 
@@ -21,6 +19,238 @@ async with fast.harness() as harness:
     session = await harness.session("support-123", agent_name="support")
     response = await session.generate("Help this customer")
 ```
+
+!!! warning
+
+    The Harness API is under active development and should not be considered stable.
+
+
+## Mental model
+
+The Harness API has three layers:
+
+| Layer            | What it does                                                                               | Typical caller                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `AgentHarness`   | Starts the fast-agent runtime without the TUI or a protocol server.                        | Your process startup code.                                            |
+| `HarnessSession` | Owns one live `AgentInstance` for a stable conversation or job.                            | Batch jobs, tests, scripts, and direct Python code.                   |
+| `HarnessApp`     | Converts an application or protocol request into a harness session and exposes `invoke()`. | HTTP routes, webhooks, MCP adapters, A2A adapters, and local UI code. |
+
+Use `harness.session(...)` when your code already knows which conversation it
+wants to run. Use `harness.app().open(...)` when another boundary first needs to
+choose a session and agent from request data.
+
+```python
+async with fast.harness() as harness:
+    # Direct Python use: choose the session in application code.
+    session = await harness.session("customer-123", agent_name="support")
+    text = await session.send("Help this customer reset their password.")
+```
+
+For an HTTP route, webhook, queue consumer, or protocol adapter, the entrypoint
+usually receives transport-native data first. It authenticates the caller,
+derives a stable application key, then opens the app boundary:
+
+```python
+from dataclasses import dataclass
+
+from fast_agent import AgentRequest, AppOpenRequest, FastAgent, HarnessApp
+
+
+@dataclass(frozen=True)
+class SupportMessage:
+    ticket_id: str
+    text: str
+
+
+fast = FastAgent("Support service", parse_cli_args=False)
+
+
+async def handle_support_message(
+    app: HarnessApp,
+    *,
+    message: SupportMessage,
+    user_id: str,
+) -> str:
+    session_id = f"ticket-{message.ticket_id}"
+
+    async with app.open(
+        AppOpenRequest(
+            session_id=session_id,
+            agent="support",
+            metadata={"user_id": user_id, "ticket_id": message.ticket_id},
+        )
+    ) as session:
+        response = await session.invoke(
+            AgentRequest.text(
+                message.text,
+                agent="support",
+                session_id=session_id,
+                metadata={"source": "http", "user_id": user_id},
+            )
+        )
+
+    return response.text_content()
+
+
+async with fast.harness() as harness:
+    # In a real web server, do this once at startup and keep `app` in
+    # application state for request handlers or webhook callbacks.
+    app = harness.app()
+
+    reply = await handle_support_message(
+        app,
+        message=SupportMessage(ticket_id="8472", text="What is the current status?"),
+        user_id="user-123",
+    )
+```
+
+`AppOpenRequest` is the application-side open request. It answers "which
+fast-agent session should this incoming event use?" It is where an adapter puts
+the session affinity it derived from HTTP, a webhook, a queue message, an A2A
+`context_id`, an MCP session id, or another external request.
+
+`AgentRequest` is the agent-turn envelope. It carries the message plus per-turn
+agent selection, auth, request parameters, metadata, and progress reporting.
+Most adapters use the same value for `AppOpenRequest.session_id` and
+`AgentRequest.session_id`; when they differ, document the reason because they
+represent two different affinity decisions.
+
+## Session keys from application events
+
+Choose `session_id` from the unit of continuity in your product:
+
+| Incoming source           | Common session key                                                         |
+| ------------------------- | -------------------------------------------------------------------------- |
+| authenticated chat        | user id, conversation id, or thread id                                     |
+| support webhook           | ticket id or customer id                                                   |
+| GitHub webhook            | issue number, pull request number, or review thread id                     |
+| Slack/Teams/Discord event | channel/thread id plus workspace/team id                                   |
+| queue job                 | job id when isolated, or entity id when later jobs should continue context |
+| A2A server                | returned A2A `context_id`                                                  |
+| MCP server                | MCP client session id, or a request-scoped id for stateless mode           |
+
+Session IDs are runtime affinity keys, not authorization tokens. Authenticate
+and authorize the external request before deriving the key. If a user can
+provide a ticket id, issue number, or agent name, verify that the caller is
+allowed to access it before opening the harness session.
+
+## Harness apps
+
+A harness app is the preferred application boundary. It opens one
+`HarnessSession`, exposes the live `AgentApp` for lower-level UI code, and
+provides `invoke()` for protocol and service adapters.
+
+```python
+from fast_agent import AgentRequest, AppOpenRequest
+
+
+async with fast.harness() as harness:
+    app = harness.app()
+
+    async with app.open(AppOpenRequest(session_id="customer-123", agent="support")) as session:
+        response = await session.invoke(
+            AgentRequest.text(
+                "Help this customer",
+                agent="support",
+                session_id="customer-123",
+            )
+        )
+        print(response.text_content())
+```
+
+This is also the boundary used by the default CLI runtime. When `fast-agent go`
+starts a local interactive session, the TUI receives the existing `AgentApp`
+because it needs agent switching, slash commands, reload hooks, tool display,
+MCP attach/detach flows, and session command state. One-shot
+`fast-agent go --message` and `fast-agent go --prompt-file` open the same
+default harness app boundary and run the turn through a `HarnessSession`.
+
+The default MCP server uses the same boundary. `fast-agent serve` exposes one
+harness app tool named `send` by default, with optional `session_id` and `agent`
+arguments. `fast-agent serve --transport http` and
+`fast-agent serve --transport stdio` route to that default MCP harness app
+service; `fast-agent serve --transport acp` and
+`fast-agent serve --transport a2a` route to their protocol-specific servers.
+
+MCP and A2A adapters use `AgentRequest` and `AgentResponse` to keep request
+metadata, auth, session affinity, and progress reporting explicit. ACP keeps its
+ACP-specific session lifecycle, permissions, status-line updates, and client
+terminal integration, while wrapping each agent turn in an adapter that uses the
+same request/response shape.
+
+## Custom harness apps
+
+Configure a custom harness app with `harness_app.entrypoint`:
+
+```yaml
+harness_app:
+  entrypoint: "my_app:create_app"
+```
+
+The entrypoint is a `module:function` factory. It receives a
+`HarnessAppContext` with the default app and session provider. Wrap the default
+app when you want to add application policy around every opened session:
+
+```python
+from fast_agent import AgentRequest, AgentResponse, AppOpenRequest
+from fast_agent.core.harness_app import HarnessAppContext
+
+
+class MyApp:
+    def __init__(self, context: HarnessAppContext) -> None:
+        self.default_app = context.default_app
+
+    def open(self, request: AppOpenRequest | None = None):
+        return MyAppSession(self.default_app.open(request))
+
+
+class MyAppSession:
+    def __init__(self, default_session_context) -> None:
+        self.default_session_context = default_session_context
+        self.session = None
+
+    async def __aenter__(self):
+        self.session = await self.default_session_context.__aenter__()
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return await self.default_session_context.__aexit__(exc_type, exc, traceback)
+
+    @property
+    def agent_app(self):
+        return self.session.agent_app
+
+    @property
+    def env(self):
+        return self.session.env
+
+    async def invoke(self, request: AgentRequest) -> AgentResponse:
+        await self.env.tools.execute("git", args=["status", "--short"])
+        return await self.session.invoke(request)
+
+
+def create_app(context: HarnessAppContext) -> MyApp:
+    return MyApp(context)
+```
+
+Application code can also use the runtime environment directly inside an opened
+session:
+
+```python
+from pathlib import Path
+
+async with app.open(AppOpenRequest(session_id="repo-review", agent="reviewer")) as session:
+    session.env.skills.add(Path(".fast-agent/skills/repo-review"), agent="reviewer")
+    status = await session.env.tools.execute("git", args=["status", "--short"])
+    response = await session.env.agent("reviewer").invoke(
+        AgentRequest.text(
+            f"Review this workspace status:\n{status.stdout}",
+            session_id="repo-review",
+        )
+    )
+```
+
+## Session orientation
 
 The harness is session-oriented:
 
@@ -72,9 +302,9 @@ async with fast.harness(model="sonnet") as harness:
     ...
 ```
 
-| Parameter | Default | Meaning |
-|---|---:|---|
-| `model` | `None` | Optional global model override, similar to the CLI `--model` override. |
+| Parameter | Default | Meaning                                                                |
+| --------- | ------: | ---------------------------------------------------------------------- |
+| `model`   |  `None` | Optional global model override, similar to the CLI `--model` override. |
 
 The harness uses the same initialization path as `fast.run()`:
 
@@ -119,7 +349,14 @@ non-environment path.
 The public API uses concrete, typed classes:
 
 ```python
-from fast_agent import AgentHarness, FastAgent, HarnessSession, HarnessSessions
+from fast_agent import (
+    AgentHarness,
+    AppOpenRequest,
+    DefaultHarnessApp,
+    FastAgent,
+    HarnessSession,
+    HarnessSessions,
+)
 
 
 async with fast.harness() as harness:
@@ -132,7 +369,7 @@ async with fast.harness() as harness:
 These classes are exported from `fast_agent` for imports such as:
 
 ```python
-from fast_agent import AgentHarness, FastAgent, HarnessSession
+from fast_agent import AgentHarness, AppOpenRequest, DefaultHarnessApp, FastAgent, HarnessSession
 ```
 
 ## Sessions
@@ -179,25 +416,27 @@ session = await harness.sessions.get_or_create("demo")
 await harness.sessions.delete("demo")
 ```
 
-| Method | Behavior |
-|---|---|
-| `get(name)` | Return an existing session. Raise if missing. |
-| `create(name)` | Create a new session. Raise if it already exists. |
-| `get_or_create(name)` | Return an existing session or create it. |
-| `delete(name)` | Delete a session if present; no-op if missing. |
+| Method                | Behavior                                          |
+| --------------------- | ------------------------------------------------- |
+| `get(name)`           | Return an existing session. Raise if missing.     |
+| `create(name)`        | Create a new session. Raise if it already exists. |
+| `get_or_create(name)` | Return an existing session or create it.          |
+| `delete(name)`        | Delete a session if present; no-op if missing.    |
 
 Session map operations are protected by a harness-level lock.
 
 ## Calling agents from a session
 
-Harness sessions reuse the existing fast-agent protocol methods and return
-types. There is no new result wrapper.
+Harness sessions reuse the existing fast-agent protocol methods for direct
+agent calls. The app and protocol boundary uses `AgentRequest` and
+`AgentResponse`.
 
 ```python
 text = await session.send("hello")
 message = await session.generate("hello")
 data, raw = await session.structured("classify this", MyModel)
 data, raw = await session.structured_schema("classify this", schema)
+response = await session.invoke(AgentRequest.text("hello"))
 ```
 
 ### `send()`
@@ -223,6 +462,24 @@ print(message.channels)
 
 Use `generate()` when an adapter or application needs the richer assistant
 message rather than only text.
+
+### `invoke()`
+
+`invoke()` accepts an `AgentRequest` and returns an `AgentResponse`:
+
+```python
+from fast_agent import AgentRequest
+
+
+response = await session.invoke(
+    AgentRequest.text("Summarize this ticket.", agent="support", session_id="ticket-123")
+)
+
+print(response.text_content())
+```
+
+Use `invoke()` at protocol boundaries where auth, request parameters, metadata,
+progress reporting, and session affinity should travel together.
 
 ### `structured()`
 
@@ -471,7 +728,14 @@ When the harness starts, default skills are discovered, agent-specific skill
 configuration is resolved, and skill manifests are injected into prompts through
 `{{agentSkills}}`.
 
+Harness app code can also add or replace skills for the opened session's target
+agent through `session.env.skills`. This is intended for application-level policy
+such as "review routes always include the repository-review skill" without
+changing global defaults.
+
 ```python
+from fast_agent import AppOpenRequest, FastAgent
+
 fast = FastAgent(
     "Developer Assistant",
     parse_cli_args=False,
@@ -491,11 +755,13 @@ Available skills:
 )
 async def main() -> None:
     async with fast.harness() as harness:
-        session = await harness.session("issue-492", agent_name="dev")
-        response = await session.generate(
-            "Use the relevant repository skills to investigate this failure."
-        )
-        print(response.last_text())
+        app = harness.app()
+        async with app.open(AppOpenRequest(session_id="issue-492", agent="dev")) as session:
+            session.env.skills.add(".fast-agent/skills/repo-maintenance", agent="dev")
+            response = await session.env.agent("dev").generate(
+                "Use the relevant repository skills to investigate this failure."
+            )
+            print(response.last_text())
 ```
 
 Because a session owns a full `AgentInstance`, multi-agent workflows continue to
@@ -511,6 +777,48 @@ response = await session.generate(
 
 The selected agent can use configured child agents as tools, MCP servers, and
 workflow dependencies in the same session-owned instance.
+
+## Eval inspection pattern
+
+The harness can be used directly in evals without a separate eval runner. Use a
+fresh session ID for each independent case, run the turn, then inspect the
+resolved agent's `message_history` with `ConversationSummary`:
+
+```python
+from fast_agent import ConversationSummary, FastAgent
+
+
+fast = FastAgent("Support Bot", parse_cli_args=False, environment_dir=".fast-agent")
+
+
+async with fast.harness() as harness:
+    session = await harness.session("eval-checkout-status", agent_name="support")
+    message = await session.generate("Is checkout currently operational?")
+
+    agent = session.agent_app.resolve_agent("support")
+    summary = ConversationSummary(messages=agent.message_history)
+
+    assert "operational" in message.last_text().lower()
+    assert summary.tool_call_map.get("get_service_status", 0) >= 1
+    assert summary.tool_errors == 0
+```
+
+`ConversationSummary` is a small analysis view over the actual agent history. It
+reports message counts, turn splits, tool call counts, per-tool call maps,
+tool errors, and timing data when timing channels are present. For assertions
+that need exact tool arguments, tool results, citations, usage channels, or
+provider-specific metadata, inspect `agent.message_history` directly; it contains
+the same `PromptMessageExtended` objects returned by `generate()`.
+
+For deterministic test cases, prefer one session ID per case so saved history
+cannot leak between cases. Reuse a session ID only when the eval is intentionally
+checking conversation memory. When `session_history` is enabled, call
+`await session.delete()` after a case if you do not want the persisted eval
+session kept under `environment_dir/sessions/`.
+
+GEPA and artifact-heavy eval loops can use the same pattern inside their scorer
+or candidate evaluator, while writing candidate inputs, outputs, summaries, and
+scores through `fast_agent.eval` artifact helpers.
 
 ## Request parameters
 

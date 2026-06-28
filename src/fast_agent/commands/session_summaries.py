@@ -29,7 +29,7 @@ DEFAULT_SESSION_USAGE = "Usage: /session resume <id|number>"
 FULL_SESSION_USAGE = (
     "Usage: /session list | /session new [title] | /session resume [id|number] | "
     "/session title <text> | /session fork [title] | /session delete <id|number|all> | "
-    f"/session pin [on|off|id|number] | {SESSION_EXPORT_USAGE}"
+    f"/session pin <title> | /session unpin | {SESSION_EXPORT_USAGE}"
 )
 
 

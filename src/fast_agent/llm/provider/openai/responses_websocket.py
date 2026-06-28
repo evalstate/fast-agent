@@ -308,11 +308,6 @@ class StatefulContinuationResponsesWsPlanner:
         )
 
 
-# Backward-compatibility alias for older imports.
-# New code should use StatefulContinuationResponsesWsPlanner directly.
-StatefulAppendResponsesWsPlanner = StatefulContinuationResponsesWsPlanner
-
-
 @dataclass
 class WebSocketSessionState:
     """Connection-local state for websocket request planning."""
@@ -369,19 +364,6 @@ async def close_websocket_connection(connection: ManagedWebSocketConnection) -> 
             await connection.websocket.close()
     if not connection.session.closed:
         await connection.session.close()
-
-
-async def send_response_create(
-    websocket: WebSocketLike,
-    arguments: Mapping[str, Any],
-) -> None:
-    await send_response_request(
-        websocket,
-        PlannedWsRequest(
-            event_type=RESPONSES_CREATE_EVENT_TYPE,
-            arguments=_copy_arguments(arguments),
-        ),
-    )
 
 
 async def send_response_request(

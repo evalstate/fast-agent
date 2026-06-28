@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import hashlib
 import shutil
@@ -42,6 +41,7 @@ from fast_agent.marketplace.update_status import (
 )
 from fast_agent.paths import EnvironmentPaths, resolve_environment_paths
 from fast_agent.utils.action_normalization import normalize_action_token
+from fast_agent.utils.async_utils import run_in_thread
 from fast_agent.utils.count_display import plural_label
 from fast_agent.utils.text import strip_str_to_none
 
@@ -289,7 +289,7 @@ class _CardPackManifestModel(BaseModel):
 class MarketplaceEntryModel(MarketplaceEntryFieldsModel):
     @model_validator(mode="before")
     @classmethod
-    def _normalize_entry(cls, data: Any, info: "ValidationInfo") -> Any:
+    def _normalize_entry(cls, data: Any, info: ValidationInfo) -> Any:
         if not isinstance(data, dict):
             return data
 
@@ -386,7 +386,7 @@ class MarketplacePayloadModel(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _normalize_payload(cls, data: Any, info: "ValidationInfo") -> Any:
+    def _normalize_payload(cls, data: Any, info: ValidationInfo) -> Any:
         return marketplace_fetch.normalize_marketplace_payload(
             data,
             info,
@@ -590,11 +590,6 @@ def _validate_plugin_refs(value: Any) -> list[str]:
     return refs
 
 
-async def fetch_marketplace_card_packs(url: str) -> list[MarketplaceCardPack]:
-    packs, _ = await fetch_marketplace_card_packs_with_source(url)
-    return packs
-
-
 async def fetch_marketplace_card_packs_with_source(
     url: str,
 ) -> tuple[list[MarketplaceCardPack], str]:
@@ -616,7 +611,7 @@ async def install_marketplace_card_pack(
     environment_paths: EnvironmentPaths,
     force: bool = False,
 ) -> CardPackInstallResult:
-    return await asyncio.to_thread(
+    return await run_in_thread(
         _install_marketplace_card_pack_sync,
         pack,
         environment_paths,

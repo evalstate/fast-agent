@@ -11,12 +11,11 @@ Key features:
 - In-memory caching for remembered permissions within a session
 """
 
+from __future__ import annotations
+
 import asyncio
-from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from dataclasses import dataclass
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypeGuard, runtime_checkable
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 from acp.schema import (
     AllowedOutcome,
@@ -39,6 +38,8 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from acp import AgentSideConnection
 
 logger = get_logger(__name__)
@@ -48,20 +49,6 @@ def _is_acp_tool_call_id(value: str | None) -> TypeGuard[str]:
     if value is None or len(value) != 32:
         return False
     return all(ch in "0123456789abcdef" for ch in strip_casefold(value))
-
-
-@dataclass
-class ToolPermissionRequest:
-    """Request for tool execution permission."""
-
-    tool_name: str
-    server_name: str
-    arguments: dict[str, Any] | None
-    tool_call_id: str | None = None
-
-
-# Type for permission handler callbacks
-ToolPermissionHandlerT = Callable[[ToolPermissionRequest], Awaitable[PermissionResult]]
 
 
 def _permission_options() -> list[PermissionOption]:
@@ -89,44 +76,11 @@ def _permission_options() -> list[PermissionOption]:
     ]
 
 
-@runtime_checkable
-class ToolPermissionChecker(Protocol):
-    """
-    Protocol for checking tool execution permissions.
-
-    This allows permission checking to be injected into the MCP aggregator
-    without tight coupling to ACP.
-    """
-
-    async def check_permission(
-        self,
-        tool_name: str,
-        server_name: str,
-        arguments: dict[str, Any] | None = None,
-        tool_call_id: str | None = None,
-    ) -> PermissionResult:
-        """
-        Check if tool execution is permitted.
-
-        Args:
-            tool_name: Name of the tool to execute
-            server_name: Name of the MCP server providing the tool
-            arguments: Tool arguments
-            tool_call_id: Optional tool call ID for tracking
-
-        Returns:
-            PermissionResult indicating whether execution is allowed
-        """
-        ...
-
-
 class ACPToolPermissionManager:
     """
     Manages tool execution permission requests via ACP.
 
-    This class provides a handler that can be used to request permission
-    from the ACP client before executing tools. It implements the
-    ToolPermissionChecker protocol for integration with the MCP aggregator.
+    This class requests permission from the ACP client before executing tools.
 
     Features:
     - Checks persistent permissions from PermissionStore first
@@ -137,7 +91,7 @@ class ACPToolPermissionManager:
 
     def __init__(
         self,
-        connection: "AgentSideConnection",
+        connection: AgentSideConnection,
         session_id: str,
         store: PermissionStore | None = None,
         cwd: str | Path | None = None,
@@ -428,49 +382,3 @@ class ACPToolPermissionManager:
                 "Cleared session permission cache",
                 name="acp_tool_permission_cache_cleared",
             )
-
-
-class NoOpToolPermissionChecker:
-    """
-    No-op permission checker that always allows tool execution.
-
-    Used when --no-permissions flag is set or when not running in ACP mode.
-    """
-
-    async def check_permission(
-        self,
-        tool_name: str,
-        server_name: str,
-        arguments: dict[str, Any] | None = None,
-        tool_call_id: str | None = None,
-    ) -> PermissionResult:
-        """Always allows tool execution."""
-        return PermissionResult.allow_once()
-
-
-def create_acp_permission_handler(
-    permission_manager: ACPToolPermissionManager,
-) -> ToolPermissionHandlerT:
-    """
-    Create a tool permission handler for ACP integration.
-
-    This creates a handler that can be injected into the tool execution
-    pipeline to request permission before executing tools.
-
-    Args:
-        permission_manager: The ACPToolPermissionManager instance
-
-    Returns:
-        A permission handler function
-    """
-
-    async def handler(request: ToolPermissionRequest) -> PermissionResult:
-        """Handle tool permission request."""
-        return await permission_manager.check_permission(
-            tool_name=request.tool_name,
-            server_name=request.server_name,
-            arguments=request.arguments,
-            tool_call_id=request.tool_call_id,
-        )
-
-    return handler

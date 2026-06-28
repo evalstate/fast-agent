@@ -8,6 +8,8 @@ When MCP tools execute and report progress, this module:
 3. Handles status transitions (pending -> in_progress -> completed/failed)
 """
 
+from __future__ import annotations
+
 import asyncio
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -96,7 +98,7 @@ class ACPToolProgressManager:
     Uses the SDK's ToolCallTracker for state management and notification generation.
     """
 
-    def __init__(self, connection: "AgentSideConnection", session_id: str) -> None:
+    def __init__(self, connection: AgentSideConnection, session_id: str) -> None:
         """
         Initialize the progress manager.
 

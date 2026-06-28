@@ -30,7 +30,6 @@ SKILLS_ADD_HINT_SLASH = f"Install with `/skills add <{SKILLS_ADD_SELECTOR}>`."
 @dataclass(frozen=True, slots=True)
 class SkillsSlashOptions:
     argument: str = ""
-    argument_tokens: tuple[str, ...] = ()
     registry: str | None = None
     skills_dir: str | None = None
     error: str | None = None
@@ -97,7 +96,6 @@ def parse_skills_slash_options(argument: str | None) -> SkillsSlashOptions:
 
     return SkillsSlashOptions(
         argument=argument,
-        argument_tokens=tuple(remaining),
         registry=registry,
         skills_dir=skills_dir,
     )

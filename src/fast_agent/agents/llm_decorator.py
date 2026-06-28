@@ -15,7 +15,6 @@ from typing import (
     Any,
     Self,
     TypeVar,
-    Union,
 )
 
 if TYPE_CHECKING:
@@ -77,10 +76,6 @@ from fast_agent.utils.count_display import plural_label
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
-
-
-class StreamingNotAvailableError(RuntimeError):
-    """Raised when streaming APIs are accessed before an LLM is attached."""
 
 
 logger = get_logger(__name__)
@@ -512,12 +507,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     async def __call__(
         self,
-        message: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
+        message: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
     ) -> str:
         """
         Make the agent callable to send messages.
@@ -532,12 +525,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     async def send(
         self,
-        message: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
+        message: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
         request_params: RequestParams | None = None,
     ) -> str:
         """
@@ -548,12 +539,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     async def generate(
         self,
-        messages: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
+        messages: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
@@ -638,7 +627,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     async def apply_prompt(
         self,
-        prompt: Union[str, GetPromptResult],
+        prompt: str | GetPromptResult,
         arguments: dict[str, str] | None = None,
         as_template: bool = False,
         namespace: str | None = None,
@@ -678,12 +667,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     async def structured(
         self,
-        messages: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
+        messages: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
         model: type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageExtended]:
@@ -716,12 +703,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     async def structured_schema(
         self,
-        messages: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
+        messages: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
         schema: dict[str, Any],
         request_params: RequestParams | None = None,
     ) -> tuple[Any | None, PromptMessageExtended]:
@@ -1389,7 +1374,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     async def with_resource(
         self,
-        prompt_content: Union[str, PromptMessage, PromptMessageExtended],
+        prompt_content: str | PromptMessage | PromptMessageExtended,
         resource_uri: str,
         namespace: str | None = None,
     ) -> str:
@@ -1463,7 +1448,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
-        additional_message: Union["Text", None] = None,
+        additional_message: "Text | None" = None,
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
         render_message: bool = True,

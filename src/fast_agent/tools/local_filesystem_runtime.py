@@ -55,7 +55,6 @@ from fast_agent.tools.filesystem_tool_args import (
 )
 from fast_agent.tools.filesystem_tool_definitions import (
     ATTACH_MEDIA_TOOL_NAME,
-    ATTACH_RESOURCE_TOOL_ALIAS,
     READ_TEXT_FILE_TOOL_NAME,
     WRITE_TEXT_FILE_TOOL_NAME,
     build_attach_media_tool,
@@ -139,9 +138,7 @@ class LocalFilesystemRuntime:
         enable_apply_patch: bool = False,
         enable_edit_file: bool = False,
         enable_attach_media: str | None = "auto",
-        enable_attach_resource: str | None = None,
         attach_media_max_bytes: int = DEFAULT_ATTACH_MEDIA_MAX_BYTES,
-        attach_resource_max_bytes: int | None = None,
         model_info: "ModelInfo | None" = None,
         tool_handler_resolver: "Callable[[RequestParams | None], ToolExecutionHandler | None]"
         | None = None,
@@ -152,17 +149,10 @@ class LocalFilesystemRuntime:
         self._enable_write = enable_write
         self._enable_apply_patch = enable_apply_patch
         self._enable_edit_file = enable_edit_file
-        self._enable_attach_media = (
-            enable_attach_resource if enable_attach_resource is not None else enable_attach_media
-        )
+        self._enable_attach_media = enable_attach_media
         if self._enable_attach_media is None:
             self._enable_attach_media = "auto"
-        attach_max_bytes = (
-            attach_resource_max_bytes
-            if attach_resource_max_bytes is not None
-            else attach_media_max_bytes
-        )
-        self._attach_media_max_bytes = normalize_attach_media_max_bytes(attach_max_bytes)
+        self._attach_media_max_bytes = normalize_attach_media_max_bytes(attach_media_max_bytes)
         self._model_info = model_info
         self._tool_handler_resolver = tool_handler_resolver
 
@@ -209,20 +199,7 @@ class LocalFilesystemRuntime:
     @property
     def tools(self) -> list[Tool]:
         """Return locally supported filesystem tools."""
-        return [spec.tool() for spec in self._enabled_tool_specs()]
-
-    def _enabled_tool_specs(self) -> tuple[FilesystemToolSpec, ...]:
-        return enabled_tool_specs(self._tool_specs)
-
-    def _enabled_tool_spec(self, tool_name: str) -> FilesystemToolSpec | None:
-        return enabled_tool_spec(self._tool_specs, tool_name)
-
-    def _callable_tool_spec(self, tool_name: str) -> FilesystemToolSpec | None:
-        return enabled_tool_spec(
-            self._tool_specs,
-            tool_name,
-            aliases={ATTACH_RESOURCE_TOOL_ALIAS: ATTACH_MEDIA_TOOL_NAME},
-        )
+        return [spec.tool() for spec in enabled_tool_specs(self._tool_specs)]
 
     def set_enabled_tools(
         self,
@@ -232,7 +209,6 @@ class LocalFilesystemRuntime:
         enable_apply_patch: bool,
         enable_edit_file: bool | None = None,
         enable_attach_media: str | None = None,
-        enable_attach_resource: str | None = None,
     ) -> None:
         """Update enabled filesystem tool flags."""
         self._enable_read = enable_read
@@ -240,11 +216,8 @@ class LocalFilesystemRuntime:
         self._enable_apply_patch = enable_apply_patch
         if enable_edit_file is not None:
             self._enable_edit_file = enable_edit_file
-        resolved_attach_media = (
-            enable_attach_resource if enable_attach_resource is not None else enable_attach_media
-        )
-        if resolved_attach_media is not None:
-            self._enable_attach_media = resolved_attach_media
+        if enable_attach_media is not None:
+            self._enable_attach_media = enable_attach_media
 
     def set_model_info(self, model_info: "ModelInfo | None") -> None:
         """Update model capability metadata used by attach_media."""
@@ -291,9 +264,6 @@ class LocalFilesystemRuntime:
             return candidate.resolve()
         return (self._base_directory() / candidate).resolve()
 
-    def has_tool(self, tool_name: str) -> bool:
-        return self._enabled_tool_spec(tool_name) is not None
-
     def _attach_media_enabled(self) -> bool:
         if self._enable_attach_media == "off":
             return False
@@ -309,7 +279,7 @@ class LocalFilesystemRuntime:
         *,
         request_params: "RequestParams | None" = None,
     ) -> CallToolResult:
-        spec = self._callable_tool_spec(name)
+        spec = enabled_tool_spec(self._tool_specs, name)
         if spec is not None:
             return await self._call_with_tracking(
                 spec.name,
@@ -493,12 +463,6 @@ class LocalFilesystemRuntime:
             set_tool_result_media_preview(result, [attached.block])
         return result
 
-    async def attach_resource(
-        self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
-    ) -> CallToolResult:
-        """Deprecated compatibility wrapper for attach_media."""
-        return await self.attach_media(arguments, tool_use_id)
-
     async def apply_patch(
         self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
     ) -> CallToolResult:
@@ -587,6 +551,6 @@ class LocalFilesystemRuntime:
         """Expose runtime metadata for tool displays and diagnostics."""
         return {
             "type": "local_filesystem",
-            "tools": [spec.name for spec in self._enabled_tool_specs()],
+            "tools": [spec.name for spec in enabled_tool_specs(self._tool_specs)],
             "working_directory": str(self._base_directory()),
         }

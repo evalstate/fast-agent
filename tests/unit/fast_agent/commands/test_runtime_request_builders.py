@@ -887,7 +887,6 @@ def test_build_agent_run_request_noenv_keeps_explicit_cards_only() -> None:
     assert request.agent_cards == ["./cards", "./extra"]
     assert request.card_tools == ["./tools"]
     assert request.environment_dir is None
-    assert request.allow_implicit_cards is False
 
 
 def test_build_agent_run_request_noenv_forces_serve_permissions_off() -> None:

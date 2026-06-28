@@ -64,9 +64,8 @@ from fast_agent.acp.server.session_runtime import ACPServerSessionRuntime, Sessi
 from fast_agent.acp.server.session_store import ACPServerSessionStore, SessionStoreHost
 from fast_agent.acp.server.slash_runtime import ACPServerSlashRuntime, SlashRuntimeHost
 from fast_agent.agents.tool_runner import ToolRunnerHooks
-from fast_agent.commands.model_capabilities import resolve_model_name, resolve_resolved_model
 from fast_agent.config import MCPServerSettings, get_settings
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.agent_app import AgentCardLoadResult
 from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
@@ -74,13 +73,10 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol, LlmCapableProtocol
-from fast_agent.llm.terminal_output_limits import (
-    calculate_terminal_output_limit_for_model,
-    calculate_terminal_output_limit_for_resolved_model,
-)
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
 from fast_agent.mcp.types import McpAgentProtocol
-from fast_agent.session import get_session_manager
+from fast_agent.paths import resolve_environment_paths
+from fast_agent.session.session_manager import SessionManager
 from fast_agent.types import RequestParams
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 
@@ -149,8 +145,6 @@ class AgentACPServer(ACPAgent):
             create=create_instance,
             dispose=dispose_instance,
         )
-        self._create_instance_task = self._instance_factory.create_instance
-        self._dispose_instance_task = self._instance_factory.dispose_instance
         self._load_card_callback = load_card_callback
         self._attach_agent_tools_callback = attach_agent_tools_callback
         self._detach_agent_tools_callback = detach_agent_tools_callback
@@ -172,19 +166,12 @@ class AgentACPServer(ACPAgent):
         self.sessions = self._live_sessions.sessions
         self._session_lock = asyncio.Lock()
 
-        # Per-session prompt locks to serialize prompt turns.
-        # ACP session/update notifications are correlated only by sessionId, so overlapping
-        # prompts would interleave updates and become ambiguous.
-        self._prompt_locks = self._live_sessions.prompt_locks
-
-        # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
-        self._active_prompts = self._live_sessions.active_prompts
-
         # Track asyncio tasks per session for proper task-based cancellation
         self._session_tasks = self._live_sessions.session_tasks
 
         # Aggregated per-session state
         self._session_state = self._live_sessions.session_state
+        self._session_managers: dict[tuple[str, str], SessionManager] = {}
 
         # Connection reference (set during run_async)
         self._connection: ACPClient | None = None
@@ -214,28 +201,6 @@ class AgentACPServer(ACPAgent):
             agent_count=len(bootstrap_instance.agents),
             primary_agent=self.primary_agent_name,
         )
-
-    def _calculate_terminal_output_limit(self, agent: Any) -> int:
-        """
-        Determine a default terminal output byte limit based on the agent's model.
-
-        Args:
-            agent: Agent instance that may expose an llm with model metadata.
-        """
-        # Some workflow agents (e.g., chain/parallel) don't attach an LLM directly.
-        llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
-        resolved_model = resolve_resolved_model(llm)
-        if resolved_model is not None:
-            return calculate_terminal_output_limit_for_resolved_model(resolved_model)
-        model_name = resolve_model_name(llm)
-        return self._calculate_terminal_output_limit_for_model(model_name)
-
-    @staticmethod
-    def _calculate_terminal_output_limit_for_model(model_name: str | None) -> int:
-        if not model_name:
-            return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
-
-        return calculate_terminal_output_limit_for_model(model_name)
 
     def _build_auth_meta(self) -> dict[str, Any]:
         """Return static setup guidance shared by initialize/authenticate/auth errors."""
@@ -453,11 +418,6 @@ class AgentACPServer(ACPAgent):
 
         return normalized
 
-    def _build_session_modes(
-        self, instance: AgentInstance, session_state: ACPSessionState | None = None
-    ) -> SessionModeState:
-        return self._session_runtime.build_session_modes(instance, session_state)
-
     async def _build_session_request_params(
         self, agent: AgentProtocol, session_state: ACPSessionState | None
     ) -> RequestParams | None:
@@ -499,10 +459,7 @@ class AgentACPServer(ACPAgent):
             )
         return str(path.resolve())
 
-    def _get_session_manager(self, *, cwd: Path | None = None) -> Any:
-        if cwd is None:
-            return get_session_manager()
-
+    def _session_manager_environment_override(self, cwd: Path | None) -> str | Path | None:
         settings = get_settings()
         configured_environment_dir = settings.environment_dir
         legacy_environment_dir = os.getenv("ENVIRONMENT_DIR")
@@ -513,20 +470,26 @@ class AgentACPServer(ACPAgent):
             == Path(legacy_environment_dir).expanduser()
         )
         if configured_environment_dir is not None and not ambient_legacy_environment_dir:
-            return get_session_manager(cwd=cwd, environment_override=configured_environment_dir)
+            return configured_environment_dir
 
         if settings._fast_agent_home_source == "default":
-            return get_session_manager(cwd=cwd, environment_override=DEFAULT_ENVIRONMENT_DIR)
+            return DEFAULT_ENVIRONMENT_DIR
 
-        return get_session_manager(cwd=cwd)
+        return None
 
-    @staticmethod
-    def _encode_session_list_cursor(offset: int) -> str:
-        return ACPServerSessionStore._encode_session_list_cursor(offset)
-
-    @staticmethod
-    def _decode_session_list_cursor(cursor: str) -> int:
-        return ACPServerSessionStore._decode_session_list_cursor(cursor)
+    def _get_session_manager(self, *, cwd: Path | None = None) -> SessionManager:
+        resolved_cwd = cwd.resolve() if cwd is not None else Path.cwd().resolve()
+        environment_override = self._session_manager_environment_override(cwd)
+        expected_paths = resolve_environment_paths(
+            cwd=resolved_cwd,
+            override=environment_override,
+        )
+        key = (str(expected_paths.sessions.resolve()), str(resolved_cwd))
+        manager = self._session_managers.get(key)
+        if manager is None:
+            manager = SessionManager(cwd=cwd, environment_override=environment_override)
+            self._session_managers[key] = manager
+        return manager
 
     async def _replace_instance_for_session(
         self,
@@ -540,11 +503,6 @@ class AgentACPServer(ACPAgent):
             dispose_error_name=dispose_error_name,
             await_refresh_session_state=await_refresh_session_state,
         )
-
-    async def _refresh_session_state(
-        self, session_state: ACPSessionState, instance: AgentInstance
-    ) -> None:
-        await self._session_runtime.refresh_session_state(session_state, instance)
 
     async def _hydrate_session_state_from_persisted_session(
         self,
@@ -610,46 +568,6 @@ class AgentACPServer(ACPAgent):
         instance: AgentInstance,
     ) -> Any:
         return self._slash_runtime.create_slash_handler(session_state, instance)
-
-    async def _load_agent_card_for_session(
-        self,
-        session_state: ACPSessionState,
-        source: str,
-        *,
-        attach_to: str | None = None,
-    ) -> tuple[AgentInstance, AgentCardLoadResult]:
-        return await self._slash_runtime.load_agent_card_for_session(
-            session_state,
-            source,
-            attach_to=attach_to,
-        )
-
-    async def _attach_agent_tools_for_session(
-        self,
-        session_state: ACPSessionState,
-        parent_name: str,
-        child_names: Sequence[str],
-    ) -> tuple[AgentInstance, list[str]]:
-        return await self._slash_runtime.attach_agent_tools_for_session(
-            session_state,
-            parent_name,
-            child_names,
-        )
-
-    async def _detach_agent_tools_for_session(
-        self,
-        session_state: ACPSessionState,
-        parent_name: str,
-        child_names: Sequence[str],
-    ) -> tuple[AgentInstance, list[str]]:
-        return await self._slash_runtime.detach_agent_tools_for_session(
-            session_state,
-            parent_name,
-            child_names,
-        )
-
-    async def _reload_agent_cards_for_session(self, session_id: str) -> bool:
-        return await self._slash_runtime.reload_agent_cards_for_session(session_id)
 
     def _build_status_line_meta(
         self, agent: Any, turn_start_index: int | None
@@ -735,19 +653,14 @@ class AgentACPServer(ACPAgent):
         Creates a new ACP session with its own dedicated agent instance.
         """
         _ = additional_directories
-        request_cwd = self._resolve_request_cwd(
-            cwd=cwd,
-            request_name="session/new",
-            required=True,
+        request_cwd = cast(
+            "str",
+            self._resolve_request_cwd(
+                cwd=cwd,
+                request_name="session/new",
+                required=True,
+            ),
         )
-        if request_cwd is None:
-            raise RequestError.invalid_params(
-                {
-                    "cwd": cwd,
-                    "request": "session/new",
-                    "reason": "cwd is required and must be an absolute path",
-                }
-            )
         manager = self._get_session_manager(cwd=Path(request_cwd))
         session_id = manager.generate_session_id()
 
@@ -764,6 +677,7 @@ class AgentACPServer(ACPAgent):
             cwd=request_cwd,
             mcp_servers=mcp_servers or [],
         )
+        session_state.attach_session_manager(manager)
 
         logger.info(
             "ACP new session created",
@@ -844,17 +758,12 @@ class AgentACPServer(ACPAgent):
 
         # Update the session's current agent
         if session_state:
-            session_state.current_agent_name = mode_id
-
-        # Update slash handler's current agent so it queries the right agent's commands
-        if session_state and session_state.slash_handler:
-            session_state.slash_handler.set_current_agent(mode_id)
+            session_state.set_current_agent(mode_id)
 
         # Update ACPContext and send available_commands_update
         # (commands may differ per agent)
         if session_state and session_state.acp_context:
             acp_context = session_state.acp_context
-            acp_context.set_current_mode(mode_id)
             await acp_context.send_available_commands_update()
 
         logger.info(
@@ -1072,7 +981,7 @@ class AgentACPServer(ACPAgent):
                 continue
             disposed_instances.add(instance_id)
             try:
-                await self._dispose_instance_task(instance)
+                await self._instance_factory.dispose_instance(instance)
             except Exception as e:
                 logger.error(
                     f"Error disposing instance for session {session_id}: {e}",
@@ -1085,7 +994,7 @@ class AgentACPServer(ACPAgent):
         if not bootstrap_instance or id(bootstrap_instance) in disposed_instances:
             return
         try:
-            await self._dispose_instance_task(bootstrap_instance)
+            await self._instance_factory.dispose_instance(bootstrap_instance)
         except Exception as e:
             logger.error(
                 f"Error disposing ACP bootstrap instance: {e}",

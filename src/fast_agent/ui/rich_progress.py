@@ -274,17 +274,6 @@ class RichProgressDisplay:
             # Never let diagnostics interfere with user-facing progress behavior.
             pass
 
-    def hide_task(self, task_name: str) -> None:
-        """Hide an existing task from the progress display by name."""
-        with self._lock:
-            task_id = self._taskmap.get(task_name)
-            if task_id is None:
-                return
-            for task in self._progress.tasks:
-                if task.id == task_id:
-                    task.visible = False
-                    break
-
     def clear_agent_tasks(self, agent_name: str | None) -> None:
         """Remove all progress rows for an agent, including correlated tool rows."""
         normalized_agent = (agent_name or "").strip()

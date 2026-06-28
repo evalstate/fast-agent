@@ -27,7 +27,7 @@ def _is_card_pack_marketplace_entry(kind: str | None) -> bool:
 class MarketplacePluginEntryModel(MarketplaceEntryFieldsModel):
     @model_validator(mode="before")
     @classmethod
-    def _normalize_entry(cls, data: Any, info: "ValidationInfo") -> Any:
+    def _normalize_entry(cls, data: Any, info: ValidationInfo) -> Any:
         if not isinstance(data, dict):
             return data
         context = info.context or {}
@@ -103,7 +103,7 @@ class MarketplacePluginPayloadModel(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _normalize_payload(cls, data: Any, info: "ValidationInfo") -> Any:
+    def _normalize_payload(cls, data: Any, info: ValidationInfo) -> Any:
         return marketplace_fetch.normalize_marketplace_payload(
             data,
             info,

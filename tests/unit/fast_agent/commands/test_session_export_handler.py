@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+import sys
 from pathlib import Path
 
 import pytest
@@ -7,6 +9,15 @@ import pytest
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers.session_export import handle_session_export
 from fast_agent.session.trace_export_models import ExportRequest, ExportResult
+
+REPO_ROOT = next(
+    parent for parent in Path(__file__).resolve().parents if (parent / "tests" / "support").is_dir()
+)
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+_session_runtime = importlib.import_module("tests.support.session_runtime")
+StubSessionRuntime = _session_runtime.StubSessionRuntime
 
 
 class _StubIO:
@@ -102,7 +113,6 @@ async def test_handle_session_export_leaves_agent_unset_for_exporter_inference(
                 record_count=3,
             )
 
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: session_manager)
     monkeypatch.setattr(
         "fast_agent.commands.handlers.session_export.SessionTraceExporter", _Exporter
     )
@@ -111,6 +121,7 @@ async def test_handle_session_export_leaves_agent_unset_for_exporter_inference(
         agent_provider=_StubAgentProvider(),
         current_agent_name="alpha",
         io=_StubIO(),
+        session_runtime=StubSessionRuntime(manager=session_manager),
     )
 
     outcome = await handle_session_export(

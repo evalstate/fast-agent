@@ -94,11 +94,11 @@ Starts the application as an MCP server.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `transport` | `str` | `"http"` | Transport protocol to use (`http`, `stdio`, `acp`) |
+| `transport` | `str` | `"http"` | Transport protocol to use (`http`, `stdio`, `acp`, `a2a`) |
 | `host` | `str` | `"127.0.0.1"` | Host address for the server when using HTTP |
 | `port` | `int` | `8000` | Port for the server when using HTTP |
-| `server_name` | `Optional[str]` | `None` | Optional custom name for the MCP server |
-| `server_description` | `Optional[str]` | `None` | Optional description for the MCP server |
+| `server_name` | `str \| None` | `None` | Optional custom name for the MCP server |
+| `server_description` | `str \| None` | `None` | Optional description for the MCP server |
 | `tool_description` | `str \| None` | `None` | Customise the exposed `send` tool description (supports `{agent}` placeholder) |
 | `instance_scope` | `str \| None` | `None` | Control how clients receive isolated agent instances (`shared`, `connection`, `request`); `None` uses the transport default |
 | `permissions_enabled` | `bool` | `True` | Enable tool permission requests (ACP only) |
@@ -110,7 +110,7 @@ Starts the application as an MCP server.
 is_server_mode = await fast.main()
 ```
 
-Helper method for checking if the legacy `--server` flag was requested (deprecated). Server mode is also triggered by `--transport` when running from the CLI, but that check happens in `run()`.
+Helper method for checking if server mode was requested for this app. Server mode is triggered by `--transport` when running from the CLI, but that check happens in `run()`.
 
 --8<-- "docs/docs/_generated/harness_reference.md"
 
@@ -136,7 +136,7 @@ response = await agent["agent_name"].send("Hello")
 
 ```python
 await agent.send(
-    message: Union[str, PromptMessage, PromptMessageExtended],
+    message: str | PromptMessage | PromptMessageExtended,
     agent_name: str | None = None,
     request_params: RequestParams | None = None,
 ) -> str
@@ -161,7 +161,7 @@ Apply a prompt template to an agent (default agent if not specified).
 
 ```python
 await agent.with_resource(
-    prompt_content: Union[str, PromptMessage, PromptMessageExtended],
+    prompt_content: str | PromptMessage | PromptMessageExtended,
     resource_uri: str,
     server_name: str | None = None,
     agent_name: str | None = None

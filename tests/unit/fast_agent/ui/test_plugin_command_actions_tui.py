@@ -13,6 +13,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.command_actions import PluginCommandActionSpec
 from fast_agent.ui.prompt.completer import AgentCompleter
 from fast_agent.ui.prompt.keybindings import create_keybindings
+from fast_agent.utils.async_utils import run_in_thread
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -182,7 +183,7 @@ async def test_plugin_argument_completion_timeout_does_not_wait_for_worker() -> 
     completer._completion_wait_timeout_seconds = 0.01
 
     async def slow_completion():
-        await asyncio.to_thread(release_worker.wait)
+        await run_in_thread(release_worker.wait)
         return ["late"]
 
     started_at = time.perf_counter()

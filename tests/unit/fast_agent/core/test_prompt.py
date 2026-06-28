@@ -15,7 +15,7 @@ from mcp.types import (
     TextResourceContents,
 )
 
-from fast_agent.core.prompt import Prompt
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 

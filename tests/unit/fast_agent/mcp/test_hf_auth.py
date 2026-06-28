@@ -7,10 +7,13 @@ Environment variables are volatile and may be temporarily modified during test e
 import os
 
 from fast_agent.mcp.hf_auth import (
+    HF_CLI_AMBIENT_AUTH_POLICY,
+    HF_EXPLICIT_BEARER_AUTH_POLICY,
+    add_explicit_bearer_auth_header,
     add_hf_auth_header,
     get_hf_token_from_env,
+    is_hf_space_url,
     is_huggingface_url,
-    should_add_hf_auth,
 )
 
 
@@ -96,6 +99,10 @@ class TestIsHuggingfaceUrl:
     def test_hf_space_with_port(self):
         assert is_huggingface_url("https://space.hf.space:8080/path") is True
 
+    def test_is_hf_space_url_distinguishes_hub_domain(self):
+        assert is_hf_space_url("https://space.hf.space/api") is True
+        assert is_hf_space_url("https://huggingface.co/mcp?mix=jobs") is False
+
 
 class TestGetHfTokenFromEnv:
     """Test HF_TOKEN environment variable retrieval."""
@@ -118,63 +125,6 @@ class TestGetHfTokenFromEnv:
         original = _set_hf_token("")
         try:
             assert get_hf_token_from_env(hub_token_provider=_no_hub_token) is None
-        finally:
-            _restore_hf_token(original)
-
-
-class TestShouldAddHfAuth:
-    """Test the logic for determining when to add HF authentication."""
-
-    def test_hf_url_no_existing_auth_with_token(self):
-        original = _set_hf_token("test_token")
-        try:
-            assert should_add_hf_auth("https://hf.co/models", None) is True
-        finally:
-            _restore_hf_token(original)
-
-    def test_hf_url_no_existing_auth_no_token(self):
-        original = _set_hf_token(None)
-        try:
-            assert should_add_hf_auth("https://hf.co/models", None, _no_hub_token) is False
-        finally:
-            _restore_hf_token(original)
-
-    def test_hf_url_existing_auth_with_token(self):
-        original = _set_hf_token("test_token")
-        try:
-            headers = {"Authorization": "Bearer existing_token"}
-            assert should_add_hf_auth("https://hf.co/models", headers) is False
-        finally:
-            _restore_hf_token(original)
-
-    def test_hf_space_existing_x_hf_auth_with_token(self):
-        """Test that existing X-HF-Authorization prevents adding auth to .hf.space."""
-        original = _set_hf_token("test_token")
-        try:
-            headers = {"X-HF-Authorization": "Bearer existing_token"}
-            assert should_add_hf_auth("https://myspace.hf.space/api", headers) is False
-        finally:
-            _restore_hf_token(original)
-
-    def test_hf_url_existing_other_headers_with_token(self):
-        original = _set_hf_token("test_token")
-        try:
-            headers = {"Content-Type": "application/json"}
-            assert should_add_hf_auth("https://hf.co/models", headers) is True
-        finally:
-            _restore_hf_token(original)
-
-    def test_non_hf_url_with_token(self):
-        original = _set_hf_token("test_token")
-        try:
-            assert should_add_hf_auth("https://example.com/api", None) is False
-        finally:
-            _restore_hf_token(original)
-
-    def test_non_hf_url_no_token(self):
-        original = _set_hf_token(None)
-        try:
-            assert should_add_hf_auth("https://example.com/api", None) is False
         finally:
             _restore_hf_token(original)
 
@@ -203,13 +153,11 @@ class TestAddHfAuthHeader:
             _restore_hf_token(original)
 
     def test_adds_x_hf_auth_header_for_hf_space(self):
-        """Test that .hf.space domains get both Authorization and X-HF-Authorization headers."""
+        """Test that .hf.space domains get only X-HF-Authorization."""
         original = _set_hf_token("test_token_123")
         try:
             result = add_hf_auth_header("https://myspace.hf.space/api", None)
-            # Both headers are needed: Authorization for the app, X-HF-Authorization for HF infra
             expected = {
-                "Authorization": "Bearer test_token_123",
                 "X-HF-Authorization": "Bearer test_token_123",
             }
             assert result == expected
@@ -237,11 +185,9 @@ class TestAddHfAuthHeader:
         try:
             existing = {"Content-Type": "application/json", "User-Agent": "test"}
             result = add_hf_auth_header("https://myspace.hf.space/api", existing)
-            # Both headers are needed: Authorization for the app, X-HF-Authorization for HF infra
             expected = {
                 "Content-Type": "application/json",
                 "User-Agent": "test",
-                "Authorization": "Bearer test_token_123",
                 "X-HF-Authorization": "Bearer test_token_123",
             }
             assert result == expected
@@ -293,7 +239,7 @@ class TestAddHfAuthHeader:
         finally:
             _restore_hf_token(original)
 
-    def test_respects_existing_auth_header_case_insensitively(self):
+    def test_lowercase_authorization_header_prevents_ambient_auth(self):
         original = _set_hf_token("test_token_123")
         try:
             existing = {"authorization": "Bearer existing_token"}
@@ -302,14 +248,23 @@ class TestAddHfAuthHeader:
         finally:
             _restore_hf_token(original)
 
-    def test_respects_existing_x_hf_auth_header_case_insensitively(self):
-        original = _set_hf_token("test_token_123")
-        try:
-            existing = {"x-hf-authorization": "Bearer existing_token"}
-            result = add_hf_auth_header("https://myspace.hf.space/api", existing)
-            assert result == existing
-        finally:
-            _restore_hf_token(original)
+    def test_explicit_bearer_auth_uses_authorization_for_hf_space(self):
+        result = add_explicit_bearer_auth_header("https://demo.hf.space/a2a/jsonrpc", None, "abc")
+        assert result == {"Authorization": "Bearer abc"}
+
+    def test_policies_make_hf_space_header_choice_explicit(self):
+        assert (
+            HF_CLI_AMBIENT_AUTH_POLICY.header_for_url("https://demo.hf.space/api")
+            == "X-HF-Authorization"
+        )
+        assert (
+            HF_EXPLICIT_BEARER_AUTH_POLICY.header_for_url("https://demo.hf.space/a2a/jsonrpc")
+            == "Authorization"
+        )
+        assert (
+            HF_CLI_AMBIENT_AUTH_POLICY.header_for_url("https://huggingface.co/mcp?mix=jobs")
+            == "Authorization"
+        )
 
 
 class TestHfSpaceAntiSpoofing:
@@ -439,13 +394,10 @@ class TestSecurityAndLeakagePrevention:
             for url in valid_urls:
                 result = add_hf_auth_header(url, None)
                 assert result is not None, f"Should add auth to: {url}"
-                # Both headers are needed: Authorization for the app, X-HF-Authorization for HF infra
                 assert result["X-HF-Authorization"] == "Bearer test_token_123", (
                     f"Incorrect X-HF-Authorization for: {url}"
                 )
-                assert result["Authorization"] == "Bearer test_token_123", (
-                    f"Incorrect Authorization for: {url}"
-                )
+                assert "Authorization" not in result
         finally:
             _restore_hf_token(original)
 
