@@ -20,5 +20,10 @@ Agents represent a bundle of Tools, Hooks, Skills, Instructions and Configuratio
 
 Use the Python API when you are building an application. Use Agent Cards when you want portable, reusable agent definitions that can be loaded from files or shared with a team.
 
-Agents can 
+Agents can be used in a number of ways:
+
+ - Directly from a Python program using `fast_agent.run()`
+ - Interactively, from the **`fast-agent`** TUI or via ACP
+ - Deployed as an MCP Server
+ - From the Harness API: a high level session based automation framework.
 
