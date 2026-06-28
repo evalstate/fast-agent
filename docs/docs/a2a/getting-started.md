@@ -31,11 +31,11 @@ From the fast-agent repository root, run:
 
 The fake server exposes:
 
-| Endpoint | URL |
-|---|---|
+| Endpoint  | URL                                                  |
+| --------- | ---------------------------------------------------- |
 | AgentCard | `http://127.0.0.1:41242/.well-known/agent-card.json` |
-| JSON-RPC | `http://127.0.0.1:41242/a2a/jsonrpc` |
-| HTTP+JSON | `http://127.0.0.1:41242/a2a/rest` |
+| JSON-RPC  | `http://127.0.0.1:41242/a2a/jsonrpc`                 |
+| HTTP+JSON | `http://127.0.0.1:41242/a2a/rest`                    |
 
 Keep this server running in one terminal, then use a second terminal for the
 client commands below.
@@ -88,10 +88,10 @@ Markdown ordered list so the TUI preserves the step labels exactly.
 
 Transport names accepted by fast-agent are:
 
-| Canonical | Useful aliases |
-|---|---|
-| `JSONRPC` | `jsonrpc`, `json-rpc`, `rpc` |
-| `HTTP+JSON` | `http`, `http+json`, `rest` |
+| Canonical   | Useful aliases               |
+| ----------- | ---------------------------- |
+| `JSONRPC`   | `jsonrpc`, `json-rpc`, `rpc` |
+| `HTTP+JSON` | `http`, `http+json`, `rest`  |
 
 ## 3. Receive file, URL, and data parts
 
@@ -192,11 +192,11 @@ The `/a2a` command group currently includes:
 Use `fast-agent serve a2a` when you want another A2A client to call a fast-agent
 agent. The A2A server exposes both HTTP transports:
 
-| Endpoint | URL |
-|---|---|
+| Endpoint  | URL                                                  |
+| --------- | ---------------------------------------------------- |
 | AgentCard | `http://127.0.0.1:41241/.well-known/agent-card.json` |
-| JSON-RPC | `http://127.0.0.1:41241/a2a/jsonrpc` |
-| HTTP+JSON | `http://127.0.0.1:41241/a2a/rest` |
+| JSON-RPC  | `http://127.0.0.1:41241/a2a/jsonrpc`                 |
+| HTTP+JSON | `http://127.0.0.1:41241/a2a/rest`                    |
 
 Example with an AgentCard bundle:
 
