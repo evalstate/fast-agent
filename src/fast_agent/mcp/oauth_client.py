@@ -8,7 +8,6 @@ passed to SSE/HTTP transports as the `auth` parameter.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import socket
 import sys
@@ -50,6 +49,7 @@ from rich.text import Text
 from fast_agent.core.keyring_utils import maybe_print_keyring_access_notice
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
+from fast_agent.utils.async_utils import run_in_thread
 from fast_agent.utils.text import strip_to_none
 from fast_agent.utils.transports import uses_mcp_remote_transport
 
@@ -872,7 +872,7 @@ async def _capture_local_oauth_callback(
         )
 
         try:
-            code, state = await asyncio.to_thread(
+            code, state = await run_in_thread(
                 server.wait,
                 timeout_seconds=300,
                 abort_event=context.abort_event,
@@ -915,7 +915,7 @@ async def _capture_pasted_oauth_callback(
         if context.emit_console_output:
             _safe_stderr_write("Paste the full callback URL after authorization:")
         callback_url = (
-            await asyncio.to_thread(
+            await run_in_thread(
                 _read_callback_url_with_abort,
                 "Callback URL:",
                 context.abort_event,

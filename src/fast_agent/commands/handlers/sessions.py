@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from rich.text import Text
@@ -15,7 +14,7 @@ from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.session import display_session_name, format_session_agent_label
 from fast_agent.session.preview import find_last_assistant_preview_text
 from fast_agent.ui.shell_notice import format_shell_notice
-from fast_agent.utils.action_normalization import normalize_action_token, parse_boolean_alias
+from fast_agent.utils.action_normalization import normalize_action_token
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.text import strip_to_none
 
@@ -29,14 +28,7 @@ if TYPE_CHECKING:
 
 NOENV_SESSION_MESSAGE = "Session commands are disabled in --noenv mode."
 SESSION_UNAVAILABLE_MESSAGE = "Session commands are unavailable in this context."
-_PIN_TOGGLE_VALUES = {"", "toggle"}
-_PIN_USAGE = "Usage: /session pin [on|off|id|number]"
-
-
-@dataclass(frozen=True, slots=True)
-class _PinState:
-    desired: bool | None = None
-    error: str | None = None
+_PIN_USAGE = "Usage: /session pin <title>"
 
 
 def _noenv_outcome() -> CommandOutcome:
@@ -75,16 +67,6 @@ def _truncate_summary(summary: str, available: int) -> str | None:
     return summary[: max(0, available - 1)].rstrip() + "…"
 
 
-def _resolve_pin_state(value: str | None, *, current: bool) -> _PinState:
-    normalized = normalize_action_token(value)
-    if normalized in _PIN_TOGGLE_VALUES:
-        return _PinState(desired=not current)
-    desired = parse_boolean_alias(normalized, numeric=False)
-    if desired is not None:
-        return _PinState(desired=desired)
-    return _PinState(error=_PIN_USAGE)
-
-
 def _strip_wrapping_quotes(value: str | None) -> str | None:
     text = strip_to_none(value)
     if text is None:
@@ -99,6 +81,7 @@ def _session_for_pin(
     outcome: CommandOutcome,
     *,
     target: str | None,
+    verb: str = "pin",
 ) -> "Session | None":
     target = strip_to_none(target)
     if target:
@@ -121,7 +104,7 @@ def _session_for_pin(
         return manager.get_session(sessions[0].name)
 
     outcome.add_message(
-        "No session available to pin.",
+        f"No session available to {verb}.",
         channel="warning",
         right_info="session",
     )
@@ -253,39 +236,56 @@ async def handle_list_sessions(
 async def handle_pin_session(
     ctx: CommandContext,
     *,
-    value: str | None,
-    target: str | None,
+    title: str | None,
 ) -> CommandOutcome:
     if ctx.noenv:
         return _noenv_outcome()
 
     outcome = CommandOutcome()
-    from fast_agent.session import is_session_pinned
-
     runtime, unavailable = _session_runtime(ctx)
     if unavailable is not None:
         return unavailable
     assert runtime is not None
 
     manager = runtime.resolve_manager()
-    session = _session_for_pin(manager, outcome, target=target)
+    session = _session_for_pin(manager, outcome, target=None, verb="pin")
     if session is None:
         return outcome
 
-    current = is_session_pinned(session.info)
-    pin_state = _resolve_pin_state(value, current=current)
-    if pin_state.desired is None:
-        outcome.add_message(
-            pin_state.error or "Usage: /session pin [on|off|id|number]",
-            channel="warning",
-        )
+    title = _strip_wrapping_quotes(title)
+    if not title:
+        outcome.add_message(_PIN_USAGE, channel="warning", right_info="session")
         return outcome
 
-    session.set_pinned(pin_state.desired)
-    label = display_session_name(session.info.name)
-    action = "Pinned" if pin_state.desired else "Unpinned"
+    session.set_title(title)
+    session.set_pinned(True)
     outcome.add_message(
-        f"{action} session: {label}",
+        f"Pinned session: {title}",
+        channel="info",
+        right_info="session",
+    )
+    return outcome
+
+
+async def handle_unpin_session(ctx: CommandContext) -> CommandOutcome:
+    if ctx.noenv:
+        return _noenv_outcome()
+
+    outcome = CommandOutcome()
+    runtime, unavailable = _session_runtime(ctx)
+    if unavailable is not None:
+        return unavailable
+    assert runtime is not None
+
+    manager = runtime.resolve_manager()
+    session = _session_for_pin(manager, outcome, target=None, verb="unpin")
+    if session is None:
+        return outcome
+
+    session.set_pinned(False)
+    label = display_session_name(session.info.name)
+    outcome.add_message(
+        f"Unpinned session: {label}",
         channel="info",
         right_info="session",
     )

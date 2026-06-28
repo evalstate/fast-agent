@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from fastmcp import FastMCP
 from mcp.types import TextContent
 
 from fast_agent.core.agent_app import AgentApp
@@ -211,9 +212,12 @@ async def test_harness_mcp_send_uses_mcp_session_and_default_agent() -> None:
     )
 
     assert response == "mcp-123:support:hello"
-    assert app.opened == [AppOpenRequest(session_id="mcp-123", agent="support")]
+    assert app.opened[0].session_id == "mcp-123"
+    assert app.opened[0].agent == "support"
+    assert app.opened[0].metadata["mcp_session_id"] == "mcp-123"
     assert app.session.requests[0].session_id == "mcp-123"
     assert app.session.requests[0].agent == "support"
+    assert app.session.requests[0].metadata["harness_session_id"] == "mcp-123"
     assert app.session.requests[0].params is not None
     assert app.session.requests[0].progress is not None
     assert progress_events == [(1, 2, "working")]
@@ -236,7 +240,135 @@ async def test_harness_mcp_send_allows_explicit_session_and_agent() -> None:
     )
 
     assert response == "explicit:reviewer:hello"
-    assert app.opened == [AppOpenRequest(session_id="explicit", agent="reviewer")]
+    assert app.opened[0].session_id == "explicit"
+    assert app.opened[0].agent == "reviewer"
+    assert app.opened[0].metadata["mcp_session_id"] == "mcp-123"
+    assert app.opened[0].metadata["requested_session_id"] == "explicit"
+
+
+@pytest.mark.asyncio
+async def test_harness_mcp_request_scope_aligns_open_and_request_session_ids() -> None:
+    app = RecordingApp()
+    cleaned: list[str] = []
+
+    async def cleanup(session_id: str) -> None:
+        cleaned.append(session_id)
+
+    server = HarnessMCPAppServer(
+        app,
+        HarnessMCPAppServerOptions(
+            server_name="test",
+            default_agent="support",
+            session_scope="request",
+            cleanup_session=cleanup,
+        ),
+    )
+
+    await server._send(
+        "hello",
+        ctx=mcp_context_with_session("mcp-123"),
+        session_id="explicit",
+        agent="reviewer",
+    )
+
+    open_request = app.opened[0]
+    agent_request = app.session.requests[0]
+    assert open_request.session_id is not None
+    assert open_request.session_id.startswith("request-")
+    assert agent_request.session_id == open_request.session_id
+    assert open_request.metadata["mcp_session_id"] == "mcp-123"
+    assert open_request.metadata["requested_session_id"] == "explicit"
+    assert open_request.metadata["harness_session_id"] == open_request.session_id
+    assert agent_request.metadata["harness_session_id"] == open_request.session_id
+    assert cleaned == [open_request.session_id]
+
+
+@pytest.mark.asyncio
+async def test_harness_mcp_adapter_invokes_agent_with_structured_arguments() -> None:
+    app = RecordingApp()
+    server = HarnessMCPAppServer(
+        app,
+        HarnessMCPAppServerOptions(server_name="test", default_agent="researcher"),
+    )
+
+    response = await server.adapter.invoke_agent(
+        ctx=mcp_context_with_session("mcp-123"),
+        agent="researcher",
+        arguments={"repo": "fast-agent-ai/fast-agent", "depth": "quick"},
+    )
+
+    assert response.text_content() == (
+        'mcp-123:researcher:{"depth": "quick", "repo": "fast-agent-ai/fast-agent"}'
+    )
+    assert app.session.requests[0].state["mcp_arguments"] == {
+        "repo": "fast-agent-ai/fast-agent",
+        "depth": "quick",
+    }
+
+
+@pytest.mark.asyncio
+async def test_harness_mcp_adapter_registers_explicit_agent_tool_with_template() -> None:
+    app = RecordingApp()
+    server = HarnessMCPAppServer(
+        app,
+        HarnessMCPAppServerOptions(server_name="test", default_agent="researcher"),
+    )
+    mcp = FastMCP("test")
+
+    server.adapter.register_agent_tool(
+        mcp,
+        name="research",
+        agent="researcher",
+        description="Research a topic.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string"},
+                "depth": {"type": "string", "enum": ["quick", "deep"]},
+            },
+            "required": ["topic"],
+        },
+        render_arguments="Research {{topic}}.\nDepth: {{depth}}",
+    )
+
+    result = await mcp.call_tool("research", {"topic": "MCP adapters", "depth": "quick"})
+
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "None:researcher:Research MCP adapters.\nDepth: quick"
+    request = app.session.requests[0]
+    assert request.state["mcp_arguments"] == {"topic": "MCP adapters", "depth": "quick"}
+
+
+@pytest.mark.asyncio
+async def test_harness_mcp_adapter_registered_tool_defaults_to_message_schema() -> None:
+    app = RecordingApp()
+    server = HarnessMCPAppServer(
+        app,
+        HarnessMCPAppServerOptions(server_name="test", default_agent="support"),
+    )
+    mcp = FastMCP("test")
+
+    server.adapter.register_agent_tool(mcp, name="chat", agent="support")
+
+    tools = await mcp.list_tools()
+    result = await mcp.call_tool("chat", {"message": "hello"})
+
+    assert tools[0].parameters["required"] == ["message"]
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "None:support:hello"
+
+
+@pytest.mark.asyncio
+async def test_harness_mcp_adapter_requires_exactly_one_input_shape() -> None:
+    app = RecordingApp()
+    server = HarnessMCPAppServer(app, HarnessMCPAppServerOptions(server_name="test"))
+
+    with pytest.raises(ValueError, match="Exactly one of message or arguments"):
+        await server.adapter.invoke_agent(
+            ctx=mcp_context_with_session("mcp-123"),
+            message="hello",
+            arguments={"message": "hello"},
+        )
 
 
 @pytest.mark.asyncio

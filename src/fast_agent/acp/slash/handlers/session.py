@@ -111,11 +111,15 @@ async def _handle_session_pin_intent(
     handler: "SlashCommandHandler",
     intent: SessionCommandIntent,
 ) -> str:
-    return await handle_session_pin(
-        handler,
-        value=intent.pin_value,
-        target=intent.pin_target,
-    )
+    return await handle_session_pin(handler, title=intent.pin_title)
+
+
+async def _handle_session_unpin_intent(
+    handler: "SlashCommandHandler",
+    intent: SessionCommandIntent,
+) -> str:
+    del intent
+    return await handle_session_unpin(handler)
 
 
 async def _handle_session_export_intent(
@@ -150,6 +154,7 @@ _SESSION_ACTION_HANDLERS: dict[SessionAction, _SessionActionHandler] = {
     "fork": _handle_session_fork_intent,
     "delete": _handle_session_delete_intent,
     "pin": _handle_session_pin_intent,
+    "unpin": _handle_session_unpin_intent,
     "export": _handle_session_export_intent,
     "error": _handle_session_error_intent,
     "unknown": _handle_unknown_session_intent,
@@ -243,22 +248,26 @@ async def handle_session_pin(
     handler: "SlashCommandHandler",
     argument: str | None = None,
     *,
-    value: str | None = None,
-    target: str | None = None,
+    title: str | None = None,
 ) -> str:
     if argument is not None:
         intent = parse_session_command_intent(f"pin {argument}")
-        value = intent.pin_value
-        target = intent.pin_target
+        title = intent.pin_title
 
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
     outcome = await sessions_handlers.handle_pin_session(
         ctx,
-        value=value,
-        target=target,
+        title=title,
     )
     return handler._format_outcome_as_markdown(outcome, "session pin", io=io)
+
+
+async def handle_session_unpin(handler: "SlashCommandHandler") -> str:
+    ctx = handler._build_command_context()
+    io = cast("ACPCommandIO", ctx.io)
+    outcome = await sessions_handlers.handle_unpin_session(ctx)
+    return handler._format_outcome_as_markdown(outcome, "session unpin", io=io)
 
 
 async def handle_session_export(handler: "SlashCommandHandler", intent) -> str:

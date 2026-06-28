@@ -663,50 +663,18 @@ def _session_delete_completions(
     return results
 
 
-def _session_pin_state_completions(
-    prefix: str = "",
-    *,
-    start_position: int = 0,
-) -> list[Completion]:
-    return [
-        Completion(
-            option,
-            start_position=start_position,
-            display=option,
-            display_meta="Toggle session pin",
-        )
-        for option in ("on", "off")
-        if starts_with_casefold(option, prefix)
-    ]
-
-
 def _session_pin_completions(
     completer: "AgentCompleter",
     text: str,
 ) -> list[Completion]:
+    del completer
     remainder = text[len("/session pin ") :]
-    parts = _completion_parts(remainder)
-    if not parts:
-        results = _session_pin_state_completions()
-        results.extend(list(completer._complete_session_ids("")))
-        return results
-
-    first_token = parts[0]
-    first = strip_casefold(first_token)
-    if len(parts) == 1 and not remainder.endswith(" "):
-        state_completions = _session_pin_state_completions(
-            first_token,
-            start_position=-len(first_token),
-        )
-        if state_completions:
-            return state_completions
-
-    if first in {"on", "off"}:
-        suffix = parts[1] if len(parts) > 1 else ""
-        start_position = -len(suffix) if suffix else 0
-        return list(completer._complete_session_ids(suffix, start_position=start_position))
-
-    return list(completer._complete_session_ids(remainder))
+    if remainder:
+        return []
+    return [
+        _hint_completion("<title>", "set title and pin current session"),
+        _hint_completion('"Important thread"', "example title"),
+    ]
 
 
 def _session_export_completions(

@@ -260,7 +260,7 @@ async def main() -> None:
   agents=["agent1", "agent2", "agent3"],
   instruction="routing instruction",
   servers=["filesystem"],
-  model="o3-mini.high",
+  model="gpt-5.4-mini?reasoning=high",
   use_history=False,
   human_input=False,
   api_key="programmatic-api-key",
@@ -274,7 +274,7 @@ async def main() -> None:
   name="orchestrator",
   instruction="instruction",
   agents=["agent1", "agent2"],
-  model="o3-mini.high",
+  model="gpt-5.4-mini?reasoning=high",
   use_history=False,
   human_input=False,
   plan_type="full",
@@ -289,7 +289,7 @@ async def main() -> None:
 @fast.iterative_planner(
   name="planner",
   agents=["agent1", "agent2"],
-  model="o3-mini.high",
+  model="gpt-5.4-mini?reasoning=high",
   plan_iterations=-1,
   api_key="programmatic-api-key",
 )
@@ -316,7 +316,8 @@ async def main() -> None:
   name="orchestrator",
   instruction="instruction",
   agents=["agent1", "agent2"],  # exposed as tools: agent__agent1, agent__agent2
-  history_mode="fork",          # scratch|fork|fork_and_merge
+  history_source="orchestrator",
+  history_merge_target="orchestrator",
   max_parallel=128, # OpenAI limitation
   child_timeout_sec=600,
   max_display_instances=20,

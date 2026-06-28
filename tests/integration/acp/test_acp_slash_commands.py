@@ -40,7 +40,6 @@ from fast_agent.session import (
     SessionManager,
     SessionRequestSettingsSnapshot,
     SessionSnapshot,
-    display_session_name,
     reset_session_manager,
     set_session_manager,
 )
@@ -1159,25 +1158,31 @@ async def test_slash_command_session_pin_sets_metadata(tmp_path: Path) -> None:
         manager = SessionManager(environment_override=env_dir)
         set_session_manager(manager)
         session = manager.create_session()
-        label = display_session_name(session.info.name)
-
+        agent = StubAgent(message_history=[])
+        agent.context = SimpleNamespace(session_manager=manager)
         handler = _handler(
-            StubAgentInstance(agents={"test-agent": StubAgent(message_history=[])}),
+            StubAgentInstance(agents={"test-agent": agent}),
         )
         response = await handler.execute_command(
             "session",
-            f"pin on {session.info.name}",
+            "pin Research notes",
         )
 
         assert "Pinned session" in response
-        assert label in response
+        assert "Research notes" in response
 
         metadata = json.loads((manager.base_dir / session.info.name / "session.json").read_text())
         assert metadata["metadata"].get("pinned") is True
+        assert metadata["metadata"].get("title") == "Research notes"
 
         list_response = await handler.execute_command("session", "list")
         assert "pin" in list_response.lower()
-        assert label in list_response
+        assert "Research notes" in list_response
+
+        response = await handler.execute_command("session", "unpin")
+        assert "Unpinned session" in response
+        metadata = json.loads((manager.base_dir / session.info.name / "session.json").read_text())
+        assert metadata["metadata"].get("pinned") is not True
     finally:
         update_global_settings(old_settings)
         reset_session_manager()

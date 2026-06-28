@@ -14,6 +14,10 @@ Additionally, there is a convenient `serve` command enabling rapid, command line
 
 This feature also works with [Agent Skills](../guides/skills/), enabling powerful adaptable behaviours.
 
+This page describes **managed MCP server mode**: fast-agent owns the FastMCP
+server process. Use [Custom MCP Servers](harness-adapter.md) when you want to
+own the FastMCP server and call fast-agent through the harness adapter.
+
 #### Ways to build an MCP server
 
 Choose the smallest surface that fits what you are building:
@@ -63,7 +67,7 @@ fast-agent serve [OPTIONS]
 
 Key options:
 
-- `--transport [http|stdio|acp]` (default http). Note: `acp` exposes Agent Client Protocol instead of MCP (see [ACP](../acp/)).
+- `--transport [http|stdio|acp|a2a]` (default http). Note: `acp` exposes Agent Client Protocol instead of MCP (see [ACP](../acp/)); `a2a` exposes A2A instead of MCP.
 - `--port / --host` (for HTTP; host defaults to `127.0.0.1`)
 - `--instance-scope [shared|connection|request] `– choose how agent state is isolated
     - `shared` (default) reuses a single agent for all clients

@@ -1,3 +1,10 @@
+from fast_agent.mcp.server.harness_adapter import (
+    HarnessMCPAdapter,
+    HarnessMCPAdapterOptions,
+    HarnessMCPCallContext,
+    HarnessMCPSessionPlan,
+    MCPHarnessSessionScope,
+)
 from fast_agent.mcp.server.harness_app_server import (
     HarnessMCPAppRuntime,
     HarnessMCPAppRuntimeOptions,
@@ -9,6 +16,11 @@ from fast_agent.mcp.server.harness_app_server import (
 )
 
 __all__ = [
+    "HarnessMCPAdapter",
+    "HarnessMCPAdapterOptions",
+    "HarnessMCPCallContext",
+    "HarnessMCPSessionPlan",
+    "MCPHarnessSessionScope",
     "HarnessMCPAppRuntime",
     "HarnessMCPAppRuntimeOptions",
     "HarnessMCPAppServer",

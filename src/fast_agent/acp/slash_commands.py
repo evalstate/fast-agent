@@ -364,7 +364,7 @@ class SlashCommandHandler:
                 name="session",
                 description="List or manage sessions",
                 handler=self._handle_session,
-                input_hint="[list|new|resume|title|fork|delete|pin|export] [args]",
+                input_hint="[list|new|resume|title|fork|delete|pin|unpin|export] [args]",
             ),
             _BuiltinSlashCommandSpec(
                 name="card",
@@ -611,6 +611,7 @@ class SlashCommandHandler:
             if current_agent and isinstance(current_agent, SessionContextCapable)
             else None
         )
+        session_manager = agent_context.session_manager if agent_context else None
         return CommandContext(
             agent_provider=StaticAgentProvider(
                 cast("dict[str, object]", dict(self.instance.agents))
@@ -629,7 +630,7 @@ class SlashCommandHandler:
                 if raw_session_store_cwd
                 else None
             ),
-            session_manager=agent_context.session_manager if agent_context else None,
+            session_manager=session_manager,
         )
 
     def _format_outcome_as_markdown(

@@ -196,6 +196,7 @@ async def dispatch_tui_command(
     prompt_provider: CommandSurfaceProvider,
     agent_name: str = "main",
     buffer_prefill: str = "",
+    session_manager: Any | None = None,
 ) -> DispatchResult:
     parsed = parse_special_input(raw_input)
     assert is_command_payload(parsed)
@@ -208,6 +209,7 @@ async def dispatch_tui_command(
         available_agents_set=set(prompt_provider.agent_names()),
         merge_pinned_agents=merge_pinned_agents,
         buffer_prefill=buffer_prefill,
+        session_manager=session_manager,
     )
 
 

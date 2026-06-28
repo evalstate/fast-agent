@@ -13,7 +13,6 @@ these files as views.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import tempfile
 import uuid
@@ -21,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from fast_agent.utils.async_utils import run_in_thread
 from fast_agent.utils.filename import sanitize_filename_component
 
 if TYPE_CHECKING:
@@ -82,7 +82,7 @@ def new_trajectory_id() -> str:
 async def save_trajectory_record(session: "Session", record: TrajectoryRecord) -> Path:
     """Atomically save a trajectory record in ``<session>/trajectories``."""
 
-    return await asyncio.to_thread(_save_trajectory_record_sync, session, record)
+    return await run_in_thread(_save_trajectory_record_sync, session, record)
 
 
 def _save_trajectory_record_sync(session: "Session", record: TrajectoryRecord) -> Path:

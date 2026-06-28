@@ -57,12 +57,13 @@ service adapters.
 
 The default MCP server uses the same boundary. `fast-agent serve` exposes one
 harness app tool named `send` by default, with optional `session_id` and `agent`
-arguments. Root `fast-agent --serve mcp` is a shorthand for that same default
-MCP harness app service; `--serve stdio`, `--serve acp`, and `--serve a2a` route
-to the corresponding `fast-agent serve --transport ...` form. The MCP default
-routes through `AgentRequest` and `AgentResponse`; applications that need a
-different MCP surface should provide or select a different harness app adapter
-rather than depending on one tool per configured agent.
+arguments. `fast-agent serve --transport http` and
+`fast-agent serve --transport stdio` route to that default MCP harness app
+service; `fast-agent serve --transport acp` and
+`fast-agent serve --transport a2a` route to the corresponding protocol server.
+The MCP default routes through `AgentRequest` and `AgentResponse`; applications
+that need a different MCP surface should provide or select a different harness
+app adapter rather than depending on one tool per configured agent.
 
 The A2A server also wraps turns in `AgentRequest`/`AgentResponse` and invokes a
 session adapter so task execution goes through the same protocol-neutral request

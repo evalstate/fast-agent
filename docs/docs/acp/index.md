@@ -159,7 +159,7 @@ Use `fast-agent-acp --noenv` (or `fast-agent serve --transport acp --noenv`) for
 
 - Session persistence and resume are disabled.
 - Slash session operations are disabled.
-- Permission-store writes (`auths.md`) are disabled.
+- ACP tool permission prompts and permission-store writes (`auths.md`) are disabled.
 
 Conflicts (fail fast):
 

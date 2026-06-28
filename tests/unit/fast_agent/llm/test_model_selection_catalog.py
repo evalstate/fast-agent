@@ -84,6 +84,21 @@ def test_anthropic_catalog_lists_user_facing_factory_aliases() -> None:
     assert ModelFactory.MODEL_PRESETS["fable5"] == "claude-fable-5"
 
 
+def test_current_catalog_entries_match_model_presets_for_shared_aliases() -> None:
+    for entry in ModelSelectionCatalog.list_current_entries():
+        preset = ModelFactory.MODEL_PRESETS.get(entry.alias)
+        if preset is not None:
+            parsed_entry = ModelFactory.parse_model_string(entry.model)
+            parsed_preset = ModelFactory.parse_model_string(preset)
+            if parsed_entry.provider != parsed_preset.provider:
+                continue
+            assert parsed_entry.provider == parsed_preset.provider
+            assert parsed_entry.model_name == parsed_preset.model_name
+            assert parsed_entry.model_dump(
+                exclude={"provider", "model_name"}
+            ) == parsed_preset.model_dump(exclude={"provider", "model_name"})
+
+
 def test_deepseek_current_order_prefers_pro_above_flash() -> None:
     aliases = ModelSelectionCatalog.list_current_aliases(Provider.DEEPSEEK)
     assert aliases[:2] == ["deepseek", "deepseek4flash"]

@@ -303,7 +303,7 @@ class ModelSelectionCatalog:
             ),
             CatalogModelEntry(
                 alias="codexplan53",
-                model="codexresponses.gpt-5.3-codex?reasoning=high",
+                model="codexresponses.gpt-5.3-codex?reasoning=medium",
             ),
             CatalogModelEntry(
                 alias="codexspark",

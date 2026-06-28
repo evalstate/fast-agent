@@ -125,7 +125,10 @@ to an empty value to disable the built-in default.
 
 ## Hosting fast-agent MCP on Hugging Face
 
-When deploying `fast-agent serve mcp` on Hugging Face infrastructure, set
+For the full hosted-server guide, see
+[Host MCP Servers on Hugging Face Spaces](huggingface-spaces.md).
+
+When deploying `fast-agent serve --transport http` on Hugging Face infrastructure, set
 `FAST_AGENT_SERVE_OAUTH=huggingface` to require Hugging Face bearer
 authentication for HTTP MCP requests. The server accepts `Authorization: Bearer
 <token>` and, when the ingress forwards it, `X-HF-Authorization: Bearer <token>`.

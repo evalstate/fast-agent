@@ -13,6 +13,7 @@ from pathlib import Path
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.paths import resolve_environment_paths
+from fast_agent.utils.async_utils import run_in_thread
 from fast_agent.utils.markdown import escape_markdown_table_cell
 
 logger = get_logger(__name__)
@@ -165,7 +166,7 @@ class PermissionStore:
 
     async def _load_from_file(self) -> None:
         """Load permissions from the markdown file."""
-        content = await asyncio.to_thread(self._file_path.read_text, encoding="utf-8")
+        content = await run_in_thread(self._file_path.read_text, encoding="utf-8")
 
         # Parse markdown table format:
         # | Server | Tool | Permission |
@@ -209,7 +210,7 @@ class PermissionStore:
 
     async def _delete_file(self) -> None:
         if self._file_path.exists():
-            await asyncio.to_thread(self._file_path.unlink)
+            await run_in_thread(self._file_path.unlink)
 
     async def _save_to_file(self) -> None:
         """Save permissions to the markdown file."""
@@ -239,7 +240,7 @@ class PermissionStore:
         lines.append("")  # Trailing newline
         content = "\n".join(lines)
 
-        await asyncio.to_thread(self._file_path.write_text, content, encoding="utf-8")
+        await run_in_thread(self._file_path.write_text, content, encoding="utf-8")
 
         logger.debug(
             f"Saved {len(self._cache)} permissions to {self._file_path}",

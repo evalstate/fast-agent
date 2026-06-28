@@ -38,16 +38,19 @@ async def test_dispatch_session_flow_updates_session_state(tmp_path: Path) -> No
             "/session new sprint",
             owner=owner,
             prompt_provider=provider,
+            session_manager=manager,
         )
         pin_result = await dispatch_tui_command(
-            "/session pin on",
+            "/session pin Sprint work",
             owner=owner,
             prompt_provider=provider,
+            session_manager=manager,
         )
         await dispatch_tui_command(
             "/session list",
             owner=owner,
             prompt_provider=provider,
+            session_manager=manager,
         )
 
         assert create_result == DispatchResult(handled=True)
@@ -56,6 +59,7 @@ async def test_dispatch_session_flow_updates_session_state(tmp_path: Path) -> No
         current_session = manager.current_session
         assert current_session is not None
         assert current_session.info.metadata.get("pinned") is True
+        assert current_session.info.metadata.get("title") == "Sprint work"
 
         emitted = "\n".join(provider._agent("main").display.messages)
         assert "Created session:" in emitted

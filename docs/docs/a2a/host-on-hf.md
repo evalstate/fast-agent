@@ -21,9 +21,11 @@ fast-agent A2A serving supports Hugging Face bearer authentication for HTTP
 set. The public AgentCard stays discoverable, and action routes require a bearer
 token.
 
-The implemented first pass supports static bearer credentials and Hugging Face
-Space header normalization. Browser-based OAuth login for A2A clients is a later
-phase.
+The implemented first pass supports Hugging Face bearer credentials and Space
+header normalization. Served fast-agent A2A cards currently advertise bearer
+security rather than OAuth2/OIDC security metadata; the fast-agent A2A client can
+still use browser OAuth when a remote AgentCard advertises OAuth2 or OpenID
+Connect.
 
 ## Space Layout
 

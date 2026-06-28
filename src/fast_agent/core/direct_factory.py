@@ -607,7 +607,7 @@ def get_model_factory(
     Model string is parsed by ModelFactory to determine provider and reasoning effort.
 
     Precedence (lowest to highest):
-        1. Hardcoded default (gpt-5-mini?reasoning=low)
+        1. Hardcoded default (gpt-5.4-mini?reasoning=low)
         2. FAST_AGENT_MODEL environment variable
         3. Config file default_model
         4. CLI --model argument

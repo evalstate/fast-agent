@@ -51,6 +51,7 @@ from fast_agent.skills.provenance import (
 )
 from fast_agent.ui.enhanced_prompt import AgentCompleter
 from fast_agent.ui.prompt import completion_sources
+from fast_agent.utils.async_utils import run_in_thread
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -1009,26 +1010,19 @@ def test_get_completions_for_session_pin(tmp_path: Path) -> None:
 
     try:
         manager = SessionManager(environment_override=env_dir)
-        session = manager.create_session()
+        manager.create_session()
 
         completer = AgentCompleter(agents=["agent1"], session_manager=manager)
         doc = Document("/session pin ", cursor_position=len("/session pin "))
         completions = list(completer.get_completions(doc, None))
-        names = [c.text for c in completions]
+        displays = [str(c.display_text) for c in completions]
 
-        assert "on" in names
-        assert "off" in names
-        assert session.info.name in names
+        assert "<title>" in displays
+        assert '"Important thread"' in displays
 
-        doc = Document("/session pin O", cursor_position=len("/session pin O"))
+        doc = Document("/session pin Sprint", cursor_position=len("/session pin Sprint"))
         completions = list(completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert names == ["on", "off"]
-
-        doc = Document("/session pin on ", cursor_position=len("/session pin on "))
-        completions = list(completer.get_completions(doc, None))
-        names = [c.text for c in completions]
-        assert session.info.name in names
+        assert completions == []
     finally:
         update_global_settings(old_settings)
         reset_session_manager()
@@ -2923,7 +2917,7 @@ async def _async_identity(value):
 async def test_run_async_completion_uses_owner_loop_from_worker_thread() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
-    result = await asyncio.to_thread(
+    result = await run_in_thread(
         lambda: completer._run_async_completion(lambda: _async_identity("ok"))
     )
 

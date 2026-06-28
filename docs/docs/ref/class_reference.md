@@ -94,7 +94,7 @@ Starts the application as an MCP server.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `transport` | `str` | `"http"` | Transport protocol to use (`http`, `stdio`, `acp`) |
+| `transport` | `str` | `"http"` | Transport protocol to use (`http`, `stdio`, `acp`, `a2a`) |
 | `host` | `str` | `"127.0.0.1"` | Host address for the server when using HTTP |
 | `port` | `int` | `8000` | Port for the server when using HTTP |
 | `server_name` | `str \| None` | `None` | Optional custom name for the MCP server |

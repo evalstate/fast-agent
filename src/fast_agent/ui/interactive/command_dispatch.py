@@ -100,6 +100,7 @@ from fast_agent.ui.command_payloads import (
     SwitchAgentCommand,
     TitleSessionCommand,
     UnknownCommand,
+    UnpinSessionCommand,
 )
 from fast_agent.ui.history_display import display_history_show
 from fast_agent.ui.progress_display import progress_display
@@ -1255,12 +1256,13 @@ def _session_handler(
                 sessions_handlers.handle_clear_sessions,
                 target=target,
             )
-        case PinSessionCommand(value=value, target=target):
+        case PinSessionCommand(title=title):
             handler = partial(
                 sessions_handlers.handle_pin_session,
-                value=value,
-                target=target,
+                title=title,
             )
+        case UnpinSessionCommand():
+            handler = sessions_handlers.handle_unpin_session
         case ResumeSessionCommand(session_id=session_id):
             handler = partial(
                 sessions_handlers.handle_resume_session,

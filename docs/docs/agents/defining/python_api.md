@@ -104,7 +104,7 @@ moon_size = await agent("the moon")             # Call the default (first define
 result = await agent.greeter("Good morning!")   # Send a message to an agent by name using dot notation
 result = await agent.greeter.send("Hello!")     # You can call 'send' explicitly
 
-agent["greeter"].send("Good Evening!")          # Dictionary access to agents is also supported
+await agent["greeter"].send("Good Evening!")    # Dictionary access to agents is also supported
 ```
 
 Read more about prompting agents [here](../prompting/)
@@ -143,7 +143,7 @@ from fast_agent.types import RequestParams
   #tools={"filesystem": ["tool_1", "tool_2"]  # Filter the tools available to the agent. Defaults to all
   #resources={"filesystem": ["resource_1", "resource_2"]} # Filter the resources available to the agent. Defaults to all
   #prompts={"filesystem": ["prompt_1", "prompt_2"]}  # Filter the prompts available to the agent. Defaults to all.
-  model="o3-mini.high",                  # specify a model for the agent
+  model="gpt-5.4-mini?reasoning=high",   # specify a model for the agent
   use_history=True,                      # agent maintains chat history
   request_params=RequestParams(temperature= 0.7), # additional parameters for the LLM (or RequestParams())
   human_input=True,                      # agent can request human input
@@ -165,7 +165,7 @@ Workflow definitions (chain/parallel/router/orchestrator/maker) are documented o
   #tools={"filesystem": ["tool_1", "tool_2"]  # Filter the tools available to the agent. Defaults to all
   #resources={"filesystem": ["resource_1", "resource_2"]} # Filter the resources available to the agent. Defaults to all
   #prompts={"filesystem": ["prompt_1", "prompt_2"]}  # Filter the prompts available to the agent. Defaults to all
-  model="o3-mini.high",                  # specify a model for the agent
+  model="gpt-5.4-mini?reasoning=high",   # specify a model for the agent
   use_history=True,                      # agent maintains chat history
   request_params=RequestParams(temperature= 0.7), # additional parameters for the LLM (or RequestParams())
   human_input=True,                      # agent can request human input

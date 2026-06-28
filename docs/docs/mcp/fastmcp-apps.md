@@ -13,6 +13,10 @@ FastMCP Apps let an MCP server deliver user interface elements to clients that
 support the MCP Apps extension. fast-agent fits behind those apps through the
 Harness API.
 
+This page describes **MCP Apps adapter mode**: you own a `FastMCPApp` provider
+and call fast-agent from UI entry-point tools or app backend tools. If you only
+need normal MCP tools, use [custom tool adapter mode](harness-adapter.md).
+
 ```text
 FastMCPApp.ui() / FastMCPApp.tool()
 └─ HarnessMCPAdapter
@@ -216,4 +220,3 @@ UI resources should not embed bearer tokens. If the app UI calls external
 origins, declare accurate MCP Apps CSP metadata through FastMCP.
 
 Use per-tool auth checks for privileged UI actions.
-

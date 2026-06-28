@@ -160,6 +160,7 @@ _SMART_SESSION_HEADINGS: dict[str, str] = {
     "fork": "session.fork",
     "delete": "session.delete",
     "pin": "session.pin",
+    "unpin": "session.unpin",
 }
 
 
@@ -365,13 +366,14 @@ def _build_command_context(agent: _SmartCommandAgent) -> _SmartCommandContext:
 
     io = _SmartToolCommandIO(messages=[])
     provider = StaticAgentProvider(_resolve_command_agent_map(agent))
+    session_manager = context.session_manager if context else None
     return _SmartCommandContext(
         context=CommandContext(
             agent_provider=provider,
             current_agent_name=agent_name,
             io=io,
             settings=settings,
-            session_manager=context.session_manager if context else None,
+            session_manager=session_manager,
         ),
         io=io,
     )
@@ -702,9 +704,17 @@ async def _smart_session_pin_route(
     del agent_name
     return await sessions_handlers.handle_pin_session(
         context,
-        value=intent.pin_value,
-        target=intent.pin_target,
+        title=intent.pin_title,
     )
+
+
+async def _smart_session_unpin_route(
+    context: CommandContext,
+    intent: SessionCommandIntent,
+    agent_name: str,
+) -> CommandOutcome:
+    del intent, agent_name
+    return await sessions_handlers.handle_unpin_session(context)
 
 
 _SMART_SESSION_ROUTES: dict[str, SmartSessionRoute] = {
@@ -718,6 +728,7 @@ _SMART_SESSION_ROUTES: dict[str, SmartSessionRoute] = {
     "fork": _smart_session_fork_route,
     "delete": _smart_session_delete_route,
     "pin": _smart_session_pin_route,
+    "unpin": _smart_session_unpin_route,
 }
 
 
@@ -739,6 +750,15 @@ async def _run_session_slash_command_call(agent: Any, arguments: str) -> str:
 
     if intent.export_help:
         return render_session_export_help_markdown()
+
+    if context.session_runtime is None:
+        outcome = CommandOutcome()
+        outcome.add_message(
+            sessions_handlers.SESSION_UNAVAILABLE_MESSAGE,
+            channel="warning",
+            right_info="session",
+        )
+        return _render_smart_slash_outcome(outcome, heading="session.export", io=io)
 
     manager = context.resolve_session_manager()
     current_session = manager.current_session

@@ -6,7 +6,6 @@ has inference providers available through the HuggingFace Inference API.
 
 from __future__ import annotations
 
-import asyncio
 import random
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -15,7 +14,7 @@ from huggingface_hub import HfApi
 from huggingface_hub.errors import HfHubHTTPError, RepositoryNotFoundError
 from pydantic import BaseModel, Field, computed_field
 
-from fast_agent.utils.async_utils import run_sync
+from fast_agent.utils.async_utils import run_in_thread, run_sync
 from fast_agent.utils.count_display import plural_label
 
 INFERENCE_PROVIDER_MAPPING_EXPAND: list[ExpandModelProperty_T] = ["inferenceProviderMapping"]
@@ -157,7 +156,7 @@ async def lookup_inference_providers(
         model_id = model_id.rsplit(":", 1)[0]
 
     try:
-        info = await asyncio.to_thread(
+        info = await run_in_thread(
             HfApi().model_info,
             model_id,
             expand=INFERENCE_PROVIDER_MAPPING_EXPAND,

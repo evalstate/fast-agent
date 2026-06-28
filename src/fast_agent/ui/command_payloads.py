@@ -327,9 +327,13 @@ class ClearSessionsCommand(CommandBase):
 
 @dataclass(frozen=True, slots=True)
 class PinSessionCommand(CommandBase):
-    value: str | None
-    target: str | None
+    title: str | None
     kind: Literal["pin_session"] = "pin_session"
+
+
+@dataclass(frozen=True, slots=True)
+class UnpinSessionCommand(CommandBase):
+    kind: Literal["unpin_session"] = "unpin_session"
 
 
 @dataclass(frozen=True, slots=True)
@@ -477,6 +481,7 @@ CommandPayload = (
     | ForkSessionCommand
     | ClearSessionsCommand
     | PinSessionCommand
+    | UnpinSessionCommand
     | ExportSessionCommand
     | ShellCommand
     | AttachCommand

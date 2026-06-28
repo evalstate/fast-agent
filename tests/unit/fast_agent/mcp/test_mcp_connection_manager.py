@@ -796,7 +796,7 @@ def test_is_http_auth_challenge_error_detects_401_responses() -> None:
 def test_format_oauth_registration_404_details_includes_copilot_hint() -> None:
     details = _format_oauth_registration_404_details(
         "OAuthRegistrationError: Registration failed: 404 404 page not found",
-        "https://api.githubcopilot.com/mcp/",
+        "https://githubcopilot.com/mcp/",
     )
     assert "dynamic client registration" in details
     assert "--client-metadata-url" in details

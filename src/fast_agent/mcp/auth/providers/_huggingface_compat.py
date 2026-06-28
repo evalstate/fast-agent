@@ -76,80 +76,17 @@ class HuggingFaceTokenVerifier(TokenVerifier):
 
     async def verify_token(self, token: str) -> AccessToken | None:
         """Verify a Hugging Face OAuth token using the userinfo endpoint."""
+        token = token.strip()
+        if not token:
+            return None
+
         try:
             async with (
                 contextlib.nullcontext(self._http_client)
                 if self._http_client is not None
                 else httpx.AsyncClient(timeout=self.timeout_seconds)
             ) as client:
-                userinfo_response = await client.get(
-                    HUGGINGFACE_USERINFO_ENDPOINT,
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "User-Agent": "FastMCP-HuggingFace-OAuth",
-                    },
-                )
-                if userinfo_response.status_code != 200:
-                    logger.debug(
-                        "Hugging Face token verification failed: %d",
-                        userinfo_response.status_code,
-                    )
-                    return None
-
-                userinfo = userinfo_response.json()
-                sub = userinfo.get("sub")
-                if not sub:
-                    logger.debug("Hugging Face userinfo missing 'sub' claim")
-                    return None
-
-                token_scopes = _extract_scopes(userinfo)
-                whoami: dict[str, Any] | None = None
-                if not token_scopes or (
-                    self.required_scopes
-                    and not set(self.required_scopes).issubset(set(token_scopes))
-                ):
-                    whoami = await self._fetch_whoami(client, token)
-                    if whoami:
-                        token_scopes = list(
-                            dict.fromkeys([*token_scopes, *_extract_scopes(whoami)])
-                        )
-
-                if not token_scopes:
-                    token_scopes = list(DEFAULT_HUGGINGFACE_SCOPES)
-
-                if self.required_scopes and not set(self.required_scopes).issubset(
-                    set(token_scopes)
-                ):
-                    logger.debug(
-                        "Hugging Face token missing required scopes. Has %d, needs %d",
-                        len(token_scopes),
-                        len(self.required_scopes),
-                    )
-                    return None
-
-                username = (
-                    userinfo.get("preferred_username")
-                    or userinfo.get("nickname")
-                    or userinfo.get("name")
-                )
-                return AccessToken(
-                    token=token,
-                    client_id=str(sub),
-                    scopes=token_scopes,
-                    expires_at=None,
-                    claims={
-                        "sub": str(sub),
-                        "name": userinfo.get("name"),
-                        "preferred_username": username,
-                        "email": userinfo.get("email"),
-                        "email_verified": userinfo.get("email_verified"),
-                        "profile": userinfo.get("profile"),
-                        "picture": userinfo.get("picture"),
-                        "organizations": userinfo.get("organizations"),
-                        "huggingface_userinfo": userinfo,
-                        "huggingface_whoami": whoami,
-                    },
-                )
+                return await self._verify_token_with_client(client, token)
 
         except httpx.RequestError as exc:
             logger.debug("Failed to verify Hugging Face token: %s", exc)
@@ -157,6 +94,117 @@ class HuggingFaceTokenVerifier(TokenVerifier):
         except Exception as exc:
             logger.debug("Hugging Face token verification error: %s", exc)
             return None
+
+    async def _verify_token_with_client(
+        self,
+        client: httpx.AsyncClient,
+        token: str,
+    ) -> AccessToken | None:
+        userinfo_response = await client.get(
+            HUGGINGFACE_USERINFO_ENDPOINT,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "FastMCP-HuggingFace-OAuth",
+            },
+        )
+        userinfo = userinfo_response.json() if userinfo_response.status_code == 200 else None
+        if isinstance(userinfo, dict) and userinfo.get("sub"):
+            return await self._access_token_from_userinfo(client, token, userinfo)
+
+        logger.debug(
+            "Hugging Face OAuth userinfo verification failed: %d",
+            userinfo_response.status_code,
+        )
+        whoami = await self._fetch_whoami(client, token)
+        if whoami is None:
+            return None
+        return self._access_token_from_whoami(token, whoami)
+
+    async def _access_token_from_userinfo(
+        self,
+        client: httpx.AsyncClient,
+        token: str,
+        userinfo: dict[str, Any],
+    ) -> AccessToken | None:
+        sub = userinfo.get("sub")
+        token_scopes = _extract_scopes(userinfo)
+        whoami: dict[str, Any] | None = None
+        if not token_scopes or (
+            self.required_scopes and not set(self.required_scopes).issubset(set(token_scopes))
+        ):
+            whoami = await self._fetch_whoami(client, token)
+            if whoami:
+                token_scopes = list(dict.fromkeys([*token_scopes, *_extract_scopes(whoami)]))
+
+        token_scopes = token_scopes or list(DEFAULT_HUGGINGFACE_SCOPES)
+        if not self._scopes_satisfy_required(token_scopes):
+            return None
+
+        username = (
+            userinfo.get("preferred_username") or userinfo.get("nickname") or userinfo.get("name")
+        )
+        return AccessToken(
+            token=token,
+            client_id=str(sub),
+            scopes=token_scopes,
+            expires_at=None,
+            subject=str(sub),
+            claims={
+                "sub": str(sub),
+                "name": userinfo.get("name"),
+                "preferred_username": username,
+                "email": userinfo.get("email"),
+                "email_verified": userinfo.get("email_verified"),
+                "profile": userinfo.get("profile"),
+                "picture": userinfo.get("picture"),
+                "organizations": userinfo.get("organizations"),
+                "huggingface_userinfo": userinfo,
+                "huggingface_whoami": whoami,
+            },
+        )
+
+    def _access_token_from_whoami(
+        self,
+        token: str,
+        whoami: dict[str, Any],
+    ) -> AccessToken | None:
+        client_id = _string_field(whoami, "sub") or _string_field(whoami, "id")
+        client_id = client_id or _string_field(whoami, "name")
+        client_id = client_id or _string_field(whoami, "preferred_username")
+        if client_id is None:
+            logger.debug("Hugging Face whoami response missing user identity")
+            return None
+
+        token_scopes = _extract_scopes(whoami) or list(DEFAULT_HUGGINGFACE_SCOPES)
+        if not self._scopes_satisfy_required(token_scopes):
+            return None
+
+        return AccessToken(
+            token=token,
+            client_id=client_id,
+            scopes=token_scopes,
+            expires_at=None,
+            subject=client_id,
+            claims={
+                "sub": _string_field(whoami, "sub") or client_id,
+                "name": whoami.get("name") or whoami.get("fullname"),
+                "preferred_username": whoami.get("name"),
+                "email": whoami.get("email"),
+                "email_verified": whoami.get("emailVerified"),
+                "huggingface_userinfo": None,
+                "huggingface_whoami": whoami,
+            },
+        )
+
+    def _scopes_satisfy_required(self, token_scopes: list[str]) -> bool:
+        if self.required_scopes and not set(self.required_scopes).issubset(set(token_scopes)):
+            logger.debug(
+                "Hugging Face token missing required scopes. Has %d, needs %d",
+                len(token_scopes),
+                len(self.required_scopes),
+            )
+            return False
+        return True
 
     async def _fetch_whoami(
         self,
@@ -175,6 +223,11 @@ class HuggingFaceTokenVerifier(TokenVerifier):
             return None
         payload = response.json()
         return payload if isinstance(payload, dict) else None
+
+
+def _string_field(payload: Mapping[str, Any], key: str) -> str | None:
+    value = payload.get(key)
+    return value if isinstance(value, str) and value else None
 
 
 class HuggingFaceProvider(OAuthProxy):

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING
 
 from fast_agent.skills.command_support import (
@@ -19,6 +18,7 @@ from fast_agent.skills.operations import (
 )
 from fast_agent.skills.service import install_direct_skill
 from fast_agent.skills.sources import SkillCatalogEntry, SkillInstallResult, SkillSourceRef
+from fast_agent.utils.async_utils import run_in_thread
 from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
@@ -75,7 +75,7 @@ class MarketplaceSkillSource:
         *,
         force: bool,
     ) -> list[SkillUpdateInfo]:
-        return await asyncio.to_thread(apply_skill_updates, list(updates), force=force)
+        return await run_in_thread(apply_skill_updates, list(updates), force=force)
 
     def list_heading(self, *, query: str | None = None) -> str:
         normalized_query = strip_to_none(query)

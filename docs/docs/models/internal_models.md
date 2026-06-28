@@ -40,21 +40,33 @@ Generate some JSON
 
 This can then be used with the `prompt-server`; you can apply the MCP Prompt to the agent either programmatically with `apply_prompt` or with the `/prompts` command in the interactive shell.
 
-Alternatively, you can load the file with `load_message_multipart`. 
+Alternatively, you can load the file with `load_prompt`.
 
 JSON contents can be converted to structured outputs:
 
 ```python
-@fast.agent(name="playback",model="playback")
+from pathlib import Path
+
+from fast_agent import Prompt, PromptMessageExtended, load_prompt
+from pydantic import BaseModel
+
+
+class Weather(BaseModel):
+    city: str
+    temperature: int
+
+
+@fast.agent(name="playback", model="playback")
 
 ...
 
-playback_messages: List[PromptMessageExtended] = load_message_multipart(Path("playback.txt"))
+playback_messages: list[PromptMessageExtended] = load_prompt(Path("playback.txt"))
 # Set up the Conversation
-assert ("HISTORY LOADED") == agent.playback.generate(playback_messages)
+loaded = await agent.playback.generate(playback_messages)
+assert loaded.first_text().startswith("HISTORY LOADED")
 
-response: str = agent.playback.send("Good morning!") # Returns Hello
-temperature, _ = agent.playback.structured("Generate some JSON")
+response: str = await agent.playback.send("Good morning!") # Returns Hello
+temperature, _ = await agent.playback.structured([Prompt.user("Generate some JSON")], Weather)
 
 ```
 

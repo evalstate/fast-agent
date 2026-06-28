@@ -27,6 +27,7 @@ from fast_agent.ui.prompt.attachment_tokens import (
 from fast_agent.ui.prompt.clipboard_image import paste_clipboard_image_to_temp_png
 from fast_agent.ui.prompt.editor import get_text_from_editor
 from fast_agent.ui.prompt.parser import try_parse_hash_agent_command
+from fast_agent.utils.async_utils import run_in_thread
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -79,7 +80,7 @@ async def paste_clipboard_image_attachment_into_buffer(
 ) -> None:
     """Paste the clipboard image into the input buffer as a local attachment token."""
     try:
-        pasted = await asyncio.to_thread(paste_clipboard_image_to_temp_png)
+        pasted = await run_in_thread(paste_clipboard_image_to_temp_png)
     except asyncio.CancelledError:
         _print_styled("Clipboard image paste cancelled.", "yellow")
         return

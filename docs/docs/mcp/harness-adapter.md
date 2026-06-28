@@ -13,6 +13,11 @@ Use the MCP harness adapter when you want fast-agent to manage agents,
 models, tools, skills, and session lifecycle, while you keep control of the
 FastMCP server surface.
 
+This page describes **custom tool adapter mode**: you own the `FastMCP` server,
+register ordinary `@mcp.tool()` handlers, and call fast-agent through
+`HarnessMCPAdapter`. The default `fast-agent serve` path is **managed MCP
+server mode**. For interactive UI surfaces, use [MCP Apps adapter mode](fastmcp-apps.md).
+
 If you just want to expose an agent quickly, use `fast-agent serve`:
 
 ```bash
@@ -39,7 +44,6 @@ manage sessions yourself with `HarnessApp.open(...)` or `HarnessSessions`.
 ## Minimal custom FastMCP server
 
 ```python
-from fastmcp import Context as MCPContext
 from fastmcp import FastMCP
 
 from fast_agent import FastAgent
@@ -61,14 +65,21 @@ async def main() -> None:
             HarnessMCPAdapterOptions(default_agent="researcher"),
         )
 
-        @mcp.tool()
-        async def research_repo(repo: str, ctx: MCPContext) -> str:
-            response = await adapter.invoke_agent(
-                ctx=ctx,
-                agent="researcher",
-                arguments={"repo": repo},
-            )
-            return response.text_content()
+        adapter.register_agent_tool(
+            mcp,
+            name="research",
+            agent="researcher",
+            description="Research a topic and return a concise answer.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "depth": {"type": "string", "enum": ["quick", "deep"]},
+                },
+                "required": ["topic"],
+            },
+            render_arguments="Research {{topic}}.\nDepth: {{depth}}",
+        )
 
         await mcp.run_http_async(host="0.0.0.0", port=8000)
 ```
@@ -100,6 +111,33 @@ await adapter.invoke_agent(
 
 Exactly one of `message` or `arguments` is required. Structured arguments are
 rendered using the same conventions as AgentCards and Agents-as-Tools.
+
+For common cases, register a named agent-backed MCP tool directly:
+
+```python
+adapter.register_agent_tool(
+    mcp,
+    name="research",
+    agent="researcher",
+    description="Research a topic and return a concise answer.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "topic": {"type": "string"},
+            "depth": {"type": "string", "enum": ["quick", "deep"]},
+        },
+        "required": ["topic"],
+    },
+    render_arguments="Research {{topic}}.\nDepth: {{depth}}",
+)
+```
+
+`render_arguments` uses the same `{{field}}` placeholder style as batch
+generation. Non-string fields are JSON encoded. Use `{{arguments_json}}` when
+you want the full argument object.
+
+If you omit `input_schema`, the tool accepts a single `message` argument and
+sends that text to the agent.
 
 ## Sessions and handles
 
@@ -155,6 +193,8 @@ The adapter reads auth and request context from FastMCP:
 
 - verified bearer tokens become `AgentAuth`;
 - progress reports are forwarded to the MCP client while a call is active;
+- fast-agent loop/tool progress is forwarded the same way as managed MCP server
+  mode;
 - request-scoped bearer context is available to providers and downstream MCP
   connections that support auth forwarding.
 
@@ -178,4 +218,3 @@ adapter.register_default_tools(mcp)
 
 Most custom servers should prefer explicit tools with domain-specific
 arguments.
-

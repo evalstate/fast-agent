@@ -60,6 +60,7 @@ def test_session_completion_descriptions_cover_parser_actions() -> None:
         "delete",
         "clear",
         "pin",
+        "unpin",
         "export",
     }
 

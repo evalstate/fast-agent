@@ -189,7 +189,6 @@ References
 from __future__ import annotations
 
 import asyncio
-import json
 from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
@@ -211,14 +210,16 @@ from fast_agent.constants import (
     should_parallelize_tool_calls,
 )
 from fast_agent.context import get_current_context
+from fast_agent.core.agent_tool_shape import (
+    render_agent_tool_arguments,
+    resolved_agent_tool_schema,
+    response_mode_control_enabled,
+    split_response_mode_control,
+    tool_result_mode_allows_agent_response_mode,
+)
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import ToolRunnerHookCapable
-from fast_agent.llm.request_params import (
-    ToolResultMode,
-    response_mode_to_tool_result_mode,
-    tool_result_mode_allows_response_mode,
-)
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompts.prompt_load import load_prompt
@@ -237,7 +238,6 @@ from fast_agent.tools.invocation_context import agent_tool_invocation_context
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.utils.async_utils import gather_with_cancel
-from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
@@ -245,25 +245,10 @@ if TYPE_CHECKING:
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.agents.llm_agent import LlmAgent
     from fast_agent.agents.tool_runner import ToolRunner
+    from fast_agent.llm.request_params import ToolResultMode
     from fast_agent.session.session_manager import Session, SessionManager
 
 logger = get_logger(__name__)
-
-_RESPONSE_MODE_OVERRIDES: Mapping[str, ToolResultMode | None] = {
-    "inherit": None,
-    "postprocess": response_mode_to_tool_result_mode("postprocess"),
-    "passthrough": response_mode_to_tool_result_mode("passthrough"),
-}
-_RESPONSE_MODE_FIELD = "response_mode"
-_MISSING_RESPONSE_MODE = object()
-
-
-@dataclass(frozen=True, slots=True)
-class _ResponseModeControl:
-    arguments: dict[str, Any]
-    tool_result_mode_override: ToolResultMode | None = None
-    error: str | None = None
-
 
 _ChildToolStatus = Literal["pending", "done", "error", "missing"]
 
@@ -313,16 +298,6 @@ class _ChildToolRunPlan:
     call_descriptors: list[_ChildToolDescriptor]
     descriptor_by_id: dict[str, _ChildToolDescriptor]
     id_list: list[str]
-
-
-def _response_mode_schema() -> dict[str, Any]:
-    return {
-        "type": "string",
-        "description": "Override how the child agent returns tool results for this call.",
-        "enum": list(_RESPONSE_MODE_OVERRIDES),
-        "default": "inherit",
-    }
-
 
 def _trajectory_timestamp() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -518,19 +493,6 @@ class AgentsAsToolsAgent(McpAgent):
         return kwargs
 
     @staticmethod
-    def _default_child_tool_schema() -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string",
-                    "description": "Message to send to the agent",
-                },
-            },
-            "required": ["message"],
-        }
-
-    @staticmethod
     def _child_tool_result_mode(child: LlmAgent) -> ToolResultMode:
         request_params = child.config.default_request_params
         if request_params is None:
@@ -539,24 +501,7 @@ class AgentsAsToolsAgent(McpAgent):
 
     @classmethod
     def _child_response_mode_enabled(cls, child: LlmAgent) -> bool:
-        return tool_result_mode_allows_response_mode(cls._child_tool_result_mode(child))
-
-    @classmethod
-    def _augment_schema_with_response_mode(cls, schema: dict[str, Any]) -> dict[str, Any]:
-        if schema.get("type") != "object":
-            return schema
-
-        properties = schema.get("properties")
-        if properties is not None and not isinstance(properties, dict):
-            return schema
-
-        updated_schema = deepcopy(schema)
-        updated_properties = updated_schema.setdefault("properties", {})
-        if not isinstance(updated_properties, dict):
-            return schema
-
-        updated_properties.setdefault(_RESPONSE_MODE_FIELD, _response_mode_schema())
-        return updated_schema
+        return tool_result_mode_allows_agent_response_mode(cls._child_tool_result_mode(child))
 
     @staticmethod
     def _configured_child_tool_schema(child: LlmAgent) -> dict[str, Any] | None:
@@ -565,78 +510,16 @@ class AgentsAsToolsAgent(McpAgent):
 
     @classmethod
     def _child_response_mode_control_enabled(cls, child: LlmAgent) -> bool:
-        if not cls._child_response_mode_enabled(child):
-            return False
-        schema = cls._configured_child_tool_schema(child)
-        if schema is None:
-            return True
-        if schema.get("type") != "object":
-            return False
-        properties = schema.get("properties")
-        if properties is None:
-            return True
-        return isinstance(properties, dict) and _RESPONSE_MODE_FIELD not in properties
+        return response_mode_control_enabled(
+            cls._configured_child_tool_schema(child),
+            response_mode_enabled=cls._child_response_mode_enabled(child),
+        )
 
     @classmethod
     def _resolved_child_tool_schema(cls, child: LlmAgent) -> dict[str, Any]:
-        configured_schema = cls._configured_child_tool_schema(child)
-        schema = (
-            configured_schema if configured_schema is not None else cls._default_child_tool_schema()
-        )
-        if cls._child_response_mode_control_enabled(child):
-            return cls._augment_schema_with_response_mode(schema)
-        return schema
-
-    @classmethod
-    def _child_uses_structured_args(cls, child: LlmAgent) -> bool:
-        configured_schema = cls._configured_child_tool_schema(child)
-        if configured_schema is None:
-            return False
-        properties = configured_schema.get("properties")
-        if not isinstance(properties, dict):
-            return True
-        if cls._child_response_mode_control_enabled(child):
-            property_names = {name for name in properties if name != _RESPONSE_MODE_FIELD}
-        else:
-            property_names = set(properties)
-        return property_names != {"message"}
-
-    @staticmethod
-    def _render_structured_args(arguments: dict[str, Any]) -> str:
-        return json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)
-
-    @staticmethod
-    def _split_response_mode_control(
-        arguments: dict[str, Any],
-        *,
-        enabled: bool,
-    ) -> _ResponseModeControl:
-        if not enabled:
-            return _ResponseModeControl(arguments=dict(arguments))
-
-        sanitized_arguments = dict(arguments)
-        raw_mode = sanitized_arguments.pop("response_mode", _MISSING_RESPONSE_MODE)
-        if raw_mode is _MISSING_RESPONSE_MODE:
-            return _ResponseModeControl(arguments=sanitized_arguments)
-        if not isinstance(raw_mode, str):
-            return _ResponseModeControl(
-                arguments=sanitized_arguments,
-                error="response_mode must be one of: inherit, postprocess, passthrough",
-            )
-
-        normalized = strip_casefold(raw_mode)
-        if normalized not in _RESPONSE_MODE_OVERRIDES:
-            return _ResponseModeControl(
-                arguments=sanitized_arguments,
-                error=(
-                    f"Invalid response_mode '{raw_mode}'. "
-                    "Expected one of: inherit, postprocess, passthrough"
-                ),
-            )
-
-        return _ResponseModeControl(
-            arguments=sanitized_arguments,
-            tool_result_mode_override=_RESPONSE_MODE_OVERRIDES[normalized],
+        return resolved_agent_tool_schema(
+            cls._configured_child_tool_schema(child),
+            response_mode_control=cls._child_response_mode_control_enabled(child),
         )
 
     @staticmethod
@@ -770,14 +653,11 @@ class AgentsAsToolsAgent(McpAgent):
         return messages
 
     def _child_input_text(self, child: LlmAgent, args: dict[str, Any]) -> str:
-        if self._child_uses_structured_args(child):
-            return self._render_structured_args(args)
-        # Extract message from arguments for legacy child tool schemas.
-        if isinstance(args.get("message"), str):
-            return args["message"]
-        if isinstance(args.get("text"), str):  # backwards compat
-            return args["text"]
-        return str(args) if args else ""
+        return render_agent_tool_arguments(
+            args,
+            configured_schema=self._configured_child_tool_schema(child),
+            response_mode_control=self._child_response_mode_control_enabled(child),
+        )
 
     @staticmethod
     def _child_tool_result_from_response(
@@ -1005,7 +885,7 @@ class AgentsAsToolsAgent(McpAgent):
         """Shared helper to execute a child agent with standard serialization and display rules."""
 
         raw_args = arguments or {}
-        response_mode_control = self._split_response_mode_control(
+        response_mode_control = split_response_mode_control(
             raw_args,
             enabled=self._child_response_mode_control_enabled(child),
         )

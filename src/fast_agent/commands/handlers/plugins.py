@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -69,6 +68,7 @@ from fast_agent.plugins.operations import (
 )
 from fast_agent.plugins.provenance import format_revision_short
 from fast_agent.utils.action_normalization import is_help_flag
+from fast_agent.utils.async_utils import run_in_thread
 from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
@@ -661,7 +661,7 @@ async def handle_add_plugin(
         return outcome
 
     try:
-        install_path = await asyncio.to_thread(
+        install_path = await run_in_thread(
             install_marketplace_plugin_sync,
             selected,
             destination_root=env_paths.plugins,
@@ -759,7 +759,7 @@ async def handle_update_plugin(
         return outcome
 
     env_paths = resolve_environment_paths(ctx.resolve_settings())
-    updates = await asyncio.to_thread(check_plugin_updates, destination_root=env_paths.plugins)
+    updates = await run_in_thread(check_plugin_updates, destination_root=env_paths.plugins)
 
     if parsed.selector is None:
         outcome.add_message(
@@ -794,7 +794,7 @@ async def handle_update_plugin(
         )
         return outcome
 
-    applied = await asyncio.to_thread(apply_plugin_updates, selected, force=parsed.force)
+    applied = await run_in_thread(apply_plugin_updates, selected, force=parsed.force)
     outcome.add_message(
         _format_update_results(applied, title="Plugin update results:"),
         right_info="plugins",

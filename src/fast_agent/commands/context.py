@@ -322,7 +322,13 @@ class CommandContext:
     skill_source_overrides: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.noenv or self.session_runtime is not None:
+        if self.noenv:
+            if self.session_manager is not None or self.session_runtime is not None:
+                raise ValueError("noenv command contexts cannot enable sessions.")
+            return
+        if self.session_runtime is not None:
+            return
+        if self.session_manager is None:
             return
         from fast_agent.commands.session_runtime import SessionManagerCommandRuntime
 
@@ -333,6 +339,11 @@ class CommandContext:
             session_store_cwd=self.session_store_cwd,
             settings=self.settings,
         )
+
+    @property
+    def sessions_enabled(self) -> bool:
+        """Return True when this context carries an explicit session capability."""
+        return self.session_runtime is not None
 
     def resolve_settings(self) -> Settings:
         return self.settings or get_settings()
@@ -356,13 +367,9 @@ class CommandContext:
         return ("provider", str(id(self.agent_provider)), agent_name)
 
     def resolve_session_manager(self) -> "SessionManager":
-        from fast_agent.session import get_session_manager
-
         if self.session_runtime is not None:
             return self.session_runtime.resolve_manager()
-        if self.session_manager is not None:
-            return self.session_manager
-        return get_session_manager(cwd=self._session_manager_cwd())
+        raise RuntimeError("Sessions are not enabled for this command context.")
 
     def _session_manager_cwd(self) -> "Path | None":
         if self.session_store_scope == "app":
