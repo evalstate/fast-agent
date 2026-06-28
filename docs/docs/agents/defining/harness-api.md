@@ -681,6 +681,48 @@ response = await session.generate(
 The selected agent can use configured child agents as tools, MCP servers, and
 workflow dependencies in the same session-owned instance.
 
+## Eval inspection pattern
+
+The harness can be used directly in evals without a separate eval runner. Use a
+fresh session ID for each independent case, run the turn, then inspect the
+resolved agent's `message_history` with `ConversationSummary`:
+
+```python
+from fast_agent import ConversationSummary, FastAgent
+
+
+fast = FastAgent("Support Bot", parse_cli_args=False, environment_dir=".fast-agent")
+
+
+async with fast.harness() as harness:
+    session = await harness.session("eval-checkout-status", agent_name="support")
+    message = await session.generate("Is checkout currently operational?")
+
+    agent = session.agent_app.resolve_agent("support")
+    summary = ConversationSummary(messages=agent.message_history)
+
+    assert "operational" in message.last_text().lower()
+    assert summary.tool_call_map.get("get_service_status", 0) >= 1
+    assert summary.tool_errors == 0
+```
+
+`ConversationSummary` is a small analysis view over the actual agent history. It
+reports message counts, turn splits, tool call counts, per-tool call maps,
+tool errors, and timing data when timing channels are present. For assertions
+that need exact tool arguments, tool results, citations, usage channels, or
+provider-specific metadata, inspect `agent.message_history` directly; it contains
+the same `PromptMessageExtended` objects returned by `generate()`.
+
+For deterministic test cases, prefer one session ID per case so saved history
+cannot leak between cases. Reuse a session ID only when the eval is intentionally
+checking conversation memory. When `session_history` is enabled, call
+`await session.delete()` after a case if you do not want the persisted eval
+session kept under `environment_dir/sessions/`.
+
+GEPA and artifact-heavy eval loops can use the same pattern inside their scorer
+or candidate evaluator, while writing candidate inputs, outputs, summaries, and
+scores through `fast_agent.eval` artifact helpers.
+
 ## Request parameters
 
 Pass `RequestParams` to any call:

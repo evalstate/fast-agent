@@ -612,6 +612,22 @@ class SlashCommandHandler:
             else None
         )
         session_manager = agent_context.session_manager if agent_context else None
+        session_runtime = None
+        if not self._noenv and session_manager is None:
+            from fast_agent.commands.session_runtime import SessionManagerCommandRuntime
+
+            session_runtime = SessionManagerCommandRuntime(
+                session_cwd=(
+                    Path(str(raw_session_cwd)).expanduser().resolve() if raw_session_cwd else None
+                ),
+                session_store_scope=session_store_scope,
+                session_store_cwd=(
+                    Path(str(raw_session_store_cwd)).expanduser().resolve()
+                    if raw_session_store_cwd
+                    else None
+                ),
+                settings=settings,
+            )
         return CommandContext(
             agent_provider=StaticAgentProvider(
                 cast("dict[str, object]", dict(self.instance.agents))
@@ -631,6 +647,7 @@ class SlashCommandHandler:
                 else None
             ),
             session_manager=session_manager,
+            session_runtime=session_runtime,
         )
 
     def _format_outcome_as_markdown(
