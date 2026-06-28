@@ -8,8 +8,6 @@ social:
   alt: fast-agent social card — Harness API
 ---
 
-# Harness API
-
 The Harness API runs **fast-agent** from Python without entering the TUI or
 starting an MCP/ACP transport server.
 

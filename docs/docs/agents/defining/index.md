@@ -9,9 +9,16 @@ social:
 
 # Defining Agents
 
+Agents represent a bundle of Tools, Hooks, Skills, Instructions and Configuration for interacting with models.
+
 **fast-agent** supports two complementary ways to define agents:
 
-- [Python API](python_api/) — define agents and workflows in Python with decorators such as `@fast.agent`.
-- [Agent Cards](agent_cards/) — define portable AgentCards and ToolCards that can be loaded by `fast-agent go`, the TUI, and card tooling.
+- [Python API](python_api/) - define agents and workflows in Python with decorators such as `@fast.agent` or `@fast.parallel`. 
+- [Agent Cards](agent_cards/) - portable markdown files that can be loaded by `fast-agent go`, the TUI, and card tooling.
+
+
 
 Use the Python API when you are building an application. Use Agent Cards when you want portable, reusable agent definitions that can be loaded from files or shared with a team.
+
+Agents can 
+
