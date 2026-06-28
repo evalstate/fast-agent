@@ -22,27 +22,26 @@ def test_a2a_getting_started_includes_generated_snippets() -> None:
     text = page.read_text(encoding="utf-8")
     for filename in [
         "start-fake-server.sh",
-        "cli-stream-command.sh",
-        "cli-stream-output.txt",
-        "cli-files-command.sh",
-        "cli-files-output.txt",
-        "agent-card.yaml",
-        "tui-session.txt",
     ]:
         assert f'docs/docs/a2a/snippets/{filename}' in text
 
 
-def test_a2a_cast_asset_is_present() -> None:
-    asset = ROOT / "docs" / "docs" / "assets" / "a2a" / "a2a-streaming-files.cast"
-    assert asset.is_file()
-    first_line = asset.read_text(encoding="utf-8").splitlines()[0]
-    assert '"version"' in first_line
+def test_a2a_client_includes_generated_snippets() -> None:
+    page = ROOT / "docs" / "docs" / "a2a" / "client.md"
+    text = page.read_text(encoding="utf-8")
+    for filename in [
+        "start-fake-server.sh",
+        "cli-hello-command.sh",
+        "cli-hello-output.txt",
+        "cli-files-command.sh",
+        "cli-files-output.txt",
+    ]:
+        assert f'docs/docs/a2a/snippets/{filename}' in text
 
 
 def test_a2a_client_server_cast_assets_are_present() -> None:
     assets = ROOT / "docs" / "docs" / "assets" / "a2a"
     for filename in [
-        "a2a-client-cli.cast",
         "a2a-client-input-required.cast",
         "a2a-server-card.cast",
     ]:
@@ -52,18 +51,11 @@ def test_a2a_client_server_cast_assets_are_present() -> None:
         assert '"version"' in first_line
 
 
-def test_a2a_getting_started_embeds_asciinema_player() -> None:
+def test_a2a_getting_started_does_not_embed_stale_streaming_recording() -> None:
     page = ROOT / "docs" / "docs" / "a2a" / "getting-started.md"
     text = page.read_text(encoding="utf-8")
-    assert 'class="fa-terminal-demo"' in text
-    assert 'data-fa-asciinema-cast="../../assets/a2a/a2a-streaming-files.cast"' in text
-    assert 'data-fa-asciinema-cols="104"' in text
-    assert 'data-fa-asciinema-rows="27"' in text
-    assert 'data-fa-asciinema-idle-time-limit="1.3"' in text
-    assert 'data-fa-terminal-theme="auto"' in text
-    assert 'data-fa-terminal-theme="light"' in text
-    assert 'data-fa-terminal-theme="dark"' in text
-    assert "data-fa-asciinema-target" in text
+    assert 'class="fa-terminal-demo"' not in text
+    assert "a2a-streaming-files.cast" not in text
     assert "AsciinemaPlayer.create" not in text
     assert "data-a2a-terminal-theme" not in text
 
@@ -71,13 +63,8 @@ def test_a2a_getting_started_embeds_asciinema_player() -> None:
 def test_a2a_client_server_pages_embed_recordings() -> None:
     client = (ROOT / "docs" / "docs" / "a2a" / "client.md").read_text(encoding="utf-8")
     server = (ROOT / "docs" / "docs" / "a2a" / "server.md").read_text(encoding="utf-8")
-    assert 'data-fa-asciinema-cast="../../assets/a2a/a2a-client-cli.cast"' in client
     assert (
         'data-fa-asciinema-cast="../../assets/a2a/a2a-client-input-required.cast"'
-        in client
-    )
-    assert (
-        'data-fa-asciinema-cast="../../assets/a2a/a2a-real-llm-hf-streaming.cast"'
         in client
     )
     assert 'data-fa-asciinema-cast="../../assets/a2a/a2a-server-card.cast"' in server
@@ -101,15 +88,15 @@ def test_asciinema_player_vendor_assets_are_present() -> None:
     assert "AsciinemaPlayer" in js.read_text(encoding="utf-8")[:200]
 
 
-def test_a2a_cast_contains_ansi_escape_sequences() -> None:
-    asset = ROOT / "docs" / "docs" / "assets" / "a2a" / "a2a-streaming-files.cast"
+def test_a2a_input_required_cast_contains_ansi_escape_sequences() -> None:
+    asset = ROOT / "docs" / "docs" / "assets" / "a2a" / "a2a-client-input-required.cast"
     assert "\\u001b[" in asset.read_text(encoding="utf-8")
 
 
-def test_a2a_cast_uses_compact_rows() -> None:
-    asset = ROOT / "docs" / "docs" / "assets" / "a2a" / "a2a-streaming-files.cast"
+def test_a2a_input_required_cast_uses_compact_rows() -> None:
+    asset = ROOT / "docs" / "docs" / "assets" / "a2a" / "a2a-client-input-required.cast"
     first_line = asset.read_text(encoding="utf-8").splitlines()[0]
-    assert '"height": 27' in first_line
+    assert '"height": 18' in first_line
 
 
 def test_a2a_turn_continuation_cast_uses_terminal_colours() -> None:

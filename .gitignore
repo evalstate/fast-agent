@@ -218,6 +218,9 @@ auths.md
 upskill
 .demo
 .fast-agent
+!examples/a2a/research/.fast-agent/
+!examples/a2a/research/.fast-agent/agent-cards/
+!examples/a2a/research/.fast-agent/agent-cards/*.md
 
 /fastagent.config.yaml
 
