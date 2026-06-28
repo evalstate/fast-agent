@@ -1,5 +1,5 @@
 ---
-title: MCP Overview
+title: MCP with fast-agent
 social:
   title: MCP with fast-agent
   tagline: Connect to MCP servers, expose agents over MCP, and use MCP protocol features.
@@ -7,39 +7,37 @@ social:
   alt: fast-agent social card — MCP Overview
 ---
 
-# MCP with fast-agent
-
-fast-agent is MCP-native in both directions:
+**`fast-agent`** provides comprehensive MCP support as  both Clients and Server:
 
 - **Client**: connect agents to local or remote MCP servers.
-- **Server**: expose fast-agent agents, AgentCards, and Harness apps as MCP servers.
+- **Server**: expose fast-agent agents, AgentCards, and Harness apps as MCP servers with [FastMCP](https://gofastmcp.com/getting-started/welcome).
 - **Protocol features**: work with MCP types, resources, elicitations, state transfer,
   OAuth, UI content, and MCP Apps.
 
 ## Choose your path
 
-| I want to... | Start here |
-| --- | --- |
-| Connect an agent to MCP tools | [Connect to MCP Servers](client-servers.md) |
-| Authenticate to remote MCP servers | [Client OAuth](mcp-oauth.md) |
-| Inspect tools, transports, and server metadata | [Inspect MCP Servers](mcp_display.md) |
-| Serve a fast-agent agent over MCP | [Run an MCP Server](mcp-server.md) |
-| Build custom FastMCP tools backed by agents | [Custom MCP Servers](harness-adapter.md) |
-| Host an MCP server on Hugging Face Spaces | [Host on Hugging Face Spaces](huggingface-spaces.md) |
-| Build interactive UI with FastMCP Apps | [FastMCP Apps](fastmcp-apps.md) |
-| Understand fast-agent's MCP content handling | [Integration with MCP Types](#integration-with-mcp-types) and [Resources](resources.md) |
+| I want to...                                   | Start here                                                                              |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Connect an agent to MCP tools                  | [Connect to MCP Servers](client-servers.md)                                             |
+| Authenticate to remote MCP servers             | [Client OAuth](mcp-oauth.md)                                                            |
+| Inspect tools, transports, and server metadata | [Inspect MCP Servers](mcp_display.md)                                                   |
+| Serve a fast-agent agent over MCP              | [Run an MCP Server](mcp-server.md)                                                      |
+| Build custom FastMCP tools backed by agents    | [Custom MCP Servers](harness-adapter.md)                                                |
+| Host an MCP server on Hugging Face Spaces      | [Host on Hugging Face Spaces](huggingface-spaces.md)                                    |
+| Build interactive UI with FastMCP Apps         | [FastMCP Apps](fastmcp-apps.md)                                                         |
+| Understand fast-agent's MCP content handling   | [Integration with MCP Types](#integration-with-mcp-types) and [Resources](resources.md) |
 
 ## Deployment modes
 
 We use these names throughout the MCP docs:
 
-| Mode | Use it when... | Start here |
-| --- | --- | --- |
-| **MCP client mode** | fast-agent should connect agents to MCP servers | [Connect to MCP Servers](client-servers.md) |
-| **Managed MCP server mode** | fast-agent should own the MCP server process | [Run an MCP Server](mcp-server.md) |
-| **Custom tool adapter mode** | you want normal MCP tools backed by agents | [Custom MCP Servers](harness-adapter.md) |
-| **MCP Apps adapter mode** | you want interactive MCP Apps backed by agents | [FastMCP Apps](fastmcp-apps.md) |
-| **Direct Harness mode** | you are embedding fast-agent in Python without MCP | [Harness API](../agents/defining/harness-api.md) |
+| Mode                         | Use it when...                                     | Start here                                       |
+| ---------------------------- | -------------------------------------------------- | ------------------------------------------------ |
+| **MCP client mode**          | fast-agent should connect agents to MCP servers    | [Connect to MCP Servers](client-servers.md)      |
+| **Managed MCP server mode**  | fast-agent should own the MCP server process       | [Run an MCP Server](mcp-server.md)               |
+| **Custom tool adapter mode** | you want normal MCP tools backed by agents         | [Custom MCP Servers](harness-adapter.md)         |
+| **MCP Apps adapter mode**    | you want interactive MCP Apps backed by agents     | [FastMCP Apps](fastmcp-apps.md)                  |
+| **Direct Harness mode**      | you are embedding fast-agent in Python without MCP | [Harness API](../agents/defining/harness-api.md) |
 
 `--transport http` and `--transport stdio` choose the wire transport for
 managed MCP server mode. They are not separate deployment modes. Session scope

@@ -1,4 +1,0 @@
-{"version": 2, "width": 96, "height": 18, "timestamp": 1780860597, "idle_time_limit": 1.0, "env": {"SHELL": "/bin/bash", "TERM": "xterm-256color"}, "title": "fast-agent A2A client CLI streaming"}
-[0.00859, "o", "\u001b[1;36m$ uv run fast-agent -x --a2a http://127.0.0.1:41242 --a2a-transport JSONRPC --message \"please stream\" --quiet\u001b[0m\r\r\n"]
-[3.909177, "o", "\r\nstream chunk one\r\nstream chunk two\r\n"]
-[4.442999, "o", "\u001b[1;32mA2A task completed over JSONRPC\u001b[0m\r\r\n"]

@@ -9,32 +9,6 @@
           "idle_time_limit": 1.0,
           "page": "docs/docs/a2a/client.md",
           "poster": null,
-          "reference": "../../assets/a2a/a2a-client-cli.cast",
-          "rows": 18
-        }
-      ],
-      "height": 18,
-      "idle_time_limit": 1.0,
-      "line_count": 4,
-      "notes": "Deterministic fake-server A2A recording; regenerated with the A2A batch.",
-      "path": "docs/docs/assets/a2a/a2a-client-cli.cast",
-      "present": true,
-      "problems": [],
-      "record_command": "uv run scripts/a2a_docs_pipeline.py record",
-      "recorder": "a2a-client-cli",
-      "timestamp": 1780860597,
-      "title": "fast-agent A2A client CLI streaming",
-      "width": 96
-    },
-    {
-      "embedded": [
-        {
-          "autoplay": false,
-          "cols": 96,
-          "fit": "width",
-          "idle_time_limit": 1.0,
-          "page": "docs/docs/a2a/client.md",
-          "poster": null,
           "reference": "../../assets/a2a/a2a-client-input-required.cast",
           "rows": 18
         }
@@ -51,32 +25,6 @@
       "timestamp": 1780860643,
       "title": "fast-agent A2A input-required continuation",
       "width": 96
-    },
-    {
-      "embedded": [
-        {
-          "autoplay": false,
-          "cols": 120,
-          "fit": "width",
-          "idle_time_limit": 1.3,
-          "page": "docs/docs/a2a/client.md",
-          "poster": null,
-          "reference": "../../assets/a2a/a2a-real-llm-hf-streaming.cast",
-          "rows": 32
-        }
-      ],
-      "height": 32,
-      "idle_time_limit": 1.3,
-      "line_count": 169,
-      "notes": "Optional provider-backed recording; requires HF_TOKEN and OPENAI_API_KEY.",
-      "path": "docs/docs/assets/a2a/a2a-real-llm-hf-streaming.cast",
-      "present": true,
-      "problems": [],
-      "record_command": "uv run scripts/a2a_docs_pipeline.py record-real-llm",
-      "recorder": "a2a-real-llm-hf-streaming",
-      "timestamp": 1779830028,
-      "title": "fast-agent A2A real LLM Hugging Face MCP streaming demo",
-      "width": 120
     },
     {
       "embedded": [
@@ -102,32 +50,6 @@
       "recorder": "a2a-server-card",
       "timestamp": 1780860643,
       "title": "fast-agent A2A server card and transports",
-      "width": 104
-    },
-    {
-      "embedded": [
-        {
-          "autoplay": false,
-          "cols": 104,
-          "fit": "width",
-          "idle_time_limit": 1.3,
-          "page": "docs/docs/a2a/getting-started.md",
-          "poster": "npt:0:03",
-          "reference": "../../assets/a2a/a2a-streaming-files.cast",
-          "rows": 27
-        }
-      ],
-      "height": 27,
-      "idle_time_limit": 1.3,
-      "line_count": 118,
-      "notes": "Live TUI fake-server A2A flow; regenerated with the A2A batch.",
-      "path": "docs/docs/assets/a2a/a2a-streaming-files.cast",
-      "present": true,
-      "problems": [],
-      "record_command": "uv run scripts/a2a_docs_pipeline.py record",
-      "recorder": "a2a-streaming-files",
-      "timestamp": 1780860606,
-      "title": "fast-agent A2A streaming, files, and input-required demo",
       "width": 104
     },
     {

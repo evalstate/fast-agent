@@ -10,6 +10,18 @@ social:
 
 # Connect to MCP Servers
 
+For convenience, **`fast-agent`** lets you connect to MCP Servers with command line switches or the `/connect` TUI command. Smart agents have the ability to connect to MCP Servers themselves. 
+
+From the command line:
+
+```bash
+fast-agent --url https://huggingface.co/mcp # Streamable HTTP
+fast-agent --npx @modelcontextprotocol/server-everything # NPX Package
+fast-agent --uvx server-fetch # UVX Package
+fast-agent --stdio /path/to/stdio-server # STDIO Server
+```
+
+
 MCP Servers are configured in the `fast-agent.yaml` file. Secrets can be kept in `fast-agent.secrets.yaml`, which follows the same format (**fast-agent** merges the contents of the two files).
 
 `mcp.servers.<name>` supports canonical server blocks and shorthand `target` entries:

@@ -5,8 +5,7 @@ description: Deploy a fast-agent A2A server on Hugging Face Spaces with OAuth cr
 
 # Host A2A on Hugging Face
 
-This page describes the target deployment shape for hosting fast-agent as an A2A
-server on Hugging Face Spaces.
+This page shows how to host fast-agent as an A2A server on Hugging Face Spaces.
 
 The important behavior is credential pass-through: the caller authenticates to
 the hosted A2A server with a Hugging Face OAuth/bearer credential, and
@@ -14,18 +13,16 @@ fast-agent makes that credential available to the running agent. That lets the
 agent use Hugging Face Inference Provider models, the Hugging Face MCP server,
 and Hugging Face tools as the caller rather than as a shared server account.
 
-## Current Status
+## Authentication Model
 
 fast-agent A2A serving supports Hugging Face bearer authentication for HTTP
 `JSONRPC` and `HTTP+JSON` routes when `FAST_AGENT_SERVE_OAUTH=huggingface` is
 set. The public AgentCard stays discoverable, and action routes require a bearer
 token.
 
-The implemented first pass supports Hugging Face bearer credentials and Space
-header normalization. Served fast-agent A2A cards currently advertise bearer
-security rather than OAuth2/OIDC security metadata; the fast-agent A2A client can
-still use browser OAuth when a remote AgentCard advertises OAuth2 or OpenID
-Connect.
+Served fast-agent A2A cards advertise Hugging Face bearer security metadata. The
+fast-agent A2A client can also use browser OAuth when a remote AgentCard
+advertises OAuth2 or OpenID Connect.
 
 ## Space Layout
 
@@ -113,10 +110,9 @@ explicit endpoint auth instead: `--auth`, checked-in `headers: Authorization:
 
 ## AgentCard Security
 
-An OAuth-enabled card should advertise security metadata so A2A clients know
-that credentials are required.
-
-The current implementation advertises bearer security:
+An authenticated card should advertise security metadata so A2A clients know
+that credentials are required. fast-agent serves Hugging Face bearer security
+metadata in this form:
 
 ```json
 {
@@ -233,9 +229,9 @@ connection time.
 - Use `--host 0.0.0.0` inside the Space; the served AgentCard should advertise
   the external Space hostname when fetched by clients.
 
-## Verification Targets
+## Operational Checks
 
-The OAuth-enabled A2A implementation should include tests that prove:
+Before publishing a Space-hosted A2A endpoint, check that:
 
 - unauthenticated A2A requests are rejected;
 - authenticated A2A requests reach the agent;

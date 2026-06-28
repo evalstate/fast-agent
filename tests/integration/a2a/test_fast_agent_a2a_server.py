@@ -41,6 +41,15 @@ from fast_agent.a2a.server import (
     _parts_from_prompt_message,
     _prompt_from_a2a_message,
 )
+from fast_agent.a2a.task_api import (
+    return_artifact as return_a2a_artifact,
+)
+from fast_agent.a2a.task_api import (
+    return_message as return_a2a_message,
+)
+from fast_agent.a2a.task_api import (
+    start_task as start_a2a_task,
+)
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance
@@ -302,6 +311,49 @@ class TokenEchoAgent(RecordingAgent):
                     text=request_bearer_token.get() or "missing",
                 )
             ],
+        )
+
+
+class ResearchIntakeAgent(RecordingAgent):
+    a2a_defer_task_start = True
+
+    async def generate(self, messages: Any, request_params: Any = None) -> PromptMessageExtended:
+        del request_params
+        if isinstance(messages, PromptMessageExtended):
+            prompt = messages
+        else:
+            prompt = PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text=str(messages))],
+            )
+        self.received.append(prompt)
+        text = prompt.all_text()
+        if "unclear" in text:
+            await return_a2a_message(
+                "Please clarify the research goal, audience, and desired output format."
+            )
+            return PromptMessageExtended(
+                role="assistant",
+                content=[TextContent(type="text", text="refinement requested")],
+            )
+
+        handle = await start_a2a_task("Research task accepted")
+        await return_a2a_artifact(
+            "Scoping sources\n",
+            name="progress",
+            artifact_id=f"{handle.task_id}:progress",
+            last_chunk=False,
+        )
+        await return_a2a_artifact(
+            "Reading primary references\n",
+            name="progress",
+            artifact_id=f"{handle.task_id}:progress",
+            append=True,
+            last_chunk=False,
+        )
+        return PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text=f"Research complete: {text}")],
         )
 
 
@@ -794,6 +846,104 @@ async def test_fast_agent_a2a_server_routes_to_agent_skill_named_in_metadata(
     assert not primary.received
     assert len(specialist.received) == 1
     assert disposed
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_fast_agent_a2a_server_research_intake_can_refine_or_start_task(
+    unused_tcp_port: int,
+    wait_for_port,
+) -> None:
+    host = "127.0.0.1"
+    port = unused_tcp_port
+
+    async def create_instance() -> AgentInstance:
+        return _instance(ResearchIntakeAgent(name="research"))
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        await instance.shutdown()
+
+    server = AgentA2AServer(
+        primary_instance=_instance(ResearchIntakeAgent(name="research")),
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        server_name="fast-agent research intake test server",
+        host=host,
+        port=port,
+    )
+    uvicorn_server = uvicorn.Server(
+        uvicorn.Config(server.asgi_app(), host=host, port=port, log_level="warning")
+    )
+    task = asyncio.create_task(uvicorn_server.serve())
+    await wait_for_port(host, port, timeout=5.0)
+
+    http_client = httpx.AsyncClient()
+    client = await create_client(
+        f"http://{host}:{port}",
+        client_config=ClientConfig(
+            httpx_client=http_client,
+            supported_protocol_bindings=["JSONRPC"],
+        ),
+    )
+    try:
+        refinement_events = [
+            event
+            async for event in client.send_message(
+                SendMessageRequest(
+                    message=Message(
+                        role=Role.ROLE_USER,
+                        message_id="refine-research",
+                        parts=[Part(text="unclear topic")],
+                    )
+                )
+            )
+        ]
+        research_events = [
+            event
+            async for event in client.send_message(
+                SendMessageRequest(
+                    message=Message(
+                        role=Role.ROLE_USER,
+                        message_id="start-research",
+                        parts=[Part(text="Research A2A task lifecycle for developers")],
+                    )
+                )
+            )
+        ]
+    finally:
+        await client.close()
+        await http_client.aclose()
+        uvicorn_server.should_exit = True
+        await asyncio.wait_for(task, timeout=5.0)
+        await server.executor.shutdown()
+
+    assert len(refinement_events) == 1
+    refinement = refinement_events[0]
+    assert refinement.HasField("message")
+    assert refinement.message.context_id
+    assert refinement.message.task_id == ""
+    assert refinement.message.parts[0].text == (
+        "Please clarify the research goal, audience, and desired output format."
+    )
+
+    assert any(event.HasField("task") for event in research_events)
+    status_states = [
+        event.status_update.status.state
+        for event in research_events
+        if event.HasField("status_update")
+    ]
+    assert TaskState.TASK_STATE_WORKING in status_states
+    assert status_states[-1] == TaskState.TASK_STATE_COMPLETED
+    artifact_text = "\n".join(
+        part.text
+        for event in research_events
+        if event.HasField("artifact_update")
+        for part in event.artifact_update.artifact.parts
+        if part.HasField("text")
+    )
+    assert "Scoping sources" in artifact_text
+    assert "Reading primary references" in artifact_text
+    assert "Research complete: Research A2A task lifecycle for developers" in artifact_text
 
 
 @pytest.mark.integration

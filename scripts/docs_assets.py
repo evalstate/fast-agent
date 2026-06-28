@@ -168,16 +168,6 @@ def _scenarios() -> dict[str, TerminalCastScenario]:
 def _a2a_recorders() -> dict[Path, CastRecorder]:
     a2a_assets = ASSETS / "a2a"
     return {
-        (a2a_assets / "a2a-client-cli.cast").relative_to(ROOT): CastRecorder(
-            name="a2a-client-cli",
-            command="uv run scripts/a2a_docs_pipeline.py record",
-            notes="Deterministic fake-server A2A recording; regenerated with the A2A batch.",
-        ),
-        (a2a_assets / "a2a-streaming-files.cast").relative_to(ROOT): CastRecorder(
-            name="a2a-streaming-files",
-            command="uv run scripts/a2a_docs_pipeline.py record",
-            notes="Live TUI fake-server A2A flow; regenerated with the A2A batch.",
-        ),
         (a2a_assets / "a2a-client-input-required.cast").relative_to(ROOT): CastRecorder(
             name="a2a-client-input-required",
             command="uv run scripts/a2a_docs_pipeline.py record",
@@ -187,11 +177,6 @@ def _a2a_recorders() -> dict[Path, CastRecorder]:
             name="a2a-server-card",
             command="uv run scripts/a2a_docs_pipeline.py record",
             notes="Deterministic A2A server card recording; regenerated with the A2A batch.",
-        ),
-        (a2a_assets / "a2a-real-llm-hf-streaming.cast").relative_to(ROOT): CastRecorder(
-            name="a2a-real-llm-hf-streaming",
-            command="uv run scripts/a2a_docs_pipeline.py record-real-llm",
-            notes="Optional provider-backed recording; requires HF_TOKEN and OPENAI_API_KEY.",
         ),
     }
 

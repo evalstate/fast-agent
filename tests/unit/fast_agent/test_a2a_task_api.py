@@ -12,6 +12,7 @@ from fast_agent.a2a.task_api import (
     _set_current_task,
     current_task,
     return_artifact,
+    return_message,
     start_task,
 )
 from fast_agent.core.harness import AgentHarness
@@ -60,10 +61,31 @@ class _FakeUpdater:
         )
 
 
+class _FakeEventQueue:
+    def __init__(self) -> None:
+        self.events: list[object] = []
+
+    async def enqueue_event(self, event: object) -> None:
+        self.events.append(event)
+
+
+def _set_fake_task(updater: _FakeUpdater, event_queue: _FakeEventQueue):
+    return _set_current_task(
+        cast("Any", updater),
+        event_queue=cast("Any", event_queue),
+        request_message=Message(
+            role=Role.ROLE_USER,
+            message_id="request-1",
+            parts=[Part(text="request")],
+        ),
+    )
+
+
 @pytest.mark.asyncio
 async def test_a2a_task_api_publishes_status_and_artifact() -> None:
     updater = _FakeUpdater()
-    token = _set_current_task(cast("Any", updater))
+    event_queue = _FakeEventQueue()
+    token = _set_fake_task(updater, event_queue)
     try:
         handle = await start_task("Working on it")
         artifact_handle = await return_artifact(
@@ -78,6 +100,7 @@ async def test_a2a_task_api_publishes_status_and_artifact() -> None:
 
     assert handle.task_id == "task-1"
     assert artifact_handle.context_id == "ctx-1"
+    assert len(event_queue.events) == 1
     assert updater.started[0].parts[0].text == "Working on it"
     assert updater.artifacts == [
         {
@@ -98,6 +121,40 @@ async def test_a2a_task_api_requires_active_task_context() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a2a_task_api_can_return_standalone_message_before_task_starts() -> None:
+    updater = _FakeUpdater()
+    event_queue = _FakeEventQueue()
+    token = _set_fake_task(updater, event_queue)
+    try:
+        handle = await return_message("Please clarify the research goal.")
+    finally:
+        _reset_current_task(token)
+
+    assert handle.task_id == "task-1"
+    assert len(event_queue.events) == 1
+    message = cast("Message", event_queue.events[0])
+    assert message.role == Role.ROLE_AGENT
+    assert message.context_id == "ctx-1"
+    assert message.task_id == ""
+    assert message.parts[0].text == "Please clarify the research goal."
+    assert updater.started == []
+    assert updater.artifacts == []
+
+
+@pytest.mark.asyncio
+async def test_a2a_task_api_rejects_standalone_message_after_task_starts() -> None:
+    updater = _FakeUpdater()
+    event_queue = _FakeEventQueue()
+    token = _set_fake_task(updater, event_queue)
+    try:
+        await start_task("Research started")
+        with pytest.raises(RuntimeError, match="after starting a task"):
+            await return_message("Too late")
+    finally:
+        _reset_current_task(token)
+
+
+@pytest.mark.asyncio
 async def test_attach_a2a_task_tools_adds_runnable_model_tools() -> None:
     agent = _ToolCapableAgent()
 
@@ -106,9 +163,11 @@ async def test_attach_a2a_task_tools_adds_runnable_model_tools() -> None:
     assert [getattr(tool, "name", None) for tool in agent.tools] == [
         "start_task",
         "return_artifact",
+        "return_message",
     ]
     updater = _FakeUpdater()
-    token = _set_current_task(cast("Any", updater))
+    event_queue = _FakeEventQueue()
+    token = _set_fake_task(updater, event_queue)
     try:
         start_result = await cast("Any", agent.tools[0]).run({"message": "Tool work"})
         artifact_result = await cast("Any", agent.tools[1]).run(
@@ -132,8 +191,9 @@ async def test_attach_a2a_task_tools_adds_runnable_model_tools() -> None:
 @pytest.mark.asyncio
 async def test_agent_harness_proxies_a2a_task_api() -> None:
     updater = _FakeUpdater()
+    event_queue = _FakeEventQueue()
     harness = object.__new__(AgentHarness)
-    token = _set_current_task(cast("Any", updater))
+    token = _set_fake_task(updater, event_queue)
     try:
         handle = await harness.start_task("Harness work")
         artifact_handle = await harness.return_artifact("Harness artifact", name="harness")
@@ -144,3 +204,19 @@ async def test_agent_harness_proxies_a2a_task_api() -> None:
     assert artifact_handle.context_id == "ctx-1"
     assert updater.started[0].parts[0].text == "Harness work"
     assert updater.artifacts[0]["name"] == "harness"
+
+
+@pytest.mark.asyncio
+async def test_agent_harness_proxies_a2a_message_api() -> None:
+    updater = _FakeUpdater()
+    event_queue = _FakeEventQueue()
+    harness = object.__new__(AgentHarness)
+    token = _set_fake_task(updater, event_queue)
+    try:
+        handle = await harness.return_message("Refine this request.")
+    finally:
+        _reset_current_task(token)
+
+    assert handle.context_id == "ctx-1"
+    message = cast("Message", event_queue.events[0])
+    assert message.parts[0].text == "Refine this request."

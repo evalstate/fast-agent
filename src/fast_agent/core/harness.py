@@ -636,6 +636,12 @@ class AgentHarness:
             last_chunk=last_chunk,
         )
 
+    async def return_message(self, text: str) -> A2ATaskHandle:
+        """Publish a standalone A2A message when the harness is used inside A2A serving."""
+        from fast_agent.a2a.task_api import return_message
+
+        return await return_message(text)
+
     def _load_environment_agent_cards(self) -> None:
         from fast_agent.core.agent_card_paths import is_agent_card_path
         from fast_agent.paths import resolve_environment_paths

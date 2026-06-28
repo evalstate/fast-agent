@@ -7,6 +7,22 @@ social:
   alt: fast-agent social card — Using the TUI
 ---
 
+To start **`fast-agent`** interactively, use `fast-agent go`. 
+
+When using common command line options, `go` is inferred:
+
+```bash
+# Start with a specific default model - note `go` does not need to be specified
+fast-agent --model sonnet
+
+# Start with a specific skills directory
+fast-agent --skills-dir my-test-skill
+
+# Connect to an MCP Server
+fast-agent --url https://huggingface.co/mcp 
+fast-agent --npx @modelcontextprotocol/server-everything
+```
+
 ## Colours, Markdown Streaming and Scrollback
 
 **`fast-agent`** streams reasoning, assistant responses and tool calls to the console, rendering markdown while protecting the scrollback buffer.

@@ -74,6 +74,26 @@ That means an A2A request can drive a full fast-agent bundle behind one A2A
 agent boundary: an orchestrator, router, tool-using agent, MCP-backed agent, or
 AgentCard-loaded group.
 
+AgentCards in the active fast-agent environment are loaded before the harness or
+server runtime starts. For example, cards in `.fast-agent/agent-cards/` are
+available to `fast.harness()` and to `fast-agent serve a2a` without an explicit
+`fast.load_agents(...)` call. Use `fast.load_agents(path)` only when a Python
+program intentionally loads cards from a non-environment location.
+
+## Server Shapes
+
+Choose the smallest server shape that fits the behavior you need:
+
+| Shape | Use when |
+|---|---|
+| `fast-agent serve a2a` | You want to serve a normal fast-agent app over A2A. This is the default path for AgentCard-defined agents, MCP servers, workflows, and ordinary streaming. |
+| Python wrapper with `fast.start_server(transport="a2a")` | You want a small script that defines agents in Python and starts the standard A2A server. See `examples/a2a/facts_server.py`. |
+| Custom A2A executor plus `FastAgent.harness()` | You need protocol-specific behavior, such as returning a standalone A2A `Message` before creating a task, custom task progress, or explicit A2A SDK route wiring. See `examples/a2a/research/server.py` and `examples/a2a/server.py`. |
+
+The custom executor shape should still use AgentCards for normal agent
+definitions where possible. The Python A2A entrypoint should own protocol
+routing, not duplicate agent definitions that belong in cards.
+
 ## Agent Skills in the A2A Card
 
 A2A models the served endpoint as one remote agent or agentic system. A2A
@@ -122,9 +142,9 @@ fast-agent-specific routing extension in message metadata:
 not portable A2A behavior; generic A2A clients should treat skills as capability
 metadata and send normal messages to the endpoint.
 
-Current limitation: examples are still generic, and mode lists describe the
-server-wide MIME-style content support rather than deriving per-agent modality
-declarations from fast-agent AgentCard metadata or installed fast-agent skills.
+AgentCard examples are generic. Mode lists describe server-wide MIME-style
+content support rather than deriving per-agent modality declarations from
+fast-agent AgentCard metadata or installed fast-agent skills.
 
 ## Instance Scope, Sessions, and Resumption
 
@@ -148,9 +168,16 @@ For `INPUT_REQUIRED`, clients should continue with the returned `task_id` and
 state for follow-up turns. `request` scope intentionally creates a fresh
 fast-agent instance for each message, so it is best for stateless agents.
 
-The current server uses in-memory A2A task storage and in-memory fast-agent
-context instances. Restarting the process loses A2A task state and session
-continuity.
+The server uses in-memory A2A task storage and in-memory fast-agent context
+instances. Restarting the process loses A2A task state and session continuity.
+
+Custom Harness-backed A2A servers choose their own session mapping. The research
+example maps A2A `context_id` directly to harness `session_id`, so a refinement
+reply and the later research task share one fast-agent session. In that example,
+session files are stored under
+`examples/a2a/research/.fast-agent/sessions/`; both research AgentCards use
+`use_history: false`, so the session identity is stable without accumulating
+model chat history.
 
 ## Streaming
 
@@ -161,6 +188,62 @@ use A2A append semantics.
 
 If the final fast-agent response differs from the streamed text, the server sends
 a final replacement artifact for the same artifact id before completing the task.
+
+## Refinement Messages
+
+A2A-native server code can return a standalone A2A `Message` before starting a
+task. This is useful for research-intake agents that first refine a vague user
+message into a concrete research goal.
+
+```python
+from fast_agent.a2a.task_api import return_message, start_task
+
+if needs_refinement:
+    await return_message("Please clarify the scope and audience for the research.")
+    return
+
+await start_task("Research task accepted")
+```
+
+Tool-capable fast-agent agents served over A2A get `return_message`,
+`start_task`, and `return_artifact` as local tools. For those agents, fast-agent
+defers task creation until the agent starts work. Ordinary served agents keep
+the default task-generating behavior.
+
+For custom A2A executors, prefer the Harness API shape used by the MCP adapter:
+translate the incoming protocol request into an `AgentRequest`, invoke an agent
+through `FastAgent.harness()`, then translate the result back into A2A events.
+The research example follows this pattern:
+
+```python
+async with fast.harness() as harness:
+    request_handler = DefaultRequestHandler(
+        agent_executor=ResearchA2AExecutor(ResearchA2AHarnessAdapter(harness)),
+        task_store=InMemoryTaskStore(),
+        agent_card=agent_card(host=HOST, port=PORT),
+    )
+```
+
+Inside the adapter, the A2A `context_id` is used as the harness `session_id` so
+the refinement message and the eventual research task share a session:
+
+```python
+response = await harness.invoke(
+    AgentRequest.text(
+        prompt,
+        agent="research_refiner",
+        session_id=context.context_id,
+        metadata={"transport": "a2a", "phase": "research_refinement"},
+    )
+)
+```
+
+The example lives at `examples/a2a/research/server.py`. Its refiner and worker
+are normal AgentCards in
+`examples/a2a/research/.fast-agent/agent-cards/`, loaded automatically when
+`fast.harness()` starts. The A2A executor is responsible only for the
+protocol-level decision: return a standalone `Message` for refinement guidance,
+or create a `Task` and stream progress artifacts.
 
 ## `INPUT_REQUIRED`
 
@@ -241,4 +324,4 @@ parts. This gives API users and structured-output wrappers an explicit path to
 return protocol-level JSON while preserving normal markdown/text responses.
 
 See [Protocol Compliance](protocol-compliance.md) for the full supported surface
-and known gaps.
+and limitations.

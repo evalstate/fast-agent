@@ -30,6 +30,7 @@ def _remote_agent(*, name: str = "remote") -> A2ARemoteAgent:
     agent.context_id = "ctx-current"
     agent.current_task_id = "task-current"
     agent.last_task_state = "TASK_STATE_INPUT_REQUIRED"
+    agent.last_event_kind = "task"
     agent.task_states = {
         "task-done": "TASK_STATE_COMPLETED",
         "task-current": "TASK_STATE_INPUT_REQUIRED",
@@ -97,7 +98,9 @@ async def test_a2a_tui_dispatch_reports_status_transport_and_card(
     assert "Context: ctx-current" in output
     assert "Task: task-current" in output
     assert "Last state: TASK_STATE_INPUT_REQUIRED" in output
+    assert "Last event: task" in output
     assert "Tasks: 1 finished, 1 pending" in output
+    assert "Pending tasks: task-current" in output
     assert "A2A transport: remote" in output
     assert "Requested: JSONRPC" in output
     assert "Selected client: _SelectedTransport" in output
@@ -125,6 +128,7 @@ async def test_a2a_tui_dispatch_reports_tasks_alias(
     output = "\n".join(printed)
     assert "A2A tasks: remote" in output
     assert "Tasks: 1 finished, 1 pending" in output
+    assert "Pending tasks: task-current" in output
 
 
 @pytest.mark.asyncio
@@ -152,6 +156,7 @@ async def test_a2a_tui_dispatch_lists_and_resets_remote_agents(
     assert remote.context_id is None
     assert remote.current_task_id is None
     assert remote.last_task_state is None
+    assert remote.last_event_kind is None
     assert remote.task_states == {}
 
 

@@ -7,16 +7,35 @@ description: Use fast-agent as a client for remote Agent2Agent (A2A) agents.
 
 fast-agent can connect to remote A2A agents as normal fast-agent agents. A
 remote A2A agent can be used from the CLI, TUI, AgentCards, or the Python API.
+For direct Python construction, see [A2A API](api.md#client-api).
+
+For a repeatable local target, start the deterministic fake A2A server from the
+fast-agent repository root:
+
+```bash
+--8<-- "docs/docs/a2a/snippets/start-fake-server.sh"
+```
+
+It exposes:
+
+| Endpoint | URL |
+|---|---|
+| AgentCard | `http://127.0.0.1:41242/.well-known/agent-card.json` |
+| JSON-RPC | `http://127.0.0.1:41242/a2a/jsonrpc` |
+| HTTP+JSON | `http://127.0.0.1:41242/a2a/rest` |
 
 ## CLI
 
 Use `--a2a` for an ad hoc remote agent:
 
 ```bash
-uv run fast-agent -x \
-  --a2a http://127.0.0.1:41242 \
-  --a2a-transport JSONRPC \
-  --message "hello"
+--8<-- "docs/docs/a2a/snippets/cli-hello-command.sh"
+```
+
+Expected output:
+
+```text
+--8<-- "docs/docs/a2a/snippets/cli-hello-output.txt"
 ```
 
 `--a2a` points at the remote agent base URL. fast-agent resolves the AgentCard
@@ -54,29 +73,7 @@ Supported HTTP transports:
 | `JSONRPC` | `jsonrpc`, `json-rpc`, `rpc` |
 | `HTTP+JSON` | `http`, `http+json`, `rest` |
 
-gRPC is not part of fast-agent's A2A support target.
-
-### CLI Recording
-
-This recording shows the expected shape of a streamed remote A2A response from
-the deterministic fake server.
-
-<div
-  class="fa-terminal-demo"
-  data-fa-asciinema-cast="../../assets/a2a/a2a-client-cli.cast"
-  data-fa-asciinema-cols="96"
-  data-fa-asciinema-rows="18"
-  data-fa-asciinema-speed="1"
-  data-fa-asciinema-idle-time-limit="1"
-  data-fa-asciinema-fit="width"
->
-  <div class="fa-terminal-theme-switch" aria-label="Terminal theme">
-    <button type="button" data-fa-terminal-theme="auto">Auto</button>
-    <button type="button" data-fa-terminal-theme="light">Light</button>
-    <button type="button" data-fa-terminal-theme="dark">Dark</button>
-  </div>
-  <div data-fa-asciinema-target></div>
-</div>
+fast-agent does not support gRPC for A2A.
 
 ## AgentCard
 
@@ -154,27 +151,6 @@ connection:
 /a2a connect https://research.example.com --oauth --name research_remote
 ```
 
-## Python API
-
-Use `A2ARemoteAgent` directly when constructing agents in code:
-
-```python
-from fast_agent.a2a.config import A2AAgentConfig
-from fast_agent.a2a.remote_agent import A2ARemoteAgent
-from fast_agent.agents.agent_types import AgentConfig, AgentType
-from fast_agent.config import MCPServerAuthSettings
-
-remote_agent = A2ARemoteAgent(
-    config=AgentConfig(name="research_remote", agent_type=AgentType.A2A),
-    a2a_config=A2AAgentConfig(
-        url="https://research.example.com",
-        transport="JSONRPC",
-        auth=MCPServerAuthSettings(oauth=True),
-    ),
-)
-await remote_agent.initialize()
-```
-
 Useful diagnostics:
 
 ```text
@@ -193,57 +169,35 @@ line above the input:
 (a2a) - Context ID: 7b7c...8d9e. Tasks: 4 finished, 3 pending. /tasks for info
 ```
 
-`/tasks` shows the current A2A `context_id`, pending `task_id`, last task state,
-finished/pending task counts, and selected client transport. `/a2a status`
-remains available for the same connection diagnostics.
+`/tasks` shows the current A2A `context_id`, pending `task_id`, last event type,
+last task state, finished/pending task counts, outstanding task ids, and selected
+client transport. `/a2a status` remains available for the same connection
+diagnostics.
 
 When the local A2A AgentCard or request has `use_history: false`, fast-agent
-starts each completed turn with a fresh A2A context. The exception is
-`TASK_STATE_INPUT_REQUIRED`: fast-agent keeps the returned `task_id` and
-`context_id` so the next user message can continue the interrupted task.
+starts each completed task turn with a fresh A2A context. The exceptions are
+standalone A2A `Message` responses and `TASK_STATE_INPUT_REQUIRED`: fast-agent
+keeps the returned `context_id` after a refinement message, and keeps both the
+`task_id` and `context_id` when a task is waiting for input.
 
-## Streaming
+For research-style A2A agents, this means a refinement reply can return a plain
+A2A `Message` first. The TUI still shows the context id, and the next user turn
+is sent in that context. Once the server starts a research task, `/tasks` lists
+any outstanding task ids for monitoring.
+
+## Task Updates
 
 Remote A2A message events are emitted through the normal fast-agent stream
 listener path. Task artifact updates are assembled into the returned
-`PromptMessageExtended` without being exposed as live assistant-message chunks.
-The client assembles final text per artifact and honors the A2A `append` flag,
-so replacement updates replace the artifact content and append updates extend it.
+`PromptMessageExtended`; they are not exposed as live assistant-message chunk
+streaming. The client assembles final text per artifact and honors the A2A
+`append` flag, so replacement updates replace the artifact content and append
+updates extend it.
 
 The A2A client defaults to a longer HTTP request timeout than httpx's default so
 real LLM-backed servers have time to emit the first stream event. Set
 `request_timeout_seconds` on an A2A AgentCard when a remote endpoint needs a
 different timeout.
-
-### Real LLM Server Recording
-
-This recording shows a fast-agent A2A client streaming from a fast-agent A2A
-server backed by a real LLM and the Hugging Face MCP server. It is a provider
-smoke recording, separate from the deterministic fake-server recordings used by
-the test suite.
-
-<div
-  class="fa-terminal-demo"
-  data-fa-asciinema-cast="../../assets/a2a/a2a-real-llm-hf-streaming.cast"
-  data-fa-asciinema-cols="120"
-  data-fa-asciinema-rows="32"
-  data-fa-asciinema-speed="1"
-  data-fa-asciinema-idle-time-limit="1.3"
-  data-fa-asciinema-fit="width"
->
-  <div class="fa-terminal-theme-switch" aria-label="Terminal theme">
-    <button type="button" data-fa-terminal-theme="auto">Auto</button>
-    <button type="button" data-fa-terminal-theme="light">Light</button>
-    <button type="button" data-fa-terminal-theme="dark">Dark</button>
-  </div>
-  <div data-fa-asciinema-target></div>
-</div>
-
-Regenerate this provider-backed cast with:
-
-```bash
-uv run scripts/a2a_docs_pipeline.py record-real-llm
-```
 
 ## `INPUT_REQUIRED`
 
@@ -256,6 +210,28 @@ When a remote A2A task reaches `TASK_STATE_INPUT_REQUIRED`, fast-agent:
 - sends the next user message back to the same task.
 
 Use `/a2a reset` to clear the pending task and start a fresh remote context.
+
+With the fake server, type this in the TUI:
+
+```text
+need input
+blue
+```
+
+The first turn receives:
+
+```text
+A2A task TASK_STATE_INPUT_REQUIRED: Please provide the missing value.
+```
+
+The second turn is sent with the pending A2A task id and completes the task:
+
+```text
+input received: blue
+```
+
+Use `/a2a status` between those turns to inspect the preserved `Context`, `Task`,
+and `Last state` fields.
 
 ### Turn Continuation Recording
 
@@ -293,5 +269,17 @@ The A2A client maps fast-agent prompt content to A2A parts:
 | `EmbeddedResource` with JSON `TextResourceContents` | `Part(data=...)` |
 
 Remote URL, data, raw, and text response parts are rendered into fast-agent
-assistant output. See [Protocol Compliance](protocol-compliance.md) for current
-partial multimodal gaps.
+assistant output. See [Protocol Compliance](protocol-compliance.md) for
+content-mapping details.
+
+The fake server can return non-text parts:
+
+```bash
+--8<-- "docs/docs/a2a/snippets/cli-files-command.sh"
+```
+
+Expected output:
+
+````text
+--8<-- "docs/docs/a2a/snippets/cli-files-output.txt"
+````

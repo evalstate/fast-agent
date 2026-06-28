@@ -84,22 +84,22 @@ nav = [
     { "Overview" = "mcp/index.md" },
     { "Client" = [
       { "Connect to Servers" = "mcp/client-servers.md" },
-      { "OAuth" = "mcp/mcp-oauth.md" },
+      { "Connect with OAuth" = "mcp/mcp-oauth.md" },
       { "Inspect Servers" = "mcp/mcp_display.md" },
-      "mcp/resources.md",
       "mcp/mcp-ui.md",
+      "mcp/openai-apps-sdk.md",
     ] },
     { "Server" = [
       { "Run an MCP Server" = "mcp/mcp-server.md" },
       { "Custom MCP Servers" = "mcp/harness-adapter.md" },
       { "Host on Hugging Face Spaces" = "mcp/huggingface-spaces.md" },
       { "FastMCP Apps" = "mcp/fastmcp-apps.md" },
-      "mcp/openai-apps-sdk.md",
     ] },
     { "Features" = [
       { "Skills over MCP" = "mcp/skills-over-mcp.md" },
       { "Elicitations" = "mcp/elicitations.md" },
       { "State Transfer" = "mcp/state_transfer.md" },
+      "mcp/resources.md",
     ] },
   ] },
   { "Reference" = [

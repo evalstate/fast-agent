@@ -1,12 +1,14 @@
 ---
 social:
-  title: MCP OAuth
+  title: Connect with OAuth (MCP)
   tagline: Authenticate MCP servers with OAuth and store tokens securely.
   description: Authenticate MCP servers with OAuth and store tokens securely.
   alt: fast-agent social card — MCP OAuth
 ---
 
-Adds OAuth v2.1 to HTTP/SSE MCP servers (STDIO excluded).
+# Connect with OAuth (MCP)
+
+**`fast-agent`** supports connecting to HTTP MCP Servers with OAuth:
 
 - Uses PKCE and prints a clickable authorization link (no auto‑open).
 - Persists tokens in the OS keychain (via keyring) by default; falls back to memory if no keychain is available.

@@ -33,9 +33,6 @@ from a2a.types import (
     SecurityRequirement,
     SecurityScheme,
     StringList,
-    Task,
-    TaskState,
-    TaskStatus,
 )
 from fastapi import FastAPI
 from google.protobuf.json_format import MessageToDict, ParseDict
@@ -50,8 +47,14 @@ from mcp.types import (
 from pydantic import AnyUrl
 from starlette.responses import JSONResponse
 
-from fast_agent.a2a.task_api import _reset_current_task, _set_current_task
+from fast_agent.a2a.task_api import (
+    _current_task_returned_message,
+    _ensure_current_task_started,
+    _reset_current_task,
+    _set_current_task,
+)
 from fast_agent.a2a.task_api import return_artifact as a2a_return_artifact
+from fast_agent.a2a.task_api import return_message as a2a_return_message
 from fast_agent.a2a.task_api import start_task as a2a_start_task
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import ProviderKeyError
@@ -90,6 +93,11 @@ class _StreamListenerCapable(Protocol):
 class _FunctionToolAttachable(Protocol):
     def add_tool(self, tool: Any, *, replace: bool = True) -> None:
         """Attach a local function tool."""
+
+
+@runtime_checkable
+class _A2ADeferredTaskStartCapable(Protocol):
+    a2a_defer_task_start: bool
 
 
 logger = get_logger(__name__)
@@ -268,104 +276,109 @@ class FastAgentA2AExecutor(AgentExecutor):
         assert context.task_id is not None
         assert context.context_id is not None
 
-        await event_queue.enqueue_event(
-            Task(
-                id=context.task_id,
-                context_id=context.context_id,
-                status=TaskStatus(state=TaskState.TASK_STATE_SUBMITTED),
-                history=[context.message],
-            )
-        )
-
         updater = TaskUpdater(
             event_queue=event_queue,
             task_id=context.task_id,
             context_id=context.context_id,
         )
-        await updater.start_work(
-            message=updater.new_agent_message(parts=[Part(text="fast-agent is working")])
-        )
 
         lock = await self._context_lock(self._lock_key(context))
-        async with lock:
-            saved_bearer_token = request_bearer_token.set(_bearer_token_from_call_context(context))
-            saved_a2a_task = _set_current_task(updater)
-            instance: AgentInstance | None = None
-            try:
-                instance = await self._acquire_instance(context.context_id)
-                session = _A2AInvokeSession(
-                    executor=self,
-                    instance=instance,
-                    message=context.message,
-                    updater=updater,
-                )
+        saved_bearer_token = request_bearer_token.set(_bearer_token_from_call_context(context))
+        saved_a2a_task = _set_current_task(
+            updater,
+            event_queue=event_queue,
+            request_message=context.message,
+        )
+        try:
+            async with lock:
+                instance: AgentInstance | None = None
                 try:
-                    response = await session.invoke(
-                        AgentRequest.from_message(
-                            _prompt_from_a2a_message(context.message),
-                            agent=_requested_agent_name(context.message),
-                            session_id=context.context_id,
-                            auth=_a2a_agent_auth(context),
-                            metadata={
-                                "transport": "a2a",
-                                "task_id": context.task_id,
-                                "context_id": context.context_id,
-                            },
+                    instance = await self._acquire_instance(context.context_id)
+                    session = _A2AInvokeSession(
+                        executor=self,
+                        instance=instance,
+                        message=context.message,
+                        updater=updater,
+                    )
+                    try:
+                        response = await session.invoke(
+                            AgentRequest.from_message(
+                                _prompt_from_a2a_message(context.message),
+                                agent=_requested_agent_name(context.message),
+                                session_id=context.context_id,
+                                auth=_a2a_agent_auth(context),
+                                metadata={
+                                    "transport": "a2a",
+                                    "task_id": context.task_id,
+                                    "context_id": context.context_id,
+                                },
+                            )
                         )
-                    )
-                except ProviderKeyError as exc:
-                    await updater.requires_auth(
-                        message=updater.new_agent_message(parts=[Part(text=exc.message)])
-                    )
-                    return
-                except asyncio.CancelledError:
-                    await updater.cancel()
-                    raise
-                except Exception as exc:
-                    await updater.failed(
-                        message=updater.new_agent_message(parts=[Part(text=str(exc))])
-                    )
-                    return
+                    except ProviderKeyError as exc:
+                        await _start_a2a_task()
+                        await updater.requires_auth(
+                            message=updater.new_agent_message(parts=[Part(text=exc.message)])
+                        )
+                        return
+                    except asyncio.CancelledError:
+                        await updater.cancel()
+                        raise
+                    except Exception as exc:
+                        await _start_a2a_task()
+                        await updater.failed(
+                            message=updater.new_agent_message(parts=[Part(text=str(exc))])
+                        )
+                        return
+                    finally:
+                        if session.stream_context is not None:
+                            await self._cleanup_streaming_context(session.stream_context)
+                    returned_message = _current_task_returned_message()
                 finally:
-                    if session.stream_context is not None:
-                        await self._cleanup_streaming_context(session.stream_context)
-            finally:
-                _reset_current_task(saved_a2a_task)
-                request_bearer_token.reset(saved_bearer_token)
-                if instance is not None:
-                    await self._release_instance(
-                        context.context_id,
-                        instance,
+                    if instance is not None:
+                        await self._release_instance(
+                            context.context_id,
+                            instance,
+                        )
+
+            if returned_message:
+                return
+
+            stream_context = session.stream_context
+            streamed_text = stream_context.streamed_text() if stream_context is not None else ""
+            response_message = response.message
+            response_text = response_message.all_text()
+            if response_message.stop_reason == LlmStopReason.PAUSE:
+                await _start_a2a_task()
+                await updater.requires_input(
+                    message=updater.new_agent_message(
+                        parts=_parts_from_prompt_message(response_message)
                     )
+                )
+                return
 
-        stream_context = session.stream_context
-        streamed_text = stream_context.streamed_text() if stream_context is not None else ""
-        response_message = response.message
-        response_text = response_message.all_text()
-        if response_message.stop_reason == LlmStopReason.PAUSE:
-            await updater.requires_input(
-                message=updater.new_agent_message(parts=_parts_from_prompt_message(response_message))
-            )
-            return
-
-        if streamed_text:
-            if response_text and response_text != streamed_text:
-                assert stream_context is not None
+            if streamed_text:
+                if response_text and response_text != streamed_text:
+                    assert stream_context is not None
+                    await _start_a2a_task()
+                    await updater.add_artifact(
+                        parts=_parts_from_prompt_message(response_message),
+                        artifact_id=stream_context.artifact_id,
+                        name="response",
+                        append=False,
+                        last_chunk=True,
+                    )
+            else:
+                await _start_a2a_task()
                 await updater.add_artifact(
                     parts=_parts_from_prompt_message(response_message),
-                    artifact_id=stream_context.artifact_id,
                     name="response",
                     append=False,
                     last_chunk=True,
                 )
-        else:
-            await updater.add_artifact(
-                parts=_parts_from_prompt_message(response_message),
-                name="response",
-                append=False,
-                last_chunk=True,
-            )
-        await updater.complete()
+            await updater.complete()
+        finally:
+            _reset_current_task(saved_a2a_task)
+            request_bearer_token.reset(saved_bearer_token)
 
     def _prepare_streaming_context(
         self,
@@ -474,6 +487,8 @@ class _A2AInvokeSession:
     async def invoke(self, request: AgentRequest) -> AgentResponse:
         agent = self._executor._select_agent(self._instance, self._message, request.agent)
         _attach_a2a_task_tools(agent)
+        if not _agent_defers_a2a_task_start(agent):
+            await a2a_start_task()
         self.stream_context = self._executor._prepare_streaming_context(
             agent=agent,
             updater=self._updater,
@@ -499,6 +514,21 @@ def _attach_a2a_task_tools(agent: AgentProtocol) -> None:
             description="Publish a text artifact update for the current A2A task.",
         )
     )
+    agent.add_tool(
+        build_default_function_tool(
+            _a2a_return_message_tool,
+            name="return_message",
+            description="Return a standalone A2A message without starting a task.",
+        )
+    )
+
+
+def _agent_defers_a2a_task_start(agent: AgentProtocol) -> bool:
+    if isinstance(agent, _FunctionToolAttachable):
+        return True
+    if isinstance(agent, _A2ADeferredTaskStartCapable):
+        return agent.a2a_defer_task_start
+    return False
 
 
 async def _a2a_start_task_tool(message: str = "fast-agent is working") -> dict[str, str]:
@@ -521,6 +551,15 @@ async def _a2a_return_artifact_tool(
         last_chunk=last_chunk,
     )
     return {"task_id": handle.task_id, "context_id": handle.context_id}
+
+
+async def _a2a_return_message_tool(text: str) -> dict[str, str]:
+    handle = await a2a_return_message(text)
+    return {"task_id": handle.task_id, "context_id": handle.context_id}
+
+
+async def _start_a2a_task() -> None:
+    await _ensure_current_task_started()
 
 
 class _A2AStreamingContext:
@@ -551,6 +590,7 @@ class _A2AStreamingContext:
                 return
             text, append = item
             try:
+                await _ensure_current_task_started()
                 await self.updater.add_artifact(
                     parts=[Part(text=text)],
                     artifact_id=self.artifact_id,

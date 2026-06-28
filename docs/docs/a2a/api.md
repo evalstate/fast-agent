@@ -9,6 +9,10 @@ The fast-agent A2A integration is designed to feel like working with normal
 fast-agent agents. The local API surface uses `PromptMessageExtended`, stream
 listeners, and normal fast-agent history behavior.
 
+For operational guides, start with [A2A Client](client.md) or
+[A2A Server](server.md). This page focuses on direct Python APIs and raw A2A
+HTTP request shapes.
+
 ## Client API
 
 Create an `A2ARemoteAgent` directly when you want a remote A2A server behind the
@@ -138,13 +142,21 @@ app = server.asgi_app()
 Each served agent's `use_history` setting still controls whether prior turns are
 included in model calls inside the selected instance scope.
 
+When the standard server path is sufficient, prefer the CLI or
+`fast.start_server(transport="a2a")`; they initialize the normal fast-agent
+runtime and load AgentCards from the active environment before serving.
+
 ### Server Task API
 
-Code running inside a fast-agent A2A request can publish task status and artifact
-updates directly:
+Code running inside a fast-agent A2A request can return a standalone A2A
+message, or publish task status and artifact updates directly:
 
 ```python
-from fast_agent.a2a.task_api import return_artifact, start_task
+from fast_agent.a2a.task_api import return_artifact, return_message, start_task
+
+if needs_refinement:
+    await return_message("Please clarify the research goal and desired output format.")
+    return
 
 handle = await start_task("Searching source documents")
 await return_artifact(
@@ -157,15 +169,26 @@ await return_artifact(
 ```
 
 The same helpers are exposed to tool-capable fast-agent agents served over A2A
-as model tools named `start_task` and `return_artifact`. This lets an agent
-developer either call the Python API directly from server code, or let the model
-publish A2A progress/artifacts through ordinary fast-agent tool calls.
+as model tools named `return_message`, `start_task`, and `return_artifact`. This
+lets an agent developer either call the Python API directly from server code, or
+let the model choose between a refinement `Message` and a started research
+`Task` through ordinary fast-agent tool calls.
+
+For ordinary fast-agent agents, the A2A server preserves the existing behavior
+of starting a task before model work begins. Tool-capable agents defer task
+creation so they can first return a standalone `Message`; once they call
+`start_task`, return an artifact, or stream output, fast-agent emits the standard
+A2A task/status/artifact events.
 
 If your A2A server program is already using `AgentHarness`, the harness exposes
 the same request-local helpers:
 
 ```python
 async with fast.harness() as harness:
+    if needs_refinement:
+        await harness.return_message("Please make the research question more specific.")
+        return
+
     handle = await harness.start_task("Building report")
     await harness.return_artifact(
         "Draft ready.",
@@ -173,6 +196,14 @@ async with fast.harness() as harness:
         name="draft",
     )
 ```
+
+For A2A-native servers that need explicit protocol routing, use the Harness API
+as the adapter boundary: convert the A2A request into an `AgentRequest`, call
+`harness.invoke(...)`, and emit A2A `Message`, `Task`, status, and artifact
+events. The research example in `examples/a2a/research/server.py` uses this
+shape. Its agents are AgentCards under
+`examples/a2a/research/.fast-agent/agent-cards/`, loaded automatically when
+`fast.harness()` starts.
 
 ## Raw A2A JSON-RPC
 

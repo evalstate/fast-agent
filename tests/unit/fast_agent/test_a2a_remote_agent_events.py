@@ -262,6 +262,20 @@ async def test_a2a_remote_agent_message_only_response_updates_context_without_ta
     assert agent.context_id == "ctx-message"
     assert agent.current_task_id is None
     assert agent.last_task_state is None
+    assert agent.last_event_kind == "message"
+
+
+def test_a2a_remote_agent_keeps_message_only_context_for_no_history_follow_up() -> None:
+    agent = _remote_agent()
+    agent.context_id = "ctx-refinement"
+    agent.last_event_kind = "message"
+
+    agent._prepare_turn_state(use_history=False)
+
+    assert agent.context_id == "ctx-refinement"
+    assert agent.current_task_id is None
+    assert agent.last_task_state is None
+    assert agent.last_event_kind == "message"
 
 
 @pytest.mark.asyncio

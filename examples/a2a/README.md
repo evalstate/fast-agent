@@ -79,3 +79,58 @@ uv run fast-agent serve a2a \
 Here `facts-a2a` is the served A2A system name, while `facts` is the fast-agent
 AgentCard/skill name. Keeping them distinct avoids the name clash/confusion with
 the ADK sample's `facts_agent`.
+
+## Research intake server
+
+`research/server.py` demonstrates an A2A-native research workflow using the
+same harness API shape as the MCP adapter. The refiner and worker are defined
+as AgentCards in `research/.fast-agent/agent-cards/`; `fast.harness()` loads
+them from that example-local environment at startup, and
+`ResearchA2AHarnessAdapter` calls them by name. The executor then exits through
+one of two explicit A2A actions:
+
+- `request_further_refinement` returns a standalone A2A `Message`;
+- `begin_research` creates a standard A2A `Task`, then streams progress through
+  task artifact events.
+
+Run it locally:
+
+```bash
+uv run python examples/a2a/research/server.py
+```
+
+Try the refinement path:
+
+```bash
+uv run fast-agent go \
+  --a2a http://localhost:8002 \
+  --a2a-transport JSONRPC \
+  --message "research recent A2A work"
+```
+
+Try the task path:
+
+```bash
+uv run fast-agent go \
+  --a2a http://localhost:8002 \
+  --a2a-transport JSONRPC \
+  --message "Research new multimodal models for scientists as an HTML report."
+```
+
+The intake message is plain text. `Goal:`, `Audience:`, and `Output:` labels
+are accepted, but they are not required.
+
+A2A `context_id` is passed as the harness `session_id`, so follow-up refinement
+and the eventual research task share the same fast-agent session. Harness
+session files are stored under `research/.fast-agent/sessions/`.
+
+For a Hugging Face Space deployment with OAuth, set:
+
+```bash
+FAST_AGENT_SERVE_OAUTH=huggingface
+FAST_AGENT_OAUTH_RESOURCE_URL=https://<space-owner>-<space-name>.hf.space
+```
+
+Then run the same server command in the Space. The served AgentCard advertises
+Hugging Face bearer auth and fast-agent forwards the caller token into request
+context.

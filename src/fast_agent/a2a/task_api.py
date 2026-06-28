@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import uuid
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from a2a.types import Part
+from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus
 
 if TYPE_CHECKING:
+    from a2a.server.events.event_queue import EventQueue
     from a2a.server.tasks.task_updater import TaskUpdater
 
 
@@ -20,9 +22,13 @@ class A2ATaskHandle:
     context_id: str
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class _A2ATaskRuntime:
     updater: TaskUpdater
+    event_queue: EventQueue
+    request_message: Message
+    task_started: bool = False
+    returned_message: bool = False
 
     @property
     def handle(self) -> A2ATaskHandle:
@@ -30,6 +36,19 @@ class _A2ATaskRuntime:
             task_id=self.updater.task_id,
             context_id=self.updater.context_id,
         )
+
+    async def ensure_task_started(self) -> None:
+        if self.task_started:
+            return
+        await self.event_queue.enqueue_event(
+            Task(
+                id=self.updater.task_id,
+                context_id=self.updater.context_id,
+                status=TaskStatus(state=TaskState.TASK_STATE_SUBMITTED),
+                history=[self.request_message],
+            )
+        )
+        self.task_started = True
 
 
 _current_a2a_task: ContextVar[_A2ATaskRuntime | None] = ContextVar(
@@ -47,6 +66,7 @@ def current_task() -> A2ATaskHandle | None:
 async def start_task(message: str = "fast-agent is working") -> A2ATaskHandle:
     """Publish an A2A working status update for the current request."""
     runtime = _require_a2a_task()
+    await runtime.ensure_task_started()
     await runtime.updater.start_work(
         message=runtime.updater.new_agent_message(parts=[Part(text=message)])
     )
@@ -63,6 +83,7 @@ async def return_artifact(
 ) -> A2ATaskHandle:
     """Publish a text artifact update for the current A2A task."""
     runtime = _require_a2a_task()
+    await runtime.ensure_task_started()
     await runtime.updater.add_artifact(
         parts=[Part(text=text)],
         artifact_id=artifact_id,
@@ -73,8 +94,51 @@ async def return_artifact(
     return runtime.handle
 
 
-def _set_current_task(updater: "TaskUpdater") -> Token[_A2ATaskRuntime | None]:
-    return _current_a2a_task.set(_A2ATaskRuntime(updater=updater))
+async def return_message(
+    text: str,
+    *,
+    metadata: dict[str, object] | None = None,
+) -> A2ATaskHandle:
+    """Publish a standalone A2A agent message for the current request."""
+    runtime = _require_a2a_task()
+    if runtime.task_started:
+        raise RuntimeError("Cannot return a standalone A2A message after starting a task.")
+    runtime.returned_message = True
+    await runtime.event_queue.enqueue_event(
+        Message(
+            role=Role.ROLE_AGENT,
+            context_id=runtime.updater.context_id,
+            message_id=str(uuid.uuid4()),
+            metadata=metadata,
+            parts=[Part(text=text)],
+        )
+    )
+    return runtime.handle
+
+
+async def _ensure_current_task_started() -> None:
+    runtime = _require_a2a_task()
+    await runtime.ensure_task_started()
+
+
+def _current_task_returned_message() -> bool:
+    runtime = _current_a2a_task.get()
+    return runtime.returned_message if runtime is not None else False
+
+
+def _set_current_task(
+    updater: "TaskUpdater",
+    *,
+    event_queue: "EventQueue",
+    request_message: Message,
+) -> Token[_A2ATaskRuntime | None]:
+    return _current_a2a_task.set(
+        _A2ATaskRuntime(
+            updater=updater,
+            event_queue=event_queue,
+            request_message=request_message,
+        )
+    )
 
 
 def _reset_current_task(token: Token[_A2ATaskRuntime | None]) -> None:
@@ -91,6 +155,7 @@ def _require_a2a_task() -> _A2ATaskRuntime:
 __all__ = [
     "A2ATaskHandle",
     "current_task",
+    "return_message",
     "return_artifact",
     "start_task",
 ]

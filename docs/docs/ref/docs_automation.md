@@ -90,12 +90,9 @@ fake A2A server and generated snippets:
 
 ```bash
 uv run scripts/a2a_docs_pipeline.py record
-uv run scripts/a2a_docs_pipeline.py record-real-llm
 ```
 
 `record` refreshes the deterministic A2A casts as a batch and updates the shared asciinema index.
-`record-real-llm` refreshes the optional provider-backed cast and requires `HF_TOKEN` and
-`OPENAI_API_KEY`.
 
 By default, cast recordings stop by killing the tmux session after the final demonstrated action,
 so the user-facing recording does not show a trailing `/exit`. Set

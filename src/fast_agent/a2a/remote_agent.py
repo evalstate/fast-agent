@@ -94,6 +94,7 @@ class A2ADiagnostics:
     context_id: str | None
     current_task_id: str | None
     last_task_state: str | None
+    last_event_kind: str | None
     selected_transport_class: str | None
 
 
@@ -102,8 +103,10 @@ class A2ATaskStatusSummary:
     context_id: str | None
     current_task_id: str | None
     last_task_state: str | None
+    last_event_kind: str | None
     finished: int
     pending: int
+    pending_task_ids: tuple[str, ...]
 
     @property
     def total(self) -> int:
@@ -124,6 +127,7 @@ class A2ARemoteAgent(LlmDecorator):
         self.context_id: str | None = None
         self.current_task_id: str | None = None
         self.last_task_state: str | None = None
+        self.last_event_kind: str | None = None
         self.task_states: dict[str, str] = {}
         self.remote_card: AgentCard | None = None
         self.display = ConsoleDisplay(config=context.config if context else None)
@@ -246,6 +250,7 @@ class A2ARemoteAgent(LlmDecorator):
         self.context_id = None
         self.current_task_id = None
         self.last_task_state = None
+        self.last_event_kind = None
         self.task_states.clear()
 
     def diagnostics(self) -> A2ADiagnostics:
@@ -256,18 +261,26 @@ class A2ARemoteAgent(LlmDecorator):
             context_id=self.context_id,
             current_task_id=self.current_task_id,
             last_task_state=self.last_task_state,
+            last_event_kind=self.last_event_kind,
             selected_transport_class=self._selected_transport_class(),
         )
 
     def task_status_summary(self) -> A2ATaskStatusSummary:
         finished = sum(1 for state in self.task_states.values() if state in _FINISHED_STATES)
         pending = len(self.task_states) - finished
+        pending_task_ids = tuple(
+            task_id
+            for task_id, state in self.task_states.items()
+            if state not in _FINISHED_STATES
+        )
         return A2ATaskStatusSummary(
             context_id=self.context_id,
             current_task_id=self.current_task_id,
             last_task_state=self.last_task_state,
+            last_event_kind=self.last_event_kind,
             finished=finished,
             pending=pending,
+            pending_task_ids=pending_task_ids,
         )
 
     def prompt_status_line(self) -> str | None:
@@ -373,6 +386,8 @@ class A2ARemoteAgent(LlmDecorator):
             return
         if self.last_task_state == _INPUT_REQUIRED_STATE and self.current_task_id:
             return
+        if self.last_event_kind == "message" and self.context_id:
+            return
         self.reset_a2a_state()
 
     def _display_user_messages(self, messages: list[PromptMessageExtended]) -> None:
@@ -419,6 +434,7 @@ class A2ARemoteAgent(LlmDecorator):
 
         async for event in events:
             if event.HasField("message"):
+                self.last_event_kind = "message"
                 if event.message.context_id:
                     self.context_id = event.message.context_id
                 text = _parts_text(event.message.parts)
@@ -427,6 +443,7 @@ class A2ARemoteAgent(LlmDecorator):
                 continue
 
             if event.HasField("task"):
+                self.last_event_kind = "task"
                 state = TaskState.Name(event.task.status.state)
                 self._advance_task_state(
                     state=state,
@@ -441,6 +458,7 @@ class A2ARemoteAgent(LlmDecorator):
                 continue
 
             if event.HasField("status_update"):
+                self.last_event_kind = "status_update"
                 status = event.status_update.status
                 state = TaskState.Name(status.state)
                 self._advance_task_state(
@@ -454,6 +472,7 @@ class A2ARemoteAgent(LlmDecorator):
                 continue
 
             if event.HasField("artifact_update"):
+                self.last_event_kind = "artifact_update"
                 update = event.artifact_update
                 artifact = update.artifact
                 text = _parts_text(artifact.parts)
@@ -490,6 +509,7 @@ class A2ARemoteAgent(LlmDecorator):
 
     def _advance_task_state(self, *, state: str, task_id: str, context_id: str) -> None:
         self.last_task_state = state
+        self.last_event_kind = "task"
         self.context_id = context_id or None
         if task_id:
             self.task_states[task_id] = state

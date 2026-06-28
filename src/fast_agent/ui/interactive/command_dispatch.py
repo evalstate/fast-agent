@@ -854,7 +854,10 @@ def _dispatch_a2a_existing_agent_action(
         rich_print(f"  Context: {diagnostics.context_id or '-'}")
         rich_print(f"  Task: {diagnostics.current_task_id or '-'}")
         rich_print(f"  Last state: {diagnostics.last_task_state or '-'}")
+        rich_print(f"  Last event: {diagnostics.last_event_kind or '-'}")
         rich_print(f"  Tasks: {summary.finished} finished, {summary.pending} pending")
+        if summary.pending_task_ids:
+            rich_print(f"  Pending tasks: {', '.join(summary.pending_task_ids)}")
         rich_print(f"  Client transport: {diagnostics.selected_transport_class or '-'}")
         return result
 
