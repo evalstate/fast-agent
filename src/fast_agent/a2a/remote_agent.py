@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import unquote
 
 import httpx
 from a2a.client import A2ACardResolver, ClientConfig, create_client
@@ -583,7 +584,7 @@ def _parts_from_messages(messages: Sequence[PromptMessageExtended]) -> list[Part
 
 
 def _filename_from_uri(uri: str) -> str:
-    path = PurePosixPath(uri.split("?", 1)[0])
+    path = PurePosixPath(unquote(uri.split("?", 1)[0]))
     return path.name or "attachment"
 
 
