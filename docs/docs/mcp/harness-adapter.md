@@ -81,7 +81,7 @@ async def main() -> None:
             render_arguments="Research {{topic}}.\nDepth: {{depth}}",
         )
 
-        await mcp.run_http_async(host="0.0.0.0", port=8000)
+        await mcp.run_http_async(host="127.0.0.1", port=8000)
 ```
 
 ## `message` vs `arguments`

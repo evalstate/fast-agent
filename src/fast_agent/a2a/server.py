@@ -105,6 +105,7 @@ logger = get_logger(__name__)
 A2A_INPUT_MODES = ["text/plain", "application/json", "application/octet-stream", "image/*"]
 A2A_OUTPUT_MODES = ["text/plain", "application/json", "application/octet-stream", "image/*"]
 A2A_HF_BEARER_SCHEME = "hf_bearer"
+DEFAULT_A2A_HOST = "127.0.0.1"
 
 
 def _fast_agent_version() -> str:
@@ -620,7 +621,7 @@ class AgentA2AServer:
         *,
         server_name: str = "fast-agent-a2a",
         server_description: str | None = None,
-        host: str = "0.0.0.0",
+        host: str = DEFAULT_A2A_HOST,
         port: int = 8000,
         instance_scope: str = "connection",
     ) -> None:

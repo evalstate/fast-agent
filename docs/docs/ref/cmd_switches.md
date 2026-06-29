@@ -27,7 +27,7 @@ When running a **fast-agent** application (typically `uv run agent.py`), you hav
 | `--version` | Show version and exit | `--version` |
 | `--transport {http,stdio,acp,a2a}` | Transport protocol; enabling it also turns on server mode | `--transport http` |
 | `--port PORT` | Port for HTTP server (default: 8000) | `--port 8080` |
-| `--host HOST` | Host for HTTP server (default: 127.0.0.1; use 0.0.0.0 to accept remote clients) | `--host 0.0.0.0` |
+| `--host HOST` | Host for HTTP/A2A server (default: 127.0.0.1; use 0.0.0.0 only to accept remote clients) | `--host 127.0.0.1` |
 | `--instance-scope {shared,connection,request}` | Control server-side agent instancing (default: shared) | `--instance-scope connection` |
 | `--env DIR` | Override the base fast-agent environment directory | `--env ./agent-env` |
 | `--skills DIR` | Override the default skills directory | `--skills ./skills` |

@@ -90,8 +90,9 @@ This allows **`fast-agent`** to serve any existing MCP Server in "Agent Mode", u
 
 HTTP serving binds to loopback by default. Use `--host 0.0.0.0` or another
 non-loopback address only when remote clients should connect; `fast-agent serve`
-prints a warning for remote HTTP binds, and an additional warning when `--shell`
-is also enabled.
+prints a warning for remote HTTP/A2A binds. It also prints a warning whenever
+`--shell` is enabled, with stronger wording when shell access is exposed to
+remote callers.
 
 For public or multi-user hosted servers, prefer `--instance-scope request`.
 Use `shared` only for trusted deployments or application-level shared state you

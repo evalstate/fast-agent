@@ -87,17 +87,20 @@ def _serve_security_warning_messages(
     host: str,
     shell: bool,
 ) -> list[str]:
-    if not _serves_remote_clients(transport, host):
-        return []
-    messages = [
-        "[yellow]Warning:[/yellow] serving on "
-        f"[bold]{host}[/bold] exposes fast-agent to remote network clients."
-    ]
-    if shell:
+    messages: list[str] = []
+    serves_remote_clients = _serves_remote_clients(transport, host)
+    if serves_remote_clients:
         messages.append(
-            "[bold red]Warning: --shell is enabled; the shell execution tool is "
-            "available to remote callers.[/bold red]"
+            "[yellow]Warning:[/yellow] serving on "
+            f"[bold]{host}[/bold] exposes fast-agent to remote network clients."
         )
+    if shell:
+        shell_message = (
+            "[bold red]Warning: --shell is enabled; the shell execution tool is available"
+        )
+        if serves_remote_clients:
+            shell_message = f"{shell_message} to remote callers"
+        messages.append(f"{shell_message}.[/bold red]")
     return messages
 
 
@@ -334,7 +337,7 @@ def serve_a2a(
     npx: str | None = CommonAgentOptions.npx(),
     uvx: str | None = CommonAgentOptions.uvx(),
     host: str = typer.Option(
-        "0.0.0.0",
+        DEFAULT_HTTP_HOST,
         "--host",
         help="Host address to bind for the A2A HTTP server",
     ),

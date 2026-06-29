@@ -8,7 +8,7 @@ from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
 from agent_executor import A2AHarnessAdapter, FastAgentExecutor, agent_card, fast
 from fastapi import FastAPI
 
-HOST = "0.0.0.0"
+HOST = "127.0.0.1"
 PORT = 9999
 
 

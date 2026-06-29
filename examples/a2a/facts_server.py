@@ -3,7 +3,7 @@ import os
 
 from fast_agent import FastAgent
 
-HOST = os.getenv("HOST", "0.0.0.0")
+HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8001"))
 MODEL = os.getenv("FAST_AGENT_MODEL", os.getenv("MODEL", "gemini25"))
 

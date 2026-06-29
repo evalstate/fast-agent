@@ -14,6 +14,12 @@ def test_serve_http_host_defaults_to_loopback() -> None:
     assert host_default.default == "127.0.0.1"
 
 
+def test_serve_a2a_host_defaults_to_loopback() -> None:
+    host_default = inspect.signature(serve_command.serve_a2a).parameters["host"].default
+
+    assert host_default.default == "127.0.0.1"
+
+
 def test_serve_security_warnings_for_wildcard_host() -> None:
     messages = serve_command._serve_security_warning_messages(
         transport=serve_command.ServeTransport.HTTP,
@@ -49,12 +55,37 @@ def test_serve_security_warnings_for_a2a_wildcard_host_with_shell() -> None:
     assert "shell execution tool is available to remote callers" in messages[1]
 
 
-def test_serve_security_warnings_only_for_remote_http_and_a2a_binds() -> None:
+def test_serve_security_warnings_for_shell_on_loopback() -> None:
+    messages = serve_command._serve_security_warning_messages(
+        transport=serve_command.ServeTransport.HTTP,
+        host="127.0.0.1",
+        shell=True,
+    )
+
+    assert len(messages) == 1
+    assert "--shell is enabled" in messages[0]
+    assert "remote callers" not in messages[0]
+
+
+def test_serve_security_warnings_for_shell_on_stdio_and_acp() -> None:
+    for transport in (serve_command.ServeTransport.STDIO, serve_command.ServeTransport.ACP):
+        messages = serve_command._serve_security_warning_messages(
+            transport=transport,
+            host="0.0.0.0",
+            shell=True,
+        )
+
+        assert len(messages) == 1
+        assert "--shell is enabled" in messages[0]
+        assert "remote callers" not in messages[0]
+
+
+def test_serve_security_warnings_remote_bind_only_for_http_and_a2a() -> None:
     assert (
         serve_command._serve_security_warning_messages(
             transport=serve_command.ServeTransport.HTTP,
             host="127.0.0.1",
-            shell=True,
+            shell=False,
         )
         == []
     )
@@ -62,20 +93,20 @@ def test_serve_security_warnings_only_for_remote_http_and_a2a_binds() -> None:
         serve_command._serve_security_warning_messages(
             transport=serve_command.ServeTransport.HTTP,
             host="localhost",
-            shell=True,
+            shell=False,
         )
         == []
     )
     assert serve_command._serve_security_warning_messages(
         transport=serve_command.ServeTransport.HTTP,
         host="192.168.1.10",
-        shell=True,
+        shell=False,
     )
     assert (
         serve_command._serve_security_warning_messages(
             transport=serve_command.ServeTransport.STDIO,
             host="0.0.0.0",
-            shell=True,
+            shell=False,
         )
         == []
     )
@@ -83,7 +114,7 @@ def test_serve_security_warnings_only_for_remote_http_and_a2a_binds() -> None:
         serve_command._serve_security_warning_messages(
             transport=serve_command.ServeTransport.ACP,
             host="0.0.0.0",
-            shell=True,
+            shell=False,
         )
         == []
     )
