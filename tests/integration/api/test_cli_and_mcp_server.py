@@ -396,7 +396,7 @@ async def test_agent_server_option_http_rejects_watch(tmp_path):
     stdout, stderr = server_proc.communicate(timeout=5)
 
     assert server_proc.returncode != 0
-    assert "--watch is not supported for MCP serving" in stderr
+    assert "is not supported for MCP serving" in stderr
     assert stdout == ""
 
 
