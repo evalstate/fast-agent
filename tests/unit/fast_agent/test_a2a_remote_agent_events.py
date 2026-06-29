@@ -20,7 +20,7 @@ from mcp.types import EmbeddedResource, TextContent, TextResourceContents
 from pydantic import AnyUrl
 
 from fast_agent.a2a.config import A2AAgentConfig
-from fast_agent.a2a.remote_agent import A2ARemoteAgent, _parts_from_messages
+from fast_agent.a2a.remote_agent import A2ARemoteAgent, _filename_from_uri, _parts_from_messages
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.types import PromptMessageExtended
 
@@ -107,6 +107,10 @@ def _artifact_update(
             last_chunk=last_chunk,
         )
     )
+
+
+def test_filename_from_uri_decodes_percent_encoded_names() -> None:
+    assert _filename_from_uri("resource:///reports/final%20summary.txt?version=1") == "final summary.txt"
 
 
 def test_a2a_remote_agent_starts_without_client_generated_context_id() -> None:
