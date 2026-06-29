@@ -331,10 +331,9 @@ class FastAgentRunMixin:
         port: int = 8000,
         server_name: str | None = None,
         server_description: str | None = None,
-        tool_description: str | None = None,
         instance_scope: str | None = None,
         permissions_enabled: bool = True,
-        tool_name_template: str | None = None,
+        managed_mcp_agent_names: list[str] | None = None,
     ) -> None:
         """
         Start the application as an MCP, ACP, or A2A server.
@@ -348,10 +347,9 @@ class FastAgentRunMixin:
         self.args.transport = transport
         self.args.host = host
         self.args.port = port
-        self.args.tool_description = tool_description
-        self.args.tool_name_template = tool_name_template
         self.args.server_description = server_description
         self.args.server_name = server_name
+        self.args.managed_mcp_agent_names = managed_mcp_agent_names
         self.args.instance_scope = self._resolve_server_instance_scope(
             transport=transport,
             instance_scope=instance_scope,

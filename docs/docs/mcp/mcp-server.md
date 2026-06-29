@@ -43,14 +43,16 @@ FastAgent runtime
 └─ HarnessSessions
    └─ HarnessApp
       └─ MCP adapter
-         ├─ default send tool
+         ├─ AgentCard/agent-named tools
          ├─ custom FastMCP tools
          └─ FastMCP Apps
 ```
 
-Use the Python form when you want a packaged application, the `serve` form when
-you want a declarative/card-based server, and `harness_app.entrypoint` when you
-need custom session orchestration around the same agents.
+Use the Python form when you want a packaged application and the `serve` form
+when you want a declarative/card-based server. A configured
+`harness_app.entrypoint` is an advanced escape hatch: managed AgentCard tool
+publication is disabled, and the harness author owns the MCP-facing interface
+through custom server code.
 
 For hosted MCP, prefer request-scoped serving. Each tool call opens a transient
 harness session and durable state lives in storage you control. For stateful MCP
@@ -73,15 +75,13 @@ Key options:
     - `shared` (default) reuses a single agent for all clients
     - `connection` (sessions) Create one Agent per MCP session (separate history per client)
     - `request` (stateless) - create a new Agent for every tool call and disable MCP Sessions
-- `--description` – Customise the MCP tool description (supports {agent} placeholder)
-- `--tool-name-template` – Customise exposed agent tool names (supports {agent} placeholder)
 - `--shell`, `-x` – Enable local shell tool access (bash or pwsh)
 - `--no-shell` – Disable local shell/filesystem tools even when skills or config request them
 - `--noenv`, `--no-env` – Run without implicit environment side effects (no implicit card discovery, no session persistence/resume, and no ACP permission-store writes)
 - `--no-permissions` – Disable ACP tool permission requests
 - `--prefer-local-shell` – In ACP shell mode, use fast-agent's local shell runtime instead of the ACP client's terminal capability
 - `--missing-shell-cwd [ask|create|warn|error]` – Override the shell missing-cwd policy
-- `--reload` / `--watch` – Enable manual or watched AgentCard reloads
+- `--reload` – Enable manual AgentCard reloads. `--watch` is not supported for MCP serving because clients discover a fixed tool surface at startup.
 
 Standard CLI flags also apply (e.g. `--config-path`, `--model`, `--servers`, `--url`, `--auth`, `--client-metadata-url`, `--agent-cards`, `--card-tool`, `--stdio`, `--npx`, `--uvx`, and global `-q/--quiet`).
 This allows **`fast-agent`** to serve any existing MCP Server in "Agent Mode", use custom system prompts and so on.
@@ -98,13 +98,37 @@ For public or multi-user hosted servers, prefer `--instance-scope request`.
 Use `shared` only for trusted deployments or application-level shared state you
 intend all callers to see.
 
+Managed MCP serving publishes one MCP tool per served AgentCard/agent. The
+tool name, description, and optional structured input schema come from the
+AgentCard:
+
+```yaml
+name: weather
+description: Answer questions about current weather.
+tool_input_schema:
+  type: object
+  properties:
+    location:
+      type: string
+  required: [location]
+```
+
+If no `tool_input_schema` is set, the tool uses a simple `message` string
+schema. For a different MCP interface, write a custom FastMCP harness server
+and register the tools you want.
+
 Examples:
+
+```bash
+fast-agent serve --agent-cards ./agents/weather.md --transport http
+```
+
+This publishes the card as an MCP tool named `weather`.
 
 ```bash
 fast-agent serve \
   --url https://huggingface.co/mcp \
   --instance-scope connection \
-  --description "Interact with the {agent} workflow" \
   --model haiku
 ```
 
@@ -116,7 +140,6 @@ This starts a Streamable HTTP MCP Server on port 8000, providing access to an Ag
 fast-agent serve \
   --npx @modelcontextprotocol/server-everything \
   --instance-scope request \
-  --description "Ask me anything!" \
   -i system_prompt.md \
   --model kimi
 ```
@@ -135,7 +158,6 @@ The embedded CLI parser supports the same server flags as the serve command:
 
 - `--transport`, `--host`, `--port`
 - `--instance-scope [shared|connection|request]`
-- `--description` (tool instructions)
 - `--quiet`, `--model`, and other agent startup options
 
 Example:

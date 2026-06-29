@@ -41,14 +41,23 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, slots=True)
+class ManagedAgentToolSpec:
+    """Agent-backed MCP tool exposed by the managed app server."""
+
+    name: str
+    agent: str
+    description: str | None = None
+    input_schema: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class HarnessMCPAppServerOptions:
-    """Configuration for the default harness MCP application server."""
+    """Configuration for the managed harness MCP application server."""
 
     server_name: str
     server_description: str | None = None
-    tool_name: str = "send"
-    tool_description: str | None = None
     default_agent: str | None = None
+    managed_agent_tools: tuple[ManagedAgentToolSpec, ...] | None = None
     stateless_http: bool = False
     session_scope: MCPHarnessSessionScope = "connection"
     cleanup_session: SessionCleanup | None = None
@@ -60,9 +69,8 @@ class HarnessMCPAppRuntimeOptions:
 
     server_name: str
     server_description: str | None = None
-    tool_name: str | None = None
-    tool_description: str | None = None
     default_agent: str | None = None
+    managed_agent_tools: tuple[ManagedAgentToolSpec, ...] | None = None
     transport: TransportMode = "http"
     host: str = "127.0.0.1"
     port: int = 8000
@@ -91,8 +99,6 @@ class HarnessMCPAppServer:
             HarnessMCPAdapterOptions(
                 default_agent=options.default_agent,
                 session_scope=options.session_scope,
-                tool_name=options.tool_name,
-                tool_description=options.tool_description,
                 cleanup_session=options.cleanup_session,
             ),
         )
@@ -103,7 +109,15 @@ class HarnessMCPAppServer:
             auth=self._auth_provider(),
         )
         self._register_routes()
-        self.adapter.register_default_tools(self.mcp_server)
+        if options.managed_agent_tools is not None:
+            for spec in options.managed_agent_tools:
+                self.adapter.register_agent_tool(
+                    self.mcp_server,
+                    name=spec.name,
+                    agent=spec.agent,
+                    description=spec.description,
+                    input_schema=spec.input_schema,
+                )
 
     def _auth_provider(self) -> RemoteAuthProvider | None:
         oauth_provider, oauth_scopes, resource_url = get_oauth_config()
@@ -132,31 +146,12 @@ class HarnessMCPAppServer:
                 f"fast-agent harness mcp server (v{version}) - see https://fast-agent.ai for more information."
             )
 
-    async def _send(
-        self,
-        message: str,
-        *,
-        ctx,
-        session_id: str | None,
-        agent: str | None,
-    ) -> str:
-        response = await self.adapter.invoke_agent(
-            ctx=ctx,
-            agent=agent,
-            message=message,
-            session_id=session_id,
-        )
-        return response.text_content()
-
-    def _tool_description(self) -> str:
-        description = (
-            self._options.tool_description or "Send a message to the fast-agent application."
-        )
-        return description.replace("{agent}", self._options.default_agent or "agent")
-
     def _instructions(self) -> str:
         description = self._options.server_description or "This server exposes a fast-agent app."
-        return f"{description} Use `{self._options.tool_name}` to send messages."
+        if not self._options.managed_agent_tools:
+            return description
+        names = ", ".join(f"`{tool.name}`" for tool in self._options.managed_agent_tools)
+        return f"{description} Available agent tools: {names}."
 
     def _http_middleware(self) -> list[Middleware] | None:
         oauth_provider = normalize_serve_oauth_provider(os.environ.get("FAST_AGENT_SERVE_OAUTH"))
@@ -213,9 +208,8 @@ def create_harness_mcp_app_runtime(
         HarnessMCPAppServerOptions(
             server_name=options.server_name,
             server_description=options.server_description,
-            tool_name=options.tool_name or "send",
-            tool_description=options.tool_description,
             default_agent=options.default_agent,
+            managed_agent_tools=options.managed_agent_tools,
             stateless_http=options.instance_scope == "request",
             session_scope="request" if options.instance_scope == "request" else "connection",
             cleanup_session=sessions.delete if options.instance_scope == "request" else None,
@@ -254,6 +248,7 @@ __all__ = [
     "HarnessMCPAppServer",
     "HarnessMCPAppServerOptions",
     "MCPProgressReporter",
+    "ManagedAgentToolSpec",
     "create_harness_mcp_app_runtime",
     "run_harness_mcp_app_server",
 ]

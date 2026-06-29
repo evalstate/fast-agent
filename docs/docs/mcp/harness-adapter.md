@@ -209,12 +209,13 @@ async def run_inference(prompt: str, ctx: MCPContext) -> str:
 
 ## Default tools
 
-The owned fast-agent MCP server uses the same adapter and registers a default
-`send` tool. Custom servers can register the same default surface when useful:
+Managed `fast-agent serve` publishes AgentCards/agents as named MCP tools. If a
+custom server wants the older generic app-gateway shape, it can register that
+surface explicitly:
 
 ```python
 adapter.register_default_tools(mcp)
 ```
 
-Most custom servers should prefer explicit tools with domain-specific
-arguments.
+Most custom servers should prefer explicit tools with domain-specific arguments
+or `register_agent_tool(...)` for selected agents.

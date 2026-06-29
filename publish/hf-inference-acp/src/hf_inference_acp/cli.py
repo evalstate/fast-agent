@@ -431,7 +431,6 @@ async def run_agents(
         transport="acp",
         host=host,
         port=port,
-        tool_description=tool_description,
         instance_scope=serve.InstanceScope.CONNECTION.value,
         permissions_enabled=permissions_enabled,
     )

@@ -16,6 +16,7 @@ from fast_agent.mcp.server.harness_app_server import (
     HarnessMCPAppRuntimeOptions,
     HarnessMCPAppServer,
     HarnessMCPAppServerOptions,
+    ManagedAgentToolSpec,
     create_harness_mcp_app_runtime,
 )
 from fast_agent.tools.session_environment import ShellExecutionResult
@@ -192,7 +193,7 @@ def test_get_oauth_config_defaults_to_spaces_environment(
 
 
 @pytest.mark.asyncio
-async def test_harness_mcp_send_uses_mcp_session_and_default_agent() -> None:
+async def test_harness_mcp_adapter_uses_mcp_session_and_default_agent() -> None:
     app = RecordingApp()
     progress_events: list[tuple[float, float | None, str | None]] = []
     server = HarnessMCPAppServer(
@@ -200,18 +201,17 @@ async def test_harness_mcp_send_uses_mcp_session_and_default_agent() -> None:
         HarnessMCPAppServerOptions(
             server_name="test",
             default_agent="support",
-            tool_description="Interact with {agent}",
         ),
     )
 
-    response = await server._send(
-        "hello",
+    response = await server.adapter.invoke_agent(
         ctx=mcp_context_with_session("mcp-123", progress_events),
+        message="hello",
         session_id=None,
         agent=None,
     )
 
-    assert response == "mcp-123:support:hello"
+    assert response.text_content() == "mcp-123:support:hello"
     assert app.opened[0].session_id == "mcp-123"
     assert app.opened[0].agent == "support"
     assert app.opened[0].metadata["mcp_session_id"] == "mcp-123"
@@ -221,25 +221,61 @@ async def test_harness_mcp_send_uses_mcp_session_and_default_agent() -> None:
     assert app.session.requests[0].params is not None
     assert app.session.requests[0].progress is not None
     assert progress_events == [(1, 2, "working")]
-    assert server._tool_description() == "Interact with support"
 
 
 @pytest.mark.asyncio
-async def test_harness_mcp_send_allows_explicit_session_and_agent() -> None:
+async def test_harness_mcp_app_server_does_not_register_send_by_default() -> None:
+    server = HarnessMCPAppServer(
+        RecordingApp(),
+        HarnessMCPAppServerOptions(server_name="test", default_agent="support"),
+    )
+
+    assert await server.mcp_server.list_tools() == []
+
+
+@pytest.mark.asyncio
+async def test_harness_mcp_app_server_registers_managed_agent_tools() -> None:
+    app = RecordingApp()
+    server = HarnessMCPAppServer(
+        app,
+        HarnessMCPAppServerOptions(
+            server_name="test",
+            default_agent="support",
+            managed_agent_tools=(
+                ManagedAgentToolSpec(
+                    name="support",
+                    agent="support",
+                    description="Support agent.",
+                ),
+            ),
+        ),
+    )
+
+    tools = await server.mcp_server.list_tools()
+    result = await server.mcp_server.call_tool("support", {"message": "hello"})
+
+    assert [tool.name for tool in tools] == ["support"]
+    assert tools[0].description == "Support agent."
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "None:support:hello"
+
+
+@pytest.mark.asyncio
+async def test_harness_mcp_adapter_allows_explicit_session_and_agent() -> None:
     app = RecordingApp()
     server = HarnessMCPAppServer(
         app,
         HarnessMCPAppServerOptions(server_name="test", default_agent="support"),
     )
 
-    response = await server._send(
-        "hello",
+    response = await server.adapter.invoke_agent(
         ctx=mcp_context_with_session("mcp-123"),
+        message="hello",
         session_id="explicit",
         agent="reviewer",
     )
 
-    assert response == "explicit:reviewer:hello"
+    assert response.text_content() == "explicit:reviewer:hello"
     assert app.opened[0].session_id == "explicit"
     assert app.opened[0].agent == "reviewer"
     assert app.opened[0].metadata["mcp_session_id"] == "mcp-123"
@@ -264,9 +300,9 @@ async def test_harness_mcp_request_scope_aligns_open_and_request_session_ids() -
         ),
     )
 
-    await server._send(
-        "hello",
+    await server.adapter.invoke_agent(
         ctx=mcp_context_with_session("mcp-123"),
+        message="hello",
         session_id="explicit",
         agent="reviewer",
     )
@@ -378,18 +414,24 @@ async def test_harness_mcp_runtime_builds_app_sessions_and_closes_owned_instance
         instance_factory=cast("AgentInstanceFactory", factory),
         shell_executor=cast("ShellExecutor", RuntimeShellExecutor()),
         settings=None,
-        options=HarnessMCPAppRuntimeOptions(server_name="test", default_agent="agent"),
+        options=HarnessMCPAppRuntimeOptions(
+            server_name="test",
+            default_agent="agent",
+            managed_agent_tools=(
+                ManagedAgentToolSpec(
+                    name="agent",
+                    agent="agent",
+                    description="Send a message to agent.",
+                ),
+            ),
+        ),
     )
 
-    response = await runtime.server._send(
-        "hello runtime",
-        ctx=mcp_context_with_session("mcp-runtime"),
-        session_id=None,
-        agent=None,
-    )
+    result = await runtime.server.mcp_server.call_tool("agent", {"message": "hello runtime"})
     await runtime.close()
 
-    assert response == "runtime:hello runtime"
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "runtime:hello runtime"
     assert factory.agent.messages == ["hello runtime"]
     assert len(factory.created) == 1
     assert factory.disposed == factory.created
@@ -407,24 +449,23 @@ async def test_harness_mcp_runtime_request_scope_disposes_each_call() -> None:
             server_name="test",
             default_agent="agent",
             instance_scope="request",
+            managed_agent_tools=(
+                ManagedAgentToolSpec(
+                    name="agent",
+                    agent="agent",
+                    description="Send a message to agent.",
+                ),
+            ),
         ),
     )
 
-    first_response = await runtime.server._send(
-        "first",
-        ctx=mcp_context_with_session("mcp-runtime"),
-        session_id=None,
-        agent=None,
-    )
-    second_response = await runtime.server._send(
-        "second",
-        ctx=mcp_context_with_session("mcp-runtime"),
-        session_id=None,
-        agent=None,
-    )
+    first_response = await runtime.server.mcp_server.call_tool("agent", {"message": "first"})
+    second_response = await runtime.server.mcp_server.call_tool("agent", {"message": "second"})
     await runtime.close()
 
-    assert first_response == "runtime:first"
-    assert second_response == "runtime:second"
+    assert isinstance(first_response.content[0], TextContent)
+    assert isinstance(second_response.content[0], TextContent)
+    assert first_response.content[0].text == "runtime:first"
+    assert second_response.content[0].text == "runtime:second"
     assert len(factory.created) == 2
     assert factory.disposed == factory.created
