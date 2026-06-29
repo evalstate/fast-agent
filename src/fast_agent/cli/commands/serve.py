@@ -87,17 +87,20 @@ def _serve_security_warning_messages(
     host: str,
     shell: bool,
 ) -> list[str]:
-    if not _serves_remote_clients(transport, host):
-        return []
-    messages = [
-        "[yellow]Warning:[/yellow] serving on "
-        f"[bold]{host}[/bold] exposes fast-agent to remote network clients."
-    ]
-    if shell:
+    messages: list[str] = []
+    serves_remote_clients = _serves_remote_clients(transport, host)
+    if serves_remote_clients:
         messages.append(
-            "[bold red]Warning: --shell is enabled; the shell execution tool is "
-            "available to remote callers.[/bold red]"
+            "[yellow]Warning:[/yellow] serving on "
+            f"[bold]{host}[/bold] exposes fast-agent to remote network clients."
         )
+    if shell:
+        shell_message = (
+            "[bold red]Warning: --shell is enabled; the shell execution tool is available"
+        )
+        if serves_remote_clients:
+            shell_message = f"{shell_message} to remote callers"
+        messages.append(f"{shell_message}.[/bold red]")
     return messages
 
 
@@ -131,8 +134,6 @@ def _build_run_request(
     npx: str | None,
     uvx: str | None,
     stdio: str | None,
-    description: str | None,
-    tool_name_template: str | None,
     transport: ServeTransport,
     host: str,
     port: int,
@@ -145,6 +146,11 @@ def _build_run_request(
     missing_shell_cwd: MissingShellCwdPolicy | None = None,
     no_shell: bool = False,
 ) -> AgentRunRequest:
+    if watch and transport in (ServeTransport.HTTP, ServeTransport.STDIO):
+        raise typer.BadParameter(
+            "--watch is not supported for MCP serving; restart the server after card changes.",
+            param_hint="--watch",
+        )
     resolved_env_dir = resolve_environment_dir_option(ctx, env_dir, set_env_var=not noenv)
     return build_command_run_request(
         name=name,
@@ -176,8 +182,6 @@ def _build_run_request(
         transport=transport.value,
         host=host,
         port=port,
-        tool_description=description,
-        tool_name_template=tool_name_template,
         instance_scope=instance_scope.value,
         permissions_enabled=not no_permissions,
         reload=reload,
@@ -216,17 +220,6 @@ def serve(
     npx: str | None = CommonAgentOptions.npx(),
     uvx: str | None = CommonAgentOptions.uvx(),
     stdio: str | None = CommonAgentOptions.stdio(),
-    description: str | None = typer.Option(
-        None,
-        "--description",
-        "-d",
-        help="Description used for the exposed send tool (use {agent} to reference the agent name)",
-    ),
-    tool_name_template: str | None = typer.Option(
-        None,
-        "--tool-name-template",
-        help="Template for exposed agent tool names (use {agent} to reference the agent name)",
-    ),
     transport: ServeTransport = typer.Option(
         ServeTransport.HTTP,
         "--transport",
@@ -292,8 +285,6 @@ def serve(
         npx=npx,
         uvx=uvx,
         stdio=stdio,
-        description=description,
-        tool_name_template=tool_name_template,
         transport=transport,
         host=host,
         port=port,
@@ -334,7 +325,7 @@ def serve_a2a(
     npx: str | None = CommonAgentOptions.npx(),
     uvx: str | None = CommonAgentOptions.uvx(),
     host: str = typer.Option(
-        "0.0.0.0",
+        DEFAULT_HTTP_HOST,
         "--host",
         help="Host address to bind for the A2A HTTP server",
     ),
@@ -373,8 +364,6 @@ def serve_a2a(
         npx=npx,
         uvx=uvx,
         stdio=None,
-        description=None,
-        tool_name_template=None,
         transport=ServeTransport.A2A,
         host=host,
         port=port,

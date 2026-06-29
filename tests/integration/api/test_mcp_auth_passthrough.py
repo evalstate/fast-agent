@@ -14,6 +14,7 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.server.harness_app_server import (
     HarnessMCPAppServer,
     HarnessMCPAppServerOptions,
+    ManagedAgentToolSpec,
 )
 from fast_agent.types import AgentRequest, AgentResponse
 
@@ -73,7 +74,17 @@ def _mock_hf_token_verifier(monkeypatch: pytest.MonkeyPatch) -> None:
 def _build_server() -> HarnessMCPAppServer:
     return HarnessMCPAppServer(
         _TokenEchoHarnessApp(),
-        HarnessMCPAppServerOptions(server_name="auth-test", default_agent="worker"),
+        HarnessMCPAppServerOptions(
+            server_name="auth-test",
+            default_agent="worker",
+            managed_agent_tools=(
+                ManagedAgentToolSpec(
+                    name="worker",
+                    agent="worker",
+                    description="Echo the request token.",
+                ),
+            ),
+        ),
     )
 
 
@@ -107,7 +118,7 @@ async def _call_send_tool(
                 ) as (read_stream, write_stream, _):
                     async with ClientSession(read_stream, write_stream) as session:
                         await session.initialize()
-                        result = await session.call_tool("send", {"message": "hello"})
+                        result = await session.call_tool("worker", {"message": "hello"})
 
         assert result.content
         return get_text(result.content[0]) or ""

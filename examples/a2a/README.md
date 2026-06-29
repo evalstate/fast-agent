@@ -31,7 +31,7 @@ GOOGLE_API_KEY=... uv run python examples/a2a/facts_server.py
 
 Defaults:
 
-- `HOST=0.0.0.0`
+- `HOST=127.0.0.1`
 - `PORT=8001`
 - `MODEL`/`FAST_AGENT_MODEL=gemini25`
 
@@ -60,11 +60,12 @@ The same agent can be served without a Python wrapper using the AgentCard in
 
 ```bash
 GOOGLE_API_KEY=... uv run fast-agent serve a2a \
-  --host 0.0.0.0 \
   --port 8001 \
   --name facts-a2a \
   --agent-cards examples/a2a/agent-cards/facts.md
 ```
+
+Add `--host 0.0.0.0` only when remote clients should connect.
 
 Override the model from the CLI if desired:
 

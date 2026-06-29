@@ -10,8 +10,12 @@ from fast_agent.ui.console import configure_console_stream
 from fast_agent.utils.transports import uses_protocol_stdio
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from fast_agent.config import Settings
+    from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.fastagent import ManagedRunState, RunSettings, RuntimeCallbacks
+    from fast_agent.mcp.server.harness_app_server import ManagedAgentToolSpec
 
 
 class ACPServerFactory(Protocol):
@@ -61,10 +65,37 @@ def resolve_server_instance_scope(
     return instance_scope
 
 
-def render_mcp_tool_name(tool_name_template: str | None, *, agent: str | None) -> str | None:
-    if tool_name_template is None:
+def _configured_harness_entrypoint(config: "Settings | None") -> str | None:
+    if config is None:
         return None
-    return tool_name_template.format(agent=agent or "agent")
+    entrypoint = config.harness_app.entrypoint
+    if entrypoint is None:
+        return None
+    normalized = entrypoint.strip()
+    return normalized or None
+
+
+def _managed_agent_tool_specs(
+    app: "AgentApp",
+    names: Sequence[str] | None,
+) -> tuple["ManagedAgentToolSpec", ...]:
+    from fast_agent.mcp.server.harness_app_server import ManagedAgentToolSpec
+
+    registered_agents = app.registered_agents()
+    managed_names = list(names) if names is not None else app.visible_agent_names()
+    specs: list[ManagedAgentToolSpec] = []
+    for name in managed_names:
+        agent = registered_agents[name]
+        config = agent.config
+        specs.append(
+            ManagedAgentToolSpec(
+                name=config.name,
+                agent=name,
+                description=config.description or f"Send a message to {config.name}.",
+                input_schema=config.tool_input_schema,
+            )
+        )
+    return tuple(specs)
 
 
 async def run_server_mode(context: ServerRuntimeContext) -> None:
@@ -139,6 +170,14 @@ async def run_mcp_server(context: ServerRuntimeContext) -> None:
 
     server_name = getattr(context.args, "server_name", None)
     default_agent = getattr(context.args, "agent", None)
+    if default_agent not in context.state.primary_instance.agents:
+        default_agent = context.state.primary_instance.app.get_default_agent_name()
+    managed_agent_tools = None
+    if _configured_harness_entrypoint(context.config) is None:
+        managed_agent_tools = _managed_agent_tool_specs(
+            context.state.primary_instance.app,
+            getattr(context.args, "managed_mcp_agent_names", None),
+        )
     await run_harness_mcp_app_server(
         instance_factory=context.callbacks.instance_factory(),
         shell_executor=context.state.runtime.shell_executor,
@@ -146,12 +185,8 @@ async def run_mcp_server(context: ServerRuntimeContext) -> None:
         options=HarnessMCPAppRuntimeOptions(
             server_name=server_name or f"{context.app_name}-MCP-Server",
             server_description=getattr(context.args, "server_description", None),
-            tool_name=render_mcp_tool_name(
-                getattr(context.args, "tool_name_template", None),
-                agent=default_agent,
-            ),
-            tool_description=getattr(context.args, "tool_description", None),
             default_agent=default_agent,
+            managed_agent_tools=managed_agent_tools,
             transport=context.args.transport,
             host=context.args.host,
             port=context.args.port,
@@ -182,7 +217,6 @@ async def run_a2a_server(context: ServerRuntimeContext) -> None:
 __all__ = [
     "ServerRuntimeContext",
     "print_server_startup",
-    "render_mcp_tool_name",
     "resolve_server_instance_scope",
     "run_a2a_server",
     "run_acp_server",

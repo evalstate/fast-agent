@@ -10,6 +10,7 @@ from fast_agent.mcp.server.harness_app_server import (
     HarnessMCPAppRuntimeOptions,
     HarnessMCPAppServer,
     HarnessMCPAppServerOptions,
+    ManagedAgentToolSpec,
     MCPProgressReporter,
     create_harness_mcp_app_runtime,
     run_harness_mcp_app_server,
@@ -26,6 +27,7 @@ __all__ = [
     "HarnessMCPAppServer",
     "HarnessMCPAppServerOptions",
     "MCPProgressReporter",
+    "ManagedAgentToolSpec",
     "create_harness_mcp_app_runtime",
     "run_harness_mcp_app_server",
 ]

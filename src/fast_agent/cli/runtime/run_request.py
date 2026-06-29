@@ -90,6 +90,7 @@ class AgentRunRequest:
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None
     prefer_local_shell: bool = False
     attachments: list[str] | None = None
+    managed_mcp_agent_names: list[str] | None = None
 
     def __post_init__(self) -> None:
         self._validate_environment_options()
@@ -193,4 +194,5 @@ class AgentRunRequest:
             "execution_mode": self.execution_mode,
             "quiet": self.quiet,
             "missing_shell_cwd_policy": self.missing_shell_cwd_policy,
+            "managed_mcp_agent_names": self.managed_mcp_agent_names,
         }

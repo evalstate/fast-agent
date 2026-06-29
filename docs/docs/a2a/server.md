@@ -9,7 +9,8 @@ Use `fast-agent serve a2a` to expose a fast-agent app through A2A HTTP
 transports. `fast-agent serve --transport a2a` remains supported for parity with
 the generic MCP/ACP serve command. The configured fast-agent app is initialized
 first, then the A2A server routes ordinary protocol messages into the
-fast-agent default agent.
+fast-agent default agent. A2A serving binds to `127.0.0.1` by default; pass
+`--host 0.0.0.0` only when remote clients should connect.
 
 ## Start a Server
 
@@ -37,6 +38,10 @@ When the server binds to a wildcard host such as `0.0.0.0` or `::`, the served
 AgentCard builds interface URLs from the incoming AgentCard request host. This
 keeps cards fetched from another machine routable to the server instead of
 advertising the bind wildcard or the server's loopback address.
+
+`fast-agent serve a2a` warns for remote binds. It also warns whenever `--shell`
+is enabled, with stronger wording when shell access is exposed to remote
+callers.
 
 ## Card Recording
 

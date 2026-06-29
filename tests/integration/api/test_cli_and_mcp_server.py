@@ -181,7 +181,7 @@ async def test_agent_server_option_stdio(fast_agent):
         async with fast_agent.run() as agent:
             assert "connected" == await agent.send("connected")
             result = await agent.send(
-                '***CALL_TOOL send {"message": "stdio server test", "agent": "test"}'
+                '***CALL_TOOL test {"message": "stdio server test"}'
             )
             assert "stdio server test" == result
 
@@ -198,11 +198,11 @@ async def test_agent_server_option_stdio_and_prompt_history(fast_agent):
         async with fast_agent.run() as agent:
             assert "connected" == await agent.send("connected")
             result = await agent.send(
-                '***CALL_TOOL send {"message": "message one", "agent": "test"}'
+                '***CALL_TOOL test {"message": "message one"}'
             )
             assert "message one" == result
             result = await agent.send(
-                '***CALL_TOOL send {"message": "message two", "agent": "test"}'
+                '***CALL_TOOL test {"message": "message two"}'
             )
             assert "message two" == result
 
@@ -336,9 +336,7 @@ async def test_agent_server_option_http(fast_agent, mcp_test_ports, wait_for_por
             async with fast_agent.run() as agent:
                 # Try connecting and sending a message
                 assert "connected" == await agent.send("connected")
-                result = await agent.send(
-                    '***CALL_TOOL send {"message": "http server test", "agent": "test"}'
-                )
+                result = await agent.send('***CALL_TOOL test {"message": "http server test"}')
                 assert "http server test" == result
 
         await agent_function()
@@ -355,8 +353,8 @@ async def test_agent_server_option_http(fast_agent, mcp_test_ports, wait_for_por
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_agent_server_option_http_with_watch(mcp_test_ports, wait_for_port, tmp_path):
-    """Server mode should start cleanly with --watch enabled."""
+async def test_agent_server_option_http_rejects_watch(tmp_path):
+    """Managed MCP serve rejects --watch because the tool surface is fixed at startup."""
 
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text("", encoding="utf-8")
@@ -369,8 +367,6 @@ async def test_agent_server_option_http_with_watch(mcp_test_ports, wait_for_port
         encoding="utf-8",
     )
 
-    port = mcp_test_ports["http"]
-
     server_proc = subprocess.Popen(
         [
             sys.executable,
@@ -382,7 +378,7 @@ async def test_agent_server_option_http_with_watch(mcp_test_ports, wait_for_port
             "--transport",
             "http",
             "--port",
-            str(port),
+            "0",
             "--model",
             "passthrough",
             "--name",
@@ -397,21 +393,11 @@ async def test_agent_server_option_http_with_watch(mcp_test_ports, wait_for_port
         cwd=tmp_path,
     )
 
-    try:
-        await wait_for_port("127.0.0.1", port, process=server_proc)
-        card_path.write_text(
-            "---\ntype: agent\nname: watcher\n---\nEcho test updated.\n",
-            encoding="utf-8",
-        )
-        await asyncio.sleep(0.25)
-        assert server_proc.poll() is None
-    finally:
-        if server_proc.poll() is None:
-            server_proc.terminate()
-            try:
-                server_proc.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                server_proc.kill()
+    stdout, stderr = server_proc.communicate(timeout=5)
+
+    assert server_proc.returncode != 0
+    assert "is not supported for MCP serving" in stderr
+    assert stdout == ""
 
 
 @pytest.mark.integration
@@ -462,7 +448,7 @@ async def test_agent_server_emits_mcp_progress_notifications(
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
                 params = types.CallToolRequestParams(
-                    name="send", arguments={"message": "progress check", "agent": "test"}
+                    name="test", arguments={"message": "progress check"}
                 )
                 request = types.CallToolRequest(method="tools/call", params=params)
                 result = await session.send_request(

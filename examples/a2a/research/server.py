@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
     from fast_agent.types import AgentResponse
 
-HOST = os.getenv("HOST", "0.0.0.0")
+HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8002"))
 
 QUICK_REFINER_AGENT = "research_refiner"

@@ -52,6 +52,30 @@ def test_serve_a2a_command_builds_a2a_run_request(monkeypatch) -> None:
     assert request.noenv is True
 
 
+def test_serve_a2a_command_defaults_to_loopback(monkeypatch) -> None:
+    captured: list[AgentRunRequest] = []
+
+    def fake_run_request(request: AgentRunRequest) -> None:
+        captured.append(request)
+
+    monkeypatch.setattr(serve_command, "run_request", fake_run_request)
+
+    result = CliRunner().invoke(
+        serve_command.app,
+        [
+            "a2a",
+            "--model",
+            "passthrough",
+            "--noenv",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert len(captured) == 1
+    assert captured[0].host == "127.0.0.1"
+    assert result.stderr == ""
+
+
 def test_serve_transport_a2a_callback_path_builds_a2a_run_request(monkeypatch) -> None:
     captured: list[AgentRunRequest] = []
 

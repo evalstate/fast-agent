@@ -788,6 +788,8 @@ def _configure_card_agents(
         if request.agent_cards:
             for card_source in request.agent_cards:
                 loaded_agent_names.extend(fast.load_agents(card_source))
+        if request.mode == "serve" and loaded_agent_names:
+            request.managed_mcp_agent_names = list(dict.fromkeys(loaded_agent_names))
 
         explicit_default_type = _card_defined_default_type(fast)
         _warn_if_card_default_overrides_smart(
@@ -826,6 +828,15 @@ def _configure_card_agents(
         raise typer.Exit(1) from exc
 
     _attach_cli_servers_to_selected_agent(fast, request)
+
+
+def _default_managed_mcp_agent_names(fast: Any) -> list[str]:
+    names = [
+        name
+        for name, agent_data in fast.agents.items()
+        if not bool(agent_data.get("tool_only", False))
+    ]
+    return names or list(fast.agents.keys())
 
 
 def _build_card_cli_agent(
@@ -1116,14 +1127,15 @@ async def run_agent_request(request: AgentRunRequest) -> None:
         _validate_target_agent_name(fast, request)
 
     if request.mode == "serve":
+        if request.managed_mcp_agent_names is None:
+            request.managed_mcp_agent_names = _default_managed_mcp_agent_names(fast)
         await fast.start_server(
             transport=request.transport,
             host=request.host,
             port=request.port,
-            tool_description=request.tool_description,
-            tool_name_template=request.tool_name_template,
             instance_scope=request.instance_scope,
             permissions_enabled=serve_permissions_enabled,
+            managed_mcp_agent_names=request.managed_mcp_agent_names,
         )
     else:
         await cli_agent()

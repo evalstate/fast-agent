@@ -36,7 +36,12 @@ if TYPE_CHECKING:
 class _Agent:
     def __init__(self, name: str, *, default: bool = True, instruction: str = "") -> None:
         self.name = name
-        self.config = SimpleNamespace(default=default)
+        self.config = SimpleNamespace(
+            name=name,
+            default=default,
+            description=None,
+            tool_input_schema=None,
+        )
         self.instruction = instruction
 
     def set_instruction(self, instruction: str) -> None:
@@ -192,7 +197,16 @@ async def test_run_mcp_server_forwards_instance_scope(monkeypatch: pytest.Monkey
         ),
         config=None,
         skills_directory_override=None,
-        state=cast("ManagedRunState", SimpleNamespace(runtime=SimpleNamespace(shell_executor=None))),
+        state=cast(
+            "ManagedRunState",
+            SimpleNamespace(
+                primary_instance=AgentInstance(
+                    AgentApp({"agent": cast("AgentProtocol", _Agent("agent"))}),
+                    {"agent": cast("AgentProtocol", _Agent("agent"))},
+                ),
+                runtime=SimpleNamespace(shell_executor=None),
+            ),
+        ),
         callbacks=cast(
             "RuntimeCallbacks",
             SimpleNamespace(instance_factory=lambda: object()),
