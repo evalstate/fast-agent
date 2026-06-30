@@ -13,7 +13,7 @@
 #default_model: gpt-5.4-mini?reasoning=low
 
 # Number of times to retry transient LLM API errors (falls back to FAST_AGENT_RETRIES env var)
-# llm_retries: 1
+# llm_retries: 2
 
 # otel:
 #   enabled: true

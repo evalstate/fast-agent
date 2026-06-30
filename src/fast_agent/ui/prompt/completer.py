@@ -751,7 +751,13 @@ class AgentCompleter(Completer):
             text = ""
         return self._normalize_turn_preview(text)
 
-    def _complete_session_ids(self, partial: str, *, start_position: int | None = None):
+    def _complete_session_ids(
+        self,
+        partial: str,
+        *,
+        start_position: int | None = None,
+        include_current: bool = True,
+    ):
         """Generate completions for recent session ids."""
         if self.noenv_mode:
             return
@@ -764,9 +770,13 @@ class AgentCompleter(Completer):
         from fast_agent.session.formatting import extract_session_title
 
         manager = self.session_manager or get_session_manager()
+        current_session = manager.current_session
+        current_session_id = current_session.info.name if current_session is not None else None
         sessions = apply_session_window(manager.list_sessions())
         for session_info in sessions:
             session_id = session_info.name
+            if not include_current and session_id == current_session_id:
+                continue
             display_name = display_session_name(session_id)
             if partial and not (
                 starts_with_casefold(session_id, partial)

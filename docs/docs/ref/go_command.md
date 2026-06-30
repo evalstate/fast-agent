@@ -56,6 +56,7 @@ fast-agent go [OPTIONS]
 - `--no-shell`: Disable local shell/filesystem tools, even when skills or agent config request them
 - `--reload`: Enable manual AgentCard reloads with `/reload`
 - `--watch`: Watch AgentCard paths and reload automatically
+- `--timeout`, `-t <seconds>`: Maximum one-shot execution duration for `--message` or `--prompt-file` runs
 
 Global CLI options (apply to all subcommands):
 

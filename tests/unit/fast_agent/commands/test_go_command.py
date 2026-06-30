@@ -247,6 +247,26 @@ def test_go_accepts_repeated_attach_flags(monkeypatch, tmp_path: Path) -> None:
     ]
 
 
+def test_go_accepts_timeout_flag(monkeypatch) -> None:
+    captured_requests = []
+    monkeypatch.setattr(go_command, "run_request", captured_requests.append)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        go_command.app,
+        [
+            "--message",
+            "summarize",
+            "--timeout",
+            "120",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(captured_requests) == 1
+    assert captured_requests[0].timeout_seconds == 120
+
+
 def test_go_attach_requires_one_shot_mode() -> None:
     runner = CliRunner()
     result = runner.invoke(go_command.app, ["--attach", "report.txt"])
