@@ -72,7 +72,8 @@ Claude reasoning support depends on the model family:
 | Claude Opus 4.8 | `opus`, `opus48` | adaptive | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
 | Claude Opus 4.7 | `opus47` | adaptive | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
 | Claude Opus 4.6 | `opus46` | adaptive | `auto`, `low`, `medium`, `high`, `max`, `off` | not supported |
-| Claude Sonnet 4.6 | `sonnet`, `sonnet46` | adaptive | `auto`, `low`, `medium`, `high`, `max`, `off` | not supported |
+| Claude Sonnet 5 | `sonnet`, `sonnet5` | adaptive | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | not supported |
+| Claude Sonnet 4.6 | `sonnet46` | adaptive | `auto`, `low`, `medium`, `high`, `max`, `off` | not supported |
 | Older Claude 4.x / Haiku | `haiku`, pinned older IDs | token budget | `1024+` token budgets, or preset aliases | not supported |
 
 Adaptive models use `thinking: {"type": "adaptive"}` under the hood. Use effort levels

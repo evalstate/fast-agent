@@ -696,6 +696,23 @@ def test_model_database_fable_5_reasoning_spec_is_always_on():
     assert spec.default.value == "auto"
 
 
+def test_model_database_sonnet_5_reasoning_spec():
+    """Sonnet 5 defaults to adaptive thinking, supports disable, and has 128k output."""
+    params = ModelDatabase.get_model_params("claude-sonnet-5")
+    spec = ModelDatabase.get_reasoning_effort_spec("claude-sonnet-5")
+
+    assert params is not None
+    assert params.context_window == 1_000_000
+    assert params.max_output_tokens == 128_000
+    assert params.anthropic_thinking_field_required is False
+    assert params.anthropic_thinking_disable_supported is True
+    assert spec is not None
+    assert spec.kind == "effort"
+    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
+    assert spec.allow_auto is True
+    assert spec.allow_toggle_disable is True
+
+
 def test_model_database_text_verbosity_spec():
     """Ensure text verbosity support is tracked for GPT-5 models."""
     spec = ModelDatabase.get_text_verbosity_spec("gpt-5")

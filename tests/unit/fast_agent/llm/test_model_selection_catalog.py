@@ -80,6 +80,8 @@ def test_anthropic_catalog_lists_user_facing_factory_aliases() -> None:
     assert aliases
     for alias in aliases:
         assert alias in ModelFactory.MODEL_PRESETS
+    assert ModelFactory.MODEL_PRESETS["sonnet"] == "claude-sonnet-5"
+    assert ModelFactory.MODEL_PRESETS["sonnet5"] == "claude-sonnet-5"
     assert ModelFactory.MODEL_PRESETS["fable"] == "claude-fable-5"
     assert ModelFactory.MODEL_PRESETS["fable5"] == "claude-fable-5"
 

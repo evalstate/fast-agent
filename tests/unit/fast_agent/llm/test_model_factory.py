@@ -457,7 +457,7 @@ def test_model_query_web_tool_flags():
 def test_model_query_web_tool_flags_boolean_aliases():
     config = ModelFactory.parse_model_string("sonnet?web_search=yes&web_fetch=disable")
     assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-sonnet-4-6"
+    assert config.model_name == "claude-sonnet-5"
     assert config.web_search is True
     assert config.web_fetch is False
 
@@ -754,7 +754,7 @@ def test_opus_alias_resolves_to_current_catalog_model():
 def test_claude_alias_resolves_to_sonnet_46():
     config = ModelFactory.parse_model_string("claude")
     assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-sonnet-4-6"
+    assert config.model_name == "claude-sonnet-5"
 
     config = ModelFactory.parse_model_string("sonnet4")
     assert config.provider == Provider.ANTHROPIC

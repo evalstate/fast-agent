@@ -81,6 +81,9 @@ class ModelParameters(BaseModel):
     anthropic_thinking_field_required: bool = True
     """Whether adaptive-thinking models require an explicit thinking request field."""
 
+    anthropic_thinking_disable_supported: bool = False
+    """Whether the model accepts thinking: {type: "disabled"}."""
+
     google_search_supported: bool = False
     """Whether Grounding with Google Search is supported for this model."""
 
@@ -529,6 +532,14 @@ class ModelDatabase:
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_46,
         anthropic_required_betas=(ANTHROPIC_WEB_TOOLS_BETA_46,),
         default_provider=Provider.ANTHROPIC,
+    )
+    ANTHROPIC_SONNET_5 = ANTHROPIC_SONNET_46.model_copy(
+        update={
+            "max_output_tokens": 128000,
+            "reasoning_effort_spec": ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC_OPUS47,
+            "anthropic_thinking_field_required": False,
+            "anthropic_thinking_disable_supported": True,
+        }
     )
 
     ANTHROPIC_SONNET_4_LEGACY = ModelParameters(
@@ -1005,6 +1016,7 @@ class ModelDatabase:
             ANTHROPIC_SONNET_4_VERSIONED, ANTHROPIC_LONG_CONTEXT_WINDOW
         ),
         "claude-sonnet-4-6": ANTHROPIC_SONNET_46,
+        "claude-sonnet-5": ANTHROPIC_SONNET_5,
         "claude-opus-4-0": ANTHROPIC_OPUS_4_LEGACY,
         "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-5": ANTHROPIC_OPUS_4_VERSIONED,
