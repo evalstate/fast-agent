@@ -183,6 +183,65 @@ def test_build_command_run_request_resolves_defaults() -> None:
     assert request.execution_mode == "repl"
 
 
+def test_build_command_run_request_propagates_timeout() -> None:
+    request = build_command_run_request(
+        name="cli",
+        instruction_option=None,
+        config_path=None,
+        servers=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        agent_cards=None,
+        card_tools=None,
+        model=None,
+        message="hello",
+        prompt_file=None,
+        result_file=None,
+        resume=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        target_agent_name=None,
+        skills_directory=None,
+        environment_dir=Path("."),
+        shell_enabled=False,
+        mode="interactive",
+        timeout_seconds=120,
+    )
+
+    assert request.timeout_seconds == 120
+
+
+def test_build_command_run_request_rejects_non_positive_timeout() -> None:
+    with pytest.raises(ValueError, match="--timeout must be a positive integer"):
+        build_command_run_request(
+            name="cli",
+            instruction_option=None,
+            config_path=None,
+            servers=None,
+            urls=None,
+            auth=None,
+            client_metadata_url=None,
+            agent_cards=None,
+            card_tools=None,
+            model=None,
+            message="hello",
+            prompt_file=None,
+            result_file=None,
+            resume=None,
+            npx=None,
+            uvx=None,
+            stdio=None,
+            target_agent_name=None,
+            skills_directory=None,
+            environment_dir=Path("."),
+            shell_enabled=False,
+            mode="interactive",
+            timeout_seconds=0,
+        )
+
+
 def test_resolve_instruction_option_preserves_default_agent_name_for_url(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -298,6 +298,13 @@ def go(
         "-q",
         help="Disable progress/chat/tool output and print only direct command output",
     ),
+    timeout: int | None = typer.Option(
+        None,
+        "--timeout",
+        "-t",
+        min=1,
+        help="Maximum execution duration in seconds",
+    ),
 ) -> None:
     """Run an interactive agent directly from the command line."""
     if os.getenv(FAST_AGENT_SHELL_CHILD_ENV):
@@ -413,6 +420,7 @@ def go(
         reload=reload,
         watch=watch,
         quiet=quiet,
+        timeout_seconds=timeout,
     )
 
     update_notice = _resolve_request_update_notice(
