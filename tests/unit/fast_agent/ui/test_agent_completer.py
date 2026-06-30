@@ -1166,6 +1166,33 @@ def test_session_completion_uses_shared_title_extraction(tmp_path: Path) -> None
         reset_session_manager()
 
 
+def test_session_resume_completion_excludes_current_session(tmp_path: Path) -> None:
+    old_settings = get_settings()
+    env_dir = tmp_path / "env"
+    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    update_global_settings(override)
+    reset_session_manager()
+
+    try:
+        manager = SessionManager(environment_override=env_dir)
+        previous = manager.create_session(metadata={"title": "Previous"})
+        current = manager.create_session(metadata={"title": "Current"})
+
+        completer = AgentCompleter(agents=["agent1"], session_manager=manager)
+        resume_doc = Document("/session resume ", cursor_position=len("/session resume "))
+        resume_names = [c.text for c in completer.get_completions(resume_doc, None)]
+
+        export_doc = Document("/session export ", cursor_position=len("/session export "))
+        export_names = [c.text for c in completer.get_completions(export_doc, None)]
+
+        assert previous.info.name in resume_names
+        assert current.info.name not in resume_names
+        assert current.info.name in export_names
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()
+
+
 def _write_skill(skill_root: Path, name: str) -> None:
     skill_dir = skill_root / name
     skill_dir.mkdir(parents=True, exist_ok=True)

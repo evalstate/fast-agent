@@ -740,7 +740,7 @@ def _session_resume_prefix_completions(
     prefix: str,
 ) -> list[Completion]:
     partial = text[len(prefix) :]
-    return list(completer._complete_session_ids(partial))
+    return list(completer._complete_session_ids(partial, include_current=False))
 
 
 def _session_delete_prefix_completions(
