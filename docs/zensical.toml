@@ -36,6 +36,7 @@ nav = [
       { "Python API" = "agents/defining/python_api.md" },
       { "Agent Cards" = "agents/defining/agent_cards.md" },
     ] },
+    { "Agent Environments" = "agents/environments.md" },
     { "Workflows" = "agents/workflows.md" },
     "agents/running.md",
     "agents/prompting.md",

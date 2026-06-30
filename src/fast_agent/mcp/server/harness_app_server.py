@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from fast_agent.config import Settings
     from fast_agent.core.agent_instance_factory import AgentInstanceFactory
     from fast_agent.mcp.server.instance_lease_pool import InstanceScopeValue
-    from fast_agent.tools.session_environment import ShellExecutor
+    from fast_agent.tools.session_environment import ShellEnvironment
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,7 +183,7 @@ class HarnessMCPAppServer:
 def create_harness_mcp_app_runtime(
     *,
     instance_factory: AgentInstanceFactory,
-    shell_executor: ShellExecutor,
+    shell_environment: ShellEnvironment,
     settings: Settings | None,
     options: HarnessMCPAppRuntimeOptions,
 ) -> HarnessMCPAppRuntime:
@@ -196,7 +196,7 @@ def create_harness_mcp_app_runtime(
     sessions = HarnessSessions(
         instance_factory=instance_factory,
         persistence=persistence,
-        shell_executor=shell_executor,
+        shell_environment=shell_environment,
     )
     session_provider = HarnessSessionsAppProvider(sessions)
     app = load_harness_app(
@@ -221,14 +221,14 @@ def create_harness_mcp_app_runtime(
 async def run_harness_mcp_app_server(
     *,
     instance_factory: AgentInstanceFactory,
-    shell_executor: ShellExecutor,
+    shell_environment: ShellEnvironment,
     settings: Settings | None,
     options: HarnessMCPAppRuntimeOptions,
 ) -> None:
     """Run the default harness MCP app server and close sessions on exit."""
     runtime = create_harness_mcp_app_runtime(
         instance_factory=instance_factory,
-        shell_executor=shell_executor,
+        shell_environment=shell_environment,
         settings=settings,
         options=options,
     )

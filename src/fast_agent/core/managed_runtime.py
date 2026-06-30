@@ -157,7 +157,7 @@ class ManagedRuntimeMixin:
             noenv_mode=settings.noenv_mode,
             managed_instances=[],
             instance_lock=asyncio.Lock(),
-            shell_executor=LocalShellExecutor(
+            shell_environment=LocalShellExecutor(
                 logger=logger,
                 timeout_seconds=shell_settings.timeout_seconds,
                 warning_interval_seconds=shell_settings.warning_interval_seconds,
@@ -178,6 +178,7 @@ class ManagedRuntimeMixin:
                 self.agents,
                 runtime.model_factory_func,
                 global_function_tools=self._registered_tools,
+                shell_environment=runtime.shell_environment,
             )
 
             tool_only_agents = {

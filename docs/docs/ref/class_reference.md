@@ -63,14 +63,17 @@ See [Defining Agents](../agents/defining/) for detailed usage of these decorator
 
 ### Methods
 
-#### `run()`
+#### `run(environment=None)`
 
 ```python
-async with fast.run() as agent:
+async with fast.run(environment=None) as agent:
     # Use agent here
 ```
 
 An async context manager that initializes all registered agents and returns an `AgentApp` instance that can be used to interact with the agents.
+
+Pass `environment=` to run shell-enabled agent tool calls in a custom shell
+environment, such as Docker. See [Agent Environments](../agents/environments.md).
 
 --8<-- "docs/docs/_generated/fastagent_harness_method.md"
 

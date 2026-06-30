@@ -72,7 +72,7 @@ if TYPE_CHECKING:
     from fast_agent.core.harness import AgentHarness
     from fast_agent.interfaces import AgentProtocol, ModelFactoryFunctionProtocol
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
-    from fast_agent.tools.session_environment import ShellExecutor
+    from fast_agent.tools.session_environment import ShellEnvironment
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
@@ -107,7 +107,7 @@ class RunRuntime:
     noenv_mode: bool
     managed_instances: list[AgentInstance]
     instance_lock: asyncio.Lock
-    shell_executor: ShellExecutor
+    shell_environment: ShellEnvironment
     resume_requested: bool = False
     resume_session_id: str | None = None
     target_agent_name: str | None = None
@@ -850,11 +850,12 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         self,
         *,
         model: str | None = None,
+        environment: ShellEnvironment | None = None,
     ) -> "AgentHarness":
         """Create a headless session harness for this fast-agent app."""
         from fast_agent.core.harness import AgentHarness
 
-        return AgentHarness(self, model=model)
+        return AgentHarness(self, model=model, environment=environment)
 
     async def _apply_instruction_context(
         self, instance: AgentInstance, context_vars: dict[str, str]

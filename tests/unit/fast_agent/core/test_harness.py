@@ -20,7 +20,13 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
 from fast_agent.core.fastagent import AgentInstance, RunRuntime, RunSettings
-from fast_agent.tools.session_environment import ShellExecutionResult
+from fast_agent.tools.session_environment import (
+    ShellExecution,
+    ShellExecutionOptions,
+    ShellExecutionRequest,
+    ShellExecutionResult,
+    ShellRuntimeInfo,
+)
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
@@ -210,9 +216,39 @@ class FakePersistence:
         self.deleted.append(session_id)
 
 
-class FakeShellExecutor:
+class FakeShellEnvironment:
     def __init__(self) -> None:
         self.calls: list[tuple[str, Path | str | None, Mapping[str, str] | None, float | None]] = []
+        self.opened = False
+        self.closed = False
+
+    async def open(self) -> None:
+        self.opened = True
+
+    @property
+    def cwd(self) -> str:
+        return "."
+
+    def set_cwd(self, cwd: str | None) -> None:
+        del cwd
+
+    def runtime_info(self) -> ShellRuntimeInfo:
+        return ShellRuntimeInfo(name="test")
+
+    async def execute(
+        self,
+        request: ShellExecutionRequest,
+        *,
+        callbacks: object | None = None,
+    ) -> ShellExecution:
+        del callbacks
+        result = await self.execute_shell(
+            request.command,
+            cwd=request.cwd,
+            env=request.env,
+            timeout=request.timeout,
+        )
+        return ShellExecution(result=result, options=ShellExecutionOptions())
 
     async def execute_shell(
         self,
@@ -224,6 +260,9 @@ class FakeShellExecutor:
     ) -> ShellExecutionResult:
         self.calls.append((command, cwd, env, timeout))
         return ShellExecutionResult(stdout="out", stderr="err", exit_code=7)
+
+    async def close(self) -> None:
+        self.closed = True
 
 
 @pytest.mark.asyncio
@@ -293,7 +332,7 @@ async def test_harness_create_instance_runs_run_path_setup() -> None:
         noenv_mode=False,
         managed_instances=[],
         instance_lock=asyncio.Lock(),
-        shell_executor=FakeShellExecutor(),
+        shell_environment=FakeShellEnvironment(),
     )
     harness._settings = RunSettings(
         quiet_mode=False,
@@ -640,11 +679,11 @@ async def test_harness_session_compact_defaults_settings_without_config(monkeypa
 @pytest.mark.asyncio
 async def test_harness_session_shell_uses_configured_executor(tmp_path: "Path") -> None:
     factory = InstanceFactory()
-    shell_executor = FakeShellExecutor()
+    shell_environment = FakeShellEnvironment()
     sessions = HarnessSessions(
         create_instance=factory.create,
         dispose_instance=factory.dispose,
-        shell_executor=shell_executor,
+        shell_environment=shell_environment,
     )
     session = await sessions.create("demo")
 
@@ -656,7 +695,7 @@ async def test_harness_session_shell_uses_configured_executor(tmp_path: "Path") 
     )
 
     assert result == ShellExecutionResult(stdout="out", stderr="err", exit_code=7)
-    assert shell_executor.calls == [("pwd", tmp_path, {"FAST_AGENT_TEST": "1"}, 2.5)]
+    assert shell_environment.calls == [("pwd", tmp_path, {"FAST_AGENT_TEST": "1"}, 2.5)]
 
 
 @pytest.mark.asyncio

@@ -19,7 +19,14 @@ from fast_agent.mcp.server.harness_app_server import (
     ManagedAgentToolSpec,
     create_harness_mcp_app_runtime,
 )
-from fast_agent.tools.session_environment import ShellExecutionResult
+from fast_agent.tools.session_environment import (
+    ShellExecution,
+    ShellExecutionCallbacks,
+    ShellExecutionOptions,
+    ShellExecutionRequest,
+    ShellExecutionResult,
+    ShellRuntimeInfo,
+)
 from fast_agent.types import AgentRequest, AgentResponse, PromptMessageExtended
 
 if TYPE_CHECKING:
@@ -30,7 +37,7 @@ if TYPE_CHECKING:
 
     from fast_agent.core.agent_instance_factory import AgentInstanceFactory
     from fast_agent.interfaces import AgentProtocol
-    from fast_agent.tools.session_environment import ShellExecutor
+    from fast_agent.tools.session_environment import ShellEnvironment
 
 
 class RecordingAppSession:
@@ -107,7 +114,35 @@ class RuntimeInstanceFactory:
         await instance.shutdown()
 
 
-class RuntimeShellExecutor:
+class RuntimeShellEnvironment:
+    async def open(self) -> None:
+        return None
+
+    @property
+    def cwd(self) -> str:
+        return "."
+
+    def set_cwd(self, cwd: str | None) -> None:
+        del cwd
+
+    def runtime_info(self) -> ShellRuntimeInfo:
+        return ShellRuntimeInfo(name="test")
+
+    async def execute(
+        self,
+        request: ShellExecutionRequest,
+        *,
+        callbacks: ShellExecutionCallbacks | None = None,
+    ) -> ShellExecution:
+        del callbacks
+        result = await self.execute_shell(
+            request.command,
+            cwd=request.cwd,
+            env=dict(request.env or {}),
+            timeout=request.timeout,
+        )
+        return ShellExecution(result=result, options=ShellExecutionOptions())
+
     async def execute_shell(
         self,
         command: str,
@@ -118,6 +153,9 @@ class RuntimeShellExecutor:
     ) -> ShellExecutionResult:
         del command, cwd, env, timeout
         return ShellExecutionResult(stdout="", stderr="", exit_code=0)
+
+    async def close(self) -> None:
+        return None
 
 
 def mcp_context_with_session(
@@ -412,7 +450,7 @@ async def test_harness_mcp_runtime_builds_app_sessions_and_closes_owned_instance
     factory = RuntimeInstanceFactory()
     runtime = create_harness_mcp_app_runtime(
         instance_factory=cast("AgentInstanceFactory", factory),
-        shell_executor=cast("ShellExecutor", RuntimeShellExecutor()),
+        shell_environment=cast("ShellEnvironment", RuntimeShellEnvironment()),
         settings=None,
         options=HarnessMCPAppRuntimeOptions(
             server_name="test",
@@ -443,7 +481,7 @@ async def test_harness_mcp_runtime_request_scope_disposes_each_call() -> None:
     factory = RuntimeInstanceFactory()
     runtime = create_harness_mcp_app_runtime(
         instance_factory=cast("AgentInstanceFactory", factory),
-        shell_executor=cast("ShellExecutor", RuntimeShellExecutor()),
+        shell_environment=cast("ShellEnvironment", RuntimeShellEnvironment()),
         settings=None,
         options=HarnessMCPAppRuntimeOptions(
             server_name="test",

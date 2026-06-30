@@ -8,7 +8,14 @@ import pytest
 
 from fast_agent.core.fastagent import FastAgent, RunRuntime, RunSettings
 from fast_agent.core.run_lifecycle import FastAgentRunLifecycle
-from fast_agent.tools.session_environment import ShellExecutionResult
+from fast_agent.tools.session_environment import (
+    ShellExecution,
+    ShellExecutionCallbacks,
+    ShellExecutionOptions,
+    ShellExecutionRequest,
+    ShellExecutionResult,
+    ShellRuntimeInfo,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -27,7 +34,35 @@ def _unused_model_factory(model: str | None = None) -> LLMFactoryProtocol:
     return _unused_llm_factory
 
 
-class _FakeShellExecutor:
+class _FakeShellEnvironment:
+    async def open(self) -> None:
+        return None
+
+    @property
+    def cwd(self) -> str:
+        return "."
+
+    def set_cwd(self, cwd: str | None) -> None:
+        del cwd
+
+    def runtime_info(self) -> ShellRuntimeInfo:
+        return ShellRuntimeInfo(name="test")
+
+    async def execute(
+        self,
+        request: ShellExecutionRequest,
+        *,
+        callbacks: ShellExecutionCallbacks | None = None,
+    ) -> ShellExecution:
+        del callbacks
+        result = await self.execute_shell(
+            request.command,
+            cwd=request.cwd,
+            env=request.env,
+            timeout=request.timeout,
+        )
+        return ShellExecution(result=result, options=ShellExecutionOptions())
+
     async def execute_shell(
         self,
         command: str,
@@ -38,6 +73,9 @@ class _FakeShellExecutor:
     ) -> ShellExecutionResult:
         del command, cwd, env, timeout
         return ShellExecutionResult(stdout="", stderr="", exit_code=0)
+
+    async def close(self) -> None:
+        return None
 
 
 @pytest.mark.asyncio
@@ -96,7 +134,7 @@ async def test_run_lifecycle_enter_performs_shared_setup_in_order(
             noenv_mode=settings.noenv_mode,
             managed_instances=[],
             instance_lock=asyncio.Lock(),
-            shell_executor=_FakeShellExecutor(),
+            shell_environment=_FakeShellEnvironment(),
         )
 
     monkeypatch.setattr(fast.app, "initialize", initialize)

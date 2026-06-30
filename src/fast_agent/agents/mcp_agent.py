@@ -94,6 +94,8 @@ from fast_agent.tools.filesystem_tool_definitions import (
     WRITE_TEXT_FILE_TOOL_NAME,
 )
 from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
+from fast_agent.tools.session_environment import SessionFilesystem
+from fast_agent.tools.session_filesystem_runtime import SessionFilesystemRuntime
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME, SkillReader
 from fast_agent.types import (
@@ -173,6 +175,7 @@ if TYPE_CHECKING:
 
     from fast_agent.context import Context
     from fast_agent.llm.usage_tracking import UsageAccumulator
+    from fast_agent.tools.session_environment import ShellEnvironment
 
 
 class McpAgent(ABC, ToolAgent):
@@ -188,8 +191,10 @@ class McpAgent(ABC, ToolAgent):
         config: AgentConfig,
         connection_persistence: bool = True,
         context: "Context | None" = None,
+        shell_environment: "ShellEnvironment | None" = None,
         **kwargs,
     ) -> None:
+        self._shell_environment = shell_environment
         super().__init__(
             config=config,
             context=context,
@@ -576,6 +581,19 @@ class McpAgent(ABC, ToolAgent):
                 return fallback
         return None
 
+    def _session_filesystem_runtime(self) -> SessionFilesystemRuntime | None:
+        runtime = self._filesystem_runtime
+        if isinstance(runtime, SessionFilesystemRuntime):
+            return runtime
+        if isinstance(runtime, CompositeFilesystemRuntime):
+            primary = runtime.primary
+            if isinstance(primary, SessionFilesystemRuntime):
+                return primary
+            fallback = runtime.fallback
+            if isinstance(fallback, SessionFilesystemRuntime):
+                return fallback
+        return None
+
     def _consume_pending_media_attachments(self) -> list[ContentBlock]:
         local_runtime = self._local_filesystem_runtime()
         if local_runtime is None:
@@ -810,6 +828,42 @@ class McpAgent(ABC, ToolAgent):
 
         enable_read = self._shell_read_text_file_enabled()
         edit_flags = self._shell_edit_tool_flags()
+        session_filesystem = self._shell_environment
+        session_runtime = self._session_filesystem_runtime()
+        if isinstance(session_filesystem, SessionFilesystem):
+            if session_runtime is not None:
+                session_runtime.set_enabled_tools(
+                    enable_read=enable_read,
+                    enable_write=edit_flags.write_text_file,
+                    enable_apply_patch=edit_flags.apply_patch,
+                    enable_edit_file=edit_flags.edit_file,
+                )
+                return
+
+            session_runtime = SessionFilesystemRuntime(
+                session_filesystem,
+                enable_read=enable_read,
+                enable_write=edit_flags.write_text_file,
+                enable_apply_patch=edit_flags.apply_patch,
+                enable_edit_file=edit_flags.edit_file,
+            )
+            if self._filesystem_runtime is None:
+                self._filesystem_runtime = session_runtime
+            else:
+                self._filesystem_runtime = CompositeFilesystemRuntime(
+                    primary=self._filesystem_runtime,
+                    fallback=session_runtime,
+                )
+            self.logger.info(
+                "Session filesystem runtime enabled",
+                runtime_type=type(self._filesystem_runtime).__name__,
+                read_enabled=enable_read,
+                write_enabled=edit_flags.write_text_file,
+                apply_patch_enabled=edit_flags.apply_patch,
+                edit_file_enabled=edit_flags.edit_file,
+            )
+            return
+
         enable_attach_media = self._shell_attach_media_mode()
         model_info = self.llm.model_info if self.llm else None
         local_runtime = self._local_filesystem_runtime()
@@ -893,6 +947,15 @@ class McpAgent(ABC, ToolAgent):
                 enable_edit_file=edit_flags.edit_file,
                 enable_attach_media=self._shell_attach_media_mode(),
             )
+        session_runtime = self._session_filesystem_runtime()
+        if session_runtime is not None:
+            edit_flags = self._shell_edit_tool_flags()
+            session_runtime.set_enabled_tools(
+                enable_read=self._shell_read_text_file_enabled(),
+                enable_write=edit_flags.write_text_file,
+                enable_apply_patch=edit_flags.apply_patch,
+                enable_edit_file=edit_flags.edit_file,
+            )
 
         if self._shell_runtime is None:
             return
@@ -931,6 +994,7 @@ class McpAgent(ABC, ToolAgent):
             output_byte_limit=shell_settings.output_byte_limit,
             config=self._context.config if self._context else None,
             agent_name=self._name,
+            shell_environment=self._shell_environment,
         )
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._bash_tool = self._shell_runtime.tool
@@ -2474,7 +2538,7 @@ class McpAgent(ABC, ToolAgent):
             return None
 
         runtime_info = shell_runtime.runtime_info()
-        runtime_name = runtime_info.get("name")
+        runtime_name = runtime_info.name
         return runtime_name or "shell"
 
     def _shell_tool_name_for_display(self) -> str | None:

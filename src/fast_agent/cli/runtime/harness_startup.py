@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.harness import AgentHarness, HarnessSession
     from fast_agent.session.session_manager import SessionManager
+    from fast_agent.tools.session_environment import ShellEnvironment
 
 
 class HarnessProvider(Protocol):
@@ -32,7 +33,11 @@ class HarnessProvider(Protocol):
 
 
 class CliRuntimeProvider(HarnessProvider, Protocol):
-    def run(self) -> AbstractAsyncContextManager[AgentApp]: ...
+    def run(
+        self,
+        *,
+        environment: ShellEnvironment | None = None,
+    ) -> AbstractAsyncContextManager[AgentApp]: ...
 
 
 class CliFlow(Protocol):

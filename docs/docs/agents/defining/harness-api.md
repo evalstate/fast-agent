@@ -852,9 +852,13 @@ async with fast.harness() as harness:
 ```
 
 `harness.shell()` returns a structured `ShellExecutionResult` with `stdout`,
-`stderr`, and `exit_code`. It runs through the same local shell execution
-configuration as the model-facing shell tool, but it does not create a harness
-session and does not update agent history.
+`stderr`, and `exit_code`. It runs through the harness shell environment, but it
+does not create a harness session and does not update agent history.
+
+By default, the harness uses the local shell environment. You can inject another
+environment, such as Docker, with `fast.harness(environment=...)`. See
+[Agent Environments](../environments.md) for Docker examples and the
+`ShellEnvironment` protocol.
 
 Use `session.shell()` when you want shell work serialized with a specific
 `HarnessSession`:
@@ -886,8 +890,9 @@ The shell/tool activity belongs to the selected agent in that session's
 flow. Use this when the model should decide which commands to run or when the
 tool interaction should be part of the agent turn.
 
-Filesystem access remains tool-mediated through configured agents. A future
-sandbox/session-environment API may expose first-class filesystem operations.
+Filesystem access remains tool-mediated through configured agents. The current
+agent environment protocol covers shell execution; direct filesystem operations
+can be added as a separate capability when an adapter needs them.
 
 Session IDs are conversation/runtime affinity keys, not security boundaries. A
 session does not automatically create a per-session filesystem sandbox. For

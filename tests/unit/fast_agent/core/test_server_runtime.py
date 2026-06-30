@@ -69,7 +69,7 @@ async def test_run_mcp_server_threads_managed_agent_tools(monkeypatch: pytest.Mo
                     ),
                     agents={"reviewer": object()},
                 ),
-                runtime=SimpleNamespace(shell_executor=object()),
+                runtime=SimpleNamespace(shell_environment=object()),
             ),
         ),
         config=None,

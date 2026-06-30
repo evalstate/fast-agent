@@ -266,6 +266,9 @@ def generate_fastagent_harness_method_reference() -> str:
     lines.append(
         "| `model` | `str \\| None` | `None` | Optional global model override, similar to the CLI `--model` override |\n"
     )
+    lines.append(
+        "| `environment` | `ShellEnvironment \\| None` | `None` | Optional shell environment override for `harness.shell(...)` and `session.shell(...)`; environments that also implement `SessionFilesystem` back model-facing file tools |\n"
+    )
     return "".join(lines)
 
 
@@ -296,7 +299,10 @@ def generate_harness_reference() -> str:
     lines.append("### Properties\n\n")
     lines.append("| Property | Type | Description |\n")
     lines.append("|----------|------|-------------|\n")
-    lines.append("| `sessions` | `HarnessSessions` | Session manager for the running harness |\n\n")
+    lines.append("| `sessions` | `HarnessSessions` | Session manager for the running harness |\n")
+    lines.append(
+        "| `environment` | `ShellEnvironment` | Shell environment used by the running harness; may also implement `SessionFilesystem` for model-facing file tools |\n\n"
+    )
     lines.append("### Methods\n\n")
     lines.append("#### `session()`\n\n")
     lines.append(
@@ -313,7 +319,7 @@ def generate_harness_reference() -> str:
         _md_code("python", f"await {_format_method_signature('harness.shell', AgentHarness.shell)}")
     )
     lines.append(
-        "Runs a shell command through the harness shell executor and returns a\n"
+        "Runs a shell command through the harness shell environment and returns a\n"
         "`ShellExecutionResult` with `stdout`, `stderr`, and `exit_code`. This is\n"
         "programmatic shell access: it does not create a session and does not add\n"
         "the command or output to chat history.\n\n"
