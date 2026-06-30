@@ -36,7 +36,7 @@ model_references:
 auto_sampling: true
 
 # Number of times to retry transient LLM API errors (falls back to FAST_AGENT_RETRIES env)
-llm_retries: 1
+llm_retries: 2
 
 # Execution engine (only asyncio is currently supported)
 execution_engine: "asyncio"
@@ -62,7 +62,7 @@ Relative `compaction.prompt` file paths are resolved from the loaded config file
 `FAST_AGENT_HOME` points at a home config, the path is relative to that home config file; it is not
 resolved from the process current working directory.
 
-`llm_retries` defaults to `1` and is the preferred way to control retry attempts. If unset in
+`llm_retries` defaults to `2` and is the preferred way to control retry attempts. If unset in
 config, the `FAST_AGENT_RETRIES` environment variable is used as a fallback.
 
 ## Namespaced Model References
@@ -761,7 +761,7 @@ shell_execution:
 ## LLM Retries
 
 ```yaml
-llm_retries: 1
+llm_retries: 2
 ```
 
 ## Example Full Configuration

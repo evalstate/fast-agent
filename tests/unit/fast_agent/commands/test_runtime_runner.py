@@ -3,10 +3,15 @@ import asyncio
 import pytest
 
 from fast_agent.cli.runtime.run_request import AgentRunRequest
-from fast_agent.cli.runtime.runner import run_request
+from fast_agent.cli.runtime.runner import _timeout_seconds_for_request, run_request
 
 
-def _request(*, timeout_seconds: int | None = None) -> AgentRunRequest:
+def _request(
+    *,
+    message: str | None = "hello",
+    prompt_file: str | None = None,
+    timeout_seconds: int | None = None,
+) -> AgentRunRequest:
     return AgentRunRequest(
         name="test",
         instruction="instruction",
@@ -15,8 +20,8 @@ def _request(*, timeout_seconds: int | None = None) -> AgentRunRequest:
         agent_cards=None,
         card_tools=None,
         model=None,
-        message="hello",
-        prompt_file=None,
+        message=message,
+        prompt_file=prompt_file,
         result_file=None,
         resume=None,
         url_servers=None,
@@ -41,6 +46,17 @@ def _request(*, timeout_seconds: int | None = None) -> AgentRunRequest:
         watch=False,
         timeout_seconds=timeout_seconds,
     )
+
+
+def test_timeout_seconds_for_request_applies_only_to_one_shot_modes() -> None:
+    assert _timeout_seconds_for_request(_request(timeout_seconds=30)) == 30
+    assert (
+        _timeout_seconds_for_request(
+            _request(message=None, prompt_file="prompt.txt", timeout_seconds=30)
+        )
+        == 30
+    )
+    assert _timeout_seconds_for_request(_request(message=None, timeout_seconds=30)) is None
 
 
 def test_run_request_exits_124_when_timeout_fires(

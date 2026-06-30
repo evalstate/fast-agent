@@ -303,7 +303,7 @@ def go(
         "--timeout",
         "-t",
         min=1,
-        help="Maximum execution duration in seconds",
+        help="Maximum one-shot execution duration in seconds",
     ),
 ) -> None:
     """Run an interactive agent directly from the command line."""
