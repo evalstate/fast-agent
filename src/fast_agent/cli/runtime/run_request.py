@@ -87,6 +87,7 @@ class AgentRunRequest:
     structured_tool_policy: StructuredToolPolicy | None = None
     execution_mode: ExecutionMode | None = None
     quiet: bool = False
+    timeout_seconds: int | None = None
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None
     prefer_local_shell: bool = False
     attachments: list[str] | None = None
@@ -94,6 +95,7 @@ class AgentRunRequest:
 
     def __post_init__(self) -> None:
         self._validate_environment_options()
+        self._validate_timeout()
         self._resolve_execution_mode()
         self._validate_structured_options()
 
@@ -104,6 +106,10 @@ class AgentRunRequest:
             raise ValueError("--noenv cannot be combined with --resume")
         if self.shell_runtime and self.no_shell:
             raise ValueError("--shell cannot be combined with --no-shell")
+
+    def _validate_timeout(self) -> None:
+        if self.timeout_seconds is not None and self.timeout_seconds < 1:
+            raise ValueError("--timeout must be a positive integer")
 
     def _resolve_execution_mode(self) -> None:
         resolved_execution_mode = resolve_execution_mode(
@@ -193,6 +199,7 @@ class AgentRunRequest:
             "watch": self.watch,
             "execution_mode": self.execution_mode,
             "quiet": self.quiet,
+            "timeout_seconds": self.timeout_seconds,
             "missing_shell_cwd_policy": self.missing_shell_cwd_policy,
             "managed_mcp_agent_names": self.managed_mcp_agent_names,
         }

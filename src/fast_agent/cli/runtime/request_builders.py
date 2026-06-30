@@ -447,6 +447,7 @@ def build_agent_run_request(
     reload: bool,
     watch: bool,
     quiet: bool = False,
+    timeout_seconds: int | None = None,
     prefer_local_shell: bool = False,
     no_shell: bool = False,
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
@@ -553,6 +554,7 @@ def build_agent_run_request(
         watch=watch,
         execution_mode=execution_mode,
         quiet=quiet,
+        timeout_seconds=timeout_seconds,
         missing_shell_cwd_policy=missing_shell_cwd_policy,
     )
 
@@ -602,6 +604,7 @@ def build_command_run_request(
     reload: bool = False,
     watch: bool = False,
     quiet: bool = False,
+    timeout_seconds: int | None = None,
     prefer_local_shell: bool = False,
     no_shell: bool = False,
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
@@ -668,5 +671,6 @@ def build_command_run_request(
         reload=reload,
         watch=watch,
         quiet=quiet,
+        timeout_seconds=timeout_seconds,
         missing_shell_cwd_policy=missing_shell_cwd_policy,
     )

@@ -24,7 +24,7 @@ default_model: gpt-5.4-mini?reasoning=low
 # agent model: "$system.fast"
 
 # Number of times to retry transient LLM API errors (falls back to FAST_AGENT_RETRIES env var)
-# llm_retries: 1
+# llm_retries: 2
 
 # Persist git repository provenance in session snapshots and trace exports.
 # Captures the repo root, commit, branch, dirty state, and sanitized origin URL
