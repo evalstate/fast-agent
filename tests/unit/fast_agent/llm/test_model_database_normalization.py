@@ -26,16 +26,16 @@ def test_model_database_normalizes_provider_prefix_slash() -> None:
 
 def test_model_database_normalizes_aliases() -> None:
     assert ModelDatabase.get_max_output_tokens("sonnet") == ModelDatabase.get_max_output_tokens(
-        "claude-sonnet-4-6"
+        "claude-sonnet-5"
     )
     assert ModelDatabase.get_max_output_tokens("claude") == ModelDatabase.get_max_output_tokens(
-        "claude-sonnet-4-6"
+        "claude-sonnet-5"
     )
     assert ModelDatabase.get_max_output_tokens("codexspark") == ModelDatabase.get_max_output_tokens(
         "gpt-5.3-codex-spark"
     )
     assert ModelDatabase.get_max_output_tokens("  SONNET  ") == ModelDatabase.get_max_output_tokens(
-        "claude-sonnet-4-6"
+        "claude-sonnet-5"
     )
 
 

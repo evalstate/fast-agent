@@ -918,6 +918,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
     def _requires_explicit_thinking_field(self, model: str) -> bool:
         return self._get_model_anthropic_thinking_field_required(model)
 
+    def _supports_thinking_disable(self, model: str) -> bool:
+        return self._get_model_anthropic_thinking_disable_supported(model)
+
     def _supports_task_budget(self, model: str) -> bool:
         """Return True when Anthropic task budgets are supported for the model/provider."""
         return self.provider_identity() in {
@@ -987,6 +990,10 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             return args, False
 
         if not thinking_enabled:
+            if self._supports_thinking_disable(model):
+                setting = self.reasoning_effort
+                if setting and setting.kind == "toggle" and setting.value is False:
+                    args["thinking"] = {"type": "disabled"}
             if max_tokens is not None:
                 args["max_tokens"] = max_tokens
             return args, False
@@ -2033,6 +2040,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             "claude-opus-4-7",
             "claude-opus-4-8",
             "claude-fable-5",
+            "claude-sonnet-5",
         }:
             return arguments
 

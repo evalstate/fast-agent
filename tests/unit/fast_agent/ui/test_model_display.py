@@ -52,7 +52,7 @@ def _make_llm(model: str):
     ("model", "expected"),
     [
         ("codexplan?reasoning=high", "gpt-5.5"),
-        ("sonnet", "claude-sonnet-4-6"),
+        ("sonnet", "claude-sonnet-5"),
         ("glm", "GLM-5.2"),
         ("hf.moonshotai/Kimi-K2-Instruct-0905:groq", "Kimi-K2-Instruct-0905"),
     ],

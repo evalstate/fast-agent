@@ -206,6 +206,49 @@ def test_fable_5_tool_forced_structured_output_keeps_always_on_thinking():
     assert "output_config" not in args
 
 
+def test_sonnet_5_omits_thinking_field_for_default_adaptive_thinking():
+    llm = _make_llm("claude-sonnet-5")
+
+    args, thinking_enabled = llm._resolve_thinking_arguments(
+        model="claude-sonnet-5",
+        max_tokens=16000,
+        structured_mode=None,
+    )
+
+    assert thinking_enabled
+    assert "thinking" not in args
+    assert "output_config" not in args
+    assert args["max_tokens"] == 16000
+
+
+def test_sonnet_5_can_disable_adaptive_thinking():
+    llm = _make_llm("claude-sonnet-5", reasoning=False)
+
+    args, thinking_enabled = llm._resolve_thinking_arguments(
+        model="claude-sonnet-5",
+        max_tokens=16000,
+        structured_mode=None,
+    )
+
+    assert not thinking_enabled
+    assert args["thinking"] == {"type": "disabled"}
+    assert args["max_tokens"] == 16000
+
+
+def test_sonnet_5_supports_xhigh_effort_without_thinking_field():
+    llm = _make_llm("claude-sonnet-5", reasoning="xhigh")
+
+    args, thinking_enabled = llm._resolve_thinking_arguments(
+        model="claude-sonnet-5",
+        max_tokens=16000,
+        structured_mode=None,
+    )
+
+    assert thinking_enabled
+    assert "thinking" not in args
+    assert args["output_config"] == {"effort": "xhigh"}
+
+
 def test_opus_47_task_budget_merges_into_output_config() -> None:
     llm = _make_llm("claude-opus-4-7")
     llm.set_task_budget_tokens(128_000)
@@ -554,6 +597,24 @@ def test_fable_5_drops_sampling_parameters_from_request_payload() -> None:
     result = llm.prepare_provider_arguments(
         {
             "model": "claude-fable-5",
+            "messages": [],
+            "max_tokens": 1000,
+        },
+        RequestParams(temperature=0.7, top_p=0.9, top_k=10),
+        llm.ANTHROPIC_EXCLUDE_FIELDS,
+    )
+
+    assert "temperature" not in result
+    assert "top_p" not in result
+    assert "top_k" not in result
+
+
+def test_sonnet_5_drops_sampling_parameters_from_request_payload() -> None:
+    llm = _make_llm("claude-sonnet-5")
+
+    result = llm.prepare_provider_arguments(
+        {
+            "model": "claude-sonnet-5",
             "messages": [],
             "max_tokens": 1000,
         },
