@@ -119,6 +119,18 @@ async def test_session_filesystem_runtime_reads_and_writes_remote_files() -> Non
 
 
 @pytest.mark.asyncio
+async def test_session_filesystem_runtime_preserves_full_file_content() -> None:
+    env = FakeSessionEnvironment()
+    env.files["/workspace/notes.txt"] = "hello\r\nworld\r\n"
+    runtime = SessionFilesystemRuntime(env, enable_read=True, enable_write=True)
+
+    read = await runtime.call_tool("read_text_file", {"path": "notes.txt"})
+
+    assert read.isError is False
+    assert _text(read) == "hello\r\nworld\r\n"
+
+
+@pytest.mark.asyncio
 async def test_session_filesystem_runtime_applies_patch_to_remote_files() -> None:
     env = FakeSessionEnvironment()
     env.files["/workspace/notes.txt"] = "one\ntwo\n"
@@ -166,7 +178,7 @@ async def test_mcp_agent_routes_file_tools_to_injected_session_environment() -> 
     shell = await agent.call_tool("execute", {"command": "pwd"})
 
     assert read.isError is False
-    assert _text(read) == "remote file"
+    assert _text(read) == "remote file\n"
     assert shell.isError is False
     assert env.requests[-1].command == "pwd"
 

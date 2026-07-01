@@ -32,6 +32,7 @@ fast = FastAgent(
         "You are a concise assistant. Shell commands and filesystem tools run "
         "inside the active Hugging Face Sandbox."
     ),
+    model="codexresponses.gpt-5.4",
     shell=True,
     default=True,
 )

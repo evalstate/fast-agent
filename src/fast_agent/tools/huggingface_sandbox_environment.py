@@ -131,10 +131,10 @@ class HuggingFaceSandboxEnvironment:
         self._owns_sandbox = owns_sandbox
 
     async def open(self) -> None:
-        if self._sandbox is not None:
-            return
-        self._sandbox = await asyncio.to_thread(self._create_sandbox)
-        self._owns_sandbox = True
+        if self._sandbox is None:
+            self._sandbox = await asyncio.to_thread(self._create_sandbox)
+            self._owns_sandbox = True
+        await asyncio.to_thread(self._sandbox.files.mkdir, self._cwd)
 
     def _create_sandbox(self) -> _Sandbox:
         try:

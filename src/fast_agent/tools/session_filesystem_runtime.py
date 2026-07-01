@@ -140,14 +140,14 @@ class SessionFilesystemRuntime:
         except Exception as exc:
             return _text_result(f"Error reading file: {exc}", is_error=True)
 
-        lines = content.splitlines()
-        start_index = (parsed.line - 1) if parsed.line is not None else 0
-        if start_index < 0:
-            start_index = 0
-        selected = lines[start_index:]
-        if parsed.limit is not None:
-            selected = selected[: parsed.limit]
-        return _text_result("\n".join(selected), is_error=False)
+        if parsed.line is not None or parsed.limit is not None:
+            lines = content.splitlines()
+            start_index = (parsed.line - 1) if parsed.line is not None else 0
+            selected = lines[start_index:]
+            if parsed.limit is not None:
+                selected = selected[: parsed.limit]
+            content = "\n".join(selected)
+        return _text_result(content, is_error=False)
 
     async def write_text_file(
         self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
