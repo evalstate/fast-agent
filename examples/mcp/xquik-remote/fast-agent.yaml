@@ -1,0 +1,16 @@
+logger:
+  level: "error"
+  type: "console"
+  show_chat: true
+  show_tools: true
+  truncate_tools: true
+
+mcp:
+  servers:
+    xquik:
+      transport: "http"
+      url: "https://xquik.com/mcp"
+      headers:
+        Authorization: "Bearer ${XQUIK_API_KEY}"
+      auth:
+        oauth: false
