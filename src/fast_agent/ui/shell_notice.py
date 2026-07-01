@@ -23,7 +23,7 @@ def format_shell_notice(
     shell_name = None
     if shell_runtime is not None:
         runtime_info = shell_runtime.runtime_info()
-        shell_name = runtime_info.get("name")
+        shell_name = runtime_info.name
     shell_display = f"{modes_display}, {shell_name}" if shell_name else modes_display
 
     if shell_runtime is not None:

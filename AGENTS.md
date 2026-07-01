@@ -17,14 +17,15 @@
 - Use Markdown links for images and other content (example: `![Image](https://link.to.image)`).
 - Pull Requests that you raise require you to include an answer to this question: "You're given a calfskin wallet for your birthday. How would you feel about using it?". 
 - Some unit tests emit warning logs (e.g., invalid auths.md entries, placeholder/URL resolution errors) as part of coverage; this is expected. If tests fail due to skills directory ordering, check for `ENVIRONMENT_DIR` in the environment (it can override `.fast-agent` and skew skill discovery).
-- Project layout quick map:
-  - `src/fast_agent/` core runtime and agent logic.
-  - `src/fast_agent/core/fastagent.py` owns agent registry, reload/watch, card tooling, and instance refresh.
-  - `src/fast_agent/core/direct_factory.py` builds agents by type (including Agents-as-Tools wiring).
-  - `src/fast_agent/core/agent_card_loader.py` parses/dumps AgentCards and resolves history/tool paths.
-  - `src/fast_agent/ui/interactive_prompt.py` is the TUI entry; handles slash commands, agent switching, and tool lists.
-  - `src/fast_agent/cli/commands/go.py` is the CLI entry for `fast-agent go` (cards, watch, reload).
-  - `src/fast_agent/acp/` ACP server, slash commands, and transport glue.
-  - `src/fast_agent/agents/` agent types; `agents/workflow/agents_as_tools_agent.py` is Agents-as-Tools.
-  - `tests/unit/` and `tests/integration/` mirror runtime vs ACP/CLI behaviors.
-  - `examples/` and `examples/workflows-md/` are kept in sync with packaged resources when they change.
+
+## architectural orientation
+
+- `src/fast_agent/core/` is the harness layer: it loads config and AgentCards, owns the agent registry, validates dependency graphs, creates agent instances, and coordinates watch/reload/hot-swap. Other surfaces should enter through this layer instead of rebuilding harness lifecycle logic.
+- `src/fast_agent/agents/` contains the agent abstractions and workflow agents. Basic LLM agents, MCP-backed agents, tool runners, and workflow agents all converge on the same turn model: prepare context, call an LLM/provider, execute tool calls when requested, append history, and emit progress/display events.
+- `src/fast_agent/llm/` is the provider/request boundary. Model selection, request parameter resolution, streaming normalization, structured output, usage tracking, reasoning metadata, and provider-specific behavior should be normalized here before agent code consumes it.
+- `src/fast_agent/mcp/`, `src/fast_agent/acp/`, and `src/fast_agent/a2a/` are protocol adapters around the harness and agent runtime. MCP primarily supplies tools/resources/prompts and server transports; ACP exposes fast-agent sessions to editor clients; A2A exposes or consumes remote agents. Keep protocol translation at these edges and reuse the central agent loop.
+- `src/fast_agent/cli/` turns command-line input into harness runtime requests. `fast-agent go` is the interactive/one-shot entry, `serve` exposes transport servers, and `src/fast_agent/cli/runtime/` holds shared startup/request plumbing so commands do not duplicate setup.
+- `src/fast_agent/ui/` is terminal presentation and input. The prompt-toolkit input runtime lives under `ui/prompt/`; Rich display/streaming/tool rendering lives in sibling modules; `ui/adapters/` bridges UI actions to command/runtime interfaces. UI modules should format and collect intent, not own agent semantics.
+- `src/fast_agent/commands/` and `src/fast_agent/command_actions/` hold slash-command intent parsing, execution, and renderable results shared across TUI and ACP where practical. Prefer adding command behavior there before adding surface-specific command code.
+- `src/fast_agent/cards/`, `src/fast_agent/session/`, `src/fast_agent/history/`, `src/fast_agent/hooks/`, `src/fast_agent/skills/`, `src/fast_agent/plugins/`, and `src/fast_agent/marketplace/` are supporting runtime systems. They should remain reusable from the harness and adapters rather than coupled to one UI.
+- Architecture docs live mostly in `docs-internal/` for active/refactor design notes; user-facing docs and generated reference material live under `docs/`; runnable examples live under `examples/`. Keep durable behavior documented closest to its audience and avoid copying generated/default configuration by hand.

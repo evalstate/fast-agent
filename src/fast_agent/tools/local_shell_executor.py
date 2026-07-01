@@ -12,11 +12,18 @@ import time
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from fast_agent.core.logging.logger import Logger
 from fast_agent.home import build_child_environment
-from fast_agent.tools.session_environment import ShellExecutionResult
+from fast_agent.tools.session_environment import (
+    ShellExecution,
+    ShellExecutionCallbacks,
+    ShellExecutionOptions,
+    ShellExecutionRequest,
+    ShellExecutionResult,
+    ShellRuntimeInfo,
+)
 from fast_agent.utils.shell_detection import shell_runtime_info
 from fast_agent.utils.text import strip_casefold
 
@@ -32,33 +39,7 @@ _PROCESS_EXIT_POLL_SECONDS = 0.1
 _asyncio_sleep = asyncio.sleep
 
 
-class ShellExecutionCallbacks(Protocol):
-    """Optional observer hooks for streaming shell execution."""
-
-    async def on_stdout(self, text: str) -> None: ...
-
-    async def on_stderr(self, text: str) -> None: ...
-
-    async def on_idle_warning(self, elapsed: float, remaining: float) -> None: ...
-
-    async def on_timeout(self) -> None: ...
-
-
-type ShellExecutorLogger = logging.Logger | Logger
-
-
-@dataclass(frozen=True, slots=True)
-class ShellExecutionOptions:
-    timeout_seconds: float
-    warning_interval_seconds: int
-
-
-@dataclass(frozen=True, slots=True)
-class LocalShellExecution:
-    result: ShellExecutionResult
-    options: ShellExecutionOptions
-    timed_out: bool = False
-    io_drain_timed_out: bool = False
+type ShellEnvironmentLogger = logging.Logger | Logger
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +74,7 @@ class LocalShellExecutor:
     def __init__(
         self,
         *,
-        logger: ShellExecutorLogger,
+        logger: ShellEnvironmentLogger,
         timeout_seconds: int = 90,
         warning_interval_seconds: int = 30,
         working_directory: Path | None = None,
@@ -112,6 +93,16 @@ class LocalShellExecutor:
     @property
     def warning_interval_seconds(self) -> int:
         return self._warning_interval_seconds
+
+    async def open(self) -> None:
+        return None
+
+    @property
+    def cwd(self) -> str:
+        return str(self.working_directory())
+
+    def set_cwd(self, cwd: str | None) -> None:
+        self.set_working_directory(None if cwd is None else Path(cwd))
 
     def working_directory(self) -> Path:
         if self._working_directory is not None:
@@ -151,8 +142,13 @@ class LocalShellExecutor:
 
         return None
 
-    def runtime_info(self) -> dict[str, str | None]:
-        return shell_runtime_info()
+    def runtime_info(self) -> ShellRuntimeInfo:
+        info = shell_runtime_info()
+        return ShellRuntimeInfo(
+            name=info.get("name") or "shell",
+            path=info.get("path"),
+            kind="local",
+        )
 
     async def execute_shell(
         self,
@@ -163,33 +159,44 @@ class LocalShellExecutor:
         timeout: float | None = None,
     ) -> ShellExecutionResult:
         execution = await self.execute(
-            command,
-            cwd=cwd,
-            env=env,
-            timeout=timeout,
+            ShellExecutionRequest(
+                command=command,
+                cwd=str(cwd) if cwd is not None else None,
+                env=env,
+                timeout=timeout,
+            )
         )
         return execution.result
 
     async def execute(
         self,
-        command: str,
+        request: ShellExecutionRequest | str,
         *,
+        callbacks: ShellExecutionCallbacks | None = None,
         cwd: str | Path | None = None,
         env: Mapping[str, str] | None = None,
         timeout: float | None = None,
-        callbacks: ShellExecutionCallbacks | None = None,
-    ) -> LocalShellExecution:
+    ) -> ShellExecution:
+        if isinstance(request, str):
+            request = ShellExecutionRequest(
+                command=request,
+                cwd=str(cwd) if cwd is not None else None,
+                env=env,
+                timeout=timeout,
+            )
         options = ShellExecutionOptions(
-            timeout_seconds=self._timeout_seconds if timeout is None else timeout,
+            timeout_seconds=self._timeout_seconds if request.timeout is None else request.timeout,
             warning_interval_seconds=self._warning_interval_seconds,
         )
-        configured_working_dir = self.working_directory() if cwd is None else Path(cwd)
+        configured_working_dir = (
+            self.working_directory() if request.cwd is None else Path(request.cwd)
+        )
         working_dir_error = self.validate_working_directory(configured_working_dir)
         if working_dir_error:
             raise ValueError(working_dir_error)
 
-        plan = self._build_process_plan(configured_working_dir, env=env)
-        process = await self._start_shell_process(command, plan)
+        plan = self._build_process_plan(configured_working_dir, env=request.env)
+        process = await self._start_shell_process(request.command, plan)
         output = _ShellOutputCapture()
 
         stdout_task = asyncio.create_task(
@@ -229,7 +236,7 @@ class LocalShellExecutor:
             [stdout_task, stderr_task],
             timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
         )
-        return LocalShellExecution(
+        return ShellExecution(
             result=output.result,
             options=options,
             timed_out=output.timeout_occurred,
@@ -244,8 +251,8 @@ class LocalShellExecutor:
     ) -> _ShellProcessPlan:
         working_dir = self.resolve_working_directory(configured_working_dir)
         runtime_details = self.runtime_info()
-        shell_name = strip_casefold(str(runtime_details.get("name") or ""))
-        shell_path = runtime_details.get("path")
+        shell_name = strip_casefold(runtime_details.name)
+        shell_path = runtime_details.path
         is_windows = platform.system() == "Windows"
         child_env = build_child_environment(
             active_home=getattr(self._config, "_fast_agent_home", None),
@@ -383,16 +390,24 @@ class LocalShellExecutor:
                 self._logger.debug("Watchdog: process exited normally")
                 return
 
+            timeout_seconds = options.timeout_seconds
+            warning_interval_seconds = options.warning_interval_seconds
+            if timeout_seconds is None:
+                continue
             elapsed = time.monotonic() - output.last_output_time
-            remaining = options.timeout_seconds - elapsed
+            remaining = timeout_seconds - elapsed
             time_since_warning = elapsed - last_warning_time
-            if time_since_warning >= options.warning_interval_seconds and remaining > 0:
+            if (
+                warning_interval_seconds is not None
+                and time_since_warning >= warning_interval_seconds
+                and remaining > 0
+            ):
                 self._logger.debug(f"Watchdog: warning at {int(remaining)}s remaining")
                 if callbacks is not None:
                     await callbacks.on_idle_warning(elapsed, remaining)
                 last_warning_time = elapsed
 
-            if elapsed < options.timeout_seconds:
+            if elapsed < timeout_seconds:
                 continue
 
             output.timeout_occurred = True
@@ -492,10 +507,11 @@ class LocalShellExecutor:
             await _asyncio_sleep(_PROCESS_EXIT_POLL_SECONDS)
         return process.returncode
 
+    async def close(self) -> None:
+        return None
+
 
 __all__ = [
-    "LocalShellExecution",
     "LocalShellExecutor",
-    "ShellExecutionCallbacks",
-    "ShellExecutionOptions",
+    "ShellEnvironmentLogger",
 ]

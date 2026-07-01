@@ -508,7 +508,7 @@ def _populate_shell_runtime_context(
         return
 
     runtime_info = shell_runtime.runtime_info()
-    shell_context.name = runtime_info.get("name")
+    shell_context.name = runtime_info.name
     try:
         shell_context.working_dir = shell_runtime.working_directory()
     except Exception:

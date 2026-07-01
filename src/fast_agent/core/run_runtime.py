@@ -40,6 +40,7 @@ if TYPE_CHECKING:
         RuntimeCallbacks,
     )
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.tools.session_environment import ShellEnvironment
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
@@ -264,7 +265,11 @@ class FastAgentRunMixin:
         display_usage_report(active_agents, show_if_progress_disabled=False, subdued_colors=True)
 
     @asynccontextmanager
-    async def run(self) -> AsyncIterator["AgentApp"]:
+    async def run(
+        self,
+        *,
+        environment: "ShellEnvironment | None" = None,
+    ) -> AsyncIterator["AgentApp"]:
         """
         Context manager for running the application.
         Initializes all registered agents.
@@ -277,6 +282,9 @@ class FastAgentRunMixin:
         lifecycle_state = None
         try:
             lifecycle_state = await lifecycle.enter()
+            if environment is not None:
+                lifecycle_state.runtime.shell_environment = environment
+            await lifecycle_state.runtime.shell_environment.open()
             settings = lifecycle_state.settings
             run_state = await self._initialize_managed_run_state(lifecycle_state.runtime)
             active_agents = run_state.active_agents
@@ -313,16 +321,20 @@ class FastAgentRunMixin:
         finally:
             if lifecycle_state is not None:
                 exc_type, exc, traceback = sys.exc_info()
-                await lifecycle.exit(
-                    lifecycle_state,
-                    run_state,
-                    active_agents,
-                    had_error=had_error,
-                    shutdown_timeout=shutdown_timeout,
-                    exc_type=exc_type,
-                    exc=exc,
-                    traceback=traceback,
-                )
+                try:
+                    await lifecycle.exit(
+                        lifecycle_state,
+                        run_state,
+                        active_agents,
+                        had_error=had_error,
+                        shutdown_timeout=shutdown_timeout,
+                        exc_type=exc_type,
+                        exc=exc,
+                        traceback=traceback,
+                    )
+                finally:
+                    with suppress(Exception):
+                        await lifecycle_state.runtime.shell_environment.close()
 
     async def start_server(
         self,

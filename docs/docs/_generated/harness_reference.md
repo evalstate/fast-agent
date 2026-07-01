@@ -19,6 +19,7 @@ async with fast.harness() as harness:
 | Property | Type | Description |
 |----------|------|-------------|
 | `sessions` | `HarnessSessions` | Session manager for the running harness |
+| `environment` | `ShellEnvironment` | Shell environment used by the running harness; may also implement `SessionFilesystem` for model-facing file tools |
 
 ### Methods
 
@@ -41,7 +42,7 @@ await harness.shell(
     timeout: float | None = None
 ) -> ShellExecutionResult
 ```
-Runs a shell command through the harness shell executor and returns a
+Runs a shell command through the harness shell environment and returns a
 `ShellExecutionResult` with `stdout`, `stderr`, and `exit_code`. This is
 programmatic shell access: it does not create a session and does not add
 the command or output to chat history.

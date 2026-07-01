@@ -180,7 +180,7 @@ async def run_mcp_server(context: ServerRuntimeContext) -> None:
         )
     await run_harness_mcp_app_server(
         instance_factory=context.callbacks.instance_factory(),
-        shell_executor=context.state.runtime.shell_executor,
+        shell_environment=context.state.runtime.shell_environment,
         settings=context.config,
         options=HarnessMCPAppRuntimeOptions(
             server_name=server_name or f"{context.app_name}-MCP-Server",
