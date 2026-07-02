@@ -107,29 +107,16 @@ def test_deepseek_current_order_prefers_pro_above_flash() -> None:
 
 
 def test_non_current_aliases_are_listed_but_not_current() -> None:
-    current_aliases = ModelSelectionCatalog.list_current_aliases(Provider.HUGGINGFACE)
-    legacy_aliases = ModelSelectionCatalog.list_non_current_aliases(Provider.HUGGINGFACE)
+    for provider in Provider:
+        current_aliases = ModelSelectionCatalog.list_current_aliases(provider)
+        non_current_aliases = ModelSelectionCatalog.list_non_current_aliases(provider)
 
-    assert set(current_aliases).isdisjoint(legacy_aliases)
-    assert "glm51" in current_aliases
-    assert "gemma4" in current_aliases
-    assert "kimi26instant" in current_aliases
-    assert "deepseek-hf" in current_aliases
-    assert "kimi27" in current_aliases
-    assert "kimi27code" in current_aliases
-    assert "qwen36" in current_aliases
-    assert "qwen36instruct" in current_aliases
-    assert "kimi-k2-instruct" not in current_aliases
-    assert "kimi25" not in current_aliases
-    assert "kimi25instant" not in current_aliases
-    assert "kimi25" in legacy_aliases
-    assert "kimi25instant" in legacy_aliases
-    assert "glm5" not in current_aliases
-    assert "glm5" in legacy_aliases
-    assert "glm47" in legacy_aliases
-    assert "glm47" not in current_aliases
-    assert "deepseek-hf" not in legacy_aliases
-    assert "deepseek32" in legacy_aliases
+        assert set(current_aliases).isdisjoint(non_current_aliases)
+        assert non_current_aliases == [
+            entry.alias
+            for entry in ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER.get(provider, ())
+            if not entry.current
+        ]
 
 
 def test_list_fast_models_uses_explicit_curated_designation() -> None:

@@ -144,6 +144,9 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         if self._uses_glm_52_reasoning_effort(arguments.get("model")):
             self._apply_glm_52_reasoning_effort(arguments)
             return
+        if self._uses_gemma4_cerebras_reasoning_effort(arguments.get("model")):
+            self._apply_gemma4_cerebras_reasoning_effort(arguments)
+            return
 
         spec = self.reasoning_effort_spec
         if not spec or spec.kind != "toggle":
@@ -194,6 +197,24 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         else:
             extra_body["disable_reasoning"] = disable_reasoning
         arguments["extra_body"] = extra_body
+
+    def _apply_gemma4_cerebras_reasoning_effort(self, arguments: dict[str, Any]) -> None:
+        spec = self.reasoning_effort_spec
+        setting = self.reasoning_effort or (spec.default if spec else None)
+        effort = "none"
+        if setting is not None:
+            if setting.kind == "effort" and isinstance(setting.value, str):
+                effort = setting.value
+            elif setting.kind == "toggle" and setting.value is False:
+                effort = "none"
+        arguments["reasoning_effort"] = effort
+        extra_body_raw = arguments.get("extra_body", {})
+        if isinstance(extra_body_raw, dict):
+            extra_body_raw.pop("chat_template_kwargs", None)
+            if extra_body_raw:
+                arguments["extra_body"] = extra_body_raw
+            else:
+                arguments.pop("extra_body", None)
 
     def _apply_glm_52_reasoning_effort(self, arguments: dict[str, Any]) -> None:
         spec = self.reasoning_effort_spec
@@ -268,6 +289,16 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         if not model:
             return False
         return ModelDatabase.normalize_model_name(model) == "zai-org/glm-5.2"
+
+    def _uses_gemma4_cerebras_reasoning_effort(self, model: str | None) -> bool:
+        if not model:
+            return False
+        base_model, provider = self._split_provider_suffix(model)
+        provider = provider or self._hf_provider_suffix
+        return (
+            ModelDatabase.normalize_model_name(base_model or model) == "google/gemma-4-31b-it"
+            and provider == "cerebras"
+        )
 
     def _glm_52_route_profile(self, model: str | None) -> _HFRouteProfile | None:
         base_model, provider = self._split_provider_suffix(model)

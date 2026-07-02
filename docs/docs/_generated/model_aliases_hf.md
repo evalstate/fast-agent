@@ -6,7 +6,7 @@
 | `deepseek4-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `deepseek4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `deepseekv4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
-| `gemma4` | `hf.google/gemma-4-31B-it:novita` |
+| `gemma4` | `hf.google/gemma-4-31B-it:cerebras?temperature=1.0&top_p=0.95` |
 | `glm` | `hf.zai-org/GLM-5.2:zai-org` |
 | `glm47` | `hf.zai-org/GLM-4.7:cerebras` |
 | `glm5` | `hf.zai-org/GLM-5:novita` |

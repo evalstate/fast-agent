@@ -40,12 +40,19 @@ fast-agent --model "hf.moonshotai/Kimi-K2.5?instant=off" # thinking enabled
 
 ## Gemma thinking mode
 
-Gemma models that use the Hugging Face chat template `enable_thinking` flag can be toggled through
-fast-agent's `reasoning` query parameter:
+`gemma4` routes Gemma 4 31B through Hugging Face Inference Providers on Cerebras:
 
 ```bash
-fast-agent --model "gemma4?reasoning=on"  # sends chat_template_kwargs.enable_thinking=true
-fast-agent --model "gemma4?reasoning=off" # sends chat_template_kwargs.enable_thinking=false
+fast-agent --model gemma4
+fast-agent --model "hf.google/gemma-4-31B-it:cerebras?temperature=1.0&top_p=0.95"
+```
+
+Gemma 4 reasoning is disabled by default on Cerebras. Enable it with `reasoning_effort`
+values through fast-agent's `reasoning` query parameter:
+
+```bash
+fast-agent --model "gemma4?reasoning=medium" # sends reasoning_effort=medium
+fast-agent --model "gemma4?reasoning=none"   # sends reasoning_effort=none
 ```
 
 ## Hugging Face MCP authentication

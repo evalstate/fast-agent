@@ -171,13 +171,9 @@ class ModelSelectionCatalog:
                 fast=True,
             ),
             CatalogModelEntry(
-                alias="kimi27code",
-                display_label="Kimi 2.7-Code",
-                description="thinking mode",
-                model=(
-                    "hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
-                ),
-                fast=True,
+                alias="gemma4",
+                display_label="Gemma 4 31B",
+                model="hf.google/gemma-4-31B-it:cerebras?temperature=1.0&top_p=0.95",
             ),
             CatalogModelEntry(
                 alias="minimax3",
@@ -205,11 +201,6 @@ class ModelSelectionCatalog:
             ),
             CatalogModelEntry(
                 alias="glm51", display_label="GLM 5.1", model="hf.zai-org/GLM-5.1:together"
-            ),
-            CatalogModelEntry(
-                alias="gemma4",
-                display_label="Gemma 4 31B",
-                model="hf.google/gemma-4-31B-it:novita",
             ),
             CatalogModelEntry(
                 alias="minimax27",

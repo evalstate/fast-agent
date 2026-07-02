@@ -19,5 +19,9 @@
   "python.analysis.nodeExecutable": "auto",
   "python-envs.pythonProjects": [],
   "python.languageServer": "None",
-  "python-envs.defaultEnvManager": "ms-python.python:venv"
+  "python-envs.defaultEnvManager": "ms-python.python:venv",
+  "python.analysis.inlayHints.functionReturnTypes": true,
+  "python.analysis.inlayHints.variableTypes": true,
+  "python.analysis.inlayHints.pytestParameters": true,
+  "python.analysis.inlayHints.callArgumentNames": "partial"
 }
