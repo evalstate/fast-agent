@@ -20,6 +20,16 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 RuntimeEnvironmentKind = Literal["local", "docker", "remote"]
+SessionFileKind = Literal["file", "directory", "other", "unknown"]
+
+
+@dataclass(frozen=True, slots=True)
+class SessionFileEntry:
+    """Directory entry in a session-owned filesystem."""
+
+    path: str
+    name: str
+    kind: SessionFileKind = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +178,10 @@ class SessionFilesystem(Protocol):
         """Return whether a path exists in the session filesystem."""
         ...
 
+    async def list_dir(self, path: str) -> list[SessionFileEntry]:
+        """List direct children of a directory in the session filesystem."""
+        ...
+
     async def mkdir(self, path: str) -> None:
         """Create a directory and any missing parents in the session filesystem."""
         ...
@@ -185,6 +199,8 @@ class SessionEnvironment(ShellEnvironment, SessionFilesystem, Protocol):
 __all__ = [
     "RuntimeEnvironmentKind",
     "SessionEnvironment",
+    "SessionFileEntry",
+    "SessionFileKind",
     "SessionFilesystem",
     "ShellEnvironment",
     "ShellExecutor",

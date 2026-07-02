@@ -12,6 +12,7 @@ from shutil import rmtree
 from typing import TYPE_CHECKING, Literal
 
 from fast_agent.tools.session_environment import (
+    SessionFileEntry,
     ShellExecution,
     ShellExecutionCallbacks,
     ShellExecutionOptions,
@@ -386,6 +387,26 @@ class DockerMountedSessionEnvironment(DockerManagedShellEnvironment):
 
     async def exists(self, path: str) -> bool:
         return self._host_path(path).exists()
+
+    async def list_dir(self, path: str) -> list[SessionFileEntry]:
+        host_dir = self._host_path(path)
+        container_dir = self.resolve_path(path)
+        entries: list[SessionFileEntry] = []
+        for child in sorted(host_dir.iterdir(), key=lambda item: item.name):
+            if child.is_dir():
+                kind = "directory"
+            elif child.is_file():
+                kind = "file"
+            else:
+                kind = "other"
+            entries.append(
+                SessionFileEntry(
+                    path=_normalize_container_path(posixpath.join(container_dir, child.name)),
+                    name=child.name,
+                    kind=kind,
+                )
+            )
+        return entries
 
     async def mkdir(self, path: str) -> None:
         self._host_path(path).mkdir(parents=True, exist_ok=True)

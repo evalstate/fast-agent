@@ -16,10 +16,18 @@ from fast_agent.tools.session_environment import ShellExecutionRequest
 
 
 class _CommandResult(_SandboxCommandResult):
-    stdout = "ok"
-    stderr = ""
-    exit_code = 0
-    timed_out = False
+    def __init__(
+        self,
+        *,
+        stdout: str = "ok",
+        stderr: str = "",
+        exit_code: int | None = 0,
+        timed_out: bool = False,
+    ) -> None:
+        self.stdout = stdout
+        self.stderr = stderr
+        self.exit_code = exit_code
+        self.timed_out = timed_out
 
 
 class _Files(_SandboxFiles):
@@ -47,6 +55,7 @@ class _Sandbox(SandboxProtocol):
         self.test_files = _Files()
         self.files: _Files = self.test_files
         self.cwd: str | None = None
+        self.commands: list[str | list[str]] = []
 
     def run(
         self,
@@ -58,7 +67,18 @@ class _Sandbox(SandboxProtocol):
         timeout: float | None = None,
         check: bool = True,
     ) -> _CommandResult:
+        del shell, env, timeout, check
+        self.commands.append(cmd)
         self.cwd = cwd
+        if isinstance(cmd, list) and cmd[:2] == ["python3", "-c"]:
+            return _CommandResult(
+                stdout=(
+                    "["
+                    '{"path": "/workspace/skills/alpha", "name": "alpha", "kind": "directory"},'
+                    '{"path": "/workspace/skills/readme.txt", "name": "readme.txt", "kind": "file"}'
+                    "]"
+                )
+            )
         return _CommandResult()
 
     def kill(self) -> None:
@@ -87,3 +107,22 @@ async def test_execute_uses_created_default_cwd() -> None:
     await environment.execute(ShellExecutionRequest(command="pwd"))
 
     assert sandbox.cwd == "/workspace"
+
+
+@pytest.mark.asyncio
+async def test_list_dir_returns_session_file_entries() -> None:
+    sandbox = _Sandbox()
+    environment = HuggingFaceSandboxEnvironment(sandbox=sandbox, cwd="/workspace")
+    await environment.open()
+
+    entries = await environment.list_dir("skills")
+
+    assert [entry.name for entry in entries] == ["alpha", "readme.txt"]
+    assert [entry.path for entry in entries] == [
+        "/workspace/skills/alpha",
+        "/workspace/skills/readme.txt",
+    ]
+    assert [entry.kind for entry in entries] == ["directory", "file"]
+    assert isinstance(sandbox.commands[-1], list)
+    assert sandbox.commands[-1][0] == "python3"
+    assert sandbox.commands[-1][-1] == "/workspace/skills"

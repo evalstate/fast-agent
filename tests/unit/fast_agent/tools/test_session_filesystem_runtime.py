@@ -9,6 +9,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.context import Context
 from fast_agent.tools.session_environment import (
+    SessionFileEntry,
     ShellExecution,
     ShellExecutionCallbacks,
     ShellExecutionOptions,
@@ -83,6 +84,25 @@ class FakeSessionEnvironment:
     async def exists(self, path: str) -> bool:
         return self.resolve_path(path) in self.files
 
+    async def list_dir(self, path: str) -> list[SessionFileEntry]:
+        resolved = self.resolve_path(path).rstrip("/")
+        entries: list[SessionFileEntry] = []
+        seen_directories: set[str] = set()
+        for file_path in sorted(self.files):
+            if not file_path.startswith(f"{resolved}/"):
+                continue
+            relative = file_path[len(resolved) + 1 :]
+            name = relative.split("/", 1)[0]
+            entry_path = f"{resolved}/{name}"
+            if "/" in relative:
+                if name in seen_directories:
+                    continue
+                seen_directories.add(name)
+                entries.append(SessionFileEntry(path=entry_path, name=name, kind="directory"))
+            else:
+                entries.append(SessionFileEntry(path=entry_path, name=name, kind="file"))
+        return entries
+
     async def mkdir(self, path: str) -> None:
         del path
 
@@ -128,6 +148,22 @@ async def test_session_filesystem_runtime_preserves_full_file_content() -> None:
 
     assert read.isError is False
     assert _text(read) == "hello\r\nworld\r\n"
+
+
+@pytest.mark.asyncio
+async def test_fake_session_environment_lists_direct_children() -> None:
+    env = FakeSessionEnvironment()
+    env.files["/workspace/skills/alpha/SKILL.md"] = "alpha"
+    env.files["/workspace/skills/beta/SKILL.md"] = "beta"
+    env.files["/workspace/skills/readme.txt"] = "notes"
+
+    entries = await env.list_dir("skills")
+
+    assert entries == [
+        SessionFileEntry(path="/workspace/skills/alpha", name="alpha", kind="directory"),
+        SessionFileEntry(path="/workspace/skills/beta", name="beta", kind="directory"),
+        SessionFileEntry(path="/workspace/skills/readme.txt", name="readme.txt", kind="file"),
+    ]
 
 
 @pytest.mark.asyncio
