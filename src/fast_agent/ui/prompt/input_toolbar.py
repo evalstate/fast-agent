@@ -342,8 +342,8 @@ def _should_resolve_attachment_summary(current_input_text: str) -> bool:
 
 def _resolve_toolbar_mode(multiline_mode: bool) -> ToolbarMode:
     if multiline_mode:
-        return ToolbarMode(style="ansired", text="MLTI")
-    return ToolbarMode(style="ansigreen", text="NRML")
+        return ToolbarMode(style="ansired", text="MLT")
+    return ToolbarMode(style="ansigreen", text="NRM")
 
 
 def _resolve_toolbar_agent_state_cached(

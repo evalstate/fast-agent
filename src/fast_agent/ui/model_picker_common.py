@@ -18,6 +18,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import available_reasoning_values, format_reasoning_setting
 from fast_agent.utils.collections import unique_preserve_order
 from fast_agent.utils.count_display import format_count
+from fast_agent.utils.huggingface_hub import is_huggingface_hub_logged_in
 from fast_agent.utils.text import strip_str_to_none
 
 if TYPE_CHECKING:
@@ -158,10 +159,15 @@ def _codex_oauth_is_active(_config_payload: dict[str, Any]) -> bool:
         return False
 
 
+def _huggingface_hub_is_active(_config_payload: dict[str, Any]) -> bool:
+    return is_huggingface_hub_logged_in()
+
+
 _PROVIDER_ACTIVE_CHECKS: dict[Provider, ProviderActiveCheck] = {
     Provider.GOOGLE: _google_vertex_is_active,
     Provider.AZURE: _azure_default_credential_is_active,
     Provider.CODEX_RESPONSES: _codex_oauth_is_active,
+    Provider.HUGGINGFACE: _huggingface_hub_is_active,
 }
 
 

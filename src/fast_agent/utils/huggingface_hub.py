@@ -1,25 +1,27 @@
 from collections.abc import Callable
 from contextlib import suppress
-from importlib import import_module
+from typing import Protocol
+
+from huggingface_hub import HfApi, get_token
 
 from fast_agent.utils.text import strip_to_none
 
 
-def _huggingface_hub_get_token() -> Callable[[], object] | None:
+class HuggingFaceHubIdentity(Protocol):
+    def whoami(self, token: bool | str | None = None, *, cache: bool = False) -> object: ...
+
+
+def get_huggingface_hub_token(token_provider: Callable[[], object] = get_token) -> str | None:
+    """Return the active Hugging Face Hub token."""
     with suppress(Exception):
-        module = import_module("huggingface_hub")
-        get_token = getattr(module, "get_token", None)
-        return get_token if callable(get_token) else None
-    return None
-
-
-def get_huggingface_hub_token() -> str | None:
-    """Return the active Hugging Face Hub token when huggingface_hub is installed."""
-    get_token = _huggingface_hub_get_token()
-    if get_token is None:
-        return None
-
-    with suppress(Exception):
-        token = get_token()
+        token = token_provider()
         return strip_to_none(token) if isinstance(token, str) else None
     return None
+
+
+def is_huggingface_hub_logged_in(api: HuggingFaceHubIdentity | None = None) -> bool:
+    """Return True when the Hugging Face Hub library can verify an active login."""
+    with suppress(Exception):
+        (api or HfApi()).whoami(cache=True)
+        return True
+    return False

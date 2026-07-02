@@ -54,7 +54,7 @@
 | `qwen/qwen3.6-27b` | `groq` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen/qwen3.6-27b?reasoning=off` | — | — |
 | `deepseek-hf` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek32` | `hf` | Text | `json` (schema) | — | — | — |
-| `gemma4` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `gemma4?reasoning=off` | — | — |
+| `gemma4` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `gemma4.none` | — | — |
 | `glm47` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm47?reasoning=off` | — | — |
 | `glm51` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm51?reasoning=off` | — | — |
 | `glm5` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm5?reasoning=off` | — | — |

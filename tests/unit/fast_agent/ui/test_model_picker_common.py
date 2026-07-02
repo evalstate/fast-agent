@@ -38,9 +38,15 @@ from fast_agent.ui.model_picker_common import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import pytest
+
 
 def _overlay_group(snapshot: ModelPickerSnapshot):
     return next(option for option in snapshot.providers if option.overlay_group)
+
+
+def _provider_option(snapshot: ModelPickerSnapshot, provider: Provider) -> ProviderOption:
+    return next(option for option in snapshot.providers if option.provider == provider)
 
 
 def test_generic_provider_uses_custom_local_model_option() -> None:
@@ -113,6 +119,33 @@ def test_curated_scope_hides_non_current_catalog_entries(tmp_path: Path) -> None
 
     assert "glm47" not in curated_tokens
     assert "glm47" in all_tokens
+
+
+def test_huggingface_provider_is_active_when_hub_login_is_verified(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "fast_agent.ui.model_picker_common.is_huggingface_hub_logged_in",
+        lambda: True,
+    )
+
+    snapshot = build_snapshot(config_payload={})
+
+    assert _provider_option(snapshot, Provider.HUGGINGFACE).active is True
+
+
+def test_huggingface_provider_is_inactive_without_hub_login_or_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(
+        "fast_agent.ui.model_picker_common.is_huggingface_hub_logged_in",
+        lambda: False,
+    )
+
+    snapshot = build_snapshot(config_payload={})
+
+    assert _provider_option(snapshot, Provider.HUGGINGFACE).active is False
 
 
 def test_openresponses_models_do_not_report_web_search_support() -> None:

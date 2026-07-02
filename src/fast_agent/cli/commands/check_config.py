@@ -41,7 +41,7 @@ from fast_agent.ui.a3_headers import build_a3_section_header
 from fast_agent.ui.console import console
 from fast_agent.utils.async_utils import run_coroutine
 from fast_agent.utils.count_display import plural_label
-from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
+from fast_agent.utils.huggingface_hub import is_huggingface_hub_logged_in
 from fast_agent.utils.name_normalization import normalize_provider_key
 from fast_agent.utils.text import strip_str_to_none, strip_to_none
 from fast_agent.utils.transports import uses_mcp_remote_transport
@@ -376,9 +376,7 @@ def _resolve_huggingface_login_label(provider_name: str) -> str | None:
     if provider_name not in {Provider.HUGGINGFACE.config_name, "huggingface"}:
         return None
 
-    hub_token = get_huggingface_hub_token()
-
-    return "Hub login" if hub_token else None
+    return "Hub login" if is_huggingface_hub_logged_in() else None
 
 
 def _resolve_codex_oauth_label(provider_name: str) -> str | None:

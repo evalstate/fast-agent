@@ -43,7 +43,7 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("Qwen/Qwen3.5-397B-A17B") == 262144
     assert ModelDatabase.get_context_window("Qwen/Qwen3.6-35B-A3B") == 262144
     assert ModelDatabase.get_context_window("moonshotai/Kimi-K2.6") == 262144
-    assert ModelDatabase.get_context_window("google/gemma-4-31B-it:novita") == 262144
+    assert ModelDatabase.get_context_window("google/gemma-4-31B-it:cerebras") == 131_000
     assert ModelDatabase.get_context_window("deepseek-ai/DeepSeek-V4-Pro") == 1_048_576
     assert ModelDatabase.get_context_window("deepseek-v4-flash") == 1_048_576
     assert ModelDatabase.get_context_window("deepseek-v4-pro") == 1_048_576
@@ -268,15 +268,17 @@ def test_huggingface_kimi25_uses_schema_mode() -> None:
 
 
 def test_huggingface_gemma4_31b_metadata() -> None:
-    params = ModelDatabase.get_model_params("google/gemma-4-31B-it:novita")
+    params = ModelDatabase.get_model_params("google/gemma-4-31B-it:cerebras")
 
     assert params is not None
-    assert params.context_window == 262_144
-    assert params.max_output_tokens == 65_536
+    assert params.context_window == 131_000
+    assert params.max_output_tokens == 40_000
     assert params.json_mode == "schema"
     assert params.structured_tool_policy == "no_tools"
     assert params.reasoning == "reasoning_content"
     assert params.reasoning_effort_spec is not None
+    assert params.reasoning_effort_spec.default is not None
+    assert params.reasoning_effort_spec.default.value == "none"
     assert ModelDatabase.supports_mime("google/gemma-4-31B-it", "image/png")
     assert not ModelDatabase.supports_mime("google/gemma-4-31B-it", "audio/mpeg")
 
@@ -970,31 +972,27 @@ def test_huggingface_qwen35_reasoning_toggle_uses_chat_template_kwargs_enabled()
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
 
 
-def test_huggingface_gemma4_reasoning_toggle_uses_chat_template_kwargs_enabled():
-    llm = _make_hf_llm_with_reasoning("google/gemma-4-31B-it", reasoning=True)
+def test_huggingface_gemma4_cerebras_reasoning_effort_enabled():
+    llm = _make_hf_llm_with_reasoning("google/gemma-4-31B-it:cerebras", reasoning="medium")
 
     args = _hf_request_args(llm)
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+    assert args["reasoning_effort"] == "medium"
+    assert args["model"] == "google/gemma-4-31B-it:cerebras"
+    assert "extra_body" not in args
 
 
-def test_huggingface_gemma4_reasoning_toggle_uses_chat_template_kwargs_disabled():
-    llm = _make_hf_llm_with_reasoning("google/gemma-4-31B-it", reasoning=False)
-
-    args = _hf_request_args(llm)
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
-
-
-def test_huggingface_gemma4_default_reasoning_emits_chat_template_kwargs_enabled():
-    llm = _make_hf_llm("google/gemma-4-31B-it")
+def test_huggingface_gemma4_cerebras_reasoning_effort_disabled():
+    llm = _make_hf_llm_with_reasoning("google/gemma-4-31B-it:cerebras", reasoning="none")
 
     args = _hf_request_args(llm)
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+    assert args["reasoning_effort"] == "none"
+
+
+def test_huggingface_gemma4_cerebras_default_reasoning_is_disabled():
+    llm = _make_hf_llm("google/gemma-4-31B-it:cerebras")
+
+    args = _hf_request_args(llm)
+    assert args["reasoning_effort"] == "none"
 
 
 def test_huggingface_chat_template_kwargs_helper_preserves_existing_values() -> None:
