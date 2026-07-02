@@ -26,7 +26,6 @@ dependencies = [
     "openai[aiohttp]==2.44.0",
     "prompt-toolkit==3.0.52",
     "aiohttp==3.14.1",
-    "opentelemetry-distro==0.63b1",
     "opentelemetry-exporter-otlp-proto-http==1.42.1",
     "opentelemetry-instrumentation-openai==0.61.0; python_version >= '3.10' and python_version < '4.0'",
     "opentelemetry-instrumentation-anthropic==0.61.0; python_version >= '3.10' and python_version < '4.0'",
@@ -46,9 +45,8 @@ dependencies = [
     "jsonschema==4.26.0",
     "tiktoken==0.13.0",
     "uvloop==0.22.1; platform_system != 'Windows'",
-    "multilspy==0.0.15",
     "ruamel.yaml==0.19.1",
-    "huggingface_hub==1.19.0",
+    "huggingface_hub==1.21.0",
     "mslex==1.3.0",
     "starlette==1.3.1",
     "uritemplate==4.2.0",
@@ -148,7 +146,6 @@ testpaths = ["tests"]
 [dependency-groups]
 dev = [
     "boto3>=1.35.0",
-    "multilspy>=0.0.15",
     "pre-commit>=4.0.1",
     "pydantic>=2.10.4",
     "ruamel.yaml>=0.18.0",
