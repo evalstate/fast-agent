@@ -54,6 +54,19 @@ def test_docker_shell_environment_builds_powershell_exec_argv() -> None:
     ]
 
 
+def test_docker_shell_environment_uses_configured_container_cli() -> None:
+    environment = DockerShellEnvironment(
+        container="workspace",
+        container_cli="wslc",
+        cwd="/workspace",
+    )
+
+    argv = environment._exec_argv(ShellExecutionRequest(command="pwd"))
+
+    assert argv[:2] == ["wslc", "exec"]
+    assert environment.runtime_info().provider == "wslc"
+
+
 def test_docker_mount_formats_host_path() -> None:
     mount = DockerMount(source=Path("."), target="/workspace", mode="ro")
 

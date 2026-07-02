@@ -70,12 +70,14 @@ class DockerShellEnvironment:
         self,
         *,
         container: str,
+        container_cli: str = "docker",
         shell: str = "bash",
         cwd: str = "/workspace",
         timeout_seconds: int = 90,
         warning_interval_seconds: int = 30,
     ) -> None:
         self._container = container
+        self._container_cli = container_cli
         self._shell = shell
         self._cwd = cwd
         self._timeout_seconds = timeout_seconds
@@ -96,7 +98,7 @@ class DockerShellEnvironment:
         return ShellRuntimeInfo(
             name=self._shell,
             kind="docker",
-            provider="docker",
+            provider=self._container_cli,
         )
 
     async def execute_shell(
@@ -178,7 +180,7 @@ class DockerShellEnvironment:
             for name, value in (request.env or {}).items()
             for item in ("-e", f"{name}={value}")
         ]
-        base = ["docker", "exec", *env_args, "-w", cwd, self._container, self._shell]
+        base = [self._container_cli, "exec", *env_args, "-w", cwd, self._container, self._shell]
         if self._shell in {"pwsh", "powershell"}:
             return [*base, "-NoLogo", "-NoProfile", "-Command", request.command]
         return [*base, "-lc", request.command]
@@ -279,6 +281,7 @@ class DockerManagedShellEnvironment(DockerShellEnvironment):
         self,
         *,
         image: str,
+        container_cli: str = "docker",
         shell: str = "bash",
         cwd: str = "/workspace",
         mounts: Sequence[DockerMount] = (),
@@ -292,6 +295,7 @@ class DockerManagedShellEnvironment(DockerShellEnvironment):
         self._owned_container: str | None = None
         super().__init__(
             container="",
+            container_cli=container_cli,
             shell=shell,
             cwd=cwd,
             timeout_seconds=timeout_seconds,
@@ -303,7 +307,7 @@ class DockerManagedShellEnvironment(DockerShellEnvironment):
             return
         container = f"fast-agent-{uuid.uuid4().hex[:12]}"
         argv = [
-            "docker",
+            self._container_cli,
             "run",
             "--name",
             container,
@@ -323,7 +327,9 @@ class DockerManagedShellEnvironment(DockerShellEnvironment):
         stdout, stderr = await process.communicate()
         if process.returncode != 0:
             message = stderr.decode(errors="replace") or stdout.decode(errors="replace")
-            raise RuntimeError(f"Failed to start Docker shell environment: {message.strip()}")
+            raise RuntimeError(
+                f"Failed to start {self._container_cli} shell environment: {message.strip()}"
+            )
         self._owned_container = container
         self._container = container
 
@@ -334,7 +340,11 @@ class DockerManagedShellEnvironment(DockerShellEnvironment):
         container = self._owned_container
         if container is None:
             return
-        argv = ["docker", "rm", "-f", container] if self._remove else ["docker", "stop", container]
+        argv = (
+            [self._container_cli, "rm", "-f", container]
+            if self._remove
+            else [self._container_cli, "stop", container]
+        )
         process = await asyncio.create_subprocess_exec(
             *argv,
             stdout=asyncio.subprocess.DEVNULL,
@@ -354,6 +364,7 @@ class DockerMountedSessionEnvironment(DockerManagedShellEnvironment):
         image: str,
         workspace: str | Path,
         target: str = "/workspace",
+        container_cli: str = "docker",
         shell: str = "bash",
         remove: bool = True,
         timeout_seconds: int = 90,
@@ -363,6 +374,7 @@ class DockerMountedSessionEnvironment(DockerManagedShellEnvironment):
         self._target = _normalize_container_path(target)
         super().__init__(
             image=image,
+            container_cli=container_cli,
             shell=shell,
             cwd=self._target,
             mounts=(DockerMount(self._host_workspace, self._target, "rw"),),
