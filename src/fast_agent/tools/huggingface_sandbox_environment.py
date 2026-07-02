@@ -7,7 +7,7 @@ import json
 import posixpath
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from fast_agent.tools.session_environment import (
     SessionFileEntry,
@@ -18,10 +18,6 @@ from fast_agent.tools.session_environment import (
     ShellExecutionResult,
     ShellRuntimeInfo,
 )
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-    from pathlib import Path
 
 DEFAULT_HF_SANDBOX_IDLE_TIMEOUT = 10 * 60
 _LIST_DIR_SCRIPT = """
@@ -196,10 +192,6 @@ class HuggingFaceSandboxEnvironment:
     def cwd(self) -> str:
         return self._cwd
 
-    def set_cwd(self, cwd: str | None) -> None:
-        if cwd is not None:
-            self._cwd = _normalize_posix(cwd)
-
     def resolve_path(self, path: str) -> str:
         if path.startswith("/"):
             return _normalize_posix(path)
@@ -207,24 +199,6 @@ class HuggingFaceSandboxEnvironment:
 
     def runtime_info(self) -> ShellRuntimeInfo:
         return ShellRuntimeInfo(name="sh", kind="remote", provider="huggingface")
-
-    async def execute_shell(
-        self,
-        command: str,
-        *,
-        cwd: str | Path | None = None,
-        env: "Mapping[str, str] | None" = None,
-        timeout: float | None = None,
-    ) -> ShellExecutionResult:
-        execution = await self.execute(
-            ShellExecutionRequest(
-                command=command,
-                cwd=str(cwd) if cwd is not None else None,
-                env=env,
-                timeout=timeout,
-            )
-        )
-        return execution.result
 
     async def execute(
         self,

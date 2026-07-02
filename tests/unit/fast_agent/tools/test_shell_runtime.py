@@ -129,7 +129,6 @@ class _RecordingShellEnvironment:
     def __init__(self, cwd: str = "/workspace") -> None:
         self._cwd = cwd
         self.requests: list[ShellExecutionRequest] = []
-        self.shell_calls: list[tuple[str, str | Path | None]] = []
 
     async def open(self) -> None:
         return None
@@ -137,9 +136,6 @@ class _RecordingShellEnvironment:
     @property
     def cwd(self) -> str:
         return self._cwd
-
-    def set_cwd(self, cwd: str | None) -> None:
-        self._cwd = cwd or "/workspace"
 
     def runtime_info(self) -> ShellRuntimeInfo:
         return ShellRuntimeInfo(name="bash", kind="docker", provider="test")
@@ -156,18 +152,6 @@ class _RecordingShellEnvironment:
             result=ShellExecutionResult(stdout="", stderr="", exit_code=0),
             options=ShellExecutionOptions(),
         )
-
-    async def execute_shell(
-        self,
-        command: str,
-        *,
-        cwd: str | Path | None = None,
-        env: Mapping[str, str] | None = None,
-        timeout: float | None = None,
-    ) -> ShellExecutionResult:
-        del env, timeout
-        self.shell_calls.append((command, cwd))
-        return ShellExecutionResult(stdout="", stderr="", exit_code=0)
 
     async def close(self) -> None:
         return None
@@ -491,7 +475,8 @@ async def test_shared_shell_environment_preserves_runtime_working_directory() ->
     await runtime.execute_shell("pwd")
 
     assert environment.cwd == "/workspace"
-    assert environment.shell_calls == [("pwd", "/agent-cwd")]
+    assert [(request.command, request.cwd) for request in environment.requests] == [("pwd", "/agent-cwd")]
+    assert [request.timeout for request in environment.requests] == [90]
 
 
 @pytest.mark.asyncio
@@ -509,6 +494,7 @@ async def test_execute_tool_uses_runtime_working_directory_with_shared_environme
     assert result.isError is False
     assert environment.cwd == "/workspace"
     assert [request.cwd for request in environment.requests] == ["/agent-cwd"]
+    assert [request.timeout for request in environment.requests] == [90]
 
 
 @pytest.mark.asyncio

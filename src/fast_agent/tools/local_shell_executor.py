@@ -101,9 +101,6 @@ class LocalShellExecutor:
     def cwd(self) -> str:
         return str(self.working_directory())
 
-    def set_cwd(self, cwd: str | None) -> None:
-        self.set_working_directory(None if cwd is None else Path(cwd))
-
     def working_directory(self) -> Path:
         if self._working_directory is not None:
             return self._working_directory

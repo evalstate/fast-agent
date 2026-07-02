@@ -22,7 +22,7 @@ from fast_agent.tools.session_environment import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
 _STREAM_READ_CHUNK_SIZE = 4096
 _PROCESS_EXIT_POLL_SECONDS = 0.1
@@ -89,34 +89,12 @@ class DockerShellEnvironment:
     def cwd(self) -> str:
         return self._cwd
 
-    def set_cwd(self, cwd: str | None) -> None:
-        if cwd is not None:
-            self._cwd = cwd
-
     def runtime_info(self) -> ShellRuntimeInfo:
         return ShellRuntimeInfo(
             name=self._shell,
             kind="docker",
             provider="docker",
         )
-
-    async def execute_shell(
-        self,
-        command: str,
-        *,
-        cwd: str | Path | None = None,
-        env: Mapping[str, str] | None = None,
-        timeout: float | None = None,
-    ) -> ShellExecutionResult:
-        execution = await self.execute(
-            ShellExecutionRequest(
-                command=command,
-                cwd=str(cwd) if cwd is not None else None,
-                env=env,
-                timeout=timeout,
-            )
-        )
-        return execution.result
 
     async def execute(
         self,

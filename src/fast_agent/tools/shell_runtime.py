@@ -33,6 +33,7 @@ from fast_agent.tools.session_environment import (
     ShellExecution,
     ShellExecutionRequest,
     ShellRuntimeInfo,
+    execute_shell,
 )
 from fast_agent.tools.tool_sources import SHELL_TOOL_SOURCE, set_tool_source
 from fast_agent.ui import console
@@ -618,7 +619,7 @@ class ShellRuntime:
                 command=command,
                 cwd=str(cwd) if cwd is not None else self._working_directory,
                 env=env,
-                timeout=timeout,
+                timeout=self._timeout_seconds if timeout is None else timeout,
             ),
             callbacks=_ShellRuntimeCallbacks(
                 runtime=self,
@@ -640,11 +641,12 @@ class ShellRuntime:
         env: Mapping[str, str] | None = None,
         timeout: float | None = None,
     ) -> ShellExecutionResult:
-        execution = await self._environment.execute_shell(
+        execution = await execute_shell(
+            self._environment,
             command,
             cwd=cwd if cwd is not None else self._working_directory,
             env=env,
-            timeout=timeout,
+            timeout=self._timeout_seconds if timeout is None else timeout,
         )
         return execution
 

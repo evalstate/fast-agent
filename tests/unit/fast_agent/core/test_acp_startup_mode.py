@@ -32,7 +32,6 @@ from fast_agent.tools.session_environment import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
     from pathlib import Path
 
     from fast_agent.core.fastagent import RuntimeCallbacks
@@ -76,9 +75,6 @@ class _FakeShellEnvironment:
     def cwd(self) -> str:
         return "."
 
-    def set_cwd(self, cwd: str | None) -> None:
-        del cwd
-
     def runtime_info(self) -> ShellRuntimeInfo:
         return ShellRuntimeInfo(name="test")
 
@@ -88,25 +84,11 @@ class _FakeShellEnvironment:
         *,
         callbacks: ShellExecutionCallbacks | None = None,
     ) -> ShellExecution:
-        del callbacks
-        result = await self.execute_shell(
-            request.command,
-            cwd=request.cwd,
-            env=request.env,
-            timeout=request.timeout,
+        del request, callbacks
+        return ShellExecution(
+            result=ShellExecutionResult(stdout="", stderr="", exit_code=0),
+            options=ShellExecutionOptions(),
         )
-        return ShellExecution(result=result, options=ShellExecutionOptions())
-
-    async def execute_shell(
-        self,
-        command: str,
-        *,
-        cwd: str | Path | None = None,
-        env: Mapping[str, str] | None = None,
-        timeout: float | None = None,
-    ) -> ShellExecutionResult:
-        del command, cwd, env, timeout
-        return ShellExecutionResult(stdout="", stderr="", exit_code=0)
 
     async def close(self) -> None:
         return None

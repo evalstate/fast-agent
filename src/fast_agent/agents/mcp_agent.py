@@ -612,11 +612,17 @@ class McpAgent(ABC, ToolAgent):
     @property
     def skill_read_tool_name(self) -> str:
         """Return the tool name that should be referenced for reading skill content."""
+        if self._skills_require_host_reader():
+            return READ_SKILL_TOOL_NAME
         return (
             READ_TEXT_FILE_TOOL_NAME
             if self.has_filesystem_read_text_file_tool
             else READ_SKILL_TOOL_NAME
         )
+
+    def _skills_require_host_reader(self) -> bool:
+        """Return whether configured skills should be read from host paths."""
+        return bool(self._skill_manifests and self._session_filesystem_runtime() is not None)
 
     @property
     def initialized(self) -> bool:

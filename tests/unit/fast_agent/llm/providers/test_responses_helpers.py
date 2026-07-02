@@ -569,6 +569,47 @@ def test_extract_custom_tool_call_maps_apply_patch_input() -> None:
     }
 
 
+def test_build_response_args_marks_function_tools_non_strict() -> None:
+    llm = _build_responses_family_llm(Provider.RESPONSES, model_name="gpt-5.4")
+    tool = Tool(
+        name="search",
+        description="Search the connected MCP server.",
+        inputSchema={
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    )
+
+    args = llm._build_response_args(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "search"}],
+            }
+        ],
+        request_params=RequestParams(model="gpt-5.4"),
+        tools=[tool],
+    )
+
+    tools_payload = args.get("tools")
+    assert isinstance(tools_payload, list)
+    assert tools_payload == [
+        {
+            "type": "function",
+            "name": "search",
+            "description": "Search the connected MCP server.",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+            "strict": False,
+        }
+    ]
+
+
 def test_build_response_args_serializes_apply_patch_as_custom_tool() -> None:
     llm = _build_responses_family_llm(Provider.RESPONSES, model_name="gpt-5.4")
 

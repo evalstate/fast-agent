@@ -229,9 +229,6 @@ class FakeShellEnvironment:
     def cwd(self) -> str:
         return "."
 
-    def set_cwd(self, cwd: str | None) -> None:
-        del cwd
-
     def runtime_info(self) -> ShellRuntimeInfo:
         return ShellRuntimeInfo(name="test")
 
@@ -242,24 +239,11 @@ class FakeShellEnvironment:
         callbacks: object | None = None,
     ) -> ShellExecution:
         del callbacks
-        result = await self.execute_shell(
-            request.command,
-            cwd=request.cwd,
-            env=request.env,
-            timeout=request.timeout,
+        self.calls.append((request.command, request.cwd, request.env, request.timeout))
+        return ShellExecution(
+            result=ShellExecutionResult(stdout="out", stderr="err", exit_code=7),
+            options=ShellExecutionOptions(),
         )
-        return ShellExecution(result=result, options=ShellExecutionOptions())
-
-    async def execute_shell(
-        self,
-        command: str,
-        *,
-        cwd: str | Path | None = None,
-        env: Mapping[str, str] | None = None,
-        timeout: float | None = None,
-    ) -> ShellExecutionResult:
-        self.calls.append((command, cwd, env, timeout))
-        return ShellExecutionResult(stdout="out", stderr="err", exit_code=7)
 
     async def close(self) -> None:
         self.closed = True
@@ -695,7 +679,7 @@ async def test_harness_session_shell_uses_configured_executor(tmp_path: "Path") 
     )
 
     assert result == ShellExecutionResult(stdout="out", stderr="err", exit_code=7)
-    assert shell_environment.calls == [("pwd", tmp_path, {"FAST_AGENT_TEST": "1"}, 2.5)]
+    assert shell_environment.calls == [("pwd", str(tmp_path), {"FAST_AGENT_TEST": "1"}, 2.5)]
 
 
 @pytest.mark.asyncio

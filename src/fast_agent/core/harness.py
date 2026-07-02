@@ -416,7 +416,10 @@ class HarnessSessions:
     ) -> ShellExecutionResult:
         if self._shell_environment is None:
             raise RuntimeError("Harness shell environment is not configured.")
-        return await self._shell_environment.execute_shell(
+        from fast_agent.tools.session_environment import execute_shell
+
+        return await execute_shell(
+            self._shell_environment,
             command,
             cwd=cwd,
             env=env,
@@ -621,7 +624,10 @@ class AgentHarness:
         timeout: float | None = None,
     ) -> ShellExecutionResult:
         """Run a shell command and return structured stdout/stderr/exit code."""
-        return await self.environment.execute_shell(
+        from fast_agent.tools.session_environment import execute_shell
+
+        return await execute_shell(
+            self.environment,
             command,
             cwd=cwd,
             env=env,
