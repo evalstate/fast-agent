@@ -204,6 +204,11 @@ write is visible on the host.
 This keeps container paths like `/workspace` from being coerced into host
 `Path` objects.
 
+Environment objects may be shared across agents and harness sessions. Treat
+`cwd` as adapter-level default state and pass per-agent or per-call working
+directories through `AgentConfig.cwd`, `harness.shell(..., cwd=...)`, or
+`ShellExecutionRequest.cwd`.
+
 ## Implementing a custom environment
 
 Custom environments implement `ShellEnvironment` from
@@ -211,6 +216,7 @@ Custom environments implement `ShellEnvironment` from
 
 ```python
 from fast_agent.tools.session_environment import (
+    SessionFileEntry,
     ShellEnvironment,
     ShellExecution,
     ShellExecutionOptions,
@@ -227,9 +233,6 @@ class MyEnvironment:
     @property
     def cwd(self) -> str:
         return "/workspace"
-
-    def set_cwd(self, cwd: str | None) -> None:
-        ...
 
     def runtime_info(self) -> ShellRuntimeInfo:
         return ShellRuntimeInfo(name="bash", kind="remote", provider="my-provider")
@@ -249,10 +252,6 @@ class MyEnvironment:
             ),
             options=ShellExecutionOptions(timeout_seconds=request.timeout),
         )
-
-    async def execute_shell(self, command: str, **kwargs) -> ShellExecutionResult:
-        request = ShellExecutionRequest(command=command, **kwargs)
-        return (await self.execute(request)).result
 
     async def close(self) -> None:
         ...
@@ -289,6 +288,9 @@ class MyEnvironment:
     async def exists(self, path: str) -> bool:
         ...
 
+    async def list_dir(self, path: str) -> list[SessionFileEntry]:
+        ...
+
     async def mkdir(self, path: str) -> None:
         ...
 
@@ -299,3 +301,13 @@ class MyEnvironment:
 Keep provider-specific concepts inside the adapter. For example, Hugging Face
 bucket mounts belong on `HuggingFaceSandboxEnvironment`, while the generic
 runtime only depends on `ShellEnvironment` and `SessionFilesystem`.
+
+`ShellRuntimeInfo.kind` is coarse display metadata. Built-in values include
+`local`, `docker`, and `remote`, but custom providers can use another stable
+string and should set `provider` to the adapter name.
+
+For Skills, fast-agent currently discovers installed Skill manifests from the
+host fast-agent environment. When an injected `SessionFilesystem` is active,
+those host-path Skill files are still read through `read_skill`; environment
+file tools remain available for files inside the Docker container, sandbox, or
+remote workspace.

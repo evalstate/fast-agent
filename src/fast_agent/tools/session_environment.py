@@ -19,12 +19,27 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-RuntimeEnvironmentKind = Literal["local", "docker", "remote"]
+RuntimeEnvironmentKind = str
+SessionFileKind = Literal["file", "directory", "other", "unknown"]
+
+
+@dataclass(frozen=True, slots=True)
+class SessionFileEntry:
+    """Directory entry in a session-owned filesystem."""
+
+    path: str
+    name: str
+    kind: SessionFileKind = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
 class ShellRuntimeInfo:
-    """Display and diagnostics metadata for the active shell runtime."""
+    """Display and diagnostics metadata for the active shell runtime.
+
+    ``kind`` is coarse display metadata. Built-in environments use values such
+    as ``local``, ``docker``, and ``remote``; custom providers may use another
+    stable string and should set ``provider`` to the more specific adapter name.
+    """
 
     name: str
     path: str | None = None
@@ -82,19 +97,25 @@ class ShellExecutionCallbacks(Protocol):
 
 
 class ShellEnvironment(Protocol):
-    """Minimal environment contract used by harness and shell tools."""
+    """Minimal environment contract used by harness and shell tools.
+
+    Environment objects may be shared across agents and harness sessions. Avoid
+    mutable per-session defaults; use ``ShellExecutionRequest.cwd`` for
+    request-specific working directories.
+    """
 
     async def open(self) -> None:
-        """Start or attach to the environment, if needed."""
+        """Start or attach to the environment, if needed.
+
+        Implementations should make repeated ``open()`` calls safe, including
+        after ``close()`` when the adapter supports restarting. If restarting is
+        unsupported, raise a clear runtime error.
+        """
         ...
 
     @property
     def cwd(self) -> str:
         """Default working directory in this environment."""
-        ...
-
-    def set_cwd(self, cwd: str | None) -> None:
-        """Set the default working directory for later command executions."""
         ...
 
     def runtime_info(self) -> ShellRuntimeInfo:
@@ -107,17 +128,13 @@ class ShellEnvironment(Protocol):
         *,
         callbacks: ShellExecutionCallbacks | None = None,
     ) -> ShellExecution:
-        """Execute one command and return full execution metadata."""
-        ...
+        """Execute one command and return full execution metadata.
 
-    async def execute_shell(
-        self,
-        command: str,
-        *,
-        cwd: str | Path | None = None,
-        env: Mapping[str, str] | None = None,
-        timeout: float | None = None,
-    ) -> ShellExecutionResult: ...
+        If the coroutine is cancelled, adapters that own a running process or
+        remote job must make a best effort to terminate that execution before
+        re-raising cancellation.
+        """
+        ...
 
     async def close(self) -> None:
         """Release owned runtime resources, if any."""
@@ -157,7 +174,11 @@ class SessionFilesystem(Protocol):
         ...
 
     async def read_text(self, path: str) -> str:
-        """Read UTF-8 text from the session filesystem."""
+        """Read UTF-8 text from the session filesystem.
+
+        Missing paths should raise ``FileNotFoundError`` or the provider's
+        closest equivalent.
+        """
         ...
 
     async def write_text(self, path: str, content: str) -> None:
@@ -166,6 +187,15 @@ class SessionFilesystem(Protocol):
 
     async def exists(self, path: str) -> bool:
         """Return whether a path exists in the session filesystem."""
+        ...
+
+    async def list_dir(self, path: str) -> list[SessionFileEntry]:
+        """List direct children of a directory in the session filesystem.
+
+        Missing paths should raise ``FileNotFoundError`` or the provider's
+        closest equivalent. Non-directory paths should raise ``NotADirectoryError``
+        or the provider's closest equivalent.
+        """
         ...
 
     async def mkdir(self, path: str) -> None:
@@ -182,9 +212,32 @@ class SessionEnvironment(ShellEnvironment, SessionFilesystem, Protocol):
 
     pass
 
+
+async def execute_shell(
+    environment: ShellEnvironment,
+    command: str,
+    *,
+    cwd: str | Path | None = None,
+    env: Mapping[str, str] | None = None,
+    timeout: float | None = None,
+) -> ShellExecutionResult:
+    """Execute a command through a ``ShellEnvironment`` and return its result."""
+
+    execution = await environment.execute(
+        ShellExecutionRequest(
+            command=command,
+            cwd=str(cwd) if cwd is not None else None,
+            env=env,
+            timeout=timeout,
+        )
+    )
+    return execution.result
+
 __all__ = [
     "RuntimeEnvironmentKind",
     "SessionEnvironment",
+    "SessionFileEntry",
+    "SessionFileKind",
     "SessionFilesystem",
     "ShellEnvironment",
     "ShellExecutor",
@@ -194,4 +247,5 @@ __all__ = [
     "ShellExecutionRequest",
     "ShellExecutionResult",
     "ShellRuntimeInfo",
+    "execute_shell",
 ]

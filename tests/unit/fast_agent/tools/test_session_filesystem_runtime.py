@@ -8,7 +8,9 @@ from mcp.types import TextContent
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.context import Context
+from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.session_environment import (
+    SessionFileEntry,
     ShellExecution,
     ShellExecutionCallbacks,
     ShellExecutionOptions,
@@ -17,9 +19,9 @@ from fast_agent.tools.session_environment import (
     ShellRuntimeInfo,
 )
 from fast_agent.tools.session_filesystem_runtime import SessionFilesystemRuntime
+from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
     from pathlib import Path
 
 
@@ -36,10 +38,6 @@ class FakeSessionEnvironment:
     @property
     def cwd(self) -> str:
         return self._cwd
-
-    def set_cwd(self, cwd: str | None) -> None:
-        if cwd is not None:
-            self._cwd = cwd
 
     def resolve_path(self, path: str) -> str:
         if path.startswith("/"):
@@ -62,18 +60,6 @@ class FakeSessionEnvironment:
             options=ShellExecutionOptions(),
         )
 
-    async def execute_shell(
-        self,
-        command: str,
-        *,
-        cwd: str | Path | None = None,
-        env: Mapping[str, str] | None = None,
-        timeout: float | None = None,
-    ) -> ShellExecutionResult:
-        del env, timeout
-        self.requests.append(ShellExecutionRequest(command=command, cwd=str(cwd) if cwd else None))
-        return ShellExecutionResult(stdout="remote", stderr="", exit_code=0)
-
     async def read_text(self, path: str) -> str:
         return self.files[self.resolve_path(path)]
 
@@ -82,6 +68,25 @@ class FakeSessionEnvironment:
 
     async def exists(self, path: str) -> bool:
         return self.resolve_path(path) in self.files
+
+    async def list_dir(self, path: str) -> list[SessionFileEntry]:
+        resolved = self.resolve_path(path).rstrip("/")
+        entries: list[SessionFileEntry] = []
+        seen_directories: set[str] = set()
+        for file_path in sorted(self.files):
+            if not file_path.startswith(f"{resolved}/"):
+                continue
+            relative = file_path[len(resolved) + 1 :]
+            name = relative.split("/", 1)[0]
+            entry_path = f"{resolved}/{name}"
+            if "/" in relative:
+                if name in seen_directories:
+                    continue
+                seen_directories.add(name)
+                entries.append(SessionFileEntry(path=entry_path, name=name, kind="directory"))
+            else:
+                entries.append(SessionFileEntry(path=entry_path, name=name, kind="file"))
+        return entries
 
     async def mkdir(self, path: str) -> None:
         del path
@@ -128,6 +133,22 @@ async def test_session_filesystem_runtime_preserves_full_file_content() -> None:
 
     assert read.isError is False
     assert _text(read) == "hello\r\nworld\r\n"
+
+
+@pytest.mark.asyncio
+async def test_fake_session_environment_lists_direct_children() -> None:
+    env = FakeSessionEnvironment()
+    env.files["/workspace/skills/alpha/SKILL.md"] = "alpha"
+    env.files["/workspace/skills/beta/SKILL.md"] = "beta"
+    env.files["/workspace/skills/readme.txt"] = "notes"
+
+    entries = await env.list_dir("skills")
+
+    assert entries == [
+        SessionFileEntry(path="/workspace/skills/alpha", name="alpha", kind="directory"),
+        SessionFileEntry(path="/workspace/skills/beta", name="beta", kind="directory"),
+        SessionFileEntry(path="/workspace/skills/readme.txt", name="readme.txt", kind="file"),
+    ]
 
 
 @pytest.mark.asyncio
@@ -181,5 +202,37 @@ async def test_mcp_agent_routes_file_tools_to_injected_session_environment() -> 
     assert _text(read) == "remote file\n"
     assert shell.isError is False
     assert env.requests[-1].command == "pwd"
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_mcp_agent_keeps_host_skill_reader_with_injected_session_filesystem(
+    tmp_path: Path,
+) -> None:
+    skills_root = tmp_path / "skills"
+    skill_dir = skills_root / "alpha"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: alpha\ndescription: Alpha skill\n---\nUse alpha.\n",
+        encoding="utf-8",
+    )
+    manifests = SkillRegistry.load_directory(skills_root)
+    env = FakeSessionEnvironment()
+    config = AgentConfig(
+        name="test",
+        instruction="Skills:\n{{agentSkills}}",
+        servers=[],
+        shell=True,
+        skills=skills_root,
+    )
+    config.skill_manifests = manifests
+    agent = McpAgent(config=config, context=Context(), shell_environment=env)
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+
+    assert "read_text_file" in tool_names
+    assert READ_SKILL_TOOL_NAME in tool_names
+    assert agent.skill_read_tool_name == READ_SKILL_TOOL_NAME
 
     await agent._aggregator.close()

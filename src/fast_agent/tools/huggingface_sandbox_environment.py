@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import posixpath
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Literal, Protocol
 
 from fast_agent.tools.session_environment import (
+    SessionFileEntry,
     ShellExecution,
     ShellExecutionCallbacks,
     ShellExecutionOptions,
@@ -17,11 +19,25 @@ from fast_agent.tools.session_environment import (
     ShellRuntimeInfo,
 )
 
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-    from pathlib import Path
-
 DEFAULT_HF_SANDBOX_IDLE_TIMEOUT = 10 * 60
+_LIST_DIR_SCRIPT = """
+import json
+import os
+import sys
+
+root = sys.argv[1]
+entries = []
+for name in sorted(os.listdir(root)):
+    path = os.path.join(root, name)
+    if os.path.isdir(path):
+        kind = "directory"
+    elif os.path.isfile(path):
+        kind = "file"
+    else:
+        kind = "other"
+    entries.append({"path": path, "name": name, "kind": kind})
+print(json.dumps(entries), end="")
+""".strip()
 
 
 class _SandboxCommandResult(Protocol):
@@ -176,10 +192,6 @@ class HuggingFaceSandboxEnvironment:
     def cwd(self) -> str:
         return self._cwd
 
-    def set_cwd(self, cwd: str | None) -> None:
-        if cwd is not None:
-            self._cwd = _normalize_posix(cwd)
-
     def resolve_path(self, path: str) -> str:
         if path.startswith("/"):
             return _normalize_posix(path)
@@ -187,24 +199,6 @@ class HuggingFaceSandboxEnvironment:
 
     def runtime_info(self) -> ShellRuntimeInfo:
         return ShellRuntimeInfo(name="sh", kind="remote", provider="huggingface")
-
-    async def execute_shell(
-        self,
-        command: str,
-        *,
-        cwd: str | Path | None = None,
-        env: "Mapping[str, str] | None" = None,
-        timeout: float | None = None,
-    ) -> ShellExecutionResult:
-        execution = await self.execute(
-            ShellExecutionRequest(
-                command=command,
-                cwd=str(cwd) if cwd is not None else None,
-                env=env,
-                timeout=timeout,
-            )
-        )
-        return execution.result
 
     async def execute(
         self,
@@ -255,6 +249,23 @@ class HuggingFaceSandboxEnvironment:
         sandbox = self._require_sandbox()
         return await asyncio.to_thread(sandbox.files.exists, self.resolve_path(path))
 
+    async def list_dir(self, path: str) -> list[SessionFileEntry]:
+        sandbox = self._require_sandbox()
+        resolved_path = self.resolve_path(path)
+
+        def list_directory() -> _SandboxCommandResult:
+            return sandbox.run(
+                ["python3", "-c", _LIST_DIR_SCRIPT, resolved_path],
+                shell=False,
+                check=False,
+            )
+
+        result = await asyncio.to_thread(list_directory)
+        if result.exit_code not in {0, None}:
+            message = result.stderr.strip() or f"Unable to list directory: {resolved_path}"
+            raise RuntimeError(message)
+        return _parse_session_file_entries(result.stdout)
+
     async def mkdir(self, path: str) -> None:
         sandbox = self._require_sandbox()
         await asyncio.to_thread(sandbox.files.mkdir, self.resolve_path(path))
@@ -284,6 +295,40 @@ def _normalize_posix(path: str) -> str:
     if not raw.startswith("/"):
         raw = f"/{raw}"
     return posixpath.normpath(raw)
+
+
+def _parse_session_file_entries(payload: str) -> list[SessionFileEntry]:
+    raw_entries = json.loads(payload)
+    if not isinstance(raw_entries, list):
+        raise RuntimeError("Sandbox directory listing returned invalid data.")
+
+    entries: list[SessionFileEntry] = []
+    for raw_entry in raw_entries:
+        if not isinstance(raw_entry, dict):
+            raise RuntimeError("Sandbox directory listing returned invalid entry data.")
+        path = raw_entry.get("path")
+        name = raw_entry.get("name")
+        kind = raw_entry.get("kind")
+        if not isinstance(path, str) or not isinstance(name, str):
+            raise RuntimeError("Sandbox directory listing entry is missing path or name.")
+        entries.append(
+            SessionFileEntry(
+                path=path,
+                name=name,
+                kind=_coerce_session_file_kind(kind),
+            )
+        )
+    return entries
+
+
+def _coerce_session_file_kind(value: object) -> Literal["file", "directory", "other", "unknown"]:
+    if value == "file":
+        return "file"
+    if value == "directory":
+        return "directory"
+    if value == "other":
+        return "other"
+    return "unknown"
 
 
 __all__ = [

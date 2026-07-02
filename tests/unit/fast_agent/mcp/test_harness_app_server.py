@@ -31,7 +31,6 @@ from fast_agent.types import AgentRequest, AgentResponse, PromptMessageExtended
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from pathlib import Path
 
     from fastmcp import Context as MCPContext
 
@@ -122,9 +121,6 @@ class RuntimeShellEnvironment:
     def cwd(self) -> str:
         return "."
 
-    def set_cwd(self, cwd: str | None) -> None:
-        del cwd
-
     def runtime_info(self) -> ShellRuntimeInfo:
         return ShellRuntimeInfo(name="test")
 
@@ -134,25 +130,11 @@ class RuntimeShellEnvironment:
         *,
         callbacks: ShellExecutionCallbacks | None = None,
     ) -> ShellExecution:
-        del callbacks
-        result = await self.execute_shell(
-            request.command,
-            cwd=request.cwd,
-            env=dict(request.env or {}),
-            timeout=request.timeout,
+        del request, callbacks
+        return ShellExecution(
+            result=ShellExecutionResult(stdout="", stderr="", exit_code=0),
+            options=ShellExecutionOptions(),
         )
-        return ShellExecution(result=result, options=ShellExecutionOptions())
-
-    async def execute_shell(
-        self,
-        command: str,
-        *,
-        cwd: "str | Path | None" = None,
-        env: dict[str, str] | None = None,
-        timeout: float | None = None,
-    ) -> ShellExecutionResult:
-        del command, cwd, env, timeout
-        return ShellExecutionResult(stdout="", stderr="", exit_code=0)
 
     async def close(self) -> None:
         return None

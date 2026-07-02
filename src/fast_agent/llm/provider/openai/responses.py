@@ -755,6 +755,7 @@ class ResponsesLLM(
                     "name": tool.name,
                     "description": tool.description or "",
                     "parameters": self._adjust_schema(tool.inputSchema, model),
+                    "strict": False,
                 }
             )
         return tools_payload

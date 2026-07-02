@@ -12,6 +12,7 @@ from shutil import rmtree
 from typing import TYPE_CHECKING, Literal
 
 from fast_agent.tools.session_environment import (
+    SessionFileEntry,
     ShellExecution,
     ShellExecutionCallbacks,
     ShellExecutionOptions,
@@ -21,7 +22,7 @@ from fast_agent.tools.session_environment import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
 _STREAM_READ_CHUNK_SIZE = 4096
 _PROCESS_EXIT_POLL_SECONDS = 0.1
@@ -90,34 +91,12 @@ class DockerShellEnvironment:
     def cwd(self) -> str:
         return self._cwd
 
-    def set_cwd(self, cwd: str | None) -> None:
-        if cwd is not None:
-            self._cwd = cwd
-
     def runtime_info(self) -> ShellRuntimeInfo:
         return ShellRuntimeInfo(
             name=self._shell,
             kind="docker",
             provider=self._container_cli,
         )
-
-    async def execute_shell(
-        self,
-        command: str,
-        *,
-        cwd: str | Path | None = None,
-        env: Mapping[str, str] | None = None,
-        timeout: float | None = None,
-    ) -> ShellExecutionResult:
-        execution = await self.execute(
-            ShellExecutionRequest(
-                command=command,
-                cwd=str(cwd) if cwd is not None else None,
-                env=env,
-                timeout=timeout,
-            )
-        )
-        return execution.result
 
     async def execute(
         self,
@@ -398,6 +377,26 @@ class DockerMountedSessionEnvironment(DockerManagedShellEnvironment):
 
     async def exists(self, path: str) -> bool:
         return self._host_path(path).exists()
+
+    async def list_dir(self, path: str) -> list[SessionFileEntry]:
+        host_dir = self._host_path(path)
+        container_dir = self.resolve_path(path)
+        entries: list[SessionFileEntry] = []
+        for child in sorted(host_dir.iterdir(), key=lambda item: item.name):
+            if child.is_dir():
+                kind = "directory"
+            elif child.is_file():
+                kind = "file"
+            else:
+                kind = "other"
+            entries.append(
+                SessionFileEntry(
+                    path=_normalize_container_path(posixpath.join(container_dir, child.name)),
+                    name=child.name,
+                    kind=kind,
+                )
+            )
+        return entries
 
     async def mkdir(self, path: str) -> None:
         self._host_path(path).mkdir(parents=True, exist_ok=True)

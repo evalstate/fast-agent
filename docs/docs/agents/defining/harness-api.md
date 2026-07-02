@@ -890,9 +890,10 @@ The shell/tool activity belongs to the selected agent in that session's
 flow. Use this when the model should decide which commands to run or when the
 tool interaction should be part of the agent turn.
 
-Filesystem access remains tool-mediated through configured agents. The current
-agent environment protocol covers shell execution; direct filesystem operations
-can be added as a separate capability when an adapter needs them.
+Filesystem access remains tool-mediated through configured agents. If the
+injected shell environment also implements `SessionFilesystem`, model-facing
+file tools such as `read_text_file`, `write_text_file`, `edit_file`, and
+`apply_patch` use that environment filesystem.
 
 Session IDs are conversation/runtime affinity keys, not security boundaries. A
 session does not automatically create a per-session filesystem sandbox. For
