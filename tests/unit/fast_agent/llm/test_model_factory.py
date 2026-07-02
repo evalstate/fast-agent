@@ -856,13 +856,13 @@ def test_hf_routed_gpt_oss_alias_resolves_model_metadata():
     assert resolved.max_output_tokens == 32766
 
 
-def test_gemma4_alias_resolves_to_hf_novita_vision_model():
+def test_gemma4_alias_resolves_to_hf_cerebras_vision_model():
     resolved = ModelFactory.resolve_model_spec("gemma4")
 
     assert resolved.provider == Provider.HUGGINGFACE
-    assert resolved.wire_model_name == "google/gemma-4-31B-it:novita"
-    assert resolved.context_window == 262_144
-    assert resolved.max_output_tokens == 65_536
+    assert resolved.wire_model_name == "google/gemma-4-31B-it:cerebras"
+    assert resolved.context_window == 131_000
+    assert resolved.max_output_tokens == 40_000
 
 
 def test_curated_catalog_aliases_are_parseable():

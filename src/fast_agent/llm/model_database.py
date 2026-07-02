@@ -236,6 +236,12 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="toggle", value=True),
     )
 
+    GEMMA4_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="none"),
+    )
+
     DEEPSEEK_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["high", "max"],
@@ -896,15 +902,19 @@ class ModelDatabase:
     )
 
     HF_PROVIDER_GEMMA4_31B = ModelParameters(
-        context_window=262_144,
-        max_output_tokens=65_536,
+        context_window=131_000,
+        max_output_tokens=40_000,
         tokenizes=OPENAI_VISION,
         json_mode="schema",
         structured_tool_policy="no_tools",
         reasoning="reasoning_content",
-        reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
+        reasoning_effort_spec=GEMMA4_REASONING_EFFORT_SPEC,
         default_provider=Provider.HUGGINGFACE,
-        model_specific="You have vision capabilities.",
+        model_specific=(
+            "You have vision capabilities. Image inputs are supported via the Chat "
+            "Completions API as base64 PNG or JPEG data URIs only; external image "
+            "URLs are not supported."
+        ),
     )
 
     ALIYUN_QWEN3_MODERN = ModelParameters(
