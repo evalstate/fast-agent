@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from fast_agent.tools.execution_environment import ShellExecutionRequest
 from fast_agent.tools.huggingface_sandbox_environment import (
     HuggingFaceSandboxEnvironment,
     _SandboxCommandResult,
@@ -12,7 +13,6 @@ from fast_agent.tools.huggingface_sandbox_environment import (
 from fast_agent.tools.huggingface_sandbox_environment import (
     _Sandbox as SandboxProtocol,
 )
-from fast_agent.tools.session_environment import ShellExecutionRequest
 
 
 class _CommandResult(_SandboxCommandResult):

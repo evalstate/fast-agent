@@ -20,7 +20,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
 from fast_agent.core.fastagent import AgentInstance, RunRuntime, RunSettings
-from fast_agent.tools.session_environment import (
+from fast_agent.tools.execution_environment import (
     ShellExecution,
     ShellExecutionOptions,
     ShellExecutionRequest,

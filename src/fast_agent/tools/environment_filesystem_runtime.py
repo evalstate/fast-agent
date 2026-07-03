@@ -24,6 +24,7 @@ from fast_agent.tools.edit_file_tool import (
     build_edit_file_tool,
     extract_edit_file_input,
 )
+from fast_agent.tools.environment_patch import apply_patch_to_environment_filesystem
 from fast_agent.tools.filesystem_tool_args import (
     parse_read_text_file_arguments,
     parse_write_text_file_arguments,
@@ -35,11 +36,10 @@ from fast_agent.tools.filesystem_tool_definitions import (
     build_write_text_file_tool,
 )
 from fast_agent.tools.filesystem_tool_specs import FilesystemToolSpec, enabled_tool_specs
-from fast_agent.tools.session_patch import apply_patch_to_environment_filesystem
 from fast_agent.tools.tool_sources import SHELL_TOOL_SOURCE, set_tool_source
 
 if TYPE_CHECKING:
-    from fast_agent.tools.session_environment import EnvironmentFilesystem
+    from fast_agent.tools.execution_environment import EnvironmentFilesystem
     from fast_agent.types import RequestParams
 
 

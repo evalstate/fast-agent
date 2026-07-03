@@ -8,7 +8,7 @@ import pytest
 
 from fast_agent.core.fastagent import FastAgent, RunRuntime, RunSettings
 from fast_agent.core.run_lifecycle import FastAgentRunLifecycle
-from fast_agent.tools.session_environment import (
+from fast_agent.tools.execution_environment import (
     ShellExecution,
     ShellExecutionCallbacks,
     ShellExecutionOptions,

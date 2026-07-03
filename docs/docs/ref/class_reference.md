@@ -73,7 +73,7 @@ async with fast.run(environment=None) as agent:
 An async context manager that initializes all registered agents and returns an `AgentApp` instance that can be used to interact with the agents.
 
 Pass `environment=` to run shell-enabled agent tool calls in a custom shell
-environment, such as Docker. See [Agent Environments](../agents/environments.md).
+environment, such as Docker. See [Execution Environments](../agents/environments.md).
 
 --8<-- "docs/docs/_generated/fastagent_harness_method.md"
 

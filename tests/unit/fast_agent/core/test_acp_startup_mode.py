@@ -22,7 +22,7 @@ from fast_agent.core.fastagent import (
 from fast_agent.core.server_runtime import ServerRuntimeContext, run_mcp_server
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
 from fast_agent.session.session_manager import ResumeSessionAgentsResult, Session, SessionInfo
-from fast_agent.tools.session_environment import (
+from fast_agent.tools.execution_environment import (
     ShellExecution,
     ShellExecutionCallbacks,
     ShellExecutionOptions,

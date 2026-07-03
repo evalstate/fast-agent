@@ -40,7 +40,7 @@ if TYPE_CHECKING:
         RuntimeCallbacks,
     )
     from fast_agent.interfaces import AgentProtocol
-    from fast_agent.tools.session_environment import ShellEnvironment
+    from fast_agent.tools.execution_environment import ShellEnvironment
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)

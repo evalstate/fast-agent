@@ -72,7 +72,7 @@ if TYPE_CHECKING:
     from fast_agent.core.harness import AgentHarness
     from fast_agent.interfaces import AgentProtocol, ModelFactoryFunctionProtocol
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
-    from fast_agent.tools.session_environment import ShellEnvironment
+    from fast_agent.tools.execution_environment import ShellEnvironment
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)

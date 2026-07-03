@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from fast_agent.config import Settings
-    from fast_agent.tools.session_environment import ShellEnvironment, ShellExecutionResult
+    from fast_agent.tools.execution_environment import ShellEnvironment, ShellExecutionResult
 
 # Import tool progress context for reporting shell execution progress
 from fast_agent.agents.tool_agent import _tool_progress_context
@@ -24,17 +24,17 @@ from fast_agent.constants import (
 )
 from fast_agent.core.logging.progress_payloads import build_progress_payload
 from fast_agent.event_progress import ProgressAction
-from fast_agent.tools.filesystem_tool_args import (
-    coerce_required_string_argument,
-    coerce_tool_arguments,
-)
-from fast_agent.tools.local_shell_executor import LocalShellExecutor
-from fast_agent.tools.session_environment import (
+from fast_agent.tools.execution_environment import (
     ShellExecution,
     ShellExecutionRequest,
     ShellRuntimeInfo,
     execute_shell,
 )
+from fast_agent.tools.filesystem_tool_args import (
+    coerce_required_string_argument,
+    coerce_tool_arguments,
+)
+from fast_agent.tools.local_shell_executor import LocalShellExecutor
 from fast_agent.tools.tool_sources import SHELL_TOOL_SOURCE, set_tool_source
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay

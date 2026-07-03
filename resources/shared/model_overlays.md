@@ -211,7 +211,7 @@ Default runtime base URL:
 
 Shared options:
 
-- `--env` to target a specific fast-agent environment directory
+- `--home` to target a specific fast-agent home
 - `--url` or `--base-url` to point at the llama.cpp server
 - `--auth`, `--api-key-env`, and `--secret-ref` to control persisted overlay auth and discovery auth
 - `--name` to choose the overlay token explicitly

@@ -3,7 +3,7 @@ title: Core Concepts Guide
 description: Understand fast-agent homes, AgentCards, packs, model references, MCP servers, skills, and the TUI workflow.
 social:
   title: Core Concepts Guide
-  tagline: Environments, agents, packs, models, MCP, and skills in one place.
+  tagline: Homes, execution environments, agents, packs, models, MCP, and skills in one place.
   description: Understand fast-agent homes, AgentCards, packs, model references, MCP servers, skills, and the TUI workflow.
   alt: fast-agent social card — Core Concepts Guide
 ---

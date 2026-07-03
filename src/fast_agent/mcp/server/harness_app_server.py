@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from fast_agent.config import Settings
     from fast_agent.core.agent_instance_factory import AgentInstanceFactory
     from fast_agent.mcp.server.instance_lease_pool import InstanceScopeValue
-    from fast_agent.tools.session_environment import ShellEnvironment
+    from fast_agent.tools.execution_environment import ShellEnvironment
 
 
 @dataclass(frozen=True, slots=True)

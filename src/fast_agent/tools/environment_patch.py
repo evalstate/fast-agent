@@ -17,7 +17,7 @@ from fast_agent.patch.engine import AffectedPaths, apply_hunks_to_files, print_s
 
 if TYPE_CHECKING:
     from fast_agent.patch.parser import Hunk
-    from fast_agent.tools.session_environment import EnvironmentFilesystem
+    from fast_agent.tools.execution_environment import EnvironmentFilesystem
 
 
 async def apply_patch_to_environment_filesystem(

@@ -63,7 +63,7 @@ if TYPE_CHECKING:
     from fast_agent.agents.workflow.agents_as_tools_agent import AgentsAsToolsOptions
     from fast_agent.config import Settings
     from fast_agent.hooks.hook_context import HookAgentProtocol
-    from fast_agent.tools.session_environment import ShellEnvironment
+    from fast_agent.tools.execution_environment import ShellEnvironment
 
 # Type aliases for improved readability and IDE support
 AgentDict = dict[str, AgentProtocol]

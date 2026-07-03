@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from fast_agent.core.logging.logger import Logger
 from fast_agent.home import build_child_environment
-from fast_agent.tools.session_environment import (
+from fast_agent.tools.execution_environment import (
     ShellExecution,
     ShellExecutionCallbacks,
     ShellExecutionOptions,

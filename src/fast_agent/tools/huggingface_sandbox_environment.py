@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any, Literal, Protocol
 
-from fast_agent.tools.session_environment import (
+from fast_agent.tools.execution_environment import (
     EnvironmentFileEntry,
     ShellExecution,
     ShellExecutionCallbacks,

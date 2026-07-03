@@ -328,10 +328,10 @@ test coverage.
 
 By default, `fast-agent go` discovers cards from your home:
 
-- `<env>/agent-cards/`
-- `<env>/tool-cards/`
+- `<home>/agent-cards/`
+- `<home>/tool-cards/`
 
-`<env>` defaults to `.fast-agent/` in your current project root.
+`<home>` defaults to `.fast-agent/` in your current workspace.
 Use `--home` to point to a different home.
 Use `--no-home` to disable implicit default directory discovery entirely.
 

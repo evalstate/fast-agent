@@ -202,8 +202,8 @@ fast-agent go --models "sonnet,gpt-5-mini?reasoning=low" --agent sonnet --messag
 
 By default, `fast-agent go` will auto-discover cards from your home when present:
 
-- `<env>/agent-cards/` for runnable agents
-- `<env>/tool-cards/` for cards to attach as tools
+- `<home>/agent-cards/` for runnable agents
+- `<home>/tool-cards/` for cards to attach as tools
 
 When `--no-home` is set, this implicit discovery is disabled. Explicit `--agent-cards` and
 `--card-tool` values still work.

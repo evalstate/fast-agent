@@ -7,7 +7,7 @@ from fast_agent.tools.docker_shell_environment import (
     DockerMount,
     DockerShellEnvironment,
 )
-from fast_agent.tools.session_environment import ShellExecutionRequest
+from fast_agent.tools.execution_environment import ShellExecutionRequest
 
 
 def test_docker_shell_environment_builds_bash_exec_argv() -> None:

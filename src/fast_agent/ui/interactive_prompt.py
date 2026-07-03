@@ -47,7 +47,7 @@ from fast_agent.commands.protocols import HistoryEditableAgent
 from fast_agent.config import get_settings
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.interfaces import AgentProtocol, TurnCancellationStateCapable
-from fast_agent.tools.session_environment import ShellExecutionResult
+from fast_agent.tools.execution_environment import ShellExecutionResult
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt

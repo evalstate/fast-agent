@@ -19,7 +19,7 @@ from fast_agent.mcp.server.harness_app_server import (
     ManagedAgentToolSpec,
     create_harness_mcp_app_runtime,
 )
-from fast_agent.tools.session_environment import (
+from fast_agent.tools.execution_environment import (
     ShellExecution,
     ShellExecutionCallbacks,
     ShellExecutionOptions,
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
     from fast_agent.core.agent_instance_factory import AgentInstanceFactory
     from fast_agent.interfaces import AgentProtocol
-    from fast_agent.tools.session_environment import ShellEnvironment
+    from fast_agent.tools.execution_environment import ShellEnvironment
 
 
 class RecordingAppSession:

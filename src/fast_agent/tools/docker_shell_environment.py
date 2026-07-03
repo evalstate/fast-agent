@@ -11,7 +11,7 @@ from pathlib import Path
 from shutil import rmtree
 from typing import TYPE_CHECKING, Literal
 
-from fast_agent.tools.session_environment import (
+from fast_agent.tools.execution_environment import (
     EnvironmentFileEntry,
     ShellExecution,
     ShellExecutionCallbacks,

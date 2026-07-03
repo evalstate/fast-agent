@@ -1,19 +1,23 @@
 ---
-title: Agent Environments
+title: Execution Environments
 description: Run shell and filesystem tools in local, Docker, Hugging Face, or custom environments.
 social:
-  title: Agent Environments
+  title: Execution Environments
   tagline: Swap where harness shell commands run.
   description: Run shell and filesystem tools in local, Docker, Hugging Face, or custom environments.
-  alt: fast-agent social card — Agent Environments
+  alt: fast-agent social card — Execution Environments
 ---
 
-# Agent Environments
+# Execution Environments
 
-Agent environments define where shell commands run. If the environment also
+Execution environments define where shell commands run. If the environment also
 implements `EnvironmentFilesystem`, model-facing file tools such as
 `read_text_file`, `write_text_file`, `edit_file`, and `apply_patch` use that
 same environment filesystem.
+
+Do not confuse an execution environment with your workspace or fast-agent home.
+The workspace is the project file tree for a run; the home is fast-agent's
+local config and state root, usually `<workspace>/.fast-agent`.
 
 By default, fast-agent uses the local shell and local filesystem helper tools.
 You can inject another environment, such as Docker or a Hugging Face Sandbox,
@@ -212,10 +216,10 @@ directories through `AgentConfig.cwd`, `harness.shell(..., cwd=...)`, or
 ## Implementing a custom environment
 
 Custom environments implement `ShellEnvironment` from
-`fast_agent.tools.session_environment`.
+`fast_agent.tools.execution_environment`.
 
 ```python
-from fast_agent.tools.session_environment import (
+from fast_agent.tools.execution_environment import (
     EnvironmentFileEntry,
     ShellEnvironment,
     ShellExecution,
@@ -270,7 +274,7 @@ To give the LLM natural file access to the same environment, implement
 `EnvironmentFilesystem` on the same object:
 
 ```python
-from fast_agent.tools.session_environment import EnvironmentFilesystem
+from fast_agent.tools.execution_environment import EnvironmentFilesystem
 
 
 class MyEnvironment:

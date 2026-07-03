@@ -20,8 +20,7 @@ from fast_agent.constants import (
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
 from fast_agent.event_progress import ProgressAction
-from fast_agent.tools.local_shell_executor import LocalShellExecutor
-from fast_agent.tools.session_environment import (
+from fast_agent.tools.execution_environment import (
     ShellExecution,
     ShellExecutionCallbacks,
     ShellExecutionOptions,
@@ -29,6 +28,7 @@ from fast_agent.tools.session_environment import (
     ShellExecutionResult,
     ShellRuntimeInfo,
 )
+from fast_agent.tools.local_shell_executor import LocalShellExecutor
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.ui import console
 from fast_agent.ui.display_suppression import suppress_interactive_display

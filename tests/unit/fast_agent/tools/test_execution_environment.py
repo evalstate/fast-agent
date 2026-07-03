@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fast_agent.tools.session_environment import (
+from fast_agent.tools.execution_environment import (
     ShellEnvironment,
     ShellExecution,
     ShellExecutionOptions,
@@ -18,7 +18,7 @@ def test_shell_execution_result_is_structured() -> None:
     assert result.exit_code == 2
 
 
-def test_session_environment_protocol_exports() -> None:
+def test_execution_environment_protocol_exports() -> None:
     assert ShellEnvironment.__name__ == "ShellEnvironment"
 
 

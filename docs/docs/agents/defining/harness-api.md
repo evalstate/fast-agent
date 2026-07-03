@@ -857,7 +857,7 @@ does not create a harness session and does not update agent history.
 
 By default, the harness uses the local shell environment. You can inject another
 environment, such as Docker, with `fast.harness(environment=...)`. See
-[Agent Environments](../environments.md) for Docker examples and the
+[Execution Environments](../environments.md) for Docker examples and the
 `ShellEnvironment` protocol.
 
 Use `session.shell()` when you want shell work serialized with a specific

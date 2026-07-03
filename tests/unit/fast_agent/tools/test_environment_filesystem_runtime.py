@@ -9,7 +9,8 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.context import Context
 from fast_agent.skills.registry import SkillRegistry
-from fast_agent.tools.session_environment import (
+from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
+from fast_agent.tools.execution_environment import (
     EnvironmentFileEntry,
     ShellExecution,
     ShellExecutionCallbacks,
@@ -18,7 +19,6 @@ from fast_agent.tools.session_environment import (
     ShellExecutionResult,
     ShellRuntimeInfo,
 )
-from fast_agent.tools.session_filesystem_runtime import EnvironmentFilesystemRuntime
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
 
 if TYPE_CHECKING:
@@ -178,7 +178,7 @@ async def test_environment_filesystem_runtime_applies_patch_to_remote_files() ->
 
 
 @pytest.mark.asyncio
-async def test_mcp_agent_routes_file_tools_to_injected_session_environment() -> None:
+async def test_mcp_agent_routes_file_tools_to_injected_execution_environment() -> None:
     env = FakeEnvironment()
     env.files["/workspace/remote.txt"] = "remote file\n"
     config = AgentConfig(
@@ -207,7 +207,7 @@ async def test_mcp_agent_routes_file_tools_to_injected_session_environment() -> 
 
 
 @pytest.mark.asyncio
-async def test_mcp_agent_keeps_host_skill_reader_with_injected_session_filesystem(
+async def test_mcp_agent_keeps_host_skill_reader_with_injected_environment_filesystem(
     tmp_path: Path,
 ) -> None:
     skills_root = tmp_path / "skills"

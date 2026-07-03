@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from fast_agent.history.compaction import CompactionResult
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.session.session_manager import Session, SessionManager
-    from fast_agent.tools.session_environment import ShellEnvironment, ShellExecutionResult
+    from fast_agent.tools.execution_environment import ShellEnvironment, ShellExecutionResult
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 HARNESS_SESSION_ID_MAX_LENGTH = 128
@@ -416,7 +416,7 @@ class HarnessSessions:
     ) -> ShellExecutionResult:
         if self._shell_environment is None:
             raise RuntimeError("Harness shell environment is not configured.")
-        from fast_agent.tools.session_environment import execute_shell
+        from fast_agent.tools.execution_environment import execute_shell
 
         return await execute_shell(
             self._shell_environment,
@@ -624,7 +624,7 @@ class AgentHarness:
         timeout: float | None = None,
     ) -> ShellExecutionResult:
         """Run a shell command and return structured stdout/stderr/exit code."""
-        from fast_agent.tools.session_environment import execute_shell
+        from fast_agent.tools.execution_environment import execute_shell
 
         return await execute_shell(
             self.environment,
