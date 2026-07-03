@@ -12,17 +12,17 @@ if TYPE_CHECKING:
 class _LegacyProvider(StaticAgentProvider):
     def __init__(self) -> None:
         super().__init__({"main": object()})
-        self._noenv_mode = True
+        self._no_home_mode = True
 
 
 class _Provider(StaticAgentProvider):
-    noenv_mode = False
+    no_home_mode = False
 
 
-def test_build_command_context_reads_legacy_noenv_storage() -> None:
+def test_build_command_context_reads_legacy_no_home_storage() -> None:
     context = build_command_context(cast("Any", _LegacyProvider()), "main")
 
-    assert context.noenv is True
+    assert context.no_home is True
     assert context.current_agent_name == "main"
     assert context.sessions_enabled is False
 
@@ -52,7 +52,7 @@ def test_build_command_context_uses_supplied_session_manager() -> None:
     assert context.resolve_session_manager() is manager
 
 
-def test_noenv_context_rejects_session_capability() -> None:
+def test_no_home_context_rejects_session_capability() -> None:
     manager = cast("SessionManager", object())
 
     try:
@@ -60,10 +60,10 @@ def test_noenv_context_rejects_session_capability() -> None:
             agent_provider=StaticAgentProvider({"main": object()}),
             current_agent_name="main",
             io=cast("Any", object()),
-            noenv=True,
+            no_home=True,
             session_manager=manager,
         )
     except ValueError as exc:
-        assert str(exc) == "noenv command contexts cannot enable sessions."
+        assert str(exc) == "no_home command contexts cannot enable sessions."
     else:
         raise AssertionError("expected ValueError")

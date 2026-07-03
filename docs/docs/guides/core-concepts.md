@@ -1,10 +1,10 @@
 ---
 title: Core Concepts Guide
-description: Understand fast-agent environments, AgentCards, packs, model references, MCP servers, skills, and the TUI workflow.
+description: Understand fast-agent homes, AgentCards, packs, model references, MCP servers, skills, and the TUI workflow.
 social:
   title: Core Concepts Guide
   tagline: Environments, agents, packs, models, MCP, and skills in one place.
-  description: Understand fast-agent environments, AgentCards, packs, model references, MCP servers, skills, and the TUI workflow.
+  description: Understand fast-agent homes, AgentCards, packs, model references, MCP servers, skills, and the TUI workflow.
   alt: fast-agent social card — Core Concepts Guide
 ---
 
@@ -12,7 +12,15 @@ social:
 
 <p class="fa-kicker">The mental model</p>
 
-A **fast-agent environment** is a small folder that travels with a project or a
+A fast-agent run has three main places to keep straight:
+
+| Concept | What it means | Default / example |
+| --- | --- | --- |
+| **Workspace** | The project or request file tree the run is working from. Relative paths, prompt file references, and local shell cwd behavior are anchored here. | Current directory, or `--workspace ~/client-a` |
+| **Home** | fast-agent's local storage and configuration root: config, AgentCards, skills, sessions, plugins, packs, model overlays, UI assets, and permission history. | `<workspace>/.fast-agent`, or `--home ~/agent-homes/client-a` |
+| **Execution environment** | The runtime used by tools or agents to execute commands and access files. It might be local, Docker-backed, Hugging Face-backed, ACP-provided, or another adapter. | Local shell by default when enabled; sandbox adapters can provide their own filesystem |
+
+A **fast-agent home** is a small folder that travels with a project or a
 team workflow. It can contain agents, config, MCP servers, skills, sessions,
 plugins and card packs.
 
@@ -40,10 +48,10 @@ One agent is the default. Add another agent by dropping a Markdown file into
 <span class="fa-good">loaded</span> reviewer response into your input buffer</code></pre>
 </div>
 
-## What is an environment?
+## What is a home?
 
-An environment is the active fast-agent home. By default it is
-`./.fast-agent` in your current project.
+The active fast-agent home stores local config and runtime state. By default it
+is `./.fast-agent` in your current workspace.
 
 ```text
 .fast-agent/
@@ -57,18 +65,18 @@ An environment is the active fast-agent home. By default it is
 ├── sessions/                # persisted chat/session history
 ├── model-overlays/          # optional local model definitions
 ├── ui/                      # generated MCP UI assets
-└── auths.md                 # environment-scoped permission/auth history
+└── auths.md                 # home-scoped permission/auth history
 ```
 
 The defaults are deliberately useful:
 
-- `fast-agent go` selects `./.fast-agent` unless you choose another environment.
-- The configuration file (`fast-agent.yaml`) is loaded from the active environment first, then the current
-  directory if no environment config is present.
-- AgentCards in `<env>/agent-cards/` are loaded as runnable agents.
-- ToolCards in `<env>/tool-cards/` are loaded and attached as tools.
-- Sessions are saved in `<env>/sessions/` so you can resume work later.
-- Skills are discovered from the active environment's `skills/` directory
+- `fast-agent go` selects `./.fast-agent` unless you choose another home.
+- The configuration file (`fast-agent.yaml`) is loaded from the active fast-agent home first, then the current
+  directory if no home config is present.
+- AgentCards in `<home>/agent-cards/` are loaded as runnable agents.
+- ToolCards in `<home>/tool-cards/` are loaded and attached as tools.
+- Sessions are saved in `<home>/sessions/` so you can resume work later.
+- Skills are discovered from the active fast-agent home's `skills/` directory
   (normally `.fast-agent/skills`), plus `.agents/skills` and `.claude/skills`.
 
 <section class="fa-grid fa-grid--3" markdown="1">
@@ -328,40 +336,40 @@ want `--model` to remain in control.
 
 Use `fast-agent model setup` to see and set configured references.
 
-## Multiple environments
+## Multiple Homes
 
-Use more than one environment when you want different bundles for different
+Use more than one home when you want different bundles for different
 workflows:
 
 ```bash
-# Coding environment
-fast-agent go --env .fast-agent-coding --pack codex 
+# Coding home
+fast-agent go --home .fast-agent-coding --pack codex 
 
-# Research environment
-fast-agent go --env .fast-agent-research --agent researcher \
+# Research home
+fast-agent go --home .fast-agent-research --agent researcher \
   --model 'responses.gpt-5?web_search=on'
 
-# Ephemeral run: no implicit env cards, sessions, pack installs or permission-store side effects
-fast-agent go --no-env --model haiku --message "summarize this directory"
+# Ephemeral run: no implicit home cards, sessions, pack installs or permission-store side effects
+fast-agent go --no-home --model haiku --message "summarize this directory"
 ```
 
-Selection order for the environment is:
+Selection order for the home is:
 
-1. `--env <path>`
-2. `FAST_AGENT_HOME`
-3. legacy `ENVIRONMENT_DIR`
+1. `--home <path>`
+2. `--workspace <path>/.fast-agent`
+3. `FAST_AGENT_HOME`
 4. `./.fast-agent`
 
-You can also set `environment_dir` in `fast-agent.yaml`, or override skills for
+You can also set `home` in `fast-agent.yaml`, or override skills for
 one run:
 
 ```bash
-fast-agent go --env ~/agent-envs/client-a --skills ~/agent-skills/client-a
+fast-agent go --workspace ~/client-a --skills ~/agent-skills/client-a
 ```
 
-`--no-env` is useful for clean tests, one-off MCP inspection, or automation that
+`--no-home` is useful for clean tests, one-off MCP inspection, or automation that
 should not read project AgentCards or write session state. It cannot be combined
-with `--pack`, `--env`, or `--resume`.
+with `--pack`, `--home`, or `--resume`.
 
 ## Skills are environment tools for knowledge
 
@@ -369,7 +377,7 @@ Skills are folders containing a `SKILL.md` manifest plus optional scripts,
 references and assets. They let agents load specialized procedures only when
 needed. By default, fast-agent looks in:
 
-- the active environment's `skills/` directory — normally `.fast-agent/skills`
+- the active fast-agent home's `skills/` directory — normally `.fast-agent/skills`
 - `.agents/skills`
 - `.claude/skills`
 

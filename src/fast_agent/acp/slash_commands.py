@@ -232,7 +232,7 @@ class SlashCommandHandler:
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
         set_current_mode_callback: Callable[[str], Awaitable[None] | None] | None = None,
         instruction_resolver: Callable[[str], Awaitable[str | None]] | None = None,
-        noenv: bool = False,
+        no_home: bool = False,
     ):
         """
         Initialize the slash command handler.
@@ -275,7 +275,7 @@ class SlashCommandHandler:
         self._reload_callback = reload_callback
         self._set_current_mode_callback = set_current_mode_callback
         self._instruction_resolver = instruction_resolver
-        self._noenv = noenv
+        self._no_home = no_home
         self._acp_context: ACPContext | None = None
 
         cards_action_hint = (
@@ -613,7 +613,7 @@ class SlashCommandHandler:
         )
         session_manager = agent_context.session_manager if agent_context else None
         session_runtime = None
-        if not self._noenv and session_manager is None:
+        if not self._no_home and session_manager is None:
             from fast_agent.commands.session_runtime import SessionManagerCommandRuntime
 
             session_runtime = SessionManagerCommandRuntime(
@@ -635,7 +635,7 @@ class SlashCommandHandler:
             current_agent_name=self.current_agent_name,
             io=ACPCommandIO(),
             settings=settings,
-            noenv=self._noenv,
+            no_home=self._no_home,
             acp_session_id=self.session_id,
             session_cwd=(
                 Path(str(raw_session_cwd)).expanduser().resolve() if raw_session_cwd else None
@@ -674,7 +674,7 @@ class SlashCommandHandler:
     async def _send_session_info_update(self) -> None:
         if self._acp_context is None:
             return
-        if self._noenv:
+        if self._no_home:
             return
         from fast_agent.session import extract_session_title
 

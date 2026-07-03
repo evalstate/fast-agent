@@ -24,7 +24,7 @@ fast = FastAgent(
     "Docker shell environment demo",
     parse_cli_args=False,
     quiet=True,
-    environment_dir=HERE / ".fast-agent",
+    home=HERE / ".fast-agent",
 )
 
 

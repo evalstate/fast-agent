@@ -206,7 +206,7 @@ class ContinuedToolResultLlm(PassthroughLLM):
 @pytest.mark.asyncio
 async def test_resume_preserves_completed_tool_result_after_followup_llm_failure(tmp_path):
     old_settings = get_settings()
-    override = old_settings.model_copy(update={"environment_dir": str(tmp_path / "env")})
+    override = old_settings.model_copy(update={"home": str(tmp_path / "env")})
     update_global_settings(override)
     reset_session_manager()
 
@@ -219,7 +219,7 @@ async def test_resume_preserves_completed_tool_result_after_followup_llm_failure
         return f"ok {tool_runs}"
 
     try:
-        manager = SessionManager(environment_override=tmp_path / "env")
+        manager = SessionManager(home_override=tmp_path / "env")
         set_session_manager(manager)
         exploding_llm = ExplodingAfterToolResultLlm()
         agent = ToolAgent(AgentConfig("tool-loop-resume"), [side_effect_tool])

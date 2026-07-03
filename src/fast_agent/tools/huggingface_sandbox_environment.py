@@ -1,4 +1,4 @@
-"""Hugging Face Sandbox-backed session environment."""
+"""Hugging Face Sandbox-backed execution environment."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import PurePosixPath
 from typing import Any, Literal, Protocol
 
 from fast_agent.tools.session_environment import (
-    SessionFileEntry,
+    EnvironmentFileEntry,
     ShellExecution,
     ShellExecutionCallbacks,
     ShellExecutionOptions,
@@ -249,7 +249,7 @@ class HuggingFaceSandboxEnvironment:
         sandbox = self._require_sandbox()
         return await asyncio.to_thread(sandbox.files.exists, self.resolve_path(path))
 
-    async def list_dir(self, path: str) -> list[SessionFileEntry]:
+    async def list_dir(self, path: str) -> list[EnvironmentFileEntry]:
         sandbox = self._require_sandbox()
         resolved_path = self.resolve_path(path)
 
@@ -264,7 +264,7 @@ class HuggingFaceSandboxEnvironment:
         if result.exit_code not in {0, None}:
             message = result.stderr.strip() or f"Unable to list directory: {resolved_path}"
             raise RuntimeError(message)
-        return _parse_session_file_entries(result.stdout)
+        return _parse_environment_file_entries(result.stdout)
 
     async def mkdir(self, path: str) -> None:
         sandbox = self._require_sandbox()
@@ -297,12 +297,12 @@ def _normalize_posix(path: str) -> str:
     return posixpath.normpath(raw)
 
 
-def _parse_session_file_entries(payload: str) -> list[SessionFileEntry]:
+def _parse_environment_file_entries(payload: str) -> list[EnvironmentFileEntry]:
     raw_entries = json.loads(payload)
     if not isinstance(raw_entries, list):
         raise RuntimeError("Sandbox directory listing returned invalid data.")
 
-    entries: list[SessionFileEntry] = []
+    entries: list[EnvironmentFileEntry] = []
     for raw_entry in raw_entries:
         if not isinstance(raw_entry, dict):
             raise RuntimeError("Sandbox directory listing returned invalid entry data.")
@@ -312,16 +312,18 @@ def _parse_session_file_entries(payload: str) -> list[SessionFileEntry]:
         if not isinstance(path, str) or not isinstance(name, str):
             raise RuntimeError("Sandbox directory listing entry is missing path or name.")
         entries.append(
-            SessionFileEntry(
+            EnvironmentFileEntry(
                 path=path,
                 name=name,
-                kind=_coerce_session_file_kind(kind),
+                kind=_coerce_environment_file_kind(kind),
             )
         )
     return entries
 
 
-def _coerce_session_file_kind(value: object) -> Literal["file", "directory", "other", "unknown"]:
+def _coerce_environment_file_kind(
+    value: object,
+) -> Literal["file", "directory", "other", "unknown"]:
     if value == "file":
         return "file"
     if value == "directory":

@@ -241,7 +241,7 @@ def _add_session_export_preflight_error(
     privacy_filter_variant: str | None,
     error: str | None,
 ) -> bool:
-    if ctx.noenv:
+    if ctx.no_home:
         outcome.add_message(NOENV_SESSION_MESSAGE, channel="warning", right_info="session")
         return True
 

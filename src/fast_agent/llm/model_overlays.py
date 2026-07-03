@@ -413,7 +413,7 @@ class ModelOverlayRegistry:
     """Resolved local overlay registry."""
 
     overlays: tuple[LoadedModelOverlay, ...]
-    env_root: Path
+    home_root: Path
 
     def by_name(self) -> dict[str, LoadedModelOverlay]:
         return {overlay.name: overlay for overlay in self.overlays}
@@ -447,7 +447,7 @@ class ModelOverlayRegistry:
 class ModelOverlayPaths:
     """Filesystem paths used by the model overlay registry."""
 
-    env_root: Path
+    home_root: Path
     overlays_dir: Path
     secrets_path: Path
 
@@ -517,34 +517,34 @@ def _is_model_overlay_file(path: Path) -> bool:
 def resolve_model_overlay_paths(
     *,
     start_path: Path | None = None,
-    env_dir: str | Path | None = None,
+    home: str | Path | None = None,
 ) -> ModelOverlayPaths:
     """Resolve the active model overlay storage paths."""
 
     base_path = (start_path or Path.cwd()).resolve()
-    override = env_dir
+    override = home
     if override is None:
-        configured = _settings_environment_override(start_path=start_path)
+        configured = _settings_home_override(start_path=start_path)
         if configured is not None:
             base_path, override = configured
 
-    home = resolve_fast_agent_home(cwd=base_path, cli_override=override)
-    env_root = home.path if home is not None else base_path
+    resolved_home = resolve_fast_agent_home(cwd=base_path, cli_override=override)
+    home_root = resolved_home.path if resolved_home is not None else base_path
     return ModelOverlayPaths(
-        env_root=env_root,
-        overlays_dir=env_root / "model-overlays",
-        secrets_path=env_root / "model-overlays.secrets.yaml",
+        home_root=home_root,
+        overlays_dir=home_root / "model-overlays",
+        secrets_path=home_root / "model-overlays.secrets.yaml",
     )
 
 
 def load_model_overlay_secret_entries(
     *,
     start_path: Path | None = None,
-    env_dir: str | Path | None = None,
+    home: str | Path | None = None,
 ) -> dict[str, ModelOverlaySecretEntry]:
-    """Load companion overlay secret entries from the active environment."""
+    """Load companion overlay secret entries from the active fast-agent home."""
 
-    paths = resolve_model_overlay_paths(start_path=start_path, env_dir=env_dir)
+    paths = resolve_model_overlay_paths(start_path=start_path, home=home)
     return _load_secret_entries(paths.secrets_path)
 
 
@@ -671,12 +671,12 @@ def write_model_overlay_manifest(
     manifest: ModelOverlayManifest,
     *,
     start_path: Path | None = None,
-    env_dir: str | Path | None = None,
+    home: str | Path | None = None,
     replace: bool = False,
 ) -> Path:
-    """Write a model overlay manifest into the active environment directory."""
+    """Write a model overlay manifest into the active home."""
 
-    paths = resolve_model_overlay_paths(start_path=start_path, env_dir=env_dir)
+    paths = resolve_model_overlay_paths(start_path=start_path, home=home)
     paths.overlays_dir.mkdir(parents=True, exist_ok=True)
     output_path = paths.overlays_dir / f"{_safe_overlay_filename(manifest.name)}.yaml"
     if output_path.exists() and not replace:
@@ -714,7 +714,7 @@ def _default_export_overlay_name(provider: Provider, model: str) -> str:
     return _safe_overlay_filename(f"{provider.value}-{model_without_query}")
 
 
-def _settings_environment_override(
+def _settings_home_override(
     *,
     start_path: Path | None,
 ) -> tuple[Path, str | Path | None] | None:
@@ -726,14 +726,12 @@ def _settings_environment_override(
     config_file = (
         raw_config_file if isinstance(raw_config_file, str) and raw_config_file.strip() else None
     )
-    environment_dir = getattr(settings, "environment_dir", None)
-    if environment_dir is None and (
-        os.getenv("ENVIRONMENT_DIR")
-        or os.getenv("FAST_AGENT_HOME")
-        or os.getenv("FAST_AGENT_RUNTIME_ENVIRONMENT")
+    home = getattr(settings, "home", None)
+    if home is None and (
+        os.getenv("FAST_AGENT_HOME") or os.getenv("FAST_AGENT_RUNTIME_HOME")
     ):
         return None
-    if environment_dir is None and not (start_path is None and config_file is not None):
+    if home is None and not (start_path is None and config_file is not None):
         return None
 
     base_path = (
@@ -742,17 +740,17 @@ def _settings_environment_override(
         else resolve_settings_start_path(settings)
     )
 
-    return base_path, environment_dir
+    return base_path, home
 
 
 def load_model_overlay_registry(
     *,
     start_path: Path | None = None,
-    env_dir: str | Path | None = None,
+    home: str | Path | None = None,
 ) -> ModelOverlayRegistry:
-    """Load static model overlays from the active environment directory."""
+    """Load static model overlays from the active home."""
 
-    paths = resolve_model_overlay_paths(start_path=start_path, env_dir=env_dir)
+    paths = resolve_model_overlay_paths(start_path=start_path, home=home)
     secret_entries = _load_secret_entries(paths.secrets_path)
 
     loaded: dict[str, LoadedModelOverlay] = {}
@@ -774,5 +772,5 @@ def load_model_overlay_registry(
 
     return ModelOverlayRegistry(
         overlays=tuple(loaded.values()),
-        env_root=paths.env_root,
+        home_root=paths.home_root,
     )

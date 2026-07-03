@@ -88,7 +88,7 @@ class StructuredBatchOptions:
     telemetry_output_path: Path | None = None
     summary_output_path: Path | None = None
     final_summary: bool = True
-    environment_dir: Path | None = None
+    home: Path | None = None
     shell_runtime: bool = False
     agent_card_source: str | None = None
     agent_name: str | None = None
@@ -968,7 +968,7 @@ async def _configured_batch_fast(
         parse_cli_args=False,
         ignore_unknown_args=True,
         quiet=True,
-        environment_dir=options.environment_dir,
+        home=options.home,
     )
     if options.model:
         fast.args.model = options.model

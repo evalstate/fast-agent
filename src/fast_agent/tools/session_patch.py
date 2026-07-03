@@ -1,7 +1,7 @@
-"""Apply ``apply_patch`` hunks through a session filesystem.
+"""Apply ``apply_patch`` hunks through an environment filesystem.
 
 Adapter authors should not reimplement patch semantics. If an environment owns
-files, implement ``SessionFilesystem`` and let this module stage, apply, and
+files, implement ``EnvironmentFilesystem`` and let this module stage, apply, and
 sync patches through that filesystem.
 """
 
@@ -17,15 +17,15 @@ from fast_agent.patch.engine import AffectedPaths, apply_hunks_to_files, print_s
 
 if TYPE_CHECKING:
     from fast_agent.patch.parser import Hunk
-    from fast_agent.tools.session_environment import SessionFilesystem
+    from fast_agent.tools.session_environment import EnvironmentFilesystem
 
 
-async def apply_patch_to_session_filesystem(
-    filesystem: "SessionFilesystem",
+async def apply_patch_to_environment_filesystem(
+    filesystem: "EnvironmentFilesystem",
     hunks: list["Hunk"],
 ) -> str:
-    """Apply parsed patch hunks to a session filesystem and return patch output."""
-    with tempfile.TemporaryDirectory(prefix="fast-agent-session-patch-") as temp_dir:
+    """Apply parsed patch hunks to an environment filesystem and return patch output."""
+    with tempfile.TemporaryDirectory(prefix="fast-agent-environment-patch-") as temp_dir:
         base = Path(temp_dir)
         path_map = _PatchPathMap()
         transformed_hunks = [_transform_hunk(hunk, path_map) for hunk in hunks]
@@ -45,7 +45,7 @@ async def apply_patch_to_session_filesystem(
 
 
 class _PatchPathMap:
-    """Map possibly-absolute session paths onto a temporary relative tree."""
+    """Map possibly-absolute environment paths onto a temporary relative tree."""
 
     def __init__(self) -> None:
         self._remote_by_local: dict[Path, Path] = {}
@@ -68,7 +68,7 @@ class _PatchPathMap:
 
 
 async def _stage_patch_inputs(
-    filesystem: "SessionFilesystem",
+    filesystem: "EnvironmentFilesystem",
     base: Path,
     hunks: list["Hunk"],
     path_map: _PatchPathMap,
@@ -81,7 +81,7 @@ async def _stage_patch_inputs(
 
 
 async def _sync_patch_outputs(
-    filesystem: "SessionFilesystem",
+    filesystem: "EnvironmentFilesystem",
     base: Path,
     changed: list[Path],
     deleted: list[Path],

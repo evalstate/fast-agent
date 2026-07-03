@@ -64,7 +64,7 @@ async def handle_compact(
         )
         return outcome
 
-    await persist_compacted_session(agent, noenv=ctx.noenv)
+    await persist_compacted_session(agent, no_home=ctx.no_home)
 
     body = Text("\n").join(compaction_summary_lines(result))
     outcome.add_message(

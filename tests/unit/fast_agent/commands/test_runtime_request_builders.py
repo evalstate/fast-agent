@@ -44,7 +44,7 @@ def test_build_agent_run_request_merges_url_servers_after_explicit_servers() -> 
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="interactive",
         transport="http",
@@ -84,7 +84,7 @@ def test_build_agent_run_request_includes_client_metadata_url_in_url_server_auth
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="interactive",
         transport="http",
@@ -126,7 +126,7 @@ def test_build_agent_run_request_skips_invalid_stdio_commands(capsys) -> None:
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="interactive",
         transport="http",
@@ -171,7 +171,7 @@ def test_build_command_run_request_resolves_defaults() -> None:
         stdio=None,
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=Path("."),
+        home=Path("."),
         shell_enabled=False,
         mode="serve",
     )
@@ -204,7 +204,7 @@ def test_build_command_run_request_propagates_timeout() -> None:
         stdio=None,
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=Path("."),
+        home=Path("."),
         shell_enabled=False,
         mode="interactive",
         timeout_seconds=120,
@@ -235,7 +235,7 @@ def test_build_command_run_request_rejects_non_positive_timeout() -> None:
             stdio=None,
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=Path("."),
+            home=Path("."),
             shell_enabled=False,
             mode="interactive",
             timeout_seconds=0,
@@ -341,7 +341,7 @@ def test_build_command_run_request_defaults_acp_instance_scope_to_connection() -
         stdio=None,
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="serve",
         transport="acp",
@@ -383,7 +383,7 @@ def test_build_command_run_request_marks_message_mode_one_shot() -> None:
         stdio=None,
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="interactive",
     )
@@ -412,7 +412,7 @@ def test_build_command_run_request_marks_prompt_file_mode_one_shot() -> None:
         stdio=None,
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="interactive",
     )
@@ -442,7 +442,7 @@ def test_build_command_run_request_accepts_json_schema_for_message_mode() -> Non
         stdio=None,
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="interactive",
     )
@@ -474,7 +474,7 @@ def test_build_command_run_request_accepts_structured_tool_policy_for_json_schem
         stdio=None,
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="interactive",
     )
@@ -505,7 +505,7 @@ def test_build_command_run_request_accepts_json_schema_for_prompt_file_mode() ->
         stdio=None,
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="interactive",
     )
@@ -535,7 +535,7 @@ def test_build_command_run_request_smart_flag_uses_smart_instruction() -> None:
         stdio=None,
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         force_smart=True,
         shell_enabled=False,
         mode="interactive",
@@ -566,7 +566,7 @@ def test_build_command_run_request_accepts_missing_shell_cwd_override() -> None:
         stdio=None,
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="serve",
         missing_shell_cwd_policy="error",
@@ -597,7 +597,7 @@ def test_build_command_run_request_rejects_message_and_prompt_file() -> None:
             stdio=None,
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=None,
+            home=None,
             shell_enabled=False,
             mode="interactive",
         )
@@ -628,7 +628,7 @@ def test_build_command_run_request_rejects_json_schema_without_one_shot_input() 
             stdio=None,
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=None,
+            home=None,
             shell_enabled=False,
             mode="interactive",
         )
@@ -659,7 +659,7 @@ def test_build_command_run_request_rejects_json_schema_with_multi_model() -> Non
             stdio=None,
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=None,
+            home=None,
             shell_enabled=False,
             mode="interactive",
         )
@@ -688,7 +688,7 @@ def test_build_command_run_request_accepts_schema_model_for_one_shot() -> None:
         stdio=None,
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="interactive",
     )
@@ -723,7 +723,7 @@ def test_build_command_run_request_rejects_json_schema_with_schema_model() -> No
             stdio=None,
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=None,
+            home=None,
             shell_enabled=False,
             mode="interactive",
         )
@@ -752,7 +752,7 @@ def test_build_command_run_request_rejects_structured_tool_policy_without_json_s
             stdio=None,
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=None,
+            home=None,
             shell_enabled=False,
             mode="interactive",
         )
@@ -785,7 +785,7 @@ def test_build_command_run_request_rejects_structured_tool_policy_with_schema_mo
             stdio=None,
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=None,
+            home=None,
             shell_enabled=False,
             mode="interactive",
         )
@@ -815,7 +815,7 @@ def test_build_command_run_request_rejects_invalid_structured_tool_policy() -> N
             stdio=None,
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=None,
+            home=None,
             shell_enabled=False,
             mode="interactive",
         )
@@ -853,7 +853,7 @@ def test_build_agent_run_request_rejects_multi_model_with_explicit_cards() -> No
             agent_name="agent",
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=None,
+            home=None,
             shell_enabled=False,
             mode="interactive",
             transport="http",
@@ -893,7 +893,7 @@ def test_build_agent_run_request_rejects_multi_model_with_implicit_cards(tmp_pat
             agent_name="agent",
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=tmp_path,
+            home=tmp_path,
             shell_enabled=False,
             mode="interactive",
             transport="http",
@@ -908,7 +908,7 @@ def test_build_agent_run_request_rejects_multi_model_with_implicit_cards(tmp_pat
         )
 
 
-def test_build_agent_run_request_noenv_keeps_explicit_cards_only() -> None:
+def test_build_agent_run_request_no_home_keeps_explicit_cards_only() -> None:
     request = build_agent_run_request(
         name="test-agent",
         instruction="instruction",
@@ -928,7 +928,7 @@ def test_build_agent_run_request_noenv_keeps_explicit_cards_only() -> None:
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="interactive",
         transport="http",
@@ -940,15 +940,15 @@ def test_build_agent_run_request_noenv_keeps_explicit_cards_only() -> None:
         permissions_enabled=True,
         reload=False,
         watch=False,
-        noenv=True,
+        no_home=True,
     )
 
     assert request.agent_cards == ["./cards", "./extra"]
     assert request.card_tools == ["./tools"]
-    assert request.environment_dir is None
+    assert request.home is None
 
 
-def test_build_agent_run_request_noenv_forces_serve_permissions_off() -> None:
+def test_build_agent_run_request_no_home_forces_serve_permissions_off() -> None:
     request = build_agent_run_request(
         name="test-agent",
         instruction="instruction",
@@ -968,7 +968,7 @@ def test_build_agent_run_request_noenv_forces_serve_permissions_off() -> None:
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="serve",
         transport="acp",
@@ -980,14 +980,14 @@ def test_build_agent_run_request_noenv_forces_serve_permissions_off() -> None:
         permissions_enabled=True,
         reload=False,
         watch=False,
-        noenv=True,
+        no_home=True,
     )
 
     assert request.permissions_enabled is False
 
 
-def test_build_command_run_request_rejects_noenv_with_env() -> None:
-    with pytest.raises(typer.BadParameter, match="Cannot combine --noenv with --env"):
+def test_build_command_run_request_rejects_no_home_with_env() -> None:
+    with pytest.raises(typer.BadParameter, match="Cannot combine --no-home with --home"):
         build_command_run_request(
             name="cli",
             instruction_option=None,
@@ -1008,15 +1008,15 @@ def test_build_command_run_request_rejects_noenv_with_env() -> None:
             stdio=None,
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=Path("."),
+            home=Path("."),
             shell_enabled=False,
             mode="interactive",
-            noenv=True,
+            no_home=True,
         )
 
 
-def test_build_command_run_request_rejects_noenv_with_resume() -> None:
-    with pytest.raises(typer.BadParameter, match="Cannot combine --noenv with --resume"):
+def test_build_command_run_request_rejects_no_home_with_resume() -> None:
+    with pytest.raises(typer.BadParameter, match="Cannot combine --no-home with --resume"):
         build_command_run_request(
             name="cli",
             instruction_option=None,
@@ -1037,15 +1037,15 @@ def test_build_command_run_request_rejects_noenv_with_resume() -> None:
             stdio=None,
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=None,
+            home=None,
             shell_enabled=False,
             mode="interactive",
-            noenv=True,
+            no_home=True,
         )
 
 
-def test_agent_run_request_rejects_noenv_with_resume_at_boundary() -> None:
-    with pytest.raises(ValueError, match="--noenv cannot be combined with --resume"):
+def test_agent_run_request_rejects_no_home_with_resume_at_boundary() -> None:
+    with pytest.raises(ValueError, match="--no-home cannot be combined with --resume"):
         AgentRunRequest(
             name="cli",
             instruction="instruction",
@@ -1063,8 +1063,8 @@ def test_agent_run_request_rejects_noenv_with_resume_at_boundary() -> None:
             agent_name="agent",
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=None,
-            noenv=True,
+            home=None,
+            no_home=True,
             force_smart=False,
             shell_runtime=False,
             no_shell=False,
@@ -1103,7 +1103,7 @@ def test_build_command_run_request_rejects_shell_with_no_shell() -> None:
             stdio=None,
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=None,
+            home=None,
             shell_enabled=True,
             no_shell=True,
             mode="interactive",
@@ -1131,7 +1131,7 @@ def test_build_command_run_request_propagates_no_shell() -> None:
         stdio=None,
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         no_shell=True,
         mode="interactive",
@@ -1162,7 +1162,7 @@ def test_build_command_run_request_rejects_malformed_url() -> None:
             stdio=None,
             target_agent_name=None,
             skills_directory=None,
-            environment_dir=None,
+            home=None,
             shell_enabled=False,
             mode="interactive",
         )

@@ -17,7 +17,7 @@ Configuration can also be provided through environment variables, with the namin
 
 ## Configuration File Location
 
-fast-agent loads configuration from the active fast-agent home first, then from the current working directory if no home config exists. The home is selected by `--env`, `FAST_AGENT_HOME`, legacy `ENVIRONMENT_DIR`, or the default `./.fast-agent`. You can also specify a configuration file path or URI with the `--config-path` (`-c`) command-line argument.
+fast-agent loads configuration from the active fast-agent home first, then from the current working directory if no home config exists. The home is selected by `--home`, `--workspace <path>/.fast-agent`, `FAST_AGENT_HOME`, or the default `./.fast-agent`. You can also specify a configuration file path or URI with the `--config-path` (`-c`) command-line argument.
 
 ## General Settings
 
@@ -42,7 +42,7 @@ llm_retries: 2
 execution_engine: "asyncio"
 
 # Base directory for fast-agent runtime data
-environment_dir: ".fast-agent"
+home: ".fast-agent"
 
 # Session history storage (on/off)
 session_history: true
@@ -91,7 +91,7 @@ Notes:
 
 ## Model Overlays
 
-Model overlays are environment-local named model entries stored under the active environment directory.
+Model overlays are home-local named model entries stored under the active home.
 
 Files are loaded from:
 
@@ -152,7 +152,7 @@ For a complete guide, see [Model Overlays](../models/model_overlays/).
 
 `git_aware` adds best-effort git provenance to persisted sessions and exported traces. When enabled and the session working directory is inside a git repository, fast-agent records the repository root, commit, capture time, branch, dirty state, GitHub `owner/repo` when available, and a sanitized `origin` remote URL. The first captured state is kept as `started`; later saves update `current`.
 
-`environment_dir` sets the base folder for local fast-agent data such as skills, sessions, and permission history. You can also override this per run with `fast-agent --env <path>`. Use `--noenv` for ephemeral runs that intentionally skip environment-based side effects.
+`home` sets the base folder for local fast-agent data such as skills, sessions, and permission history. You can also override this per run with `fast-agent --home <path>`, or choose a workspace with `fast-agent --workspace <path>` and let the home default to `<workspace>/.fast-agent`. Use `--no-home` for ephemeral runs that intentionally skip home-based side effects.
 
 ### History Compaction
 
@@ -661,7 +661,7 @@ plugins:
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `enabled` | Plugin names to load from the active environment's `plugins/` directory | `[]` |
+| `enabled` | Plugin names to load from the active fast-agent home's `plugins/` directory | `[]` |
 | `marketplace_url` | Single plugin registry for `fast-agent plugins add` | fast-agent card-packs registry |
 | `marketplace_urls` | Ordered plugin registries | fast-agent card-packs registry |
 | `config` | Namespaced plugin-specific configuration, keyed by plugin name | `{}` |
@@ -676,14 +676,14 @@ entries in the same marketplace file as the pack.
 Plugin-specific settings belong under `plugins.config.<plugin-name>`. The shape
 inside each plugin's namespace is owned by that plugin.
 
-Global plugins are layered separately from the active environment. When
+Global plugins are layered separately from the active fast-agent home. When
 `FAST_AGENT_HOME` is set, plugin names enabled in
 `$FAST_AGENT_HOME/fast-agent.yaml` are merged with the active project config,
-including when `--env <dir>` selects a different active environment. If
+including when `--home <dir>` selects a different active fast-agent home. If
 `FAST_AGENT_HOME` is not set, `~/.fast-agent/fast-agent.yaml` is used as the
 global plugin layer when it exists. Only the global file's `plugins` block is
 layered in: global plugins load from the global `plugins/` directory, and
-project-enabled plugins load from the active environment's `plugins/`
+project-enabled plugins load from the active fast-agent home's `plugins/`
 directory. Project plugin commands override global commands with the same name,
 and inline `commands:` entries override both.
 See [Command Plugins](../agents/plugins/) for install, update, and card-pack

@@ -1003,13 +1003,13 @@ def test_get_completions_for_model_web_fetch_values_omits_unsupported_setting() 
 
 def test_get_completions_for_session_pin(tmp_path: Path) -> None:
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
-    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    home = tmp_path / "env"
+    override = old_settings.model_copy(update={"home": str(home)})
     update_global_settings(override)
     reset_session_manager()
 
     try:
-        manager = SessionManager(environment_override=env_dir)
+        manager = SessionManager(home_override=home)
         manager.create_session()
 
         completer = AgentCompleter(agents=["agent1"], session_manager=manager)
@@ -1056,13 +1056,13 @@ def test_history_prefix_completion_handlers_cover_argument_prefixes() -> None:
 
 def test_get_completions_for_session_export(tmp_path: Path) -> None:
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
-    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    home = tmp_path / "env"
+    override = old_settings.model_copy(update={"home": str(home)})
     update_global_settings(override)
     reset_session_manager()
 
     try:
-        manager = SessionManager(environment_override=env_dir)
+        manager = SessionManager(home_override=home)
         session = manager.create_session()
 
         completer = AgentCompleter(agents=["agent1"], session_manager=manager)
@@ -1118,20 +1118,20 @@ def test_get_completions_for_session_export_privacy_filter_values() -> None:
     assert variant_names == ["q4", "q4f16", "q8"]
 
 
-def test_noenv_session_completion_does_not_create_session_storage(tmp_path: Path) -> None:
+def test_no_home_session_completion_does_not_create_session_storage(tmp_path: Path) -> None:
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
-    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    home = tmp_path / "env"
+    override = old_settings.model_copy(update={"home": str(home)})
     update_global_settings(override)
     reset_session_manager()
 
     try:
-        completer = AgentCompleter(agents=["agent1"], noenv_mode=True)
+        completer = AgentCompleter(agents=["agent1"], no_home_mode=True)
         doc = Document("/resume ", cursor_position=len("/resume "))
         completions = list(completer.get_completions(doc, None))
 
         assert completions == []
-        assert not (env_dir / "sessions").exists()
+        assert not (home / "sessions").exists()
     finally:
         update_global_settings(old_settings)
         reset_session_manager()
@@ -1139,13 +1139,13 @@ def test_noenv_session_completion_does_not_create_session_storage(tmp_path: Path
 
 def test_session_completion_uses_shared_title_extraction(tmp_path: Path) -> None:
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
-    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    home = tmp_path / "env"
+    override = old_settings.model_copy(update={"home": str(home)})
     update_global_settings(override)
     reset_session_manager()
 
     try:
-        manager = SessionManager(environment_override=env_dir)
+        manager = SessionManager(home_override=home)
         session = manager.create_session(
             metadata={
                 "title": {"text": "structured"},
@@ -1168,13 +1168,13 @@ def test_session_completion_uses_shared_title_extraction(tmp_path: Path) -> None
 
 def test_session_resume_completion_excludes_current_session(tmp_path: Path) -> None:
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
-    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    home = tmp_path / "env"
+    override = old_settings.model_copy(update={"home": str(home)})
     update_global_settings(override)
     reset_session_manager()
 
     try:
-        manager = SessionManager(environment_override=env_dir)
+        manager = SessionManager(home_override=home)
         previous = manager.create_session(metadata={"title": "Previous"})
         current = manager.create_session(metadata={"title": "Current"})
 
@@ -1837,7 +1837,7 @@ def test_mcp_connect_context_ignores_inline_value_flags_as_target(flag: str) -> 
 
 def test_get_completions_for_mcp_connect_configured_servers(monkeypatch) -> None:
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
-    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
@@ -1927,7 +1927,7 @@ def test_settings_mcp_servers_does_not_swallow_registry_target_failures(
 
 def test_get_completions_for_mcp_connect_configured_url_server_shows_url(monkeypatch) -> None:
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
-    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
@@ -1953,7 +1953,7 @@ def test_get_completions_for_mcp_connect_configured_url_server_shows_url(monkeyp
 
 def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) -> None:
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
-    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
@@ -1975,7 +1975,7 @@ def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) ->
 
 def test_get_completions_for_connect_alias_shows_target_hint_and_servers(monkeypatch) -> None:
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
-    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
@@ -2011,7 +2011,7 @@ def test_get_completions_for_connect_alias_connect_flags() -> None:
 def test_get_completions_for_skills_remove(monkeypatch):
     """Test get_completions suggests local skills for /skills remove."""
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
-    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     with tempfile.TemporaryDirectory() as tmpdir:
         skills_root = Path(tmpdir) / "skills"
         _write_skill(skills_root, "alpha")
@@ -2214,15 +2214,15 @@ def test_get_completions_for_skills_update_only_managed():
 
 def test_get_completions_for_cards_remove() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        env_root = Path(tmpdir) / ".fast-agent"
-        card_pack_root = env_root / "card-packs"
+        home_root = Path(tmpdir) / ".fast-agent"
+        card_pack_root = home_root / "card-packs"
         _write_card_pack(card_pack_root, "alpha")
         _write_card_pack(card_pack_root, "beta")
 
         old_settings = get_settings()
         override = old_settings.model_copy(
             update={
-                "environment_dir": str(env_root),
+                "home": str(home_root),
                 "cards": CardsSettings(),
             }
         )
@@ -2319,8 +2319,8 @@ def test_get_completions_for_cards_registry_dedupes_equivalent_active_source() -
 
 def test_get_completions_for_cards_update_only_managed() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        env_root = Path(tmpdir) / ".fast-agent"
-        card_pack_root = env_root / "card-packs"
+        home_root = Path(tmpdir) / ".fast-agent"
+        card_pack_root = home_root / "card-packs"
         _write_card_pack(card_pack_root, "alpha")
         _write_card_pack(card_pack_root, "beta")
         _write_card_pack(card_pack_root, "gamma")
@@ -2328,7 +2328,7 @@ def test_get_completions_for_cards_update_only_managed() -> None:
         _mark_card_pack_managed(card_pack_root, "gamma")
 
         old_settings = get_settings()
-        override = old_settings.model_copy(update={"environment_dir": str(env_root)})
+        override = old_settings.model_copy(update={"home": str(home_root)})
         update_global_settings(override)
         try:
             completer = AgentCompleter(agents=["agent1"])
@@ -2351,15 +2351,15 @@ def test_get_completions_for_cards_update_only_managed() -> None:
 
 def test_get_completions_for_plugins_remove() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        env_root = Path(tmpdir) / ".fast-agent"
-        plugin_root = env_root / "plugins"
+        home_root = Path(tmpdir) / ".fast-agent"
+        plugin_root = home_root / "plugins"
         _write_plugin(plugin_root, "alpha")
         _write_plugin(plugin_root, "beta")
 
         old_settings = get_settings()
         override = old_settings.model_copy(
             update={
-                "environment_dir": str(env_root),
+                "home": str(home_root),
                 "plugins": PluginsSettings(),
             }
         )
@@ -2381,8 +2381,8 @@ def test_get_completions_for_plugins_remove() -> None:
 
 def test_get_completions_for_plugins_update_only_managed() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        env_root = Path(tmpdir) / ".fast-agent"
-        plugin_root = env_root / "plugins"
+        home_root = Path(tmpdir) / ".fast-agent"
+        plugin_root = home_root / "plugins"
         _write_plugin(plugin_root, "alpha")
         _write_plugin(plugin_root, "beta")
         _write_plugin(plugin_root, "gamma")
@@ -2392,7 +2392,7 @@ def test_get_completions_for_plugins_update_only_managed() -> None:
         old_settings = get_settings()
         override = old_settings.model_copy(
             update={
-                "environment_dir": str(env_root),
+                "home": str(home_root),
                 "plugins": PluginsSettings(),
             }
         )

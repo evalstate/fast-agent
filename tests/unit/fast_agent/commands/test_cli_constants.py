@@ -13,10 +13,10 @@ def test_go_specific_options_include_results() -> None:
     assert "--results" in GO_SPECIFIC_OPTIONS
 
 
-def test_go_specific_options_include_agent_and_noenv() -> None:
+def test_go_specific_options_include_agent_and_no_home() -> None:
     assert "--agent" in GO_SPECIFIC_OPTIONS
-    assert "--noenv" in GO_SPECIFIC_OPTIONS
-    assert "--no-env" in GO_SPECIFIC_OPTIONS
+    assert "--no-home" in GO_SPECIFIC_OPTIONS
+    assert "--no-home" in GO_SPECIFIC_OPTIONS
     assert "--no-shell" in GO_SPECIFIC_OPTIONS
 
 

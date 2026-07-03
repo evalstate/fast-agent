@@ -6,7 +6,7 @@ from fast_agent import FastAgent
 HERE = Path(__file__).parent
 ENV_DIR = HERE / "harness-cards"
 
-fast = FastAgent("Support Bot", parse_cli_args=False, quiet=True, environment_dir=ENV_DIR)
+fast = FastAgent("Support Bot", parse_cli_args=False, quiet=True, home=ENV_DIR)
 
 
 async def main() -> None:

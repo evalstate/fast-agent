@@ -87,7 +87,7 @@ class _FakeAgentApp:
         self.attached: list[str] = []
         self.detached: list[str] = []
         self.loaded: list[str] = []
-        self.noenv_mode = False
+        self.no_home_mode = False
         self.missing_shell_cwd_policy_override: str | None = None
 
     async def refresh_if_needed(self) -> bool:

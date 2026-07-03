@@ -266,7 +266,7 @@ params/config) are forwarded.
 For convenience, popular models have built-in **model presets** such as `codex` or `sonnet`.
 These are documented on the [LLM Providers](llm_providers/) page.
 
-You can also create local **model overlays**. These are environment-local named model entries that
+You can also create local **model overlays**. These are home-local named model entries that
 bundle endpoint settings, auth, request defaults, and local metadata under a short token such as
 `qwen-local`. See [Model Overlays](model_overlays/).
 

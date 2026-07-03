@@ -237,7 +237,7 @@ def show_fast_agent_home_summary(agent_provider: "AgentApp | None") -> None:
     source = config._fast_agent_home_source
     source_suffix = f" [dim]via {escape_markup(str(source))}[/dim]" if source else ""
     rich_print(
-        f"[dim]fast-agent environment[/dim] [blue]{format_home_relative_path(str(home))}[/blue]"
+        f"[dim]fast-agent home[/dim] [blue]{format_home_relative_path(str(home))}[/blue]"
         f"[dim] ({', '.join(parts)}){source_suffix}[/dim]"
     )
 

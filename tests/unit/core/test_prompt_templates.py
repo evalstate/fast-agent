@@ -21,24 +21,24 @@ def test_enrich_with_environment_context_populates_env_block():
     assert "internal://fast-agent/model-overlays" in context["agentInternalResources"]
 
 
-def test_enrich_with_environment_context_noenv_omits_environment_paths(tmp_path):
+def test_enrich_with_environment_context_no_home_omits_home_paths(tmp_path):
     from fast_agent.config import Settings, get_settings, update_global_settings
 
     context: dict[str, str] = {}
     settings = Settings()
-    settings._fast_agent_noenv = True
+    settings._fast_agent_no_home = True
     previous_settings = get_settings()
 
     try:
         update_global_settings(settings)
-        enrich_with_environment_context(context, str(tmp_path), {"name": "Zed"}, noenv=True)
+        enrich_with_environment_context(context, str(tmp_path), {"name": "Zed"}, no_home=True)
     finally:
         update_global_settings(previous_settings)
 
     assert context["workspaceRoot"] == str(tmp_path)
-    assert "environmentDir" not in context
-    assert "environmentAgentCardsDir" not in context
-    assert "environmentToolCardsDir" not in context
+    assert "homeDir" not in context
+    assert "homeAgentCardsDir" not in context
+    assert "homeToolCardsDir" not in context
     assert f"Workspace root: {tmp_path}" in context["env"]
 
 
@@ -78,7 +78,7 @@ This is the skill body content.
     context: dict[str, str] = {}
     client_info = {"name": "test-client"}
 
-    original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    original_home = os.environ.pop("FAST_AGENT_HOME", None)
     original_fast_agent_home = os.environ.pop("FAST_AGENT_HOME", None)
     import fast_agent.config as config_module
 
@@ -88,8 +88,8 @@ This is the skill body content.
         enrich_with_environment_context(context, str(tmp_path), client_info)
     finally:
         config_module._settings = original_settings
-        if original_env_dir is not None:
-            os.environ["ENVIRONMENT_DIR"] = original_env_dir
+        if original_home is not None:
+            os.environ["FAST_AGENT_HOME"] = original_home
         if original_fast_agent_home is not None:
             os.environ["FAST_AGENT_HOME"] = original_fast_agent_home
 
@@ -174,8 +174,8 @@ description: Skill 1
     assert manifests[0].name == "skill1"
 
 
-def test_load_skills_for_context_uses_environment_dir_setting(tmp_path):
-    """load_skills_for_context should honor settings.environment_dir when using defaults."""
+def test_load_skills_for_context_uses_home_setting(tmp_path):
+    """load_skills_for_context should honor settings.home when using defaults."""
     from fast_agent.config import Settings, get_settings, update_global_settings
     from fast_agent.core.prompt_templates import load_skills_for_context
 
@@ -187,7 +187,7 @@ def test_load_skills_for_context_uses_environment_dir_setting(tmp_path):
     )
 
     previous_settings = get_settings()
-    update_global_settings(Settings(environment_dir=".dev"))
+    update_global_settings(Settings(home=".dev"))
     try:
         manifests = load_skills_for_context(str(tmp_path), None)
     finally:

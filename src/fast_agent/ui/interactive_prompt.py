@@ -741,7 +741,7 @@ class InteractivePrompt:
         ctrl_c_exit_window_seconds: float,
         session_manager: "SessionManager | None",
     ) -> PromptInputPhase:
-        noenv_mode = prompt_provider.noenv_mode
+        no_home_mode = prompt_provider.no_home_mode
         try:
             user_input = await get_enhanced_input(
                 agent_name=agent_state.current_agent,
@@ -752,7 +752,7 @@ class InteractivePrompt:
                 available_agent_names=agent_state.available_agents,
                 agent_types=self.agent_types,
                 agent_provider=prompt_provider,
-                noenv_mode=noenv_mode,
+                no_home_mode=no_home_mode,
                 pre_populate_buffer=buffer_prefill,
                 session_manager=session_manager,
             )

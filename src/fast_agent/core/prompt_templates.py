@@ -60,7 +60,7 @@ def load_skills_for_context(
     workspace_root: str | None,
     skills_directory_override: str | Path | Sequence[str | Path] | None = None,
     *,
-    noenv: bool = False,
+    no_home: bool = False,
 ) -> list["SkillManifest"]:
     """
     Load skill manifests from the workspace root or override directory.
@@ -101,8 +101,8 @@ def load_skills_for_context(
         settings = get_settings()
         settings_for_skills = (
             settings
-            if noenv
-            or settings.environment_dir is not None
+            if no_home
+            or settings.home is not None
             or settings._fast_agent_home_source != "default"
             else None
         )
@@ -125,7 +125,7 @@ def enrich_with_environment_context(
     client_info: Mapping[str, str] | None,
     skills_directory_override: str | Path | Sequence[str | Path] | None = None,
     *,
-    noenv: bool = False,
+    no_home: bool = False,
 ) -> None:
     """
     Populate the provided context mapping with environment details used for template replacement.
@@ -138,13 +138,13 @@ def enrich_with_environment_context(
     """
     if cwd:
         context["workspaceRoot"] = cwd
-        if not noenv:
-            from fast_agent.paths import resolve_environment_paths
+        if not no_home:
+            from fast_agent.paths import resolve_home_paths
 
-            env_paths = resolve_environment_paths(cwd=Path(cwd))
-            context["environmentDir"] = str(env_paths.root)
-            context["environmentAgentCardsDir"] = str(env_paths.agent_cards)
-            context["environmentToolCardsDir"] = str(env_paths.tool_cards)
+            home_paths = resolve_home_paths(cwd=Path(cwd))
+            context["homeDir"] = str(home_paths.root)
+            context["homeAgentCardsDir"] = str(home_paths.agent_cards)
+            context["homeToolCardsDir"] = str(home_paths.tool_cards)
 
     server_platform = platform.platform()
     python_version = platform.python_version()
@@ -159,7 +159,7 @@ def enrich_with_environment_context(
     if cwd:
         from fast_agent.skills.registry import format_skills_for_prompt
 
-        skill_manifests = load_skills_for_context(cwd, skills_directory_override, noenv=noenv)
+        skill_manifests = load_skills_for_context(cwd, skills_directory_override, no_home=no_home)
         skills_text = format_skills_for_prompt(skill_manifests, read_tool_name="read_text_file")
         context["agentSkills"] = skills_text
 

@@ -253,7 +253,7 @@ class LocalShellExecutor:
         is_windows = platform.system() == "Windows"
         child_env = build_child_environment(
             active_home=getattr(self._config, "_fast_agent_home", None),
-            noenv=bool(getattr(self._config, "_fast_agent_noenv", False)),
+            no_home=bool(getattr(self._config, "_fast_agent_no_home", False)),
         )
         if env is not None:
             child_env.update(env)

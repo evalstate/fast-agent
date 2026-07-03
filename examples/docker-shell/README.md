@@ -48,7 +48,7 @@ async with fast.run(environment=environment) as agent_app:
 When the model calls `execute`, commands run in the Docker container mounted at
 `/workspace`.
 
-The interactive example uses `DockerMountedSessionEnvironment`, so model-facing
+The interactive example uses `DockerMountedEnvironment`, so model-facing
 filesystem helper tools such as `read_text_file`, `write_text_file`, and
 `apply_patch` target the same `/workspace` bind mount used by Docker shell
 execution.

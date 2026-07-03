@@ -310,7 +310,7 @@ The harness uses the same initialization path as `fast.run()`:
 
 - app initialization;
 - config and model loading;
-- AgentCard loading from the active environment's `agent-cards/` directory;
+- AgentCard loading from the active fast-agent home's `agent-cards/` directory;
 - Agent Skill discovery and prompt injection;
 - MCP server configuration;
 - shell/filesystem runtime setup;
@@ -325,7 +325,7 @@ It does not enter:
 - MCP server mode;
 - ACP server mode.
 
-If the active environment contains AgentCards, the harness loads them before
+If the active fast-agent home contains AgentCards, the harness loads them before
 validating that agents exist:
 
 ```text
@@ -335,7 +335,7 @@ validating that agents exist:
 ```
 
 ```python
-fast = FastAgent("Support Bot", parse_cli_args=False, environment_dir=".fast-agent")
+fast = FastAgent("Support Bot", parse_cli_args=False, home=".fast-agent")
 
 async with fast.harness() as harness:
     session = await harness.session("customer-123", agent_name="support")
@@ -571,7 +571,7 @@ Behavior:
 - different session IDs get different `AgentInstance` objects;
 - histories, MCP aggregators, and tool runtime objects are isolated between sessions;
 - when `session_history` is enabled, the harness creates or loads
-  `environment_dir/sessions/<session_id>/`;
+  `home/sessions/<session_id>/`;
 - persisted history for the same session ID is hydrated when a new harness
   process starts;
 - deleting a session disposes its `AgentInstance`;
@@ -581,7 +581,7 @@ Behavior:
 For example:
 
 ```python
-fast = FastAgent("Support Bot", parse_cli_args=False, environment_dir=".fast-agent")
+fast = FastAgent("Support Bot", parse_cli_args=False, home=".fast-agent")
 
 async with fast.harness() as harness:
     session = await harness.session("customer-123", agent_name="support")
@@ -600,7 +600,7 @@ creates:
 
 Running the program again with the same `session_id` loads that persisted
 history before the next turn. Set `session_history: false` in config or use
-`noenv=True` to disable persistence.
+`no_home=True` to disable persistence.
 
 Delete a session explicitly when you are done with it:
 
@@ -788,7 +788,7 @@ resolved agent's `message_history` with `ConversationSummary`:
 from fast_agent import ConversationSummary, FastAgent
 
 
-fast = FastAgent("Support Bot", parse_cli_args=False, environment_dir=".fast-agent")
+fast = FastAgent("Support Bot", parse_cli_args=False, home=".fast-agent")
 
 
 async with fast.harness() as harness:
@@ -814,7 +814,7 @@ For deterministic test cases, prefer one session ID per case so saved history
 cannot leak between cases. Reuse a session ID only when the eval is intentionally
 checking conversation memory. When `session_history` is enabled, call
 `await session.delete()` after a case if you do not want the persisted eval
-session kept under `environment_dir/sessions/`.
+session kept under `home/sessions/`.
 
 GEPA and artifact-heavy eval loops can use the same pattern inside their scorer
 or candidate evaluator, while writing candidate inputs, outputs, summaries, and
@@ -891,12 +891,12 @@ flow. Use this when the model should decide which commands to run or when the
 tool interaction should be part of the agent turn.
 
 Filesystem access remains tool-mediated through configured agents. If the
-injected shell environment also implements `SessionFilesystem`, model-facing
+injected shell environment also implements `EnvironmentFilesystem`, model-facing
 file tools such as `read_text_file`, `write_text_file`, `edit_file`, and
 `apply_patch` use that environment filesystem.
 
 Session IDs are conversation/runtime affinity keys, not security boundaries. A
-session does not automatically create a per-session filesystem sandbox. For
+session does not automatically create a filesystem sandbox. For
 multi-user applications that expose shell or filesystem tools, use separate
 harnesses, environment roots, process-level sandboxes, or another explicit
 isolation layer appropriate for your deployment.

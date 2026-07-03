@@ -13,14 +13,14 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from fast_agent import FastAgent
-from fast_agent.tools.docker_shell_environment import DockerMountedSessionEnvironment
+from fast_agent.tools.docker_shell_environment import DockerMountedEnvironment
 
 HERE = Path(__file__).parent
 
 fast = FastAgent(
     "WSLC interactive shell demo",
     parse_cli_args=False,
-    environment_dir=HERE / ".fast-agent",
+    home=HERE / ".fast-agent",
 )
 
 
@@ -57,7 +57,7 @@ async def run_interactive(workspace: Path, *, image: str, shell: str) -> None:
         "This file is mounted from the host into the wslc shell environment.\n"
     )
 
-    environment = DockerMountedSessionEnvironment(
+    environment = DockerMountedEnvironment(
         image=image,
         container_cli="wslc",
         shell=shell,

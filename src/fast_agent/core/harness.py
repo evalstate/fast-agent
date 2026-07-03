@@ -493,7 +493,7 @@ class AgentHarness:
     ) -> None:
         self._fast_agent = fast_agent
         self._model = model
-        self._environment_override = environment
+        self._home_override = environment
         self._sessions: HarnessSessions | None = None
         self._runtime: RunRuntime | None = None
         self._settings: RunSettings | None = None
@@ -525,8 +525,8 @@ class AgentHarness:
             )
             self._settings = self._lifecycle_state.settings
             self._runtime = self._lifecycle_state.runtime
-            if self._environment_override is not None:
-                self._runtime.shell_environment = self._environment_override
+            if self._home_override is not None:
+                self._runtime.shell_environment = self._home_override
             self._shell_environment = self._runtime.shell_environment
             await self._shell_environment.open()
             self._sessions = HarnessSessions(
@@ -668,13 +668,13 @@ class AgentHarness:
 
     def _load_environment_agent_cards(self) -> None:
         from fast_agent.core.agent_card_paths import is_agent_card_path
-        from fast_agent.paths import resolve_environment_paths
+        from fast_agent.paths import resolve_home_paths
 
         settings = self._fast_agent.context.config
         if settings is None:
             return
 
-        agent_cards_dir = resolve_environment_paths(settings).agent_cards
+        agent_cards_dir = resolve_home_paths(settings).agent_cards
         if not agent_cards_dir.is_dir():
             return
         if not any(
@@ -685,9 +685,9 @@ class AgentHarness:
 
     def _harness_persistence(self) -> HarnessSessionPersistence | None:
         settings = self._fast_agent.context.config
-        if settings is None or settings._fast_agent_noenv or not settings.session_history:
+        if settings is None or settings._fast_agent_no_home or not settings.session_history:
             return None
-        return FileHarnessSessionPersistence(settings.environment_dir)
+        return FileHarnessSessionPersistence(settings.home)
 
     async def _create_instance(self) -> AgentInstance:
         if self._runtime is None:

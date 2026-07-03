@@ -23,9 +23,9 @@ def build_command_context(
 ) -> CommandContext:
     settings = get_settings()
     try:
-        noenv_mode = prompt_provider.noenv_mode
+        no_home_mode = prompt_provider.no_home_mode
     except AttributeError:
-        noenv_mode = prompt_provider._noenv_mode
+        no_home_mode = prompt_provider._no_home_mode
     io = TuiCommandIO(
         prompt_provider=cast("AgentProvider", prompt_provider),
         agent_name=agent_name,
@@ -36,7 +36,7 @@ def build_command_context(
         current_agent_name=agent_name,
         io=io,
         settings=settings,
-        noenv=noenv_mode,
+        no_home=no_home_mode,
         session_manager=session_manager,
     )
 

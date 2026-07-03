@@ -1288,7 +1288,7 @@ def _session_handler(
 
 
 def _active_session_id_or_empty(context: CommandContext, target: str | None) -> str | None:
-    if context.noenv:
+    if context.no_home:
         return None
 
     if context.session_runtime is None:

@@ -12,7 +12,7 @@ from shutil import rmtree
 from typing import TYPE_CHECKING, Literal
 
 from fast_agent.tools.session_environment import (
-    SessionFileEntry,
+    EnvironmentFileEntry,
     ShellExecution,
     ShellExecutionCallbacks,
     ShellExecutionOptions,
@@ -334,7 +334,7 @@ class DockerManagedShellEnvironment(DockerShellEnvironment):
         self._container = ""
 
 
-class DockerMountedSessionEnvironment(DockerManagedShellEnvironment):
+class DockerMountedEnvironment(DockerManagedShellEnvironment):
     """Docker shell environment whose file tools target one bind mount."""
 
     def __init__(
@@ -378,10 +378,10 @@ class DockerMountedSessionEnvironment(DockerManagedShellEnvironment):
     async def exists(self, path: str) -> bool:
         return self._host_path(path).exists()
 
-    async def list_dir(self, path: str) -> list[SessionFileEntry]:
+    async def list_dir(self, path: str) -> list[EnvironmentFileEntry]:
         host_dir = self._host_path(path)
         container_dir = self.resolve_path(path)
-        entries: list[SessionFileEntry] = []
+        entries: list[EnvironmentFileEntry] = []
         for child in sorted(host_dir.iterdir(), key=lambda item: item.name):
             if child.is_dir():
                 kind = "directory"
@@ -390,7 +390,7 @@ class DockerMountedSessionEnvironment(DockerManagedShellEnvironment):
             else:
                 kind = "other"
             entries.append(
-                SessionFileEntry(
+                EnvironmentFileEntry(
                     path=_normalize_container_path(posixpath.join(container_dir, child.name)),
                     name=child.name,
                     kind=kind,
@@ -415,7 +415,7 @@ class DockerMountedSessionEnvironment(DockerManagedShellEnvironment):
 
 
 __all__ = [
-    "DockerMountedSessionEnvironment",
+    "DockerMountedEnvironment",
     "DockerManagedShellEnvironment",
     "DockerMount",
     "DockerMountMode",

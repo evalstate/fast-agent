@@ -336,11 +336,11 @@ class ModelSelectionCatalog:
         overlay_registry: ModelOverlayRegistry | None = None,
         *,
         start_path: Path | None = None,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
     ) -> ModelOverlayRegistry:
         if overlay_registry is not None:
             return overlay_registry
-        return load_model_overlay_registry(start_path=start_path, env_dir=env_dir)
+        return load_model_overlay_registry(start_path=start_path, home=home)
 
     @classmethod
     def _entries_by_provider(
@@ -348,7 +348,7 @@ class ModelSelectionCatalog:
         overlay_registry: ModelOverlayRegistry | None = None,
         *,
         start_path: Path | None = None,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
     ) -> dict[Provider, tuple[CatalogModelEntry, ...]]:
         provider_map = {
             provider: list(entries) for provider, entries in cls.CATALOG_ENTRIES_BY_PROVIDER.items()
@@ -356,7 +356,7 @@ class ModelSelectionCatalog:
         overlay_registry = cls._resolve_overlay_registry(
             overlay_registry,
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
         )
         overlay_entries_by_provider: dict[Provider, list[CatalogModelEntry]] = {}
         overlay_aliases_by_provider: dict[Provider, set[str]] = {}
@@ -400,13 +400,13 @@ class ModelSelectionCatalog:
         current: bool | None = None,
         overlay_registry: ModelOverlayRegistry | None = None,
         start_path: Path | None = None,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
     ) -> list[CatalogModelEntry]:
         """Return catalog entries, optionally filtered by provider and current flag."""
         provider_map = cls._entries_by_provider(
             overlay_registry=overlay_registry,
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
         )
         if provider is not None:
             entries = list(provider_map.get(provider, ()))
@@ -428,7 +428,7 @@ class ModelSelectionCatalog:
         *,
         overlay_registry: ModelOverlayRegistry | None = None,
         start_path: Path | None = None,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
     ) -> list[CatalogModelEntry]:
         """Return current entries for one provider, or all providers."""
         return cls.list_entries(
@@ -436,7 +436,7 @@ class ModelSelectionCatalog:
             current=True,
             overlay_registry=overlay_registry,
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
         )
 
     @classmethod
@@ -446,7 +446,7 @@ class ModelSelectionCatalog:
         *,
         overlay_registry: ModelOverlayRegistry | None = None,
         start_path: Path | None = None,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
     ) -> list[CatalogModelEntry]:
         """Return listed but non-current entries for one provider, or all providers."""
         return cls.list_entries(
@@ -454,7 +454,7 @@ class ModelSelectionCatalog:
             current=False,
             overlay_registry=overlay_registry,
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
         )
 
     @classmethod
@@ -464,14 +464,14 @@ class ModelSelectionCatalog:
         *,
         overlay_registry: ModelOverlayRegistry | None = None,
         start_path: Path | None = None,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
     ) -> list[str]:
         """Return current models for one provider, or all providers."""
         entries = cls.list_current_entries(
             provider,
             overlay_registry=overlay_registry,
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
         )
         return unique_preserve_order(entry.model for entry in entries)
 
@@ -482,14 +482,14 @@ class ModelSelectionCatalog:
         *,
         overlay_registry: ModelOverlayRegistry | None = None,
         start_path: Path | None = None,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
     ) -> list[str]:
         """Return current aliases for one provider, or all providers."""
         entries = cls.list_current_entries(
             provider,
             overlay_registry=overlay_registry,
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
         )
         return unique_preserve_order(entry.alias for entry in entries)
 
@@ -500,14 +500,14 @@ class ModelSelectionCatalog:
         *,
         overlay_registry: ModelOverlayRegistry | None = None,
         start_path: Path | None = None,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
     ) -> list[str]:
         """Return listed aliases that are intentionally not current."""
         entries = cls.list_non_current_entries(
             provider,
             overlay_registry=overlay_registry,
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
         )
         return unique_preserve_order(entry.alias for entry in entries)
 
@@ -518,14 +518,14 @@ class ModelSelectionCatalog:
         *,
         overlay_registry: ModelOverlayRegistry | None = None,
         start_path: Path | None = None,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
     ) -> list[str]:
         """Return explicit fast models from current catalog entries."""
         entries = cls.list_current_entries(
             provider,
             overlay_registry=overlay_registry,
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
         )
         return unique_preserve_order(entry.model for entry in entries if entry.fast)
 
@@ -537,7 +537,7 @@ class ModelSelectionCatalog:
         *,
         overlay_registry: ModelOverlayRegistry | None = None,
         start_path: Path | None = None,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
     ) -> list[str]:
         """Return all known models, optionally constrained to one provider."""
         config_payload = cls._as_mapping(config)
@@ -548,7 +548,7 @@ class ModelSelectionCatalog:
             provider,
             overlay_registry=overlay_registry,
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
         )
         discovered = ProviderModelCatalogRegistry.discover(provider, config_payload)
         if not discovered.all_models:
@@ -568,7 +568,7 @@ class ModelSelectionCatalog:
         *,
         overlay_registry: ModelOverlayRegistry | None = None,
         start_path: Path | None = None,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
     ) -> list[Provider]:
         """Detect providers with configured credentials via config and environment."""
         config_payload = cls._as_mapping(config)
@@ -577,7 +577,7 @@ class ModelSelectionCatalog:
         for provider in cls._entries_by_provider(
             overlay_registry=overlay_registry,
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
         ):
             provider_name = provider.config_name
 
@@ -632,14 +632,14 @@ class ModelSelectionCatalog:
         *,
         overlay_registry: ModelOverlayRegistry | None = None,
         start_path: Path | None = None,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
     ) -> list[str]:
         overlay_models = [
             overlay.compiled_model_spec
             for overlay in ModelSelectionCatalog._resolve_overlay_registry(
                 overlay_registry,
                 start_path=start_path,
-                env_dir=env_dir,
+                home=home,
             ).entries_for_provider(provider)
         ]
         models = ModelDatabase.list_models()

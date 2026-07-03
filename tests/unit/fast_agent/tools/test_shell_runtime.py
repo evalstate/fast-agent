@@ -297,7 +297,7 @@ async def test_shell_environment_exports_runtime_home(tmp_path: Path) -> None:
     executor = LocalShellExecutor(logger=logging.getLogger(__name__), config=settings)
 
     result = await executor.execute_shell(
-        f"{sys.executable} -c \"import os; print(os.environ['ENVIRONMENT_DIR'])\"",
+        f"{sys.executable} -c \"import os; print(os.environ['FAST_AGENT_HOME'])\"",
         cwd=tmp_path,
     )
 
@@ -306,14 +306,14 @@ async def test_shell_environment_exports_runtime_home(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_shell_environment_strips_runtime_home_in_noenv(tmp_path: Path) -> None:
+async def test_shell_environment_strips_runtime_home_in_no_home(tmp_path: Path) -> None:
     settings = Settings()
     settings._fast_agent_home = str(tmp_path / ".fast-agent")
-    settings._fast_agent_noenv = True
+    settings._fast_agent_no_home = True
     executor = LocalShellExecutor(logger=logging.getLogger(__name__), config=settings)
 
     result = await executor.execute_shell(
-        (f"{sys.executable} -c \"import os; print(os.environ.get('ENVIRONMENT_DIR', 'missing'))\""),
+        (f"{sys.executable} -c \"import os; print(os.environ.get('FAST_AGENT_HOME', 'missing'))\""),
         cwd=tmp_path,
     )
 

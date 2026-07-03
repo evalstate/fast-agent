@@ -55,7 +55,7 @@ async def test_harness_loads_environment_agent_cards(tmp_path: "Path") -> None:
     cards_dir = tmp_path / "agent-cards"
     cards_dir.mkdir()
     (cards_dir / "support.md").write_text("---\ntype: agent\n---\n", encoding="utf-8")
-    fast = FastAgent("test", parse_cli_args=False, environment_dir=tmp_path)
+    fast = FastAgent("test", parse_cli_args=False, home=tmp_path)
 
     await fast.app.initialize()
     try:
@@ -313,7 +313,7 @@ async def test_harness_create_instance_runs_run_path_setup() -> None:
         model_factory_func=cast("Any", None),
         global_prompt_context=None,
         is_acp_server_mode=False,
-        noenv_mode=False,
+        no_home_mode=False,
         managed_instances=[],
         instance_lock=asyncio.Lock(),
         shell_environment=FakeShellEnvironment(),
@@ -321,7 +321,7 @@ async def test_harness_create_instance_runs_run_path_setup() -> None:
     harness._settings = RunSettings(
         quiet_mode=False,
         cli_model_override=None,
-        noenv_mode=False,
+        no_home_mode=False,
         server_mode=False,
         transport=None,
         is_acp_server_mode=False,
@@ -414,7 +414,7 @@ async def test_harness_session_saves_to_current_managed_session_after_session_sw
     from fast_agent.session.session_manager import SessionManager
 
     factory = InstanceFactory()
-    manager = SessionManager(environment_override=tmp_path)
+    manager = SessionManager(home_override=tmp_path)
 
     async def create_persisted_session(
         session_id: str,
@@ -446,7 +446,7 @@ async def test_harness_close_removes_untitled_empty_persisted_session(tmp_path: 
     from fast_agent.session.session_manager import SessionManager
 
     factory = InstanceFactory()
-    manager = SessionManager(environment_override=tmp_path)
+    manager = SessionManager(home_override=tmp_path)
 
     async def create_persisted_session(
         session_id: str,
@@ -479,7 +479,7 @@ async def test_harness_close_keeps_titled_empty_persisted_session(tmp_path: "Pat
     from fast_agent.session.session_manager import SessionManager
 
     factory = InstanceFactory()
-    manager = SessionManager(environment_override=tmp_path)
+    manager = SessionManager(home_override=tmp_path)
 
     async def create_persisted_session(
         session_id: str,

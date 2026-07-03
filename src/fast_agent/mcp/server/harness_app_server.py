@@ -189,8 +189,8 @@ def create_harness_mcp_app_runtime(
 ) -> HarnessMCPAppRuntime:
     """Create the default harness MCP app runtime without starting transport."""
     persistence = (
-        FileHarnessSessionPersistence(settings.environment_dir)
-        if settings is not None and not settings._fast_agent_noenv and settings.session_history
+        FileHarnessSessionPersistence(settings.home)
+        if settings is not None and not settings._fast_agent_no_home and settings.session_history
         else None
     )
     sessions = HarnessSessions(

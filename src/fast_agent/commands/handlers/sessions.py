@@ -26,12 +26,12 @@ if TYPE_CHECKING:
     from fast_agent.session.session_manager import SessionManager
 
 
-NOENV_SESSION_MESSAGE = "Session commands are disabled in --noenv mode."
+NOENV_SESSION_MESSAGE = "Session commands are disabled in --no-home mode."
 SESSION_UNAVAILABLE_MESSAGE = "Session commands are unavailable in this context."
 _PIN_USAGE = "Usage: /session pin <title>"
 
 
-def _noenv_outcome() -> CommandOutcome:
+def _no_home_outcome() -> CommandOutcome:
     outcome = CommandOutcome()
     outcome.add_message(NOENV_SESSION_MESSAGE, channel="warning", right_info="session")
     return outcome
@@ -44,8 +44,8 @@ def _unavailable_outcome() -> CommandOutcome:
 
 
 def _session_runtime(ctx: CommandContext):
-    if ctx.noenv:
-        return None, _noenv_outcome()
+    if ctx.no_home:
+        return None, _no_home_outcome()
     if ctx.session_runtime is None:
         return None, _unavailable_outcome()
     return ctx.session_runtime, None
@@ -168,8 +168,8 @@ async def handle_create_session(
     session_id: str | None = None,
     replace_existing: bool = False,
 ) -> CommandOutcome:
-    if ctx.noenv:
-        return _noenv_outcome()
+    if ctx.no_home:
+        return _no_home_outcome()
 
     runtime, unavailable = _session_runtime(ctx)
     if unavailable is not None:
@@ -210,8 +210,8 @@ async def handle_list_sessions(
     *,
     show_help: bool = False,
 ) -> CommandOutcome:
-    if ctx.noenv:
-        return _noenv_outcome()
+    if ctx.no_home:
+        return _no_home_outcome()
 
     runtime, unavailable = _session_runtime(ctx)
     if unavailable is not None:
@@ -238,8 +238,8 @@ async def handle_pin_session(
     *,
     title: str | None,
 ) -> CommandOutcome:
-    if ctx.noenv:
-        return _noenv_outcome()
+    if ctx.no_home:
+        return _no_home_outcome()
 
     outcome = CommandOutcome()
     runtime, unavailable = _session_runtime(ctx)
@@ -268,8 +268,8 @@ async def handle_pin_session(
 
 
 async def handle_unpin_session(ctx: CommandContext) -> CommandOutcome:
-    if ctx.noenv:
-        return _noenv_outcome()
+    if ctx.no_home:
+        return _no_home_outcome()
 
     outcome = CommandOutcome()
     runtime, unavailable = _session_runtime(ctx)
@@ -297,8 +297,8 @@ async def handle_clear_sessions(
     *,
     target: str | None,
 ) -> CommandOutcome:
-    if ctx.noenv:
-        return _noenv_outcome()
+    if ctx.no_home:
+        return _no_home_outcome()
 
     outcome = CommandOutcome()
     from fast_agent.session import apply_session_window
@@ -478,8 +478,8 @@ async def handle_resume_session(
     agent_name: str,
     session_id: str | None,
 ) -> CommandOutcome:
-    if ctx.noenv:
-        return _noenv_outcome()
+    if ctx.no_home:
+        return _no_home_outcome()
 
     outcome = CommandOutcome()
     runtime, unavailable = _session_runtime(ctx)
@@ -533,8 +533,8 @@ async def handle_title_session(
     title: str | None,
     session_id: str | None = None,
 ) -> CommandOutcome:
-    if ctx.noenv:
-        return _noenv_outcome()
+    if ctx.no_home:
+        return _no_home_outcome()
 
     outcome = CommandOutcome()
     title = _strip_wrapping_quotes(title)
@@ -562,8 +562,8 @@ async def handle_fork_session(
     *,
     title: str | None,
 ) -> CommandOutcome:
-    if ctx.noenv:
-        return _noenv_outcome()
+    if ctx.no_home:
+        return _no_home_outcome()
 
     outcome = CommandOutcome()
     runtime, unavailable = _session_runtime(ctx)

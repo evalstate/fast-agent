@@ -94,8 +94,8 @@ from fast_agent.tools.filesystem_tool_definitions import (
     WRITE_TEXT_FILE_TOOL_NAME,
 )
 from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
-from fast_agent.tools.session_environment import SessionFilesystem
-from fast_agent.tools.session_filesystem_runtime import SessionFilesystemRuntime
+from fast_agent.tools.session_environment import EnvironmentFilesystem
+from fast_agent.tools.session_filesystem_runtime import EnvironmentFilesystemRuntime
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME, SkillReader
 from fast_agent.types import (
@@ -581,16 +581,16 @@ class McpAgent(ABC, ToolAgent):
                 return fallback
         return None
 
-    def _session_filesystem_runtime(self) -> SessionFilesystemRuntime | None:
+    def _environment_filesystem_runtime(self) -> EnvironmentFilesystemRuntime | None:
         runtime = self._filesystem_runtime
-        if isinstance(runtime, SessionFilesystemRuntime):
+        if isinstance(runtime, EnvironmentFilesystemRuntime):
             return runtime
         if isinstance(runtime, CompositeFilesystemRuntime):
             primary = runtime.primary
-            if isinstance(primary, SessionFilesystemRuntime):
+            if isinstance(primary, EnvironmentFilesystemRuntime):
                 return primary
             fallback = runtime.fallback
-            if isinstance(fallback, SessionFilesystemRuntime):
+            if isinstance(fallback, EnvironmentFilesystemRuntime):
                 return fallback
         return None
 
@@ -622,7 +622,7 @@ class McpAgent(ABC, ToolAgent):
 
     def _skills_require_host_reader(self) -> bool:
         """Return whether configured skills should be read from host paths."""
-        return bool(self._skill_manifests and self._session_filesystem_runtime() is not None)
+        return bool(self._skill_manifests and self._environment_filesystem_runtime() is not None)
 
     @property
     def initialized(self) -> bool:
@@ -834,11 +834,11 @@ class McpAgent(ABC, ToolAgent):
 
         enable_read = self._shell_read_text_file_enabled()
         edit_flags = self._shell_edit_tool_flags()
-        session_filesystem = self._shell_environment
-        session_runtime = self._session_filesystem_runtime()
-        if isinstance(session_filesystem, SessionFilesystem):
-            if session_runtime is not None:
-                session_runtime.set_enabled_tools(
+        environment_filesystem = self._shell_environment
+        environment_runtime = self._environment_filesystem_runtime()
+        if isinstance(environment_filesystem, EnvironmentFilesystem):
+            if environment_runtime is not None:
+                environment_runtime.set_enabled_tools(
                     enable_read=enable_read,
                     enable_write=edit_flags.write_text_file,
                     enable_apply_patch=edit_flags.apply_patch,
@@ -846,22 +846,22 @@ class McpAgent(ABC, ToolAgent):
                 )
                 return
 
-            session_runtime = SessionFilesystemRuntime(
-                session_filesystem,
+            environment_runtime = EnvironmentFilesystemRuntime(
+                environment_filesystem,
                 enable_read=enable_read,
                 enable_write=edit_flags.write_text_file,
                 enable_apply_patch=edit_flags.apply_patch,
                 enable_edit_file=edit_flags.edit_file,
             )
             if self._filesystem_runtime is None:
-                self._filesystem_runtime = session_runtime
+                self._filesystem_runtime = environment_runtime
             else:
                 self._filesystem_runtime = CompositeFilesystemRuntime(
                     primary=self._filesystem_runtime,
-                    fallback=session_runtime,
+                    fallback=environment_runtime,
                 )
             self.logger.info(
-                "Session filesystem runtime enabled",
+                "Environment filesystem runtime enabled",
                 runtime_type=type(self._filesystem_runtime).__name__,
                 read_enabled=enable_read,
                 write_enabled=edit_flags.write_text_file,
@@ -953,10 +953,10 @@ class McpAgent(ABC, ToolAgent):
                 enable_edit_file=edit_flags.edit_file,
                 enable_attach_media=self._shell_attach_media_mode(),
             )
-        session_runtime = self._session_filesystem_runtime()
-        if session_runtime is not None:
+        environment_runtime = self._environment_filesystem_runtime()
+        if environment_runtime is not None:
             edit_flags = self._shell_edit_tool_flags()
-            session_runtime.set_enabled_tools(
+            environment_runtime.set_enabled_tools(
                 enable_read=self._shell_read_text_file_enabled(),
                 enable_write=edit_flags.write_text_file,
                 enable_apply_patch=edit_flags.apply_patch,

@@ -76,19 +76,19 @@ openresponses.unsloth/Qwen3.5-9B-GGUF?temperature=0.8&top_p=0.95
 
 ## Where overlays live
 
-Model overlays are stored in the active environment directory:
+Model overlays are stored in the active home:
 
 - `ENV_DIR/model-overlays/*.yaml` — overlay manifests
 - `ENV_DIR/model-overlays.secrets.yaml` — optional companion secrets
 
-With the default environment directory, that usually means:
+With the default home, that usually means:
 
 ```text
 .fast-agent/model-overlays/
 .fast-agent/model-overlays.secrets.yaml
 ```
 
-If you run with `--env <path>` or configure `environment_dir`, overlays are loaded from that environment instead.
+If you run with `--home <path>` or configure `home`, overlays are loaded from that home instead.
 
 ## Overlay manifest format
 
@@ -255,13 +255,13 @@ Overlay names behave like local runtime presets.
 
 If an overlay name collides with a built-in preset or another preset token, the overlay wins for that environment. `fast-agent check` reports this as informational output so the override is visible.
 
-Overlays are environment-local, so different environments can define different overlay sets without changing project config.
+Overlays are home-local, so different environments can define different overlay sets without changing project config.
 
 ## Creating overlays from llama.cpp
 
 The easiest way to create a local overlay is the `fast-agent model llamacpp` command.
 
-It queries a llama.cpp-compatible server, discovers models from the models endpoint, reads runtime defaults from the props endpoint, and writes an overlay into the active environment. The generated overlay uses the `openresponses` provider, the normalized `/v1` base URL, the selected auth mode, and the discovered request defaults and metadata.
+It queries a llama.cpp-compatible server, discovers models from the models endpoint, reads runtime defaults from the props endpoint, and writes an overlay into the active fast-agent home. The generated overlay uses the `openresponses` provider, the normalized `/v1` base URL, the selected auth mode, and the discovered request defaults and metadata.
 
 ### Discover available models
 
@@ -337,7 +337,7 @@ Then run:
 fast-agent go
 ```
 
-This gives you a stable project-facing token (`$system.fast`) while keeping the actual endpoint wiring in the environment-local overlay.
+This gives you a stable project-facing token (`$system.fast`) while keeping the actual endpoint wiring in the home-local overlay.
 
 ## Troubleshooting
 
@@ -345,7 +345,7 @@ This gives you a stable project-facing token (`$system.fast`) while keeping the 
 
 Check that:
 
-- the overlay file is in the active environment directory
+- the overlay file is in the active home
 - the file has a `.yaml` or `.yml` extension
 - the overlay `name` matches the token you are using exactly
 

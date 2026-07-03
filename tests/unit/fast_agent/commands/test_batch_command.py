@@ -43,8 +43,8 @@ class RecordingBatchMonitor:
 
 
 def test_batch_run_direct_mode_with_passthrough(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     output_path = tmp_path / "out.jsonl"
     schema_path = tmp_path / "schema.json"
@@ -58,8 +58,8 @@ def test_batch_run_direct_mode_with_passthrough(tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -92,8 +92,8 @@ def test_batch_run_direct_mode_with_passthrough(tmp_path):
 
 
 def test_batch_run_missing_input_reports_error_without_traceback(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "missing.jsonl"
     output_path = tmp_path / "out.jsonl"
 
@@ -101,8 +101,8 @@ def test_batch_run_missing_input_reports_error_without_traceback(tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -143,8 +143,8 @@ def test_batch_trackio_options_default_to_progress_interval() -> None:
 
 
 def test_batch_trackio_every_must_be_positive(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     output_path = tmp_path / "out.jsonl"
     input_path.write_text('{"id":"1"}\n', encoding="utf-8")
@@ -153,8 +153,8 @@ def test_batch_trackio_every_must_be_positive(tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -176,8 +176,8 @@ def test_batch_trackio_every_must_be_positive(tmp_path):
 
 
 def test_batch_trackio_detail_options_require_project(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     output_path = tmp_path / "out.jsonl"
     input_path.write_text('{"id":"1"}\n', encoding="utf-8")
@@ -186,8 +186,8 @@ def test_batch_trackio_detail_options_require_project(tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -207,8 +207,8 @@ def test_batch_trackio_detail_options_require_project(tmp_path):
 
 
 def test_batch_run_parallel_missing_parquet_input_reports_error_without_traceback(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "missing.parquet"
     output_path = tmp_path / "out.jsonl"
 
@@ -216,8 +216,8 @@ def test_batch_run_parallel_missing_parquet_input_reports_error_without_tracebac
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -239,8 +239,8 @@ def test_batch_run_parallel_missing_parquet_input_reports_error_without_tracebac
 
 
 def test_batch_run_missing_template_reports_error_without_traceback(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     template_path = tmp_path / "missing.md"
     output_path = tmp_path / "out.jsonl"
@@ -250,8 +250,8 @@ def test_batch_run_missing_template_reports_error_without_traceback(tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -273,8 +273,8 @@ def test_batch_run_missing_template_reports_error_without_traceback(tmp_path):
 
 
 def test_batch_run_accepts_inline_prompt_template(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     output_path = tmp_path / "out.jsonl"
     summary_path = tmp_path / "summary.json"
@@ -284,8 +284,8 @@ def test_batch_run_accepts_inline_prompt_template(tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -319,8 +319,8 @@ def test_batch_run_accepts_inline_prompt_template(tmp_path):
 
 
 def test_batch_run_accepts_remote_template_instruction_and_schema(tmp_path, monkeypatch):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     output_path = tmp_path / "out.jsonl"
     summary_path = tmp_path / "summary.json"
@@ -342,8 +342,8 @@ def test_batch_run_accepts_remote_template_instruction_and_schema(tmp_path, monk
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -375,8 +375,8 @@ def test_batch_run_accepts_remote_template_instruction_and_schema(tmp_path, monk
 
 
 def test_batch_run_rejects_prompt_and_template_together(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     template_path = tmp_path / "row.md"
     input_path.write_text('{"id":"1","x":2}\n', encoding="utf-8")
@@ -386,8 +386,8 @@ def test_batch_run_rejects_prompt_and_template_together(tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -409,8 +409,8 @@ def test_batch_run_rejects_prompt_and_template_together(tmp_path):
 
 
 def test_batch_run_without_schema_writes_text_result(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     output_path = tmp_path / "out.jsonl"
     summary_path = tmp_path / "summary.json"
@@ -423,8 +423,8 @@ def test_batch_run_without_schema_writes_text_result(tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -452,8 +452,8 @@ def test_batch_run_without_schema_writes_text_result(tmp_path):
 
 
 def test_batch_run_accepts_hf_input_uri(monkeypatch, tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     source = "hf://datasets/evalstate/example/data/train.jsonl"
     output_path = tmp_path / "out.jsonl"
     schema_path = tmp_path / "schema.json"
@@ -468,8 +468,8 @@ def test_batch_run_accepts_hf_input_uri(monkeypatch, tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -494,8 +494,8 @@ def test_batch_run_accepts_hf_input_uri(monkeypatch, tmp_path):
 
 
 def test_batch_run_accepts_parquet_input(monkeypatch, tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.parquet"
     output_path = tmp_path / "out.jsonl"
     schema_path = tmp_path / "schema.json"
@@ -513,8 +513,8 @@ def test_batch_run_accepts_parquet_input(monkeypatch, tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -539,8 +539,8 @@ def test_batch_run_accepts_parquet_input(monkeypatch, tmp_path):
 
 
 def test_batch_run_parallel_merges_chunk_outputs(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     output_path = tmp_path / "out.jsonl"
     summary_path = tmp_path / "summary.json"
@@ -559,8 +559,8 @@ def test_batch_run_parallel_merges_chunk_outputs(tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -603,8 +603,8 @@ def test_batch_run_parallel_merges_chunk_outputs(tmp_path):
 
 
 def test_batch_run_parallel_resume_uses_saved_chunk_manifest(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     output_path = tmp_path / "out.jsonl"
     summary_path = tmp_path / "summary.json"
@@ -632,7 +632,7 @@ def test_batch_run_parallel_resume_uses_saved_chunk_manifest(tmp_path):
                 id_field="id",
                 summary_output_path=summary_path,
                 final_summary=False,
-                environment_dir=env_dir,
+                home=home,
                 parallel=2,
                 work_dir=work_dir,
                 keep_temp=True,
@@ -656,7 +656,7 @@ def test_batch_run_parallel_resume_uses_saved_chunk_manifest(tmp_path):
                 id_field="id",
                 summary_output_path=summary_path,
                 final_summary=False,
-                environment_dir=env_dir,
+                home=home,
                 parallel=4,
                 work_dir=work_dir,
                 keep_temp=True,
@@ -675,8 +675,8 @@ def test_batch_run_parallel_resume_uses_saved_chunk_manifest(tmp_path):
 
 
 def test_batch_run_parallel_reports_aggregate_monitor_row_progress(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     output_path = tmp_path / "out.jsonl"
     summary_path = tmp_path / "summary.json"
@@ -697,7 +697,7 @@ def test_batch_run_parallel_reports_aggregate_monitor_row_progress(tmp_path):
                 id_field="id",
                 summary_output_path=summary_path,
                 final_summary=False,
-                environment_dir=env_dir,
+                home=home,
                 parallel=2,
                 work_dir=work_dir,
                 keep_temp=True,
@@ -714,8 +714,8 @@ def test_batch_run_parallel_reports_aggregate_monitor_row_progress(tmp_path):
 
 
 def test_batch_run_parallel_rejects_final_output_inside_work_dir(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     work_dir = tmp_path / "work"
     output_path = work_dir / "out.jsonl"
@@ -728,8 +728,8 @@ def test_batch_run_parallel_rejects_final_output_inside_work_dir(tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -754,8 +754,8 @@ def test_batch_run_parallel_rejects_final_output_inside_work_dir(tmp_path):
 
 
 def test_batch_run_export_traces_writes_row_trace_and_manifest(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     output_path = tmp_path / "out.jsonl"
     trace_dir = tmp_path / "traces"
@@ -768,8 +768,8 @@ def test_batch_run_export_traces_writes_row_trace_and_manifest(tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -802,8 +802,8 @@ def test_batch_run_export_traces_writes_row_trace_and_manifest(tmp_path):
 
 
 def test_batch_run_accepts_pydantic_schema_model(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     output_path = tmp_path / "out.jsonl"
     template_path = tmp_path / "row.md"
@@ -822,8 +822,8 @@ def test_batch_run_accepts_pydantic_schema_model(tmp_path):
             app,
             [
                 "--no-update-check",
-                "--env",
-                str(env_dir),
+                "--home",
+                str(home),
                 "batch",
                 "run",
                 "--input",
@@ -852,8 +852,8 @@ def test_batch_run_accepts_pydantic_schema_model(tmp_path):
 
 
 def test_batch_run_card_mode_with_passthrough(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     output_path = tmp_path / "out.jsonl"
     schema_path = tmp_path / "schema.json"
@@ -873,8 +873,8 @@ def test_batch_run_card_mode_with_passthrough(tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--agent-card",
@@ -904,15 +904,15 @@ def test_batch_run_card_mode_with_passthrough(tmp_path):
 
 
 def test_batch_run_rejects_instruction_with_agent_card(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
 
     result = CliRunner().invoke(
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--agent-card",
@@ -934,15 +934,15 @@ def test_batch_run_rejects_instruction_with_agent_card(tmp_path):
 
 
 def test_batch_run_rejects_agent_without_agent_card(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
 
     result = CliRunner().invoke(
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--agent",
@@ -962,15 +962,15 @@ def test_batch_run_rejects_agent_without_agent_card(tmp_path):
 
 
 def test_batch_run_rejects_sql_with_limit(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
 
     result = CliRunner().invoke(
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -990,8 +990,8 @@ def test_batch_run_rejects_sql_with_limit(tmp_path):
 
 
 def test_batch_run_accepts_shell_runtime_flag(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     input_path = tmp_path / "rows.jsonl"
     output_path = tmp_path / "out.jsonl"
     schema_path = tmp_path / "schema.json"
@@ -1006,8 +1006,8 @@ def test_batch_run_accepts_shell_runtime_flag(tmp_path):
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "-x",
@@ -1033,15 +1033,15 @@ def test_batch_run_accepts_shell_runtime_flag(tmp_path):
 
 
 def test_batch_run_hf_dataset_requires_export_traces(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
 
     result = CliRunner().invoke(
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",
@@ -1059,15 +1059,15 @@ def test_batch_run_hf_dataset_requires_export_traces(tmp_path):
 
 
 def test_batch_run_treats_blank_hf_dataset_as_missing_for_dataset_path(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
 
     result = CliRunner().invoke(
         app,
         [
             "--no-update-check",
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "batch",
             "run",
             "--input",

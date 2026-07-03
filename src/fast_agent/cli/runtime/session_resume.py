@@ -52,7 +52,7 @@ async def resume_session_if_requested(
     request: AgentRunRequest,
 ) -> None:
     validate_resume_request(request)
-    if not request.resume or request.noenv:
+    if not request.resume or request.no_home:
         return
 
     from fast_agent.ui.enhanced_prompt import queue_startup_markdown_notice, queue_startup_notice
@@ -81,8 +81,8 @@ async def resume_session_if_requested(
 
 
 def validate_resume_request(request: AgentRunRequest) -> None:
-    if request.noenv and request.resume:
-        typer.echo("Error: --resume cannot be used with --noenv.", err=True)
+    if request.no_home and request.resume:
+        typer.echo("Error: --resume cannot be used with --no-home.", err=True)
         raise typer.Exit(1)
 
 

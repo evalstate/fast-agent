@@ -15,9 +15,9 @@ from fast_agent.core.keyring_utils import KeyringStatus
 
 
 def test_auth_status_reports_invalid_settings_yaml_without_traceback(tmp_path: Path) -> None:
-    env_root = tmp_path / ".fast-agent"
-    env_root.mkdir(parents=True)
-    config_path = env_root / "fastagent.config.yaml"
+    home_root = tmp_path / ".fast-agent"
+    home_root.mkdir(parents=True)
+    config_path = home_root / "fastagent.config.yaml"
     config_path.write_text(
         "mcp:\n  targets:\n    - name: openai\n        target: https://developers.openai.com/mcp\n",
         encoding="utf-8",
@@ -25,10 +25,10 @@ def test_auth_status_reports_invalid_settings_yaml_without_traceback(tmp_path: P
 
     old_settings = get_settings()
     old_cwd = Path.cwd()
-    old_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    old_home = os.environ.get("FAST_AGENT_HOME")
     try:
         os.chdir(tmp_path)
-        os.environ.pop("ENVIRONMENT_DIR", None)
+        os.environ.pop("FAST_AGENT_HOME", None)
         config_module._settings = None
 
         runner = CliRunner()
@@ -42,10 +42,10 @@ def test_auth_status_reports_invalid_settings_yaml_without_traceback(tmp_path: P
         assert "Traceback" not in output
     finally:
         os.chdir(old_cwd)
-        if old_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        if old_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = old_env_dir
+            os.environ["FAST_AGENT_HOME"] = old_home
         update_global_settings(old_settings)
 
 

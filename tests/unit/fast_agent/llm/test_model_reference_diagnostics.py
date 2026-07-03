@@ -15,7 +15,7 @@ def test_collect_model_reference_setup_diagnostics_reports_pack_and_card_referen
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     (workspace / "fastagent.config.yaml").write_text(
@@ -23,7 +23,7 @@ def test_collect_model_reference_setup_diagnostics_reports_pack_and_card_referen
         encoding="utf-8",
     )
 
-    pack_dir = env_dir / "card-packs" / "smart"
+    pack_dir = home / "card-packs" / "smart"
     pack_dir.mkdir(parents=True, exist_ok=True)
     (pack_dir / "card-pack.yaml").write_text(
         "schema_version: 1\n"
@@ -40,7 +40,7 @@ def test_collect_model_reference_setup_diagnostics_reports_pack_and_card_referen
         encoding="utf-8",
     )
 
-    agent_cards_dir = env_dir / "agent-cards"
+    agent_cards_dir = home / "agent-cards"
     agent_cards_dir.mkdir(parents=True, exist_ok=True)
     (agent_cards_dir / "helper.yaml").write_text(
         'name: helper\ntype: agent\ninstruction: "Be helpful."\nmodel: "$system.fast"\n',
@@ -49,7 +49,7 @@ def test_collect_model_reference_setup_diagnostics_reports_pack_and_card_referen
 
     diagnostics = collect_model_reference_setup_diagnostics(
         cwd=workspace,
-        env_dir=env_dir,
+        home=home,
     )
 
     assert diagnostics.valid_references == {}
@@ -89,7 +89,7 @@ def test_collect_model_reference_setup_diagnostics_reports_transitive_missing_re
 
     diagnostics = collect_model_reference_setup_diagnostics(
         cwd=workspace,
-        env_dir=workspace / ".fast-agent",
+        home=workspace / ".fast-agent",
     )
 
     assert diagnostics.items == (

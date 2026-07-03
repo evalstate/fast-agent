@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 from fast_agent.cards import manager
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 
 
 def _git(repo, *args: str) -> str:
@@ -84,20 +84,20 @@ def test_install_copies_expected_files_and_writes_sidecar(tmp_path) -> None:
     _write_pack(repo, pack_subdir="packs/alpha", pack_name="alpha", files=["shared/helper.txt"])
     _commit_all(repo, "initial")
 
-    env_root = tmp_path / ".fast-agent"
-    env_paths = resolve_environment_paths(override=env_root, cwd=tmp_path)
+    home_root = tmp_path / ".fast-agent"
+    home_paths = resolve_home_paths(override=home_root, cwd=tmp_path)
 
     result = manager._install_marketplace_card_pack_sync(
         _pack(repo, name="alpha", path="packs/alpha"),
-        env_paths,
+        home_paths,
         False,
         False,
         None,
     )
 
-    assert (env_paths.agent_cards / "alpha.md").exists()
-    assert (env_paths.tool_cards / "alpha-tool.md").exists()
-    assert (env_paths.root / "shared" / "helper.txt").exists()
+    assert (home_paths.agent_cards / "alpha.md").exists()
+    assert (home_paths.tool_cards / "alpha-tool.md").exists()
+    assert (home_paths.root / "shared" / "helper.txt").exists()
     assert result.source.installed_files == (
         "agent-cards/alpha.md",
         "shared/helper.txt",
@@ -126,7 +126,7 @@ def test_install_local_card_pack_ref_copies_committed_content(
         encoding="utf-8",
     )
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     pack = _pack(repo, name="alpha", path="packs/alpha")
     pinned_revision = None
     if install_mode == "repo_ref":
@@ -136,13 +136,13 @@ def test_install_local_card_pack_ref_copies_committed_content(
 
     result = manager._install_marketplace_card_pack_sync(
         pack,
-        env_paths,
+        home_paths,
         False,
         False,
         pinned_revision,
     )
 
-    installed_card = (env_paths.agent_cards / "alpha.md").read_text(encoding="utf-8")
+    installed_card = (home_paths.agent_cards / "alpha.md").read_text(encoding="utf-8")
     assert "hello" in installed_card
     assert "working tree change" not in installed_card
     assert result.source.installed_commit == first_commit
@@ -159,16 +159,16 @@ def test_install_dirty_local_card_pack_records_local_revision(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     result = manager._install_marketplace_card_pack_sync(
         _pack(repo, name="alpha", path="packs/alpha"),
-        env_paths,
+        home_paths,
         False,
         False,
         None,
     )
 
-    installed_card = (env_paths.agent_cards / "alpha.md").read_text(encoding="utf-8")
+    installed_card = (home_paths.agent_cards / "alpha.md").read_text(encoding="utf-8")
     assert "dirty content" in installed_card
     assert result.source.installed_revision == manager.LOCAL_REVISION
     assert result.source.installed_commit is None
@@ -201,11 +201,11 @@ def test_install_rejects_manifest_path_traversal(tmp_path) -> None:
     _write_pack(repo, pack_subdir="packs/invalid", pack_name="invalid", files=["../escape.txt"])
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     with pytest.raises(ValueError, match="Invalid install path"):
         manager._install_marketplace_card_pack_sync(
             _pack(repo, name="invalid", path="packs/invalid"),
-            env_paths,
+            home_paths,
             False,
             False,
             None,
@@ -229,10 +229,10 @@ def test_install_detects_ownership_conflicts(tmp_path) -> None:
     (repo / "packs" / "two" / "shared" / "common.txt").write_text("two\n", encoding="utf-8")
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     manager._install_marketplace_card_pack_sync(
         _pack(repo, name="one", path="packs/one"),
-        env_paths,
+        home_paths,
         False,
         False,
         None,
@@ -241,7 +241,7 @@ def test_install_detects_ownership_conflicts(tmp_path) -> None:
     with pytest.raises(manager.OwnershipConflictError, match="owned by another pack"):
         manager._install_marketplace_card_pack_sync(
             _pack(repo, name="two", path="packs/two"),
-            env_paths,
+            home_paths,
             False,
             False,
             None,
@@ -258,18 +258,18 @@ def test_install_maps_legacy_pack_config_to_preferred_filename(tmp_path) -> None
     )
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
 
     result = manager._install_marketplace_card_pack_sync(
         _pack(repo, name="codex", path="packs/codex"),
-        env_paths,
+        home_paths,
         False,
         False,
         None,
     )
 
-    assert (env_paths.root / "fast-agent.yaml").exists()
-    assert not (env_paths.root / "fastagent.config.yaml").exists()
+    assert (home_paths.root / "fast-agent.yaml").exists()
+    assert not (home_paths.root / "fastagent.config.yaml").exists()
     assert "fast-agent.yaml" in result.source.installed_files
     assert "fastagent.config.yaml" not in result.source.installed_files
 
@@ -288,23 +288,23 @@ def test_install_legacy_pack_config_merges_existing_preferred_config(tmp_path) -
     )
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    env_paths.root.mkdir(parents=True, exist_ok=True)
-    (env_paths.root / "fast-agent.yaml").write_text(
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths.root.mkdir(parents=True, exist_ok=True)
+    (home_paths.root / "fast-agent.yaml").write_text(
         "model_references:\n  system:\n    last_used: gpt-4.1-mini\n",
         encoding="utf-8",
     )
 
     manager._install_marketplace_card_pack_sync(
         _pack(repo, name="codex", path="packs/codex"),
-        env_paths,
+        home_paths,
         False,
         False,
         None,
     )
 
-    assert not (env_paths.root / "fastagent.config.yaml").exists()
-    with open(env_paths.root / "fast-agent.yaml", "r", encoding="utf-8") as handle:
+    assert not (home_paths.root / "fastagent.config.yaml").exists()
+    with open(home_paths.root / "fast-agent.yaml", "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
 
     assert saved["default_model"] == "$system.default"
@@ -330,22 +330,22 @@ def test_install_merges_unmanaged_env_config_when_it_only_preserves_last_used(tm
     )
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    env_paths.root.mkdir(parents=True, exist_ok=True)
-    (env_paths.root / "fastagent.config.yaml").write_text(
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths.root.mkdir(parents=True, exist_ok=True)
+    (home_paths.root / "fastagent.config.yaml").write_text(
         "model_references:\n  system:\n    last_used: gpt-4.1-mini\n",
         encoding="utf-8",
     )
 
     manager._install_marketplace_card_pack_sync(
         _pack(repo, name="codex", path="packs/codex"),
-        env_paths,
+        home_paths,
         False,
         False,
         None,
     )
 
-    with open(env_paths.root / "fastagent.config.yaml", "r", encoding="utf-8") as handle:
+    with open(home_paths.root / "fastagent.config.yaml", "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
 
     assert saved["default_model"] == "$system.default"
@@ -366,9 +366,9 @@ def test_install_rejects_unmanaged_env_config_when_it_contains_more_than_last_us
     )
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    env_paths.root.mkdir(parents=True, exist_ok=True)
-    (env_paths.root / "fastagent.config.yaml").write_text(
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths.root.mkdir(parents=True, exist_ok=True)
+    (home_paths.root / "fastagent.config.yaml").write_text(
         "default_model: keep-me\nmodel_references:\n  system:\n    last_used: gpt-4.1-mini\n",
         encoding="utf-8",
     )
@@ -379,7 +379,7 @@ def test_install_rejects_unmanaged_env_config_when_it_contains_more_than_last_us
     ):
         manager._install_marketplace_card_pack_sync(
             _pack(repo, name="codex", path="packs/codex"),
-            env_paths,
+            home_paths,
             False,
             False,
             None,

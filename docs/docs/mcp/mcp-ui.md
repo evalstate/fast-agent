@@ -45,7 +45,7 @@ fast-agent --url http://localhost:3000 --model "gpt-5-mini?reasoning=low"
 ![type:video](pics/mcp-ui-output.mp4)
 
 
-**`fast-agent`** presents the mcp-ui content as links beneath the assistant message. HTML components are stored in the fast-agent environment directory (default `.fast-agent/ui`). Use `fast-agent --env <path>` or `environment_dir` in the config file to relocate this folder.
+**`fast-agent`** presents the mcp-ui content as links beneath the assistant message. HTML components are stored in the fast-agent home (default `.fast-agent/ui`). Use `fast-agent --home <path>` or `home` in the config file to relocate this folder.
 
 If you want to test multiple models in parallel, for example to compare behaviour, specify more than one model:
 
@@ -78,7 +78,7 @@ The following options are available:
 # mcp-ui config options
 
 # Base directory for fast-agent runtime data
-# environment_dir: ".fast-agent"
+# home: ".fast-agent"
 
 # Where to write MCP-UI HTML files (relative to CWD if not absolute)
 mcp_ui_output_dir: ".fast-agent/ui"

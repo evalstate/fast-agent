@@ -70,7 +70,7 @@ def _message_texts(agent: _Agent) -> list[str]:
 def _registered_manager(tmp_path: pathlib.Path) -> SessionManager:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     set_session_manager(manager)
@@ -79,10 +79,10 @@ def _registered_manager(tmp_path: pathlib.Path) -> SessionManager:
 
 def test_prune_sessions_skips_pinned(tmp_path) -> None:
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
+    home = tmp_path / "env"
     override = old_settings.model_copy(
         update={
-            "environment_dir": str(env_dir),
+            "home": str(home),
             "session_history_window": 1,
         }
     )
@@ -112,7 +112,7 @@ def test_session_history_window_rejects_boolean_config(tmp_path) -> None:
     old_settings = get_settings()
     override = old_settings.model_copy(
         update={
-            "environment_dir": str(tmp_path / "env"),
+            "home": str(tmp_path / "env"),
             "session_history_window": True,
         }
     )
@@ -139,7 +139,7 @@ def test_get_session_manager_returns_registered_manager_for_matching_context(tmp
 
     try:
         assert (
-            get_session_manager(cwd=tmp_path, environment_override=tmp_path / ".fast-agent")
+            get_session_manager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")
             is manager
         )
     finally:
@@ -153,11 +153,11 @@ def test_get_session_manager_rejects_workspace_switch_for_registered_store(tmp_p
 
     try:
         assert (
-            get_session_manager(cwd=tmp_path, environment_override=tmp_path / ".fast-agent")
+            get_session_manager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")
             is manager
         )
         with pytest.raises(RuntimeError, match="workspace does not match"):
-            get_session_manager(cwd=other_cwd, environment_override=tmp_path / ".fast-agent")
+            get_session_manager(cwd=other_cwd, home_override=tmp_path / ".fast-agent")
         assert manager.workspace_dir == tmp_path.resolve()
     finally:
         reset_session_manager()
@@ -167,7 +167,7 @@ def test_get_session_manager_rejects_store_switch(tmp_path) -> None:
     _registered_manager(tmp_path)
     try:
         with pytest.raises(RuntimeError, match="does not match the requested session store"):
-            get_session_manager(cwd=tmp_path, environment_override=tmp_path / "other-env")
+            get_session_manager(cwd=tmp_path, home_override=tmp_path / "other-env")
     finally:
         reset_session_manager()
 
@@ -176,7 +176,7 @@ def test_get_session_manager_rejects_store_switch(tmp_path) -> None:
 async def test_save_history_preview_skips_empty_first_user_message(tmp_path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -197,10 +197,10 @@ async def test_save_history_preview_skips_empty_first_user_message(tmp_path) -> 
 
 def test_apply_session_window_appends_pinned_overflow(tmp_path) -> None:
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
+    home = tmp_path / "env"
     override = old_settings.model_copy(
         update={
-            "environment_dir": str(env_dir),
+            "home": str(home),
             "session_history_window": 2,
         }
     )
@@ -225,10 +225,10 @@ def test_apply_session_window_appends_pinned_overflow(tmp_path) -> None:
 
 def test_resolve_session_name_ordinal_includes_pinned_overflow(tmp_path) -> None:
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
+    home = tmp_path / "env"
     override = old_settings.model_copy(
         update={
-            "environment_dir": str(env_dir),
+            "home": str(home),
             "session_history_window": 2,
         }
     )
@@ -251,7 +251,7 @@ def test_resolve_session_name_ordinal_includes_pinned_overflow(tmp_path) -> None
 def test_resolve_session_name_strips_user_input(tmp_path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     first = manager.create_session()
@@ -263,13 +263,13 @@ def test_resolve_session_name_strips_user_input(tmp_path) -> None:
 
 
 def test_delete_session_rejects_path_like_name(tmp_path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=env_dir,
+        home_override=home,
         respect_env_override=False,
     )
-    sibling_dir = env_dir / "agent-cards"
+    sibling_dir = home / "agent-cards"
     sibling_dir.mkdir(parents=True)
     (sibling_dir / "support.md").write_text("---\ntype: agent\n---\n", encoding="utf-8")
 
@@ -279,10 +279,10 @@ def test_delete_session_rejects_path_like_name(tmp_path) -> None:
 
 
 def test_create_and_delete_session_with_id_share_path_like_id_rules(tmp_path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=env_dir,
+        home_override=home,
         respect_env_override=False,
     )
 
@@ -291,13 +291,13 @@ def test_create_and_delete_session_with_id_share_path_like_id_rules(tmp_path) ->
     assert session.info.name != "../agent-cards"
     assert pathlib.Path(session.info.name).name == session.info.name
     assert manager.delete_session("../agent-cards") is False
-    assert (env_dir / "sessions" / session.info.name).is_dir()
+    assert (home / "sessions" / session.info.name).is_dir()
 
 
 def test_load_session_marks_loaded_session_as_latest(tmp_path) -> None:
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
-    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    home = tmp_path / "env"
+    override = old_settings.model_copy(update={"home": str(home)})
     update_global_settings(override)
     reset_session_manager()
 
@@ -327,7 +327,7 @@ def test_load_session_marks_loaded_session_as_latest(tmp_path) -> None:
 def test_list_sessions_normalizes_timezone_aware_timestamps(tmp_path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     older = manager.create_session()
@@ -362,7 +362,7 @@ async def test_resume_session_agents_uses_hydrator_active_agent_and_prompt_resto
 ) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -419,7 +419,7 @@ async def test_resume_session_agents_uses_hydrator_active_agent_and_prompt_resto
 async def test_resume_session_agents_without_id_skips_latest_empty_session(tmp_path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     previous = manager.create_session()
@@ -448,7 +448,7 @@ async def test_resume_session_agents_without_id_skips_latest_empty_session(tmp_p
 def test_resume_session_includes_hydrator_warnings_in_notices(tmp_path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -494,7 +494,7 @@ def test_resume_session_includes_hydrator_warnings_in_notices(tmp_path) -> None:
 async def test_fork_current_session_clones_typed_snapshot_state(tmp_path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     source = manager.create_session(metadata={"acp_session_id": "acp-123"})

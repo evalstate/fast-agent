@@ -7,13 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, FAST_AGENT_RUNTIME_ENVIRONMENT
+from fast_agent.constants import DEFAULT_HOME_DIR, FAST_AGENT_RUNTIME_HOME
 from fast_agent.core.exceptions import ConfigFileError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-HomeSource = Literal["cli", "FAST_AGENT_HOME", "ENVIRONMENT_DIR", "default"]
+HomeSource = Literal["cli", "FAST_AGENT_HOME", "default"]
 
 PREFERRED_CONFIG_FILENAME = "fast-agent.yaml"
 TRANSITIONAL_CONFIG_FILENAMES = ("fast-agent.config.yaml",)
@@ -68,35 +68,25 @@ def resolve_fast_agent_home(
     *,
     cwd: Path | None = None,
     cli_override: str | Path | None = None,
-    noenv: bool = False,
+    no_home: bool = False,
 ) -> FastAgentHome | None:
     """Resolve the active fast-agent home.
 
-    Precedence: ``--env``/``cli_override`` > ``FAST_AGENT_HOME`` >
-    ``ENVIRONMENT_DIR`` > ``./.fast-agent``. ``noenv`` disables home selection.
+    Precedence: ``--home``/``cli_override`` > ``FAST_AGENT_HOME`` >
+    ``./.fast-agent``. ``no_home`` disables home selection.
     """
-    if noenv:
+    if no_home:
         return None
 
     base = _resolve_cwd(cwd)
     if cli_override is not None:
         return FastAgentHome(_resolve_path(cli_override, base), "cli")
 
-    runtime_environment = os.getenv(FAST_AGENT_RUNTIME_ENVIRONMENT)
-    legacy_environment_dir = os.getenv("ENVIRONMENT_DIR")
-    if runtime_environment:
-        runtime_path = _resolve_path(runtime_environment, base)
-        if legacy_environment_dir == runtime_environment or runtime_path.is_relative_to(base):
-            return FastAgentHome(runtime_path, "cli")
-
     fast_agent_home = os.getenv("FAST_AGENT_HOME")
     if fast_agent_home:
         return FastAgentHome(_resolve_path(fast_agent_home, base), "FAST_AGENT_HOME")
 
-    if legacy_environment_dir:
-        return FastAgentHome(_resolve_path(legacy_environment_dir, base), "ENVIRONMENT_DIR")
-
-    return FastAgentHome((base / DEFAULT_ENVIRONMENT_DIR).resolve(), "default")
+    return FastAgentHome((base / DEFAULT_HOME_DIR).resolve(), "default")
 
 
 def discover_config_files(
@@ -185,30 +175,27 @@ def find_secrets_in_directory(directory: Path) -> Path | None:
 def build_child_environment(
     *,
     active_home: str | Path | None,
-    noenv: bool = False,
+    no_home: bool = False,
     base: Mapping[str, str] | None = None,
     overrides: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     """Build an environment for shell/MCP child processes.
 
-    ``FAST_AGENT_RUNTIME_ENVIRONMENT`` is the documented runtime export.
-    ``ENVIRONMENT_DIR`` is exported alongside it as a legacy compatibility alias.
-    In ``--noenv`` mode both are removed, including from explicit overrides.
+    ``FAST_AGENT_RUNTIME_HOME`` is the documented runtime export.
+    In ``--no-home`` mode it is removed, including from explicit overrides.
     """
-    from fast_agent.constants import FAST_AGENT_RUNTIME_ENVIRONMENT
-
     env = dict(os.environ if base is None else base)
-    if not noenv and active_home is not None:
+    if not no_home and active_home is not None:
         home = str(Path(active_home).expanduser().resolve())
-        env[FAST_AGENT_RUNTIME_ENVIRONMENT] = home
-        env["ENVIRONMENT_DIR"] = home
+        env["FAST_AGENT_HOME"] = home
+        env[FAST_AGENT_RUNTIME_HOME] = home
 
     if overrides:
         env.update(overrides)
 
-    if noenv:
-        env.pop(FAST_AGENT_RUNTIME_ENVIRONMENT, None)
-        env.pop("ENVIRONMENT_DIR", None)
+    if no_home:
+        env.pop("FAST_AGENT_HOME", None)
+        env.pop(FAST_AGENT_RUNTIME_HOME, None)
 
     return env
 

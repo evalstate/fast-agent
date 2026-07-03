@@ -65,16 +65,16 @@ async def test_acp_plugins_lists_project_and_global_plugins(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     global_home = tmp_path / "global-home"
-    env_root = tmp_path / "project-env"
+    home_root = tmp_path / "project-env"
     _write_plugin(global_home / "plugins", "discover")
-    _write_plugin(env_root / "plugins", "images")
+    _write_plugin(home_root / "plugins", "images")
     (global_home / "fast-agent.yaml").write_text(
         "plugins:\n  enabled: ['discover']\n",
         encoding="utf-8",
     )
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n"
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n"
         "plugins:\n  enabled: ['images']\n",
         encoding="utf-8",
     )

@@ -82,7 +82,7 @@ from fast_agent.mcp.connect_targets import infer_server_name, parse_connect_comm
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.mcp.ui_mixin import McpUIMixin
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 from fast_agent.utils.action_normalization import is_help_flag, normalize_action_token
 from fast_agent.utils.commandline import split_commandline
@@ -1112,17 +1112,17 @@ def _resolve_agent_card_path(path_value: str, context: Context | None) -> Path:
         if cwd_candidate.exists():
             return cwd_candidate
 
-    env_paths = resolve_environment_paths(
+    home_paths = resolve_home_paths(
         settings=context.config if context else None, cwd=Path.cwd()
     )
-    for base in (env_paths.agent_cards, env_paths.tool_cards):
+    for base in (home_paths.agent_cards, home_paths.tool_cards):
         env_candidate = (base / candidate).resolve()
         if env_candidate.exists():
             return env_candidate
 
     raise AgentConfigError(
         "AgentCard path not found",
-        f"Tried: {candidate} (cwd), {env_paths.agent_cards}, {env_paths.tool_cards}",
+        f"Tried: {candidate} (cwd), {home_paths.agent_cards}, {home_paths.tool_cards}",
     )
 
 

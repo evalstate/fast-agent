@@ -49,13 +49,13 @@ async def test_acp_initialize_survives_missing_provider_keys_and_prompts_fail_la
         "fast-agent-acp-auth-test",
     ]
     client = TestClient()
-    environment_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     async with spawn_agent_process(
         lambda _: client,
         *cmd,
         cwd=tmp_path,
         env={
-            "ENVIRONMENT_DIR": str(environment_dir),
+            "FAST_AGENT_HOME": str(home),
             "HOME": str(tmp_path),
             "OPENAI_API_KEY": "",
             "ANTHROPIC_API_KEY": "",

@@ -1,9 +1,9 @@
-"""Structured session environment protocols for shell and sandbox runtimes.
+"""Structured environment protocols for shell and filesystem runtimes.
 
 Adapter authoring rule of thumb:
 
 * implement ``ShellEnvironment`` when the provider only runs commands;
-* also implement ``SessionFilesystem`` when the provider owns the files the LLM
+* also implement ``EnvironmentFilesystem`` when the provider owns the files the LLM
   should read and edit;
 * pass that environment to ``fast.run(environment=...)`` or
   ``fast.harness(environment=...)``. ``McpAgent`` will expose the existing LLM
@@ -20,16 +20,16 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 RuntimeEnvironmentKind = str
-SessionFileKind = Literal["file", "directory", "other", "unknown"]
+EnvironmentFileKind = Literal["file", "directory", "other", "unknown"]
 
 
 @dataclass(frozen=True, slots=True)
-class SessionFileEntry:
-    """Directory entry in a session-owned filesystem."""
+class EnvironmentFileEntry:
+    """Directory entry in an environment-owned filesystem."""
 
     path: str
     name: str
-    kind: SessionFileKind = "unknown"
+    kind: EnvironmentFileKind = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,8 +155,8 @@ class ShellExecutor(Protocol):
 
 
 @runtime_checkable
-class SessionFilesystem(Protocol):
-    """Filesystem contract for shell-session-backed model tools.
+class EnvironmentFilesystem(Protocol):
+    """Filesystem contract for environment-backed model tools.
 
     Implement this in addition to ``ShellEnvironment`` when the shell runtime
     also owns a filesystem that the LLM should naturally read and edit.
@@ -170,11 +170,11 @@ class SessionFilesystem(Protocol):
         ...
 
     def resolve_path(self, path: str) -> str:
-        """Resolve a possibly-relative path inside the session filesystem."""
+        """Resolve a possibly-relative path inside the environment filesystem."""
         ...
 
     async def read_text(self, path: str) -> str:
-        """Read UTF-8 text from the session filesystem.
+        """Read UTF-8 text from the environment filesystem.
 
         Missing paths should raise ``FileNotFoundError`` or the provider's
         closest equivalent.
@@ -182,15 +182,15 @@ class SessionFilesystem(Protocol):
         ...
 
     async def write_text(self, path: str, content: str) -> None:
-        """Write UTF-8 text to the session filesystem, creating parents as needed."""
+        """Write UTF-8 text to the environment filesystem, creating parents as needed."""
         ...
 
     async def exists(self, path: str) -> bool:
-        """Return whether a path exists in the session filesystem."""
+        """Return whether a path exists in the environment filesystem."""
         ...
 
-    async def list_dir(self, path: str) -> list[SessionFileEntry]:
-        """List direct children of a directory in the session filesystem.
+    async def list_dir(self, path: str) -> list[EnvironmentFileEntry]:
+        """List direct children of a directory in the environment filesystem.
 
         Missing paths should raise ``FileNotFoundError`` or the provider's
         closest equivalent. Non-directory paths should raise ``NotADirectoryError``
@@ -199,15 +199,15 @@ class SessionFilesystem(Protocol):
         ...
 
     async def mkdir(self, path: str) -> None:
-        """Create a directory and any missing parents in the session filesystem."""
+        """Create a directory and any missing parents in the environment filesystem."""
         ...
 
     async def remove(self, path: str) -> None:
-        """Remove a file from the session filesystem."""
+        """Remove a file from the environment filesystem."""
         ...
 
 
-class SessionEnvironment(ShellEnvironment, SessionFilesystem, Protocol):
+class ShellEnvironmentWithFilesystem(ShellEnvironment, EnvironmentFilesystem, Protocol):
     """Environment that owns both shell execution and model-facing files."""
 
     pass
@@ -234,12 +234,12 @@ async def execute_shell(
     return execution.result
 
 __all__ = [
+    "EnvironmentFileEntry",
+    "EnvironmentFileKind",
+    "EnvironmentFilesystem",
     "RuntimeEnvironmentKind",
-    "SessionEnvironment",
-    "SessionFileEntry",
-    "SessionFileKind",
-    "SessionFilesystem",
     "ShellEnvironment",
+    "ShellEnvironmentWithFilesystem",
     "ShellExecutor",
     "ShellExecution",
     "ShellExecutionCallbacks",

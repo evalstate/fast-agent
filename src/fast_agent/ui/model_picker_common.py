@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from fast_agent.config import get_settings
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, FAST_AGENT_RUNTIME_ENVIRONMENT
+from fast_agent.constants import DEFAULT_HOME_DIR, FAST_AGENT_RUNTIME_HOME
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import CatalogModelEntry, ModelSelectionCatalog
@@ -402,37 +402,37 @@ def _load_overlay_registry_for_snapshot(
     config_payload: dict[str, Any],
     start_path: Path | None,
 ):
-    env_dir = config_payload.get("environment_dir")
-    normalized_env_dir = _normalized_overlay_env_dir(env_dir)
+    home = config_payload.get("home")
+    normalized_home = _normalized_overlay_home(home)
     candidate_starts = _overlay_candidate_starts(
         config_path=config_path,
-        env_dir=env_dir,
-        normalized_env_dir=normalized_env_dir,
+        home=home,
+        normalized_home=normalized_home,
         start_path=start_path,
     )
 
-    if normalized_env_dir is None and (config_path is not None or start_path is not None):
-        normalized_env_dir = DEFAULT_ENVIRONMENT_DIR
+    if normalized_home is None and (config_path is not None or start_path is not None):
+        normalized_home = DEFAULT_HOME_DIR
 
     return _first_overlay_registry_with_entries(
         _dedupe_paths(candidate_starts),
-        env_dir=normalized_env_dir,
+        home=normalized_home,
     )
 
 
-def _normalized_overlay_env_dir(env_dir: object) -> str | Path | None:
+def _normalized_overlay_home(home: object) -> str | Path | None:
     from pathlib import Path as _Path
 
-    if isinstance(env_dir, (str, _Path)):
-        return env_dir
-    return os.getenv(FAST_AGENT_RUNTIME_ENVIRONMENT) or os.getenv("ENVIRONMENT_DIR")
+    if isinstance(home, (str, _Path)):
+        return home
+    return os.getenv(FAST_AGENT_RUNTIME_HOME) or os.getenv("FAST_AGENT_HOME")
 
 
 def _overlay_candidate_starts(
     *,
     config_path: str | Path | None,
-    env_dir: object,
-    normalized_env_dir: str | Path | None,
+    home: object,
+    normalized_home: str | Path | None,
     start_path: Path | None,
 ) -> list[Path]:
     from pathlib import Path as _Path
@@ -440,8 +440,8 @@ def _overlay_candidate_starts(
     if config_path is not None:
         return _config_overlay_candidate_starts(
             config_path=config_path,
-            env_dir=env_dir,
-            normalized_env_dir=normalized_env_dir,
+            home=home,
+            normalized_home=normalized_home,
         )
 
     if start_path is not None:
@@ -452,46 +452,46 @@ def _overlay_candidate_starts(
 def _config_overlay_candidate_starts(
     *,
     config_path: str | Path,
-    env_dir: object,
-    normalized_env_dir: str | Path | None,
+    home: object,
+    normalized_home: str | Path | None,
 ) -> list[Path]:
     from pathlib import Path as _Path
 
     config_file = _Path(config_path).expanduser().resolve()
     candidate_starts: list[Path] = [config_file.parent]
-    relative_env_dir = _relative_overlay_env_dir(
-        env_dir=env_dir,
-        normalized_env_dir=normalized_env_dir,
+    relative_home = _relative_overlay_home(
+        home=home,
+        normalized_home=normalized_home,
     )
-    project_root = _project_root_for_env_config(config_file.parent, relative_env_dir)
+    project_root = _project_root_for_env_config(config_file.parent, relative_home)
     if project_root is not None:
         candidate_starts.append(project_root)
     return candidate_starts
 
 
-def _relative_overlay_env_dir(
+def _relative_overlay_home(
     *,
-    env_dir: object,
-    normalized_env_dir: str | Path | None,
+    home: object,
+    normalized_home: str | Path | None,
 ) -> Path | None:
     from pathlib import Path as _Path
 
-    if env_dir is None:
-        return _Path(DEFAULT_ENVIRONMENT_DIR)
-    if normalized_env_dir is None:
-        raise ValueError("environment_dir must be a string or path")
+    if home is None:
+        return _Path(DEFAULT_HOME_DIR)
+    if normalized_home is None:
+        raise ValueError("home must be a string or path")
 
-    env_path = _Path(normalized_env_dir).expanduser()
-    if env_path.is_absolute():
+    home_path = _Path(normalized_home).expanduser()
+    if home_path.is_absolute():
         return None
-    return env_path
+    return home_path
 
 
-def _project_root_for_env_config(config_dir: Path, relative_env_dir: Path | None) -> Path | None:
-    if relative_env_dir is None or not relative_env_dir.parts:
+def _project_root_for_env_config(config_dir: Path, relative_home: Path | None) -> Path | None:
+    if relative_home is None or not relative_home.parts:
         return None
 
-    env_parts = relative_env_dir.parts
+    env_parts = relative_home.parts
     parent_parts = config_dir.parts
     if len(env_parts) > len(parent_parts) or parent_parts[-len(env_parts) :] != env_parts:
         return None
@@ -511,7 +511,7 @@ def _dedupe_paths(candidate_starts: list[Path]) -> list[Path]:
 def _first_overlay_registry_with_entries(
     ordered_starts: list[Path],
     *,
-    env_dir: str | Path | None,
+    home: str | Path | None,
 ):
     from pathlib import Path as _Path
 
@@ -519,7 +519,7 @@ def _first_overlay_registry_with_entries(
     for overlay_start_path in ordered_starts:
         registry = load_model_overlay_registry(
             start_path=overlay_start_path,
-            env_dir=env_dir,
+            home=home,
         )
         if fallback_registry is None:
             fallback_registry = registry
@@ -528,7 +528,7 @@ def _first_overlay_registry_with_entries(
 
     if fallback_registry is not None:
         return fallback_registry
-    return load_model_overlay_registry(start_path=_Path.cwd().resolve(), env_dir=env_dir)
+    return load_model_overlay_registry(start_path=_Path.cwd().resolve(), home=home)
 
 
 def find_provider(snapshot: ModelPickerSnapshot, provider_name: str) -> ProviderOption:

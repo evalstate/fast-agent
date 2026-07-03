@@ -83,10 +83,10 @@ def test_cards_add_and_remove_via_cli(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -104,7 +104,7 @@ def test_cards_add_and_remove_via_cli(tmp_path: Path) -> None:
         assert "name: alpha" in add_result.output
         assert "Alpha Pack" in add_result.output
         assert "Install notes." in add_result.output
-        assert (env_root / "agent-cards" / "alpha.md").exists()
+        assert (home_root / "agent-cards" / "alpha.md").exists()
 
         list_result = runner.invoke(cards_command.app, ["list"])
         assert list_result.exit_code == 0, list_result.output
@@ -119,7 +119,7 @@ def test_cards_add_and_remove_via_cli(tmp_path: Path) -> None:
         assert remove_result.exit_code == 0, remove_result.output
         assert "Card Pack Removed" in remove_result.output
         assert "name: alpha" in remove_result.output
-        assert not (env_root / "agent-cards" / "alpha.md").exists()
+        assert not (home_root / "agent-cards" / "alpha.md").exists()
     finally:
         update_global_settings(old_settings)
 
@@ -173,10 +173,10 @@ def test_cards_readme_without_readme_reports_notice(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -240,10 +240,10 @@ def test_cards_readme_without_selector_uses_only_installed_pack(tmp_path: Path) 
         encoding="utf-8",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -266,14 +266,14 @@ def test_cards_readme_without_selector_uses_only_installed_pack(tmp_path: Path) 
 
 
 def test_top_level_env_flag_routes_to_cards_subcommand(tmp_path: Path) -> None:
-    env_root = tmp_path / "custom-env"
+    home_root = tmp_path / "custom-env"
     result = subprocess.run(
         [
             sys.executable,
             "-m",
             "fast_agent.cli",
-            "--env",
-            str(env_root),
+            "--home",
+            str(home_root),
             "cards",
             "--help",
         ],
@@ -329,11 +329,11 @@ def test_cards_add_uses_configured_marketplace_urls_by_default(tmp_path: Path) -
         encoding="utf-8",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
         "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n"
+        f"home: '{home_root.as_posix()}'\n"
         "cards:\n"
         "  marketplace_urls:\n"
         f"    - '{marketplace_path.as_posix()}'\n",
@@ -351,7 +351,7 @@ def test_cards_add_uses_configured_marketplace_urls_by_default(tmp_path: Path) -
         assert "name: alpha" in add_result.output
         assert "Alpha Pack" in add_result.output
         assert "Configured via default marketplace." in add_result.output
-        assert (env_root / "agent-cards" / "alpha.md").exists()
+        assert (home_root / "agent-cards" / "alpha.md").exists()
     finally:
         update_global_settings(old_settings)
 
@@ -395,10 +395,10 @@ def test_cards_publish_no_push_commits_locally(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -412,7 +412,7 @@ def test_cards_publish_no_push_commits_locally(tmp_path: Path) -> None:
         )
         assert add_result.exit_code == 0, add_result.output
 
-        installed_card = env_root / "agent-cards" / "alpha.md"
+        installed_card = home_root / "agent-cards" / "alpha.md"
         installed_card.write_text(
             installed_card.read_text(encoding="utf-8") + "\nlocal publish edit\n",
             encoding="utf-8",
@@ -442,9 +442,9 @@ def test_cards_publish_help_lists_temp_flags() -> None:
 
 
 def test_cards_update_reports_invalid_settings_yaml_without_traceback(tmp_path: Path) -> None:
-    env_root = tmp_path / ".fast-agent"
-    env_root.mkdir(parents=True)
-    config_path = env_root / "fastagent.config.yaml"
+    home_root = tmp_path / ".fast-agent"
+    home_root.mkdir(parents=True)
+    config_path = home_root / "fastagent.config.yaml"
     config_path.write_text(
         "mcp:\n  targets:\n    - name: openai\n        target: https://developers.openai.com/mcp\n",
         encoding="utf-8",
@@ -452,10 +452,10 @@ def test_cards_update_reports_invalid_settings_yaml_without_traceback(tmp_path: 
 
     old_settings = get_settings()
     old_cwd = Path.cwd()
-    old_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    old_home = os.environ.get("FAST_AGENT_HOME")
     try:
         os.chdir(tmp_path)
-        os.environ.pop("ENVIRONMENT_DIR", None)
+        os.environ.pop("FAST_AGENT_HOME", None)
         config_module._settings = None
 
         runner = CliRunner()
@@ -469,8 +469,8 @@ def test_cards_update_reports_invalid_settings_yaml_without_traceback(tmp_path: 
         assert "Traceback" not in output
     finally:
         os.chdir(old_cwd)
-        if old_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        if old_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = old_env_dir
+            os.environ["FAST_AGENT_HOME"] = old_home
         update_global_settings(old_settings)

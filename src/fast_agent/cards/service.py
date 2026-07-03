@@ -33,7 +33,7 @@ if TYPE_CHECKING:
         MarketplaceCardPack,
     )
     from fast_agent.config import Settings
-    from fast_agent.paths import EnvironmentPaths
+    from fast_agent.paths import HomePaths
     from fast_agent.plugins.models import MarketplacePlugin
 
 
@@ -124,8 +124,8 @@ def resolve_registry(source: str | None = None, *, settings: Settings | None = N
     return source or manager.get_marketplace_url(settings)
 
 
-def list_installed_packs(*, environment_paths: EnvironmentPaths) -> list[LocalCardPack]:
-    return manager.list_local_card_packs(environment_paths=environment_paths)
+def list_installed_packs(*, home_paths: HomePaths) -> list[LocalCardPack]:
+    return manager.list_local_card_packs(home_paths=home_paths)
 
 
 def select_marketplace_pack(
@@ -140,10 +140,10 @@ def select_marketplace_pack(
 
 def select_installed_pack(
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     selector: str,
 ) -> LocalCardPack:
-    packs = list_installed_packs(environment_paths=environment_paths)
+    packs = list_installed_packs(home_paths=home_paths)
     selected = manager.select_installed_card_pack_by_name_or_index(packs, selector)
     if selected is None:
         raise CardPackLookupError(f"Card pack not found: {selector}")
@@ -153,26 +153,26 @@ def select_installed_pack(
 async def install_selected_pack(
     pack: MarketplaceCardPack,
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     force: bool,
     marketplace_source: str | None = None,
 ) -> CardPackInstallRecord:
     install_pack = replace(pack, source_url=marketplace_source) if marketplace_source else pack
     install_result = await manager.install_marketplace_card_pack(
         install_pack,
-        environment_paths=environment_paths,
+        home_paths=home_paths,
         force=force,
     )
     try:
         await _ensure_required_pack_plugins(
             install_result.pack_dir,
-            environment_paths=environment_paths,
+            home_paths=home_paths,
             plugin_registry=marketplace_source or pack.source_url,
         )
     except Exception:
         manager.remove_local_card_pack(
             install_result.pack_dir.name,
-            environment_paths=environment_paths,
+            home_paths=home_paths,
         )
         raise
     return CardPackInstallRecord(
@@ -185,7 +185,7 @@ async def install_selected_pack(
 async def _ensure_required_pack_plugins(
     pack_dir: Path,
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     plugin_registry: str | None = None,
 ) -> None:
     manifest = manager.load_card_pack_manifest(pack_dir)
@@ -194,7 +194,7 @@ async def _ensure_required_pack_plugins(
 
     installed_names, missing_plugins = _required_plugin_install_state(
         manifest.plugins_required,
-        environment_paths=environment_paths,
+        home_paths=home_paths,
     )
 
     marketplace_plugins = []
@@ -209,14 +209,14 @@ async def _ensure_required_pack_plugins(
         manifest,
         installed_names=installed_names,
         marketplace_plugins=marketplace_plugins,
-        environment_paths=environment_paths,
+        home_paths=home_paths,
     )
 
 
 def _ensure_required_pack_plugins_sync(
     pack_dir: Path,
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     plugin_registry: str | None = None,
 ) -> None:
     manifest = manager.load_card_pack_manifest(pack_dir)
@@ -225,7 +225,7 @@ def _ensure_required_pack_plugins_sync(
 
     installed_names, missing_plugins = _required_plugin_install_state(
         manifest.plugins_required,
-        environment_paths=environment_paths,
+        home_paths=home_paths,
     )
 
     marketplace_plugins = []
@@ -240,7 +240,7 @@ def _ensure_required_pack_plugins_sync(
         manifest,
         installed_names=installed_names,
         marketplace_plugins=marketplace_plugins,
-        environment_paths=environment_paths,
+        home_paths=home_paths,
     )
 
 
@@ -249,17 +249,17 @@ def _enable_required_pack_plugins(
     *,
     installed_names: set[str],
     marketplace_plugins: Sequence["MarketplacePlugin"],
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
 ) -> None:
     settings = get_settings()
-    config_path = _resolve_config_path(settings, environment_paths)
+    config_path = _resolve_config_path(settings, home_paths)
 
     for plugin_name in manifest.plugins_required:
         enabled_name = _resolve_required_plugin_enabled_name(
             plugin_name,
             installed_names=installed_names,
             marketplace_plugins=marketplace_plugins,
-            environment_paths=environment_paths,
+            home_paths=home_paths,
         )
         enable_plugin_in_config(config_path, enabled_name)
 
@@ -269,7 +269,7 @@ def _resolve_required_plugin_enabled_name(
     *,
     installed_names: set[str],
     marketplace_plugins: Sequence["MarketplacePlugin"],
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
 ) -> str:
     if plugin_name in installed_names:
         return plugin_name
@@ -278,11 +278,11 @@ def _resolve_required_plugin_enabled_name(
     if selected is None:
         raise CardPackLookupError(f"Required plugin not found in plugin registry: {plugin_name}")
 
-    plugin_dir = environment_paths.plugins / selected.install_dir_name
+    plugin_dir = home_paths.plugins / selected.install_dir_name
     if not (plugin_dir / PLUGIN_MANIFEST_FILENAME).is_file():
         plugin_dir = plugin_ops.install_marketplace_plugin_sync(
             selected,
-            destination_root=environment_paths.plugins,
+            destination_root=home_paths.plugins,
         )
     return load_plugin_manifest(plugin_dir).name
 
@@ -290,32 +290,32 @@ def _resolve_required_plugin_enabled_name(
 def _required_plugin_install_state(
     required_plugins: Sequence[str],
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
 ) -> tuple[set[str], list[str]]:
-    installed = plugin_ops.list_local_plugins(destination_root=environment_paths.plugins)
+    installed = plugin_ops.list_local_plugins(destination_root=home_paths.plugins)
     installed_names = {entry.name for entry in installed}
     missing_plugins = [name for name in required_plugins if name not in installed_names]
     return installed_names, missing_plugins
 
 
-def _resolve_config_path(settings: Settings, environment_paths: EnvironmentPaths) -> Path:
+def _resolve_config_path(settings: Settings, home_paths: HomePaths) -> Path:
     if settings._config_file:
         return Path(settings._config_file)
-    return environment_paths.root / PREFERRED_CONFIG_FILENAME
+    return home_paths.root / PREFERRED_CONFIG_FILENAME
 
 
 async def install_pack(
     source: str,
     selector: str,
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     force: bool,
 ) -> CardPackInstallRecord:
     marketplace = await scan_marketplace(source)
     selected = select_marketplace_pack(marketplace.packs, selector)
     return await install_selected_pack(
         selected,
-        environment_paths=environment_paths,
+        home_paths=home_paths,
         force=force,
         marketplace_source=marketplace.source,
     )
@@ -325,14 +325,14 @@ def install_pack_sync(
     source: str,
     selector: str,
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     force: bool,
 ) -> CardPackInstallRecord:
     return run_coroutine(
         install_pack(
             source,
             selector,
-            environment_paths=environment_paths,
+            home_paths=home_paths,
             force=force,
         )
     )
@@ -341,13 +341,13 @@ def install_pack_sync(
 async def ensure_pack_available(
     *,
     selector: str,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     registry: str | None = None,
     force: bool = False,
 ) -> EnsuredCardPack:
     try:
         installed_pack = select_installed_pack(
-            environment_paths=environment_paths,
+            home_paths=home_paths,
             selector=selector,
         )
     except CardPackLookupError:
@@ -363,7 +363,7 @@ async def ensure_pack_available(
     install_record = await install_pack(
         resolve_registry(registry),
         selector,
-        environment_paths=environment_paths,
+        home_paths=home_paths,
         force=force,
     )
     return EnsuredCardPack(
@@ -377,14 +377,14 @@ async def ensure_pack_available(
 def ensure_pack_available_sync(
     *,
     selector: str,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     registry: str | None = None,
     force: bool = False,
 ) -> EnsuredCardPack:
     return run_coroutine(
         ensure_pack_available(
             selector=selector,
-            environment_paths=environment_paths,
+            home_paths=home_paths,
             registry=registry,
             force=force,
         )
@@ -393,35 +393,35 @@ def ensure_pack_available_sync(
 
 def remove_pack(
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     selector: str,
 ) -> CardPackRemovalResult:
-    selected = select_installed_pack(environment_paths=environment_paths, selector=selector)
+    selected = select_installed_pack(home_paths=home_paths, selector=selector)
     return manager.remove_local_card_pack(
         selected.pack_dir.name,
-        environment_paths=environment_paths,
+        home_paths=home_paths,
     )
 
 
 def read_installed_pack_readme(
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     selector: str,
 ) -> CardPackReadmeRecord:
-    selected = select_installed_pack(environment_paths=environment_paths, selector=selector)
+    selected = select_installed_pack(home_paths=home_paths, selector=selector)
     return _build_readme_record(selected.name, selected.pack_dir)
 
 
-def check_updates(*, environment_paths: EnvironmentPaths) -> list[CardPackUpdateInfo]:
-    return manager.check_card_pack_updates(environment_paths=environment_paths)
+def check_updates(*, home_paths: HomePaths) -> list[CardPackUpdateInfo]:
+    return manager.check_card_pack_updates(home_paths=home_paths)
 
 
 def plan_updates(
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     selector: str,
 ) -> CardPackUpdatePlan:
-    available = check_updates(environment_paths=environment_paths)
+    available = check_updates(home_paths=home_paths)
     selected = manager.select_card_pack_updates(available, selector)
     if not selected:
         raise CardPackLookupError(f"Card pack not found: {selector}")
@@ -431,12 +431,12 @@ def plan_updates(
 def apply_update_plan(
     selected: Sequence[CardPackUpdateInfo],
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     force: bool,
 ) -> CardPackUpdateResult:
     applied = manager.apply_card_pack_updates(
         list(selected),
-        environment_paths=environment_paths,
+        home_paths=home_paths,
         force=force,
     )
     updated = [update for update in applied if is_update_applied(update.status)]
@@ -444,7 +444,7 @@ def apply_update_plan(
         plugin_registry = update.managed_source.source_url if update.managed_source else None
         _ensure_required_pack_plugins_sync(
             update.pack_dir,
-            environment_paths=environment_paths,
+            home_paths=home_paths,
             plugin_registry=plugin_registry,
         )
     readmes = [_build_readme_record(update.name, update.pack_dir) for update in updated]
@@ -453,17 +453,17 @@ def apply_update_plan(
 
 def publish_pack(
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     selector: str,
     push: bool,
     commit_message: str | None,
     temp_dir: Path | None,
     keep_temp: bool,
 ) -> CardPackPublishResult:
-    selected = select_installed_pack(environment_paths=environment_paths, selector=selector)
+    selected = select_installed_pack(home_paths=home_paths, selector=selector)
     return manager.publish_local_card_pack(
         selected.pack_dir,
-        environment_paths=environment_paths,
+        home_paths=home_paths,
         push=push,
         commit_message=commit_message,
         temp_dir=temp_dir,

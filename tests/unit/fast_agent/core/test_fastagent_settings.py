@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.core.fastagent import FastAgent
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 from fast_agent.plugins.configuration import installed_plugin_roots
 
 if TYPE_CHECKING:
@@ -35,16 +35,16 @@ def test_fastagent_startup_preserves_global_plugin_home(
     monkeypatch,
 ) -> None:
     global_home = tmp_path / "global-home"
-    env_root = tmp_path / "project-env"
+    home_root = tmp_path / "project-env"
     _write_plugin(global_home / "plugins", "discover")
-    _write_plugin(env_root / "plugins", "images")
+    _write_plugin(home_root / "plugins", "images")
     (global_home / "fast-agent.yaml").write_text(
         "plugins:\n  enabled: ['discover']\n",
         encoding="utf-8",
     )
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n"
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n"
         "plugins:\n  enabled: ['images']\n",
         encoding="utf-8",
     )
@@ -55,7 +55,7 @@ def test_fastagent_startup_preserves_global_plugin_home(
         settings = get_settings()
         roots = installed_plugin_roots(
             settings,
-            project_plugins=resolve_environment_paths(settings).plugins,
+            project_plugins=resolve_home_paths(settings).plugins,
         )
 
         assert fast.app._config_or_path is settings

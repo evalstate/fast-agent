@@ -82,11 +82,11 @@ def test_registered_agent_names_include_tool_only_agents() -> None:
     assert app.registered_agent_names() == ["tool", "main"]
 
 
-def test_noenv_mode_defaults_false_and_can_be_updated() -> None:
+def test_no_home_mode_defaults_false_and_can_be_updated() -> None:
     app = AgentApp(agents={"main": cast("AgentProtocol", _Agent("main"))})
 
-    assert app.noenv_mode is False
+    assert app.no_home_mode is False
 
-    app.noenv_mode = True
+    app.no_home_mode = True
 
-    assert app.noenv_mode is True
+    assert app.no_home_mode is True

@@ -25,7 +25,7 @@ async def test_finalize_run_limits_shutdown_time_after_exit_request() -> None:
     settings = RunSettings(
         quiet_mode=True,
         cli_model_override=None,
-        noenv_mode=False,
+        no_home_mode=False,
         server_mode=False,
         transport=None,
         is_acp_server_mode=False,

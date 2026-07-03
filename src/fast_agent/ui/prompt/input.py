@@ -725,7 +725,7 @@ async def get_enhanced_input(
     is_human_input: bool = False,
     toolbar_color: str = "ansiblue",
     agent_provider: "AgentApp | None" = None,
-    noenv_mode: bool = False,
+    no_home_mode: bool = False,
     pre_populate_buffer: str = "",
     session_manager: "SessionManager | None" = None,
 ) -> str | CommandPayload:
@@ -743,7 +743,7 @@ async def get_enhanced_input(
         is_human_input: Whether this is a human input request (disables agent selection features)
         toolbar_color: Color to use for the agent name in the toolbar (default: "ansiblue")
         agent_provider: Optional AgentApp for displaying agent info
-        noenv_mode: Whether session operations should be disabled for --noenv mode
+        no_home_mode: Whether session operations should be disabled for --no-home mode
         pre_populate_buffer: Text to pre-populate in the input buffer for editing (one-off)
         session_manager: Optional session manager for session completions
 
@@ -780,7 +780,7 @@ async def get_enhanced_input(
             is_human_input=is_human_input,
             current_agent=agent_name,
             agent_provider=agent_provider,
-            noenv_mode=noenv_mode,
+            no_home_mode=no_home_mode,
             cwd=resolve_shell_working_dir(
                 agent_name=agent_name,
                 agent_provider=agent_provider,

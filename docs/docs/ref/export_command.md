@@ -108,7 +108,7 @@ fast-agent export latest --privacy-filter --download-privacy-filter
   branch names, or repository names are sensitive.
 - By default, privacy filtering uses a cached model only. Add
   `--download-privacy-filter` to allow the initial model download.
-- `--noenv` runs do not persist sessions, so there is nothing to export later.
+- `--no-home` runs do not persist sessions, so there is nothing to export later.
 
 ## Interactive equivalent
 

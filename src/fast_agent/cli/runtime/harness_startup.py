@@ -74,7 +74,7 @@ def should_use_harness_startup(request: AgentRunRequest) -> bool:
 def new_harness_session_id(request: AgentRunRequest) -> str:
     from fast_agent.session.session_manager import SessionManager
 
-    manager = SessionManager(environment_override=request.environment_dir)
+    manager = SessionManager(home_override=request.home)
     return manager.generate_session_id()
 
 

@@ -24,9 +24,9 @@ def get_marketplace_url(settings: "Settings | None" = None) -> str:
 
 
 def get_manager_directory(settings: "Settings | None" = None, *, cwd: Path | None = None) -> Path:
-    from fast_agent.paths import resolve_environment_paths
+    from fast_agent.paths import resolve_home_paths
 
-    return resolve_environment_paths(settings, cwd=cwd).plugins
+    return resolve_home_paths(settings, cwd=cwd).plugins
 
 
 def enabled_plugins_by_scope(settings: "Settings | None" = None) -> tuple[list[str], list[str]]:

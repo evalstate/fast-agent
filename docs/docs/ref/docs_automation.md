@@ -102,7 +102,7 @@ area compact; override it when a recording needs to demonstrate completion menus
 The recording driver sets `FAST_AGENT_HOME` to a temporary directory with a tiny config file so
 project-local config, implicit cards, sessions, and permission-store state from the repository
 `.fast-agent` are not loaded. It runs `fast-agent` from a throwaway demo git repository rather than
-the docs checkout. It also unsets `ENVIRONMENT_DIR`, `FAST_AGENT_RUNTIME_ENVIRONMENT`, and
+the docs checkout. It also unsets `FAST_AGENT_HOME`, `FAST_AGENT_RUNTIME_HOME`, and
 `VIRTUAL_ENV` to avoid environment overrides and `uv` active-environment warnings, and sets
 `FAST_AGENT_KEYRING_NOTICE=0` so the one-time OS keyring probe message does not appear in committed
 casts.

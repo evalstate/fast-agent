@@ -19,7 +19,7 @@ from fast_agent.commands.status_summaries import (
     build_status_summary,
     build_system_prompt_summary,
 )
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 from fast_agent.utils.action_normalization import normalize_action_token
 from fast_agent.utils.text import strip_to_none
 
@@ -107,7 +107,7 @@ async def handle_status_system(handler: "SlashCommandHandler") -> str:
 
 def handle_status_auth(handler: "SlashCommandHandler") -> str:
     heading = "permissions"
-    auths_path = resolve_environment_paths().permissions_file
+    auths_path = resolve_home_paths().permissions_file
     resolved_path = auths_path.resolve()
 
     if not auths_path.exists():
@@ -138,7 +138,7 @@ def handle_status_auth(handler: "SlashCommandHandler") -> str:
 
 def handle_status_authreset(handler: "SlashCommandHandler") -> str:
     heading = "reset permissions"
-    auths_path = resolve_environment_paths().permissions_file
+    auths_path = resolve_home_paths().permissions_file
     resolved_path = auths_path.resolve()
 
     if not auths_path.exists():

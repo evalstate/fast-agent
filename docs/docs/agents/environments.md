@@ -11,7 +11,7 @@ social:
 # Agent Environments
 
 Agent environments define where shell commands run. If the environment also
-implements `SessionFilesystem`, model-facing file tools such as
+implements `EnvironmentFilesystem`, model-facing file tools such as
 `read_text_file`, `write_text_file`, `edit_file`, and `apply_patch` use that
 same environment filesystem.
 
@@ -34,7 +34,7 @@ print(result.stdout, result.stderr, result.exit_code)
 ## Harness environment injection
 
 Pass a `ShellEnvironment` to `FastAgent.harness(...)` for programmatic shell
-calls. If the object also implements `SessionFilesystem`, shell-enabled agents
+calls. If the object also implements `EnvironmentFilesystem`, shell-enabled agents
 created under the harness use the same environment for model-facing file tools.
 
 ```python
@@ -83,13 +83,13 @@ uv run python examples/docker-shell/interactive.py
 
 ## Docker environments
 
-fast-agent includes Docker shell adapters and a mounted session adapter:
+fast-agent includes Docker shell adapters and a mounted environment adapter:
 
 | Adapter | Use when |
 | ------- | -------- |
 | `DockerManagedShellEnvironment` | fast-agent should start and remove a disposable container for the harness run. |
 | `DockerShellEnvironment` | You already have a running container and want fast-agent to execute commands inside it. |
-| `DockerMountedSessionEnvironment` | You want Docker `execute` and model-facing file tools to target the same bind-mounted workspace. |
+| `DockerMountedEnvironment` | You want Docker `execute` and model-facing file tools to target the same bind-mounted workspace. |
 
 Managed Docker example:
 
@@ -108,14 +108,14 @@ environment = DockerManagedShellEnvironment(
 )
 ```
 
-Mounted session example:
+Mounted environment example:
 
 ```python
 from pathlib import Path
 
-from fast_agent.tools.docker_shell_environment import DockerMountedSessionEnvironment
+from fast_agent.tools.docker_shell_environment import DockerMountedEnvironment
 
-environment = DockerMountedSessionEnvironment(
+environment = DockerMountedEnvironment(
     image="ubuntu:24.04",
     workspace=Path.cwd(),
     target="/workspace",
@@ -137,7 +137,7 @@ environment = DockerShellEnvironment(
 The Docker adapters run commands with `docker exec -w <cwd> ... <shell> -lc
 <command>` for POSIX-style shells, or PowerShell flags for `pwsh`/`powershell`.
 Environment variables passed to `harness.shell(..., env={...})` are forwarded
-with Docker `-e` arguments. `DockerMountedSessionEnvironment` maps file tool
+with Docker `-e` arguments. `DockerMountedEnvironment` maps file tool
 paths under `target` back to the host bind mount, so `execute`, `read_text_file`,
 and `apply_patch` all operate on the same visible tree.
 
@@ -216,7 +216,7 @@ Custom environments implement `ShellEnvironment` from
 
 ```python
 from fast_agent.tools.session_environment import (
-    SessionFileEntry,
+    EnvironmentFileEntry,
     ShellEnvironment,
     ShellExecution,
     ShellExecutionOptions,
@@ -267,10 +267,10 @@ Adapters that can stream output should call callback hooks as output arrives:
 If a provider cannot stream, ignore callbacks and return final output.
 
 To give the LLM natural file access to the same environment, implement
-`SessionFilesystem` on the same object:
+`EnvironmentFilesystem` on the same object:
 
 ```python
-from fast_agent.tools.session_environment import SessionFilesystem
+from fast_agent.tools.session_environment import EnvironmentFilesystem
 
 
 class MyEnvironment:
@@ -288,7 +288,7 @@ class MyEnvironment:
     async def exists(self, path: str) -> bool:
         ...
 
-    async def list_dir(self, path: str) -> list[SessionFileEntry]:
+    async def list_dir(self, path: str) -> list[EnvironmentFileEntry]:
         ...
 
     async def mkdir(self, path: str) -> None:
@@ -300,14 +300,14 @@ class MyEnvironment:
 
 Keep provider-specific concepts inside the adapter. For example, Hugging Face
 bucket mounts belong on `HuggingFaceSandboxEnvironment`, while the generic
-runtime only depends on `ShellEnvironment` and `SessionFilesystem`.
+runtime only depends on `ShellEnvironment` and `EnvironmentFilesystem`.
 
 `ShellRuntimeInfo.kind` is coarse display metadata. Built-in values include
 `local`, `docker`, and `remote`, but custom providers can use another stable
 string and should set `provider` to the adapter name.
 
 For Skills, fast-agent currently discovers installed Skill manifests from the
-host fast-agent environment. When an injected `SessionFilesystem` is active,
+host fast-agent home. When an injected `EnvironmentFilesystem` is active,
 those host-path Skill files are still read through `read_skill`; environment
 file tools remain available for files inside the Docker container, sandbox, or
 remote workspace.

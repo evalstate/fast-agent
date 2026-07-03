@@ -277,14 +277,14 @@ class AgentCompleter(Completer):
         is_human_input: bool = False,
         current_agent: str | None = None,
         agent_provider: "AgentApp | None" = None,
-        noenv_mode: bool = False,
+        no_home_mode: bool = False,
         cwd: Path | None = None,
         session_manager: "SessionManager | None" = None,
     ) -> None:
         self.agents = agents
         self.current_agent = current_agent
         self.agent_provider = agent_provider
-        self.noenv_mode = noenv_mode
+        self.no_home_mode = no_home_mode
         self.cwd = cwd
         self.session_manager = session_manager
         # Map commands to their descriptions for better completion hints
@@ -759,7 +759,7 @@ class AgentCompleter(Completer):
         include_current: bool = True,
     ):
         """Generate completions for recent session ids."""
-        if self.noenv_mode:
+        if self.no_home_mode:
             return
 
         from fast_agent.session import (
@@ -998,10 +998,10 @@ class AgentCompleter(Completer):
     ):
         """Generate completions for installed card packs."""
         from fast_agent.cards.manager import list_local_card_packs
-        from fast_agent.paths import resolve_environment_paths
+        from fast_agent.paths import resolve_home_paths
 
-        env_paths = resolve_environment_paths(get_settings())
-        packs = list_local_card_packs(environment_paths=env_paths)
+        home_paths = resolve_home_paths(get_settings())
+        packs = list_local_card_packs(home_paths=home_paths)
         if not packs:
             return
 
@@ -1041,11 +1041,11 @@ class AgentCompleter(Completer):
         include_indices: bool = True,
     ):
         """Generate completions for installed plugins."""
-        from fast_agent.paths import resolve_environment_paths
+        from fast_agent.paths import resolve_home_paths
         from fast_agent.plugins.operations import list_local_plugins
 
-        env_paths = resolve_environment_paths(get_settings())
-        plugins = list_local_plugins(destination_root=env_paths.plugins)
+        home_paths = resolve_home_paths(get_settings())
+        plugins = list_local_plugins(destination_root=home_paths.plugins)
         if not plugins:
             return
 

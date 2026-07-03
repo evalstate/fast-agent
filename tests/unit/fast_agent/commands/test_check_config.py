@@ -3,7 +3,7 @@ from fast_agent.cli.commands.check_config import (
     DEFAULT_OPENRESPONSES_BASE_URL,
     Provider,
     _adjacent_settings_pairs,
-    _effective_environment_override,
+    _effective_home_override,
     _extract_skills_directories,
     _format_provider_row,
     _format_step_interval,
@@ -161,16 +161,16 @@ def test_extract_skills_directories_normalizes_list_values():
     ) == ["./skills", "123"]
 
 
-def test_effective_environment_override_normalizes_env_and_config_values(monkeypatch):
-    monkeypatch.setenv("ENVIRONMENT_DIR", "  /tmp/fast-agent-env  ")
+def test_effective_home_override_normalizes_env_and_config_values(monkeypatch):
+    monkeypatch.setenv("FAST_AGENT_HOME", "  /tmp/fast-agent-env  ")
 
-    assert _effective_environment_override(env_dir=None, config_summary={}) == "/tmp/fast-agent-env"
+    assert _effective_home_override(home=None, config_summary={}) == "/tmp/fast-agent-env"
 
-    monkeypatch.setenv("ENVIRONMENT_DIR", "   ")
+    monkeypatch.setenv("FAST_AGENT_HOME", "   ")
     assert (
-        _effective_environment_override(
-            env_dir=None,
-            config_summary={"config": {"environment_dir": "  .fast-agent-local  "}},
+        _effective_home_override(
+            home=None,
+            config_summary={"config": {"home": "  .fast-agent-local  "}},
         )
         == ".fast-agent-local"
     )

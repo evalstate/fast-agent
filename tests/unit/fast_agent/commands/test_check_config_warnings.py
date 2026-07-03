@@ -6,8 +6,8 @@ from fast_agent.llm.model_overlays import load_model_overlay_registry
 
 
 def test_check_config_warns_missing_api_key(tmp_path: Path, capsys) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    agent_cards_dir = env_dir / "agent-cards"
+    home = tmp_path / ".fast-agent"
+    agent_cards_dir = home / "agent-cards"
     agent_cards_dir.mkdir(parents=True)
 
     card_path = agent_cards_dir / "data_cleaner.yaml"
@@ -25,7 +25,7 @@ def test_check_config_warns_missing_api_key(tmp_path: Path, capsys) -> None:
     original_openai_key = os.environ.pop("OPENAI_API_KEY", None)
     try:
         os.chdir(tmp_path)
-        show_check_summary(env_dir=env_dir)
+        show_check_summary(home=home)
     finally:
         os.chdir(cwd)
         if original_openai_key is not None:
@@ -42,8 +42,8 @@ def test_check_config_does_not_warn_missing_openresponses_api_key(
     tmp_path: Path,
     capsys,
 ) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    agent_cards_dir = env_dir / "agent-cards"
+    home = tmp_path / ".fast-agent"
+    agent_cards_dir = home / "agent-cards"
     agent_cards_dir.mkdir(parents=True)
 
     card_path = agent_cards_dir / "local_openresponses.yaml"
@@ -61,7 +61,7 @@ def test_check_config_does_not_warn_missing_openresponses_api_key(
     original_openresponses_key = os.environ.pop("OPENRESPONSES_API_KEY", None)
     try:
         os.chdir(tmp_path)
-        show_check_summary(env_dir=env_dir)
+        show_check_summary(home=home)
     finally:
         os.chdir(cwd)
         if original_openresponses_key is not None:
@@ -80,10 +80,10 @@ def test_check_config_warns_missing_openresponses_api_key_for_hosted_endpoint(
     tmp_path: Path,
     capsys,
 ) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    agent_cards_dir = env_dir / "agent-cards"
+    home = tmp_path / ".fast-agent"
+    agent_cards_dir = home / "agent-cards"
     agent_cards_dir.mkdir(parents=True)
-    (env_dir / "fastagent.config.yaml").write_text(
+    (home / "fastagent.config.yaml").write_text(
         "\n".join(
             [
                 "openresponses:",
@@ -109,7 +109,7 @@ def test_check_config_warns_missing_openresponses_api_key_for_hosted_endpoint(
     original_openresponses_base_url = os.environ.pop("OPENRESPONSES_BASE_URL", None)
     try:
         os.chdir(tmp_path)
-        show_check_summary(env_dir=env_dir)
+        show_check_summary(home=home)
     finally:
         os.chdir(cwd)
         if original_openresponses_key is not None:
@@ -130,8 +130,8 @@ def test_check_config_reports_overlay_preset_collision_as_info(
     tmp_path: Path,
     capsys,
 ) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    overlays_dir = env_dir / "model-overlays"
+    home = tmp_path / ".fast-agent"
+    overlays_dir = home / "model-overlays"
     overlays_dir.mkdir(parents=True)
     (overlays_dir / "sonnet.yaml").write_text(
         "\n".join(
@@ -150,12 +150,12 @@ def test_check_config_reports_overlay_preset_collision_as_info(
     cwd = Path.cwd()
     try:
         os.chdir(tmp_path)
-        show_check_summary(env_dir=env_dir)
+        show_check_summary(home=home)
     finally:
         os.chdir(cwd)
-        empty_env_dir = tmp_path / ".empty-fast-agent"
-        empty_env_dir.mkdir(parents=True, exist_ok=True)
-        load_model_overlay_registry(start_path=tmp_path, env_dir=empty_env_dir)
+        empty_home = tmp_path / ".empty-fast-agent"
+        empty_home.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, home=empty_home)
 
     captured = capsys.readouterr()
     normalized = " ".join(captured.out.split())

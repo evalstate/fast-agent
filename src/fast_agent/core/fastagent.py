@@ -89,7 +89,7 @@ __all__ = [
 class RunSettings:
     quiet_mode: bool
     cli_model_override: str | None
-    noenv_mode: bool
+    no_home_mode: bool
     server_mode: bool
     transport: str | None
     is_acp_server_mode: bool
@@ -104,7 +104,7 @@ class RunRuntime:
     model_factory_func: ModelFactoryFunctionProtocol
     global_prompt_context: dict[str, str] | None
     is_acp_server_mode: bool
-    noenv_mode: bool
+    no_home_mode: bool
     managed_instances: list[AgentInstance]
     instance_lock: asyncio.Lock
     shell_environment: ShellEnvironment
@@ -163,9 +163,9 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         ignore_unknown_args: bool = False,
         parse_cli_args: bool = True,
         quiet: bool = False,  # Add quiet parameter
-        environment_dir: str | pathlib.Path | None = None,
+        home: str | pathlib.Path | None = None,
         skills_directory: str | pathlib.Path | Sequence[str | pathlib.Path] | None = None,
-        noenv: bool = False,
+        no_home: bool = False,
         **kwargs,
     ) -> None:
         """
@@ -185,12 +185,12 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         self.args = argparse.Namespace()  # Initialize args always
         self._initialize_runtime_options(
             quiet=quiet,
-            environment_dir=environment_dir,
+            home=home,
             skills_directory=skills_directory,
         )
         if parse_cli_args:
             self._parse_constructor_cli_args(ignore_unknown_args=ignore_unknown_args)
-        self._apply_constructor_runtime_flags(noenv=noenv)
+        self._apply_constructor_runtime_flags(no_home=no_home)
 
         self.name = name
         self.config_path = config_path
@@ -214,11 +214,11 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         self,
         *,
         quiet: bool,
-        environment_dir: str | pathlib.Path | None,
+        home: str | pathlib.Path | None,
         skills_directory: str | pathlib.Path | Sequence[str | pathlib.Path] | None,
     ) -> None:
         self._programmatic_quiet = quiet
-        self._environment_dir_override = self._normalize_environment_dir(environment_dir)
+        self._home_override = self._normalize_home(home)
         self._skills_directory_override = self._normalize_skill_directories(skills_directory)
         self._default_skill_manifests: list[SkillManifest] = []
         self._extra_prompt_context: dict[str, str] = {}
@@ -283,7 +283,7 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
                 "ACP is always connection-scoped."
             ),
         )
-        parser.add_argument("--env", help="Override the base fast-agent environment directory")
+        parser.add_argument("--home", help="Override the base fast-agent home")
         parser.add_argument(
             "--skills",
             help="Path to skills directory to use instead of default skills directories",
@@ -318,10 +318,9 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
             help="Watch AgentCard paths and reload when files change",
         )
         parser.add_argument(
-            "--noenv",
-            "--no-env",
+            "--no-home",
             action="store_true",
-            help="Disable fast-agent home/environment directory use",
+            help="Disable fast-agent home/home use",
         )
         parser.add_argument(
             "--card-tool",
@@ -357,7 +356,7 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         print(f"fast-agent-mcp v{app_version}")
         sys.exit(0)
 
-    def _apply_constructor_runtime_flags(self, *, noenv: bool) -> None:
+    def _apply_constructor_runtime_flags(self, *, no_home: bool) -> None:
         if getattr(self.args, "transport", None) == "acp":
             self._programmatic_quiet = True
             self.args.quiet = True
@@ -365,26 +364,25 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         if self._programmatic_quiet:
             self.args.quiet = True
 
-        if noenv:
-            self.args.noenv = True
-        elif "noenv" not in vars(self.args):
-            self.args.noenv = False
+        if no_home:
+            self.args.no_home = True
+        elif "no_home" not in vars(self.args):
+            self.args.no_home = False
 
-        self._apply_constructor_environment_override()
+        self._apply_constructor_home_override()
         self._apply_constructor_skills_override()
 
-    def _apply_constructor_environment_override(self) -> None:
-        args_env = vars(self.args).get("env")
-        if self._environment_dir_override is None and args_env:
-            self._environment_dir_override = self._normalize_environment_dir(args_env)
+    def _apply_constructor_home_override(self) -> None:
+        args_home = vars(self.args).get("home")
+        if self._home_override is None and args_home:
+            self._home_override = self._normalize_home(args_home)
 
-        if self._environment_dir_override is None:
+        if self._home_override is None:
             return
 
-        from fast_agent.constants import FAST_AGENT_RUNTIME_ENVIRONMENT
+        from fast_agent.constants import FAST_AGENT_RUNTIME_HOME
 
-        os.environ[FAST_AGENT_RUNTIME_ENVIRONMENT] = str(self._environment_dir_override)
-        os.environ["ENVIRONMENT_DIR"] = str(self._environment_dir_override)
+        os.environ[FAST_AGENT_RUNTIME_HOME] = str(self._home_override)
 
     def _apply_constructor_skills_override(self) -> None:
         args_skills = vars(self.args).get("skills")
@@ -404,8 +402,8 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
             settings.logger.show_chat = False
             settings.logger.show_tools = False
 
-        if self._environment_dir_override is not None:
-            settings.environment_dir = str(self._environment_dir_override)
+        if self._home_override is not None:
+            settings.home = str(self._home_override)
 
         if self._skills_directory_override is not None:
             settings.skills.directories = [str(path) for path in self._skills_directory_override]
@@ -461,13 +459,13 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         return [Path(entry).expanduser() for entry in entries]
 
     @staticmethod
-    def _normalize_environment_dir(value: str | Path | None) -> Path | None:
+    def _normalize_home(value: str | Path | None) -> Path | None:
         if value is None:
             return None
-        env_dir = Path(value).expanduser()
-        if not env_dir.is_absolute():
-            return (Path.cwd() / env_dir).resolve()
-        return env_dir.resolve()
+        home = Path(value).expanduser()
+        if not home.is_absolute():
+            return (Path.cwd() / home).resolve()
+        return home.resolve()
 
     def _load_config(self) -> config.Settings:
         """Load configuration from YAML file including secrets using get_settings
@@ -489,8 +487,8 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
             )
             settings = _config_module.get_settings(
                 resolved_config_path,
-                env_dir=self._environment_dir_override,
-                noenv=bool(getattr(self.args, "noenv", False)),
+                home=self._home_override,
+                no_home=bool(getattr(self.args, "no_home", False)),
             )
             return settings
         finally:
@@ -703,7 +701,7 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
             model_override if model_override is not None else getattr(self.args, "model", None)
         )
         cli_model_override = cli_model_arg if isinstance(cli_model_arg, str) else None
-        noenv_mode = bool(getattr(self.args, "noenv", False))
+        no_home_mode = bool(getattr(self.args, "no_home", False))
         resume_requested = bool(getattr(self.args, "resume_requested", False))
         resume_session_id_arg = getattr(self.args, "resume_session_id", None)
         resume_session_id = (
@@ -727,7 +725,7 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         if cfg:
             cfg.model_source = model_source
             cfg.cli_model_override = cli_model_override
-            if noenv_mode:
+            if no_home_mode:
                 cfg.session_history = False
 
         return RunSettings(
@@ -736,7 +734,7 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
             resume_requested=resume_requested,
             resume_session_id=resume_session_id,
             target_agent_name=target_agent_name,
-            noenv_mode=noenv_mode,
+            no_home_mode=no_home_mode,
             server_mode=server_mode,
             transport=transport,
             is_acp_server_mode=server_mode and transport == "acp",
@@ -810,7 +808,7 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         return model_factory_func
 
     def _build_global_prompt_context(
-        self, *, apply_global_prompt_context: bool, noenv_mode: bool
+        self, *, apply_global_prompt_context: bool, no_home_mode: bool
     ) -> dict[str, str] | None:
         """Build environment-derived prompt variables for non-ACP runs."""
         if not apply_global_prompt_context:
@@ -827,7 +825,7 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
             str(Path.cwd()),
             client_info,
             self._skills_directory_override,
-            noenv=noenv_mode,
+            no_home=no_home_mode,
         )
         context_variables.update(self._extra_prompt_context)
         return context_variables or None

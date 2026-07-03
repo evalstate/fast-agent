@@ -511,7 +511,7 @@ async def _set_agent_model_for_switch(
 
 
 async def _start_model_switch_session(ctx: CommandContext, outcome: CommandOutcome) -> None:
-    if not ctx.noenv:
+    if not ctx.no_home:
         outcome.add_message(
             "Model switch starts a new session to avoid mixing histories.",
             channel="info",
@@ -525,7 +525,7 @@ async def _start_model_switch_session(ctx: CommandContext, outcome: CommandOutco
         outcome.messages.extend(session_outcome.messages)
     else:
         outcome.add_message(
-            "Model switch cleared in-memory history (--noenv disables session persistence).",
+            "Model switch cleared in-memory history (--no-home disables session persistence).",
             channel="info",
         )
 

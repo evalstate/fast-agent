@@ -42,7 +42,7 @@ def test_reflection_lm_writes_audit_files(tmp_path):
         return subprocess.CompletedProcess(command, 0, stdout="reflection\n", stderr="")
 
     lm = FastAgentReflectionLM(
-        env_dir=tmp_path / "env",
+        home=tmp_path / "env",
         model="passthrough",
         audit_dir=tmp_path / "audit",
         command_runner=fake_runner,
@@ -54,8 +54,8 @@ def test_reflection_lm_writes_audit_files(tmp_path):
     assert (call_dir / "response.txt").read_text(encoding="utf-8") == "reflection\n"
     assert (call_dir / "usage.json").exists()
     assert "--results" in commands[0][0]
-    assert "--env" in commands[0][0]
-    assert "--env-dir" not in commands[0][0]
+    assert "--home" in commands[0][0]
+    assert "--home-dir" not in commands[0][0]
 
 
 def test_reflection_lm_logs_usage_metrics(monkeypatch, tmp_path):
@@ -106,7 +106,7 @@ def test_reflection_lm_logs_usage_metrics(monkeypatch, tmp_path):
     )
 
     lm = FastAgentReflectionLM(
-        env_dir=tmp_path / "env",
+        home=tmp_path / "env",
         model="passthrough",
         audit_dir=tmp_path / "audit",
         command_runner=fake_runner,
@@ -159,7 +159,7 @@ def test_batch_evaluator_allocates_candidate_and_scores(monkeypatch, tmp_path):
         return 1.0, "matched", {"rows": 1}
 
     evaluator = FastAgentBatchEvaluator(
-        env_dir=tmp_path / "env",
+        home=tmp_path / "env",
         agent_card=tmp_path / "card.md",
         candidate_variables={"policy": "policy"},
         input=tmp_path / "input.jsonl",
@@ -212,8 +212,8 @@ class RecordingBatchRunner:
 def test_row_wise_batch_adapter_evaluates_minibatch_and_builds_reflection_rows(tmp_path):
     runner = RecordingBatchRunner()
 
-    def runner_factory(env_dir, *, backend):
-        assert env_dir == tmp_path / "env"
+    def runner_factory(home, *, backend):
+        assert home == tmp_path / "env"
         assert backend == "harness"
         return runner
 
@@ -239,7 +239,7 @@ def test_row_wise_batch_adapter_evaluates_minibatch_and_builds_reflection_rows(t
         )
 
     adapter = FastAgentRowWiseBatchAdapter(
-        env_dir=tmp_path / "env",
+        home=tmp_path / "env",
         agent_card=tmp_path / "card.md",
         candidate_variables={"policy": "policy"},
         template="{{row_json}}",
@@ -317,11 +317,11 @@ def test_single_task_adapter_evaluates_batch_of_one_and_exposes_metrics(tmp_path
                 summary_path=kwargs["summary_path"],
             )
 
-    def runner_factory(env_dir, *, backend):
+    def runner_factory(home, *, backend):
         return Runner()
 
     adapter = FastAgentSingleTaskAdapter(
-        env_dir=tmp_path / "env",
+        home=tmp_path / "env",
         agent_card=tmp_path / "card.md",
         model="test-model",
         input_builder=lambda candidate, example=None: candidate["prompt"],
@@ -372,7 +372,7 @@ def test_single_task_prompt_adapter_uses_default_worker(tmp_path):
         model="test-model",
         scorer=lambda output_row, candidate, evaluation, example=None: 1.0,
         run_dir=tmp_path / "runs",
-        batch_runner_factory=lambda env_dir, *, backend: Runner(),
+        batch_runner_factory=lambda home, *, backend: Runner(),
     )
 
     assert adapter({"prompt": "hello"}) == (1.0, {})
@@ -419,7 +419,7 @@ def test_row_wise_batch_adapter_logs_batch_usage_and_cache(monkeypatch, tmp_path
         }
     )
 
-    def runner_factory(env_dir, *, backend):
+    def runner_factory(home, *, backend):
         return runner
 
     def row_scorer(output_row, input_row, candidate, evaluation):
@@ -435,7 +435,7 @@ def test_row_wise_batch_adapter_logs_batch_usage_and_cache(monkeypatch, tmp_path
     )
 
     adapter = FastAgentRowWiseBatchAdapter(
-        env_dir=tmp_path / "env",
+        home=tmp_path / "env",
         agent_card=tmp_path / "card.md",
         candidate_variables={"policy": "policy"},
         template="{{row_json}}",
@@ -526,7 +526,7 @@ def test_trackio_callback_omits_score_summaries_for_single_row_batches(monkeypat
         }
     )
 
-    def runner_factory(env_dir, *, backend):
+    def runner_factory(home, *, backend):
         return runner
 
     def row_scorer(output_row, input_row, candidate, evaluation):
@@ -538,7 +538,7 @@ def test_trackio_callback_omits_score_summaries_for_single_row_batches(monkeypat
     )
 
     adapter = FastAgentRowWiseBatchAdapter(
-        env_dir=tmp_path / "env",
+        home=tmp_path / "env",
         agent_card=tmp_path / "card.md",
         candidate_variables={"policy": "policy"},
         template="{{row_json}}",
@@ -600,7 +600,7 @@ def test_eval_metrics_include_error_rate_for_failed_rows(monkeypatch, tmp_path):
         }
     )
 
-    def runner_factory(env_dir, *, backend):
+    def runner_factory(home, *, backend):
         return runner
 
     def row_scorer(output_row, input_row, candidate, evaluation):
@@ -612,7 +612,7 @@ def test_eval_metrics_include_error_rate_for_failed_rows(monkeypatch, tmp_path):
     )
 
     adapter = FastAgentRowWiseBatchAdapter(
-        env_dir=tmp_path / "env",
+        home=tmp_path / "env",
         agent_card=tmp_path / "card.md",
         candidate_variables={"policy": "policy"},
         template="{{row_json}}",

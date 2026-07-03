@@ -292,9 +292,9 @@ def _validate_batch_conflicting_options(
         _fail_validation("Trackio options require --project or --trackio-project")
 
 
-def _environment_dir_from_context(ctx: typer.Context) -> Path | None:
-    env_dir = ensure_context_object(ctx).get("env_dir")
-    return env_dir if isinstance(env_dir, Path) else None
+def _home_from_context(ctx: typer.Context) -> Path | None:
+    home = ensure_context_object(ctx).get("home")
+    return home if isinstance(home, Path) else None
 
 
 def _batch_progress_enabled(
@@ -400,7 +400,7 @@ def _build_structured_batch_options(
             progress_every=progress_every,
         ),
         final_summary=final_summary,
-        environment_dir=_environment_dir_from_context(ctx),
+        home=_home_from_context(ctx),
         shell_runtime=shell_runtime,
         agent_card_source=agent_card_source,
         agent_name=agent_name,

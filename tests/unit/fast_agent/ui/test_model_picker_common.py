@@ -94,20 +94,20 @@ def test_format_catalog_model_entry_label_includes_tags_and_description() -> Non
 
 
 def test_curated_scope_hides_non_current_catalog_entries(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    env_dir.mkdir(parents=True, exist_ok=True)
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+    home = tmp_path / ".fast-agent"
+    home.mkdir(parents=True, exist_ok=True)
+    previous_home = os.environ.get("FAST_AGENT_HOME")
+    os.environ["FAST_AGENT_HOME"] = str(home)
     try:
         snapshot = build_snapshot(config_payload={})
     finally:
-        reset_env_dir = tmp_path / ".empty-fast-agent-curated-scope"
-        reset_env_dir.mkdir(parents=True, exist_ok=True)
-        load_model_overlay_registry(start_path=tmp_path, env_dir=reset_env_dir)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        reset_home = tmp_path / ".empty-fast-agent-curated-scope"
+        reset_home.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, home=reset_home)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
     hf_option = next(option for option in snapshot.providers if option.option_key == "hf")
 
@@ -265,8 +265,8 @@ def test_infer_initial_picker_provider_uses_vertex_group_for_anthropic_vertex() 
 
 
 def test_build_snapshot_surfaces_overlays_as_a_separate_group(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    overlays_dir = env_dir / "model-overlays"
+    home = tmp_path / ".fast-agent"
+    overlays_dir = home / "model-overlays"
     overlays_dir.mkdir(parents=True)
     (overlays_dir / "haikutiny.yaml").write_text(
         "\n".join(
@@ -281,8 +281,8 @@ def test_build_snapshot_surfaces_overlays_as_a_separate_group(tmp_path: Path) ->
         encoding="utf-8",
     )
 
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+    previous_home = os.environ.get("FAST_AGENT_HOME")
+    os.environ["FAST_AGENT_HOME"] = str(home)
     try:
         snapshot = build_snapshot(config_payload={})
         overlay_group = _overlay_group(snapshot)
@@ -294,20 +294,20 @@ def test_build_snapshot_surfaces_overlays_as_a_separate_group(tmp_path: Path) ->
         assert any(option.option_key == "azure" for option in snapshot.providers)
         assert any(option.option_key == "bedrock" for option in snapshot.providers)
     finally:
-        empty_env_dir = tmp_path / ".empty-fast-agent"
-        empty_env_dir.mkdir(parents=True, exist_ok=True)
-        load_model_overlay_registry(start_path=tmp_path, env_dir=empty_env_dir)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        empty_home = tmp_path / ".empty-fast-agent"
+        empty_home.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, home=empty_home)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
 
 def test_overlay_group_curated_scope_includes_non_current_local_overlays(
     tmp_path: Path,
 ) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    overlays_dir = env_dir / "model-overlays"
+    home = tmp_path / ".fast-agent"
+    overlays_dir = home / "model-overlays"
     overlays_dir.mkdir(parents=True)
     (overlays_dir / "legacylocal.yaml").write_text(
         "\n".join(
@@ -322,28 +322,28 @@ def test_overlay_group_curated_scope_includes_non_current_local_overlays(
         encoding="utf-8",
     )
 
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+    previous_home = os.environ.get("FAST_AGENT_HOME")
+    os.environ["FAST_AGENT_HOME"] = str(home)
     try:
         snapshot = build_snapshot(config_payload={})
         overlay_group = _overlay_group(snapshot)
         overlay_options = model_options_for_option(overlay_group, source="curated")
         assert any(option.preset_token == "legacylocal" for option in overlay_options)
     finally:
-        empty_env_dir = tmp_path / ".empty-fast-agent-legacy-overlays"
-        empty_env_dir.mkdir(parents=True, exist_ok=True)
-        load_model_overlay_registry(start_path=tmp_path, env_dir=empty_env_dir)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        empty_home = tmp_path / ".empty-fast-agent-legacy-overlays"
+        empty_home.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, home=empty_home)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
 
 def test_build_snapshot_shows_empty_overlay_group_even_without_overlays(tmp_path: Path) -> None:
-    empty_env_dir = tmp_path / ".fast-agent"
-    empty_env_dir.mkdir(parents=True, exist_ok=True)
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(empty_env_dir)
+    empty_home = tmp_path / ".fast-agent"
+    empty_home.mkdir(parents=True, exist_ok=True)
+    previous_home = os.environ.get("FAST_AGENT_HOME")
+    os.environ["FAST_AGENT_HOME"] = str(empty_home)
     try:
         snapshot = build_snapshot(config_payload={})
         overlay_group = _overlay_group(snapshot)
@@ -352,30 +352,30 @@ def test_build_snapshot_shows_empty_overlay_group_even_without_overlays(tmp_path
         assert overlay_group.curated_entries == ()
         assert any(option.option_key == "fast-agent" for option in snapshot.providers)
     finally:
-        reset_env_dir = tmp_path / ".empty-fast-agent-reset"
-        reset_env_dir.mkdir(parents=True, exist_ok=True)
-        load_model_overlay_registry(start_path=tmp_path, env_dir=reset_env_dir)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        reset_home = tmp_path / ".empty-fast-agent-reset"
+        reset_home.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, home=reset_home)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
 
 def test_build_snapshot_includes_llamacpp_import_flow(tmp_path: Path) -> None:
-    empty_env_dir = tmp_path / ".fast-agent"
-    empty_env_dir.mkdir(parents=True, exist_ok=True)
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(empty_env_dir)
+    empty_home = tmp_path / ".fast-agent"
+    empty_home.mkdir(parents=True, exist_ok=True)
+    previous_home = os.environ.get("FAST_AGENT_HOME")
+    os.environ["FAST_AGENT_HOME"] = str(empty_home)
     try:
         snapshot = build_snapshot(config_payload={})
     finally:
-        reset_env_dir = tmp_path / ".empty-fast-agent-llamacpp"
-        reset_env_dir.mkdir(parents=True, exist_ok=True)
-        load_model_overlay_registry(start_path=tmp_path, env_dir=reset_env_dir)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        reset_home = tmp_path / ".empty-fast-agent-llamacpp"
+        reset_home.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, home=reset_home)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
     option = next(
         provider for provider in snapshot.providers if provider.option_key == LLAMACPP_PROVIDER_KEY
@@ -454,8 +454,8 @@ def test_build_snapshot_loads_overlays_relative_to_config_path(tmp_path: Path) -
 
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True)
-    env_dir = workspace / ".fast-agent"
-    overlays_dir = env_dir / "model-overlays"
+    home = workspace / ".fast-agent"
+    overlays_dir = home / "model-overlays"
     overlays_dir.mkdir(parents=True)
     (overlays_dir / "haikutiny.yaml").write_text(
         "\n".join(
@@ -471,7 +471,7 @@ def test_build_snapshot_loads_overlays_relative_to_config_path(tmp_path: Path) -
     config_path.write_text("default_model: haiku\n", encoding="utf-8")
 
     cwd = Path.cwd()
-    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    previous_home = os.environ.pop("FAST_AGENT_HOME", None)
     nested_cwd = workspace / "nested" / "deeper"
     nested_cwd.mkdir(parents=True)
     try:
@@ -482,13 +482,13 @@ def test_build_snapshot_loads_overlays_relative_to_config_path(tmp_path: Path) -
         assert any(entry.alias == "haikutiny" for entry in overlay_group.curated_entries)
     finally:
         os.chdir(cwd)
-        reset_env_dir = tmp_path / ".empty-fast-agent-config-path"
-        reset_env_dir.mkdir(parents=True, exist_ok=True)
-        load_model_overlay_registry(start_path=tmp_path, env_dir=reset_env_dir)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        reset_home = tmp_path / ".empty-fast-agent-config-path"
+        reset_home.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, home=reset_home)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
 
 def test_build_snapshot_loads_overlays_relative_to_explicit_start_path(tmp_path: Path) -> None:
@@ -513,11 +513,11 @@ def test_build_snapshot_loads_overlays_relative_to_explicit_start_path(tmp_path:
     outside_cwd.mkdir(parents=True)
 
     cwd = Path.cwd()
-    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    previous_home = os.environ.pop("FAST_AGENT_HOME", None)
     try:
         os.chdir(outside_cwd)
         snapshot = build_snapshot(
-            config_payload={"environment_dir": ".fast-agent"},
+            config_payload={"home": ".fast-agent"},
             start_path=project_root,
         )
         overlay_group = _overlay_group(snapshot)
@@ -525,13 +525,13 @@ def test_build_snapshot_loads_overlays_relative_to_explicit_start_path(tmp_path:
         assert any(entry.alias == "haikutiny" for entry in overlay_group.curated_entries)
     finally:
         os.chdir(cwd)
-        reset_env_dir = tmp_path / ".empty-fast-agent-start-path"
-        reset_env_dir.mkdir(parents=True, exist_ok=True)
-        load_model_overlay_registry(start_path=tmp_path, env_dir=reset_env_dir)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        reset_home = tmp_path / ".empty-fast-agent-start-path"
+        reset_home.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, home=reset_home)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
 
 def test_build_snapshot_with_explicit_config_stays_scoped_to_config_project(tmp_path: Path) -> None:
@@ -543,9 +543,9 @@ def test_build_snapshot_with_explicit_config_stays_scoped_to_config_project(tmp_
     config_path.write_text("default_model: sonnet\n", encoding="utf-8")
 
     cwd_workspace = tmp_path / "cwd-workspace"
-    cwd_env_dir = cwd_workspace / ".fast-agent" / "model-overlays"
-    cwd_env_dir.mkdir(parents=True)
-    (cwd_env_dir / "sonnet.yaml").write_text(
+    cwd_home = cwd_workspace / ".fast-agent" / "model-overlays"
+    cwd_home.mkdir(parents=True)
+    (cwd_home / "sonnet.yaml").write_text(
         "\n".join(
             [
                 "name: sonnet",
@@ -557,7 +557,7 @@ def test_build_snapshot_with_explicit_config_stays_scoped_to_config_project(tmp_
     )
 
     cwd = Path.cwd()
-    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    previous_home = os.environ.pop("FAST_AGENT_HOME", None)
     try:
         os.chdir(cwd_workspace)
         snapshot = build_snapshot(config_path=config_path, config_payload={})
@@ -575,13 +575,13 @@ def test_build_snapshot_with_explicit_config_stays_scoped_to_config_project(tmp_
         assert all(not entry.local for entry in anthropic_option.curated_entries)
     finally:
         os.chdir(cwd)
-        reset_env_dir = tmp_path / ".empty-fast-agent-config-scope"
-        reset_env_dir.mkdir(parents=True, exist_ok=True)
-        load_model_overlay_registry(start_path=tmp_path, env_dir=reset_env_dir)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        reset_home = tmp_path / ".empty-fast-agent-config-scope"
+        reset_home.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, home=reset_home)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
 
 def test_build_snapshot_with_explicit_project_config_ignores_parent_overlays(
@@ -605,25 +605,25 @@ def test_build_snapshot_with_explicit_project_config_ignores_parent_overlays(
         encoding="utf-8",
     )
 
-    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    previous_home = os.environ.pop("FAST_AGENT_HOME", None)
     try:
         snapshot = build_snapshot(config_path=config_path, config_payload={})
         overlay_group = _overlay_group(snapshot)
         assert overlay_group.option_key == "overlays"
         assert overlay_group.curated_entries == ()
     finally:
-        reset_env_dir = tmp_path / ".empty-fast-agent-parent-scope"
-        reset_env_dir.mkdir(parents=True, exist_ok=True)
-        load_model_overlay_registry(start_path=tmp_path, env_dir=reset_env_dir)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        reset_home = tmp_path / ".empty-fast-agent-parent-scope"
+        reset_home.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, home=reset_home)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
 
 def test_build_snapshot_loads_overlays_for_explicit_env_config_path(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    overlays_dir = env_dir / "model-overlays"
+    home = tmp_path / ".fast-agent"
+    overlays_dir = home / "model-overlays"
     overlays_dir.mkdir(parents=True)
     (overlays_dir / "haikutiny.yaml").write_text(
         "\n".join(
@@ -635,34 +635,34 @@ def test_build_snapshot_loads_overlays_for_explicit_env_config_path(tmp_path: Pa
         ),
         encoding="utf-8",
     )
-    config_path = env_dir / "fastagent.config.yaml"
+    config_path = home / "fastagent.config.yaml"
     config_path.write_text("default_model: sonnet\n", encoding="utf-8")
 
-    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    previous_home = os.environ.pop("FAST_AGENT_HOME", None)
     try:
         snapshot = build_snapshot(config_path=config_path, config_payload={})
         overlay_group = _overlay_group(snapshot)
         assert overlay_group.option_key == "overlays"
         assert any(entry.alias == "haikutiny" for entry in overlay_group.curated_entries)
     finally:
-        reset_env_dir = tmp_path / ".empty-fast-agent-explicit-env-config"
-        reset_env_dir.mkdir(parents=True, exist_ok=True)
-        load_model_overlay_registry(start_path=tmp_path, env_dir=reset_env_dir)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        reset_home = tmp_path / ".empty-fast-agent-explicit-env-config"
+        reset_home.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, home=reset_home)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
 
-def test_build_snapshot_loads_overlays_when_settings_config_lives_in_env_dir(
+def test_build_snapshot_loads_overlays_when_settings_config_lives_in_home(
     tmp_path: Path,
 ) -> None:
     from fast_agent.config import Settings
     from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
 
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
-    overlays_dir = env_dir / "model-overlays"
+    home = workspace / ".fast-agent"
+    overlays_dir = home / "model-overlays"
     overlays_dir.mkdir(parents=True)
     (overlays_dir / "haikutiny.yaml").write_text(
         "\n".join(
@@ -674,26 +674,26 @@ def test_build_snapshot_loads_overlays_when_settings_config_lives_in_env_dir(
         ),
         encoding="utf-8",
     )
-    config_path = env_dir / "fast-agent.yaml"
+    config_path = home / "fast-agent.yaml"
     config_path.write_text("default_model: sonnet\n", encoding="utf-8")
-    settings = Settings(environment_dir=None)
+    settings = Settings(home=None)
     settings._config_file = str(config_path)
     start_path = resolve_model_reference_start_path(settings=settings)
 
-    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    previous_home = os.environ.pop("FAST_AGENT_HOME", None)
     try:
         snapshot = build_snapshot(
-            config_payload={"environment_dir": None},
+            config_payload={"home": None},
             start_path=start_path,
         )
         overlay_group = _overlay_group(snapshot)
         assert overlay_group.option_key == "overlays"
         assert any(entry.alias == "haikutiny" for entry in overlay_group.curated_entries)
     finally:
-        reset_env_dir = tmp_path / ".empty-fast-agent-settings-env-config"
-        reset_env_dir.mkdir(parents=True, exist_ok=True)
-        load_model_overlay_registry(start_path=tmp_path, env_dir=reset_env_dir)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        reset_home = tmp_path / ".empty-fast-agent-settings-env-config"
+        reset_home.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, home=reset_home)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home

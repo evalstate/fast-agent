@@ -5,7 +5,7 @@ tools through `wslc`, the Docker-compatible Windows Subsystem for Linux
 container CLI available in recent Windows builds.
 
 It mirrors the Docker shell example, but passes `container_cli="wslc"` to
-`DockerMountedSessionEnvironment`. The host workspace is mounted into the
+`DockerMountedEnvironment`. The host workspace is mounted into the
 container at `/workspace`, so files written by the agent are visible on the
 Windows host.
 

@@ -22,7 +22,7 @@ HERE = Path(__file__).parent
 fast = FastAgent(
     "Hugging Face sandbox demo",
     parse_cli_args=False,
-    environment_dir=HERE / ".fast-agent",
+    home=HERE / ".fast-agent",
 )
 
 

@@ -258,7 +258,7 @@ def generate_fastagent_harness_method_reference() -> str:
         "Creates a headless `AgentHarness` for typed, session-oriented Python usage.\n"
         "The harness uses the same initialization path as `run()` but does not enter the\n"
         "TUI, CLI message/prompt-file modes, MCP server mode, or ACP server mode.\n"
-        "On startup, it loads AgentCards from the active environment's `agent-cards/`\n"
+        "On startup, it loads AgentCards from the active fast-agent home's `agent-cards/`\n"
         "directory when that directory exists and contains cards.\n\n"
     )
     lines.append("| Parameter | Type | Default | Description |\n")
@@ -267,7 +267,7 @@ def generate_fastagent_harness_method_reference() -> str:
         "| `model` | `str \\| None` | `None` | Optional global model override, similar to the CLI `--model` override |\n"
     )
     lines.append(
-        "| `environment` | `ShellEnvironment \\| None` | `None` | Optional shell environment override for `harness.shell(...)` and `session.shell(...)`; environments that also implement `SessionFilesystem` back model-facing file tools |\n"
+        "| `environment` | `ShellEnvironment \\| None` | `None` | Optional shell environment override for `harness.shell(...)` and `session.shell(...)`; environments that also implement `EnvironmentFilesystem` back model-facing file tools |\n"
     )
     return "".join(lines)
 
@@ -301,7 +301,7 @@ def generate_harness_reference() -> str:
     lines.append("|----------|------|-------------|\n")
     lines.append("| `sessions` | `HarnessSessions` | Session manager for the running harness |\n")
     lines.append(
-        "| `environment` | `ShellEnvironment` | Shell environment used by the running harness; may also implement `SessionFilesystem` for model-facing file tools |\n\n"
+        "| `environment` | `ShellEnvironment` | Shell environment used by the running harness; may also implement `EnvironmentFilesystem` for model-facing file tools |\n\n"
     )
     lines.append("### Methods\n\n")
     lines.append("#### `session()`\n\n")
@@ -328,7 +328,7 @@ def generate_harness_reference() -> str:
     lines.append("## HarnessSessions Class\n\n")
     lines.append(
         "Manager for harness sessions. When `session_history` is enabled, creating a\n"
-        "session also creates or loads `environment_dir/sessions/<session_id>/`.\n\n"
+        "session also creates or loads `home/sessions/<session_id>/`.\n\n"
     )
     lines.append(
         _md_code(
@@ -420,7 +420,7 @@ def generate_harness_reference() -> str:
         "  `AgentInstance`;\n"
         "- different session IDs receive isolated `AgentInstance` objects;\n"
         "- when `session_history` is enabled, session IDs map to persisted\n"
-        "  `environment_dir/sessions/<session_id>/` directories and existing histories\n"
+        "  `home/sessions/<session_id>/` directories and existing histories\n"
         "  are hydrated on creation;\n"
         "- deleting a session disposes its instance;\n"
         "- deleting a session removes its persisted session folder when persistence is enabled;\n"

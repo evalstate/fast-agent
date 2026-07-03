@@ -13,7 +13,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 from fast_agent.core.exceptions import FastAgentError
-from fast_agent.paths import resolve_environment_dir
+from fast_agent.paths import resolve_home_dir
 from fast_agent.utils.text import strip_str_to_none
 
 if TYPE_CHECKING:
@@ -46,25 +46,25 @@ def is_prerelease_or_dev(version: str) -> bool:
     return _PRERELEASE_OR_DEV_PATTERN.search(version) is not None
 
 
-def _resolve_environment_root(
-    environment_dir: Path | None,
+def _resolve_home_root(
+    home: Path | None,
     *,
     cwd: Path | None = None,
 ) -> Path:
     base = cwd or Path.cwd()
-    return resolve_environment_dir(cwd=base, override=environment_dir)
+    return resolve_home_dir(cwd=base, override=home)
 
 
 def resolve_update_check_marker_path(
-    environment_dir: Path | None,
+    home: Path | None,
     *,
     cwd: Path | None = None,
 ) -> Path | None:
     """Return the marker path used to rate-limit update checks."""
-    environment_root = _resolve_environment_root(environment_dir, cwd=cwd)
-    if not environment_root.is_dir():
+    home_root = _resolve_home_root(home, cwd=cwd)
+    if not home_root.is_dir():
         return None
-    return environment_root / UPDATE_CHECK_MARKER_FILENAME
+    return home_root / UPDATE_CHECK_MARKER_FILENAME
 
 
 def should_run_update_check(*, disabled: bool) -> bool:
@@ -158,7 +158,7 @@ def _resolve_latest_version(
 
 def _check_for_update_notice(
     *,
-    environment_dir: Path | None,
+    home: Path | None,
     package_name: str = PACKAGE_NAME,
     current_version: str | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
@@ -170,7 +170,7 @@ def _check_for_update_notice(
     if installed_version is None or is_prerelease_or_dev(installed_version):
         return None
 
-    marker_path = resolve_update_check_marker_path(environment_dir)
+    marker_path = resolve_update_check_marker_path(home)
     if marker_path is not None and not should_check_now(
         marker_path,
         now=now,
@@ -197,7 +197,7 @@ def _check_for_update_notice(
 
 def check_for_update_notice(
     *,
-    environment_dir: Path | None,
+    home: Path | None,
     package_name: str = PACKAGE_NAME,
     current_version: str | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
@@ -208,7 +208,7 @@ def check_for_update_notice(
     """Return a formatted update notice, swallowing network/cache errors."""
     try:
         return _check_for_update_notice(
-            environment_dir=environment_dir,
+            home=home,
             package_name=package_name,
             current_version=current_version,
             timeout_seconds=timeout_seconds,

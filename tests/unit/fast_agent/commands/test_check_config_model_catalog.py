@@ -40,15 +40,15 @@ def _first_additional_model(providers: tuple[Provider, ...]) -> str:
 
 
 def test_show_check_summary_points_to_check_models_command(tmp_path: Path, capsys) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    env_dir.mkdir(parents=True)
+    home = tmp_path / ".fast-agent"
+    home.mkdir(parents=True)
 
     original_openai_key = os.environ.get("OPENAI_API_KEY")
     cwd = Path.cwd()
     try:
         os.environ["OPENAI_API_KEY"] = "sk-openai-env"
         os.chdir(tmp_path)
-        show_check_summary(env_dir=env_dir)
+        show_check_summary(home=home)
     finally:
         os.chdir(cwd)
         if original_openai_key is not None:
@@ -104,8 +104,8 @@ def test_show_models_overview_includes_provider_args_and_named_aliases(
     tmp_path: Path,
     capsys,
 ) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    env_dir.mkdir(parents=True)
+    home = tmp_path / ".fast-agent"
+    home.mkdir(parents=True)
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
         "\n".join(
@@ -121,7 +121,7 @@ def test_show_models_overview_includes_provider_args_and_named_aliases(
     cwd = Path.cwd()
     try:
         os.chdir(tmp_path)
-        show_models_overview(env_dir=env_dir)
+        show_models_overview(home=home)
     finally:
         os.chdir(cwd)
 
@@ -136,9 +136,9 @@ def test_show_models_overview_includes_provider_args_and_named_aliases(
 
 
 def test_show_models_overview_uses_default_env_config_aliases(tmp_path: Path, capsys) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    env_dir.mkdir(parents=True)
-    (env_dir / "fastagent.config.yaml").write_text(
+    home = tmp_path / ".fast-agent"
+    home.mkdir(parents=True)
+    (home / "fastagent.config.yaml").write_text(
         "\n".join(
             [
                 "model_references:",
@@ -150,17 +150,17 @@ def test_show_models_overview_uses_default_env_config_aliases(tmp_path: Path, ca
     )
 
     cwd = Path.cwd()
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    previous_home = os.environ.get("FAST_AGENT_HOME")
     try:
-        os.environ.pop("ENVIRONMENT_DIR", None)
+        os.environ.pop("FAST_AGENT_HOME", None)
         os.chdir(tmp_path)
-        show_models_overview(env_dir=None)
+        show_models_overview(home=None)
     finally:
         os.chdir(cwd)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
     output = capsys.readouterr().out
     assert "$system.envfast" in output
@@ -170,31 +170,31 @@ def test_show_provider_model_catalog_scopes_overlays_to_requested_env(
     tmp_path: Path,
     capsys,
 ) -> None:
-    env_dir = tmp_path / "project-env"
-    ambient_env_dir = tmp_path / "ambient-env"
-    (env_dir / "model-overlays").mkdir(parents=True)
-    (ambient_env_dir / "model-overlays").mkdir(parents=True)
-    (env_dir / "model-overlays" / "projectoverlay.yaml").write_text(
+    home = tmp_path / "project-env"
+    ambient_home = tmp_path / "ambient-env"
+    (home / "model-overlays").mkdir(parents=True)
+    (ambient_home / "model-overlays").mkdir(parents=True)
+    (home / "model-overlays" / "projectoverlay.yaml").write_text(
         "name: projectoverlay\nprovider: responses\nmodel: overlay-tests/project\n",
         encoding="utf-8",
     )
-    (ambient_env_dir / "model-overlays" / "ambientoverlay.yaml").write_text(
+    (ambient_home / "model-overlays" / "ambientoverlay.yaml").write_text(
         "name: ambientoverlay\nprovider: responses\nmodel: overlay-tests/ambient\n",
         encoding="utf-8",
     )
 
     cwd = Path.cwd()
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    previous_home = os.environ.get("FAST_AGENT_HOME")
     try:
-        os.environ["ENVIRONMENT_DIR"] = str(ambient_env_dir)
+        os.environ["FAST_AGENT_HOME"] = str(ambient_home)
         os.chdir(tmp_path)
-        show_provider_model_catalog("responses", env_dir=env_dir)
+        show_provider_model_catalog("responses", home=home)
     finally:
         os.chdir(cwd)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
     output = capsys.readouterr().out
     assert "projectoverlay" in output
@@ -212,11 +212,11 @@ def test_show_check_summary_reports_invalid_effective_model_references(
     tmp_path: Path,
     capsys,
 ) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    env_dir.mkdir(parents=True)
+    home = tmp_path / ".fast-agent"
+    home.mkdir(parents=True)
 
     (tmp_path / "fastagent.config.yaml").write_text("logger:\n  level: warning\n", encoding="utf-8")
-    (env_dir / "fastagent.config.yaml").write_text(
+    (home / "fastagent.config.yaml").write_text(
         "\n".join(
             [
                 "model_references:",
@@ -229,7 +229,7 @@ def test_show_check_summary_reports_invalid_effective_model_references(
     cwd = Path.cwd()
     try:
         os.chdir(tmp_path)
-        show_check_summary(env_dir=env_dir)
+        show_check_summary(home=home)
     finally:
         os.chdir(cwd)
 
@@ -243,11 +243,11 @@ def test_show_check_summary_reports_malformed_yaml_as_effective_config_error(
     tmp_path: Path,
     capsys,
 ) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    env_dir.mkdir(parents=True)
+    home = tmp_path / ".fast-agent"
+    home.mkdir(parents=True)
 
     (tmp_path / "fastagent.config.yaml").write_text("logger:\n  level: warning\n", encoding="utf-8")
-    (env_dir / "fastagent.config.yaml").write_text(
+    (home / "fastagent.config.yaml").write_text(
         "\n".join(
             [
                 "model_references:",
@@ -260,7 +260,7 @@ def test_show_check_summary_reports_malformed_yaml_as_effective_config_error(
     cwd = Path.cwd()
     try:
         os.chdir(tmp_path)
-        show_check_summary(env_dir=env_dir)
+        show_check_summary(home=home)
     finally:
         os.chdir(cwd)
 
@@ -269,13 +269,13 @@ def test_show_check_summary_reports_malformed_yaml_as_effective_config_error(
     assert "Fix the YAML syntax errors in your configuration files" in output
 
 
-def test_show_check_summary_resolves_relative_env_dir_from_cwd(
+def test_show_check_summary_resolves_relative_home_from_cwd(
     tmp_path: Path,
     capsys,
 ) -> None:
-    env_dir = tmp_path / ".fast-agent-alt"
-    (env_dir / "agent-cards").mkdir(parents=True)
-    (env_dir / "agent-cards" / "demo_agent.yaml").write_text(
+    home = tmp_path / ".fast-agent-alt"
+    (home / "agent-cards").mkdir(parents=True)
+    (home / "agent-cards" / "demo_agent.yaml").write_text(
         "\n".join(
             [
                 "name: demo_agent",
@@ -288,7 +288,7 @@ def test_show_check_summary_resolves_relative_env_dir_from_cwd(
     cwd = Path.cwd()
     try:
         os.chdir(tmp_path)
-        show_check_summary(env_dir=Path(".fast-agent-alt"))
+        show_check_summary(home=Path(".fast-agent-alt"))
     finally:
         os.chdir(cwd)
 

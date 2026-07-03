@@ -30,7 +30,7 @@ from fast_agent.marketplace.formatting import (
     format_installed_revision_display,
     format_source_provenance,
 )
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 from fast_agent.ui.console import console
 from fast_agent.utils.async_utils import run_coroutine
 from fast_agent.utils.count_display import format_count
@@ -64,21 +64,21 @@ def _resolve_registry_input(ctx: typer.Context, command_registry: str | None = N
     return card_manager.get_marketplace_url(get_settings_or_exit())
 
 
-def _environment_paths():
+def _home_paths():
     settings = get_settings_or_exit()
-    return resolve_environment_paths(settings)
+    return resolve_home_paths(settings)
 
 
 def _print_local_packs() -> None:
-    env_paths = _environment_paths()
-    packs = card_service.list_installed_packs(environment_paths=env_paths)
+    home_paths = _home_paths()
+    packs = card_service.list_installed_packs(home_paths=home_paths)
     print_detail_section(
         console,
         "Installed Card Packs",
         [
             DetailDisplayRow(
                 label="card packs directory",
-                value=format_display_path(env_paths.card_packs),
+                value=format_display_path(home_paths.card_packs),
             )
         ],
     )
@@ -220,7 +220,7 @@ def cards_add(
 ) -> None:
     """Install a card pack from the selected marketplace."""
     marketplace_input = _resolve_registry_input(ctx, registry)
-    env_paths = _environment_paths()
+    home_paths = _home_paths()
 
     try:
         marketplace = card_service.scan_marketplace_sync(marketplace_input)
@@ -247,7 +247,7 @@ def cards_add(
         result = run_coroutine(
             card_service.install_selected_pack(
                 card_service.select_marketplace_pack(marketplace.packs, selector),
-                environment_paths=env_paths,
+                home_paths=home_paths,
                 force=force,
                 marketplace_source=marketplace.source,
             )
@@ -289,8 +289,8 @@ def cards_remove(
     ] = None,
 ) -> None:
     """Remove an installed card pack."""
-    env_paths = _environment_paths()
-    packs = card_service.list_installed_packs(environment_paths=env_paths)
+    home_paths = _home_paths()
+    packs = card_service.list_installed_packs(home_paths=home_paths)
     if not packs:
         print_warning(console, "No local card packs to remove.")
         raise typer.Exit(0)
@@ -301,7 +301,7 @@ def cards_remove(
         raise typer.Exit(0)
 
     try:
-        removal = card_service.remove_pack(environment_paths=env_paths, selector=selector)
+        removal = card_service.remove_pack(home_paths=home_paths, selector=selector)
     except card_service.CardPackLookupError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
@@ -336,8 +336,8 @@ def cards_readme(
     ] = None,
 ) -> None:
     """Show an installed card pack README."""
-    env_paths = _environment_paths()
-    packs = card_service.list_installed_packs(environment_paths=env_paths)
+    home_paths = _home_paths()
+    packs = card_service.list_installed_packs(home_paths=home_paths)
     if not packs:
         print_warning(console, "No local card packs installed.")
         raise typer.Exit(0)
@@ -345,7 +345,7 @@ def cards_readme(
     if not selector:
         if len(packs) == 1:
             record = card_service.read_installed_pack_readme(
-                environment_paths=env_paths,
+                home_paths=home_paths,
                 selector=packs[0].name,
             )
             if not record.readme:
@@ -362,7 +362,7 @@ def cards_readme(
 
     try:
         record = card_service.read_installed_pack_readme(
-            environment_paths=env_paths,
+            home_paths=home_paths,
             selector=selector,
         )
     except card_service.CardPackLookupError as exc:
@@ -395,8 +395,8 @@ def cards_update(
     ] = False,
 ) -> None:
     """Check and apply card pack updates."""
-    env_paths = _environment_paths()
-    updates = card_service.check_updates(environment_paths=env_paths)
+    home_paths = _home_paths()
+    updates = card_service.check_updates(home_paths=home_paths)
 
     if not selector:
         _print_updates(updates, title="Card pack update check:")
@@ -407,7 +407,7 @@ def cards_update(
         raise typer.Exit(0)
 
     try:
-        plan = card_service.plan_updates(environment_paths=env_paths, selector=selector)
+        plan = card_service.plan_updates(home_paths=home_paths, selector=selector)
     except card_service.CardPackLookupError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
@@ -419,7 +419,7 @@ def cards_update(
 
     applied = card_service.apply_update_plan(
         plan.selected,
-        environment_paths=env_paths,
+        home_paths=home_paths,
         force=force,
     )
     _print_updates(applied.applied, title="Card pack update results:")
@@ -466,8 +466,8 @@ def cards_publish(
     ] = False,
 ) -> None:
     """Publish local card pack changes back to the source repository."""
-    env_paths = _environment_paths()
-    packs = card_service.list_installed_packs(environment_paths=env_paths)
+    home_paths = _home_paths()
+    packs = card_service.list_installed_packs(home_paths=home_paths)
     if not packs:
         print_warning(console, "No local card packs to publish.")
         raise typer.Exit(0)
@@ -483,7 +483,7 @@ def cards_publish(
 
     try:
         result = card_service.publish_pack(
-            environment_paths=env_paths,
+            home_paths=home_paths,
             selector=selector,
             push=not no_push,
             commit_message=message,

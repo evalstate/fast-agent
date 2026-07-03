@@ -10,7 +10,7 @@ from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.context import Context
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.session_environment import (
-    SessionFileEntry,
+    EnvironmentFileEntry,
     ShellExecution,
     ShellExecutionCallbacks,
     ShellExecutionOptions,
@@ -18,14 +18,14 @@ from fast_agent.tools.session_environment import (
     ShellExecutionResult,
     ShellRuntimeInfo,
 )
-from fast_agent.tools.session_filesystem_runtime import SessionFilesystemRuntime
+from fast_agent.tools.session_filesystem_runtime import EnvironmentFilesystemRuntime
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-class FakeSessionEnvironment:
+class FakeEnvironment:
     def __init__(self, cwd: str = "/workspace") -> None:
         self._cwd = cwd
         self.files: dict[str, str] = {}
@@ -69,9 +69,9 @@ class FakeSessionEnvironment:
     async def exists(self, path: str) -> bool:
         return self.resolve_path(path) in self.files
 
-    async def list_dir(self, path: str) -> list[SessionFileEntry]:
+    async def list_dir(self, path: str) -> list[EnvironmentFileEntry]:
         resolved = self.resolve_path(path).rstrip("/")
-        entries: list[SessionFileEntry] = []
+        entries: list[EnvironmentFileEntry] = []
         seen_directories: set[str] = set()
         for file_path in sorted(self.files):
             if not file_path.startswith(f"{resolved}/"):
@@ -83,9 +83,9 @@ class FakeSessionEnvironment:
                 if name in seen_directories:
                     continue
                 seen_directories.add(name)
-                entries.append(SessionFileEntry(path=entry_path, name=name, kind="directory"))
+                entries.append(EnvironmentFileEntry(path=entry_path, name=name, kind="directory"))
             else:
-                entries.append(SessionFileEntry(path=entry_path, name=name, kind="file"))
+                entries.append(EnvironmentFileEntry(path=entry_path, name=name, kind="file"))
         return entries
 
     async def mkdir(self, path: str) -> None:
@@ -107,9 +107,9 @@ def _text(result) -> str:
 
 
 @pytest.mark.asyncio
-async def test_session_filesystem_runtime_reads_and_writes_remote_files() -> None:
-    env = FakeSessionEnvironment()
-    runtime = SessionFilesystemRuntime(env, enable_read=True, enable_write=True)
+async def test_environment_filesystem_runtime_reads_and_writes_remote_files() -> None:
+    env = FakeEnvironment()
+    runtime = EnvironmentFilesystemRuntime(env, enable_read=True, enable_write=True)
 
     write = await runtime.call_tool(
         "write_text_file",
@@ -124,10 +124,10 @@ async def test_session_filesystem_runtime_reads_and_writes_remote_files() -> Non
 
 
 @pytest.mark.asyncio
-async def test_session_filesystem_runtime_preserves_full_file_content() -> None:
-    env = FakeSessionEnvironment()
+async def test_environment_filesystem_runtime_preserves_full_file_content() -> None:
+    env = FakeEnvironment()
     env.files["/workspace/notes.txt"] = "hello\r\nworld\r\n"
-    runtime = SessionFilesystemRuntime(env, enable_read=True, enable_write=True)
+    runtime = EnvironmentFilesystemRuntime(env, enable_read=True, enable_write=True)
 
     read = await runtime.call_tool("read_text_file", {"path": "notes.txt"})
 
@@ -136,8 +136,8 @@ async def test_session_filesystem_runtime_preserves_full_file_content() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fake_session_environment_lists_direct_children() -> None:
-    env = FakeSessionEnvironment()
+async def test_fake_environment_lists_direct_children() -> None:
+    env = FakeEnvironment()
     env.files["/workspace/skills/alpha/SKILL.md"] = "alpha"
     env.files["/workspace/skills/beta/SKILL.md"] = "beta"
     env.files["/workspace/skills/readme.txt"] = "notes"
@@ -145,17 +145,17 @@ async def test_fake_session_environment_lists_direct_children() -> None:
     entries = await env.list_dir("skills")
 
     assert entries == [
-        SessionFileEntry(path="/workspace/skills/alpha", name="alpha", kind="directory"),
-        SessionFileEntry(path="/workspace/skills/beta", name="beta", kind="directory"),
-        SessionFileEntry(path="/workspace/skills/readme.txt", name="readme.txt", kind="file"),
+        EnvironmentFileEntry(path="/workspace/skills/alpha", name="alpha", kind="directory"),
+        EnvironmentFileEntry(path="/workspace/skills/beta", name="beta", kind="directory"),
+        EnvironmentFileEntry(path="/workspace/skills/readme.txt", name="readme.txt", kind="file"),
     ]
 
 
 @pytest.mark.asyncio
-async def test_session_filesystem_runtime_applies_patch_to_remote_files() -> None:
-    env = FakeSessionEnvironment()
+async def test_environment_filesystem_runtime_applies_patch_to_remote_files() -> None:
+    env = FakeEnvironment()
     env.files["/workspace/notes.txt"] = "one\ntwo\n"
-    runtime = SessionFilesystemRuntime(env, enable_read=True, enable_apply_patch=True)
+    runtime = EnvironmentFilesystemRuntime(env, enable_read=True, enable_apply_patch=True)
 
     result = await runtime.call_tool(
         "apply_patch",
@@ -179,7 +179,7 @@ async def test_session_filesystem_runtime_applies_patch_to_remote_files() -> Non
 
 @pytest.mark.asyncio
 async def test_mcp_agent_routes_file_tools_to_injected_session_environment() -> None:
-    env = FakeSessionEnvironment()
+    env = FakeEnvironment()
     env.files["/workspace/remote.txt"] = "remote file\n"
     config = AgentConfig(
         name="test",
@@ -218,7 +218,7 @@ async def test_mcp_agent_keeps_host_skill_reader_with_injected_session_filesyste
         encoding="utf-8",
     )
     manifests = SkillRegistry.load_directory(skills_root)
-    env = FakeSessionEnvironment()
+    env = FakeEnvironment()
     config = AgentConfig(
         name="test",
         instruction="Skills:\n{{agentSkills}}",

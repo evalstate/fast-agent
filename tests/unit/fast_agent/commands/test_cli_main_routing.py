@@ -13,10 +13,10 @@ from fast_agent.cli.__main__ import _first_positional_argument
 @pytest.mark.parametrize(
     ("arguments", "expected"),
     [
-        (["--env", "demo", "demo", "--help"], "demo"),
-        (["--env", "demo", "--message", "hi"], None),
+        (["--home", "demo", "demo", "--help"], "demo"),
+        (["--home", "demo", "--message", "hi"], None),
         (["-m", "serve", "--help"], None),
-        (["--env=demo", "cards", "--help"], "cards"),
+        (["--home=demo", "cards", "--help"], "cards"),
         (["--", "demo"], "demo"),
     ],
 )
@@ -37,7 +37,7 @@ def _run_fast_agent_cli(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 def test_auto_routes_to_go_when_env_value_matches_subcommand() -> None:
-    result = _run_fast_agent_cli("--env", "demo", "--message", "hi", "--help")
+    result = _run_fast_agent_cli("--home", "demo", "--message", "hi", "--help")
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
@@ -162,16 +162,16 @@ def test_root_serve_transport_routes_to_serve_command(
     def capture_app() -> None:
         captured.extend(sys.argv)
 
-    monkeypatch.setattr(sys, "argv", ["fast-agent", "--env", "demo", "--serve=stdio"])
+    monkeypatch.setattr(sys, "argv", ["fast-agent", "--home", "demo", "--serve=stdio"])
     monkeypatch.setattr(cli_main, "app", capture_app)
 
     cli_main.main()
 
-    assert captured == ["fast-agent", "--env", "demo", "serve", "--transport", "stdio"]
+    assert captured == ["fast-agent", "--home", "demo", "serve", "--transport", "stdio"]
 
 
 def test_demo_subcommand_still_detected_after_env_option_value() -> None:
-    result = _run_fast_agent_cli("--env", "demo", "demo", "--help")
+    result = _run_fast_agent_cli("--home", "demo", "demo", "--help")
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr

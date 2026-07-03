@@ -36,7 +36,7 @@ def isolate_fast_agent_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[
     from fast_agent import config as config_module
 
     config_module._settings = None  # noqa: SLF001
-    for key in ("ENVIRONMENT_DIR", "FAST_AGENT_HOME", "FAST_AGENT_RUNTIME_ENVIRONMENT"):
+    for key in ("FAST_AGENT_HOME", "FAST_AGENT_HOME", "FAST_AGENT_RUNTIME_HOME"):
         monkeypatch.delenv(key, raising=False)
     yield
     config_module._settings = None  # noqa: SLF001

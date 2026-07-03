@@ -76,7 +76,7 @@ fast-agent export latest --output trace.jsonl --hf-url hf://datasets/your-name/f
 
 Notes:
 
-- Traces come from persisted sessions, so `--noenv` runs are not exportable.
+- Traces come from persisted sessions, so `--no-home` runs are not exportable.
 - Set `git_aware: true` in `fast-agent.yaml` to include git provenance in
   exported trace metadata when the session runs inside a git repository.
 - If you omit `--output`, fast-agent writes a default file named

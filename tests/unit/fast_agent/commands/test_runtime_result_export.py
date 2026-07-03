@@ -238,8 +238,8 @@ def _make_request(
         agent_name="agent",
         target_agent_name=target_agent_name,
         skills_directory=None,
-        environment_dir=None,
-        noenv=False,
+        home=None,
+        no_home=False,
         force_smart=False,
         shell_runtime=False,
         no_shell=False,
@@ -312,9 +312,9 @@ def test_apply_fast_args_threads_resume_into_runtime_settings() -> None:
     assert fast.args.resume_session_id == "session-123"
 
 
-def test_apply_fast_args_rejects_noenv_resume_before_enabling_restore() -> None:
+def test_apply_fast_args_rejects_no_home_resume_before_enabling_restore() -> None:
     request = _make_request(result_file=None)
-    request.noenv = True
+    request.no_home = True
     request.resume = "session-123"
     fast = SimpleNamespace(args=SimpleNamespace())
 
@@ -378,10 +378,10 @@ async def test_run_cli_flow_prepare_runs_after_harness_startup() -> None:
     ("field", "value"),
     [
         ("resume", "latest"),
-        ("noenv", True),
+        ("no_home", True),
     ],
 )
-async def test_run_cli_flow_uses_direct_run_for_resume_and_noenv(
+async def test_run_cli_flow_uses_direct_run_for_resume_and_no_home(
     field: str,
     value: object,
 ) -> None:
@@ -412,7 +412,7 @@ async def test_run_cli_flow_uses_direct_run_for_resume_and_noenv(
 @pytest.mark.asyncio
 async def test_run_cli_flow_prepare_runs_before_direct_startup() -> None:
     request = _make_request(result_file=None, message=None)
-    request.noenv = True
+    request.no_home = True
     fast = _DummyFastRuntime()
     calls: list[str] = []
 

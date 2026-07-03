@@ -26,14 +26,14 @@ def _read_yaml(path) -> dict:
     return {}
 
 
-def test_resolve_start_path_treats_config_inside_env_dir_as_env_root_parent(tmp_path) -> None:
+def test_resolve_start_path_treats_config_inside_home_as_env_root_parent(tmp_path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
-    config_path = env_dir / "fast-agent.yaml"
+    home = workspace / ".fast-agent"
+    config_path = home / "fast-agent.yaml"
     config_path.parent.mkdir(parents=True)
     config_path.write_text("default_model: haiku\n", encoding="utf-8")
 
-    settings = Settings(environment_dir=None)
+    settings = Settings(home=None)
     settings._config_file = str(config_path)
 
     assert resolve_model_reference_start_path(settings=settings) == workspace
@@ -41,10 +41,10 @@ def test_resolve_start_path_treats_config_inside_env_dir_as_env_root_parent(tmp_
 
 def test_set_reference_dry_run_does_not_mutate_target_file(tmp_path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
-    service = ModelReferenceConfigService(start_path=workspace, env_dir=env_dir)
+    service = ModelReferenceConfigService(start_path=workspace, home=home)
 
     result = service.set_reference(
         "$system.fast",
@@ -53,7 +53,7 @@ def test_set_reference_dry_run_does_not_mutate_target_file(tmp_path) -> None:
         dry_run=True,
     )
 
-    assert result.target_path == env_dir / "fast-agent.yaml"
+    assert result.target_path == home / "fast-agent.yaml"
     assert result.applied is False
     assert result.dry_run is True
     assert result.changes[0].old is None
@@ -63,9 +63,9 @@ def test_set_reference_dry_run_does_not_mutate_target_file(tmp_path) -> None:
 
 def test_resolve_target_path_rejects_unknown_target(tmp_path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
-    service = ModelReferenceConfigService(start_path=workspace, env_dir=env_dir)
+    service = ModelReferenceConfigService(start_path=workspace, home=home)
     invalid_target: Any = "other"
 
     with pytest.raises(ValueError, match="target must be 'env' or 'project'"):
@@ -74,24 +74,24 @@ def test_resolve_target_path_rejects_unknown_target(tmp_path) -> None:
 
 def test_set_reference_writes_env_target_and_creates_config_file(tmp_path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
-    service = ModelReferenceConfigService(start_path=workspace, env_dir=env_dir)
+    service = ModelReferenceConfigService(start_path=workspace, home=home)
 
     result = service.set_reference("$system.fast", "claude-haiku-4-5", target="env")
 
     assert result.applied is True
-    assert result.target_path == env_dir / "fast-agent.yaml"
+    assert result.target_path == home / "fast-agent.yaml"
     saved = _read_yaml(result.target_path)
     assert saved["model_references"]["system"]["fast"] == "claude-haiku-4-5"
 
 
 def test_set_reference_preserves_existing_yaml_comments(tmp_path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
-    config_path = env_dir / "fast-agent.yaml"
+    config_path = home / "fast-agent.yaml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
         (
@@ -105,7 +105,7 @@ def test_set_reference_preserves_existing_yaml_comments(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    service = ModelReferenceConfigService(start_path=workspace, env_dir=env_dir)
+    service = ModelReferenceConfigService(start_path=workspace, home=home)
 
     result = service.set_reference("$system.fast", "claude-haiku-4-5", target="env")
 
@@ -133,7 +133,7 @@ def test_unset_reference_writes_project_target(tmp_path) -> None:
         },
     )
 
-    service = ModelReferenceConfigService(start_path=workspace, env_dir=workspace / ".fast-agent")
+    service = ModelReferenceConfigService(start_path=workspace, home=workspace / ".fast-agent")
 
     result = service.unset_reference("$system.fast", target="project")
 
@@ -145,7 +145,7 @@ def test_unset_reference_writes_project_target(tmp_path) -> None:
 
 def test_list_references_uses_project_env_and_secrets_layering(tmp_path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     _write_yaml(
@@ -161,7 +161,7 @@ def test_list_references_uses_project_env_and_secrets_layering(tmp_path) -> None
         },
     )
     _write_yaml(
-        env_dir / "fast-agent.yaml",
+        home / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -171,7 +171,7 @@ def test_list_references_uses_project_env_and_secrets_layering(tmp_path) -> None
         },
     )
     _write_yaml(
-        env_dir / "fastagent.secrets.yaml",
+        home / "fastagent.secrets.yaml",
         {
             "model_references": {
                 "system": {
@@ -181,7 +181,7 @@ def test_list_references_uses_project_env_and_secrets_layering(tmp_path) -> None
         },
     )
 
-    service = ModelReferenceConfigService(start_path=workspace, env_dir=env_dir)
+    service = ModelReferenceConfigService(start_path=workspace, home=home)
     references = service.list_references()
 
     assert references["system"]["fast"] == "env-fast"
@@ -191,7 +191,7 @@ def test_list_references_uses_project_env_and_secrets_layering(tmp_path) -> None
 
 def test_list_references_tolerant_skips_invalid_reference_names(tmp_path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
     _write_yaml(
         workspace / "fast-agent.yaml",
@@ -208,6 +208,6 @@ def test_list_references_tolerant_skips_invalid_reference_names(tmp_path) -> Non
         },
     )
 
-    service = ModelReferenceConfigService(start_path=workspace, env_dir=env_dir)
+    service = ModelReferenceConfigService(start_path=workspace, home=home)
 
     assert service.list_references_tolerant() == {"system": {"fast": "claude-haiku-4-5"}}

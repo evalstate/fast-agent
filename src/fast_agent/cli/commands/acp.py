@@ -9,10 +9,12 @@ from typing import TYPE_CHECKING
 import typer
 
 from fast_agent.cli.commands import serve
-from fast_agent.cli.env_helpers import resolve_environment_dir_option
+from fast_agent.cli.home_helpers import resolve_home_option
 from fast_agent.cli.runtime.request_builders import build_command_run_request
 from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions
+from fast_agent.cli.workspace_helpers import resolve_workspace_option
+from fast_agent.constants import DEFAULT_HOME_DIR
 
 if TYPE_CHECKING:
     from fast_agent.cli.runtime.run_request import AgentRunRequest
@@ -47,8 +49,8 @@ def _build_run_request(
     auth: str | None,
     client_metadata_url: str | None,
     model: str | None,
-    env_dir: Path | None,
-    noenv: bool,
+    home: Path | None,
+    no_home: bool,
     force_smart: bool,
     skills_dir: Path | None,
     npx: str | None,
@@ -65,8 +67,13 @@ def _build_run_request(
     prefer_local_shell: bool = False,
     missing_shell_cwd: serve.MissingShellCwdPolicy | None = None,
     no_shell: bool = False,
+    workspace: Path | None = None,
 ) -> AgentRunRequest:
-    resolved_env_dir = resolve_environment_dir_option(ctx, env_dir, set_env_var=not noenv)
+    resolved_workspace = resolve_workspace_option(ctx, workspace)
+    home_option = home
+    if home_option is None and resolved_workspace is not None and not no_home:
+        home_option = resolved_workspace / DEFAULT_HOME_DIR
+    resolved_home = resolve_home_option(ctx, home_option, set_env_var=not no_home)
     return build_command_run_request(
         name=name,
         instruction_option=instruction,
@@ -87,8 +94,8 @@ def _build_run_request(
         stdio=stdio,
         target_agent_name=None,
         skills_directory=skills_dir,
-        environment_dir=resolved_env_dir,
-        noenv=noenv,
+        home=resolved_home,
+        no_home=no_home,
         force_smart=force_smart,
         shell_enabled=shell,
         no_shell=no_shell,
@@ -121,8 +128,9 @@ def run_acp(
     urls: str | None = CommonAgentOptions.urls(),
     auth: str | None = CommonAgentOptions.auth(),
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
-    env_dir: Path | None = CommonAgentOptions.env_dir(),
-    noenv: bool = CommonAgentOptions.noenv(),
+    workspace: Path | None = CommonAgentOptions.workspace(),
+    home: Path | None = CommonAgentOptions.home(),
+    no_home: bool = CommonAgentOptions.no_home(),
     skills_dir: Path | None = CommonAgentOptions.skills_dir(),
     npx: str | None = CommonAgentOptions.npx(),
     uvx: str | None = CommonAgentOptions.uvx(),
@@ -184,8 +192,9 @@ def run_acp(
         auth=auth,
         client_metadata_url=client_metadata_url,
         model=model,
-        env_dir=env_dir,
-        noenv=noenv,
+        workspace=workspace,
+        home=home,
+        no_home=no_home,
         force_smart=smart,
         skills_dir=skills_dir,
         npx=npx,

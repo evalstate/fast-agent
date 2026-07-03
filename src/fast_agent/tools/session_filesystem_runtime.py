@@ -1,4 +1,4 @@
-"""Filesystem tools backed by a session-owned filesystem."""
+"""Filesystem tools backed by an environment-owned filesystem."""
 
 from __future__ import annotations
 
@@ -35,11 +35,11 @@ from fast_agent.tools.filesystem_tool_definitions import (
     build_write_text_file_tool,
 )
 from fast_agent.tools.filesystem_tool_specs import FilesystemToolSpec, enabled_tool_specs
-from fast_agent.tools.session_patch import apply_patch_to_session_filesystem
+from fast_agent.tools.session_patch import apply_patch_to_environment_filesystem
 from fast_agent.tools.tool_sources import SHELL_TOOL_SOURCE, set_tool_source
 
 if TYPE_CHECKING:
-    from fast_agent.tools.session_environment import SessionFilesystem
+    from fast_agent.tools.session_environment import EnvironmentFilesystem
     from fast_agent.types import RequestParams
 
 
@@ -50,12 +50,12 @@ def _text_result(message: str, *, is_error: bool) -> CallToolResult:
     )
 
 
-class SessionFilesystemRuntime:
-    """Expose existing LLM filesystem tools against a session filesystem."""
+class EnvironmentFilesystemRuntime:
+    """Expose existing LLM filesystem tools against an environment filesystem."""
 
     def __init__(
         self,
-        filesystem: "SessionFilesystem",
+        filesystem: "EnvironmentFilesystem",
         *,
         enable_read: bool = True,
         enable_write: bool = True,
@@ -171,7 +171,7 @@ class SessionFilesystemRuntime:
                 is_error=True,
             )
 
-        with tempfile.TemporaryDirectory(prefix="fast-agent-session-edit-") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="fast-agent-environment-edit-") as temp_dir:
             local_path = Path(temp_dir) / "target.txt"
             try:
                 local_path.write_text(await self._filesystem.read_text(edit_input.path), encoding="utf-8")
@@ -214,7 +214,7 @@ class SessionFilesystemRuntime:
             )
 
         try:
-            output = await apply_patch_to_session_filesystem(self._filesystem, parsed.hunks)
+            output = await apply_patch_to_environment_filesystem(self._filesystem, parsed.hunks)
         except ApplyPatchError as exc:
             return _text_result(str(exc), is_error=True)
         except Exception as exc:
@@ -223,7 +223,7 @@ class SessionFilesystemRuntime:
 
     def metadata(self) -> dict[str, Any]:
         return {
-            "type": "session_filesystem",
+            "type": "environment_filesystem",
             "cwd": self._filesystem.cwd,
             "tools": [tool.name for tool in self.tools],
         }

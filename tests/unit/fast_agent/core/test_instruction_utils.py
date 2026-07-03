@@ -226,7 +226,7 @@ description: A test skill for unit testing
     )
 
     context: dict[str, str] = {}
-    original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    original_home = os.environ.pop("FAST_AGENT_HOME", None)
     import fast_agent.config as config_module
 
     original_settings = getattr(config_module, "_settings", None)
@@ -239,8 +239,8 @@ description: A test skill for unit testing
         )
     finally:
         config_module._settings = original_settings
-        if original_env_dir is not None:
-            os.environ["ENVIRONMENT_DIR"] = original_env_dir
+        if original_home is not None:
+            os.environ["FAST_AGENT_HOME"] = original_home
 
     agent = StubAgent(
         name="workflow",
@@ -275,7 +275,7 @@ description: {description}
         )
 
     context: dict[str, str] = {}
-    original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    original_home = os.environ.pop("FAST_AGENT_HOME", None)
     import fast_agent.config as config_module
 
     original_settings = getattr(config_module, "_settings", None)
@@ -289,8 +289,8 @@ description: {description}
         all_manifests = load_skills_for_context(str(tmp_path))
     finally:
         config_module._settings = original_settings
-        if original_env_dir is not None:
-            os.environ["ENVIRONMENT_DIR"] = original_env_dir
+        if original_home is not None:
+            os.environ["FAST_AGENT_HOME"] = original_home
 
     manifests_by_name = {manifest.name: manifest for manifest in all_manifests}
 
@@ -333,7 +333,7 @@ description: A test skill for unit testing
     )
 
     context: dict[str, str] = {}
-    original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    original_home = os.environ.pop("FAST_AGENT_HOME", None)
     import fast_agent.config as config_module
 
     original_settings = getattr(config_module, "_settings", None)
@@ -346,8 +346,8 @@ description: A test skill for unit testing
         )
     finally:
         config_module._settings = original_settings
-        if original_env_dir is not None:
-            os.environ["ENVIRONMENT_DIR"] = original_env_dir
+        if original_home is not None:
+            os.environ["FAST_AGENT_HOME"] = original_home
 
     agent = StubMcpAgent(
         name="planner",
@@ -378,7 +378,7 @@ description: A test skill for unit testing
     )
 
     context: dict[str, str] = {}
-    original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    original_home = os.environ.pop("FAST_AGENT_HOME", None)
     import fast_agent.config as config_module
 
     original_settings = getattr(config_module, "_settings", None)
@@ -391,8 +391,8 @@ description: A test skill for unit testing
         )
     finally:
         config_module._settings = original_settings
-        if original_env_dir is not None:
-            os.environ["ENVIRONMENT_DIR"] = original_env_dir
+        if original_home is not None:
+            os.environ["FAST_AGENT_HOME"] = original_home
 
     agent = StubMcpAgent(
         name="planner",

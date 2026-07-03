@@ -24,7 +24,7 @@ from fast_agent.cli.display import (
     print_update_table,
     print_warning,
 )
-from fast_agent.cli.env_helpers import resolve_environment_dir_option
+from fast_agent.cli.home_helpers import resolve_home_option
 from fast_agent.skills.command_support import SKILLS_ADD_HINT_CLI, filter_marketplace_skills
 from fast_agent.skills.configuration import (
     format_marketplace_display_url,
@@ -75,10 +75,10 @@ SkillsDirOption = Annotated[
 EnvOption = Annotated[
     Path | None,
     typer.Option(
-        "--env",
+        "--home",
         help=(
-            "Override the base fast-agent environment directory for this invocation "
-            "(same behavior as the top-level --env)."
+            "Override the base fast-agent home for this invocation "
+            "(same behavior as the top-level --home)."
         ),
     ),
 ]
@@ -300,7 +300,7 @@ def skills_main(
     skills_dir: SkillsDirOption = None,
 ) -> None:
     """Manage skills."""
-    resolve_environment_dir_option(ctx, env)
+    resolve_home_option(ctx, env)
     ctx_object = ensure_context_object(ctx)
     ctx_object["registry"] = registry
     ctx_object["skills_dir"] = skills_dir

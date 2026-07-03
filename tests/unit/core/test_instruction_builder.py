@@ -204,7 +204,7 @@ class TestInstructionBuilderInternalPatterns:
         result = await builder.build()
 
         assert "You are a helpful AI Agent" in result
-        assert "fast-agent environment paths:" in result
+        assert "fast-agent home paths:" in result
         assert "{{internal:smart_prompt}}" not in result
         assert "{{currentDate}}" not in result
 

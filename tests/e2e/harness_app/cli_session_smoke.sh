@@ -70,7 +70,7 @@ echo "[harness-app-smoke] one-shot CLI"
 (
   cd "$REPO_ROOT"
   uv run fast-agent go \
-    --env "$ENV_DIR" \
+    --home "$ENV_DIR" \
     --model passthrough \
     --message "harness app one-shot" \
     --quiet \
@@ -89,7 +89,7 @@ fi
 echo "[harness-app-smoke] interactive session create/list"
 tmux kill-session -t "${SESSION_PREFIX}_create" 2>/dev/null || true
 tmux new-session -d -s "${SESSION_PREFIX}_create" -x 120 -y 40 \
-  "cd '$REPO_ROOT' && uv run fast-agent go --env '$ENV_DIR' --model passthrough"
+  "cd '$REPO_ROOT' && uv run fast-agent go --home '$ENV_DIR' --model passthrough"
 tmux set-option -t "${SESSION_PREFIX}_create" status off >/dev/null
 
 wait_for_capture "${SESSION_PREFIX}_create" "Use '/' for commands" "$CAPTURE_CREATE" \
@@ -131,7 +131,7 @@ echo "[harness-app-smoke] created session id: $SESSION_ID"
 echo "[harness-app-smoke] root --resume preview"
 tmux kill-session -t "${SESSION_PREFIX}_resume" 2>/dev/null || true
 tmux new-session -d -s "${SESSION_PREFIX}_resume" -x 120 -y 40 \
-  "cd '$REPO_ROOT' && ENVIRONMENT_DIR='$ENV_DIR' uv run fast-agent --resume '$SESSION_ID'"
+  "cd '$REPO_ROOT' && FAST_AGENT_HOME='$ENV_DIR' uv run fast-agent --resume '$SESSION_ID'"
 tmux set-option -t "${SESSION_PREFIX}_resume" status off >/dev/null
 
 wait_for_capture "${SESSION_PREFIX}_resume" "Last assistant message" "$CAPTURE_RESUME" \

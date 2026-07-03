@@ -77,7 +77,8 @@ Key options:
     - `request` (stateless) - create a new Agent for every tool call and disable MCP Sessions
 - `--shell`, `-x` – Enable local shell tool access (bash or pwsh)
 - `--no-shell` – Disable local shell/filesystem tools even when skills or config request them
-- `--noenv`, `--no-env` – Run without implicit environment side effects (no implicit card discovery, no session persistence/resume, and no ACP permission-store writes)
+- `--workspace` – Override the workspace root; when `--home` is omitted, the home defaults to `<workspace>/.fast-agent`
+- `--no-home` – Run without implicit home side effects (no implicit card discovery, no session persistence/resume, and no ACP permission-store writes)
 - `--no-permissions` – Disable ACP tool permission requests
 - `--prefer-local-shell` – In ACP shell mode, use fast-agent's local shell runtime instead of the ACP client's terminal capability
 - `--missing-shell-cwd [ask|create|warn|error]` – Override the shell missing-cwd policy
@@ -86,7 +87,7 @@ Key options:
 Standard CLI flags also apply (e.g. `--config-path`, `--model`, `--servers`, `--url`, `--auth`, `--client-metadata-url`, `--agent-cards`, `--card-tool`, `--stdio`, `--npx`, `--uvx`, and global `-q/--quiet`).
 This allows **`fast-agent`** to serve any existing MCP Server in "Agent Mode", use custom system prompts and so on.
 
-`--noenv` conflicts with `--env` (they cannot be used together).
+`--no-home` conflicts with `--home` (they cannot be used together).
 
 HTTP serving binds to loopback by default. Use `--host 0.0.0.0` or another
 non-loopback address only when remote clients should connect; `fast-agent serve`

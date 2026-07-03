@@ -11,7 +11,7 @@ import typer
 
 from fast_agent.a2a.connect import normalize_a2a_transport, normalize_a2a_url
 from fast_agent.cli.command_support import ensure_context_object
-from fast_agent.cli.env_helpers import resolve_environment_dir_option
+from fast_agent.cli.home_helpers import resolve_home_option
 from fast_agent.cli.runtime.request_builders import (
     DEFAULT_AGENT_CARDS_DIR as _DEFAULT_AGENT_CARDS_DIR,
 )
@@ -32,7 +32,8 @@ from fast_agent.cli.runtime.request_builders import (
 )
 from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions
-from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
+from fast_agent.cli.workspace_helpers import resolve_workspace_option
+from fast_agent.constants import DEFAULT_HOME_DIR, FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.agent_card_paths import AGENT_CARD_EXTENSIONS as _CARD_EXTENSIONS
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.hf_auth import add_explicit_bearer_auth_header
@@ -145,16 +146,16 @@ def _materialize_a2a_agent_cards(
     return tempdir, paths
 
 
-def _resolve_effective_environment_dir(
+def _resolve_effective_home(
     *,
     settings: Any | None,
-    env_dir: Path | None,
+    home: Path | None,
 ) -> Path:
-    from fast_agent.paths import resolve_environment_paths
+    from fast_agent.paths import resolve_home_paths
 
-    if env_dir is not None:
-        return env_dir
-    return resolve_environment_paths(settings=settings).root
+    if home is not None:
+        return home
+    return resolve_home_paths(settings=settings).root
 
 
 def _maybe_queue_pack_readme_notice(
@@ -181,9 +182,9 @@ def _resolve_request_update_notice(
     *,
     ctx: typer.Context,
     request: AgentRunRequest,
-    environment_dir: Path | None,
+    home: Path | None,
 ) -> str | None:
-    if request.noenv:
+    if request.no_home:
         return None
     if not request.is_repl:
         return None
@@ -199,7 +200,7 @@ def _resolve_request_update_notice(
         disabled=no_update_check,
     ):
         return None
-    return check_for_update_notice(environment_dir=environment_dir)
+    return check_for_update_notice(home=home)
 
 
 @app.callback(invoke_without_command=True, no_args_is_help=False)
@@ -277,8 +278,9 @@ def go(
         "--resume",
         help="Resume the last session or the specified session id",
     ),
-    env_dir: Path | None = CommonAgentOptions.env_dir(),
-    noenv: bool = CommonAgentOptions.noenv(),
+    workspace: Path | None = CommonAgentOptions.workspace(),
+    home: Path | None = CommonAgentOptions.home(),
+    no_home: bool = CommonAgentOptions.no_home(),
     smart: bool = CommonAgentOptions.smart(),
     skills_dir: Path | None = CommonAgentOptions.skills_dir(),
     npx: str | None = CommonAgentOptions.npx(),
@@ -315,34 +317,38 @@ def go(
         )
         raise typer.Exit(1)
 
-    resolved_env_dir = resolve_environment_dir_option(ctx, env_dir, set_env_var=not noenv)
-    effective_env_dir = resolved_env_dir
+    resolved_workspace = resolve_workspace_option(ctx, workspace)
+    home_option = home
+    if home_option is None and resolved_workspace is not None and not no_home:
+        home_option = resolved_workspace / DEFAULT_HOME_DIR
+    resolved_home = resolve_home_option(ctx, home_option, set_env_var=not no_home)
+    effective_home = resolved_home
 
     if pack:
         from fast_agent.cards import service as card_service
 
-        if noenv:
-            raise typer.BadParameter("Cannot combine --pack with --noenv.", param_hint="--pack")
+        if no_home:
+            raise typer.BadParameter("Cannot combine --pack with --no-home.", param_hint="--pack")
 
         from fast_agent.cli.command_support import get_settings_or_exit
-        from fast_agent.paths import resolve_environment_paths
+        from fast_agent.paths import resolve_home_paths
 
         settings = (
             get_settings_or_exit(config_path)
-            if (resolved_env_dir is None or pack_registry is None)
+            if (resolved_home is None or pack_registry is None)
             else None
         )
-        effective_env_dir = _resolve_effective_environment_dir(
+        effective_home = _resolve_effective_home(
             settings=settings,
-            env_dir=resolved_env_dir,
+            home=resolved_home,
         )
-        env_paths = resolve_environment_paths(override=effective_env_dir)
+        home_paths = resolve_home_paths(override=effective_home)
         resolved_pack_registry = card_service.resolve_registry(pack_registry, settings=settings)
 
         try:
             ensured_pack = card_service.ensure_pack_available_sync(
                 selector=pack,
-                environment_paths=env_paths,
+                home_paths=home_paths,
                 registry=resolved_pack_registry,
             )
         except card_service.CardPackLookupError as exc:
@@ -356,14 +362,14 @@ def go(
             ensured_pack.install_record.readme
             if ensured_pack.install_record is not None
             else card_service.read_installed_pack_readme(
-                environment_paths=env_paths,
+                home_paths=home_paths,
                 selector=ensured_pack.name,
             ).readme
         )
 
         status = "Installed" if ensured_pack.installed else "Using installed"
         typer.echo(f"{status} card pack: {ensured_pack.name}")
-        typer.echo(f"Launching fast-agent go with environment: {effective_env_dir}")
+        typer.echo(f"Launching fast-agent go with home: {effective_home}")
         _maybe_queue_pack_readme_notice(
             pack_name=ensured_pack.name,
             readme=pack_readme,
@@ -371,8 +377,8 @@ def go(
             prompt_file=prompt_file,
         )
 
-        agent_cards = _merge_pack_card_sources(agent_cards, env_paths.agent_cards)
-        card_tools = _merge_pack_card_sources(card_tools, env_paths.tool_cards)
+        agent_cards = _merge_pack_card_sources(agent_cards, home_paths.agent_cards)
+        card_tools = _merge_pack_card_sources(card_tools, home_paths.tool_cards)
 
     a2a_tempdir: tempfile.TemporaryDirectory[str] | None = None
     if a2a:
@@ -410,8 +416,8 @@ def go(
         stdio=stdio,
         target_agent_name=agent,
         skills_directory=skills_dir,
-        environment_dir=effective_env_dir,
-        noenv=noenv,
+        home=effective_home,
+        no_home=no_home,
         force_smart=smart,
         shell_enabled=shell,
         no_shell=no_shell,
@@ -426,7 +432,7 @@ def go(
     update_notice = _resolve_request_update_notice(
         ctx=ctx,
         request=request,
-        environment_dir=effective_env_dir,
+        home=effective_home,
     )
     if update_notice and not request.quiet:
         from fast_agent.ui.enhanced_prompt import queue_startup_notice

@@ -6,7 +6,6 @@ and other clients to interact with fast-agent agents over stdio using the ACP pr
 """
 
 import asyncio
-import os
 from collections.abc import Awaitable, Callable, Sequence
 from importlib.metadata import version as get_version
 from pathlib import Path
@@ -65,7 +64,7 @@ from fast_agent.acp.server.session_store import ACPServerSessionStore, SessionSt
 from fast_agent.acp.server.slash_runtime import ACPServerSlashRuntime, SlashRuntimeHost
 from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.config import MCPServerSettings, get_settings
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
+from fast_agent.constants import DEFAULT_HOME_DIR
 from fast_agent.core.agent_app import AgentCardLoadResult
 from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
@@ -75,7 +74,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol, LlmCapableProtocol
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
 from fast_agent.mcp.types import McpAgentProtocol
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 from fast_agent.session.session_manager import SessionManager
 from fast_agent.types import RequestParams
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
@@ -459,35 +458,28 @@ class AgentACPServer(ACPAgent):
             )
         return str(path.resolve())
 
-    def _session_manager_environment_override(self, cwd: Path | None) -> str | Path | None:
+    def _session_manager_home_override(self, cwd: Path | None) -> str | Path | None:
         settings = get_settings()
-        configured_environment_dir = settings.environment_dir
-        legacy_environment_dir = os.getenv("ENVIRONMENT_DIR")
-        ambient_legacy_environment_dir = (
-            configured_environment_dir is not None
-            and legacy_environment_dir is not None
-            and Path(configured_environment_dir).expanduser()
-            == Path(legacy_environment_dir).expanduser()
-        )
-        if configured_environment_dir is not None and not ambient_legacy_environment_dir:
-            return configured_environment_dir
+        configured_home = settings.home
+        if configured_home is not None:
+            return configured_home
 
         if settings._fast_agent_home_source == "default":
-            return DEFAULT_ENVIRONMENT_DIR
+            return DEFAULT_HOME_DIR
 
         return None
 
     def _get_session_manager(self, *, cwd: Path | None = None) -> SessionManager:
         resolved_cwd = cwd.resolve() if cwd is not None else Path.cwd().resolve()
-        environment_override = self._session_manager_environment_override(cwd)
-        expected_paths = resolve_environment_paths(
+        home_override = self._session_manager_home_override(cwd)
+        expected_paths = resolve_home_paths(
             cwd=resolved_cwd,
-            override=environment_override,
+            override=home_override,
         )
         key = (str(expected_paths.sessions.resolve()), str(resolved_cwd))
         manager = self._session_managers.get(key)
         if manager is None:
-            manager = SessionManager(cwd=cwd, environment_override=environment_override)
+            manager = SessionManager(cwd=cwd, home_override=home_override)
             self._session_managers[key] = manager
         return manager
 

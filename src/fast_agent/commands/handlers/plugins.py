@@ -45,7 +45,7 @@ from fast_agent.marketplace.formatting import (
     format_source_provenance,
 )
 from fast_agent.marketplace.update_status import is_update_applied
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 from fast_agent.plugins.configuration import (
     disable_plugin_in_config,
     enable_plugin_in_config,
@@ -106,7 +106,7 @@ def _config_path_for_settings(ctx: CommandContext) -> Path:
     settings = ctx.resolve_settings()
     if settings._config_file:
         return Path(settings._config_file)
-    return resolve_environment_paths(settings).root / PREFERRED_CONFIG_FILENAME
+    return resolve_home_paths(settings).root / PREFERRED_CONFIG_FILENAME
 
 
 def _format_plugin_keys(entry: LocalPlugin) -> str:
@@ -507,8 +507,8 @@ def _refresh_provider_plugins(ctx: CommandContext, config_path: Path) -> None:
 async def handle_list_plugins(ctx: CommandContext, *, agent_name: str) -> CommandOutcome:
     outcome = CommandOutcome()
     settings = ctx.resolve_settings()
-    env_paths = resolve_environment_paths(settings)
-    roots = installed_plugin_roots(settings, project_plugins=env_paths.plugins)
+    home_paths = resolve_home_paths(settings)
+    roots = installed_plugin_roots(settings, project_plugins=home_paths.plugins)
     scoped_plugins: list[tuple[str, LocalPlugin]] = []
     for scope, plugin_root in roots:
         for entry in list_local_plugins(destination_root=plugin_root):
@@ -623,7 +623,7 @@ async def handle_add_plugin(
         outcome.add_message(parsed.error, channel="warning")
         return outcome
     settings = ctx.resolve_settings()
-    env_paths = resolve_environment_paths(settings)
+    home_paths = resolve_home_paths(settings)
     config_path = _config_path_for_settings(ctx)
     marketplace_url = parsed.registry or get_marketplace_url(settings)
 
@@ -664,7 +664,7 @@ async def handle_add_plugin(
         install_path = await run_in_thread(
             install_marketplace_plugin_sync,
             selected,
-            destination_root=env_paths.plugins,
+            destination_root=home_paths.plugins,
         )
         manifest = load_plugin_manifest(install_path)
         enable_plugin_in_config(config_path, manifest.name)
@@ -690,9 +690,9 @@ async def handle_remove_plugin(
 ) -> CommandOutcome:
     outcome = CommandOutcome()
     settings = ctx.resolve_settings()
-    env_paths = resolve_environment_paths(settings)
+    home_paths = resolve_home_paths(settings)
     config_path = _config_path_for_settings(ctx)
-    plugins = list_local_plugins(destination_root=env_paths.plugins)
+    plugins = list_local_plugins(destination_root=home_paths.plugins)
 
     if not plugins:
         outcome.add_message("No local plugins to remove.", channel="warning")
@@ -700,7 +700,7 @@ async def handle_remove_plugin(
 
     selection = optional_selector(argument)
     if not selection:
-        content = _format_local_plugins(plugins_dir=env_paths.plugins, plugins=plugins)
+        content = _format_local_plugins(plugins_dir=home_paths.plugins, plugins=plugins)
         if not interactive:
             outcome.add_message(content, right_info="plugins", agent_name=agent_name)
             add_info_messages(
@@ -729,7 +729,7 @@ async def handle_remove_plugin(
         return outcome
 
     try:
-        remove_local_plugin(selected.plugin_dir, destination_root=env_paths.plugins)
+        remove_local_plugin(selected.plugin_dir, destination_root=home_paths.plugins)
         disable_plugin_in_config(config_path, selected.name)
         _refresh_provider_plugins(ctx, config_path)
     except Exception as exc:
@@ -758,8 +758,8 @@ async def handle_update_plugin(
         outcome.add_message(parsed.error, channel="error")
         return outcome
 
-    env_paths = resolve_environment_paths(ctx.resolve_settings())
-    updates = await run_in_thread(check_plugin_updates, destination_root=env_paths.plugins)
+    home_paths = resolve_home_paths(ctx.resolve_settings())
+    updates = await run_in_thread(check_plugin_updates, destination_root=home_paths.plugins)
 
     if parsed.selector is None:
         outcome.add_message(

@@ -88,7 +88,7 @@ class ManagedRuntimeMixin:
         self,
         *,
         apply_global_prompt_context: bool,
-        noenv_mode: bool,
+        no_home_mode: bool,
     ) -> dict[str, str] | None:
         raise NotImplementedError
 
@@ -148,13 +148,13 @@ class ManagedRuntimeMixin:
             model_factory_func=self._build_model_factory_func(settings.cli_model_override),
             global_prompt_context=self._build_global_prompt_context(
                 apply_global_prompt_context=not settings.is_acp_server_mode,
-                noenv_mode=settings.noenv_mode,
+                no_home_mode=settings.no_home_mode,
             ),
             resume_requested=settings.resume_requested,
             resume_session_id=settings.resume_session_id,
             target_agent_name=settings.target_agent_name,
             is_acp_server_mode=settings.is_acp_server_mode,
-            noenv_mode=settings.noenv_mode,
+            no_home_mode=settings.no_home_mode,
             managed_instances=[],
             instance_lock=asyncio.Lock(),
             shell_environment=LocalShellExecutor(
@@ -193,7 +193,7 @@ class ManagedRuntimeMixin:
                     agents_map,
                     tool_only_agents=tool_only_agents,
                     card_collision_warnings=self._card_collision_warnings,
-                    noenv_mode=runtime.noenv_mode,
+                    no_home_mode=runtime.no_home_mode,
                     plugin_commands=settings.commands,
                     plugin_command_base_path=plugin_command_base_path,
                 )
@@ -207,7 +207,7 @@ class ManagedRuntimeMixin:
                     settings.commands,
                     base_path=plugin_command_base_path,
                 )
-                app_override.noenv_mode = runtime.noenv_mode
+                app_override.no_home_mode = runtime.no_home_mode
                 app = app_override
 
             instance = AgentInstance(

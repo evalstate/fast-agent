@@ -6,14 +6,14 @@ import pytest
 
 from fast_agent.cards import manager, service
 from fast_agent.config import get_settings, update_global_settings
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
 def test_apply_update_plan_collects_readmes_for_updated_packs(tmp_path: Path, monkeypatch) -> None:
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     updated_pack_dir = tmp_path / "card-packs" / "alpha"
     update = manager.CardPackUpdateInfo(
         index=1,
@@ -25,7 +25,7 @@ def test_apply_update_plan_collects_readmes_for_updated_packs(tmp_path: Path, mo
     monkeypatch.setattr(
         service.manager,
         "apply_card_pack_updates",
-        lambda selected, *, environment_paths, force: [update],
+        lambda selected, *, home_paths, force: [update],
     )
     monkeypatch.setattr(
         service.manager,
@@ -35,12 +35,12 @@ def test_apply_update_plan_collects_readmes_for_updated_packs(tmp_path: Path, mo
     monkeypatch.setattr(
         service,
         "_ensure_required_pack_plugins_sync",
-        lambda pack_dir, *, environment_paths, plugin_registry=None: None,
+        lambda pack_dir, *, home_paths, plugin_registry=None: None,
     )
 
     result = service.apply_update_plan(
         [update],
-        environment_paths=env_paths,
+        home_paths=home_paths,
         force=False,
     )
 
@@ -58,7 +58,7 @@ def test_apply_update_plan_uses_updated_pack_source_for_required_plugins(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     updated_pack_dir = tmp_path / "card-packs" / "alpha"
     source = manager.InstalledCardPackSource(
         schema_version=1,
@@ -89,14 +89,14 @@ def test_apply_update_plan_uses_updated_pack_source_for_required_plugins(
     monkeypatch.setattr(
         service.manager,
         "apply_card_pack_updates",
-        lambda selected, *, environment_paths, force: [update],
+        lambda selected, *, home_paths, force: [update],
     )
     monkeypatch.setattr(service.manager, "load_card_pack_readme", lambda pack_dir: None)
 
     def _capture_plugin_registry(
         pack_dir: Path,
         *,
-        environment_paths,
+        home_paths,
         plugin_registry: str | None = None,
     ) -> None:
         seen["pack_dir"] = pack_dir.as_posix()
@@ -106,7 +106,7 @@ def test_apply_update_plan_uses_updated_pack_source_for_required_plugins(
 
     service.apply_update_plan(
         [update],
-        environment_paths=env_paths,
+        home_paths=home_paths,
         force=False,
     )
 
@@ -144,15 +144,15 @@ def test_required_plugin_sync_skips_registry_fetch_when_already_installed(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_paths.root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_paths.root.as_posix()}'\n",
         encoding="utf-8",
     )
-    pack_dir = env_paths.card_packs / "alpha"
+    pack_dir = home_paths.card_packs / "alpha"
     _write_pack_requiring_plugin(pack_dir, "agent-finder")
-    _write_local_plugin(env_paths.plugins / "agent-finder", "agent-finder")
+    _write_local_plugin(home_paths.plugins / "agent-finder", "agent-finder")
 
     def _fail_fetch(_url: str):
         raise AssertionError("registry fetch should not run for installed required plugins")
@@ -166,7 +166,7 @@ def test_required_plugin_sync_skips_registry_fetch_when_already_installed(
     try:
         service._ensure_required_pack_plugins_sync(
             pack_dir,
-            environment_paths=env_paths,
+            home_paths=home_paths,
             plugin_registry="/tmp/unavailable-marketplace.json",
         )
     finally:
@@ -180,15 +180,15 @@ async def test_required_plugin_async_skips_registry_fetch_when_already_installed
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_paths.root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_paths.root.as_posix()}'\n",
         encoding="utf-8",
     )
-    pack_dir = env_paths.card_packs / "alpha"
+    pack_dir = home_paths.card_packs / "alpha"
     _write_pack_requiring_plugin(pack_dir, "agent-finder")
-    _write_local_plugin(env_paths.plugins / "agent-finder", "agent-finder")
+    _write_local_plugin(home_paths.plugins / "agent-finder", "agent-finder")
 
     async def _fail_fetch(_url: str):
         raise AssertionError("registry fetch should not run for installed required plugins")
@@ -200,7 +200,7 @@ async def test_required_plugin_async_skips_registry_fetch_when_already_installed
     try:
         await service._ensure_required_pack_plugins(
             pack_dir,
-            environment_paths=env_paths,
+            home_paths=home_paths,
             plugin_registry="/tmp/unavailable-marketplace.json",
         )
     finally:
@@ -213,12 +213,12 @@ def test_select_installed_pack_raises_lookup_error_for_missing_pack(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
 
-    monkeypatch.setattr(service.manager, "list_local_card_packs", lambda *, environment_paths: [])
+    monkeypatch.setattr(service.manager, "list_local_card_packs", lambda *, home_paths: [])
 
     try:
-        service.select_installed_pack(environment_paths=env_paths, selector="missing")
+        service.select_installed_pack(home_paths=home_paths, selector="missing")
     except service.CardPackLookupError as exc:
         assert str(exc) == "Card pack not found: missing"
     else:
@@ -226,8 +226,8 @@ def test_select_installed_pack_raises_lookup_error_for_missing_pack(
 
 
 def test_ensure_pack_available_reuses_installed_pack(tmp_path: Path, monkeypatch) -> None:
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    pack_dir = env_paths.card_packs / "alpha"
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    pack_dir = home_paths.card_packs / "alpha"
     local_pack = manager.LocalCardPack(
         index=1,
         name="alpha",
@@ -238,7 +238,7 @@ def test_ensure_pack_available_reuses_installed_pack(tmp_path: Path, monkeypatch
     monkeypatch.setattr(
         service,
         "select_installed_pack",
-        lambda *, environment_paths, selector: local_pack,
+        lambda *, home_paths, selector: local_pack,
     )
 
     async def _fail_install(*_args, **_kwargs):
@@ -248,7 +248,7 @@ def test_ensure_pack_available_reuses_installed_pack(tmp_path: Path, monkeypatch
 
     result = service.ensure_pack_available_sync(
         selector="alpha",
-        environment_paths=env_paths,
+        home_paths=home_paths,
     )
 
     assert result == service.EnsuredCardPack(
@@ -260,8 +260,8 @@ def test_ensure_pack_available_reuses_installed_pack(tmp_path: Path, monkeypatch
 
 
 def test_ensure_pack_available_installs_missing_pack(tmp_path: Path, monkeypatch) -> None:
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    pack_dir = env_paths.card_packs / "alpha"
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    pack_dir = home_paths.card_packs / "alpha"
     install_record = service.CardPackInstallRecord(
         pack=manager.MarketplaceCardPack(
             name="alpha",
@@ -295,10 +295,10 @@ def test_ensure_pack_available_installs_missing_pack(tmp_path: Path, monkeypatch
         readme=None,
     )
 
-    def _missing_pack(*, environment_paths, selector):
+    def _missing_pack(*, home_paths, selector):
         raise service.CardPackLookupError(f"Card pack not found: {selector}")
 
-    async def _install_pack(source, selector, *, environment_paths, force):
+    async def _install_pack(source, selector, *, home_paths, force):
         assert source == "marketplace.json"
         assert selector == "alpha"
         assert force is False
@@ -309,7 +309,7 @@ def test_ensure_pack_available_installs_missing_pack(tmp_path: Path, monkeypatch
 
     result = service.ensure_pack_available_sync(
         selector="alpha",
-        environment_paths=env_paths,
+        home_paths=home_paths,
         registry="marketplace.json",
     )
 

@@ -37,7 +37,7 @@ class ModelReferenceConfigPaths:
 
     project_read_path: Path | None
     project_write_path: Path
-    env_path: Path
+    home_path: Path
     secrets_path: Path | None
 
 
@@ -68,14 +68,14 @@ class ModelReferenceConfigService:
         self,
         *,
         start_path: Path | None = None,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
         project_write_path: Path | None = None,
     ) -> None:
         self._start_path = (start_path or Path.cwd()).resolve()
-        self._env_dir = env_dir
+        self._home = home
         self.paths = _discover_paths(
             start_path=self._start_path,
-            env_dir=self._env_dir,
+            home=self._home,
             project_write_path=project_write_path,
         )
 
@@ -83,7 +83,7 @@ class ModelReferenceConfigService:
         """Return layered model settings merged with any secrets overlay."""
         layered_model_settings = load_layered_model_settings(
             start_path=self._start_path,
-            env_dir=self._env_dir,
+            home=self._home,
         )
 
         if self.paths.secrets_path and self.paths.secrets_path.exists():
@@ -189,7 +189,7 @@ class ModelReferenceConfigService:
 
     def _resolve_target_path(self, target: ModelReferenceWriteTarget) -> Path:
         target_paths: dict[ModelReferenceWriteTarget, Path] = {
-            "env": self.paths.env_path,
+            "env": self.paths.home_path,
             "project": self.paths.project_write_path,
         }
         if target in target_paths:
@@ -209,7 +209,7 @@ def resolve_model_reference_start_path(
 def _discover_paths(
     *,
     start_path: Path,
-    env_dir: str | Path | None,
+    home: str | Path | None,
     project_write_path: Path | None = None,
 ) -> ModelReferenceConfigPaths:
     resolved_project_write_path = (
@@ -221,15 +221,15 @@ def _discover_paths(
     resolved_project_path = (
         resolved_project_write_path or project_read_path or (start_path / PREFERRED_CONFIG_FILENAME)
     )
-    home = resolve_fast_agent_home(cwd=start_path, cli_override=env_dir)
-    env_root = home.path if home is not None else start_path
-    env_path = find_config_in_directory(env_root) or (env_root / PREFERRED_CONFIG_FILENAME)
-    secrets_path = discover_config_files(cwd=start_path, home=home).secrets_path
+    resolved_home = resolve_fast_agent_home(cwd=start_path, cli_override=home)
+    home_root = resolved_home.path if resolved_home is not None else start_path
+    home_path = find_config_in_directory(home_root) or (home_root / PREFERRED_CONFIG_FILENAME)
+    secrets_path = discover_config_files(cwd=start_path, home=resolved_home).secrets_path
 
     return ModelReferenceConfigPaths(
         project_read_path=project_read_path,
         project_write_path=resolved_project_path,
-        env_path=env_path,
+        home_path=home_path,
         secrets_path=secrets_path,
     )
 

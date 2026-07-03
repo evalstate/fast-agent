@@ -81,7 +81,7 @@ async def test_run_lifecycle_enter_performs_shared_setup_in_order(
         return RunSettings(
             quiet_mode=True,
             cli_model_override=model_override,
-            noenv_mode=False,
+            no_home_mode=False,
             server_mode=False,
             transport=None,
             is_acp_server_mode=False,
@@ -111,7 +111,7 @@ async def test_run_lifecycle_enter_performs_shared_setup_in_order(
             model_factory_func=_unused_model_factory,
             global_prompt_context=None,
             is_acp_server_mode=settings.is_acp_server_mode,
-            noenv_mode=settings.noenv_mode,
+            no_home_mode=settings.no_home_mode,
             managed_instances=[],
             instance_lock=asyncio.Lock(),
             shell_environment=_FakeShellEnvironment(),
@@ -171,7 +171,7 @@ async def test_run_lifecycle_cleans_context_when_setup_fails(
         return RunSettings(
             quiet_mode=False,
             cli_model_override=None,
-            noenv_mode=False,
+            no_home_mode=False,
             server_mode=False,
             transport=None,
             is_acp_server_mode=False,
@@ -222,7 +222,7 @@ async def test_run_lifecycle_does_not_exit_unentered_app_context(
         return RunSettings(
             quiet_mode=False,
             cli_model_override=None,
-            noenv_mode=False,
+            no_home_mode=False,
             server_mode=False,
             transport=None,
             is_acp_server_mode=False,
@@ -264,7 +264,7 @@ async def test_run_lifecycle_cleans_context_on_cancelled_setup(
         return RunSettings(
             quiet_mode=False,
             cli_model_override=None,
-            noenv_mode=False,
+            no_home_mode=False,
             server_mode=False,
             transport=None,
             is_acp_server_mode=False,
