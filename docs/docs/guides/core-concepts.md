@@ -28,7 +28,7 @@ One agent is the default. Add another agent by dropping a Markdown file into
 `agent-cards/`. Share the whole setup by publishing it as a pack.
 
 <div class="fa-hero__actions">
-  <a class="fa-btn fa-btn--primary" href="#make-your-first-environment">Build one</a>
+  <a class="fa-btn fa-btn--primary" href="#make-your-first-home">Build one</a>
   <a class="fa-btn" href="#share-it-as-a-pack">Share as a pack</a>
   <a class="fa-btn" href="../agents/defining/agent_cards/">AgentCard reference</a>
 </div>
@@ -116,9 +116,9 @@ fast-agent go --smart
 `--smart` asks **fast-agent** to use a _smart_ default agent. A smart agent has extra guidance for working with fast-agent concepts,
 including creating and delegating to sub-agents.
 
-## Make your first environment
+## Make your first home
 
-Create a project environment with one default coding agent and two supporting
+Create a project home with one default coding agent and two supporting
 agents:
 
 ```bash
@@ -169,7 +169,7 @@ fast-agent go --model sonnet
 ```
 
 Because each card uses `model: $system.default`, the selected model comes from
-`--model`, then the environment config, then normal provider defaults. If no default is found an interactive model picker is displayed.
+`--model`, then the home config, then normal provider defaults. If no default is found an interactive model picker is displayed.
 
 ## Work with multiple agents in the TUI
 
@@ -305,7 +305,7 @@ fast-agent go --model 'xai.grok-4.3?x_search=on'
 ```
 
 Model references are exact tokens like `$system.fast`. Define them in the
-environment config and reuse them in cards:
+home config and reuse them in cards:
 
 ```yaml
 default_model: $system.fast
@@ -329,7 +329,7 @@ You create concise plans.
 `$system.default` is a special reference for reusable cards. It means "use the
 current run's default model". That makes packs easy to share: the card author
 sets `model: $system.default`, and the user chooses the model with `--model` or
-`default_model` in their environment.
+`default_model` in their home.
 
 Explicit card models usually win over `--model`. Use `$system.default` when you
 want `--model` to remain in control.
@@ -371,7 +371,7 @@ fast-agent go --workspace ~/client-a --skills ~/agent-skills/client-a
 should not read project AgentCards or write session state. It cannot be combined
 with `--pack`, `--home`, or `--resume`.
 
-## Skills are environment tools for knowledge
+## Skills are home tools for knowledge
 
 Skills are folders containing a `SKILL.md` manifest plus optional scripts,
 references and assets. They let agents load specialized procedures only when
@@ -440,7 +440,7 @@ See [Agent Skills](skills/) for the full skill workflow.
 ## Share it as a pack
 
 A **card pack** is a publishable bundle of AgentCards, ToolCards and supporting
-files. Packs are how teams distribute a good environment without asking everyone
+files. Packs are how teams distribute a good home without asking everyone
 to copy files by hand.
 
 Install and run one immediately:
@@ -458,9 +458,9 @@ fast-agent cards readme codex
 fast-agent cards publish codex --message "Improve reviewer prompt"
 ```
 
-Packs are installed into the selected environment under `card-packs/`, and their
+Packs are installed into the selected home under `card-packs/`, and their
 managed files are copied into places like `agent-cards/`, `tool-cards/`,
-`plugins/`, or the environment root.
+`plugins/`, or the home root.
 
 A minimal pack looks like this:
 
@@ -569,7 +569,7 @@ fast-agent go --pack coding-local --pack-registry ./marketplace.json
 <div markdown="1">
 <h2>Where to go next</h2>
 
-An environment is just a folder. Start with one default card, add focused agents
+A home is just a folder. Start with one default card, add focused agents
 as Markdown files, then publish the bundle when it becomes useful.
 </div>
 <div markdown="1">
@@ -581,7 +581,7 @@ as Markdown files, then publish the bundle when it becomes useful.
   ToolCards, runtime MCP targets and loading rules.
 - [Configuration Reference](../ref/config_file/) — every `fast-agent.yaml`
   setting, including providers, MCP, sessions, skills and model references.
-- [fast-agent go](../ref/go_command/) — all CLI switches for environments,
+- [fast-agent go](../ref/go_command/) — all CLI switches for homes,
   packs, models, cards, skills and non-interactive runs.
 - [MCP configuration](../mcp/client-servers/) — configure and inspect MCP servers.
 - [Model Features](../models/) — model strings, provider web tools and overlays.
