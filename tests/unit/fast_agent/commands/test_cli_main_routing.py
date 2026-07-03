@@ -36,12 +36,17 @@ def _run_fast_agent_cli(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _assert_routed_help(output: str, command: str) -> None:
+    assert f"Usage: python -m fast_agent.cli {command} [OPTIONS]" in output
+    assert "COMMAND" in output
+
+
 def test_auto_routes_to_go_when_env_value_matches_subcommand() -> None:
     result = _run_fast_agent_cli("--home", "demo", "--message", "hi", "--help")
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "go [OPTIONS] COMMAND" in output
+    _assert_routed_help(output, "go")
     assert "--message" in output
 
 
@@ -50,7 +55,7 @@ def test_auto_routes_to_go_when_message_matches_subcommand() -> None:
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "go [OPTIONS] COMMAND" in output
+    _assert_routed_help(output, "go")
 
 
 def test_auto_routes_to_go_with_trailing_quiet_option() -> None:
@@ -58,7 +63,7 @@ def test_auto_routes_to_go_with_trailing_quiet_option() -> None:
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "go [OPTIONS] COMMAND" in output
+    _assert_routed_help(output, "go")
     assert "--quiet" in output
 
 
@@ -67,7 +72,7 @@ def test_auto_routes_to_go_with_json_schema_option() -> None:
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "go [OPTIONS] COMMAND" in output
+    _assert_routed_help(output, "go")
     assert "--json-schema" in output
 
 
@@ -76,7 +81,7 @@ def test_auto_routes_to_go_when_pack_flag_used_at_root() -> None:
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "go [OPTIONS] COMMAND" in output
+    _assert_routed_help(output, "go")
     assert "--pack" in output
     assert "--pack-registry" in output
 
@@ -86,7 +91,7 @@ def test_auto_routes_to_go_when_no_shell_used_at_root() -> None:
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "go [OPTIONS] COMMAND" in output
+    _assert_routed_help(output, "go")
     assert "--no-shell" in output
 
 
@@ -175,7 +180,7 @@ def test_demo_subcommand_still_detected_after_env_option_value() -> None:
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "demo [OPTIONS] COMMAND" in output
+    _assert_routed_help(output, "demo")
     assert "Demo commands for UI features." in output
 
 

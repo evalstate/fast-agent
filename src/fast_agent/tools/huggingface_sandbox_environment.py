@@ -7,7 +7,7 @@ import json
 import posixpath
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 from fast_agent.tools.execution_environment import (
     EnvironmentFileEntry,
@@ -175,17 +175,20 @@ class HuggingFaceSandboxEnvironment:
             )
             for mount in self._bucket_mounts
         ]
-        return sandbox_cls.create(
-            image=self._image,
-            flavor=self._flavor,
-            idle_timeout=idle_timeout,
-            env=self._env,
-            secrets=self._secrets,
-            volumes=volumes,
-            namespace=self._namespace,
-            forward_hf_token=self._forward_hf_token,
-            start_timeout=self._start_timeout,
-            token=self._token,
+        return cast(
+            "_Sandbox",
+            sandbox_cls.create(
+                image=self._image,
+                flavor=self._flavor,
+                idle_timeout=idle_timeout,
+                env=self._env,
+                secrets=self._secrets,
+                volumes=volumes,
+                namespace=self._namespace,
+                forward_hf_token=self._forward_hf_token,
+                start_timeout=self._start_timeout,
+                token=self._token,
+            ),
         )
 
     @property

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fast_agent.constants import DEFAULT_HOME_DIR, DEFAULT_SKILLS_PATHS
+from fast_agent.constants import DEFAULT_HOME_DIR, DEFAULT_SKILLS_PATHS, FAST_AGENT_RUNTIME_HOME
 from fast_agent.home import resolve_fast_agent_home
 
 if TYPE_CHECKING:
@@ -82,6 +83,10 @@ def resolve_home_dir(
     if home is not None:
         home_path = Path(home).expanduser()
         return _resolve_relative_path(home_path, base)
+
+    runtime_home = os.getenv(FAST_AGENT_RUNTIME_HOME)
+    if runtime_home:
+        return _resolve_relative_path(Path(runtime_home).expanduser(), base)
 
     home = resolve_fast_agent_home(cwd=base)
     if home is not None:

@@ -413,9 +413,14 @@ async def import_llamacpp_overlay_from_picker(
     start_path: Path,
 ) -> str | None:
     from fast_agent.cli.commands.model import import_llamacpp_overlay_from_default_url
+    from fast_agent.paths import resolve_home_dir
 
     settings = load_request_settings(request)
-    home = request.home or settings.home
+    home = None if request.no_home else resolve_home_dir(
+        settings=settings,
+        cwd=Path.cwd(),
+        override=request.home or settings.home,
+    )
 
     try:
         return await import_llamacpp_overlay_from_default_url(
