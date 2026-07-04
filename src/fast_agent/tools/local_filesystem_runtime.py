@@ -10,7 +10,6 @@ from __future__ import annotations
 import io
 import json
 from contextlib import suppress
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -31,6 +30,7 @@ from fast_agent.tools.attach_media import (
     build_attach_media,
     model_supports_attach_media,
     normalize_attach_media_max_bytes,
+    parse_attach_media_arguments,
     supported_attach_media_mime_types,
 )
 from fast_agent.tools.edit_file_engine import (
@@ -45,9 +45,6 @@ from fast_agent.tools.edit_file_tool import (
     extract_edit_file_input,
 )
 from fast_agent.tools.filesystem_tool_args import (
-    coerce_optional_string_argument,
-    coerce_required_string_argument,
-    coerce_tool_arguments,
     is_permission_error,
     parse_read_text_file_arguments,
     parse_write_text_file_arguments,
@@ -81,47 +78,6 @@ def _text_result(message: str, *, is_error: bool) -> CallToolResult:
     return CallToolResult(
         content=[TextContent(type="text", text=message)],
         isError=is_error,
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class _AttachMediaArguments:
-    source: str
-    mime_type: str | None = None
-    name: str | None = None
-    description: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _ParsedAttachMediaArguments:
-    arguments: _AttachMediaArguments | None = None
-    error: CallToolResult | None = None
-
-
-_ATTACH_MEDIA_OPTIONAL_STRING_FIELDS = ("mime_type", "name", "description")
-
-
-def _parse_attach_media_arguments(
-    arguments: dict[str, Any] | None,
-) -> _ParsedAttachMediaArguments:
-    try:
-        payload = coerce_tool_arguments(arguments)
-        source_value = coerce_required_string_argument(payload.get("source"), "source", strip=True)
-        optional_values = {
-            field_name: coerce_optional_string_argument(
-                payload.get(field_name),
-                field_name,
-                include_argument_word=False,
-                empty_as_none=True,
-                strip=True,
-            )
-            for field_name in _ATTACH_MEDIA_OPTIONAL_STRING_FIELDS
-        }
-    except ValueError as exc:
-        return _ParsedAttachMediaArguments(error=_text_result(str(exc), is_error=True))
-
-    return _ParsedAttachMediaArguments(
-        arguments=_AttachMediaArguments(source=source_value, **optional_values)
     )
 
 
@@ -421,14 +377,8 @@ class LocalFilesystemRuntime:
         """Stage a local file or provider-fetchable URI as model input."""
         del tool_use_id
 
-        parsed = _parse_attach_media_arguments(arguments)
-        if parsed.error is not None:
-            return parsed.error
-        parsed_args = parsed.arguments
-        if parsed_args is None:
-            return _text_result("Error: invalid attach_media arguments", is_error=True)
-
         try:
+            parsed_args = parse_attach_media_arguments(arguments)
             attached = build_attach_media(
                 parsed_args.source,
                 base_directory=self._base_directory(),

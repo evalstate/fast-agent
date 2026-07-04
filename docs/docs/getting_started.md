@@ -33,7 +33,7 @@ fast-agent go --pack analyst --model haiku
 fast-agent go --pack analyst --pack-registry ./marketplace.json --agent planner --model haiku
 ```
 
-`--pack` installs the pack into the selected fast-agent environment if needed,
+`--pack` installs the pack into the selected fast-agent home if needed,
 then launches `go` normally. `--model` is a fallback for cards without an
 explicit model setting.
 

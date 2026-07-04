@@ -28,43 +28,35 @@ def touch(path: Path) -> Path:
 
 def test_resolve_home_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FAST_AGENT_HOME", "from-fast-agent-home")
-    monkeypatch.setenv("ENVIRONMENT_DIR", "from-legacy-env")
 
     home = resolve_fast_agent_home(cwd=tmp_path, cli_override="from-cli")
 
     assert home == FastAgentHome((tmp_path / "from-cli").resolve(), "cli")
 
 
-def test_resolve_home_uses_fast_agent_home_before_legacy_env(
+def test_resolve_home_uses_fast_agent_home(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("FAST_AGENT_HOME", "from-fast-agent-home")
-    monkeypatch.setenv("ENVIRONMENT_DIR", "from-legacy-env")
 
     home = resolve_fast_agent_home(cwd=tmp_path)
 
     assert home == FastAgentHome((tmp_path / "from-fast-agent-home").resolve(), "FAST_AGENT_HOME")
 
 
-def test_resolve_home_uses_legacy_env_and_default(
+def test_resolve_home_uses_default_when_fast_agent_home_is_unset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
-    monkeypatch.setenv("ENVIRONMENT_DIR", "legacy-home")
 
-    legacy_home = resolve_fast_agent_home(cwd=tmp_path)
-    assert legacy_home == FastAgentHome((tmp_path / "legacy-home").resolve(), "ENVIRONMENT_DIR")
-
-    monkeypatch.delenv("ENVIRONMENT_DIR")
     default_home = resolve_fast_agent_home(cwd=tmp_path)
     assert default_home == FastAgentHome((tmp_path / ".fast-agent").resolve(), "default")
 
 
-def test_noenv_disables_home_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_home_disables_home_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FAST_AGENT_HOME", "ignored")
-    monkeypatch.setenv("ENVIRONMENT_DIR", "ignored")
 
-    assert resolve_fast_agent_home(cwd=tmp_path, noenv=True) is None
+    assert resolve_fast_agent_home(cwd=tmp_path, no_home=True) is None
 
 
 def test_discovers_preferred_config_in_home(tmp_path: Path) -> None:
@@ -214,22 +206,22 @@ def test_child_environment_exports_runtime_home_and_legacy_alias(tmp_path: Path)
 
     assert env["PATH"] == "/bin"
     assert env["EXTRA"] == "1"
-    assert env["FAST_AGENT_RUNTIME_ENVIRONMENT"] == str((tmp_path / ".fast-agent").resolve())
-    assert env["ENVIRONMENT_DIR"] == str((tmp_path / ".fast-agent").resolve())
+    assert env["FAST_AGENT_RUNTIME_HOME"] == str((tmp_path / ".fast-agent").resolve())
+    assert env["FAST_AGENT_HOME"] == str((tmp_path / ".fast-agent").resolve())
 
 
-def test_noenv_child_environment_strips_runtime_home_aliases(tmp_path: Path) -> None:
+def test_no_home_child_environment_strips_runtime_home_aliases(tmp_path: Path) -> None:
     env = build_child_environment(
         active_home=tmp_path / ".fast-agent",
-        noenv=True,
+        no_home=True,
         base={
             "PATH": "/bin",
-            "FAST_AGENT_RUNTIME_ENVIRONMENT": "inherited",
-            "ENVIRONMENT_DIR": "inherited",
+            "FAST_AGENT_RUNTIME_HOME": "inherited",
+            "FAST_AGENT_HOME": "inherited",
         },
         overrides={
-            "FAST_AGENT_RUNTIME_ENVIRONMENT": "override",
-            "ENVIRONMENT_DIR": "override",
+            "FAST_AGENT_RUNTIME_HOME": "override",
+            "FAST_AGENT_HOME": "override",
         },
     )
 

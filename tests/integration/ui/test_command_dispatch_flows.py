@@ -24,12 +24,12 @@ if TYPE_CHECKING:
 @pytest.mark.asyncio
 async def test_dispatch_session_flow_updates_session_state(tmp_path: Path) -> None:
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
-    update_global_settings(old_settings.model_copy(update={"environment_dir": str(env_dir)}))
+    home = tmp_path / "env"
+    update_global_settings(old_settings.model_copy(update={"home": str(home)}))
     reset_session_manager()
 
     try:
-        manager = SessionManager(environment_override=env_dir)
+        manager = SessionManager(home_override=home)
         set_session_manager(manager)
         provider = CommandSurfaceProvider({"main": CommandSurfaceAgent(name="main")})
         owner = CommandSurfaceOwner(agent_types=provider.agent_types())
@@ -114,7 +114,7 @@ async def test_dispatch_history_rewind_updates_history_and_prefills_buffer() -> 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_dispatch_history_save_writes_file_in_noenv(tmp_path: Path) -> None:
+async def test_dispatch_history_save_writes_file_in_no_home(tmp_path: Path) -> None:
     target = tmp_path / "history.json"
     agent = CommandSurfaceAgent(
         name="main",
@@ -129,7 +129,7 @@ async def test_dispatch_history_save_writes_file_in_noenv(tmp_path: Path) -> Non
             ),
         ],
     )
-    provider = CommandSurfaceProvider({"main": agent}, noenv_mode=True)
+    provider = CommandSurfaceProvider({"main": agent}, no_home_mode=True)
     owner = CommandSurfaceOwner(agent_types=provider.agent_types())
 
     result = await dispatch_tui_command(
@@ -156,7 +156,7 @@ async def test_dispatch_history_load_restores_file_without_session(tmp_path: Pat
             )
         ],
     )
-    provider = CommandSurfaceProvider({"main": source}, noenv_mode=True)
+    provider = CommandSurfaceProvider({"main": source}, no_home_mode=True)
     owner = CommandSurfaceOwner(agent_types=provider.agent_types())
     await dispatch_tui_command(f"/history save {target}", owner=owner, prompt_provider=provider)
 

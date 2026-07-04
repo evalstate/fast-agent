@@ -1,0 +1,6 @@
+# DockerMountedSessionEnvironment maps filesystem helper tools to the same
+# /workspace bind mount used by Docker shell execution.
+shell_execution:
+  enable_read_text_file: true
+  enable_attach_media: "off"
+  write_text_file_mode: "auto"

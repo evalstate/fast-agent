@@ -6,7 +6,7 @@ from dataclasses import replace
 import yaml
 
 from fast_agent.cards import manager
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 
 
 def test_format_card_pack_publish_status_normalizes_detail(tmp_path) -> None:
@@ -96,7 +96,7 @@ def test_install_from_manifest_path_tracks_whole_card_pack_directory(tmp_path) -
     _write_pack(repo, body="v1")
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     manager._install_marketplace_card_pack_sync(
         manager.MarketplaceCardPack(
             name="alpha",
@@ -107,13 +107,13 @@ def test_install_from_manifest_path_tracks_whole_card_pack_directory(tmp_path) -
             repo_path="packs/alpha/card-pack.yaml",
             source_url=None,
         ),
-        env_paths,
+        home_paths,
         False,
         False,
         None,
     )
 
-    source, error = manager.read_installed_card_pack_source(env_paths.card_packs / "alpha")
+    source, error = manager.read_installed_card_pack_source(home_paths.card_packs / "alpha")
     assert error is None
     assert source is not None
     assert source.repo_path == "packs/alpha"
@@ -122,7 +122,7 @@ def test_install_from_manifest_path_tracks_whole_card_pack_directory(tmp_path) -
     _write_pack(repo, body="v2")
     _commit_all(repo, "update card")
 
-    updates = manager.check_card_pack_updates(environment_paths=env_paths)
+    updates = manager.check_card_pack_updates(home_paths=home_paths)
 
     assert len(updates) == 1
     assert updates[0].status == "update_available"
@@ -134,24 +134,24 @@ def test_update_check_and_apply(tmp_path) -> None:
     _write_pack(repo, body="v1")
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    manager._install_marketplace_card_pack_sync(_pack(repo), env_paths, False, False, None)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    manager._install_marketplace_card_pack_sync(_pack(repo), home_paths, False, False, None)
 
     _write_pack(repo, body="v2")
     second_commit = _commit_all(repo, "update")
 
-    updates = manager.check_card_pack_updates(environment_paths=env_paths)
+    updates = manager.check_card_pack_updates(home_paths=home_paths)
     assert len(updates) == 1
     assert updates[0].status == "update_available"
 
-    applied = manager.apply_card_pack_updates(updates, environment_paths=env_paths, force=False)
+    applied = manager.apply_card_pack_updates(updates, home_paths=home_paths, force=False)
     assert len(applied) == 1
     assert applied[0].status == "updated"
 
-    installed_card = env_paths.agent_cards / "alpha.md"
+    installed_card = home_paths.agent_cards / "alpha.md"
     assert "v2" in installed_card.read_text(encoding="utf-8")
 
-    source, error = manager.read_installed_card_pack_source(env_paths.card_packs / "alpha")
+    source, error = manager.read_installed_card_pack_source(home_paths.card_packs / "alpha")
     assert error is None
     assert source is not None
     assert source.installed_commit == second_commit
@@ -163,24 +163,24 @@ def test_update_skips_dirty_without_force_and_overwrites_with_force(tmp_path) ->
     _write_pack(repo, body="v1")
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    manager._install_marketplace_card_pack_sync(_pack(repo), env_paths, False, False, None)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    manager._install_marketplace_card_pack_sync(_pack(repo), home_paths, False, False, None)
 
     _write_pack(repo, body="v2")
     _commit_all(repo, "update")
 
-    installed_card = env_paths.agent_cards / "alpha.md"
+    installed_card = home_paths.agent_cards / "alpha.md"
     installed_card.write_text(
         installed_card.read_text(encoding="utf-8") + "\nlocal edit\n",
         encoding="utf-8",
     )
 
-    updates = manager.check_card_pack_updates(environment_paths=env_paths)
+    updates = manager.check_card_pack_updates(home_paths=home_paths)
     assert updates[0].status == "update_available"
 
     skipped = manager.apply_card_pack_updates(
         [updates[0]],
-        environment_paths=env_paths,
+        home_paths=home_paths,
         force=False,
     )
     assert skipped[0].status == "skipped_dirty"
@@ -188,7 +188,7 @@ def test_update_skips_dirty_without_force_and_overwrites_with_force(tmp_path) ->
 
     forced = manager.apply_card_pack_updates(
         [updates[0]],
-        environment_paths=env_paths,
+        home_paths=home_paths,
         force=True,
     )
     assert forced[0].status == "updated"
@@ -203,14 +203,14 @@ def test_update_reports_invalid_pack_when_manifest_path_is_directory(tmp_path) -
     _write_pack(repo, body="v1")
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    manager._install_marketplace_card_pack_sync(_pack(repo), env_paths, False, False, None)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    manager._install_marketplace_card_pack_sync(_pack(repo), home_paths, False, False, None)
 
-    manifest_path = env_paths.card_packs / "alpha" / "card-pack.yaml"
+    manifest_path = home_paths.card_packs / "alpha" / "card-pack.yaml"
     manifest_path.unlink()
     manifest_path.mkdir()
 
-    updates = manager.check_card_pack_updates(environment_paths=env_paths)
+    updates = manager.check_card_pack_updates(home_paths=home_paths)
 
     assert updates[0].status == "invalid_local_pack"
     assert updates[0].detail == "card-pack.yaml not found"
@@ -243,10 +243,10 @@ def test_force_update_preserves_existing_last_used_model_in_pack_config(tmp_path
     )
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
-    manager._install_marketplace_card_pack_sync(_pack(repo), env_paths, False, False, None)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    manager._install_marketplace_card_pack_sync(_pack(repo), home_paths, False, False, None)
 
-    config_path = env_paths.root / "fast-agent.yaml"
+    config_path = home_paths.root / "fast-agent.yaml"
     config_path.write_text(
         'default_model: "$system.default"\n'
         "model_references:\n"
@@ -270,12 +270,12 @@ def test_force_update_preserves_existing_last_used_model_in_pack_config(tmp_path
     )
     _commit_all(repo, "update")
 
-    updates = manager.check_card_pack_updates(environment_paths=env_paths)
+    updates = manager.check_card_pack_updates(home_paths=home_paths)
     assert updates[0].status == "update_available"
 
     applied = manager.apply_card_pack_updates(
         [updates[0]],
-        environment_paths=env_paths,
+        home_paths=home_paths,
         force=True,
     )
     assert applied[0].status == "updated"
@@ -294,12 +294,12 @@ def test_publish_commits_local_changes_without_push(tmp_path) -> None:
     _write_pack(repo, body="v1")
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     install_result = manager._install_marketplace_card_pack_sync(
-        _pack(repo), env_paths, False, False, None
+        _pack(repo), home_paths, False, False, None
     )
 
-    installed_card = env_paths.agent_cards / "alpha.md"
+    installed_card = home_paths.agent_cards / "alpha.md"
     installed_card.write_text(
         installed_card.read_text(encoding="utf-8") + "\nlocal publish edit\n",
         encoding="utf-8",
@@ -307,7 +307,7 @@ def test_publish_commits_local_changes_without_push(tmp_path) -> None:
 
     publish_result = manager.publish_local_card_pack(
         install_result.pack_dir,
-        environment_paths=env_paths,
+        home_paths=home_paths,
         push=False,
         commit_message="publish alpha",
     )
@@ -330,12 +330,12 @@ def test_publish_creates_patch_when_push_fails(tmp_path) -> None:
     _write_pack(repo, body="v1")
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     install_result = manager._install_marketplace_card_pack_sync(
-        _pack(repo), env_paths, False, False, None
+        _pack(repo), home_paths, False, False, None
     )
 
-    installed_card = env_paths.agent_cards / "alpha.md"
+    installed_card = home_paths.agent_cards / "alpha.md"
     installed_card.write_text(
         installed_card.read_text(encoding="utf-8") + "\nchange for push failure\n",
         encoding="utf-8",
@@ -343,7 +343,7 @@ def test_publish_creates_patch_when_push_fails(tmp_path) -> None:
 
     publish_result = manager.publish_local_card_pack(
         install_result.pack_dir,
-        environment_paths=env_paths,
+        home_paths=home_paths,
         push=True,
     )
 
@@ -364,9 +364,9 @@ def test_publish_remote_clone_failure_can_retain_temp_checkout(tmp_path) -> None
     _write_pack(repo, body="v1")
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     install_result = manager._install_marketplace_card_pack_sync(
-        _pack(repo), env_paths, False, False, None
+        _pack(repo), home_paths, False, False, None
     )
 
     source, error = manager.read_installed_card_pack_source(install_result.pack_dir)
@@ -381,7 +381,7 @@ def test_publish_remote_clone_failure_can_retain_temp_checkout(tmp_path) -> None
     temp_root = tmp_path / "publish-temp"
     publish_result = manager.publish_local_card_pack(
         install_result.pack_dir,
-        environment_paths=env_paths,
+        home_paths=home_paths,
         push=False,
         keep_temp=True,
         temp_dir=temp_root,

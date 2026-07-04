@@ -16,7 +16,7 @@ from fast_agent.commands.context import CommandContext, NonInteractiveCommandIOB
 from fast_agent.commands.handlers import cards_manager as cards_handlers
 from fast_agent.commands.handlers import plugins as plugins_handlers
 from fast_agent.config import get_settings, update_global_settings
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -303,10 +303,10 @@ def test_plugins_add_enables_and_loads_commands(tmp_path: Path) -> None:
     marketplace_path = tmp_path / "marketplace.json"
     _write_marketplace(marketplace_path, repo)
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -319,7 +319,7 @@ def test_plugins_add_enables_and_loads_commands(tmp_path: Path) -> None:
         )
         assert result.exit_code == 0, result.output
         assert "Plugin Installed" in result.output
-        assert (env_root / "plugins" / "finder" / "plugin.yaml").exists()
+        assert (home_root / "plugins" / "finder" / "plugin.yaml").exists()
         assert "finder" in config_path.read_text(encoding="utf-8")
 
         settings = get_settings(config_path=str(config_path))
@@ -334,16 +334,16 @@ def test_plugins_list_shows_project_and_global_plugins(
     monkeypatch,
 ) -> None:
     global_home = tmp_path / "global-home"
-    env_root = tmp_path / "project-env"
+    home_root = tmp_path / "project-env"
     _write_plugin(global_home, "global-finder")
-    _write_plugin(env_root, "project-helper")
+    _write_plugin(home_root, "project-helper")
     (global_home / "fast-agent.yaml").write_text(
         "plugins:\n  enabled: ['global-finder']\n",
         encoding="utf-8",
     )
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n"
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n"
         "plugins:\n  enabled: ['project-helper']\n",
         encoding="utf-8",
     )
@@ -368,16 +368,16 @@ def test_plugins_list_marks_active_duplicate(
     monkeypatch,
 ) -> None:
     global_home = tmp_path / "global-home"
-    env_root = tmp_path / "project-env"
+    home_root = tmp_path / "project-env"
     _write_versioned_plugin(global_home / "plugins", "shared", version="1.0.0")
-    _write_versioned_plugin(env_root / "plugins", "shared", version="2.0.0")
+    _write_versioned_plugin(home_root / "plugins", "shared", version="2.0.0")
     (global_home / "fast-agent.yaml").write_text(
         "plugins:\n  enabled: ['shared']\n",
         encoding="utf-8",
     )
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n"
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n"
         "plugins:\n  enabled: ['shared']\n",
         encoding="utf-8",
     )
@@ -403,12 +403,12 @@ def test_plugins_remove_without_selector_shows_only_project_plugins(
     monkeypatch,
 ) -> None:
     global_home = tmp_path / "global-home"
-    env_root = tmp_path / "project-env"
+    home_root = tmp_path / "project-env"
     _write_plugin(global_home, "global-finder")
-    _write_plugin(env_root, "project-helper")
+    _write_plugin(home_root, "project-helper")
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("FAST_AGENT_HOME", global_home.as_posix())
@@ -432,12 +432,12 @@ def test_plugins_remove_global_without_selector_shows_only_global_plugins(
     monkeypatch,
 ) -> None:
     global_home = tmp_path / "global-home"
-    env_root = tmp_path / "project-env"
+    home_root = tmp_path / "project-env"
     _write_plugin(global_home, "global-finder")
-    _write_plugin(env_root, "project-helper")
+    _write_plugin(home_root, "project-helper")
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("FAST_AGENT_HOME", global_home.as_posix())
@@ -467,9 +467,9 @@ def test_plugins_add_honors_top_level_env_for_install_and_registry_default(
     marketplace_path = tmp_path / "marketplace.json"
     _write_marketplace(marketplace_path, repo)
 
-    env_root = tmp_path / "custom-fast-agent"
-    env_root.mkdir()
-    config_path = env_root / "fast-agent.yaml"
+    home_root = tmp_path / "custom-fast-agent"
+    home_root.mkdir()
+    config_path = home_root / "fast-agent.yaml"
     config_path.write_text(
         "default_model: passthrough\n"
         "plugins:\n"
@@ -484,8 +484,8 @@ def test_plugins_add_honors_top_level_env_for_install_and_registry_default(
             cli_app,
             [
                 "--no-update-check",
-                "--env",
-                env_root.as_posix(),
+                "--home",
+                home_root.as_posix(),
                 "plugins",
                 "add",
                 "finder",
@@ -493,7 +493,7 @@ def test_plugins_add_honors_top_level_env_for_install_and_registry_default(
         )
 
         assert result.exit_code == 0, result.output
-        assert (env_root / "plugins" / "finder" / "plugin.yaml").exists()
+        assert (home_root / "plugins" / "finder" / "plugin.yaml").exists()
         assert not (tmp_path / ".fast-agent" / "plugins" / "finder" / "plugin.yaml").exists()
         assert "finder" in config_path.read_text(encoding="utf-8")
     finally:
@@ -513,10 +513,10 @@ def test_plugins_load_enabled_by_manifest_name_when_directory_differs(tmp_path: 
         repo_path="plugins/finder-plugin",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -528,7 +528,7 @@ def test_plugins_load_enabled_by_manifest_name_when_directory_differs(tmp_path: 
             ["--registry", marketplace_path.as_posix(), "add", "finder"],
         )
         assert result.exit_code == 0, result.output
-        assert (env_root / "plugins" / "finder-plugin" / "plugin.yaml").exists()
+        assert (home_root / "plugins" / "finder-plugin" / "plugin.yaml").exists()
         assert "finder" in config_path.read_text(encoding="utf-8")
 
         settings = get_settings(config_path=str(config_path))
@@ -562,10 +562,10 @@ def test_plugins_local_repo_ref_installs_requested_revision(tmp_path: Path) -> N
         repo_ref="stable",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -578,7 +578,7 @@ def test_plugins_local_repo_ref_installs_requested_revision(tmp_path: Path) -> N
         )
 
         assert result.exit_code == 0, result.output
-        installed_command = env_root / "plugins" / "finder" / "commands.py"
+        installed_command = home_root / "plugins" / "finder" / "commands.py"
         assert "stable" in installed_command.read_text(encoding="utf-8")
         assert "current" not in installed_command.read_text(encoding="utf-8")
     finally:
@@ -594,11 +594,11 @@ async def test_plugins_slash_add_list_and_remove(tmp_path: Path) -> None:
     marketplace_path = tmp_path / "marketplace.json"
     _write_marketplace(marketplace_path, repo)
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
         "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n"
+        f"home: '{home_root.as_posix()}'\n"
         "plugins:\n"
         f"  marketplace_url: '{marketplace_path.as_posix()}'\n",
         encoding="utf-8",
@@ -621,7 +621,7 @@ async def test_plugins_slash_add_list_and_remove(tmp_path: Path) -> None:
             argument="finder",
         )
         assert add_outcome.messages
-        assert (env_root / "plugins" / "finder" / "plugin.yaml").exists()
+        assert (home_root / "plugins" / "finder" / "plugin.yaml").exists()
         assert "finder" in config_path.read_text(encoding="utf-8")
         assert provider.plugin_commands is not None
         assert "finder" in provider.plugin_commands
@@ -643,7 +643,7 @@ async def test_plugins_slash_add_list_and_remove(tmp_path: Path) -> None:
             argument="finder",
         )
         assert remove_outcome.messages
-        assert not (env_root / "plugins" / "finder").exists()
+        assert not (home_root / "plugins" / "finder").exists()
         assert "finder" not in config_path.read_text(encoding="utf-8")
     finally:
         update_global_settings(old_settings)
@@ -657,9 +657,9 @@ async def test_plugins_slash_list_shows_both_scopes_active_marker_and_version_di
     # `shared` lives in both scopes; global is older (1.0.0), project newer (2.0.0).
     # `discover` is global-only. Both scopes enable `shared`; only global enables `discover`.
     global_home = tmp_path / "global-home"
-    env_root = tmp_path / "project-env"
+    home_root = tmp_path / "project-env"
     _write_versioned_plugin(global_home / "plugins", "shared", version="1.0.0")
-    _write_versioned_plugin(env_root / "plugins", "shared", version="2.0.0")
+    _write_versioned_plugin(home_root / "plugins", "shared", version="2.0.0")
     _write_versioned_plugin(global_home / "plugins", "discover", version=None)
 
     (global_home / "fast-agent.yaml").write_text(
@@ -668,7 +668,7 @@ async def test_plugins_slash_list_shows_both_scopes_active_marker_and_version_di
     )
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n"
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n"
         "plugins:\n  enabled: ['shared']\n",
         encoding="utf-8",
     )
@@ -715,16 +715,16 @@ async def test_plugins_slash_list_shows_session_active_command(
 ) -> None:
     from fast_agent.command_actions import PluginCommandActionSpec
 
-    env_root = tmp_path / "project-env"
+    home_root = tmp_path / "project-env"
     plugin_root = _write_versioned_plugin(
-        env_root / "plugins",
+        home_root / "plugins",
         "catalog",
         version=None,
         command="discover",
     )
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n"
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n"
         "plugins:\n  enabled: ['catalog']\n",
         encoding="utf-8",
     )
@@ -770,10 +770,10 @@ def test_plugins_update_reinstalls_managed_plugin(tmp_path: Path) -> None:
     marketplace_path = tmp_path / "marketplace.json"
     _write_marketplace(marketplace_path, repo)
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -797,7 +797,7 @@ def test_plugins_update_reinstalls_managed_plugin(tmp_path: Path) -> None:
         update_result = runner.invoke(plugins_command.app, ["update", "all", "--yes"])
         assert update_result.exit_code == 0, update_result.output
         assert "updated" in update_result.output
-        assert "new" in (env_root / "plugins" / "finder" / "commands.py").read_text(
+        assert "new" in (home_root / "plugins" / "finder" / "commands.py").read_text(
             encoding="utf-8"
         )
     finally:
@@ -854,11 +854,11 @@ def test_card_pack_schema_v2_installs_required_plugins(tmp_path: Path) -> None:
     marketplace_path = tmp_path / "marketplace.json"
     _write_marketplace(marketplace_path, repo, include_pack=True)
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
         "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n"
+        f"home: '{home_root.as_posix()}'\n"
         "plugins:\n"
         f"  marketplace_url: '{marketplace_path.as_posix()}'\n",
         encoding="utf-8",
@@ -872,7 +872,7 @@ def test_card_pack_schema_v2_installs_required_plugins(tmp_path: Path) -> None:
             ["--registry", marketplace_path.as_posix(), "add", "alpha"],
         )
         assert result.exit_code == 0, result.output
-        assert (env_root / "plugins" / "finder" / "plugin.yaml").exists()
+        assert (home_root / "plugins" / "finder" / "plugin.yaml").exists()
         assert "finder" in config_path.read_text(encoding="utf-8")
     finally:
         update_global_settings(old_settings)
@@ -892,10 +892,10 @@ def test_card_pack_required_plugin_uses_selected_card_registry(tmp_path: Path) -
         plugin_path="plugins/finder",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -907,7 +907,7 @@ def test_card_pack_required_plugin_uses_selected_card_registry(tmp_path: Path) -
             ["--registry", marketplace_path.as_posix(), "add", "alpha"],
         )
         assert result.exit_code == 0, result.output
-        assert (env_root / "plugins" / "finder" / "plugin.yaml").exists()
+        assert (home_root / "plugins" / "finder" / "plugin.yaml").exists()
         assert "finder" in config_path.read_text(encoding="utf-8")
     finally:
         update_global_settings(old_settings)
@@ -927,10 +927,10 @@ def test_card_pack_install_rolls_back_when_required_plugin_missing(tmp_path: Pat
         plugin_path="plugins/finder",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -943,8 +943,8 @@ def test_card_pack_install_rolls_back_when_required_plugin_missing(tmp_path: Pat
         )
         assert result.exit_code == 1, result.output
         assert "Required plugin not found" in result.output
-        assert not (env_root / "card-packs" / "alpha").exists()
-        assert not (env_root / "agent-cards" / "alpha.md").exists()
+        assert not (home_root / "card-packs" / "alpha").exists()
+        assert not (home_root / "agent-cards" / "alpha.md").exists()
     finally:
         update_global_settings(old_settings)
 
@@ -964,11 +964,11 @@ async def test_cards_add_refreshes_provider_plugin_commands(tmp_path: Path) -> N
         plugin_path="plugins/finder",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
         "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n"
+        f"home: '{home_root.as_posix()}'\n"
         "cards:\n"
         f"  marketplace_url: '{marketplace_path.as_posix()}'\n",
         encoding="utf-8",
@@ -1016,10 +1016,10 @@ def test_card_pack_required_plugin_uses_marketplace_source_not_pack_source_url(
         plugin_path="plugins/finder",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -1031,10 +1031,10 @@ def test_card_pack_required_plugin_uses_marketplace_source_not_pack_source_url(
             ["--registry", marketplace_path.as_posix(), "add", "alpha"],
         )
         assert result.exit_code == 0, result.output
-        assert (env_root / "plugins" / "finder" / "plugin.yaml").exists()
+        assert (home_root / "plugins" / "finder" / "plugin.yaml").exists()
 
         source, error = card_service.manager.read_installed_card_pack_source(
-            env_root / "card-packs" / "alpha"
+            home_root / "card-packs" / "alpha"
         )
         assert error is None
         assert source is not None
@@ -1057,10 +1057,10 @@ def test_card_pack_update_required_plugin_uses_pack_source_registry(tmp_path: Pa
         plugin_path="plugins/finder",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -1073,14 +1073,14 @@ def test_card_pack_update_required_plugin_uses_pack_source_registry(tmp_path: Pa
             ["--registry", marketplace_path.as_posix(), "add", "alpha"],
         )
         assert add_result.exit_code == 0, add_result.output
-        assert not (env_root / "plugins" / "finder" / "plugin.yaml").exists()
+        assert not (home_root / "plugins" / "finder" / "plugin.yaml").exists()
 
         _write_pack_requiring_plugin(repo, required_plugin="finder")
         _commit_all(repo, "require plugin")
 
         update_result = runner.invoke(cards_command.app, ["update", "all", "--yes"])
         assert update_result.exit_code == 0, update_result.output
-        assert (env_root / "plugins" / "finder" / "plugin.yaml").exists()
+        assert (home_root / "plugins" / "finder" / "plugin.yaml").exists()
         assert "finder" in config_path.read_text(encoding="utf-8")
     finally:
         update_global_settings(old_settings)
@@ -1100,11 +1100,11 @@ def test_card_pack_required_plugin_enables_manifest_name(tmp_path: Path) -> None
         plugin_path="plugins/finder-plugin",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
         "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n"
+        f"home: '{home_root.as_posix()}'\n"
         "plugins:\n"
         f"  marketplace_url: '{marketplace_path.as_posix()}'\n",
         encoding="utf-8",
@@ -1118,7 +1118,7 @@ def test_card_pack_required_plugin_enables_manifest_name(tmp_path: Path) -> None
             ["--registry", marketplace_path.as_posix(), "add", "alpha"],
         )
         assert result.exit_code == 0, result.output
-        assert (env_root / "plugins" / "finder-plugin" / "plugin.yaml").exists()
+        assert (home_root / "plugins" / "finder-plugin" / "plugin.yaml").exists()
 
         config_text = config_path.read_text(encoding="utf-8")
         assert "finder" in config_text
@@ -1148,11 +1148,11 @@ async def test_async_card_pack_required_plugin_enables_manifest_name(tmp_path: P
         plugin_path="plugins/finder-plugin",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
         "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n"
+        f"home: '{home_root.as_posix()}'\n"
         "plugins:\n"
         f"  marketplace_url: '{marketplace_path.as_posix()}'\n",
         encoding="utf-8",
@@ -1164,7 +1164,7 @@ async def test_async_card_pack_required_plugin_enables_manifest_name(tmp_path: P
         await card_service.install_pack(
             marketplace_path.as_posix(),
             "alpha",
-            environment_paths=resolve_environment_paths(settings),
+            home_paths=resolve_home_paths(settings),
             force=False,
         )
 

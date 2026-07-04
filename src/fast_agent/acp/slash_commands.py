@@ -53,6 +53,7 @@ from fast_agent.command_actions.accessors import (
 )
 from fast_agent.commands.command_catalog import command_action_names
 from fast_agent.commands.context import CommandContext, StaticAgentProvider
+from fast_agent.commands.handlers import display as display_handlers
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.protocols import ACPCommandAllowlistProvider
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
@@ -232,7 +233,7 @@ class SlashCommandHandler:
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
         set_current_mode_callback: Callable[[str], Awaitable[None] | None] | None = None,
         instruction_resolver: Callable[[str], Awaitable[str | None]] | None = None,
-        noenv: bool = False,
+        no_home: bool = False,
     ):
         """
         Initialize the slash command handler.
@@ -275,7 +276,7 @@ class SlashCommandHandler:
         self._reload_callback = reload_callback
         self._set_current_mode_callback = set_current_mode_callback
         self._instruction_resolver = instruction_resolver
-        self._noenv = noenv
+        self._no_home = no_home
         self._acp_context: ACPContext | None = None
 
         cards_action_hint = (
@@ -305,6 +306,11 @@ class SlashCommandHandler:
                 name="tools",
                 description="List available tools",
                 handler=self._handle_tools,
+            ),
+            _BuiltinSlashCommandSpec(
+                name="environment",
+                description="List configured execution environments",
+                handler=self._handle_environment,
             ),
             _BuiltinSlashCommandSpec(
                 name="commands",
@@ -613,7 +619,7 @@ class SlashCommandHandler:
         )
         session_manager = agent_context.session_manager if agent_context else None
         session_runtime = None
-        if not self._noenv and session_manager is None:
+        if not self._no_home and session_manager is None:
             from fast_agent.commands.session_runtime import SessionManagerCommandRuntime
 
             session_runtime = SessionManagerCommandRuntime(
@@ -635,7 +641,7 @@ class SlashCommandHandler:
             current_agent_name=self.current_agent_name,
             io=ACPCommandIO(),
             settings=settings,
-            noenv=self._noenv,
+            no_home=self._no_home,
             acp_session_id=self.session_id,
             session_cwd=(
                 Path(str(raw_session_cwd)).expanduser().resolve() if raw_session_cwd else None
@@ -674,7 +680,7 @@ class SlashCommandHandler:
     async def _send_session_info_update(self) -> None:
         if self._acp_context is None:
             return
-        if self._noenv:
+        if self._no_home:
             return
         from fast_agent.session import extract_session_title
 
@@ -888,6 +894,14 @@ class SlashCommandHandler:
     async def _handle_tools(self, arguments: str | None = None) -> str:
         del arguments
         return await tools_slash_handlers.handle_tools(self)
+
+    async def _handle_environment(self, arguments: str | None = None) -> str:
+        del arguments
+        outcome = await display_handlers.handle_environment(
+            self._build_command_context(),
+            agent_name=self.current_agent_name,
+        )
+        return self._format_outcome_as_markdown(outcome, "/environment")
 
     async def _handle_commands(self, arguments: str | None = None) -> str:
         return await commands_slash_handlers.handle_commands(self, arguments)

@@ -63,7 +63,7 @@ async with fast.run() as app:
     print(await app.support("Help me reset my password"))
 ```
 
-The Harness API also loads cards from the active environment's `agent-cards/`
+The Harness API also loads cards from the active fast-agent home's `agent-cards/`
 directory during startup:
 
 ```python
@@ -326,14 +326,14 @@ test coverage.
 
 ## Default directories
 
-By default, `fast-agent go` discovers cards from your environment directory:
+By default, `fast-agent go` discovers cards from your home:
 
-- `<env>/agent-cards/`
-- `<env>/tool-cards/`
+- `<home>/agent-cards/`
+- `<home>/tool-cards/`
 
-`<env>` defaults to `.fast-agent/` in your current project root.
-Use `--env` to point to a different environment directory.
-Use `--noenv` to disable implicit default directory discovery entirely.
+`<home>` defaults to `.fast-agent/` in your current workspace.
+Use `--home` to point to a different home.
+Use `--no-home` to disable implicit default directory discovery entirely.
 
 ## CLI examples
 
@@ -347,8 +347,8 @@ fast-agent go --card-tool ./tool-cards
 # Mix both
 fast-agent go --agent-cards ./agents --card-tool ./tool-cards
 
-# Ephemeral/noenv run: only explicit paths are loaded
-fast-agent go --noenv --agent-cards ./agents --card-tool ./tool-cards
+# Ephemeral/no_home run: only explicit paths are loaded
+fast-agent go --no-home --agent-cards ./agents --card-tool ./tool-cards
 
 # Target a specific loaded agent
 fast-agent go --agent-cards ./agents --agent researcher

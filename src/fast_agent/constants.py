@@ -100,10 +100,10 @@ DEFAULT_SERVE_AGENT_TYPE = "agent"
 """Default agent type for CLI serve/acp single-model runs ("smart" or "agent")."""
 
 
-DEFAULT_ENVIRONMENT_DIR = ".fast-agent"
+DEFAULT_HOME_DIR = ".fast-agent"
 
 DEFAULT_SKILLS_PATHS = [
-    f"{DEFAULT_ENVIRONMENT_DIR}/skills",
+    f"{DEFAULT_HOME_DIR}/skills",
     ".agents/skills",
     ".claude/skills",
 ]
@@ -113,7 +113,7 @@ CONTROL_MESSAGE_SAVE_HISTORY = "***SAVE_HISTORY"
 FAST_AGENT_SHELL_CHILD_ENV = "FAST_AGENT_SHELL_CHILD"
 """Environment variable set when running fast-agent shell commands."""
 
-FAST_AGENT_RUNTIME_ENVIRONMENT = "FAST_AGENT_RUNTIME_ENVIRONMENT"
+FAST_AGENT_RUNTIME_HOME = "FAST_AGENT_RUNTIME_HOME"
 """Resolved active fast-agent home exported to shell commands and automation."""
 
 
@@ -135,8 +135,8 @@ DOCUMENTED_ENV_VARS = (
         surface="tui",
     ),
     DocumentedEnvVar(
-        symbol="FAST_AGENT_RUNTIME_ENVIRONMENT",
-        value=FAST_AGENT_RUNTIME_ENVIRONMENT,
+        symbol="FAST_AGENT_RUNTIME_HOME",
+        value=FAST_AGENT_RUNTIME_HOME,
         purpose="Resolved active fast-agent home exported to shell commands and automation.",
         surface="runtime",
     ),

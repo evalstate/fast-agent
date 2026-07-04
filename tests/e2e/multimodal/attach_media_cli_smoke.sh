@@ -82,7 +82,7 @@ EOF
     (
       cd "$REPO_ROOT"
       FAST_AGENT_LLM_TRACE=1 "$PYTHON_BIN" -m fast_agent.cli go \
-        --noenv \
+        --no-home \
         -x \
         --model "$MODEL" \
         --prompt-file "$PROMPT_PATH" \

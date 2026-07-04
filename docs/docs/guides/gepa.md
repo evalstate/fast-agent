@@ -429,7 +429,7 @@ def score_candidate(
 
 
 evaluator = FastAgentBatchEvaluator(
-    env_dir=".fast-agent",
+    home=".fast-agent",
     agent_card=".fast-agent/agent-cards/classifier.md",
     agent="classifier",
     candidate_variables={"policy": "policy"},
@@ -444,7 +444,7 @@ evaluator = FastAgentBatchEvaluator(
 )
 
 reflection_lm = FastAgentReflectionLM(
-    env_dir=".fast-agent",
+    home=".fast-agent",
     model="responses.gpt-5.5?reasoning=high",
     audit_dir=ROOT / "runs" / "reflection",
 )
@@ -622,7 +622,7 @@ def score_row(
 
 
 adapter = FastAgentRowWiseBatchAdapter(
-    env_dir=".fast-agent",
+    home=".fast-agent",
     agent_card=".fast-agent/agent-cards/classifier.md",
     agent="classifier",
     candidate_variables={"policy": "policy"},
@@ -644,7 +644,7 @@ result = optimize(
     valset=rows,
     adapter=adapter,
     reflection_lm=FastAgentReflectionLM(
-        env_dir=".fast-agent",
+        home=".fast-agent",
         model="responses.gpt-5.5?reasoning=high",
         audit_dir="runs/row-wise-gepa/reflection",
     ),

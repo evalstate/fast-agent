@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
@@ -17,10 +18,17 @@ from fast_agent import (
     HarnessSessions,
 )
 from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.config import get_settings, update_global_settings
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
 from fast_agent.core.fastagent import AgentInstance, RunRuntime, RunSettings
-from fast_agent.tools.session_environment import ShellExecutionResult
+from fast_agent.tools.execution_environment import (
+    ShellExecution,
+    ShellExecutionOptions,
+    ShellExecutionRequest,
+    ShellExecutionResult,
+    ShellRuntimeInfo,
+)
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
@@ -44,12 +52,131 @@ def test_public_harness_exports_and_factory() -> None:
     assert HarnessSessions.__name__ == "HarnessSessions"
 
 
+def test_environments_resolve_relative_paths_from_explicit_config(
+    tmp_path: "Path",
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    caller = tmp_path / "caller"
+    workspace = project / "workspace"
+    workspace.mkdir(parents=True)
+    caller.mkdir()
+    config_path = project / "fast-agent.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "default_environment: named",
+                "environments:",
+                "  named:",
+                "    type: local",
+                "    cwd: workspace",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    old_settings = get_settings()
+    monkeypatch.chdir(caller)
+    try:
+        fast = FastAgent("test", parse_cli_args=False, config_path=str(config_path))
+
+        environment = fast.environments.build("named")
+
+        assert environment.cwd == str(workspace)
+    finally:
+        update_global_settings(old_settings)
+
+
+@pytest.mark.asyncio
+async def test_harness_resolves_configured_default_environment(
+    tmp_path: "Path",
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_path = tmp_path / "harness_custom_env.py"
+    module_path.write_text(
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "LOG = Path(__file__).with_name('events.txt')",
+                "class CustomEnv:",
+                "    def __init__(self, label):",
+                "        self.label = label",
+                "    async def open(self):",
+                "        LOG.write_text(f'open:{self.label}', encoding='utf-8')",
+                "    @property",
+                "    def cwd(self):",
+                "        return '.'",
+                "    def runtime_info(self):",
+                "        from fast_agent.tools.execution_environment import ShellRuntimeInfo",
+                "        return ShellRuntimeInfo(name=self.label, kind='custom')",
+                "    async def execute(self, request, *, callbacks=None):",
+                "        raise AssertionError('not used')",
+                "    async def close(self):",
+                "        LOG.write_text(LOG.read_text(encoding='utf-8') + ':close', encoding='utf-8')",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    home = tmp_path / ".fast-agent"
+    home.mkdir()
+    (home / "fast-agent.yaml").write_text(
+        "\n".join(
+            [
+                "default_environment: named",
+                "environments:",
+                "  named:",
+                "    type: custom",
+                "    class: harness_custom_env:CustomEnv",
+                "    params:",
+                "      label: selected",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    old_settings = get_settings()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    try:
+        fast = FastAgent("test", parse_cli_args=False, home=home)
+
+        @fast.agent(name="main", model="passthrough", default=True)
+        async def main() -> str:
+            return "ok"
+
+        async with fast.harness() as harness:
+            assert harness.environment.runtime_info().name == "selected"
+            await harness.local.write_text("local-artifact.txt", "host-side")
+
+        assert (tmp_path / "events.txt").read_text(encoding="utf-8") == "open:selected:close"
+        assert (tmp_path / "local-artifact.txt").read_text(encoding="utf-8") == "host-side"
+    finally:
+        # syspath_prepend is undone by monkeypatch, but the imported module would
+        # otherwise shadow other tests' modules named custom_env.
+        sys.modules.pop("custom_env", None)
+        update_global_settings(old_settings)
+
+
+@pytest.mark.asyncio
+async def test_harness_does_not_close_caller_owned_environment() -> None:
+    fast = FastAgent("test", parse_cli_args=False)
+    shell_environment = FakeShellEnvironment()
+
+    @fast.agent(name="main", model="passthrough", default=True)
+    async def main() -> str:
+        return "ok"
+
+    async with fast.harness(environment=shell_environment) as harness:
+        assert harness.environment is shell_environment
+        assert shell_environment.opened is True
+
+    assert shell_environment.closed is False
+
+
 @pytest.mark.asyncio
 async def test_harness_loads_environment_agent_cards(tmp_path: "Path") -> None:
     cards_dir = tmp_path / "agent-cards"
     cards_dir.mkdir()
     (cards_dir / "support.md").write_text("---\ntype: agent\n---\n", encoding="utf-8")
-    fast = FastAgent("test", parse_cli_args=False, environment_dir=tmp_path)
+    fast = FastAgent("test", parse_cli_args=False, home=tmp_path)
 
     await fast.app.initialize()
     try:
@@ -210,20 +337,37 @@ class FakePersistence:
         self.deleted.append(session_id)
 
 
-class FakeShellExecutor:
+class FakeShellEnvironment:
     def __init__(self) -> None:
         self.calls: list[tuple[str, Path | str | None, Mapping[str, str] | None, float | None]] = []
+        self.opened = False
+        self.closed = False
 
-    async def execute_shell(
+    async def open(self) -> None:
+        self.opened = True
+
+    @property
+    def cwd(self) -> str:
+        return "."
+
+    def runtime_info(self) -> ShellRuntimeInfo:
+        return ShellRuntimeInfo(name="test")
+
+    async def execute(
         self,
-        command: str,
+        request: ShellExecutionRequest,
         *,
-        cwd: str | Path | None = None,
-        env: Mapping[str, str] | None = None,
-        timeout: float | None = None,
-    ) -> ShellExecutionResult:
-        self.calls.append((command, cwd, env, timeout))
-        return ShellExecutionResult(stdout="out", stderr="err", exit_code=7)
+        callbacks: object | None = None,
+    ) -> ShellExecution:
+        del callbacks
+        self.calls.append((request.command, request.cwd, request.env, request.timeout))
+        return ShellExecution(
+            result=ShellExecutionResult(stdout="out", stderr="err", exit_code=7),
+            options=ShellExecutionOptions(),
+        )
+
+    async def close(self) -> None:
+        self.closed = True
 
 
 @pytest.mark.asyncio
@@ -290,15 +434,15 @@ async def test_harness_create_instance_runs_run_path_setup() -> None:
         model_factory_func=cast("Any", None),
         global_prompt_context=None,
         is_acp_server_mode=False,
-        noenv_mode=False,
+        no_home_mode=False,
         managed_instances=[],
         instance_lock=asyncio.Lock(),
-        shell_executor=FakeShellExecutor(),
+        shell_environment=FakeShellEnvironment(),
     )
     harness._settings = RunSettings(
         quiet_mode=False,
         cli_model_override=None,
-        noenv_mode=False,
+        no_home_mode=False,
         server_mode=False,
         transport=None,
         is_acp_server_mode=False,
@@ -391,7 +535,7 @@ async def test_harness_session_saves_to_current_managed_session_after_session_sw
     from fast_agent.session.session_manager import SessionManager
 
     factory = InstanceFactory()
-    manager = SessionManager(environment_override=tmp_path)
+    manager = SessionManager(home_override=tmp_path)
 
     async def create_persisted_session(
         session_id: str,
@@ -423,7 +567,7 @@ async def test_harness_close_removes_untitled_empty_persisted_session(tmp_path: 
     from fast_agent.session.session_manager import SessionManager
 
     factory = InstanceFactory()
-    manager = SessionManager(environment_override=tmp_path)
+    manager = SessionManager(home_override=tmp_path)
 
     async def create_persisted_session(
         session_id: str,
@@ -456,7 +600,7 @@ async def test_harness_close_keeps_titled_empty_persisted_session(tmp_path: "Pat
     from fast_agent.session.session_manager import SessionManager
 
     factory = InstanceFactory()
-    manager = SessionManager(environment_override=tmp_path)
+    manager = SessionManager(home_override=tmp_path)
 
     async def create_persisted_session(
         session_id: str,
@@ -640,11 +784,11 @@ async def test_harness_session_compact_defaults_settings_without_config(monkeypa
 @pytest.mark.asyncio
 async def test_harness_session_shell_uses_configured_executor(tmp_path: "Path") -> None:
     factory = InstanceFactory()
-    shell_executor = FakeShellExecutor()
+    shell_environment = FakeShellEnvironment()
     sessions = HarnessSessions(
         create_instance=factory.create,
         dispose_instance=factory.dispose,
-        shell_executor=shell_executor,
+        shell_environment=shell_environment,
     )
     session = await sessions.create("demo")
 
@@ -656,7 +800,7 @@ async def test_harness_session_shell_uses_configured_executor(tmp_path: "Path") 
     )
 
     assert result == ShellExecutionResult(stdout="out", stderr="err", exit_code=7)
-    assert shell_executor.calls == [("pwd", tmp_path, {"FAST_AGENT_TEST": "1"}, 2.5)]
+    assert shell_environment.calls == [("pwd", str(tmp_path), {"FAST_AGENT_TEST": "1"}, 2.5)]
 
 
 @pytest.mark.asyncio

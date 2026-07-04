@@ -42,8 +42,8 @@ class BatchRunResult:
 class BatchRunner:
     """Small public wrapper around fast-agent's structured batch engine."""
 
-    def __init__(self, env_dir: str | Path | None = None, *, backend: BatchBackend = "harness"):
-        self.env_dir = Path(env_dir) if env_dir is not None else None
+    def __init__(self, home: str | Path | None = None, *, backend: BatchBackend = "harness"):
+        self.home = Path(home) if home is not None else None
         self.backend = backend
 
     async def run(
@@ -151,7 +151,7 @@ class BatchRunner:
             error_output_path=error_output,
             telemetry_output_path=telemetry_output,
             summary_output_path=summary_output,
-            environment_dir=self.env_dir,
+            home=self.home,
             agent_card_source=str(agent_card) if agent_card is not None else None,
             agent_name=agent,
             parallel=parallel,
@@ -206,8 +206,8 @@ class BatchRunner:
     ) -> BatchRunResult:
         summary_path = summary_output or output.with_suffix(".summary.json")
         command = [sys.executable, "-m", "fast_agent.cli.__main__", "--no-update-check"]
-        if self.env_dir is not None:
-            command.extend(["--env", str(self.env_dir)])
+        if self.home is not None:
+            command.extend(["--home", str(self.home)])
         command.extend(["batch", "run", "--input", str(input), "--output", str(output)])
         _extend_optional(command, "--agent-card", agent_card)
         _extend_optional(command, "--agent", agent)

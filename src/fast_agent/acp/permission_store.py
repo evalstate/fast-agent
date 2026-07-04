@@ -2,7 +2,7 @@
 ACP Tool Permission Store
 
 Provides persistent storage for tool execution permissions.
-Stores permissions in a human-readable markdown file within the fast-agent environment.
+Stores permissions in a human-readable markdown file within the fast-agent home.
 """
 
 import asyncio
@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
+from fast_agent.constants import DEFAULT_HOME_DIR
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 from fast_agent.utils.async_utils import run_in_thread
 from fast_agent.utils.markdown import escape_markdown_table_cell
 
@@ -132,9 +132,9 @@ class PermissionStore:
             cwd: Working directory for the session. If None, uses current directory.
         """
         self._cwd = Path(cwd) if cwd else Path.cwd()
-        override = DEFAULT_ENVIRONMENT_DIR if cwd is not None else None
-        env_paths = resolve_environment_paths(cwd=self._cwd, override=override)
-        self._file_path = env_paths.permissions_file
+        override = DEFAULT_HOME_DIR if cwd is not None else None
+        home_paths = resolve_home_paths(cwd=self._cwd, override=override)
+        self._file_path = home_paths.permissions_file
         self._cache: dict[PermissionEntry, PermissionDecision] = {}
         self._loaded = False
         self._lock = asyncio.Lock()

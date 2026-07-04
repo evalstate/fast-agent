@@ -10,7 +10,7 @@ import pytest
 from fast_agent import AgentRequest, AgentResponse, AppOpenRequest, DefaultHarnessApp
 from fast_agent.core.harness_app import HarnessAppContext, load_harness_app
 from fast_agent.skills import SkillManifest
-from fast_agent.tools.session_environment import ShellExecutionResult
+from fast_agent.tools.execution_environment import ShellExecutionResult
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

@@ -102,7 +102,7 @@ class ACPServerSlashRuntime:
             session_state.session_id,
             instance,
             self._host._resolve_primary_agent_name(instance) or "default",
-            noenv=instance.app.noenv_mode,
+            no_home=instance.app.no_home_mode,
             client_info=self._host._client_info,
             client_capabilities=self._host._client_capabilities,
             protocol_version=self._host._protocol_version,

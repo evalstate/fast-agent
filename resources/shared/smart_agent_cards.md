@@ -57,10 +57,17 @@ You can insert these in the **body** or `instruction:`.
 | Placeholder | Meaning |
 |---|---|
 | `\{{currentDate}}` | Current date (e.g., “17 December 2025”) |
-| `\{{hostPlatform}}` | Host platform string |
+| `\{{hostPlatform}}` | Client host platform string |
 | `\{{pythonVer}}` | Python version |
-| `\{{workspaceRoot}}` | Workspace root path (if available) |
-| `\{{env}}` | Environment summary (client, host, workspace) |
+| `\{{workspaceRoot}}` | Host workspace root path (used for local file includes and skill discovery) |
+| `\{{clientDisplay}}` | Client display name |
+| `\{{executionEnvironment}}` | Active shell execution environment summary |
+| `\{{executionEnvironmentName}}` | Active named environment, if selected |
+| `\{{executionEnvironmentKind}}` | Active environment kind (`local`, `docker`, `remote`, etc.) |
+| `\{{executionEnvironmentProvider}}` | Active environment provider (`docker`, `huggingface`, `wslc`, etc.) |
+| `\{{executionEnvironmentShell}}` | Shell used by the active environment |
+| `\{{executionEnvironmentCwd}}` | Working directory inside the active environment, if known |
+| `\{{env}}` | Environment summary (host workspace, active execution environment, client, client host platform) |
 | `\{{agentName}}` | Current agent name |
 | `\{{agentType}}` | Current agent type |
 | `\{{agentCardPath}}` | Source AgentCard path (if loaded from card) |

@@ -6,7 +6,7 @@ This follows the same pattern as elicitation handlers but for tool execution aut
 
 Key features:
 - Requests user permission before tool execution via ACP session/request_permission
-- Supports persistent permissions (allow_always, reject_always) stored in the fast-agent environment
+- Supports persistent permissions (allow_always, reject_always) stored in the fast-agent home
 - Fail-safe: defaults to DENY on any error
 - In-memory caching for remembered permissions within a session
 """

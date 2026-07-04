@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.harness import HarnessSession, HarnessSessions
     from fast_agent.session.session_manager import SessionManager
-    from fast_agent.tools.session_environment import ShellExecutionResult
+    from fast_agent.tools.execution_environment import ShellExecutionResult
 
 RuntimeSkillSource: TypeAlias = SkillManifest | SkillRegistry | Path | str
 RuntimeSkillConfig: TypeAlias = RuntimeSkillSource | Sequence[RuntimeSkillSource | None] | None

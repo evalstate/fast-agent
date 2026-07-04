@@ -283,7 +283,7 @@ async def test_prompt_model_selection_passes_resolved_start_path(
     display = _FakeDisplay()
     provider = cast("AgentProvider", _FakeProvider(display))
     project_root = tmp_path / "project"
-    settings = Settings(environment_dir=str(project_root / ".fast-agent"))
+    settings = Settings(home=str(project_root / ".fast-agent"))
     io = TuiCommandIO(prompt_provider=provider, agent_name="alpha", settings=settings)
     captured_kwargs: dict[str, object] = {}
 

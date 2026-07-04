@@ -209,10 +209,10 @@ async def initialize_context(
     context = Context()
     context.config = config
     context.server_registry = ServerRegistry(config=config)
-    if config.session_history and not config._fast_agent_noenv:
+    if config.session_history and not config._fast_agent_no_home:
         from fast_agent.session.session_manager import SessionManager, set_session_manager
 
-        context.session_manager = SessionManager(environment_override=config.environment_dir)
+        context.session_manager = SessionManager(home_override=config.home)
         set_session_manager(context.session_manager)
 
     override_directories = None

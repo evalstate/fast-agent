@@ -52,7 +52,7 @@ from fast_agent.marketplace.formatting import (
     format_installed_revision_display,
     format_source_provenance,
 )
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 from fast_agent.utils.action_normalization import is_help_flag
 from fast_agent.utils.async_utils import run_in_thread
 from fast_agent.utils.count_display import format_count
@@ -65,9 +65,9 @@ if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
 
 
-def _format_local_card_packs(*, environment_paths, packs) -> Text:
+def _format_local_card_packs(*, home_paths, packs) -> Text:
     content = Text()
-    manager_dir = environment_paths.card_packs
+    manager_dir = home_paths.card_packs
     append_heading(content, f"Card packs in {format_display_path(manager_dir)}:")
     if not packs:
         content.append_text(Text("No card packs installed.", style="yellow"))
@@ -287,10 +287,10 @@ def _format_publish_result(result: CardPackPublishResult, *, title: str) -> Text
 
 async def handle_list_cards(ctx: CommandContext, *, agent_name: str) -> CommandOutcome:
     outcome = CommandOutcome()
-    env_paths = resolve_environment_paths(ctx.resolve_settings())
-    packs = card_service.list_installed_packs(environment_paths=env_paths)
+    home_paths = resolve_home_paths(ctx.resolve_settings())
+    packs = card_service.list_installed_packs(home_paths=home_paths)
     outcome.add_message(
-        _format_local_card_packs(environment_paths=env_paths, packs=packs),
+        _format_local_card_packs(home_paths=home_paths, packs=packs),
         right_info="cards",
         agent_name=agent_name,
     )
@@ -403,7 +403,7 @@ async def _select_local_card_pack(
     ctx: CommandContext,
     outcome: CommandOutcome,
     *,
-    environment_paths,
+    home_paths,
     packs: Sequence[LocalCardPack],
     agent_name: str,
     argument: str | None,
@@ -417,7 +417,7 @@ async def _select_local_card_pack(
     if len(packs) == 1:
         return packs[0].name
 
-    content = _format_local_card_packs(environment_paths=environment_paths, packs=packs)
+    content = _format_local_card_packs(home_paths=home_paths, packs=packs)
     if not interactive:
         outcome.add_message(content, right_info="cards", agent_name=agent_name)
         add_info_messages(
@@ -452,7 +452,7 @@ async def handle_add_card_pack(
         outcome.add_message(parsed.error, channel="warning")
         return outcome
 
-    env_paths = resolve_environment_paths(ctx.resolve_settings())
+    home_paths = resolve_home_paths(ctx.resolve_settings())
     marketplace_url = parsed.registry or get_marketplace_url(ctx.resolve_settings())
     try:
         marketplace = await card_service.scan_marketplace(marketplace_url)
@@ -478,7 +478,7 @@ async def handle_add_card_pack(
     try:
         install_result = await card_service.install_selected_pack(
             card_service.select_marketplace_pack(marketplace.packs, selection),
-            environment_paths=env_paths,
+            home_paths=home_paths,
             force=parsed.force,
             marketplace_source=marketplace.source,
         )
@@ -518,8 +518,8 @@ async def handle_remove_card_pack(
     interactive: bool = True,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
-    env_paths = resolve_environment_paths(ctx.resolve_settings())
-    packs = card_service.list_installed_packs(environment_paths=env_paths)
+    home_paths = resolve_home_paths(ctx.resolve_settings())
+    packs = card_service.list_installed_packs(home_paths=home_paths)
     if not packs:
         outcome.add_message("No local card packs to remove.", channel="warning")
         return outcome
@@ -527,7 +527,7 @@ async def handle_remove_card_pack(
     selector = await _select_local_card_pack(
         ctx,
         outcome,
-        environment_paths=env_paths,
+        home_paths=home_paths,
         packs=packs,
         agent_name=agent_name,
         argument=argument,
@@ -540,7 +540,7 @@ async def handle_remove_card_pack(
 
     try:
         removal = card_service.remove_pack(
-            environment_paths=env_paths,
+            home_paths=home_paths,
             selector=selector,
         )
     except card_service.CardPackLookupError as exc:
@@ -566,8 +566,8 @@ async def handle_card_pack_readme(
     interactive: bool = True,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
-    env_paths = resolve_environment_paths(ctx.resolve_settings())
-    packs = card_service.list_installed_packs(environment_paths=env_paths)
+    home_paths = resolve_home_paths(ctx.resolve_settings())
+    packs = card_service.list_installed_packs(home_paths=home_paths)
     if not packs:
         outcome.add_message("No local card packs installed.", channel="warning")
         return outcome
@@ -575,7 +575,7 @@ async def handle_card_pack_readme(
     selected_name = await _select_local_card_pack(
         ctx,
         outcome,
-        environment_paths=env_paths,
+        home_paths=home_paths,
         packs=packs,
         agent_name=agent_name,
         argument=argument,
@@ -588,7 +588,7 @@ async def handle_card_pack_readme(
 
     try:
         readme_record = card_service.read_installed_pack_readme(
-            environment_paths=env_paths,
+            home_paths=home_paths,
             selector=selected_name,
         )
     except card_service.CardPackLookupError as exc:
@@ -626,8 +626,8 @@ async def handle_update_card_pack(
         outcome.add_message(parsed.error, channel="error")
         return outcome
 
-    env_paths = resolve_environment_paths(ctx.resolve_settings())
-    updates = card_service.check_updates(environment_paths=env_paths)
+    home_paths = resolve_home_paths(ctx.resolve_settings())
+    updates = card_service.check_updates(home_paths=home_paths)
 
     if parsed.selector is None:
         outcome.add_message(
@@ -644,7 +644,7 @@ async def handle_update_card_pack(
         return outcome
 
     try:
-        plan = card_service.plan_updates(environment_paths=env_paths, selector=parsed.selector)
+        plan = card_service.plan_updates(home_paths=home_paths, selector=parsed.selector)
     except card_service.CardPackLookupError as exc:
         outcome.add_message(str(exc), channel="error")
         return outcome
@@ -666,7 +666,7 @@ async def handle_update_card_pack(
     applied = await run_in_thread(
         card_service.apply_update_plan,
         plan.selected,
-        environment_paths=env_paths,
+        home_paths=home_paths,
         force=parsed.force,
     )
     _refresh_provider_plugins(ctx, _config_path_for_settings(ctx))
@@ -702,15 +702,15 @@ async def handle_publish_card_pack(
         outcome.add_message(parsed.error, channel="error")
         return outcome
 
-    env_paths = resolve_environment_paths(ctx.resolve_settings())
-    packs = card_service.list_installed_packs(environment_paths=env_paths)
+    home_paths = resolve_home_paths(ctx.resolve_settings())
+    packs = card_service.list_installed_packs(home_paths=home_paths)
     if not packs:
         outcome.add_message("No local card packs to publish.", channel="warning")
         return outcome
 
     if parsed.selector is None:
         outcome.add_message(
-            _format_local_card_packs(environment_paths=env_paths, packs=packs),
+            _format_local_card_packs(home_paths=home_paths, packs=packs),
             right_info="cards",
             agent_name=agent_name,
         )
@@ -728,7 +728,7 @@ async def handle_publish_card_pack(
     try:
         result = await run_in_thread(
             card_service.publish_pack,
-            environment_paths=env_paths,
+            home_paths=home_paths,
             selector=parsed.selector,
             push=parsed.push,
             commit_message=parsed.message,

@@ -393,7 +393,8 @@ async def _run_cli_flow(
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
-    await _resume_session_if_requested(agent_app, request)
+    if harness_session is None:
+        await _resume_session_if_requested(agent_app, request)
     transient_messages_by_agent: dict[str, list[PromptMessageExtended]] | None = None
     if request.execution_mode == "one_shot_message":
         assert request.message is not None
@@ -602,7 +603,7 @@ async def _select_startup_model_if_needed(request: AgentRunRequest) -> str | Non
 
 
 def _serve_permissions_enabled(request: AgentRunRequest) -> bool:
-    return request.permissions_enabled and not (request.noenv and request.mode == "serve")
+    return request.permissions_enabled and not (request.no_home and request.mode == "serve")
 
 
 def _request_instruction(request: AgentRunRequest) -> str | None:
@@ -639,8 +640,8 @@ def _build_fast_agent(request: AgentRunRequest):
         parse_cli_args=False,
         quiet=request.mode == "serve" or request.quiet,
         skills_directory=request.skills_directory,
-        environment_dir=request.environment_dir,
-        noenv=request.noenv,
+        home=request.home,
+        no_home=request.no_home,
     )
 
 
@@ -657,7 +658,7 @@ def _apply_fast_args(
     fast.args.resume_session_id = _resume_session_id(request)
     if model_source_override:
         fast.args.model_source_override = model_source_override
-    fast.args.noenv = request.noenv
+    fast.args.no_home = request.no_home
     fast.args.reload = request.reload
     fast.args.watch = request.watch
     fast.args.agent = request.target_agent_name or request.agent_name or "agent"
@@ -665,13 +666,13 @@ def _apply_fast_args(
 
 async def _apply_runtime_context_overrides(fast: Any, request: AgentRunRequest) -> None:
     if not (
-        request.noenv or request.shell_runtime or request.no_shell or request.prefer_local_shell
+        request.no_home or request.shell_runtime or request.no_shell or request.prefer_local_shell
     ):
         return
 
     await fast.app.initialize()
     config = fast.app.context.config
-    if request.noenv and config is not None:
+    if request.no_home and config is not None:
         config.session_history = False
     context = fast.app.context
     if request.shell_runtime:
@@ -1013,7 +1014,8 @@ async def _run_parallel_cli_flow(
     session_manager: "SessionManager | None" = None,
     harness_session: "HarnessSession | None" = None,
 ) -> None:
-    await _resume_session_if_requested(agent_app, request)
+    if harness_session is None:
+        await _resume_session_if_requested(agent_app, request)
     transient_messages_by_agent: dict[str, list["PromptMessageExtended"]] | None = None
     if request.execution_mode == "one_shot_message":
         transient_messages_by_agent = await _run_parallel_message(agent_app, request)

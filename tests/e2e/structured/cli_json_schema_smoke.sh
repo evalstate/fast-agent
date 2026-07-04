@@ -46,7 +46,7 @@ run_one() {
 
   echo "[structured-cli] running model: $model"
   if ! uv run fast-agent go \
-    --noenv \
+    --no-home \
     --agent-cards "$card_path" \
     --agent structured_weather \
     --message "What is the weather in London?" \

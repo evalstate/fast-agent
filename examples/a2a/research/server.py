@@ -52,11 +52,11 @@ PORT = int(os.getenv("PORT", "8002"))
 
 QUICK_REFINER_AGENT = "research_refiner"
 RESEARCH_WORKER_AGENT = "research_worker"
-ENVIRONMENT_DIR = Path(__file__).with_name(".fast-agent")
+FAST_AGENT_HOME = Path(__file__).with_name(".fast-agent")
 
 fast = FastAgent(
     "fast-agent research A2A server",
-    environment_dir=ENVIRONMENT_DIR,
+    home=FAST_AGENT_HOME,
     parse_cli_args=False,
     quiet=True,
 )

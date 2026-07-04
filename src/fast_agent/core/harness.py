@@ -23,6 +23,7 @@ from fast_agent.core.harness_persistence import (
 )
 from fast_agent.core.live_session_registry import InMemoryLiveSessionRegistry
 from fast_agent.core.run_lifecycle import FastAgentRunLifecycle, FastAgentRunLifecycleState
+from fast_agent.tools.environment_registry import environment_name
 from fast_agent.types import (
     AgentAuth,
     AgentRequest,
@@ -43,7 +44,9 @@ if TYPE_CHECKING:
     from fast_agent.history.compaction import CompactionResult
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.session.session_manager import Session, SessionManager
-    from fast_agent.tools.session_environment import ShellExecutionResult, ShellExecutor
+    from fast_agent.tools.environment_registry import EnvironmentSelection
+    from fast_agent.tools.execution_environment import ShellEnvironment, ShellExecutionResult
+    from fast_agent.tools.local_shell_executor import LocalEnvironment
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 HARNESS_SESSION_ID_MAX_LENGTH = 128
@@ -337,7 +340,7 @@ class HarnessSessions:
         ]
         | None = None,
         delete_persisted_session: Callable[[str], Awaitable[None]] | None = None,
-        shell_executor: ShellExecutor | None = None,
+        shell_environment: ShellEnvironment | None = None,
     ) -> None:
         instance_factory = _resolve_instance_factory(
             instance_factory=instance_factory,
@@ -349,7 +352,7 @@ class HarnessSessions:
             create_persisted_session=create_persisted_session,
             delete_persisted_session=delete_persisted_session,
         )
-        self._shell_executor = shell_executor
+        self._shell_environment = shell_environment
         self._registry: InMemoryLiveSessionRegistry[_HarnessSessionRecord, str | None] = (
             InMemoryLiveSessionRegistry(
                 instance_factory=instance_factory,
@@ -414,9 +417,12 @@ class HarnessSessions:
         env: Mapping[str, str] | None,
         timeout: float | None,
     ) -> ShellExecutionResult:
-        if self._shell_executor is None:
-            raise RuntimeError("Harness shell executor is not configured.")
-        return await self._shell_executor.execute_shell(
+        if self._shell_environment is None:
+            raise RuntimeError("Harness shell environment is not configured.")
+        from fast_agent.tools.execution_environment import execute_shell
+
+        return await execute_shell(
+            self._shell_environment,
             command,
             cwd=cwd,
             env=env,
@@ -481,15 +487,23 @@ class HarnessSessions:
 class AgentHarness:
     """Async context manager for headless fast-agent sessions."""
 
-    def __init__(self, fast_agent: FastAgent, *, model: str | None = None) -> None:
+    def __init__(
+        self,
+        fast_agent: FastAgent,
+        *,
+        model: str | None = None,
+        environment: EnvironmentSelection = None,
+    ) -> None:
         self._fast_agent = fast_agent
         self._model = model
+        self._environment_selection = environment
         self._sessions: HarnessSessions | None = None
         self._runtime: RunRuntime | None = None
         self._settings: RunSettings | None = None
         self._lifecycle: FastAgentRunLifecycle | None = None
         self._lifecycle_state: FastAgentRunLifecycleState | None = None
-        self._shell_executor: ShellExecutor | None = None
+        self._shell_environment: ShellEnvironment | None = None
+        self._local_environment: LocalEnvironment | None = None
 
     @property
     def sessions(self) -> HarnessSessions:
@@ -497,6 +511,20 @@ class AgentHarness:
         if self._sessions is None:
             raise RuntimeError("Harness is not running.")
         return self._sessions
+
+    @property
+    def environment(self) -> ShellEnvironment:
+        """Shell environment used by this harness."""
+        if self._shell_environment is None:
+            raise RuntimeError("Harness is not running.")
+        return self._shell_environment
+
+    @property
+    def local(self) -> LocalEnvironment:
+        """Host-side local environment available to harness code."""
+        if self._local_environment is None:
+            raise RuntimeError("Harness is not running.")
+        return self._local_environment
 
     async def __aenter__(self) -> AgentHarness:
         self._lifecycle = FastAgentRunLifecycle(self._fast_agent)
@@ -508,14 +536,38 @@ class AgentHarness:
             )
             self._settings = self._lifecycle_state.settings
             self._runtime = self._lifecycle_state.runtime
-            self._shell_executor = self._runtime.shell_executor
+            self._runtime.shell_environment = self._fast_agent.environments.resolve(
+                self._environment_selection
+            )
+            self._shell_environment = self._runtime.shell_environment
+            if self._runtime.global_prompt_context is not None:
+                from fast_agent.core.prompt_templates import refresh_execution_environment_context
+
+                refresh_execution_environment_context(
+                    self._runtime.global_prompt_context,
+                    self._shell_environment,
+                )
+            self._local_environment = self._build_local_environment()
+            from fast_agent.core.environment_lifecycle import open_environment_with_progress
+            from fast_agent.core.logging.logger import get_logger
+
+            await open_environment_with_progress(
+                self._shell_environment,
+                logger=get_logger(__name__),
+            )
+            await self._fast_agent._apply_environment_skills(self._shell_environment)
+            if self._runtime.global_prompt_context is not None:
+                self._fast_agent._refresh_prompt_context_skills(
+                    self._runtime.global_prompt_context
+                )
+            await self._local_environment.open()
             self._sessions = HarnessSessions(
                 instance_factory=CallableAgentInstanceFactory(
                     create=self._create_instance,
                     dispose=self._dispose_instance,
                 ),
                 persistence=self._harness_persistence(),
-                shell_executor=self._shell_executor,
+                shell_environment=self._shell_environment,
             )
             return self
         except Exception:
@@ -536,8 +588,18 @@ class AgentHarness:
             for instance in list(self._runtime.managed_instances):
                 with suppress(Exception):
                     await self._dispose_instance(instance)
+            if (
+                self._shell_environment is not None
+                and environment_name(self._shell_environment) is not None
+            ):
+                with suppress(Exception):
+                    await self._shell_environment.close()
+            if self._local_environment is not None:
+                with suppress(Exception):
+                    await self._local_environment.close()
             self._runtime = None
-            self._shell_executor = None
+            self._shell_environment = None
+            self._local_environment = None
 
         if self._lifecycle is not None and self._lifecycle_state is not None:
             await self._lifecycle.exit(
@@ -601,13 +663,32 @@ class AgentHarness:
         timeout: float | None = None,
     ) -> ShellExecutionResult:
         """Run a shell command and return structured stdout/stderr/exit code."""
-        if self._shell_executor is None:
-            raise RuntimeError("Harness is not running.")
-        return await self._shell_executor.execute_shell(
+        from fast_agent.tools.execution_environment import execute_shell
+
+        return await execute_shell(
+            self.environment,
             command,
             cwd=cwd,
             env=env,
             timeout=timeout,
+        )
+
+    def _build_local_environment(self) -> LocalEnvironment:
+        from fast_agent.core.logging.logger import get_logger
+        from fast_agent.paths import resolve_settings_start_path
+        from fast_agent.tools.local_shell_executor import LocalEnvironment
+
+        settings = self._fast_agent.context.config
+        working_directory = resolve_settings_start_path(settings)
+        shell_settings = settings.shell_execution if settings is not None else None
+        return LocalEnvironment(
+            logger=get_logger(__name__),
+            timeout_seconds=shell_settings.timeout_seconds if shell_settings is not None else 90,
+            warning_interval_seconds=(
+                shell_settings.warning_interval_seconds if shell_settings is not None else 30
+            ),
+            working_directory=working_directory,
+            config=settings,
         )
 
     async def start_task(self, message: str = "fast-agent is working") -> A2ATaskHandle:
@@ -644,13 +725,13 @@ class AgentHarness:
 
     def _load_environment_agent_cards(self) -> None:
         from fast_agent.core.agent_card_paths import is_agent_card_path
-        from fast_agent.paths import resolve_environment_paths
+        from fast_agent.paths import resolve_home_paths
 
         settings = self._fast_agent.context.config
         if settings is None:
             return
 
-        agent_cards_dir = resolve_environment_paths(settings).agent_cards
+        agent_cards_dir = resolve_home_paths(settings).agent_cards
         if not agent_cards_dir.is_dir():
             return
         if not any(
@@ -661,9 +742,9 @@ class AgentHarness:
 
     def _harness_persistence(self) -> HarnessSessionPersistence | None:
         settings = self._fast_agent.context.config
-        if settings is None or settings._fast_agent_noenv or not settings.session_history:
+        if settings is None or settings._fast_agent_no_home or not settings.session_history:
             return None
-        return FileHarnessSessionPersistence(settings.environment_dir)
+        return FileHarnessSessionPersistence(settings.home)
 
     async def _create_instance(self) -> AgentInstance:
         if self._runtime is None:

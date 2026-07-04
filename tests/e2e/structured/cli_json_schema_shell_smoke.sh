@@ -47,7 +47,7 @@ echo "[structured-shell] model: $MODEL"
 echo "[structured-shell] target dir: $TARGET_DIR"
 
 if ! uv run fast-agent go \
-  --noenv \
+  --no-home \
   -x \
   --model "$MODEL" \
   --message "$MESSAGE" \

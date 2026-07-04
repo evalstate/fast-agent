@@ -90,12 +90,12 @@
 | `gpt-5-nano` | `responses` | Text, Vision, Document | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gpt-5-nano.medium` | `low`, `medium`, `high`<br>Example: `gpt-5-nano?verbosity=low` | — |
 | `gpt-5.3-chat-latest` | `responses` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-5` | `responses` | Text, Vision, Document | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gpt-5.medium` | `low`, `medium`, `high`<br>Example: `gpt-5?verbosity=low` | — |
-| `gpt51` | `responses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt51.none` | `low`, `medium`, `high`<br>Example: `gpt51?verbosity=low` | — |
-| `gpt52` | `responses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt52.none` | `low`, `medium`, `high`<br>Example: `gpt52?verbosity=low` | — |
-| `gpt54-mini` | `responses` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt54-mini.none` | `low`, `medium`, `high`<br>Example: `gpt54-mini?verbosity=low` | — |
-| `gpt54-nano` | `responses` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt54-nano.none` | `low`, `medium`, `high`<br>Example: `gpt54-nano?verbosity=low` | — |
-| `gpt54` | `responses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt54.none` | `low`, `medium`, `high`<br>Example: `gpt54?verbosity=low` | — |
-| `gpt55` | `responses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt55.none` | `low`, `medium`, `high`<br>Example: `gpt55?verbosity=low` | — |
+| `gpt51` | `responses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt51.medium` | `low`, `medium`, `high`<br>Example: `gpt51?verbosity=low` | — |
+| `gpt52` | `responses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt52.medium` | `low`, `medium`, `high`<br>Example: `gpt52?verbosity=low` | — |
+| `gpt54-mini` | `responses` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt54-mini.medium` | `low`, `medium`, `high`<br>Example: `gpt54-mini?verbosity=low` | — |
+| `gpt54-nano` | `responses` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt54-nano.medium` | `low`, `medium`, `high`<br>Example: `gpt54-nano?verbosity=low` | — |
+| `gpt54` | `responses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt54.medium` | `low`, `medium`, `high`<br>Example: `gpt54?verbosity=low` | — |
+| `gpt55` | `responses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt55.medium` | `low`, `medium`, `high`<br>Example: `gpt55?verbosity=low` | — |
 | `o1-2024-12-17` | `responses` | Text, Vision | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `o1-2024-12-17.medium` | — | — |
 | `o1-mini` | `responses` | Text, Vision | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `o1-mini.medium` | — | — |
 | `o1-preview` | `responses` | Text, Vision | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `o1-preview.medium` | — | — |

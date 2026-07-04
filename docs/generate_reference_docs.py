@@ -15,6 +15,7 @@ from pydantic_core import PydanticUndefined
 
 DOCS_ROOT = Path(__file__).resolve().parent
 GENERATED_DIR = DOCS_ROOT / "docs" / "_generated"
+SHARED_RESOURCES_DIR = DOCS_ROOT.parent / "resources" / "shared"
 SIGNATURE_MAX_WIDTH = 88
 
 
@@ -258,13 +259,16 @@ def generate_fastagent_harness_method_reference() -> str:
         "Creates a headless `AgentHarness` for typed, session-oriented Python usage.\n"
         "The harness uses the same initialization path as `run()` but does not enter the\n"
         "TUI, CLI message/prompt-file modes, MCP server mode, or ACP server mode.\n"
-        "On startup, it loads AgentCards from the active environment's `agent-cards/`\n"
+        "On startup, it loads AgentCards from the active fast-agent home's `agent-cards/`\n"
         "directory when that directory exists and contains cards.\n\n"
     )
     lines.append("| Parameter | Type | Default | Description |\n")
     lines.append("|-----------|------|---------|-------------|\n")
     lines.append(
         "| `model` | `str \\| None` | `None` | Optional global model override, similar to the CLI `--model` override |\n"
+    )
+    lines.append(
+        "| `environment` | `ShellEnvironment \\| None` | `None` | Optional shell environment override for `harness.shell(...)` and `session.shell(...)`; environments that also implement `EnvironmentFilesystem` back model-facing file tools |\n"
     )
     return "".join(lines)
 
@@ -296,7 +300,10 @@ def generate_harness_reference() -> str:
     lines.append("### Properties\n\n")
     lines.append("| Property | Type | Description |\n")
     lines.append("|----------|------|-------------|\n")
-    lines.append("| `sessions` | `HarnessSessions` | Session manager for the running harness |\n\n")
+    lines.append("| `sessions` | `HarnessSessions` | Session manager for the running harness |\n")
+    lines.append(
+        "| `environment` | `ShellEnvironment` | Shell environment used by the running harness; may also implement `EnvironmentFilesystem` for model-facing file tools |\n\n"
+    )
     lines.append("### Methods\n\n")
     lines.append("#### `session()`\n\n")
     lines.append(
@@ -313,7 +320,7 @@ def generate_harness_reference() -> str:
         _md_code("python", f"await {_format_method_signature('harness.shell', AgentHarness.shell)}")
     )
     lines.append(
-        "Runs a shell command through the harness shell executor and returns a\n"
+        "Runs a shell command through the harness shell environment and returns a\n"
         "`ShellExecutionResult` with `stdout`, `stderr`, and `exit_code`. This is\n"
         "programmatic shell access: it does not create a session and does not add\n"
         "the command or output to chat history.\n\n"
@@ -322,7 +329,7 @@ def generate_harness_reference() -> str:
     lines.append("## HarnessSessions Class\n\n")
     lines.append(
         "Manager for harness sessions. When `session_history` is enabled, creating a\n"
-        "session also creates or loads `environment_dir/sessions/<session_id>/`.\n\n"
+        "session also creates or loads `home/sessions/<session_id>/`.\n\n"
     )
     lines.append(
         _md_code(
@@ -414,7 +421,7 @@ def generate_harness_reference() -> str:
         "  `AgentInstance`;\n"
         "- different session IDs receive isolated `AgentInstance` objects;\n"
         "- when `session_history` is enabled, session IDs map to persisted\n"
-        "  `environment_dir/sessions/<session_id>/` directories and existing histories\n"
+        "  `home/sessions/<session_id>/` directories and existing histories\n"
         "  are hydrated on creation;\n"
         "- deleting a session disposes its instance;\n"
         "- deleting a session removes its persisted session folder when persistence is enabled;\n"
@@ -725,6 +732,117 @@ def generate_compaction_settings_reference() -> str:
             f"| `compaction.{field_name}` | {default_text} | {_escape_table(description)} |\n"
         )
 
+    return "".join(lines)
+
+
+def _field_examples_text(field: Any) -> str:
+    examples = getattr(field, "examples", None)
+    if not examples:
+        return ""
+    return ", ".join(f"`{_escape_table(_yaml_scalar(example))}`" for example in examples)
+
+
+def _environment_model_fields_table(title: str, model: Any) -> str:
+    lines: list[str] = []
+    lines.append(f"### {title}\n\n")
+    lines.append("| Field | Type | Default | Description | Examples |\n")
+    lines.append("| --- | --- | --- | --- | --- |\n")
+    for field_name, field in model.model_fields.items():
+        alias = field.alias if isinstance(field.alias, str) else None
+        display_name = alias or field_name
+        description = field.description or ""
+        lines.append(
+            f"| `{display_name}` | `{_escape_table(_format_type(field.annotation))}` | "
+            f"{_field_default_text(field)} | {_escape_table(description)} | "
+            f"{_field_examples_text(field)} |\n"
+        )
+    lines.append("\n")
+    return "".join(lines)
+
+
+def generate_execution_environments_internal_resource() -> str:
+    """Generate smart-agent guidance for execution environment config from schema annotations."""
+    from fast_agent.tools.environment_config import (
+        CustomEnvironmentSpec,
+        DockerEnvironmentSpec,
+        EnvironmentMountSpec,
+        HuggingFaceBucketMountSpec,
+        HuggingFaceEnvironmentSpec,
+        HuggingFaceVolumeMountSpec,
+        LocalEnvironmentSpec,
+    )
+
+    lines: list[str] = []
+    lines.append("<!--\n")
+    lines.append("  GENERATED FILE — DO NOT EDIT.\n")
+    lines.append("  Source: generate_reference_docs.py / fast_agent.tools.environment_config\n")
+    lines.append("-->\n\n")
+    lines.append("# Execution Environment Configuration\n\n")
+    lines.append(
+        "Use this resource when creating or editing `fast-agent.yaml` named execution "
+        "environments. The field reference below is generated from the Pydantic config "
+        "models so schema changes are reflected here.\n\n"
+    )
+    lines.append("## Top-Level Shape\n\n")
+    lines.append("```yaml\n")
+    lines.append("default_environment: local\n\n")
+    lines.append("environments:\n")
+    lines.append("  local:\n")
+    lines.append("    type: local\n")
+    lines.append("    cwd: .\n\n")
+    lines.append("  ubuntu:\n")
+    lines.append("    type: docker\n")
+    lines.append("    image: ubuntu:24.04\n")
+    lines.append("    cwd: /workspace\n")
+    lines.append("    mounts:\n")
+    lines.append("      - source: .\n")
+    lines.append("        target: /workspace\n")
+    lines.append("        mode: rw\n\n")
+    lines.append("  hf-gpu:\n")
+    lines.append("    type: huggingface\n")
+    lines.append("    image: python:3.12\n")
+    lines.append("    flavor: cpu-basic\n")
+    lines.append("    cwd: /workspace\n")
+    lines.append("    volume_mounts:\n")
+    lines.append("      - hf://buckets/username/my-bucket:/workspace:rw\n")
+    lines.append("      - hf://datasets/username/reference-data:/data:ro\n")
+    lines.append("```\n\n")
+    lines.append("## Rules\n\n")
+    lines.append("- `local` is always available implicitly.\n")
+    lines.append("- `default_environment` must name `local` or a configured environment.\n")
+    lines.append("- Environment names starting with `_` are reserved.\n")
+    lines.append("- Environment specs reject unknown fields.\n")
+    lines.append("- Docker specs require exactly one of `image` or `container`.\n")
+    lines.append(
+        "- Docker mount sources are resolved against the workspace root; use `mounts`, "
+        "not volume flags in `docker_args`.\n"
+    )
+    lines.append(
+        "- Hugging Face `volume_mounts` use `hf://[models|datasets|spaces|buckets]/"
+        "namespace/name[/path]:/mount/path[:ro|:rw]`; omitted type defaults to models.\n"
+    )
+    lines.append(
+        "- Hugging Face Sandbox pooling (`SandboxPool`) is not exposed in `fast-agent.yaml`; "
+        "use a custom environment adapter for pooled sandbox lifecycle.\n"
+    )
+    lines.append("- Put tokens/secrets in `fast-agent.secrets.yaml` or environment variables.\n\n")
+    lines.append("## Field Reference\n\n")
+    lines.append(_environment_model_fields_table("Local Environment", LocalEnvironmentSpec))
+    lines.append(_environment_model_fields_table("Docker Environment", DockerEnvironmentSpec))
+    lines.append(_environment_model_fields_table("Docker Mount", EnvironmentMountSpec))
+    lines.append(
+        _environment_model_fields_table("Hugging Face Environment", HuggingFaceEnvironmentSpec)
+    )
+    lines.append(
+        _environment_model_fields_table("Hugging Face Volume Mount", HuggingFaceVolumeMountSpec)
+    )
+    lines.append(
+        _environment_model_fields_table(
+            "Hugging Face Bucket Mount Shorthand",
+            HuggingFaceBucketMountSpec,
+        )
+    )
+    lines.append(_environment_model_fields_table("Custom Environment", CustomEnvironmentSpec))
     return "".join(lines)
 
 
@@ -1432,6 +1550,15 @@ def main() -> int:
         _write(
             GENERATED_DIR / "compaction_settings_reference.md",
             generate_compaction_settings_reference(),
+        )
+        execution_environments_resource = generate_execution_environments_internal_resource()
+        _write(
+            GENERATED_DIR / "execution_environments_reference.md",
+            execution_environments_resource,
+        )
+        _write(
+            SHARED_RESOURCES_DIR / "execution_environments.md",
+            execution_environments_resource,
         )
         (GENERATED_DIR / "_generation_warnings.md").unlink(missing_ok=True)
     except Exception as exc:

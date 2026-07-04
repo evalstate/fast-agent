@@ -39,7 +39,7 @@ from fast_agent.marketplace.update_status import (
     clean_update_status_detail,
     is_update_applicable,
 )
-from fast_agent.paths import EnvironmentPaths, resolve_environment_paths
+from fast_agent.paths import HomePaths, resolve_home_paths
 from fast_agent.utils.action_normalization import normalize_action_token
 from fast_agent.utils.async_utils import run_in_thread
 from fast_agent.utils.count_display import plural_label
@@ -396,8 +396,8 @@ class MarketplacePayloadModel(BaseModel):
 
 def get_manager_directory(settings: Settings | None = None, *, cwd: Path | None = None) -> Path:
     resolved = settings or get_settings()
-    env_paths = resolve_environment_paths(resolved, cwd=cwd)
-    return env_paths.card_packs
+    home_paths = resolve_home_paths(resolved, cwd=cwd)
+    return home_paths.card_packs
 
 
 def get_marketplace_url(settings: Settings | None = None) -> str:
@@ -422,8 +422,8 @@ def format_marketplace_display_url(url: str) -> str:
     return marketplace_registry_urls.format_marketplace_display_url(url)
 
 
-def list_local_card_packs(*, environment_paths: EnvironmentPaths) -> list[LocalCardPack]:
-    destination_root = environment_paths.card_packs.resolve()
+def list_local_card_packs(*, home_paths: HomePaths) -> list[LocalCardPack]:
+    destination_root = home_paths.card_packs.resolve()
     if not destination_root.exists() or not destination_root.is_dir():
         return []
 
@@ -495,11 +495,11 @@ def load_card_pack_readme(pack_dir: Path) -> str | None:
 
 
 def compute_card_pack_content_fingerprint(
-    env_root: Path,
+    home_root: Path,
     installed_files: Sequence[str],
 ) -> str:
     digest = hashlib.sha256()
-    root = env_root.resolve()
+    root = home_root.resolve()
 
     for relative in sorted(installed_files):
         normalized = _normalize_repo_path(relative)
@@ -608,13 +608,13 @@ async def fetch_marketplace_card_packs_with_source(
 async def install_marketplace_card_pack(
     pack: MarketplaceCardPack,
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     force: bool = False,
 ) -> CardPackInstallResult:
     return await run_in_thread(
         _install_marketplace_card_pack_sync,
         pack,
-        environment_paths,
+        home_paths,
         force,
         False,
         None,
@@ -624,9 +624,9 @@ async def install_marketplace_card_pack(
 def remove_local_card_pack(
     pack_name: str,
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
 ) -> CardPackRemovalResult:
-    destination_root = environment_paths.card_packs.resolve()
+    destination_root = home_paths.card_packs.resolve()
     pack_dir = (destination_root / pack_name).resolve()
     if destination_root not in pack_dir.parents:
         raise ValueError("Card pack path is outside of managed card-packs directory.")
@@ -645,14 +645,14 @@ def remove_local_card_pack(
     skipped_paths: list[str] = []
     for relative in source.installed_files:
         owner_set = owners.get(relative, set())
-        target = (environment_paths.root / relative).resolve()
+        target = (home_paths.root / relative).resolve()
         if owner_set != {source.name}:
             skipped_paths.append(relative)
             continue
         if target.exists() and target.is_file():
             target.unlink()
             removed_paths.append(relative)
-            _prune_empty_parents(target.parent, stop_at=environment_paths.root.resolve())
+            _prune_empty_parents(target.parent, stop_at=home_paths.root.resolve())
 
     shutil.rmtree(pack_dir)
     return CardPackRemovalResult(
@@ -664,9 +664,9 @@ def remove_local_card_pack(
 
 def check_card_pack_updates(
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
 ) -> list[CardPackUpdateInfo]:
-    destination_root = environment_paths.card_packs.resolve()
+    destination_root = home_paths.card_packs.resolve()
     if not destination_root.exists() or not destination_root.is_dir():
         return []
 
@@ -706,10 +706,10 @@ def select_card_pack_updates(
 def apply_card_pack_updates(
     updates: Sequence[CardPackUpdateInfo],
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     force: bool,
 ) -> list[CardPackUpdateInfo]:
-    destination_root = environment_paths.card_packs.resolve()
+    destination_root = home_paths.card_packs.resolve()
     owners = _collect_installed_file_owners(destination_root)
     head_cache: CardPackHeadCache = {}
     path_cache: CardPackPathCache = {}
@@ -743,7 +743,7 @@ def apply_card_pack_updates(
             continue
 
         current_fingerprint = compute_card_pack_content_fingerprint(
-            environment_paths.root,
+            home_paths.root,
             source.installed_files,
         )
         is_dirty = current_fingerprint != source.content_fingerprint
@@ -776,7 +776,7 @@ def apply_card_pack_updates(
         try:
             install_result = _install_marketplace_card_pack_sync(
                 pack,
-                environment_paths,
+                home_paths,
                 force,
                 True,
                 refreshed.available_revision,
@@ -847,7 +847,7 @@ def apply_card_pack_updates(
 def publish_local_card_pack(
     pack_dir: Path,
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     push: bool = True,
     commit_message: str | None = None,
     temp_dir: Path | None = None,
@@ -866,7 +866,7 @@ def publish_local_card_pack(
             result = _publish_managed_local_card_pack(
                 source,
                 pack_dir=pack_dir,
-                environment_paths=environment_paths,
+                home_paths=home_paths,
                 push=push,
                 commit_message=commit_message,
                 temp_dir=temp_dir,
@@ -880,7 +880,7 @@ def _publish_managed_local_card_pack(
     source: InstalledCardPackSource,
     *,
     pack_dir: Path,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     push: bool,
     commit_message: str | None,
     temp_dir: Path | None,
@@ -904,7 +904,7 @@ def _publish_managed_local_card_pack(
             sync_result = _sync_publish_content(
                 source,
                 pack_dir=pack_dir,
-                environment_paths=environment_paths,
+                home_paths=home_paths,
                 destination_pack_dir=destination,
                 workspace=workspace,
             )
@@ -914,7 +914,7 @@ def _publish_managed_local_card_pack(
                 result = _finish_staged_publish(
                     source,
                     pack_dir=pack_dir,
-                    environment_paths=environment_paths,
+                    home_paths=home_paths,
                     workspace=workspace,
                     push=push,
                     commit_message=commit_message,
@@ -926,7 +926,7 @@ def _finish_staged_publish(
     source: InstalledCardPackSource,
     *,
     pack_dir: Path,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     workspace: _PublishWorkspace,
     push: bool,
     commit_message: str | None,
@@ -938,14 +938,14 @@ def _finish_staged_publish(
         result = _finish_publish_without_changes(
             source,
             pack_dir=pack_dir,
-            environment_paths=environment_paths,
+            home_paths=home_paths,
             workspace=workspace,
         )
     else:
         commit = _commit_publish_changes(
             source,
             pack_dir=pack_dir,
-            environment_paths=environment_paths,
+            home_paths=home_paths,
             workspace=workspace,
             commit_message=commit_message,
         )
@@ -1066,16 +1066,16 @@ def _sync_publish_content(
     source: InstalledCardPackSource,
     *,
     pack_dir: Path,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     destination_pack_dir: Path,
     workspace: _PublishWorkspace,
 ) -> CardPackPublishResult | None:
     try:
         manifest = load_card_pack_manifest(pack_dir)
-        plan = _build_install_copy_plan(pack_dir, manifest, env_root=environment_paths.root)
+        plan = _build_install_copy_plan(pack_dir, manifest, home_root=home_paths.root)
         missing_files = _sync_pack_from_environment(
             copy_plan=plan,
-            env_root=environment_paths.root,
+            home_root=home_paths.root,
         )
     except Exception as exc:
         return _publish_result(
@@ -1161,7 +1161,7 @@ def _finish_publish_without_changes(
     source: InstalledCardPackSource,
     *,
     pack_dir: Path,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     workspace: _PublishWorkspace,
 ) -> CardPackPublishResult:
     current_commit = marketplace_git_sources.resolve_git_commit(workspace.repo_root, "HEAD")
@@ -1169,7 +1169,7 @@ def _finish_publish_without_changes(
         metadata_error = _refresh_publish_sidecar_safely(
             pack_dir=pack_dir,
             source=source,
-            environment_paths=environment_paths,
+            home_paths=home_paths,
             repo_root=workspace.repo_root,
             commit=current_commit,
             detail_prefix="published content but failed to update metadata",
@@ -1197,7 +1197,7 @@ def _commit_publish_changes(
     source: InstalledCardPackSource,
     *,
     pack_dir: Path,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     workspace: _PublishWorkspace,
     commit_message: str | None,
 ) -> str | CardPackPublishResult | None:
@@ -1227,7 +1227,7 @@ def _commit_publish_changes(
     metadata_error = _refresh_publish_sidecar_safely(
         pack_dir=pack_dir,
         source=source,
-        environment_paths=environment_paths,
+        home_paths=home_paths,
         repo_root=workspace.repo_root,
         commit=commit,
         detail_prefix="committed but failed to update metadata",
@@ -1291,7 +1291,7 @@ def _refresh_publish_sidecar_safely(
     *,
     pack_dir: Path,
     source: InstalledCardPackSource,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     repo_root: Path,
     commit: str,
     detail_prefix: str,
@@ -1300,7 +1300,7 @@ def _refresh_publish_sidecar_safely(
         _refresh_published_sidecar(
             pack_dir=pack_dir,
             source=source,
-            environment_paths=environment_paths,
+            home_paths=home_paths,
             repo_root=repo_root,
             commit=commit,
         )
@@ -1319,15 +1319,15 @@ def format_installed_at_display(installed_at: str | None) -> str:
 
 def _install_marketplace_card_pack_sync(
     pack: MarketplaceCardPack,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     force: bool,
     replace_existing: bool,
     pinned_revision: str | None,
 ) -> CardPackInstallResult:
-    destination_root = environment_paths.card_packs.resolve()
+    destination_root = home_paths.card_packs.resolve()
     destination_root.mkdir(parents=True, exist_ok=True)
-    environment_paths.agent_cards.mkdir(parents=True, exist_ok=True)
-    environment_paths.tool_cards.mkdir(parents=True, exist_ok=True)
+    home_paths.agent_cards.mkdir(parents=True, exist_ok=True)
+    home_paths.tool_cards.mkdir(parents=True, exist_ok=True)
 
     install_root = destination_root / pack.name
     if install_root.exists() and not replace_existing:
@@ -1358,12 +1358,12 @@ def _install_marketplace_card_pack_sync(
         plan = _build_install_copy_plan(
             staged_pack_dir,
             manifest,
-            env_root=environment_paths.root,
+            home_root=home_paths.root,
         )
         plan, mergeable_unmanaged_files = _merge_last_used_model_into_copy_plan(
             copy_plan=plan,
             temp_dir=temp_dir,
-            env_root=environment_paths.root,
+            home_root=home_paths.root,
             owners=owners,
             current_pack=pack.name,
             current_owned_files=current_owned_files,
@@ -1371,7 +1371,7 @@ def _install_marketplace_card_pack_sync(
 
         conflicts, overwritten_by_owner = _collect_install_conflicts(
             copy_plan=plan,
-            env_root=environment_paths.root,
+            home_root=home_paths.root,
             owners=owners,
             current_pack=pack.name,
             current_owned_files=current_owned_files,
@@ -1384,18 +1384,18 @@ def _install_marketplace_card_pack_sync(
         installed_files = tuple(sorted(item.destination_relative for item in plan))
         _apply_copy_plan(
             copy_plan=plan,
-            env_root=environment_paths.root,
+            home_root=home_paths.root,
             current_owned_files=current_owned_files,
             new_owned_files=set(installed_files),
         )
 
         _revoke_overwritten_ownership(
-            environment_paths=environment_paths,
+            home_paths=home_paths,
             overwritten_by_owner=overwritten_by_owner,
         )
 
         fingerprint = compute_card_pack_content_fingerprint(
-            environment_paths.root,
+            home_paths.root,
             installed_files,
         )
         source = _build_installed_card_pack_source(
@@ -1537,29 +1537,29 @@ def _build_install_copy_plan(
     pack_root: Path,
     manifest: CardPackManifest,
     *,
-    env_root: Path,
+    home_root: Path,
 ) -> list[_PlannedCopy]:
     plan: list[_PlannedCopy] = []
 
     for entry in manifest.agent_cards:
         source = _resolve_pack_source_path(pack_root, entry)
         destination_relative = str(PurePosixPath("agent-cards") / PurePosixPath(entry).name)
-        _ensure_env_target_path(destination_relative, env_root)
+        _ensure_home_target_path(destination_relative, home_root)
         plan.append(_PlannedCopy(source=source, destination_relative=destination_relative))
 
     for entry in manifest.tool_cards:
         source = _resolve_pack_source_path(pack_root, entry)
         destination_relative = str(PurePosixPath("tool-cards") / PurePosixPath(entry).name)
-        _ensure_env_target_path(destination_relative, env_root)
+        _ensure_home_target_path(destination_relative, home_root)
         plan.append(_PlannedCopy(source=source, destination_relative=destination_relative))
 
     for entry in manifest.files:
         source = _resolve_pack_source_path(pack_root, entry)
         destination_relative = _resolve_manifest_file_install_path(
             _validate_manifest_install_path(entry),
-            env_root=env_root,
+            home_root=home_root,
         )
-        _ensure_env_target_path(destination_relative, env_root)
+        _ensure_home_target_path(destination_relative, home_root)
         plan.append(_PlannedCopy(source=source, destination_relative=destination_relative))
 
     deduped: dict[str, _PlannedCopy] = {}
@@ -1571,7 +1571,7 @@ def _build_install_copy_plan(
 def _collect_install_conflicts(
     *,
     copy_plan: Sequence[_PlannedCopy],
-    env_root: Path,
+    home_root: Path,
     owners: dict[str, set[str]],
     current_pack: str,
     current_owned_files: set[str],
@@ -1586,7 +1586,7 @@ def _collect_install_conflicts(
         owner_set = set(owners.get(relative, set()))
         owner_set.discard(current_pack)
 
-        target = (env_root / relative).resolve()
+        target = (home_root / relative).resolve()
 
         if owner_set and not force:
             owner_list = ", ".join(sorted(owner_set))
@@ -1613,7 +1613,7 @@ def _merge_last_used_model_into_copy_plan(
     *,
     copy_plan: Sequence[_PlannedCopy],
     temp_dir: Path,
-    env_root: Path,
+    home_root: Path,
     owners: dict[str, set[str]],
     current_pack: str,
     current_owned_files: set[str],
@@ -1626,7 +1626,7 @@ def _merge_last_used_model_into_copy_plan(
             merged_plan.append(item)
             continue
 
-        target = (env_root / item.destination_relative).resolve()
+        target = (home_root / item.destination_relative).resolve()
         if not target.exists() or not target.is_file():
             merged_plan.append(item)
             continue
@@ -1664,11 +1664,11 @@ def _merge_last_used_model_into_copy_plan(
     return merged_plan, mergeable_unmanaged_files
 
 
-def _resolve_manifest_file_install_path(relative: str, *, env_root: Path) -> str:
+def _resolve_manifest_file_install_path(relative: str, *, home_root: Path) -> str:
     if relative not in CONFIG_FILENAMES:
         return relative
 
-    existing_config = find_config_in_directory(env_root)
+    existing_config = find_config_in_directory(home_root)
     if existing_config is not None:
         return existing_config.name
 
@@ -1801,33 +1801,33 @@ def _write_round_trip_mapping(document: CommentedMap, path: Path) -> None:
 def _apply_copy_plan(
     *,
     copy_plan: Sequence[_PlannedCopy],
-    env_root: Path,
+    home_root: Path,
     current_owned_files: set[str],
     new_owned_files: set[str],
 ) -> None:
     for item in copy_plan:
-        target = (env_root / item.destination_relative).resolve()
+        target = (home_root / item.destination_relative).resolve()
         _atomic_copy_file(item.source, target)
 
     stale_files = sorted(current_owned_files - new_owned_files)
     for relative in stale_files:
-        target = (env_root / relative).resolve()
+        target = (home_root / relative).resolve()
         if target.exists() and target.is_file():
             target.unlink()
-            _prune_empty_parents(target.parent, stop_at=env_root.resolve())
+            _prune_empty_parents(target.parent, stop_at=home_root.resolve())
 
 
 def _sync_pack_from_environment(
     *,
     copy_plan: Sequence[_PlannedCopy],
-    env_root: Path,
+    home_root: Path,
 ) -> list[str]:
     missing: list[str] = []
-    env_root_resolved = env_root.resolve()
+    home_root_resolved = home_root.resolve()
     for item in copy_plan:
-        env_file = (env_root_resolved / item.destination_relative).resolve()
+        env_file = (home_root_resolved / item.destination_relative).resolve()
         try:
-            env_file.relative_to(env_root_resolved)
+            env_file.relative_to(home_root_resolved)
         except ValueError:
             missing.append(item.destination_relative)
             continue
@@ -1909,13 +1909,13 @@ def _atomic_copy_file(source: Path, target: Path) -> None:
 
 def _revoke_overwritten_ownership(
     *,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     overwritten_by_owner: dict[str, set[str]],
 ) -> None:
     if not overwritten_by_owner:
         return
 
-    destination_root = environment_paths.card_packs.resolve()
+    destination_root = home_paths.card_packs.resolve()
     for owner, overwritten in overwritten_by_owner.items():
         owner_dir = destination_root / owner
         source, error = read_installed_card_pack_source(owner_dir)
@@ -1931,7 +1931,7 @@ def _revoke_overwritten_ownership(
         updated = replace(
             source,
             content_fingerprint=compute_card_pack_content_fingerprint(
-                environment_paths.root,
+                home_paths.root,
                 retained,
             ),
             installed_files=retained,
@@ -2294,7 +2294,7 @@ def _refresh_published_sidecar(
     *,
     pack_dir: Path,
     source: InstalledCardPackSource,
-    environment_paths: EnvironmentPaths,
+    home_paths: HomePaths,
     repo_root: Path,
     commit: str,
 ) -> None:
@@ -2304,7 +2304,7 @@ def _refresh_published_sidecar(
         source.repo_path,
     )
     fingerprint = compute_card_pack_content_fingerprint(
-        environment_paths.root,
+        home_paths.root,
         source.installed_files,
     )
     updated = replace(
@@ -2465,13 +2465,13 @@ def _resolve_pack_source_path(pack_root: Path, relative_path: str) -> Path:
     return source
 
 
-def _ensure_env_target_path(relative_path: str, env_root: Path) -> None:
+def _ensure_home_target_path(relative_path: str, home_root: Path) -> None:
     normalized = _normalize_repo_path(relative_path)
     if not normalized:
         raise ValueError(f"Invalid install target path: {relative_path}")
-    target = (env_root / normalized).resolve()
+    target = (home_root / normalized).resolve()
     try:
-        target.relative_to(env_root.resolve())
+        target.relative_to(home_root.resolve())
     except ValueError as exc:
         raise ValueError(f"Install target escapes environment root: {relative_path}") from exc
 

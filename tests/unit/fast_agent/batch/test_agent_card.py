@@ -10,14 +10,14 @@ from fast_agent.batch.agent_card import (
 
 
 def _fast(tmp_path):
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     return FastAgent(
         name="test",
         parse_cli_args=False,
         ignore_unknown_args=True,
         quiet=True,
-        environment_dir=env_dir,
+        home=home,
     )
 
 

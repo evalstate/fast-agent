@@ -298,7 +298,7 @@ def create_transport_context(
     *,
     trigger_oauth: bool | None = None,
     active_home: str | Path | None = None,
-    noenv: bool = False,
+    no_home: bool = False,
 ) -> AbstractAsyncContextManager:
     """
     Create a transport context manager for the given server configuration.
@@ -339,7 +339,7 @@ def create_transport_context(
             args=config.args if config.args is not None else [],
             env=build_child_environment(
                 active_home=active_home,
-                noenv=noenv,
+                no_home=no_home,
                 base=get_default_environment(),
                 overrides=config.env,
             ),
@@ -1332,7 +1332,7 @@ class MCPConnectionManager(ContextDependent):
             args=config.args if config.args is not None else [],
             env=build_child_environment(
                 active_home=getattr(config_obj, "_fast_agent_home", None) if config_obj else None,
-                noenv=bool(getattr(config_obj, "_fast_agent_noenv", False))
+                no_home=bool(getattr(config_obj, "_fast_agent_no_home", False))
                 if config_obj
                 else False,
                 base=get_default_environment(),

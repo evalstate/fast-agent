@@ -14,8 +14,7 @@ from fast_agent.utils.async_utils import configure_uvloop, ensure_event_loop
 # if the arguments would work with "go" we'll just route to it
 
 _OPTIONS_WITHOUT_VALUES = {
-    "--noenv",
-    "--no-env",
+    "--no-home",
     "--shell",
     "--no-shell",
     "--watch",
@@ -81,7 +80,7 @@ def _first_positional_argument(arguments: list[str]) -> str | None:
     """Return the first positional token, skipping option values.
 
     We need this for auto-routing because values of options like
-    ``--env demo`` or ``-m serve`` may equal known command names.
+    ``--home demo`` or ``-m serve`` may equal known command names.
     """
     index = 0
     while index < len(arguments):
@@ -142,7 +141,7 @@ def main():
     _normalize_root_serve_args(sys.argv)
     # Check if we should auto-route to 'go'
     if len(sys.argv) > 1:
-        # Detect explicit subcommands even when global options (like --env)
+        # Detect explicit subcommands even when global options (like --home)
         # appear before the command name.
         known_commands = set(KNOWN_SUBCOMMANDS) | set(LAZY_SUBCOMMANDS.keys())
         explicit_subcommand = _first_positional_argument(sys.argv[1:])

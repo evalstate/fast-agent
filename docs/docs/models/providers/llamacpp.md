@@ -15,7 +15,7 @@ connect with `fast-agent`.
 fast-agent configures llama.cpp models as local [model overlays](../model_overlays.md).
 The import command discovers the model from a running `llama-server`, reads runtime
 metadata such as context window and output limits, and writes an overlay into the
-active fast-agent environment.
+active fast-agent home.
 
 The generated overlay uses the `openresponses` provider with the normalized `/v1`
 base URL, so the imported model can be selected like any other model name.
@@ -85,7 +85,7 @@ fast-agent model llamacpp import \
   --name qwen-local
 ```
 
-The overlay is written under the active environment's `model-overlays/` directory.
+The overlay is written under the active fast-agent home's `model-overlays/` directory.
 Use it with:
 
 ```bash

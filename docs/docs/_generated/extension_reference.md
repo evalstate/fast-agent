@@ -18,7 +18,7 @@ error, and usage artifacts under `audit_dir`.
 ```python
 FastAgentReflectionLM(
     *,
-    env_dir: str | Path | None = None,
+    home: str | Path | None = None,
     model: str | None = None,
     audit_dir: str | Path,
     agent: str | None = None,
@@ -38,7 +38,7 @@ pair. Use this when the primary metric is corpus-level.
 ```python
 FastAgentBatchEvaluator(
     *,
-    env_dir: str | Path | None = None,
+    home: str | Path | None = None,
     agent_card: str | Path,
     agent: str | None = None,
     candidate_variables: Mapping[str, str],
@@ -69,7 +69,7 @@ building a JSONL dataset first.
 ```python
 FastAgentSingleTaskAdapter(
     *,
-    env_dir: str | Path | None = None,
+    home: str | Path | None = None,
     agent_card: str | Path | None = None,
     agent: str | None = None,
     model: str | None = None,
@@ -91,7 +91,7 @@ FastAgentSingleTaskAdapter.prompt(
     scorer: SingleTaskScorer,
     run_dir: str | Path,
     candidate_key: str = 'prompt',
-    env_dir: str | Path | None = None,
+    home: str | Path | None = None,
     template: str = '{{prompt}}',
     backend: BatchBackend = 'harness',
     batch_runner_factory: BatchRunnerFactory | None = None
@@ -109,7 +109,7 @@ supplies minibatches of input rows, fast-agent runs each minibatch through
 ```python
 FastAgentRowWiseBatchAdapter(
     *,
-    env_dir: str | Path | None = None,
+    home: str | Path | None = None,
     agent_card: str | Path,
     agent: str | None = None,
     candidate_variables: Mapping[str, str],

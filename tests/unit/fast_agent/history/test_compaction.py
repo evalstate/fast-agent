@@ -293,7 +293,7 @@ class TestResolvePrompt:
         workspace.mkdir()
         monkeypatch.chdir(workspace)
 
-        settings = get_settings(env_dir=home)
+        settings = get_settings(home=home)
 
         assert resolve_compaction_prompt(settings.compaction) == "From FAST_AGENT_HOME config."
 
@@ -440,7 +440,7 @@ class TestCompactConversation:
 
     async def test_archives_to_resolved_session_when_none_is_current(self, tmp_path, monkeypatch):
         monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
-        monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+        monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
         workspace = tmp_path / "workspace"
         workspace.mkdir()
         monkeypatch.chdir(workspace)
@@ -450,7 +450,7 @@ class TestCompactConversation:
             agent = _FakeAgent(history, summary="checkpoint summary")
             manager = SessionManager(
                 cwd=workspace,
-                environment_override=workspace / ".fast-agent",
+                home_override=workspace / ".fast-agent",
                 respect_env_override=False,
             )
             agent.context = Context(config=Settings(session_history=True), session_manager=manager)
@@ -467,9 +467,9 @@ class TestCompactConversation:
         finally:
             reset_session_manager()
 
-    async def test_noenv_skips_archive_session_writes(self, tmp_path, monkeypatch):
+    async def test_no_home_skips_archive_session_writes(self, tmp_path, monkeypatch):
         monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
-        monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+        monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
         workspace = tmp_path / "workspace"
         workspace.mkdir()
         monkeypatch.chdir(workspace)
@@ -478,7 +478,7 @@ class TestCompactConversation:
             history = _turn("one", "1") + _turn("two", "2")
             agent = _FakeAgent(history, summary="checkpoint summary")
             settings_obj = Settings(session_history=True)
-            settings_obj._fast_agent_noenv = True
+            settings_obj._fast_agent_no_home = True
             agent.context = Context(config=settings_obj)
             settings = CompactionSettings(keep_turns=1)
 
@@ -489,18 +489,18 @@ class TestCompactConversation:
         finally:
             reset_session_manager()
 
-    async def test_persist_compacted_session_explicit_noenv_short_circuits(self, monkeypatch):
+    async def test_persist_compacted_session_explicit_no_home_short_circuits(self, monkeypatch):
         agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
 
         def fail_session_persistence_enabled(_agent: object) -> bool:
-            raise AssertionError("session persistence should not be checked in explicit noenv mode")
+            raise AssertionError("session persistence should not be checked in explicit no_home mode")
 
         monkeypatch.setattr(
             "fast_agent.history.compaction._session_persistence_enabled",
             fail_session_persistence_enabled,
         )
 
-        await persist_compacted_session(agent, noenv=True)
+        await persist_compacted_session(agent, no_home=True)
 
 
 @pytest.mark.unit

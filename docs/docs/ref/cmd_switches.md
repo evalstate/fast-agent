@@ -29,7 +29,8 @@ When running a **fast-agent** application (typically `uv run agent.py`), you hav
 | `--port PORT` | Port for HTTP server (default: 8000) | `--port 8080` |
 | `--host HOST` | Host for HTTP/A2A server (default: 127.0.0.1; use 0.0.0.0 only to accept remote clients) | `--host 127.0.0.1` |
 | `--instance-scope {shared,connection,request}` | Control server-side agent instancing (default: shared) | `--instance-scope connection` |
-| `--env DIR` | Override the base fast-agent environment directory | `--env ./agent-env` |
+| `--workspace DIR` | Override the workspace root; default home becomes `DIR/.fast-agent` | `--workspace ./client-project` |
+| `--home DIR` | Override the base fast-agent home | `--home ./agent-home` |
 | `--skills DIR` | Override the default skills directory | `--skills ./skills` |
 | `--dump DIR` | Export loaded agents as Markdown AgentCards | `--dump ./agent-cards` |
 | `--dump-yaml DIR` | Export loaded agents as YAML AgentCards | `--dump-yaml ./agent-cards` |
@@ -86,12 +87,18 @@ This is particularly useful when:
 
 The `fast-agent go` command lets you run an interactive agent directly without creating a Python file. Read the guide [here](go_command/)
 
-For ephemeral runs with no implicit environment-side effects, use `--noenv` (alias `--no-env`).
+For ephemeral runs with no implicit home side effects, use `--no-home`.
+
+Select a configured execution environment with `--environment` / `-E`:
+
+```bash
+fast-agent go --environment ubuntu -x
+```
 
 For machine-readable one-shot JSON output, use:
 
 ```bash
-fast-agent go --noenv --message "..." --json-schema ./schema.json
+fast-agent go --no-home --message "..." --json-schema ./schema.json
 ```
 
 This validates the response locally and writes only JSON to stdout.

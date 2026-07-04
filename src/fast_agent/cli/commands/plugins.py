@@ -29,7 +29,7 @@ from fast_agent.marketplace.formatting import (
     format_installed_revision_display,
     format_source_provenance,
 )
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 from fast_agent.plugins import operations as plugin_ops
 from fast_agent.plugins.configuration import (
     disable_plugin_in_config,
@@ -64,33 +64,33 @@ def _resolve_registry_input(ctx: typer.Context, command_registry: str | None = N
     return get_marketplace_url(_settings(ctx))
 
 
-def _context_env_dir(ctx: typer.Context) -> Path | None:
+def _context_home(ctx: typer.Context) -> Path | None:
     current: click.Context | None = ctx
     while current is not None:
         payload = current.obj
         if isinstance(payload, dict):
-            env_dir = payload.get("env_dir")
-            if isinstance(env_dir, Path):
-                return env_dir
-            normalized_env_dir = strip_to_none(env_dir) if isinstance(env_dir, str) else None
-            if normalized_env_dir is not None:
-                return Path(normalized_env_dir)
+            home = payload.get("home")
+            if isinstance(home, Path):
+                return home
+            normalized_home = strip_to_none(home) if isinstance(home, str) else None
+            if normalized_home is not None:
+                return Path(normalized_home)
         current = current.parent
     return None
 
 
 def _settings(ctx: typer.Context):
-    return get_settings_or_exit(env_dir=_context_env_dir(ctx))
+    return get_settings_or_exit(home=_context_home(ctx))
 
 
-def _environment_paths(ctx: typer.Context):
-    return resolve_environment_paths(_settings(ctx))
+def _home_paths(ctx: typer.Context):
+    return resolve_home_paths(_settings(ctx))
 
 
 def _print_installed_plugins(ctx: typer.Context) -> None:
     settings = _settings(ctx)
-    env_paths = resolve_environment_paths(settings)
-    plugin_roots = _installed_plugin_roots(settings, env_paths.plugins)
+    home_paths = resolve_home_paths(settings)
+    plugin_roots = _installed_plugin_roots(settings, home_paths.plugins)
     home_enabled, project_enabled = enabled_plugins_by_scope(settings)
     _print_plugin_roots(
         plugin_roots,
@@ -355,15 +355,15 @@ def plugins_update(
     yes: Annotated[bool, typer.Option("--yes", help="Confirm multi-plugin apply.")] = False,
 ) -> None:
     """Check and apply plugin updates."""
-    env_paths = _environment_paths(ctx)
-    updates = plugin_ops.check_plugin_updates(destination_root=env_paths.plugins)
+    home_paths = _home_paths(ctx)
+    updates = plugin_ops.check_plugin_updates(destination_root=home_paths.plugins)
     if not selector:
         print_detail_section(
             console,
             "Plugin Update Check",
             [
                 DetailDisplayRow(
-                    label="plugins directory", value=format_display_path(env_paths.plugins)
+                    label="plugins directory", value=format_display_path(home_paths.plugins)
                 )
             ],
         )
@@ -390,13 +390,13 @@ def _target_install_context(ctx: typer.Context, *, global_install: bool) -> tupl
         return root / "plugins", root / PREFERRED_CONFIG_FILENAME
 
     settings = _settings(ctx)
-    env_paths = resolve_environment_paths(settings)
+    home_paths = resolve_home_paths(settings)
     config_path = (
         Path(settings._config_file)
         if settings._config_file
-        else env_paths.root / PREFERRED_CONFIG_FILENAME
+        else home_paths.root / PREFERRED_CONFIG_FILENAME
     )
-    return env_paths.plugins, config_path
+    return home_paths.plugins, config_path
 
 
 def _global_plugin_root() -> Path:
@@ -413,6 +413,6 @@ def _global_plugin_root() -> Path:
         )
         raise typer.Exit(1) from exc
     if root is None:
-        typer.echo("Global plugin installs are disabled in noenv mode.", err=True)
+        typer.echo("Global plugin installs are disabled in no_home mode.", err=True)
         raise typer.Exit(1)
     return root

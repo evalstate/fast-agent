@@ -67,8 +67,8 @@ class AgentRunRequest:
     agent_name: str | None
     target_agent_name: str | None
     skills_directory: Path | None
-    environment_dir: Path | None
-    noenv: bool
+    home: Path | None
+    no_home: bool
     force_smart: bool
     shell_runtime: bool
     no_shell: bool
@@ -92,6 +92,7 @@ class AgentRunRequest:
     prefer_local_shell: bool = False
     attachments: list[str] | None = None
     managed_mcp_agent_names: list[str] | None = None
+    environment: str | None = None
 
     def __post_init__(self) -> None:
         self._validate_environment_options()
@@ -100,10 +101,10 @@ class AgentRunRequest:
         self._validate_structured_options()
 
     def _validate_environment_options(self) -> None:
-        if self.noenv and self.environment_dir is not None:
-            raise ValueError("--noenv cannot be combined with --env")
-        if self.noenv and self.resume is not None:
-            raise ValueError("--noenv cannot be combined with --resume")
+        if self.no_home and self.home is not None:
+            raise ValueError("--no-home cannot be combined with --home")
+        if self.no_home and self.resume is not None:
+            raise ValueError("--no-home cannot be combined with --resume")
         if self.shell_runtime and self.no_shell:
             raise ValueError("--shell cannot be combined with --no-shell")
 
@@ -152,7 +153,7 @@ class AgentRunRequest:
 
     @property
     def allow_sessions(self) -> bool:
-        return not self.noenv
+        return not self.no_home
 
     @property
     def is_repl(self) -> bool:
@@ -180,9 +181,10 @@ class AgentRunRequest:
             "stdio_servers": self.stdio_servers,
             "agent_name": self.agent_name,
             "target_agent_name": self.target_agent_name,
+            "environment": self.environment,
             "skills_directory": self.skills_directory,
-            "environment_dir": self.environment_dir,
-            "noenv": self.noenv,
+            "home": self.home,
+            "no_home": self.no_home,
             "force_smart": self.force_smart,
             "shell_runtime": self.shell_runtime,
             "no_shell": self.no_shell,

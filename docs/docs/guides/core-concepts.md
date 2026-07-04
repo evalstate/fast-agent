@@ -1,49 +1,41 @@
 ---
-title: Core Concepts Guide
-description: Understand fast-agent environments, AgentCards, packs, model references, MCP servers, skills, and the TUI workflow.
+title: Core Concepts
+description: Understand fast-agent homes, AgentCards, packs, model references, MCP servers, skills, and the TUI workflow.
 social:
   title: Core Concepts Guide
-  tagline: Environments, agents, packs, models, MCP, and skills in one place.
-  description: Understand fast-agent environments, AgentCards, packs, model references, MCP servers, skills, and the TUI workflow.
+  tagline: Homes, execution environments, agents, packs, models, MCP, and skills in one place.
+  description: Understand fast-agent homes, AgentCards, packs, model references, MCP servers, skills, and the TUI workflow.
   alt: fast-agent social card — Core Concepts Guide
 ---
 
-# Core Concepts Guide
+# Core Concepts
 
-<p class="fa-kicker">The mental model</p>
+**`fast-agent`** scales from a single markdown file, to a fully managed multi-agent environment. There's a comprehensive CLI and Harness API for automation, and a TUI for interactive usage.
 
-A **fast-agent environment** is a small folder that travels with a project or a
-team workflow. It can contain agents, config, MCP servers, skills, sessions,
-plugins and card packs.
+You can use **`fast-agent`** with zero configuration: simply use `fast-agent go` to start an interactive session, use local or remote models, add skills or connect to MCP Servers.
 
-One agent is the default. Add another agent by dropping a Markdown file into
-`agent-cards/`. Share the whole setup by publishing it as a pack.
+Most **`fast-agent`** usage is centred on a "home":  a configuration folder that declares agents, skills, MCP Servers, hooks, plugins and more.
+
+The table below introduces the main configuration concepts:
+
+| Concept | What it means | Default / example |
+| --- | --- | --- |
+| **Home** | fast-agent's local storage and configuration: config files, AgentCards, skills, sessions, plugins, model overlays, UI assets, and permission history. | `<workspace>/.fast-agent`, or `--home ~/agent-homes/client-a` |
+| **Workspace** | The project or request file tree the run is working from. Relative paths, prompt file references, and local shell cwd behavior are anchored here. | Current directory, or `--workspace ~/client-a` |
+| **Execution environment** | The runtime used by tools or agents to execute commands and access files. Environments can be defined in your home config and resolved by name. | `local`, Docker or Hugging Face sandbox environment |
+
 
 <div class="fa-hero__actions">
-  <a class="fa-btn fa-btn--primary" href="#make-your-first-environment">Build one</a>
+  <a class="fa-btn fa-btn--primary" href="#make-your-first-home">Build one</a>
   <a class="fa-btn" href="#share-it-as-a-pack">Share as a pack</a>
   <a class="fa-btn" href="../agents/defining/agent_cards/">AgentCard reference</a>
+  <a class="fa-btn" href="../agents/environments.md">Define environments</a>
 </div>
 
-<div class="fa-term" aria-label="fast-agent TUI example">
-  <div class="fa-term__bar">
-    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-    <strong>.fast-agent</strong>
-  </div>
-  <pre><code><span class="fa-muted">$</span> fast-agent go --pack codex --model sonnet
-<span class="fa-good">loaded</span> dev, planner, reviewer
+## What is a home?
 
-<span class="fa-muted">fast-agent&gt;</span> @planner
-<span class="fa-good">switched</span> planner is now the active agent
-
-<span class="fa-muted">planner&gt;</span> #reviewer check this plan for risky assumptions
-<span class="fa-good">loaded</span> reviewer response into your input buffer</code></pre>
-</div>
-
-## What is an environment?
-
-An environment is the active fast-agent home. By default it is
-`./.fast-agent` in your current project.
+The active fast-agent home stores local config and runtime state. By default it
+is `./.fast-agent` in your current workspace.
 
 ```text
 .fast-agent/
@@ -57,31 +49,33 @@ An environment is the active fast-agent home. By default it is
 ├── sessions/                # persisted chat/session history
 ├── model-overlays/          # optional local model definitions
 ├── ui/                      # generated MCP UI assets
-└── auths.md                 # environment-scoped permission/auth history
+└── auths.md                 # home-scoped permission/auth history
 ```
 
 The defaults are deliberately useful:
 
-- `fast-agent go` selects `./.fast-agent` unless you choose another environment.
-- The configuration file (`fast-agent.yaml`) is loaded from the active environment first, then the current
-  directory if no environment config is present.
-- AgentCards in `<env>/agent-cards/` are loaded as runnable agents.
-- ToolCards in `<env>/tool-cards/` are loaded and attached as tools.
-- Sessions are saved in `<env>/sessions/` so you can resume work later.
-- Skills are discovered from the active environment's `skills/` directory
+- `fast-agent go` selects `./.fast-agent` unless you choose another home (`--home`).
+- The configuration file (`fast-agent.yaml`) is loaded from the active fast-agent home first, then the current
+  directory if no home config is present.
+- AgentCards in `<home>/agent-cards/` are loaded as runnable agents.
+- ToolCards in `<home>/tool-cards/` are loaded and attached as tools.
+- Sessions are saved in `<home>/sessions/` so you can resume work later.
+- Skills are discovered from the active fast-agent home's `skills/` directory
   (normally `.fast-agent/skills`), plus `.agents/skills` and `.claude/skills`.
+
+<br />
 
 <section class="fa-grid fa-grid--3" markdown="1">
 <article class="fa-card" markdown="1">
 <h3>Agents</h3>
 
-Optionally defined in Markdown or YAML AgentCard files. The first card marked `default: true` is used as the default for messages. If none are present, a simple default is provided.
+Optionally defined in markdown AgentCard files. The first card marked `default: true` is used as the default for messages. If none are present, a simple default is provided.
 </article>
 
 <article class="fa-card" markdown="1">
 <h3>Config</h3>
 
-`fast-agent.yaml` holds provider settings, MCP server definitions, model
+`fast-agent.yaml` holds provider settings, Environment definitions, MCP server config, model
 references, registry URLs, logging and session settings.
 </article>
 
@@ -92,6 +86,8 @@ Reusable capabilities installed under `skills/` and managed interactively with
 `/skills`.
 </article>
 </section>
+
+<br/>
 
 If no AgentCards are present, `fast-agent go` still starts a simple default
 agent from the command-line options you provide.
@@ -105,12 +101,14 @@ run:
 fast-agent go --smart
 ```
 
-`--smart` asks **fast-agent** to use a _smart_ default agent. A smart agent has extra guidance for working with fast-agent concepts,
-including creating and delegating to sub-agents.
+`--smart` asks **fast-agent** to use a _smart_ default agent. A smart agent has extra guidance for working with fast-agent concepts, including creating and delegating to sub-agents.
 
-## Make your first environment
+Home directories can be distributed as "packs" - simplifying sharing, installation and version management.
 
-Create a project environment with one default coding agent and two supporting
+
+## Make your first home
+
+Create a project home with one default coding agent and two supporting
 agents:
 
 ```bash
@@ -161,7 +159,7 @@ fast-agent go --model sonnet
 ```
 
 Because each card uses `model: $system.default`, the selected model comes from
-`--model`, then the environment config, then normal provider defaults. If no default is found an interactive model picker is displayed.
+`--model`, then the home config, then normal provider defaults. If no default is found an interactive model picker is displayed.
 
 ## Work with multiple agents in the TUI
 
@@ -192,6 +190,22 @@ Inside the interactive prompt, agents are lightweight to move between:
   still loads the response into your buffer.
 - `/agent`, `/card`, `/reload`, `/history`, `/session`, `/connect`, and
   `/skills` are available while you work.
+
+<div class="fa-term" aria-label="fast-agent TUI example">
+  <div class="fa-term__bar">
+    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <strong>.fast-agent</strong>
+  </div>
+  <pre><code><span class="fa-muted">$</span> fast-agent go --pack codex
+<span class="fa-good">loaded</span> dev, planner, reviewer
+
+<span class="fa-muted">fast-agent&gt;</span> @planner
+<span class="fa-good">switched</span> planner is now the active agent
+
+<span class="fa-muted">planner&gt;</span> #reviewer check this plan for risky assumptions
+<span class="fa-good">loaded</span> reviewer response into your input buffer</code></pre>
+</div>
+
 
 ## Add MCP servers to an agent
 
@@ -297,7 +311,7 @@ fast-agent go --model 'xai.grok-4.3?x_search=on'
 ```
 
 Model references are exact tokens like `$system.fast`. Define them in the
-environment config and reuse them in cards:
+home config and reuse them in cards:
 
 ```yaml
 default_model: $system.fast
@@ -321,55 +335,55 @@ You create concise plans.
 `$system.default` is a special reference for reusable cards. It means "use the
 current run's default model". That makes packs easy to share: the card author
 sets `model: $system.default`, and the user chooses the model with `--model` or
-`default_model` in their environment.
+`default_model` in their home.
 
 Explicit card models usually win over `--model`. Use `$system.default` when you
 want `--model` to remain in control.
 
 Use `fast-agent model setup` to see and set configured references.
 
-## Multiple environments
+## Multiple Homes
 
-Use more than one environment when you want different bundles for different
+Use more than one home when you want different bundles for different
 workflows:
 
 ```bash
-# Coding environment
-fast-agent go --env .fast-agent-coding --pack codex 
+# Coding home
+fast-agent go --home .fast-agent-coding --pack codex 
 
-# Research environment
-fast-agent go --env .fast-agent-research --agent researcher \
+# Research home
+fast-agent go --home .fast-agent-research --agent researcher \
   --model 'responses.gpt-5?web_search=on'
 
-# Ephemeral run: no implicit env cards, sessions, pack installs or permission-store side effects
-fast-agent go --no-env --model haiku --message "summarize this directory"
+# Ephemeral run: no implicit home cards, sessions, pack installs or permission-store side effects
+fast-agent go --no-home --model haiku --message "summarize this directory"
 ```
 
-Selection order for the environment is:
+Selection order for the home is:
 
-1. `--env <path>`
-2. `FAST_AGENT_HOME`
-3. legacy `ENVIRONMENT_DIR`
+1. `--home <path>`
+2. `--workspace <path>/.fast-agent`
+3. `FAST_AGENT_HOME`
 4. `./.fast-agent`
 
-You can also set `environment_dir` in `fast-agent.yaml`, or override skills for
+You can also set `home` in `fast-agent.yaml`, or override skills for
 one run:
 
 ```bash
-fast-agent go --env ~/agent-envs/client-a --skills ~/agent-skills/client-a
+fast-agent go --workspace ~/client-a --skills ~/agent-skills/client-a
 ```
 
-`--no-env` is useful for clean tests, one-off MCP inspection, or automation that
+`--no-home` is useful for clean tests, one-off MCP inspection, or automation that
 should not read project AgentCards or write session state. It cannot be combined
-with `--pack`, `--env`, or `--resume`.
+with `--pack`, `--home`, or `--resume`.
 
-## Skills are environment tools for knowledge
+## Skills are home tools for knowledge
 
 Skills are folders containing a `SKILL.md` manifest plus optional scripts,
 references and assets. They let agents load specialized procedures only when
 needed. By default, fast-agent looks in:
 
-- the active environment's `skills/` directory — normally `.fast-agent/skills`
+- the active fast-agent home's `skills/` directory — normally `.fast-agent/skills`
 - `.agents/skills`
 - `.claude/skills`
 
@@ -432,7 +446,7 @@ See [Agent Skills](skills/) for the full skill workflow.
 ## Share it as a pack
 
 A **card pack** is a publishable bundle of AgentCards, ToolCards and supporting
-files. Packs are how teams distribute a good environment without asking everyone
+files. Packs are how teams distribute a good home without asking everyone
 to copy files by hand.
 
 Install and run one immediately:
@@ -450,9 +464,9 @@ fast-agent cards readme codex
 fast-agent cards publish codex --message "Improve reviewer prompt"
 ```
 
-Packs are installed into the selected environment under `card-packs/`, and their
+Packs are installed into the selected home under `card-packs/`, and their
 managed files are copied into places like `agent-cards/`, `tool-cards/`,
-`plugins/`, or the environment root.
+`plugins/`, or the home root.
 
 A minimal pack looks like this:
 
@@ -561,7 +575,7 @@ fast-agent go --pack coding-local --pack-registry ./marketplace.json
 <div markdown="1">
 <h2>Where to go next</h2>
 
-An environment is just a folder. Start with one default card, add focused agents
+A home is just a folder. Start with one default card, add focused agents
 as Markdown files, then publish the bundle when it becomes useful.
 </div>
 <div markdown="1">
@@ -571,9 +585,10 @@ as Markdown files, then publish the bundle when it becomes useful.
 
 - [Agent Cards](../agents/defining/agent_cards/) — advanced card fields,
   ToolCards, runtime MCP targets and loading rules.
+- [Environments](../agents/environments.md) — Set up local and remote containers and sandboxes.
 - [Configuration Reference](../ref/config_file/) — every `fast-agent.yaml`
   setting, including providers, MCP, sessions, skills and model references.
-- [fast-agent go](../ref/go_command/) — all CLI switches for environments,
+- [fast-agent go](../ref/go_command/) — all CLI switches for homes,
   packs, models, cards, skills and non-interactive runs.
 - [MCP configuration](../mcp/client-servers/) — configure and inspect MCP servers.
 - [Model Features](../models/) — model strings, provider web tools and overlays.

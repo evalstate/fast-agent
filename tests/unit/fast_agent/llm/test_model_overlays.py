@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from fast_agent.config import Settings, get_settings, update_global_settings
-from fast_agent.constants import FAST_AGENT_RUNTIME_ENVIRONMENT
+from fast_agent.constants import FAST_AGENT_RUNTIME_HOME
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -38,33 +38,33 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker_common import build_snapshot
 
 
-def _write_overlay(env_dir: Path, filename: str, content: str) -> None:
-    overlays_dir = env_dir / "model-overlays"
+def _write_overlay(home: Path, filename: str, content: str) -> None:
+    overlays_dir = home / "model-overlays"
     overlays_dir.mkdir(parents=True, exist_ok=True)
     (overlays_dir / filename).write_text(content, encoding="utf-8")
 
 
 def _cleanup_overlay_runtime_state(base_dir: Path) -> None:
-    empty_env_dir = base_dir / "empty-fast-agent"
-    empty_env_dir.mkdir(parents=True, exist_ok=True)
-    load_model_overlay_registry(start_path=base_dir, env_dir=empty_env_dir)
+    empty_home = base_dir / "empty-fast-agent"
+    empty_home.mkdir(parents=True, exist_ok=True)
+    load_model_overlay_registry(start_path=base_dir, home=empty_home)
 
 
 @contextmanager
 def _isolated_overlay_environment(
-    env_dir: Path | None,
+    home: Path | None,
     *,
     cleanup_base: Path,
 ) -> Iterator[None]:
-    env_keys = ("ENVIRONMENT_DIR", "FAST_AGENT_HOME", FAST_AGENT_RUNTIME_ENVIRONMENT)
+    env_keys = ("FAST_AGENT_HOME", "FAST_AGENT_HOME", FAST_AGENT_RUNTIME_HOME)
     previous = {key: os.environ.get(key) for key in env_keys}
 
     os.environ.pop("FAST_AGENT_HOME", None)
-    os.environ.pop(FAST_AGENT_RUNTIME_ENVIRONMENT, None)
-    if env_dir is None:
-        os.environ.pop("ENVIRONMENT_DIR", None)
+    os.environ.pop(FAST_AGENT_RUNTIME_HOME, None)
+    if home is None:
+        os.environ.pop("FAST_AGENT_HOME", None)
     else:
-        os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+        os.environ["FAST_AGENT_HOME"] = str(home)
 
     try:
         yield
@@ -135,9 +135,9 @@ def test_export_preserves_bare_hf_namespace_that_matches_provider() -> None:
 
 
 def test_same_provider_overlays_create_distinct_openresponses_clients(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     _write_overlay(
-        env_dir,
+        home,
         "qwen-local.yaml",
         """
 name: qwen-local
@@ -155,7 +155,7 @@ metadata:
 """.strip(),
     )
     _write_overlay(
-        env_dir,
+        home,
         "qwen-remote.yaml",
         """
 name: qwen-remote
@@ -174,7 +174,7 @@ defaults:
     os.environ["REMOTE_QWEN_KEY"] = "remote-key"
 
     try:
-        with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
+        with _isolated_overlay_environment(home, cleanup_base=tmp_path):
             local_llm = ModelFactory.create_factory("qwen-local")(
                 LlmAgent(AgentConfig(name="local"))
             )
@@ -197,9 +197,9 @@ defaults:
 
 
 def test_overlay_presets_resolve_overlay_metadata_and_picker_entries(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     _write_overlay(
-        env_dir,
+        home,
         "picker-overlay.yaml",
         """
 name: picker-local
@@ -225,7 +225,7 @@ metadata:
 """.strip(),
     )
 
-    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
         presets = ModelFactory.get_runtime_presets()
         assert presets["picker-local"] == (
             "openresponses.overlay-tests/Qwen-Picker?temperature=0.65&top_p=0.95"
@@ -265,9 +265,9 @@ metadata:
 
 
 def test_same_wire_model_overlays_keep_distinct_resolved_metadata(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     _write_overlay(
-        env_dir,
+        home,
         "tiny-local.yaml",
         """
 name: tiny-local
@@ -284,7 +284,7 @@ metadata:
 """.strip(),
     )
     _write_overlay(
-        env_dir,
+        home,
         "big-local.yaml",
         """
 name: big-local
@@ -301,7 +301,7 @@ metadata:
 """.strip(),
     )
 
-    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
         tiny_resolved = ModelFactory.resolve_model_spec("tiny-local")
         big_resolved = ModelFactory.resolve_model_spec("big-local")
 
@@ -331,9 +331,9 @@ metadata:
 
 
 def test_overlay_resolution_precedence_beats_custom_preset(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     _write_overlay(
-        env_dir,
+        home,
         "picker-local.yaml",
         """
 name: picker-local
@@ -348,7 +348,7 @@ metadata:
 """.strip(),
     )
 
-    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
         resolved = ModelFactory.resolve_model_spec(
             "picker-local",
             presets={"picker-local": "responses.gpt-5.2"},
@@ -362,9 +362,9 @@ metadata:
 
 
 def test_overlay_registry_loads_uppercase_yaml_suffix(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     _write_overlay(
-        env_dir,
+        home,
         "upper-suffix.YAML",
         """
 name: upper-suffix
@@ -378,16 +378,16 @@ metadata:
 """.strip(),
     )
 
-    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
-        registry = load_model_overlay_registry(start_path=tmp_path, env_dir=env_dir)
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        registry = load_model_overlay_registry(start_path=tmp_path, home=home)
 
     assert "upper-suffix" in registry.by_name()
 
 
 def test_new_overlay_model_defaults_to_schema_json_mode(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     _write_overlay(
-        env_dir,
+        home,
         "schema-default.yaml",
         """
 name: schema-default
@@ -402,7 +402,7 @@ metadata:
 """.strip(),
     )
 
-    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
         resolved = ModelFactory.resolve_model_spec("schema-default")
 
         assert resolved.model_params is not None
@@ -410,9 +410,9 @@ metadata:
 
 
 def test_overlay_known_model_metadata_applies_to_llm_model_info(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     _write_overlay(
-        env_dir,
+        home,
         "haikutiny.yaml",
         """
 name: haikutiny
@@ -427,7 +427,7 @@ metadata:
 """.strip(),
     )
 
-    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
         llm = ModelFactory.create_factory("haikutiny")(LlmAgent(AgentConfig(name="haikutiny")))
 
         assert llm.resolved_model is not None
@@ -442,15 +442,15 @@ metadata:
         assert llm.usage_accumulator.context_window_size == 8192
 
 
-def test_overlay_resolution_uses_config_relative_environment_dir_when_cwd_differs(
+def test_overlay_resolution_uses_config_relative_home_when_cwd_differs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_dir = tmp_path / "project"
     project_dir.mkdir()
-    env_dir = project_dir / ".fast-agent"
+    home = project_dir / ".fast-agent"
     _write_overlay(
-        env_dir,
+        home,
         "picker-overlay.yaml",
         """
 name: picker-local
@@ -466,7 +466,7 @@ metadata:
     )
 
     previous_settings = get_settings()
-    settings = Settings(environment_dir=".fast-agent")
+    settings = Settings(home=".fast-agent")
     settings._config_file = str(project_dir / "fastagent.config.yaml")
     update_global_settings(settings)
 
@@ -485,15 +485,15 @@ metadata:
     assert resolved.wire_model_name == "overlay-tests/Qwen-Picker"
 
 
-def test_overlay_resolution_uses_config_relative_default_environment_dir_when_cwd_differs(
+def test_overlay_resolution_uses_config_relative_default_home_when_cwd_differs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project_dir = tmp_path / "project"
     project_dir.mkdir()
-    env_dir = project_dir / ".fast-agent"
+    home = project_dir / ".fast-agent"
     _write_overlay(
-        env_dir,
+        home,
         "picker-overlay.yaml",
         """
 name: picker-local
@@ -509,7 +509,7 @@ metadata:
     )
 
     previous_settings = get_settings()
-    settings = Settings(environment_dir=None)
+    settings = Settings(home=None)
     settings._config_file = str(project_dir / "fastagent.config.yaml")
     update_global_settings(settings)
 
@@ -530,9 +530,9 @@ metadata:
 
 @pytest.mark.asyncio
 async def test_overlay_model_switch_reapplies_overlay_max_tokens_defaults(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     _write_overlay(
-        env_dir,
+        home,
         "tiny-local.yaml",
         """
 name: tiny-local
@@ -549,7 +549,7 @@ metadata:
 """.strip(),
     )
     _write_overlay(
-        env_dir,
+        home,
         "big-local.yaml",
         """
 name: big-local
@@ -566,7 +566,7 @@ metadata:
 """.strip(),
     )
 
-    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
         agent = LlmAgent(AgentConfig(name="switcher"))
         await agent.attach_llm(ModelFactory.create_factory("big-local"))
 
@@ -582,9 +582,9 @@ metadata:
 
 
 def test_overlay_secret_ref_resolves_api_key_from_companion_file(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     _write_overlay(
-        env_dir,
+        home,
         "secret-overlay.yaml",
         """
 name: qwen-secret
@@ -596,7 +596,7 @@ connection:
   secret_ref: remote-qwen
 """.strip(),
     )
-    (env_dir / "model-overlays.secrets.yaml").write_text(
+    (home / "model-overlays.secrets.yaml").write_text(
         """
 remote-qwen:
   api_key: secret-token
@@ -604,7 +604,7 @@ remote-qwen:
         encoding="utf-8",
     )
 
-    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
         llm = ModelFactory.create_factory("qwen-secret")(LlmAgent(AgentConfig(name="secret")))
         assert isinstance(llm, OpenResponsesLLM)
         assert llm._base_url() == "https://secret.example/v1"
@@ -612,9 +612,9 @@ remote-qwen:
 
 
 def test_overlay_context_window_survives_missing_max_output_tokens(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     _write_overlay(
-        env_dir,
+        home,
         "llamacpp-qwen.yaml",
         """
 name: llamacpp-qwen
@@ -635,7 +635,7 @@ metadata:
 """.strip(),
     )
 
-    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
         resolved = ModelFactory.resolve_model_spec("llamacpp-qwen")
         assert resolved.context_window == 75264
         assert resolved.max_output_tokens is None
@@ -649,9 +649,9 @@ metadata:
 
 
 def test_overlay_legacy_metadata_default_temperature_is_still_used(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     _write_overlay(
-        env_dir,
+        home,
         "legacy-temp.yaml",
         """
 name: legacy-temp
@@ -667,16 +667,16 @@ metadata:
 """.strip(),
     )
 
-    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
         resolved = ModelFactory.resolve_model_spec("legacy-temp")
         assert resolved.model_params is not None
         assert resolved.model_params.default_temperature == 0.7
 
 
 def test_overlay_numeric_fields_reject_yaml_booleans(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     _write_overlay(
-        env_dir,
+        home,
         "valid-numeric-strings.yaml",
         """
 name: valid-numeric-strings
@@ -694,7 +694,7 @@ metadata:
 """.strip(),
     )
     _write_overlay(
-        env_dir,
+        home,
         "invalid-boolean-numbers.yaml",
         """
 name: invalid-boolean-numbers
@@ -710,8 +710,8 @@ metadata:
 """.strip(),
     )
 
-    with _isolated_overlay_environment(env_dir, cleanup_base=tmp_path):
-        registry = load_model_overlay_registry(start_path=tmp_path, env_dir=env_dir)
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        registry = load_model_overlay_registry(start_path=tmp_path, home=home)
         by_name = registry.by_name()
 
     assert "valid-numeric-strings" in by_name

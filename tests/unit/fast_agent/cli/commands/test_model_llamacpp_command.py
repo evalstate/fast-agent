@@ -155,7 +155,7 @@ def _start_llamacpp_server(
 
 def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
     runner = CliRunner()
     server = _start_llamacpp_server()
@@ -172,8 +172,8 @@ def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: P
                 "import",
                 "--url",
                 server.base_url,
-                "--env",
-                str(env_dir),
+                "--home",
+                str(home),
                 "unsloth/Qwen3.5-9B-GGUF",
                 "--name",
                 "qwen-local",
@@ -198,7 +198,7 @@ def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: P
         "Bearer test-token",
     ]
 
-    overlay_path = env_dir / "model-overlays" / "qwen-local.yaml"
+    overlay_path = home / "model-overlays" / "qwen-local.yaml"
     assert overlay_path.exists()
 
     payload = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
@@ -231,7 +231,7 @@ def test_model_llamacpp_import_tolerates_null_props_params_without_slots_fallbac
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
     runner = CliRunner()
     server = _start_llamacpp_server(null_props_params=True, zero_runtime_context=True)
@@ -246,8 +246,8 @@ def test_model_llamacpp_import_tolerates_null_props_params_without_slots_fallbac
                 "import",
                 "--url",
                 server.base_url,
-                "--env",
-                str(env_dir),
+                "--home",
+                str(home),
                 "unsloth/Qwen3.5-9B-GGUF",
                 "--name",
                 "qwen-local",
@@ -258,7 +258,7 @@ def test_model_llamacpp_import_tolerates_null_props_params_without_slots_fallbac
         server.close()
 
     assert result.exit_code == 0, result.stdout
-    overlay_path = env_dir / "model-overlays" / "qwen-local.yaml"
+    overlay_path = home / "model-overlays" / "qwen-local.yaml"
     payload = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
     assert "max_tokens" not in payload["defaults"]
     assert "temperature" not in payload["defaults"]
@@ -267,7 +267,7 @@ def test_model_llamacpp_import_tolerates_null_props_params_without_slots_fallbac
     assert "Context window: 262144 (catalog fallback; /props reported none)" in result.stdout
     assert "/slots" not in server.state.request_paths
 
-    registry = load_model_overlay_registry(start_path=workspace, env_dir=env_dir)
+    registry = load_model_overlay_registry(start_path=workspace, home=home)
     loaded = registry.resolve_model_string("qwen-local")
     assert loaded is not None
     assert loaded.manifest.connection.base_url == f"{server.base_url}/v1"
@@ -342,7 +342,7 @@ def test_resolve_llamacpp_persisted_auth_trims_new_auth_values() -> None:
 
 def test_model_llamacpp_group_options_apply_before_subcommand(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
     runner = CliRunner()
     server = _start_llamacpp_server()
@@ -356,8 +356,8 @@ def test_model_llamacpp_group_options_apply_before_subcommand(tmp_path: Path) ->
                 "llamacpp",
                 "--url",
                 server.base_url,
-                "--env",
-                str(env_dir),
+                "--home",
+                str(home),
                 "import",
                 "unsloth/Qwen3.5-9B-GGUF",
                 "--name",
@@ -371,7 +371,7 @@ def test_model_llamacpp_group_options_apply_before_subcommand(tmp_path: Path) ->
     assert result.exit_code == 0, result.stdout
     assert server.state.request_paths[:2] == ["/v1/models", "/props"]
 
-    overlay_path = env_dir / "model-overlays" / "group-first.yaml"
+    overlay_path = home / "model-overlays" / "group-first.yaml"
     assert overlay_path.exists()
 
     payload = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
@@ -380,7 +380,7 @@ def test_model_llamacpp_group_options_apply_before_subcommand(tmp_path: Path) ->
 
 def test_model_llamacpp_command_generate_overlay_dry_run_prints_yaml(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
     runner = CliRunner()
     server = _start_llamacpp_server()
@@ -395,8 +395,8 @@ def test_model_llamacpp_command_generate_overlay_dry_run_prints_yaml(tmp_path: P
                 "preview",
                 "--url",
                 f"{server.base_url}/v1",
-                "--env",
-                str(env_dir),
+                "--home",
+                str(home),
                 "meta-llama/Llama-3.2-3B-Instruct",
                 "--name",
                 "llama-local",
@@ -407,7 +407,7 @@ def test_model_llamacpp_command_generate_overlay_dry_run_prints_yaml(tmp_path: P
         server.close()
 
     assert result.exit_code == 0, result.stdout
-    assert not (env_dir / "model-overlays" / "llama-local.yaml").exists()
+    assert not (home / "model-overlays" / "llama-local.yaml").exists()
     assert "Dry run only; no overlay files were written." in result.stdout
     assert "name: llama-local" in result.stdout
     assert "provider: openresponses" in result.stdout
@@ -418,7 +418,7 @@ def test_model_llamacpp_command_generate_overlay_dry_run_prints_yaml(tmp_path: P
 
 def test_model_llamacpp_import_can_include_sampling_defaults(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
     runner = CliRunner()
     server = _start_llamacpp_server()
@@ -433,8 +433,8 @@ def test_model_llamacpp_import_can_include_sampling_defaults(tmp_path: Path) -> 
                 "import",
                 "--url",
                 server.base_url,
-                "--env",
-                str(env_dir),
+                "--home",
+                str(home),
                 "--include-sampling-defaults",
                 "unsloth/Qwen3.5-9B-GGUF",
                 "--name",
@@ -447,7 +447,7 @@ def test_model_llamacpp_import_can_include_sampling_defaults(tmp_path: Path) -> 
 
     assert result.exit_code == 0, result.stdout
     payload = yaml.safe_load(
-        (env_dir / "model-overlays" / "qwen-sampling.yaml").read_text(encoding="utf-8")
+        (home / "model-overlays" / "qwen-sampling.yaml").read_text(encoding="utf-8")
     )
     assert payload["defaults"]["temperature"] == 0.8
     assert payload["defaults"]["top_k"] == 40
@@ -499,7 +499,7 @@ def test_model_llamacpp_command_json_lists_discovered_models(tmp_path: Path) -> 
 
 def test_model_llamacpp_import_json_start_now_still_launches(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
     runner = CliRunner()
     server = _start_llamacpp_server()
@@ -508,14 +508,14 @@ def test_model_llamacpp_import_json_start_now_still_launches(tmp_path: Path, mon
     def _fake_launch(
         *,
         overlay_name: str,
-        env_dir: Path | None,
+        home: Path | None,
         with_shell: bool = False,
         smart: bool = False,
         announce: bool = True,
         execvpe_fn=...,
     ) -> None:
         launched["overlay_name"] = overlay_name
-        launched["env_dir"] = env_dir
+        launched["home"] = home
         launched["with_shell"] = with_shell
         launched["smart"] = smart
         launched["announce"] = announce
@@ -532,8 +532,8 @@ def test_model_llamacpp_import_json_start_now_still_launches(tmp_path: Path, mon
                 "import",
                 "--url",
                 server.base_url,
-                "--env",
-                str(env_dir),
+                "--home",
+                str(home),
                 "--json",
                 "--start-now",
                 "unsloth/Qwen3.5-9B-GGUF",
@@ -550,7 +550,7 @@ def test_model_llamacpp_import_json_start_now_still_launches(tmp_path: Path, mon
     assert payload["overlay_name"] == "json-start-now"
     assert launched == {
         "overlay_name": "json-start-now",
-        "env_dir": env_dir,
+        "home": home,
         "with_shell": False,
         "smart": False,
         "announce": False,
@@ -603,11 +603,11 @@ def test_model_llamacpp_list_command_has_human_readable_output(tmp_path: Path) -
 
 
 def test_build_llamacpp_start_now_argv_includes_env_override(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".custom-env"
+    home = tmp_path / ".custom-env"
 
     argv = model_command._build_llamacpp_start_now_argv(
         overlay_name="llamacpp-qwen",
-        env_dir=env_dir,
+        home=home,
         with_shell=False,
         smart=False,
     )
@@ -619,23 +619,23 @@ def test_build_llamacpp_start_now_argv_includes_env_override(tmp_path: Path) -> 
         "go",
         "--model",
         "llamacpp-qwen",
-        "--env",
-        str(env_dir),
+        "--home",
+        str(home),
     ]
 
 
 def test_launch_llamacpp_overlay_now_execs_go_with_current_python(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".custom-env"
+    home = tmp_path / ".custom-env"
     captured: dict[str, object] = {}
 
     def _fake_execvpe(executable: str, argv: list[str], env: dict[str, str]) -> None:
         captured["executable"] = executable
         captured["argv"] = list(argv)
-        captured["env_dir"] = env.get("ENVIRONMENT_DIR")
+        captured["home"] = env.get("FAST_AGENT_HOME")
 
     model_command._launch_llamacpp_overlay_now(
         overlay_name="llamacpp-qwen",
-        env_dir=env_dir,
+        home=home,
         execvpe_fn=_fake_execvpe,
     )
 
@@ -647,17 +647,17 @@ def test_launch_llamacpp_overlay_now_execs_go_with_current_python(tmp_path: Path
         "go",
         "--model",
         "llamacpp-qwen",
-        "--env",
-        str(env_dir),
+        "--home",
+        str(home),
     ]
 
 
 def test_build_llamacpp_start_now_argv_with_shell_forces_x(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".custom-env"
+    home = tmp_path / ".custom-env"
 
     argv = model_command._build_llamacpp_start_now_argv(
         overlay_name="llamacpp-qwen",
-        env_dir=env_dir,
+        home=home,
         with_shell=True,
         smart=False,
     )
@@ -670,23 +670,23 @@ def test_build_llamacpp_start_now_argv_with_shell_forces_x(tmp_path: Path) -> No
         "--model",
         "llamacpp-qwen",
         "-x",
-        "--env",
-        str(env_dir),
+        "--home",
+        str(home),
     ]
 
 
 def test_launch_llamacpp_overlay_now_with_shell_execs_go_x(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".custom-env"
+    home = tmp_path / ".custom-env"
     captured: dict[str, object] = {}
 
     def _fake_execvpe(executable: str, argv: list[str], env: dict[str, str]) -> None:
         captured["executable"] = executable
         captured["argv"] = list(argv)
-        captured["env_dir"] = env.get("ENVIRONMENT_DIR")
+        captured["home"] = env.get("FAST_AGENT_HOME")
 
     model_command._launch_llamacpp_overlay_now(
         overlay_name="llamacpp-qwen",
-        env_dir=env_dir,
+        home=home,
         with_shell=True,
         execvpe_fn=_fake_execvpe,
     )
@@ -700,17 +700,17 @@ def test_launch_llamacpp_overlay_now_with_shell_execs_go_x(tmp_path: Path) -> No
         "--model",
         "llamacpp-qwen",
         "-x",
-        "--env",
-        str(env_dir),
+        "--home",
+        str(home),
     ]
 
 
 def test_build_llamacpp_start_now_argv_smart_uses_smart_and_shell(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".custom-env"
+    home = tmp_path / ".custom-env"
 
     argv = model_command._build_llamacpp_start_now_argv(
         overlay_name="llamacpp-qwen",
-        env_dir=env_dir,
+        home=home,
         with_shell=True,
         smart=True,
     )
@@ -724,8 +724,8 @@ def test_build_llamacpp_start_now_argv_smart_uses_smart_and_shell(tmp_path: Path
         "llamacpp-qwen",
         "--smart",
         "-x",
-        "--env",
-        str(env_dir),
+        "--home",
+        str(home),
     ]
 
 
@@ -733,7 +733,7 @@ def test_model_llamacpp_import_start_now_smart_launches_smart_shell(
     tmp_path: Path, monkeypatch
 ) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
     runner = CliRunner()
     server = _start_llamacpp_server()
@@ -742,14 +742,14 @@ def test_model_llamacpp_import_start_now_smart_launches_smart_shell(
     def _fake_launch(
         *,
         overlay_name: str,
-        env_dir: Path | None,
+        home: Path | None,
         with_shell: bool = False,
         smart: bool = False,
         announce: bool = True,
         execvpe_fn=...,
     ) -> None:
         launched["overlay_name"] = overlay_name
-        launched["env_dir"] = env_dir
+        launched["home"] = home
         launched["with_shell"] = with_shell
         launched["smart"] = smart
         launched["announce"] = announce
@@ -766,8 +766,8 @@ def test_model_llamacpp_import_start_now_smart_launches_smart_shell(
                 "import",
                 "--url",
                 server.base_url,
-                "--env",
-                str(env_dir),
+                "--home",
+                str(home),
                 "--start-now",
                 "--smart",
                 "unsloth/Qwen3.5-9B-GGUF",
@@ -782,7 +782,7 @@ def test_model_llamacpp_import_start_now_smart_launches_smart_shell(
     assert result.exit_code == 0, result.stdout
     assert launched == {
         "overlay_name": "smart-start-now",
-        "env_dir": env_dir,
+        "home": home,
         "with_shell": True,
         "smart": True,
         "announce": True,
@@ -793,7 +793,7 @@ def test_model_llamacpp_reuses_existing_generated_overlay_for_unnamed_repeat_imp
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
     runner = CliRunner()
     server = _start_llamacpp_server()
@@ -808,8 +808,8 @@ def test_model_llamacpp_reuses_existing_generated_overlay_for_unnamed_repeat_imp
                 "import",
                 "--url",
                 server.base_url,
-                "--env",
-                str(env_dir),
+                "--home",
+                str(home),
                 "unsloth/Qwen3.5-9B-GGUF",
             ],
         )
@@ -820,8 +820,8 @@ def test_model_llamacpp_reuses_existing_generated_overlay_for_unnamed_repeat_imp
                 "import",
                 "--url",
                 server.base_url,
-                "--env",
-                str(env_dir),
+                "--home",
+                str(home),
                 "unsloth/Qwen3.5-9B-GGUF",
             ],
         )
@@ -831,7 +831,7 @@ def test_model_llamacpp_reuses_existing_generated_overlay_for_unnamed_repeat_imp
 
     assert first.exit_code == 0, first.stdout
     assert second.exit_code == 0, second.stdout
-    overlays_dir = env_dir / "model-overlays"
+    overlays_dir = home / "model-overlays"
     overlay_files = sorted(path.name for path in overlays_dir.glob("*.yaml"))
     assert overlay_files == ["llamacpp-qwen3-5-9b-gguf.yaml"]
     assert "Overlay token: llamacpp-qwen3-5-9b-gguf" in second.stdout
@@ -839,7 +839,7 @@ def test_model_llamacpp_reuses_existing_generated_overlay_for_unnamed_repeat_imp
 
 def test_model_llamacpp_unnamed_import_does_not_reuse_named_overlay(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
     runner = CliRunner()
     server = _start_llamacpp_server()
@@ -854,8 +854,8 @@ def test_model_llamacpp_unnamed_import_does_not_reuse_named_overlay(tmp_path: Pa
                 "import",
                 "--url",
                 server.base_url,
-                "--env",
-                str(env_dir),
+                "--home",
+                str(home),
                 "unsloth/Qwen3.5-9B-GGUF",
                 "--name",
                 "qwen-dev",
@@ -868,8 +868,8 @@ def test_model_llamacpp_unnamed_import_does_not_reuse_named_overlay(tmp_path: Pa
                 "import",
                 "--url",
                 server.base_url,
-                "--env",
-                str(env_dir),
+                "--home",
+                str(home),
                 "unsloth/Qwen3.5-9B-GGUF",
             ],
         )
@@ -879,7 +879,7 @@ def test_model_llamacpp_unnamed_import_does_not_reuse_named_overlay(tmp_path: Pa
 
     assert named.exit_code == 0, named.stdout
     assert unnamed.exit_code == 0, unnamed.stdout
-    overlays_dir = env_dir / "model-overlays"
+    overlays_dir = home / "model-overlays"
     overlay_files = sorted(path.name for path in overlays_dir.glob("*.yaml"))
     assert overlay_files == ["llamacpp-qwen3-5-9b-gguf.yaml", "qwen-dev.yaml"]
     assert "Overlay token: llamacpp-qwen3-5-9b-gguf" in unnamed.stdout
@@ -887,7 +887,7 @@ def test_model_llamacpp_unnamed_import_does_not_reuse_named_overlay(tmp_path: Pa
 
 def test_model_llamacpp_reused_generated_overlay_preserves_existing_auth(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
     runner = CliRunner()
     server = _start_llamacpp_server()
@@ -904,8 +904,8 @@ def test_model_llamacpp_reused_generated_overlay_preserves_existing_auth(tmp_pat
                 "import",
                 "--url",
                 server.base_url,
-                "--env",
-                str(env_dir),
+                "--home",
+                str(home),
                 "unsloth/Qwen3.5-9B-GGUF",
                 "--auth",
                 "env",
@@ -920,8 +920,8 @@ def test_model_llamacpp_reused_generated_overlay_preserves_existing_auth(tmp_pat
                 "import",
                 "--url",
                 server.base_url,
-                "--env",
-                str(env_dir),
+                "--home",
+                str(home),
                 "unsloth/Qwen3.5-9B-GGUF",
             ],
         )
@@ -935,7 +935,7 @@ def test_model_llamacpp_reused_generated_overlay_preserves_existing_auth(tmp_pat
 
     assert first.exit_code == 0, first.stdout
     assert second.exit_code == 0, second.stdout
-    overlay_path = env_dir / "model-overlays" / "llamacpp-qwen3-5-9b-gguf.yaml"
+    overlay_path = home / "model-overlays" / "llamacpp-qwen3-5-9b-gguf.yaml"
     payload = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
     assert payload["connection"]["auth"] == "env"
     assert payload["connection"]["api_key_env"] == "LLAMA_CPP_TOKEN"

@@ -36,6 +36,7 @@ from fast_agent.ui.command_payloads import (
     CommandsCommand,
     CompactCommand,
     CreateSessionCommand,
+    EnvironmentCommand,
     ExportSessionCommand,
     ForkSessionCommand,
     HashAgentCommand,
@@ -160,6 +161,7 @@ _SIMPLE_SLASH_FACTORIES: dict[str, _NoArgumentCommandFactory] = {
     "markdown": ShowMarkdownCommand,
     "reload": ReloadAgentsCommand,
     "mcpstatus": ShowMcpStatusCommand,
+    "environment": EnvironmentCommand,
     "tools": ListToolsCommand,
     "prompts": ListPromptsCommand,
     "exit": lambda: "EXIT",
@@ -743,8 +745,15 @@ def _parse_slash_input(cmd_line: str) -> str | CommandPayload:
 
 
 def _parse_shell_input(cmd_line: str) -> ShellCommand:
+    if cmd_line.startswith("!!"):
+        command = cmd_line[2:].strip()
+        return ShellCommand(
+            command=command or default_shell_command(),
+            local=True,
+            interactive=not command,
+        )
     command = cmd_line[1:].strip()
-    return ShellCommand(command=command or default_shell_command())
+    return ShellCommand(command=command or default_shell_command(), interactive=not command)
 
 
 def parse_special_input(text: str) -> str | CommandPayload:

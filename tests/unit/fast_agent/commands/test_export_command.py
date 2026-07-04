@@ -63,9 +63,9 @@ def _write_session_fixture(root: Path, *, session_id: str) -> None:
 
 
 def test_export_command_exports_latest_session(tmp_path: Path, monkeypatch) -> None:
-    env_dir = tmp_path / "env"
+    home = tmp_path / "env"
     session_id = "2604201303-x5MNlH"
-    _write_session_fixture(env_dir, session_id=session_id)
+    _write_session_fixture(home, session_id=session_id)
     output_path = tmp_path / "cli-trace.jsonl"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
@@ -77,8 +77,8 @@ def test_export_command_exports_latest_session(tmp_path: Path, monkeypatch) -> N
     result = runner.invoke(
         app,
         [
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "export",
             "latest",
             "--output",
@@ -99,9 +99,9 @@ def test_export_command_exports_latest_session(tmp_path: Path, monkeypatch) -> N
 
 
 def test_export_command_implicit_target_uses_latest_session(tmp_path: Path, monkeypatch) -> None:
-    env_dir = tmp_path / "env"
+    home = tmp_path / "env"
     session_id = "2604201303-x5MNlH"
-    _write_session_fixture(env_dir, session_id=session_id)
+    _write_session_fixture(home, session_id=session_id)
     output_path = tmp_path / "implicit-trace.jsonl"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
@@ -113,8 +113,8 @@ def test_export_command_implicit_target_uses_latest_session(tmp_path: Path, monk
     result = runner.invoke(
         app,
         [
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "export",
             "--output",
             str(output_path),
@@ -134,8 +134,8 @@ def test_export_command_implicit_target_uses_latest_session(tmp_path: Path, monk
 
 
 def test_export_command_lists_sessions(tmp_path: Path, monkeypatch) -> None:
-    env_dir = tmp_path / "env"
-    _write_session_fixture(env_dir, session_id="2604201303-x5MNlH")
+    home = tmp_path / "env"
+    _write_session_fixture(home, session_id="2604201303-x5MNlH")
     monkeypatch.setattr(
         "fast_agent.session.get_session_manager",
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected global manager")),
@@ -145,8 +145,8 @@ def test_export_command_lists_sessions(tmp_path: Path, monkeypatch) -> None:
     result = runner.invoke(
         app,
         [
-            "--env",
-            str(env_dir),
+            "--home",
+            str(home),
             "export",
             "--list",
         ],

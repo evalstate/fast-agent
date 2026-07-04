@@ -37,7 +37,7 @@ class SessionManagerCommandRuntime:
 
             self._resolved_manager = SessionManager(
                 cwd=self._manager_cwd(),
-                environment_override=self.settings.environment_dir,
+                home_override=self.settings.home,
             )
             return self._resolved_manager
 

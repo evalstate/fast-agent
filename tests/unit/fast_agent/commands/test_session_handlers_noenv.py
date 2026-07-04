@@ -120,12 +120,12 @@ class _ResumeAgentProvider:
         return {}
 
 
-def _build_noenv_context() -> CommandContext:
+def _build_no_home_context() -> CommandContext:
     return CommandContext(
         agent_provider=_StubAgentProvider(),
         current_agent_name="agent",
         io=_StubIO(),
-        noenv=True,
+        no_home=True,
     )
 
 
@@ -162,9 +162,9 @@ def _assistant_message(text: str) -> PromptMessageExtended:
 
 
 @pytest.mark.asyncio
-async def test_noenv_list_sessions_returns_disabled_message() -> None:
+async def test_no_home_list_sessions_returns_disabled_message() -> None:
     outcome = await session_handlers.handle_list_sessions(
-        _build_noenv_context(),
+        _build_no_home_context(),
         show_help=True,
     )
 
@@ -174,9 +174,9 @@ async def test_noenv_list_sessions_returns_disabled_message() -> None:
 
 
 @pytest.mark.asyncio
-async def test_noenv_resume_session_returns_disabled_message() -> None:
+async def test_no_home_resume_session_returns_disabled_message() -> None:
     outcome = await session_handlers.handle_resume_session(
-        _build_noenv_context(),
+        _build_no_home_context(),
         agent_name="agent",
         session_id="latest",
     )

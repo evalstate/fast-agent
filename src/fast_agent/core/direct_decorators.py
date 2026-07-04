@@ -203,6 +203,8 @@ def _agent_config_from_decorator(
     save_trajectory: bool,
     human_input: bool,
     default: bool,
+    shell: bool,
+    cwd: Path | None,
     request_params: RequestParams | None,
     extra_kwargs: dict[str, Any],
 ) -> AgentConfig:
@@ -219,6 +221,8 @@ def _agent_config_from_decorator(
         save_trajectory=save_trajectory,
         human_input=human_input,
         default=default,
+        shell=shell,
+        cwd=cwd,
         elicitation_handler=extra_kwargs.get("elicitation_handler"),
         api_key=extra_kwargs.get("api_key"),
         function_tools=extra_kwargs.get("function_tools"),
@@ -319,6 +323,8 @@ def _decorator_impl(
     save_trajectory: bool = False,
     request_params: RequestParams | None = None,
     human_input: bool = False,
+    shell: bool = False,
+    cwd: Path | None = None,
     default: bool = False,
     tools: dict[str, list[str]] | None = None,
     resources: dict[str, list[str]] | None = None,
@@ -356,6 +362,8 @@ def _decorator_impl(
             use_history=use_history,
             save_trajectory=save_trajectory,
             human_input=human_input,
+            shell=shell,
+            cwd=cwd,
             default=default,
             request_params=request_params,
             extra_kwargs=extra_kwargs,
@@ -449,6 +457,8 @@ class DecoratorMixin:
         save_trajectory: bool = False,
         request_params: RequestParams | None = None,
         human_input: bool = False,
+        shell: bool = False,
+        cwd: Path | None = None,
         default: bool = False,
         elicitation_handler: ElicitationFnT | None = None,
         api_key: str | None = None,
@@ -477,6 +487,8 @@ class DecoratorMixin:
             use_history: Whether to maintain conversation history
             request_params: Additional request parameters for the LLM
             human_input: Whether to enable human input capabilities
+            shell: Whether to enable the execute shell tool
+            cwd: Optional working directory for shell commands
             default: Whether to mark this as the default agent
             elicitation_handler: Custom elicitation handler function (ElicitationFnT)
             api_key: Optional API key for the LLM provider
@@ -508,6 +520,8 @@ class DecoratorMixin:
                 save_trajectory=save_trajectory,
                 request_params=request_params,
                 human_input=human_input,
+                shell=shell,
+                cwd=cwd,
                 default=default,
                 elicitation_handler=elicitation_handler,
                 tools=tools,
@@ -544,6 +558,8 @@ class DecoratorMixin:
         save_trajectory: bool = False,
         request_params: RequestParams | None = None,
         human_input: bool = False,
+        shell: bool = False,
+        cwd: Path | None = None,
         default: bool = False,
         elicitation_handler: ElicitationFnT | None = None,
         api_key: str | None = None,
@@ -580,6 +596,8 @@ class DecoratorMixin:
                 save_trajectory=save_trajectory,
                 request_params=request_params,
                 human_input=human_input,
+                shell=shell,
+                cwd=cwd,
                 default=default,
                 elicitation_handler=elicitation_handler,
                 tools=tools,

@@ -123,7 +123,7 @@ fast-agent quickstart workflow  # create "building effective agents" examples
 ```
 
 For packaged starter agents, use `fast-agent go --pack <name> --model <model>`.
-This installs the pack into the selected fast-agent environment if needed, then
+This installs the pack into the selected fast-agent home if needed, then
 starts `go` normally. `--model` is a fallback for cards without an explicit
 model setting; a model declared directly in an AgentCard still wins.
 
@@ -670,7 +670,7 @@ mcp:
 ### Secrets File
 
 > [!TIP]
-> Put `fast-agent.secrets.yaml` alongside `fast-agent.yaml` in your active fast-agent home. Select a different home with `--env` or `FAST_AGENT_HOME`.
+> Put `fast-agent.secrets.yaml` alongside `fast-agent.yaml` in your active fast-agent home. Select a different home with `--home` or `FAST_AGENT_HOME`; select a different workspace with `--workspace` and the home defaults to `<workspace>/.fast-agent`.
 
 ### Interactive Shell
 

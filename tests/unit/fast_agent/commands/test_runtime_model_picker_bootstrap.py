@@ -88,8 +88,8 @@ def _make_request(
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
-        noenv=False,
+        home=None,
+        no_home=False,
         force_smart=False,
         shell_runtime=False,
         no_shell=False,
@@ -550,7 +550,7 @@ async def test_select_model_from_picker_can_import_llamacpp_overlay(monkeypatch)
 
     assert selected == "llamacpp-qwen"
     assert isinstance(captured_import_kwargs["start_path"], Path)
-    assert captured_import_kwargs["env_dir"] is not None
+    assert captured_import_kwargs["home"] is not None
 
 
 def test_normalize_generic_model_spec_adds_generic_prefix_when_missing() -> None:
@@ -619,8 +619,8 @@ def test_resolve_model_picker_initial_selection_uses_vertex_group_for_anthropic_
 
 
 def test_resolve_model_picker_initial_selection_preserves_overlay_alias(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    overlays_dir = env_dir / "model-overlays"
+    home = tmp_path / ".fast-agent"
+    overlays_dir = home / "model-overlays"
     overlays_dir.mkdir(parents=True)
     (overlays_dir / "haikutiny.yaml").write_text(
         (
@@ -635,12 +635,12 @@ def test_resolve_model_picker_initial_selection_preserves_overlay_alias(tmp_path
     )
 
     previous_cwd = Path.cwd()
-    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    previous_home = os.environ.pop("FAST_AGENT_HOME", None)
     try:
         os.chdir(tmp_path)
         initial_selection = _resolve_model_picker_initial_selection(
             settings=Settings(
-                environment_dir=str(env_dir),
+                home=str(home),
                 model_references={
                     "system": {
                         "last_used": "haikutiny",
@@ -650,8 +650,8 @@ def test_resolve_model_picker_initial_selection_preserves_overlay_alias(tmp_path
         )
     finally:
         os.chdir(previous_cwd)
-        if previous_env_dir is not None:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+        if previous_home is not None:
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
     assert initial_selection.provider == "overlays"
     assert initial_selection.model_spec == "haikutiny"
@@ -662,23 +662,23 @@ def test_resolve_model_picker_initial_selection_uses_config_relative_overlay_dir
 ) -> None:
     workspace = tmp_path / "workspace"
     project_dir = workspace / "project"
-    env_dir = project_dir / ".fast-agent"
+    home = project_dir / ".fast-agent"
     config_path = project_dir / "fast-agent.yaml"
-    overlays_dir = env_dir / "model-overlays"
+    overlays_dir = home / "model-overlays"
     overlays_dir.mkdir(parents=True)
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text("environment_dir: .fast-agent\n", encoding="utf-8")
+    config_path.write_text("home: .fast-agent\n", encoding="utf-8")
     (overlays_dir / "haikutiny.yaml").write_text(
         ("name: haikutiny\nprovider: anthropic\nmodel: claude-haiku-4-5\n"),
         encoding="utf-8",
     )
 
     previous_cwd = Path.cwd()
-    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    previous_home = os.environ.pop("FAST_AGENT_HOME", None)
     try:
         os.chdir(tmp_path)
         settings = Settings(
-            environment_dir=".fast-agent",
+            home=".fast-agent",
             model_references={"system": {"last_used": "haikutiny"}},
         )
         settings._config_file = str(config_path.resolve())
@@ -686,8 +686,8 @@ def test_resolve_model_picker_initial_selection_uses_config_relative_overlay_dir
         initial_selection = _resolve_model_picker_initial_selection(settings=settings)
     finally:
         os.chdir(previous_cwd)
-        if previous_env_dir is not None:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+        if previous_home is not None:
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
     assert initial_selection.provider == "overlays"
     assert initial_selection.model_spec == "haikutiny"
@@ -697,17 +697,17 @@ def test_load_request_settings_refreshes_stale_cached_settings(tmp_path: Path) -
     from fast_agent import config as config_module
 
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
-    env_dir.mkdir(parents=True)
-    (env_dir / "fast-agent.yaml").write_text(
+    home.mkdir(parents=True)
+    (home / "fast-agent.yaml").write_text(
         "model_references:\n  system:\n    last_used: gpt-4.1-mini\n",
         encoding="utf-8",
     )
 
     old_settings = config_module._settings
     previous_cwd = Path.cwd()
-    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    previous_home = os.environ.pop("FAST_AGENT_HOME", None)
     try:
         config_module._settings = Settings(
             model_references={"system": {"last_used": "claude-haiku-4-5"}}
@@ -716,12 +716,12 @@ def test_load_request_settings_refreshes_stale_cached_settings(tmp_path: Path) -
         settings = _load_request_settings(_make_request())
     finally:
         os.chdir(previous_cwd)
-        if previous_env_dir is not None:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+        if previous_home is not None:
+            os.environ["FAST_AGENT_HOME"] = previous_home
         config_module._settings = old_settings
 
     assert settings.model_references["system"]["last_used"] == "gpt-4.1-mini"
-    assert settings._config_file == str((env_dir / "fast-agent.yaml").resolve())
+    assert settings._config_file == str((home / "fast-agent.yaml").resolve())
 
 
 def test_agent_config_defines_startup_model_normalizes_model_value() -> None:
@@ -766,15 +766,15 @@ def test_split_requested_models_normalizes_comma_separated_values() -> None:
 
 def test_persist_model_picker_last_used_selection_writes_env_overlay(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
-    env_dir.mkdir(parents=True)
+    home = workspace / ".fast-agent"
+    home.mkdir(parents=True)
 
     previous_cwd = Path.cwd()
     try:
         os.chdir(workspace)
         request = _make_request()
-        request.environment_dir = env_dir
-        settings = Settings(environment_dir=str(env_dir))
+        request.home = home
+        settings = Settings(home=str(home))
 
         persisted = _persist_model_picker_last_used_selection(
             request,
@@ -786,25 +786,25 @@ def test_persist_model_picker_last_used_selection_writes_env_overlay(tmp_path: P
 
     assert persisted is True
 
-    with open(env_dir / "fast-agent.yaml", "r", encoding="utf-8") as handle:
+    with open(home / "fast-agent.yaml", "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
     assert settings.model_references["system"]["last_used"] == "gpt-4.1-mini"
 
 
-def test_persist_model_picker_last_used_selection_uses_request_environment_dir(
+def test_persist_model_picker_last_used_selection_uses_request_home(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".custom-env"
+    home = workspace / ".custom-env"
     workspace.mkdir(parents=True)
 
     previous_cwd = Path.cwd()
     try:
         os.chdir(workspace)
         request = _make_request()
-        request.environment_dir = env_dir
+        request.home = home
         settings = Settings()
 
         persisted = _persist_model_picker_last_used_selection(
@@ -817,7 +817,7 @@ def test_persist_model_picker_last_used_selection_uses_request_environment_dir(
 
     assert persisted is True
 
-    with open(env_dir / "fast-agent.yaml", "r", encoding="utf-8") as handle:
+    with open(home / "fast-agent.yaml", "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
@@ -833,7 +833,7 @@ def test_persist_model_picker_last_used_selection_uses_runtime_cwd_env_root(
     (workspace / "fast-agent.yaml").write_text("default_model: null\n", encoding="utf-8")
 
     previous_cwd = Path.cwd()
-    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    previous_home = os.environ.pop("FAST_AGENT_HOME", None)
     try:
         os.chdir(nested)
         request = _make_request()
@@ -846,8 +846,8 @@ def test_persist_model_picker_last_used_selection_uses_runtime_cwd_env_root(
         )
     finally:
         os.chdir(previous_cwd)
-        if previous_env_dir is not None:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+        if previous_home is not None:
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
     assert persisted is True
     assert not (workspace / ".fast-agent" / "fast-agent.yaml").exists()
@@ -862,15 +862,15 @@ def test_persist_model_picker_last_used_selection_creates_env_overlay_on_first_r
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     previous_cwd = Path.cwd()
     try:
         os.chdir(workspace)
         request = _make_request()
-        request.environment_dir = env_dir
-        settings = Settings(environment_dir=str(env_dir))
+        request.home = home
+        settings = Settings(home=str(home))
 
         persisted = _persist_model_picker_last_used_selection(
             request,
@@ -882,7 +882,7 @@ def test_persist_model_picker_last_used_selection_creates_env_overlay_on_first_r
 
     assert persisted is True
 
-    with open(env_dir / "fast-agent.yaml", "r", encoding="utf-8") as handle:
+    with open(home / "fast-agent.yaml", "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
@@ -892,17 +892,17 @@ def test_persist_model_picker_last_used_selection_updates_loaded_env_overlay_in_
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
-    config_path = env_dir / "fast-agent.yaml"
+    home = workspace / ".fast-agent"
+    config_path = home / "fast-agent.yaml"
     workspace.mkdir(parents=True)
-    env_dir.mkdir(parents=True)
+    home.mkdir(parents=True)
     config_path.write_text(
         "model_references:\n  system:\n    last_used: google.gemini-3.1-pro-preview\n",
         encoding="utf-8",
     )
 
     previous_cwd = Path.cwd()
-    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    previous_home = os.environ.pop("FAST_AGENT_HOME", None)
     try:
         os.chdir(workspace)
         request = _make_request()
@@ -915,11 +915,11 @@ def test_persist_model_picker_last_used_selection_updates_loaded_env_overlay_in_
         )
     finally:
         os.chdir(previous_cwd)
-        if previous_env_dir is not None:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+        if previous_home is not None:
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
     assert persisted is True
-    assert not (env_dir / ".fast-agent" / "fast-agent.yaml").exists()
+    assert not (home / ".fast-agent" / "fast-agent.yaml").exists()
 
     with open(config_path, "r", encoding="utf-8") as handle:
         saved = yaml.safe_load(handle)
@@ -927,18 +927,18 @@ def test_persist_model_picker_last_used_selection_updates_loaded_env_overlay_in_
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
 
 
-def test_persist_model_picker_last_used_selection_respects_noenv(tmp_path: Path) -> None:
+def test_persist_model_picker_last_used_selection_respects_no_home(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     previous_cwd = Path.cwd()
     try:
         os.chdir(workspace)
         request = _make_request()
-        request.environment_dir = env_dir
-        request.noenv = True
-        settings = Settings(environment_dir=str(env_dir))
+        request.home = home
+        request.no_home = True
+        settings = Settings(home=str(home))
 
         persisted = _persist_model_picker_last_used_selection(
             request,
@@ -949,7 +949,7 @@ def test_persist_model_picker_last_used_selection_respects_noenv(tmp_path: Path)
         os.chdir(previous_cwd)
 
     assert persisted is False
-    assert not (env_dir / "fast-agent.yaml").exists()
+    assert not (home / "fast-agent.yaml").exists()
 
 
 def test_persist_model_picker_last_used_selection_writes_explicit_config_file(
@@ -965,7 +965,7 @@ def test_persist_model_picker_last_used_selection_writes_explicit_config_file(
 
     request = _make_request(config_path=str(config_path))
     previous_cwd = Path.cwd()
-    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    previous_home = os.environ.pop("FAST_AGENT_HOME", None)
     try:
         os.chdir(workspace)
         settings = _load_request_settings(request)
@@ -977,8 +977,8 @@ def test_persist_model_picker_last_used_selection_writes_explicit_config_file(
         reloaded = _load_request_settings(request)
     finally:
         os.chdir(previous_cwd)
-        if previous_env_dir is not None:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+        if previous_home is not None:
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
     assert persisted is True
     assert not (workspace / ".fast-agent" / "fast-agent.yaml").exists()
@@ -1017,7 +1017,7 @@ async def test_run_agent_request_persists_and_reloads_last_used_for_shell_mode(
 
     old_settings = config_module._settings
     previous_cwd = Path.cwd()
-    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    previous_home = os.environ.pop("FAST_AGENT_HOME", None)
     try:
         config_module._settings = Settings(
             model_references={"system": {"last_used": "claude-haiku-4-5"}}
@@ -1038,8 +1038,8 @@ async def test_run_agent_request_persists_and_reloads_last_used_for_shell_mode(
         settings = _load_request_settings(_make_request())
     finally:
         os.chdir(previous_cwd)
-        if previous_env_dir is not None:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+        if previous_home is not None:
+            os.environ["FAST_AGENT_HOME"] = previous_home
         config_module._settings = old_settings
 
     config_path = workspace / ".fast-agent" / "fast-agent.yaml"
@@ -1063,9 +1063,9 @@ async def test_run_agent_request_uses_last_used_for_noninteractive_startup(
     from fast_agent import config as config_module
 
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".cdx"
-    env_dir.mkdir(parents=True)
-    (env_dir / "fast-agent.yaml").write_text(
+    home = workspace / ".cdx"
+    home.mkdir(parents=True)
+    (home / "fast-agent.yaml").write_text(
         "default_model: null\nmodel_references:\n  system:\n    last_used: claude-haiku-4-5\n",
         encoding="utf-8",
     )
@@ -1073,7 +1073,7 @@ async def test_run_agent_request_uses_last_used_for_noninteractive_startup(
     request = _make_request()
     request.mode = "serve"
     request.transport = "acp"
-    request.environment_dir = env_dir
+    request.home = home
 
     class _AbortFastAgent:
         def __init__(self, *args, **kwargs) -> None:
@@ -1082,11 +1082,11 @@ async def test_run_agent_request_uses_last_used_for_noninteractive_startup(
 
     old_settings = config_module._settings
     previous_cwd = Path.cwd()
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    previous_home = os.environ.get("FAST_AGENT_HOME")
     try:
         config_module._settings = None
         os.chdir(workspace)
-        os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+        os.environ["FAST_AGENT_HOME"] = str(home)
         monkeypatch.setattr("sys.stdin.isatty", lambda: False)
         monkeypatch.setattr("sys.stdout.isatty", lambda: False)
         monkeypatch.setattr(fast_agent, "FastAgent", _AbortFastAgent)
@@ -1095,10 +1095,10 @@ async def test_run_agent_request_uses_last_used_for_noninteractive_startup(
             await run_agent_request(request)
     finally:
         os.chdir(previous_cwd)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
         config_module._settings = old_settings
 
     assert request.model == "claude-haiku-4-5"

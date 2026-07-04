@@ -130,7 +130,7 @@ async def handle_list_tools(ctx: CommandContext, *, agent_name: str) -> CommandO
     content.append("\n\n")
 
     if tools_result.tools:
-        content.append("MCP / local tools", style="bold")
+        content.append("fast-agent managed tools", style="bold")
         content.append("\n\n")
 
         for index, summary in enumerate(summaries, 1):

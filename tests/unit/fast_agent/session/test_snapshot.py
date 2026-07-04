@@ -267,7 +267,7 @@ def test_session_snapshot_v2_round_trips_unchanged() -> None:
 def test_load_session_rewrites_legacy_file_as_v2_snapshot(tmp_path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session_id = "2604141705-AbCd12"
@@ -326,7 +326,7 @@ def test_malformed_legacy_fields_warn_but_still_synthesize() -> None:
 def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_path: Path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session(
@@ -487,7 +487,7 @@ def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_pa
 def test_capture_session_snapshot_preserves_existing_v2_fallback_values(tmp_path: Path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -562,7 +562,7 @@ def test_capture_session_snapshot_tracks_started_and_current_git_commits(
 
     manager = SessionManager(
         cwd=workspace,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session(metadata={"last_history_by_agent": {"foo": "history_foo.json"}})
@@ -624,7 +624,7 @@ def test_capture_session_snapshot_omits_git_when_config_disabled(tmp_path: Path)
 
     manager = SessionManager(
         cwd=workspace,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session(metadata={"last_history_by_agent": {"foo": "history_foo.json"}})
@@ -656,7 +656,7 @@ def test_capture_session_snapshot_omits_git_when_config_disabled(tmp_path: Path)
 def test_capture_session_snapshot_prefers_explicit_resolved_prompts(tmp_path: Path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -696,7 +696,7 @@ def test_capture_session_snapshot_prefers_explicit_resolved_prompts(tmp_path: Pa
 async def test_save_history_writes_captured_snapshot_payload(tmp_path: Path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -751,7 +751,7 @@ async def test_save_history_writes_captured_snapshot_payload(tmp_path: Path) -> 
 async def test_save_history_persists_explicit_resolved_prompts(tmp_path: Path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -791,7 +791,7 @@ async def test_save_history_tracks_most_recent_active_agent_across_known_agents(
 ) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()

@@ -1,7 +1,7 @@
 """
 Session management for fast-agent.
 
-Provides automatic saving and loading of conversation sessions in the fast-agent environment.
+Provides automatic saving and loading of conversation sessions in the fast-agent home.
 """
 
 from __future__ import annotations
@@ -23,9 +23,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
+from fast_agent.constants import DEFAULT_HOME_DIR
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 from fast_agent.session.snapshot import (
     SessionSnapshot,
     capture_session_snapshot,
@@ -61,8 +61,8 @@ HISTORY_SUFFIX = ".json"
 HISTORY_PREVIOUS_SUFFIX = "_previous.json"
 
 
-def _normalized_environment_override(cwd: pathlib.Path) -> str | None:
-    """Return the active environment override as an absolute path string when set."""
+def _normalized_home_override(cwd: pathlib.Path) -> str | None:
+    """Return the active fast-agent home override as an absolute path string when set."""
     from fast_agent.home import resolve_fast_agent_home
 
     home = resolve_fast_agent_home(cwd=cwd)
@@ -71,32 +71,32 @@ def _normalized_environment_override(cwd: pathlib.Path) -> str | None:
     return str(home.path)
 
 
-def _session_environment_override(
+def _session_home_override(
     *,
     cwd: pathlib.Path,
     explicit_cwd: bool,
-    environment_override: str | pathlib.Path | None,
+    home_override: str | pathlib.Path | None,
     respect_env_override: bool,
 ) -> str | pathlib.Path | None:
-    if environment_override is not None or not respect_env_override:
-        return environment_override
+    if home_override is not None or not respect_env_override:
+        return home_override
 
     from fast_agent.config import get_settings
 
     settings = get_settings()
-    if settings.environment_dir is not None:
-        return settings.environment_dir
+    if settings.home is not None:
+        return settings.home
 
-    env_override = _normalized_environment_override(cwd)
-    if env_override is not None:
-        return env_override
+    home_override = _normalized_home_override(cwd)
+    if home_override is not None:
+        return home_override
 
     if (
         explicit_cwd
-        and settings.environment_dir is None
+        and settings.home is None
         and settings._fast_agent_home_source == "default"
     ):
-        return DEFAULT_ENVIRONMENT_DIR
+        return DEFAULT_HOME_DIR
 
     return None
 
@@ -619,27 +619,27 @@ class Session:
 
 
 class SessionManager:
-    """Manages conversation sessions stored in the fast-agent environment."""
+    """Manages conversation sessions stored in the fast-agent home."""
 
     def __init__(
         self,
         *,
         cwd: pathlib.Path | None = None,
-        environment_override: str | pathlib.Path | None = None,
+        home_override: str | pathlib.Path | None = None,
         respect_env_override: bool = True,
     ) -> None:
         """Initialize session manager."""
         explicit_cwd = cwd is not None
         base = (cwd or pathlib.Path.cwd()).resolve()
-        env_override = _session_environment_override(
+        home_override = _session_home_override(
             cwd=base,
             explicit_cwd=explicit_cwd,
-            environment_override=environment_override,
+            home_override=home_override,
             respect_env_override=respect_env_override,
         )
-        env_paths = resolve_environment_paths(cwd=base, override=env_override)
+        home_paths = resolve_home_paths(cwd=base, override=home_override)
         self.workspace_dir = base
-        self.base_dir = env_paths.sessions
+        self.base_dir = home_paths.sessions
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self._current_session: Session | None = None
 
@@ -1133,7 +1133,7 @@ def set_session_manager(manager: SessionManager) -> None:
 def get_session_manager(
     *,
     cwd: pathlib.Path | None = None,
-    environment_override: str | pathlib.Path | None = None,
+    home_override: str | pathlib.Path | None = None,
     respect_env_override: bool = True,
 ) -> SessionManager:
     """Return the registered process-level session manager.
@@ -1144,13 +1144,13 @@ def get_session_manager(
     """
     explicit_cwd = cwd is not None
     resolved_cwd = cwd.resolve() if cwd is not None else pathlib.Path.cwd().resolve()
-    env_override = _session_environment_override(
+    home_override = _session_home_override(
         cwd=resolved_cwd,
         explicit_cwd=explicit_cwd,
-        environment_override=environment_override,
+        home_override=home_override,
         respect_env_override=respect_env_override,
     )
-    expected_paths = resolve_environment_paths(cwd=resolved_cwd, override=env_override)
+    expected_paths = resolve_home_paths(cwd=resolved_cwd, override=home_override)
     if _session_manager is None:
         raise RuntimeError(
             "No active session manager has been registered. Create a SessionManager at the "

@@ -8,12 +8,16 @@ import pytest
 
 from fast_agent.core.fastagent import FastAgent, RunRuntime, RunSettings
 from fast_agent.core.run_lifecycle import FastAgentRunLifecycle
-from fast_agent.tools.session_environment import ShellExecutionResult
+from fast_agent.tools.execution_environment import (
+    ShellExecution,
+    ShellExecutionCallbacks,
+    ShellExecutionOptions,
+    ShellExecutionRequest,
+    ShellExecutionResult,
+    ShellRuntimeInfo,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-    from pathlib import Path
-
     from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LLMFactoryProtocol
 
 
@@ -27,17 +31,31 @@ def _unused_model_factory(model: str | None = None) -> LLMFactoryProtocol:
     return _unused_llm_factory
 
 
-class _FakeShellExecutor:
-    async def execute_shell(
+class _FakeShellEnvironment:
+    async def open(self) -> None:
+        return None
+
+    @property
+    def cwd(self) -> str:
+        return "."
+
+    def runtime_info(self) -> ShellRuntimeInfo:
+        return ShellRuntimeInfo(name="test")
+
+    async def execute(
         self,
-        command: str,
+        request: ShellExecutionRequest,
         *,
-        cwd: str | Path | None = None,
-        env: Mapping[str, str] | None = None,
-        timeout: float | None = None,
-    ) -> ShellExecutionResult:
-        del command, cwd, env, timeout
-        return ShellExecutionResult(stdout="", stderr="", exit_code=0)
+        callbacks: ShellExecutionCallbacks | None = None,
+    ) -> ShellExecution:
+        del request, callbacks
+        return ShellExecution(
+            result=ShellExecutionResult(stdout="", stderr="", exit_code=0),
+            options=ShellExecutionOptions(),
+        )
+
+    async def close(self) -> None:
+        return None
 
 
 @pytest.mark.asyncio
@@ -63,7 +81,7 @@ async def test_run_lifecycle_enter_performs_shared_setup_in_order(
         return RunSettings(
             quiet_mode=True,
             cli_model_override=model_override,
-            noenv_mode=False,
+            no_home_mode=False,
             server_mode=False,
             transport=None,
             is_acp_server_mode=False,
@@ -93,10 +111,10 @@ async def test_run_lifecycle_enter_performs_shared_setup_in_order(
             model_factory_func=_unused_model_factory,
             global_prompt_context=None,
             is_acp_server_mode=settings.is_acp_server_mode,
-            noenv_mode=settings.noenv_mode,
+            no_home_mode=settings.no_home_mode,
             managed_instances=[],
             instance_lock=asyncio.Lock(),
-            shell_executor=_FakeShellExecutor(),
+            shell_environment=_FakeShellEnvironment(),
         )
 
     monkeypatch.setattr(fast.app, "initialize", initialize)
@@ -153,7 +171,7 @@ async def test_run_lifecycle_cleans_context_when_setup_fails(
         return RunSettings(
             quiet_mode=False,
             cli_model_override=None,
-            noenv_mode=False,
+            no_home_mode=False,
             server_mode=False,
             transport=None,
             is_acp_server_mode=False,
@@ -204,7 +222,7 @@ async def test_run_lifecycle_does_not_exit_unentered_app_context(
         return RunSettings(
             quiet_mode=False,
             cli_model_override=None,
-            noenv_mode=False,
+            no_home_mode=False,
             server_mode=False,
             transport=None,
             is_acp_server_mode=False,
@@ -246,7 +264,7 @@ async def test_run_lifecycle_cleans_context_on_cancelled_setup(
         return RunSettings(
             quiet_mode=False,
             cli_model_override=None,
-            noenv_mode=False,
+            no_home_mode=False,
             server_mode=False,
             transport=None,
             is_acp_server_mode=False,

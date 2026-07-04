@@ -498,7 +498,7 @@ async def test_slash_command_session_resume_switches_current_mode(tmp_path: Path
     os.chdir(tmp_path)
     session_manager_module._session_manager = None
     try:
-        manager = SessionManager(cwd=tmp_path, environment_override=tmp_path / ".fast-agent")
+        manager = SessionManager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")
         session = manager.create_session()
 
         user_message = PromptMessageExtended(
@@ -1105,14 +1105,14 @@ async def test_slash_command_session_list_no_sessions(tmp_path, monkeypatch) -> 
     """Test /session list output when no sessions exist."""
     monkeypatch.chdir(tmp_path)
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
-    monkeypatch.setenv("ENVIRONMENT_DIR", str(env_dir))
-    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    home = tmp_path / "env"
+    monkeypatch.setenv("FAST_AGENT_HOME", str(home))
+    override = old_settings.model_copy(update={"home": str(home)})
     update_global_settings(override)
     reset_session_manager()
 
     try:
-        manager = SessionManager(environment_override=env_dir)
+        manager = SessionManager(home_override=home)
         set_session_manager(manager)
         handler = _handler(StubAgentInstance())
         response = await handler.execute_command("session", "list")
@@ -1125,20 +1125,20 @@ async def test_slash_command_session_list_no_sessions(tmp_path, monkeypatch) -> 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_slash_command_session_disabled_in_noenv(tmp_path: Path) -> None:
-    """Test /session in noenv mode avoids session storage side effects."""
+async def test_slash_command_session_disabled_in_no_home(tmp_path: Path) -> None:
+    """Test /session in no_home mode avoids session storage side effects."""
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
-    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    home = tmp_path / "env"
+    override = old_settings.model_copy(update={"home": str(home)})
     update_global_settings(override)
     reset_session_manager()
 
     try:
-        handler = _handler(StubAgentInstance(), noenv=True)
+        handler = _handler(StubAgentInstance(), no_home=True)
         response = await handler.execute_command("session", "list")
 
-        assert "disabled in --noenv mode" in response.lower()
-        assert not (env_dir / "sessions").exists()
+        assert "disabled in --no-home mode" in response.lower()
+        assert not (home / "sessions").exists()
     finally:
         update_global_settings(old_settings)
         reset_session_manager()
@@ -1149,13 +1149,13 @@ async def test_slash_command_session_disabled_in_noenv(tmp_path: Path) -> None:
 async def test_slash_command_session_pin_sets_metadata(tmp_path: Path) -> None:
     """Test /session pin marks the session as pinned."""
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
-    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    home = tmp_path / "env"
+    override = old_settings.model_copy(update={"home": str(home)})
     update_global_settings(override)
     reset_session_manager()
 
     try:
-        manager = SessionManager(environment_override=env_dir)
+        manager = SessionManager(home_override=home)
         set_session_manager(manager)
         session = manager.create_session()
         agent = StubAgent(message_history=[])
@@ -1195,15 +1195,15 @@ async def test_slash_command_session_export_writes_trace_for_current_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
-    monkeypatch.setenv("ENVIRONMENT_DIR", str(env_dir))
-    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    home = tmp_path / "env"
+    monkeypatch.setenv("FAST_AGENT_HOME", str(home))
+    override = old_settings.model_copy(update={"home": str(home)})
     update_global_settings(override)
     reset_session_manager()
 
     try:
         session_id = "2604201303-x5MNlH"
-        session_dir = env_dir / "sessions" / session_id
+        session_dir = home / "sessions" / session_id
         session_dir.mkdir(parents=True)
 
         save_json(
@@ -1242,7 +1242,7 @@ async def test_slash_command_session_export_writes_trace_for_current_session(
         )
 
         output_path = tmp_path / "slash-trace.jsonl"
-        manager = SessionManager(environment_override=env_dir)
+        manager = SessionManager(home_override=home)
         set_session_manager(manager)
         stub_agent = StubAgent(message_history=[])
         stub_agent.context = SimpleNamespace(session_manager=manager)

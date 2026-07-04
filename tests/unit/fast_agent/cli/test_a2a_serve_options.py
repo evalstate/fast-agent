@@ -34,7 +34,7 @@ def test_serve_a2a_command_builds_a2a_run_request(monkeypatch) -> None:
             "./agents",
             "--model",
             "passthrough",
-            "--noenv",
+            "--no-home",
         ],
     )
 
@@ -49,7 +49,7 @@ def test_serve_a2a_command_builds_a2a_run_request(monkeypatch) -> None:
     assert request.instance_scope == "connection"
     assert request.agent_cards == ["./agents"]
     assert request.model == "passthrough"
-    assert request.noenv is True
+    assert request.no_home is True
 
 
 def test_serve_a2a_command_defaults_to_loopback(monkeypatch) -> None:
@@ -66,7 +66,7 @@ def test_serve_a2a_command_defaults_to_loopback(monkeypatch) -> None:
             "a2a",
             "--model",
             "passthrough",
-            "--noenv",
+            "--no-home",
         ],
     )
 
@@ -97,7 +97,7 @@ def test_serve_transport_a2a_callback_path_builds_a2a_run_request(monkeypatch) -
             "41242",
             "--instance-scope",
             "request",
-            "--noenv",
+            "--no-home",
         ],
     )
 
@@ -126,7 +126,7 @@ def test_serve_a2a_warns_for_remote_shell_server(monkeypatch) -> None:
             "--shell",
             "--model",
             "passthrough",
-            "--noenv",
+            "--no-home",
         ],
     )
 

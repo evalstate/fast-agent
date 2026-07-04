@@ -26,18 +26,20 @@ from fast_agent.cli.runtime.agent_setup import (
     _select_loaded_card_agent,
 )
 from fast_agent.cli.runtime.harness_startup import (
+    initial_harness_session_id,
     run_cli_flow,
     should_use_harness_startup,
 )
 from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.cli.runtime.runner import _should_convert_keyboard_interrupt_to_task_cancel
 from fast_agent.config import Settings, ShellSettings
-from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.exceptions import AgentConfigError, EnvironmentStartupError
 from fast_agent.core.harness_app import DefaultHarnessApp
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.session import ResumeSessionAgentsResult
 from fast_agent.session.hydrator import SessionHydrationWarning
+from fast_agent.tools.environment_registry import UnknownEnvironmentError
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
@@ -146,9 +148,10 @@ class _DummyHarness:
         self.agent_app = agent_app
         self.session_manager = session_manager
         self.generated_messages: list[tuple[object, str | None]] = []
+        self.opened_sessions: list[tuple[str | None, str | None]] = []
 
-    async def session(self, session_id: str, *, agent_name: str | None = None):
-        del session_id, agent_name
+    async def session(self, session_id: str | None = None, *, agent_name: str | None = None):
+        self.opened_sessions.append((session_id, agent_name))
         return self
 
     def app(self):
@@ -184,15 +187,20 @@ class _DummyFastRuntime:
         self.harness_app = _DummyAgentApp(["agent"])
         self.session_manager = object()
         self.harness_session = _DummyHarness(self.harness_app, self.session_manager)
+        self.args = SimpleNamespace()
         self.run_calls = 0
         self.harness_calls = 0
+        self.run_environments: list[str | None] = []
+        self.harness_environments: list[str | None] = []
 
-    def run(self) -> _AsyncContext:
+    def run(self, *, environment: str | None = None) -> _AsyncContext:
         self.run_calls += 1
+        self.run_environments.append(environment)
         return _AsyncContext(self.direct_app)
 
-    def harness(self) -> _AsyncContext:
+    def harness(self, *, environment: str | None = None) -> _AsyncContext:
         self.harness_calls += 1
+        self.harness_environments.append(environment)
         return _AsyncContext(self.harness_session)
 
 
@@ -202,8 +210,9 @@ class _FailingHarnessRuntime(_DummyFastRuntime):
         self.exc = exc
         self.handled_errors: list[Exception] = []
 
-    def harness(self) -> _FailingAsyncContext:
+    def harness(self, *, environment: str | None = None) -> _FailingAsyncContext:
         self.harness_calls += 1
+        self.harness_environments.append(environment)
         return _FailingAsyncContext(self.exc)
 
     def _handle_error(self, exc: Exception, error_type: str | None = None) -> None:
@@ -219,6 +228,7 @@ def _make_request(
     prompt_file: str | None = None,
     attachments: list[str] | None = None,
     json_schema: str | None = None,
+    environment: str | None = None,
 ) -> AgentRunRequest:
     return AgentRunRequest(
         name="test",
@@ -238,8 +248,8 @@ def _make_request(
         agent_name="agent",
         target_agent_name=target_agent_name,
         skills_directory=None,
-        environment_dir=None,
-        noenv=False,
+        home=None,
+        no_home=False,
         force_smart=False,
         shell_runtime=False,
         no_shell=False,
@@ -254,6 +264,7 @@ def _make_request(
         reload=False,
         watch=False,
         attachments=attachments,
+        environment=environment,
     )
 
 
@@ -312,9 +323,9 @@ def test_apply_fast_args_threads_resume_into_runtime_settings() -> None:
     assert fast.args.resume_session_id == "session-123"
 
 
-def test_apply_fast_args_rejects_noenv_resume_before_enabling_restore() -> None:
+def test_apply_fast_args_rejects_no_home_resume_before_enabling_restore() -> None:
     request = _make_request(result_file=None)
-    request.noenv = True
+    request.no_home = True
     request.resume = "session-123"
     fast = SimpleNamespace(args=SimpleNamespace())
 
@@ -345,8 +356,57 @@ async def test_run_cli_flow_uses_harness_for_local_repl() -> None:
     await run_cli_flow(cast("Any", fast), request, flow=flow)
 
     assert fast.harness_calls == 1
+    assert fast.harness_environments == [None]
     assert fast.run_calls == 0
     assert calls == [(fast.harness_app, fast.session_manager, fast.harness_session)]
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_uses_harness_for_resumed_local_repl() -> None:
+    request = _make_request(result_file=None, message=None)
+    request.resume = "2607032031-AiS7lt"
+    fast = _DummyFastRuntime()
+    calls: list[tuple[object, object | None, object | None]] = []
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del request
+        calls.append((agent_app, session_manager, harness_session))
+
+    assert should_use_harness_startup(request)
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert fast.harness_calls == 1
+    assert fast.run_calls == 0
+    assert calls == [(fast.harness_app, fast.session_manager, fast.harness_session)]
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_harness_resume_disables_core_double_restore() -> None:
+    request = _make_request(result_file=None, message=None)
+    request.resume = "2607032031-AiS7lt"
+    fast = _DummyFastRuntime()
+    fast.args.resume_requested = True
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_app, request, session_manager, harness_session
+        assert fast.args.resume_requested is False
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert fast.args.resume_requested is True
 
 
 @pytest.mark.asyncio
@@ -374,14 +434,32 @@ async def test_run_cli_flow_prepare_runs_after_harness_startup() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_cli_flow_passes_environment_to_harness_startup() -> None:
+    request = _make_request(result_file=None, message=None, environment="ubuntu")
+    fast = _DummyFastRuntime()
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_app, request, session_manager, harness_session
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert fast.harness_environments == ["ubuntu"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("resume", "latest"),
-        ("noenv", True),
+        ("no_home", True),
     ],
 )
-async def test_run_cli_flow_uses_direct_run_for_resume_and_noenv(
+async def test_run_cli_flow_uses_direct_run_for_no_home(
     field: str,
     value: object,
 ) -> None:
@@ -406,13 +484,25 @@ async def test_run_cli_flow_uses_direct_run_for_resume_and_noenv(
 
     assert fast.harness_calls == 0
     assert fast.run_calls == 1
+    assert fast.run_environments == [None]
     assert calls == [(fast.direct_app, None, None)]
+
+
+def test_initial_harness_session_id_uses_explicit_resume_session(tmp_path: Path) -> None:
+    from fast_agent.session import SessionManager
+
+    SessionManager(home_override=tmp_path).create_session_with_id("2607032031-AiS7lt")
+    request = _make_request(result_file=None, message=None)
+    request.home = tmp_path
+    request.resume = "2607032031-AiS7lt"
+
+    assert initial_harness_session_id(request) == "2607032031-AiS7lt"
 
 
 @pytest.mark.asyncio
 async def test_run_cli_flow_prepare_runs_before_direct_startup() -> None:
     request = _make_request(result_file=None, message=None)
-    request.noenv = True
+    request.no_home = True
     fast = _DummyFastRuntime()
     calls: list[str] = []
 
@@ -477,6 +567,53 @@ async def test_run_cli_flow_uses_harness_for_one_shot_modes(
 async def test_run_cli_flow_handles_harness_startup_errors_like_cli_run() -> None:
     request = _make_request(result_file=None, message=None)
     error = AgentConfigError("bad agent")
+    fast = _FailingHarnessRuntime(error)
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_app, request, session_manager, harness_session
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert exc_info.value.code == 1
+    assert fast.handled_errors == [error]
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_handles_unknown_environment_like_cli_error() -> None:
+    request = _make_request(result_file=None, message=None, environment="missing")
+    error = UnknownEnvironmentError("missing", ["local"])
+    fast = _FailingHarnessRuntime(error)
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_app, request, session_manager, harness_session
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert exc_info.value.code == 1
+    assert fast.handled_errors == [error]
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_handles_environment_startup_error_like_cli_error() -> None:
+    request = _make_request(result_file=None, message=None, environment="ubuntu")
+    error = EnvironmentStartupError(
+        "Could not start docker shell environment.",
+        "Container CLI not found: docker.",
+    )
     fast = _FailingHarnessRuntime(error)
 
     async def flow(

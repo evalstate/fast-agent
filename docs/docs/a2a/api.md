@@ -144,7 +144,7 @@ included in model calls inside the selected instance scope.
 
 When the standard server path is sufficient, prefer the CLI or
 `fast.start_server(transport="a2a")`; they initialize the normal fast-agent
-runtime and load AgentCards from the active environment before serving.
+runtime and load AgentCards from the active fast-agent home before serving.
 
 ### Server Task API
 

@@ -136,7 +136,7 @@ def test_command_agent_map_includes_registry_and_current_agent() -> None:
 
 @pytest.mark.asyncio
 async def test_run_slash_command_model_doctor_returns_markdown(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     previous_cwd = Path.cwd()
@@ -152,7 +152,7 @@ async def test_run_slash_command_model_doctor_returns_markdown(tmp_path: Path) -
 
 @pytest.mark.asyncio
 async def test_run_slash_command_models_doctor_returns_markdown(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     previous_cwd = Path.cwd()
@@ -168,7 +168,7 @@ async def test_run_slash_command_models_doctor_returns_markdown(tmp_path: Path) 
 
 @pytest.mark.asyncio
 async def test_run_slash_command_models_uses_manager_catalog(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     result = await _run_slash_command_call(agent, "/models catalog anthropic")
@@ -181,7 +181,7 @@ async def test_run_slash_command_models_uses_manager_catalog(tmp_path: Path) -> 
 async def test_run_slash_command_model_task_budget_routes_to_task_budget_handler(
     tmp_path: Path,
 ) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
     agent.llm = _TaskBudgetLlm()
     agent._llm = agent.llm
@@ -195,7 +195,7 @@ async def test_run_slash_command_model_task_budget_routes_to_task_budget_handler
 
 @pytest.mark.asyncio
 async def test_run_slash_command_check_rejects_invalid_argument_syntax(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     with pytest.raises(AgentConfigError, match="Invalid check arguments"):
@@ -204,7 +204,7 @@ async def test_run_slash_command_check_rejects_invalid_argument_syntax(tmp_path:
 
 @pytest.mark.asyncio
 async def test_run_slash_command_mcp_connect_wraps_parse_errors(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     with pytest.raises(AgentConfigError, match="Invalid /mcp connect arguments"):
@@ -217,7 +217,7 @@ async def test_run_slash_command_mcp_server_commands_require_one_name(
     tmp_path: Path,
     subcommand: str,
 ) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     with pytest.raises(AgentConfigError, match=f"Invalid /mcp {subcommand} arguments"):
@@ -226,7 +226,7 @@ async def test_run_slash_command_mcp_server_commands_require_one_name(
 
 @pytest.mark.asyncio
 async def test_run_slash_command_mcp_help_returns_usage(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     result = await _run_slash_command_call(agent, "/mcp --help")
@@ -237,7 +237,7 @@ async def test_run_slash_command_mcp_help_returns_usage(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_run_slash_command_check_returns_markdown_heading(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     previous_cwd = Path.cwd()
@@ -252,7 +252,7 @@ async def test_run_slash_command_check_returns_markdown_heading(tmp_path: Path) 
 
 @pytest.mark.asyncio
 async def test_run_slash_command_skills_help_returns_usage(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     result = await _run_slash_command_call(agent, "/skills --help")
@@ -265,7 +265,7 @@ async def test_run_slash_command_skills_help_returns_usage(tmp_path: Path) -> No
 
 @pytest.mark.asyncio
 async def test_run_slash_command_skills_search_without_query_shows_usage(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     result = await _run_slash_command_call(agent, "/skills search")
@@ -275,7 +275,7 @@ async def test_run_slash_command_skills_search_without_query_shows_usage(tmp_pat
 
 @pytest.mark.asyncio
 async def test_run_slash_command_unknown_returns_usage(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     result = await _run_slash_command_call(agent, "/doesnotexist")
@@ -286,7 +286,7 @@ async def test_run_slash_command_unknown_returns_usage(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_run_slash_command_commands_index(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     result = await _run_slash_command_call(agent, "/commands")
@@ -298,7 +298,7 @@ async def test_run_slash_command_commands_index(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_run_slash_command_commands_json(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     result = await _run_slash_command_call(agent, "/commands --json")
@@ -309,7 +309,7 @@ async def test_run_slash_command_commands_json(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_run_slash_command_cards_help_returns_usage(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     result = await _run_slash_command_call(agent, "/cards --help")
@@ -320,7 +320,7 @@ async def test_run_slash_command_cards_help_returns_usage(tmp_path: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_run_slash_command_cards_publish_help(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     result = await _run_slash_command_call(agent, "/cards publish --help")
@@ -331,7 +331,7 @@ async def test_run_slash_command_cards_publish_help(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_run_slash_command_skills_add_help(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     result = await _run_slash_command_call(agent, "/skills add --help")
@@ -346,7 +346,7 @@ async def test_run_slash_command_skills_add_help(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_run_slash_command_session_export_help(tmp_path: Path) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     result = await _run_slash_command_call(agent, "/session export --help")
@@ -360,7 +360,7 @@ async def test_run_slash_command_session_export_help(tmp_path: Path) -> None:
 async def test_run_slash_command_session_export_without_session_runtime_returns_unavailable(
     tmp_path: Path,
 ) -> None:
-    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    settings = Settings(home=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)
 
     result = await _run_slash_command_call(

@@ -140,7 +140,7 @@ def test_run_async_agent_passes_serve_mode() -> None:
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="serve",
         transport="http",
@@ -176,8 +176,8 @@ def test_serve_command_builds_run_request() -> None:
         client_metadata_url=None,
         model=None,
         skills_dir=None,
-        env_dir=None,
-        noenv=False,
+        home=None,
+        no_home=False,
         force_smart=False,
         npx=None,
         uvx=None,
@@ -207,7 +207,7 @@ def test_serve_command_builds_run_request() -> None:
     assert first_stdio_config["args"] == ["tool_server.py"]
 
 
-def test_serve_command_noenv_forces_permissions_disabled() -> None:
+def test_serve_command_no_home_forces_permissions_disabled() -> None:
     ctx = typer.Context(click.Command("serve"))
     request = serve_command._build_run_request(
         ctx=ctx,
@@ -222,8 +222,8 @@ def test_serve_command_noenv_forces_permissions_disabled() -> None:
         client_metadata_url=None,
         model=None,
         skills_dir=None,
-        env_dir=None,
-        noenv=True,
+        home=None,
+        no_home=True,
         force_smart=False,
         npx=None,
         uvx=None,
@@ -238,7 +238,7 @@ def test_serve_command_noenv_forces_permissions_disabled() -> None:
         watch=False,
     )
 
-    assert request.noenv is True
+    assert request.no_home is True
     assert request.permissions_enabled is False
 
 
@@ -257,8 +257,8 @@ def test_serve_command_builds_request_with_missing_shell_cwd_override() -> None:
         client_metadata_url=None,
         model=None,
         skills_dir=None,
-        env_dir=None,
-        noenv=False,
+        home=None,
+        no_home=False,
         force_smart=False,
         npx=None,
         uvx=None,
@@ -294,8 +294,8 @@ def test_serve_command_rejects_watch_for_mcp_serve() -> None:
             client_metadata_url=None,
             model=None,
             skills_dir=None,
-            env_dir=None,
-            noenv=False,
+            home=None,
+            no_home=False,
             force_smart=False,
             npx=None,
             uvx=None,

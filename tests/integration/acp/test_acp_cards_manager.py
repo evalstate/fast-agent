@@ -123,11 +123,11 @@ async def test_cards_add_and_remove(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
         "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n"
+        f"home: '{home_root.as_posix()}'\n"
         "cards:\n"
         f"  marketplace_url: '{marketplace_path.as_posix()}'\n",
         encoding="utf-8",
@@ -141,14 +141,14 @@ async def test_cards_add_and_remove(tmp_path: Path) -> None:
 
         add_response = await handler.execute_command("cards", "add alpha")
         assert "Installed card pack: alpha" in add_response
-        assert (env_root / "agent-cards" / "alpha.md").exists()
+        assert (home_root / "agent-cards" / "alpha.md").exists()
 
         list_response = await handler.execute_command("cards", "")
         assert "alpha" in list_response
 
         remove_response = await handler.execute_command("cards", "remove")
         assert "Removed card pack: alpha" in remove_response
-        assert not (env_root / "agent-cards" / "alpha.md").exists()
+        assert not (home_root / "agent-cards" / "alpha.md").exists()
     finally:
         get_settings(config_path=str(Path(__file__).parent / "fastagent.config.yaml"))
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from rich.text import Text
 
@@ -80,6 +80,33 @@ if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.skills.sources import SkillCatalogEntry, SkillInstallSource
+    from fast_agent.tools.execution_environment import ShellRuntimeInfo
+
+
+REMOTE_ENVIRONMENT_SKILLS_WARNING = (
+    "These are local skills and may not be available in your configured environment. "
+    "Use /system to check"
+)
+
+
+@runtime_checkable
+class _ShellRuntimeProvider(Protocol):
+    @property
+    def shell_runtime(self) -> object | None: ...
+
+
+@runtime_checkable
+class _ShellRuntimeInfoProvider(Protocol):
+    def runtime_info(self) -> "ShellRuntimeInfo": ...
+
+
+def _uses_remote_shell_environment(agent: object) -> bool:
+    if not isinstance(agent, _ShellRuntimeProvider):
+        return False
+    shell_runtime = agent.shell_runtime
+    if not isinstance(shell_runtime, _ShellRuntimeInfoProvider):
+        return False
+    return shell_runtime.runtime_info().kind != "local"
 
 
 async def handle_set_skills_registry(
@@ -449,25 +476,36 @@ async def handle_list_skills(
             SkillRegistry.load_directory(directory) if directory.exists() else []
         )
 
+    agent_obj = ctx.agent_provider._agent(agent_name)
+    warn_for_remote_environment = _uses_remote_shell_environment(agent_obj)
+
     outcome.add_message(
         _format_local_skills_by_directory(manifests_by_dir),
         right_info="skills",
         agent_name=agent_name,
     )
 
-    agent_obj = ctx.agent_provider._agent(agent_name)
     agent_obj = cast("AgentProtocol", agent_obj)
     config = agent_obj.config
+    if config.skills is not SKILLS_DEFAULT:
+        manifests = list(config.skill_manifests or [])
+        sources = _get_agent_skill_override_sources(manifests)
+        outcome.add_message(
+            _format_agent_skills_override(manifests, source_paths=sources),
+            right_info="skills",
+            agent_name=agent_name,
+        )
+
+    if warn_for_remote_environment:
+        outcome.add_message(
+            REMOTE_ENVIRONMENT_SKILLS_WARNING,
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+
     if config.skills is SKILLS_DEFAULT:
         return outcome
-
-    manifests = list(config.skill_manifests or [])
-    sources = _get_agent_skill_override_sources(manifests)
-    outcome.add_message(
-        _format_agent_skills_override(manifests, source_paths=sources),
-        right_info="skills",
-        agent_name=agent_name,
-    )
 
     return outcome
 

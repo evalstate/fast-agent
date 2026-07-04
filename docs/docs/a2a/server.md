@@ -79,7 +79,7 @@ That means an A2A request can drive a full fast-agent bundle behind one A2A
 agent boundary: an orchestrator, router, tool-using agent, MCP-backed agent, or
 AgentCard-loaded group.
 
-AgentCards in the active fast-agent environment are loaded before the harness or
+AgentCards in the active fast-agent home are loaded before the harness or
 server runtime starts. For example, cards in `.fast-agent/agent-cards/` are
 available to `fast.harness()` and to `fast-agent serve a2a` without an explicit
 `fast.load_agents(...)` call. Use `fast.load_agents(path)` only when a Python

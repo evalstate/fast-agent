@@ -26,8 +26,8 @@ async def ok_tool() -> str:
     return "ok"
 
 
-def _register_session_manager(environment_dir) -> SessionManager:
-    manager = SessionManager(environment_override=environment_dir)
+def _register_session_manager(home) -> SessionManager:
+    manager = SessionManager(home_override=home)
     set_session_manager(manager)
     return manager
 
@@ -397,7 +397,7 @@ async def test_generate_continues_from_staged_tool_result_history() -> None:
 @pytest.mark.asyncio
 async def test_cancelled_turn_is_persisted_to_session_history(tmp_path) -> None:
     old_settings = get_settings()
-    override = old_settings.model_copy(update={"environment_dir": str(tmp_path / "env")})
+    override = old_settings.model_copy(update={"home": str(tmp_path / "env")})
     update_global_settings(override)
     reset_session_manager()
 
@@ -439,7 +439,7 @@ async def test_cancelled_turn_is_persisted_to_session_history(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_externally_cancelled_turn_is_persisted_to_session_history(tmp_path) -> None:
     old_settings = get_settings()
-    override = old_settings.model_copy(update={"environment_dir": str(tmp_path / "env")})
+    override = old_settings.model_copy(update={"home": str(tmp_path / "env")})
     update_global_settings(override)
     reset_session_manager()
 
@@ -494,7 +494,7 @@ async def test_externally_cancelled_turn_is_persisted_to_session_history(tmp_pat
 @pytest.mark.asyncio
 async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(tmp_path) -> None:
     old_settings = get_settings()
-    override = old_settings.model_copy(update={"environment_dir": str(tmp_path / "env")})
+    override = old_settings.model_copy(update={"home": str(tmp_path / "env")})
     update_global_settings(override)
     reset_session_manager()
 
@@ -532,7 +532,7 @@ async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(tmp_pat
 @pytest.mark.asyncio
 async def test_second_llm_error_after_tool_use_persists_resumable_checkpoint(tmp_path) -> None:
     old_settings = get_settings()
-    override = old_settings.model_copy(update={"environment_dir": str(tmp_path / "env")})
+    override = old_settings.model_copy(update={"home": str(tmp_path / "env")})
     update_global_settings(override)
     reset_session_manager()
 
@@ -571,7 +571,7 @@ async def test_second_llm_error_after_tool_use_persists_resumable_checkpoint(tmp
 @pytest.mark.asyncio
 async def test_resumed_tool_result_history_does_not_rerun_completed_tool(tmp_path) -> None:
     old_settings = get_settings()
-    override = old_settings.model_copy(update={"environment_dir": str(tmp_path / "env")})
+    override = old_settings.model_copy(update={"home": str(tmp_path / "env")})
     update_global_settings(override)
     reset_session_manager()
 

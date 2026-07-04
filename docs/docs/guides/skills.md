@@ -200,7 +200,7 @@ See the [Configuration Reference](../ref/config_file/#skills-configuration) for 
 
 ## Command Line Options
 
-If using **fast-agent** interactively from the command line, the `--skills <directory>` switch can be used to specify the directory containing skills. The `--env <path>` flag lets you relocate the entire environment directory (including the default skills folder).
+If using **fast-agent** interactively from the command line, the `--skills <directory>` switch can be used to specify the directory containing skills. The `--home <path>` flag lets you relocate the entire home (including the default skills folder).
 
 ```bash
 # Specify a skills folder and a model

@@ -47,14 +47,14 @@ def test_console_display_ignores_legacy_theme_when_env_config_is_selected(
         "logger:\n  theme_file: themes/yellow.ini\n",
         encoding="utf-8",
     )
-    env_dir = tmp_path / ".fast-agent"
-    env_dir.mkdir()
-    (env_dir / "fastagent.config.yaml").write_text(
+    home = tmp_path / ".fast-agent"
+    home.mkdir()
+    (home / "fastagent.config.yaml").write_text(
         "logger:\n  show_tools: false\n",
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
 
     previous_settings = config_module._settings
     try:

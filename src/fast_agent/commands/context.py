@@ -312,7 +312,7 @@ class CommandContext:
     current_agent_name: str
     io: CommandIO
     settings: Settings | None = None
-    noenv: bool = False
+    no_home: bool = False
     acp_session_id: str | None = None
     session_cwd: Path | None = None
     session_store_scope: SessionStoreScope = "workspace"
@@ -322,9 +322,9 @@ class CommandContext:
     skill_source_overrides: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.noenv:
+        if self.no_home:
             if self.session_manager is not None or self.session_runtime is not None:
-                raise ValueError("noenv command contexts cannot enable sessions.")
+                raise ValueError("no_home command contexts cannot enable sessions.")
             return
         if self.session_runtime is not None:
             return

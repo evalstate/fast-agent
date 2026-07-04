@@ -19,6 +19,7 @@ async with fast.harness() as harness:
 | Property | Type | Description |
 |----------|------|-------------|
 | `sessions` | `HarnessSessions` | Session manager for the running harness |
+| `environment` | `ShellEnvironment` | Shell environment used by the running harness; may also implement `EnvironmentFilesystem` for model-facing file tools |
 
 ### Methods
 
@@ -41,7 +42,7 @@ await harness.shell(
     timeout: float | None = None
 ) -> ShellExecutionResult
 ```
-Runs a shell command through the harness shell executor and returns a
+Runs a shell command through the harness shell environment and returns a
 `ShellExecutionResult` with `stdout`, `stderr`, and `exit_code`. This is
 programmatic shell access: it does not create a session and does not add
 the command or output to chat history.
@@ -49,7 +50,7 @@ the command or output to chat history.
 ## HarnessSessions Class
 
 Manager for harness sessions. When `session_history` is enabled, creating a
-session also creates or loads `environment_dir/sessions/<session_id>/`.
+session also creates or loads `home/sessions/<session_id>/`.
 
 ```python
 session = await harness.sessions.get("demo")
@@ -149,7 +150,7 @@ is serialized with other operations on the same `HarnessSession`.
   `AgentInstance`;
 - different session IDs receive isolated `AgentInstance` objects;
 - when `session_history` is enabled, session IDs map to persisted
-  `environment_dir/sessions/<session_id>/` directories and existing histories
+  `home/sessions/<session_id>/` directories and existing histories
   are hydrated on creation;
 - deleting a session disposes its instance;
 - deleting a session removes its persisted session folder when persistence is enabled;

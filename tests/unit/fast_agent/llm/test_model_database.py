@@ -26,6 +26,7 @@ from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import RequestParams
 from fast_agent.utils.reasoning_chunk_join import ReasoningTextAccumulator
@@ -1096,6 +1097,13 @@ def test_model_specific_defaults_for_gpt_53_plus_family():
         assert ModelDatabase.get_model_specific(model_name) == expected
 
     assert ModelDatabase.get_model_specific("gpt-5.2") == ""
+
+
+def test_gpt_54_mini_default_reasoning_effort_is_medium():
+    spec = ModelDatabase.get_reasoning_effort_spec("gpt-5.4-mini")
+
+    assert spec is not None
+    assert spec.default == ReasoningEffortSetting(kind="effort", value="medium")
 
 
 def test_gemini_model_specific_mentions_youtube_capability():

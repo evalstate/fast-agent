@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import platform
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from fast_agent.core.internal_resources import (
     format_internal_resources_for_prompt,
@@ -19,8 +19,15 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, MutableMapping, Sequence
 
     from fast_agent.skills import SkillManifest
+    from fast_agent.tools.execution_environment import ShellEnvironment
 
 logger = get_logger(__name__)
+
+
+@runtime_checkable
+class _EnvironmentCwdProvider(Protocol):
+    @property
+    def cwd(self) -> str: ...
 
 
 def _display_name_with_version(
@@ -56,11 +63,98 @@ def _format_client_info(client_info: Mapping[str, str]) -> str | None:
     return display
 
 
+def _format_execution_environment(
+    *,
+    name: str | None,
+    kind: str | None,
+    provider: str | None,
+    shell_name: str | None,
+    cwd: str | None,
+) -> str:
+    parts: list[str] = []
+    if name:
+        parts.append(name)
+    if kind:
+        parts.append(kind)
+    if provider and provider != kind:
+        parts.append(provider)
+
+    text = " ".join(parts) if parts else "unknown"
+    details: list[str] = []
+    if shell_name:
+        details.append(f"shell: {shell_name}")
+    if cwd:
+        details.append(f"cwd: {cwd}")
+    if details:
+        text = f"{text} ({', '.join(details)})"
+    return text
+
+
+def refresh_execution_environment_context(
+    context: MutableMapping[str, str],
+    shell_environment: "ShellEnvironment | None",
+) -> None:
+    """Populate active execution-environment prompt placeholders."""
+    if shell_environment is None:
+        return
+
+    from fast_agent.tools.environment_registry import environment_name
+
+    info = shell_environment.runtime_info()
+    resolved_name = info.environment_name or environment_name(shell_environment)
+    environment_cwd = (
+        shell_environment.cwd if isinstance(shell_environment, _EnvironmentCwdProvider) else None
+    )
+    if info.kind != "local" and environment_cwd:
+        host_workspace_root = context.get("workspaceRoot")
+        if host_workspace_root:
+            context["hostWorkspaceRoot"] = host_workspace_root
+        context["workspaceRoot"] = environment_cwd
+
+    if resolved_name:
+        context["executionEnvironmentName"] = resolved_name
+    context["executionEnvironmentKind"] = info.kind
+    if info.provider:
+        context["executionEnvironmentProvider"] = info.provider
+    if info.name:
+        context["executionEnvironmentShell"] = info.name
+    if environment_cwd:
+        context["executionEnvironmentCwd"] = environment_cwd
+    context["executionEnvironment"] = _format_execution_environment(
+        name=resolved_name,
+        kind=info.kind,
+        provider=info.provider,
+        shell_name=info.name,
+        cwd=environment_cwd,
+    )
+    _refresh_env_summary(context)
+
+
+def _refresh_env_summary(context: MutableMapping[str, str]) -> None:
+    env_lines: list[str] = []
+    workspace_root = context.get("workspaceRoot")
+    if workspace_root:
+        env_lines.append(f"Workspace root: {workspace_root}")
+    execution_environment = context.get("executionEnvironment")
+    if execution_environment:
+        env_lines.append(f"Execution environment: {execution_environment}")
+    client = context.get("clientDisplay")
+    if client:
+        env_lines.append(f"Client: {client}")
+    host_platform = context.get("hostPlatform")
+    environment_kind = context.get("executionEnvironmentKind")
+    if host_platform and (environment_kind is None or environment_kind == "local"):
+        env_lines.append(f"Host platform: {host_platform}")
+
+    if env_lines:
+        context["env"] = "Environment:\n- " + "\n- ".join(env_lines)
+
+
 def load_skills_for_context(
     workspace_root: str | None,
     skills_directory_override: str | Path | Sequence[str | Path] | None = None,
     *,
-    noenv: bool = False,
+    no_home: bool = False,
 ) -> list["SkillManifest"]:
     """
     Load skill manifests from the workspace root or override directory.
@@ -101,8 +195,8 @@ def load_skills_for_context(
         settings = get_settings()
         settings_for_skills = (
             settings
-            if noenv
-            or settings.environment_dir is not None
+            if no_home
+            or settings.home is not None
             or settings._fast_agent_home_source != "default"
             else None
         )
@@ -125,7 +219,8 @@ def enrich_with_environment_context(
     client_info: Mapping[str, str] | None,
     skills_directory_override: str | Path | Sequence[str | Path] | None = None,
     *,
-    noenv: bool = False,
+    no_home: bool = False,
+    shell_environment: "ShellEnvironment | None" = None,
 ) -> None:
     """
     Populate the provided context mapping with environment details used for template replacement.
@@ -138,13 +233,13 @@ def enrich_with_environment_context(
     """
     if cwd:
         context["workspaceRoot"] = cwd
-        if not noenv:
-            from fast_agent.paths import resolve_environment_paths
+        if not no_home:
+            from fast_agent.paths import resolve_home_paths
 
-            env_paths = resolve_environment_paths(cwd=Path(cwd))
-            context["environmentDir"] = str(env_paths.root)
-            context["environmentAgentCardsDir"] = str(env_paths.agent_cards)
-            context["environmentToolCardsDir"] = str(env_paths.tool_cards)
+            home_paths = resolve_home_paths(cwd=Path(cwd))
+            context["homeDir"] = str(home_paths.root)
+            context["homeAgentCardsDir"] = str(home_paths.agent_cards)
+            context["homeToolCardsDir"] = str(home_paths.tool_cards)
 
     server_platform = platform.platform()
     python_version = platform.python_version()
@@ -159,23 +254,16 @@ def enrich_with_environment_context(
     if cwd:
         from fast_agent.skills.registry import format_skills_for_prompt
 
-        skill_manifests = load_skills_for_context(cwd, skills_directory_override, noenv=noenv)
+        skill_manifests = load_skills_for_context(cwd, skills_directory_override, no_home=no_home)
         skills_text = format_skills_for_prompt(skill_manifests, read_tool_name="read_text_file")
         context["agentSkills"] = skills_text
 
     internal_resources = list_internal_resources()
     context["agentInternalResources"] = format_internal_resources_for_prompt(internal_resources)
 
-    env_lines: list[str] = []
-    if cwd:
-        env_lines.append(f"Workspace root: {cwd}")
     if client_info:
         formatted_client = _format_client_info(client_info)
         if formatted_client:
-            env_lines.append(f"Client: {formatted_client}")
-    if server_platform:
-        env_lines.append(f"Host platform: {server_platform}")
-
-    if env_lines:
-        formatted = "Environment:\n- " + "\n- ".join(env_lines)
-        context["env"] = formatted
+            context["clientDisplay"] = formatted_client
+    refresh_execution_environment_context(context, shell_environment)
+    _refresh_env_summary(context)

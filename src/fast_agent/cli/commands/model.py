@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from rich.table import Table
 from rich.text import Text
 
-from fast_agent.cli.env_helpers import resolve_environment_dir_option
+from fast_agent.cli.home_helpers import resolve_home_option
 from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.commands.context import CommandContext, CommandIO, StaticAgentProvider
 from fast_agent.commands.handlers import models_manager
@@ -116,8 +116,8 @@ def _llamacpp_env_option() -> str | None:
         "str | None",
         typer.Option(
             None,
-            "--env",
-            help="Override the base fast-agent environment directory",
+            "--home",
+            help="Override the base fast-agent home",
         ),
     )
 
@@ -221,16 +221,16 @@ def _normalize_interactive_reference_token(token: str | None) -> str | None:
     return f"${stripped}"
 
 
-def _bootstrap_settings_start_path(env_dir: str | Path | None) -> Path:
-    env_dir_string = strip_to_none(env_dir) if isinstance(env_dir, str) else None
-    if env_dir_string is not None:
-        env_root = Path(env_dir_string).expanduser()
-        if env_root.is_absolute():
-            return env_root.resolve().parent
-    elif isinstance(env_dir, Path):
-        env_root = env_dir.expanduser()
-        if env_root.is_absolute():
-            return env_root.resolve().parent
+def _bootstrap_settings_start_path(home: str | Path | None) -> Path:
+    home_string = strip_to_none(home) if isinstance(home, str) else None
+    if home_string is not None:
+        home_root = Path(home_string).expanduser()
+        if home_root.is_absolute():
+            return home_root.resolve().parent
+    elif isinstance(home, Path):
+        home_root = home.expanduser()
+        if home_root.is_absolute():
+            return home_root.resolve().parent
     return Path.cwd()
 
 
@@ -257,7 +257,7 @@ async def run_model_setup(
     if resolved_token is None:
         diagnostics = collect_model_reference_setup_diagnostics(
             cwd=start_path,
-            env_dir=settings.environment_dir,
+            home=settings.home,
         )
         common_items = _build_common_setup_items(diagnostics.valid_references)
         has_guided_choices = bool(diagnostics.items) or (
@@ -305,10 +305,10 @@ async def run_model_doctor(
         and settings.default_model is None
         and not settings.model_references
     ):
-        start_path = _bootstrap_settings_start_path(settings.environment_dir)
+        start_path = _bootstrap_settings_start_path(settings.home)
         effective_settings = _load_cli_settings(
             cwd=start_path,
-            env_dir=settings.environment_dir,
+            home=settings.home,
         )
 
     provider = StaticAgentProvider()
@@ -642,7 +642,7 @@ def _model_reference_command_io(*, settings: Settings, start_path: Path) -> TuiC
         settings=settings,
         config_payload=_load_tolerant_config_payload(
             cwd=start_path,
-            env_dir=settings.environment_dir,
+            home=settings.home,
         ),
     )
 
@@ -655,7 +655,7 @@ async def _run_reference_picker(
 ) -> ModelReferencePickerResult | None:
     diagnostics = collect_model_reference_setup_diagnostics(
         cwd=start_path,
-        env_dir=settings.environment_dir,
+        home=settings.home,
     )
     picker_items = _build_picker_items(
         diagnostics,
@@ -727,7 +727,7 @@ async def _run_model_doctor_command(*, settings: Settings) -> None:
         settings=settings,
         config_payload=_load_tolerant_config_payload(
             cwd=start_path,
-            env_dir=settings.environment_dir,
+            home=settings.home,
         ),
     )
     outcome = await run_model_doctor(
@@ -741,9 +741,9 @@ async def _run_model_doctor_command(*, settings: Settings) -> None:
 def _load_cli_settings(
     *,
     cwd: Path,
-    env_dir: str | Path | None,
+    home: str | Path | None,
 ) -> Settings:
-    merged_settings, discovery = load_implicit_settings(start_path=cwd, env_dir=env_dir)
+    merged_settings, discovery = load_implicit_settings(start_path=cwd, home=home)
     config_file = discovery.config_path
     secrets_path = discovery.secrets_path
     if secrets_path and secrets_path.exists():
@@ -757,10 +757,10 @@ def _load_cli_settings(
 def _load_tolerant_config_payload(
     *,
     cwd: Path,
-    env_dir: str | Path | None,
+    home: str | Path | None,
 ) -> dict[str, object] | None:
     try:
-        merged_settings, discovery = load_implicit_settings(start_path=cwd, env_dir=env_dir)
+        merged_settings, discovery = load_implicit_settings(start_path=cwd, home=home)
         secrets_path = discovery.secrets_path
         if secrets_path and secrets_path.exists():
             merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_path))
@@ -816,7 +816,7 @@ _LLAMACPP_LAUNCH_OPTIONS_BY_ACTION: dict[
 
 @dataclass(frozen=True, slots=True)
 class _LlamaCppCommandContext:
-    resolved_env_dir: Path | None
+    resolved_home: Path | None
     start_path: Path
     interrogation_api_key: str | None
 
@@ -1000,19 +1000,19 @@ def _resolve_llamacpp_command_context(
     api_key_env: str | None,
     secret_ref: str | None,
 ) -> _LlamaCppCommandContext:
-    resolved_env_dir = resolve_environment_dir_option(
+    resolved_home = resolve_home_option(
         ctx,
         Path(env) if env is not None else None,
     )
-    start_path = _bootstrap_settings_start_path(resolved_env_dir)
+    start_path = _bootstrap_settings_start_path(resolved_home)
     interrogation_api_key = _resolve_llamacpp_interrogation_api_key(
         start_path=start_path,
-        env_dir=resolved_env_dir,
+        home=resolved_home,
         api_key_env=api_key_env,
         secret_ref=secret_ref,
     )
     return _LlamaCppCommandContext(
-        resolved_env_dir=resolved_env_dir,
+        resolved_home=resolved_home,
         start_path=start_path,
         interrogation_api_key=interrogation_api_key,
     )
@@ -1021,7 +1021,7 @@ def _resolve_llamacpp_command_context(
 def _resolve_llamacpp_interrogation_api_key(
     *,
     start_path: Path,
-    env_dir: str | Path | None,
+    home: str | Path | None,
     api_key_env: str | None,
     secret_ref: str | None,
 ) -> str | None:
@@ -1038,7 +1038,7 @@ def _resolve_llamacpp_interrogation_api_key(
     if not normalized_secret_ref:
         return None
 
-    secret_entries = load_model_overlay_secret_entries(start_path=start_path, env_dir=env_dir)
+    secret_entries = load_model_overlay_secret_entries(start_path=start_path, home=home)
     secret_entry = secret_entries.get(normalized_secret_ref)
     if secret_entry is None or secret_entry.api_key is None:
         raise typer.BadParameter(
@@ -1106,9 +1106,9 @@ def _build_llamacpp_overlay_name(
     model_id: str,
     base_url: str,
     start_path: Path,
-    env_dir: str | Path | None,
+    home: str | Path | None,
 ) -> tuple[str, bool, LoadedModelOverlay | None]:
-    registry = load_model_overlay_registry(start_path=start_path, env_dir=env_dir)
+    registry = load_model_overlay_registry(start_path=start_path, home=home)
     existing_names = set(registry.by_name())
 
     candidate = strip_to_none(requested_name)
@@ -1211,7 +1211,7 @@ def _llamacpp_import_json_payload(result: _LlamaCppImportResult) -> dict[str, ob
 async def _run_llamacpp_import(
     *,
     start_path: Path,
-    env_dir: str | Path | None,
+    home: str | Path | None,
     url: str,
     auth: LlamaCppAuthMode | None,
     api_key_env: str | None,
@@ -1228,7 +1228,7 @@ async def _run_llamacpp_import(
     if interrogation_api_key is None:
         interrogation_api_key = _resolve_llamacpp_interrogation_api_key(
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
             api_key_env=api_key_env,
             secret_ref=secret_ref,
         )
@@ -1259,7 +1259,7 @@ async def _run_llamacpp_import(
         model_id=model_id,
         base_url=catalog.endpoints.request_base_url,
         start_path=start_path,
-        env_dir=env_dir,
+        home=home,
     )
     persisted_auth = _resolve_llamacpp_persisted_auth(
         auth=auth,
@@ -1285,7 +1285,7 @@ async def _run_llamacpp_import(
         output_path = write_model_overlay_manifest(
             manifest,
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
             replace=replace_existing,
         )
 
@@ -1353,12 +1353,12 @@ def _resolve_llamacpp_picker_import_defaults() -> _LlamaCppPickerImportDefaults:
 async def import_llamacpp_overlay_from_default_url(
     *,
     start_path: Path,
-    env_dir: str | Path | None,
+    home: str | Path | None,
 ) -> str | None:
     picker_defaults = _resolve_llamacpp_picker_import_defaults()
     result = await _run_llamacpp_import(
         start_path=start_path,
-        env_dir=env_dir,
+        home=home,
         url=picker_defaults.url,
         auth=picker_defaults.auth,
         api_key_env=None,
@@ -1379,7 +1379,7 @@ async def import_llamacpp_overlay_from_default_url(
 def _finalize_llamacpp_import(
     *,
     result: _LlamaCppImportResult | None,
-    resolved_env_dir: Path | None,
+    resolved_home: Path | None,
     include_sampling_defaults: bool = False,
     json_output: bool = False,
     print_overlay_yaml: bool = False,
@@ -1401,7 +1401,7 @@ def _finalize_llamacpp_import(
     if launch_options is not None:
         _launch_llamacpp_overlay_now(
             overlay_name=result.overlay_name,
-            env_dir=resolved_env_dir,
+            home=resolved_home,
             with_shell=launch_options.with_shell,
             smart=launch_options.smart,
             announce=not json_output,
@@ -1440,7 +1440,7 @@ def _run_llamacpp_noninteractive_command(
         result = run_coroutine(
             _run_llamacpp_import(
                 start_path=command_context.start_path,
-                env_dir=command_context.resolved_env_dir,
+                home=command_context.resolved_home,
                 url=url,
                 auth=resolved_auth,
                 api_key_env=api_key_env,
@@ -1463,7 +1463,7 @@ def _run_llamacpp_noninteractive_command(
 
     _finalize_llamacpp_import(
         result=result,
-        resolved_env_dir=command_context.resolved_env_dir,
+        resolved_home=command_context.resolved_home,
         include_sampling_defaults=include_sampling_defaults,
         json_output=json_output,
         print_overlay_yaml=print_overlay_yaml,
@@ -1473,7 +1473,7 @@ def _run_llamacpp_noninteractive_command(
 def _build_llamacpp_start_now_argv(
     *,
     overlay_name: str,
-    env_dir: Path | None,
+    home: Path | None,
     with_shell: bool,
     smart: bool,
 ) -> list[str]:
@@ -1482,15 +1482,15 @@ def _build_llamacpp_start_now_argv(
         argv.append("--smart")
     if with_shell:
         argv.append("-x")
-    if env_dir is not None:
-        argv.extend(["--env", str(env_dir)])
+    if home is not None:
+        argv.extend(["--home", str(home)])
     return argv
 
 
 def _launch_llamacpp_overlay_now(
     *,
     overlay_name: str,
-    env_dir: Path | None,
+    home: Path | None,
     with_shell: bool = False,
     smart: bool = False,
     announce: bool = True,
@@ -1498,7 +1498,7 @@ def _launch_llamacpp_overlay_now(
 ) -> None:
     argv = _build_llamacpp_start_now_argv(
         overlay_name=overlay_name,
-        env_dir=env_dir,
+        home=home,
         with_shell=with_shell,
         smart=smart,
     )
@@ -1535,7 +1535,7 @@ def model_export(
         "-p",
         help="Override the provider for the overlay.",
     ),
-    env: str | None = CommonAgentOptions.env_dir(),
+    env: str | None = CommonAgentOptions.home(),
     replace: bool = typer.Option(
         False,
         "--replace",
@@ -1641,7 +1641,7 @@ def _write_model_export_manifest(
     try:
         return write_model_overlay_manifest(
             manifest,
-            env_dir=env,
+            home=env,
             replace=replace,
         )
     except FileExistsError as exc:
@@ -1744,7 +1744,7 @@ def _model_presets_key_status(
 def _model_preset_rows(
     *,
     provider_filter: Provider | None,
-    env_dir: Path | None,
+    home: Path | None,
 ) -> list[dict[str, Any]]:
     from fast_agent.cli.commands.check_config import (
         check_api_keys,
@@ -1753,7 +1753,7 @@ def _model_preset_rows(
         get_secrets_summary,
     )
 
-    config_files = find_config_files(Path.cwd(), env_dir=env_dir)
+    config_files = find_config_files(Path.cwd(), home=home)
     config_summary = get_config_summary(config_files["config"])
     secrets_summary = get_secrets_summary(config_files["secrets"])
     api_keys = check_api_keys(secrets_summary, config_summary)
@@ -1836,7 +1836,7 @@ def model_presets(
         "-p",
         help="Only show presets that resolve to this provider.",
     ),
-    env: str | None = CommonAgentOptions.env_dir(),
+    env: str | None = CommonAgentOptions.home(),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -1844,12 +1844,12 @@ def model_presets(
     ),
 ) -> None:
     """List built-in and runtime model presets with provider/key readiness."""
-    resolved_env_dir = resolve_environment_dir_option(
+    resolved_home = resolve_home_option(
         ctx,
         Path(env) if env is not None else None,
     )
     provider_filter = _model_presets_provider_filter(provider)
-    rows = _model_preset_rows(provider_filter=provider_filter, env_dir=resolved_env_dir)
+    rows = _model_preset_rows(provider_filter=provider_filter, home=resolved_home)
 
     if json_output:
         console.print(json.dumps(rows, indent=2, sort_keys=True))
@@ -1870,7 +1870,7 @@ def model_setup(
         None,
         help="Reference token to update, such as $system.fast. Omit to choose or create one interactively.",
     ),
-    env: str | None = CommonAgentOptions.env_dir(),
+    env: str | None = CommonAgentOptions.home(),
     target: str = typer.Option(
         "env",
         "--target",
@@ -1887,14 +1887,14 @@ def model_setup(
         typer.echo("fast-agent model setup requires an interactive terminal.", err=True)
         raise typer.Exit(1)
 
-    resolved_env_dir = resolve_environment_dir_option(
+    resolved_home = resolve_home_option(
         ctx,
         Path(env) if env is not None else None,
     )
     resolved_target = _normalize_write_target(target)
     settings = (
-        Settings(environment_dir=str(resolved_env_dir))
-        if resolved_env_dir is not None
+        Settings(home=str(resolved_home))
+        if resolved_home is not None
         else Settings()
     )
 
@@ -1915,16 +1915,16 @@ def model_setup(
 @app.command("doctor")
 def model_doctor(
     ctx: typer.Context,
-    env: str | None = CommonAgentOptions.env_dir(),
+    env: str | None = CommonAgentOptions.home(),
 ) -> None:
     """Inspect model onboarding readiness and reference resolution."""
-    resolved_env_dir = resolve_environment_dir_option(
+    resolved_home = resolve_home_option(
         ctx,
         Path(env) if env is not None else None,
     )
     settings = _load_cli_settings(
-        cwd=_bootstrap_settings_start_path(resolved_env_dir),
-        env_dir=resolved_env_dir,
+        cwd=_bootstrap_settings_start_path(resolved_home),
+        home=resolved_home,
     )
 
     try:
@@ -1983,7 +1983,7 @@ def model_llamacpp(
         result = run_coroutine(
             _run_llamacpp_import(
                 start_path=command_context.start_path,
-                env_dir=command_context.resolved_env_dir,
+                home=command_context.resolved_home,
                 url=url,
                 auth=resolved_auth,
                 api_key_env=api_key_env,
@@ -2004,7 +2004,7 @@ def model_llamacpp(
 
     _finalize_llamacpp_import(
         result=result,
-        resolved_env_dir=command_context.resolved_env_dir,
+        resolved_home=command_context.resolved_home,
         include_sampling_defaults=include_sampling_defaults,
     )
 

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import typer
 
 from fast_agent.cli.command_support import ensure_context_object
-from fast_agent.cli.env_helpers import resolve_environment_dir_option
+from fast_agent.cli.home_helpers import resolve_home_option
 from fast_agent.commands.context import (
     CommandContext,
     NonInteractiveCommandIOBase,
@@ -123,10 +123,10 @@ def export(
 ) -> None:
     """Export a persisted session trace."""
     context_payload = ensure_context_object(ctx)
-    env_dir_value = context_payload.get("env_dir")
-    env_dir = env_dir_value if isinstance(env_dir_value, Path) else None
-    resolved_env_dir = resolve_environment_dir_option(ctx, env_dir)
-    session_manager = SessionManager(environment_override=resolved_env_dir)
+    home_value = context_payload.get("home")
+    home = home_value if isinstance(home_value, Path) else None
+    resolved_home = resolve_home_option(ctx, home)
+    session_manager = SessionManager(home_override=resolved_home)
 
     command_context = CommandContext(
         agent_provider=StaticAgentProvider(),

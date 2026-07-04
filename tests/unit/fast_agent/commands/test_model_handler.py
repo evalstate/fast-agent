@@ -747,8 +747,8 @@ async def test_model_switch_starts_new_session_before_setting_model(tmp_path: Pa
         agent_provider=provider,
         current_agent_name="test",
         io=_StubIO(),
-        settings=Settings(environment_dir=str(tmp_path / "fast-agent")),
-        session_manager=SessionManager(environment_override=tmp_path / "fast-agent"),
+        settings=Settings(home=str(tmp_path / "fast-agent")),
+        session_manager=SessionManager(home_override=tmp_path / "fast-agent"),
     )
 
     outcome = await handle_model_switch(ctx, agent_name="test", value="gpt-4.1-mini")
@@ -778,7 +778,7 @@ async def test_model_switch_uses_selector_when_value_missing() -> None:
         current_agent_name="test",
         io=_StubIO(model_selection_response="gpt-5-mini"),
         settings=Settings(),
-        noenv=True,
+        no_home=True,
     )
 
     await handle_model_switch(ctx, agent_name="test", value=None)
@@ -847,8 +847,8 @@ async def test_model_switch_does_not_start_session_when_model_is_already_active(
         agent_provider=provider,
         current_agent_name="test",
         io=_StubIO(),
-        settings=Settings(environment_dir=str(tmp_path / "fast-agent")),
-        session_manager=SessionManager(environment_override=tmp_path / "fast-agent"),
+        settings=Settings(home=str(tmp_path / "fast-agent")),
+        session_manager=SessionManager(home_override=tmp_path / "fast-agent"),
     )
 
     outcome = await handle_model_switch(ctx, agent_name="test", value="gpt-5-mini")
@@ -873,7 +873,7 @@ async def test_model_switch_returns_model_config_errors_without_raising() -> Non
         current_agent_name="test",
         io=_StubIO(),
         settings=Settings(),
-        noenv=True,
+        no_home=True,
     )
 
     outcome = await handle_model_switch(ctx, agent_name="test", value="$system.typo")

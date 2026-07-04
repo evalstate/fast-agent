@@ -16,5 +16,14 @@
     "mime_type": "text/markdown",
     "source": "model_overlays.md",
     "tags": ["smart", "models", "overlays", "reference"]
+  },
+  {
+    "uri": "internal://fast-agent/execution-environments",
+    "title": "Execution Environment Configuration Reference",
+    "description": "Generated named execution environment config schema, examples, and rules.",
+    "why": "Use when creating, validating, or editing local, Docker, Hugging Face Sandbox, or custom execution environments in fast-agent.yaml.",
+    "mime_type": "text/markdown",
+    "source": "execution_environments.md",
+    "tags": ["smart", "environments", "config", "reference"]
   }
 ]

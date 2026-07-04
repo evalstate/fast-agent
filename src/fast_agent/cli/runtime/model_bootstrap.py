@@ -170,8 +170,8 @@ def load_request_settings(request: AgentRunRequest) -> Settings:
 
     return get_settings_or_exit(
         request.config_path,
-        env_dir=request.environment_dir,
-        noenv=request.noenv,
+        home=request.home,
+        no_home=request.no_home,
     )
 
 
@@ -195,7 +195,7 @@ def resolve_model_picker_initial_selection(
             settings=settings,
             fallback_path=Path.cwd(),
         ),
-        env_dir=settings.environment_dir,
+        home=settings.home,
     )
     overlay_selection = overlay_model_picker_selection(
         overlay_registry,
@@ -313,10 +313,10 @@ def persist_model_picker_last_used_selection(
         ModelReferenceConfigService,
         resolve_model_reference_start_path,
     )
-    from fast_agent.paths import resolve_environment_dir
+    from fast_agent.paths import resolve_home_dir
 
     normalized_model = strip_to_none(model_spec)
-    if request.noenv or normalized_model is None:
+    if request.no_home or normalized_model is None:
         return False
 
     start_path = resolve_model_reference_start_path(settings=settings, fallback_path=Path.cwd())
@@ -331,17 +331,17 @@ def persist_model_picker_last_used_selection(
         else:
             explicit_config_path = Path(request.config_path).expanduser().resolve()
 
-    env_dir = resolve_environment_dir(
+    home = resolve_home_dir(
         settings=settings,
         cwd=Path.cwd(),
-        override=request.environment_dir or settings.environment_dir,
+        override=request.home or settings.home,
     )
     write_target = "project" if explicit_config_path is not None else "env"
 
     try:
         ModelReferenceConfigService(
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
             project_write_path=explicit_config_path,
         ).set_reference(
             "$system.last_used",
@@ -351,7 +351,7 @@ def persist_model_picker_last_used_selection(
     except Exception as exc:
         logger.warning(
             "Failed to persist model picker last-used selection",
-            env_dir=str(env_dir) if env_dir is not None else None,
+            home=str(home) if home is not None else None,
             config_path=str(explicit_config_path) if explicit_config_path is not None else None,
             target=write_target,
             model_spec=normalized_model,
@@ -413,14 +413,19 @@ async def import_llamacpp_overlay_from_picker(
     start_path: Path,
 ) -> str | None:
     from fast_agent.cli.commands.model import import_llamacpp_overlay_from_default_url
+    from fast_agent.paths import resolve_home_dir
 
     settings = load_request_settings(request)
-    env_dir = request.environment_dir or settings.environment_dir
+    home = None if request.no_home else resolve_home_dir(
+        settings=settings,
+        cwd=Path.cwd(),
+        override=request.home or settings.home,
+    )
 
     try:
         return await import_llamacpp_overlay_from_default_url(
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
         )
     except (EOFError, KeyboardInterrupt):
         return None

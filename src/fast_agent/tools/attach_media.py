@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import unquote, urlparse
 
 from mcp.types import (
@@ -24,6 +24,11 @@ from fast_agent.mcp.mime_utils import (
     is_image_mime_type,
     is_text_mime_type,
     normalize_mime_type,
+)
+from fast_agent.tools.filesystem_tool_args import (
+    coerce_optional_string_argument,
+    coerce_required_string_argument,
+    coerce_tool_arguments,
 )
 from fast_agent.utils.numeric import positive_int_or_none
 from fast_agent.utils.text import strip_casefold
@@ -64,6 +69,14 @@ class AttachMediaResult:
 
 
 @dataclass(frozen=True, slots=True)
+class AttachMediaArguments:
+    source: str
+    mime_type: str | None = None
+    name: str | None = None
+    description: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class _SourceInfo:
     raw_source: str
     resolved_source: str
@@ -71,6 +84,26 @@ class _SourceInfo:
     mime_type: str
     display_name: str
     local_path: Path | None = None
+
+
+_ATTACH_MEDIA_OPTIONAL_STRING_FIELDS = ("mime_type", "name", "description")
+
+
+def parse_attach_media_arguments(arguments: dict[str, Any] | None) -> AttachMediaArguments:
+    """Parse shared attach_media tool arguments."""
+    payload = coerce_tool_arguments(arguments)
+    source_value = coerce_required_string_argument(payload.get("source"), "source", strip=True)
+    optional_values = {
+        field_name: coerce_optional_string_argument(
+            payload.get(field_name),
+            field_name,
+            include_argument_word=False,
+            empty_as_none=True,
+            strip=True,
+        )
+        for field_name in _ATTACH_MEDIA_OPTIONAL_STRING_FIELDS
+    }
+    return AttachMediaArguments(source=source_value, **optional_values)
 
 
 def supported_attach_media_mime_types(model_info: ModelInfo | None) -> list[str]:
@@ -167,32 +200,131 @@ def build_attach_media(
 
     size = source_info.local_path.stat().st_size
     if size > max_byte_limit:
-        limit_mb = max_byte_limit / (1024 * 1024)
-        actual_mb = size / (1024 * 1024)
-        raise ValueError(
-            f"Error: attachment is {actual_mb:.1f} MB; maximum inline attachment size is "
-            f"{limit_mb:.1f} MB"
-        )
+        _raise_attachment_too_large(size, max_byte_limit)
 
     data = source_info.local_path.read_bytes()
-    encoded = base64.b64encode(data).decode("ascii")
-    if is_image_mime_type(source_info.mime_type):
-        block = ImageContent(type="image", data=encoded, mimeType=source_info.mime_type)
-    else:
-        block = EmbeddedResource(
-            type="resource",
-            resource=BlobResourceContents(
-                uri=AnyUrl(source_info.resolved_source),
-                blob=encoded,
-                mimeType=source_info.mime_type,
-            ),
+    return build_attach_media_from_bytes(
+        source=source_info.resolved_source,
+        data=data,
+        mime_type=source_info.mime_type,
+        name=source_info.display_name,
+        model_info=model_info,
+        max_bytes=max_byte_limit,
+    )
+
+
+def build_attach_media_link(
+    source: str,
+    *,
+    mime_type: str | None = None,
+    name: str | None = None,
+    description: str | None = None,
+    model_info: ModelInfo | None = None,
+) -> AttachMediaResult:
+    """Create an MCP attachment block for a provider-fetchable URI."""
+    raw_source = source.strip()
+    if not raw_source:
+        raise ValueError("Error: 'source' argument is required and must be a non-empty string")
+
+    if not is_provider_fetchable_uri(raw_source):
+        parsed = urlparse(raw_source)
+        if parsed.scheme == "internal":
+            raise ValueError(
+                "Error: attach_media does not read internal resources; use get_resource for "
+                "internal:// or MCP resource URIs"
+            )
+        raise ValueError(
+            f"Error: unsupported attachment URI scheme '{parsed.scheme}'; use get_resource for "
+            "internal:// or MCP resource URIs"
         )
 
+    resolved_mime = normalize_mime_type(mime_type) if mime_type else _infer_remote_mime(raw_source)
+    if resolved_mime is None:
+        resolved_mime = "application/octet-stream"
+    source_info = _SourceInfo(
+        raw_source=raw_source,
+        resolved_source=raw_source,
+        kind="link",
+        mime_type=resolved_mime,
+        display_name=name or _remote_display_name(raw_source),
+    )
+    _validate_attachment(
+        mime_type=source_info.mime_type,
+        resource_source="link",
+        model_info=model_info,
+    )
+    if (
+        model_info is not None
+        and model_info.provider == Provider.GOOGLE
+        and source_info.mime_type == "application/pdf"
+    ):
+        raise ValueError(
+            "Error: Google attachments do not support arbitrary remote PDF links yet; "
+            "attach a local PDF file instead"
+        )
+
+    block = ResourceLink(
+        type="resource_link",
+        uri=AnyUrl(source_info.resolved_source),
+        name=source_info.display_name,
+        mimeType=source_info.mime_type,
+        description=description,
+    )
     return AttachMediaResult(
         block=block,
         source=source_info.resolved_source,
         mime_type=source_info.mime_type,
         display_name=source_info.display_name,
+        linked=True,
+    )
+
+
+def build_attach_media_from_bytes(
+    *,
+    source: str,
+    data: bytes,
+    mime_type: str | None = None,
+    name: str | None = None,
+    model_info: ModelInfo | None = None,
+    max_bytes: int = DEFAULT_ATTACH_MEDIA_MAX_BYTES,
+) -> AttachMediaResult:
+    """Create an embedded MCP attachment block from already-read bytes."""
+    max_byte_limit = normalize_attach_media_max_bytes(max_bytes)
+    raw_source = source.strip()
+    if not raw_source:
+        raise ValueError("Error: 'source' argument is required and must be a non-empty string")
+
+    resolved_mime = normalize_mime_type(mime_type) if mime_type else guess_mime_type(raw_source)
+    if resolved_mime is None:
+        resolved_mime = "application/octet-stream"
+    _validate_attachment(
+        mime_type=resolved_mime,
+        resource_source="embedded",
+        model_info=model_info,
+    )
+
+    size = len(data)
+    if size > max_byte_limit:
+        _raise_attachment_too_large(size, max_byte_limit)
+
+    encoded = base64.b64encode(data).decode("ascii")
+    if is_image_mime_type(resolved_mime):
+        block = ImageContent(type="image", data=encoded, mimeType=resolved_mime)
+    else:
+        block = EmbeddedResource(
+            type="resource",
+            resource=BlobResourceContents(
+                uri=AnyUrl(attachment_uri(raw_source)),
+                blob=encoded,
+                mimeType=resolved_mime,
+            ),
+        )
+
+    return AttachMediaResult(
+        block=block,
+        source=raw_source,
+        mime_type=resolved_mime,
+        display_name=name or _source_display_name(raw_source),
         linked=False,
     )
 
@@ -219,7 +351,7 @@ def _classify_source(
             local_path = local_path.resolve()
         return _local_source_info(raw_source, local_path, normalized_mime, name)
 
-    if parsed.scheme in {"http", "https", "gs"} or _is_gemini_file_uri(raw_source):
+    if is_provider_fetchable_uri(raw_source):
         inferred_mime = normalized_mime or _infer_remote_mime(raw_source)
         display_name = name or _remote_display_name(raw_source)
         return _SourceInfo(
@@ -247,6 +379,58 @@ def _classify_source(
     else:
         local_path = local_path.resolve()
     return _local_source_info(raw_source, local_path, normalized_mime, name)
+
+
+def _validate_attachment(
+    *,
+    mime_type: str,
+    resource_source: Literal["embedded", "link"],
+    model_info: ModelInfo | None,
+) -> None:
+    if is_text_mime_type(mime_type):
+        raise ValueError(f"Error: '{mime_type}' is text content; use read_text_file for text/code files")
+
+    if model_info is not None and not model_info.supports_mime(
+        mime_type,
+        resource_source=resource_source,
+    ):
+        raise ValueError(
+            "Error: current model does not support "
+            f"{resource_source} attachments with MIME type '{mime_type}'"
+        )
+
+
+def _raise_attachment_too_large(size: int, max_byte_limit: int) -> None:
+    limit_mb = max_byte_limit / (1024 * 1024)
+    actual_mb = size / (1024 * 1024)
+    raise ValueError(
+        f"Error: attachment is {actual_mb:.1f} MB; maximum inline attachment size is {limit_mb:.1f} MB"
+    )
+
+
+def attachment_uri(source: str) -> str:
+    """Return a URI for an attachment source, defaulting bare paths to file://."""
+    parsed = urlparse(source)
+    if parsed.scheme:
+        return source
+    if source.startswith("/"):
+        return f"file://{source}"
+    return f"file:///{source.lstrip('/')}"
+
+
+def _source_display_name(source: str) -> str:
+    parsed = urlparse(source)
+    if parsed.scheme == "file":
+        return Path(unquote(parsed.path)).name or source
+    if parsed.scheme:
+        return _remote_display_name(source)
+    return Path(source).name or source
+
+
+def is_provider_fetchable_uri(source: str) -> bool:
+    """Return whether the source is a remote URI the model provider can fetch."""
+    parsed = urlparse(source)
+    return parsed.scheme in {"http", "https", "gs"} or _is_gemini_file_uri(source)
 
 
 def _local_source_info(
@@ -303,4 +487,3 @@ def _is_youtube_url(source: str) -> bool:
     return host in {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"} or host.endswith(
         ".youtube.com"
     )
-

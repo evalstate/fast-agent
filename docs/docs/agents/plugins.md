@@ -58,8 +58,8 @@ FAST_AGENT_HOME=~/.fast-agent fast-agent plugins add agent-finder --global
 ```
 
 When `FAST_AGENT_HOME` is set, plugin names from
-`$FAST_AGENT_HOME/fast-agent.yaml` are merged with the active environment,
-including when you run with `--env <dir>`. If `FAST_AGENT_HOME` is not set,
+`$FAST_AGENT_HOME/fast-agent.yaml` are merged with the active fast-agent home,
+including when you run with `--home <dir>`. If `FAST_AGENT_HOME` is not set,
 `~/.fast-agent/fast-agent.yaml` is used as the global plugin layer when it
 exists.
 

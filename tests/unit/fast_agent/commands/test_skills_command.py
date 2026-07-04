@@ -87,10 +87,10 @@ def test_skills_add_list_remove_via_cli(tmp_path: Path) -> None:
 
     marketplace_path = _marketplace_path(repo, tmp_path / "marketplace.json")
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
-        f"default_model: passthrough\nenvironment_dir: '{env_root.as_posix()}'\n",
+        f"default_model: passthrough\nhome: '{home_root.as_posix()}'\n",
         encoding="utf-8",
     )
 
@@ -108,7 +108,7 @@ def test_skills_add_list_remove_via_cli(tmp_path: Path) -> None:
         assert "Skill Installed" in add_result.output
         assert "name: alpha" in add_result.output
         assert "▎• location" not in add_result.output
-        assert (env_root / "skills" / "alpha" / "SKILL.md").exists()
+        assert (home_root / "skills" / "alpha" / "SKILL.md").exists()
 
         list_result = runner.invoke(skills_command.app, ["list"], terminal_width=200)
         assert list_result.exit_code == 0, list_result.output
@@ -123,7 +123,7 @@ def test_skills_add_list_remove_via_cli(tmp_path: Path) -> None:
         assert remove_result.exit_code == 0, remove_result.output
         assert "Skill Removed" in remove_result.output
         assert "name: alpha" in remove_result.output
-        assert not (env_root / "skills" / "alpha").exists()
+        assert not (home_root / "skills" / "alpha").exists()
     finally:
         update_global_settings(old_settings)
 
@@ -139,11 +139,11 @@ def test_skills_add_direct_local_source_uses_manifest_name_without_marketplace(
         encoding="utf-8",
     )
 
-    env_root = tmp_path / ".fast-agent"
+    home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
         "default_model: passthrough\n"
-        f"environment_dir: '{env_root.as_posix()}'\n"
+        f"home: '{home_root.as_posix()}'\n"
         "skills:\n"
         "  marketplace_url: 'https://example.invalid/marketplace.json'\n",
         encoding="utf-8",
@@ -162,8 +162,8 @@ def test_skills_add_direct_local_source_uses_manifest_name_without_marketplace(
         assert result.exit_code == 0, result.output
         assert "Skill Installed" in result.output
         assert "name: canonical-name" in result.output
-        assert (env_root / "skills" / "canonical-name" / "SKILL.md").exists()
-        assert not (env_root / "skills" / "source-name").exists()
+        assert (home_root / "skills" / "canonical-name" / "SKILL.md").exists()
+        assert not (home_root / "skills" / "source-name").exists()
     finally:
         update_global_settings(old_settings)
 
@@ -174,7 +174,7 @@ def test_skills_help_has_registry_and_skills_dir_options_no_registry_subcommand(
     output = strip_ansi(result.output)
 
     assert result.exit_code == 0, output
-    assert "--env" in output
+    assert "--home" in output
     assert "--registry" in output
     assert "--skills-dir" in output
     assert "--install-completion" not in output
@@ -217,11 +217,11 @@ def test_marketplace_skill_selection_options_include_install_dir_aliases() -> No
 
 
 def test_top_level_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> None:
-    env_root = tmp_path / "custom-env"
+    home_root = tmp_path / "custom-env"
     managed_dir = tmp_path / "env-skills"
     _write_skill(managed_dir, "env-skill", description="ENV_SKILL")
-    (env_root / "fastagent.config.yaml").parent.mkdir(parents=True, exist_ok=True)
-    (env_root / "fastagent.config.yaml").write_text(
+    (home_root / "fastagent.config.yaml").parent.mkdir(parents=True, exist_ok=True)
+    (home_root / "fastagent.config.yaml").write_text(
         f"default_model: passthrough\nskills:\n  directories: ['{managed_dir.as_posix()}']\n",
         encoding="utf-8",
     )
@@ -233,8 +233,8 @@ def test_top_level_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> None:
             "python",
             "-m",
             "fast_agent.cli",
-            "--env",
-            str(env_root),
+            "--home",
+            str(home_root),
             "skills",
             "list",
         ],
@@ -250,11 +250,11 @@ def test_top_level_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> None:
 
 
 def test_local_skills_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> None:
-    env_root = tmp_path / "custom-env"
+    home_root = tmp_path / "custom-env"
     managed_dir = tmp_path / "env-skills"
     _write_skill(managed_dir, "env-skill", description="ENV_SKILL")
-    (env_root / "fastagent.config.yaml").parent.mkdir(parents=True, exist_ok=True)
-    (env_root / "fastagent.config.yaml").write_text(
+    (home_root / "fastagent.config.yaml").parent.mkdir(parents=True, exist_ok=True)
+    (home_root / "fastagent.config.yaml").write_text(
         f"default_model: passthrough\nskills:\n  directories: ['{managed_dir.as_posix()}']\n",
         encoding="utf-8",
     )
@@ -267,8 +267,8 @@ def test_local_skills_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> No
             "-m",
             "fast_agent.cli",
             "skills",
-            "--env",
-            str(env_root),
+            "--home",
+            str(home_root),
             "list",
         ],
         check=False,

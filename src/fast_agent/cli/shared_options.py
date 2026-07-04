@@ -122,18 +122,25 @@ class CommonAgentOptions:
         )
 
     @staticmethod
-    def env_dir():
+    def home():
         return typer.Option(
-            None, "--env", help="Override the base fast-agent environment directory"
+            None, "--home", help="Override the base fast-agent home"
         )
 
     @staticmethod
-    def noenv():
+    def workspace():
+        return typer.Option(
+            None,
+            "--workspace",
+            help="Override the workspace root; default home resolves under this directory",
+        )
+
+    @staticmethod
+    def no_home():
         return typer.Option(
             False,
-            "--noenv",
-            "--no-env",
-            help="Run without implicit environment-side effects",
+            "--no-home",
+            help="Run without implicit fast-agent home side effects",
         )
 
     @staticmethod

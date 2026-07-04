@@ -89,17 +89,17 @@ class CommandSurfaceProvider(StaticAgentProvider):
         *,
         attached_mcp_servers: list[str] | None = None,
         detached_mcp_servers: list[str] | None = None,
-        noenv_mode: bool = False,
+        no_home_mode: bool = False,
     ) -> None:
         super().__init__(agents)
         self._attached_mcp_servers = list(attached_mcp_servers or [])
         self._detached_mcp_servers = list(detached_mcp_servers or ["docs"])
-        self._noenv_mode = noenv_mode
+        self._no_home_mode = no_home_mode
         self.missing_shell_cwd_policy_override = None
 
     @property
-    def noenv_mode(self) -> bool:
-        return self._noenv_mode
+    def no_home_mode(self) -> bool:
+        return self._no_home_mode
 
     def _agent(self, name: str) -> CommandSurfaceAgent:
         return cast("CommandSurfaceAgent", super()._agent(name))

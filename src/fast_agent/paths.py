@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, DEFAULT_SKILLS_PATHS
+from fast_agent.constants import DEFAULT_HOME_DIR, DEFAULT_SKILLS_PATHS, FAST_AGENT_RUNTIME_HOME
 from fast_agent.home import resolve_fast_agent_home
 
 if TYPE_CHECKING:
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class EnvironmentPaths:
+class HomePaths:
     root: Path
     card_packs: Path
     plugins: Path
@@ -41,15 +41,15 @@ def resolve_settings_start_path(
         config_file = settings._config_file
         if config_file:
             config_parent = Path(config_file).expanduser().resolve().parent
-            if config_parent.name == DEFAULT_ENVIRONMENT_DIR:
+            if config_parent.name == DEFAULT_HOME_DIR:
                 return config_parent.parent
             return config_parent
 
-        environment_dir = settings.environment_dir
-        if environment_dir:
-            env_root = Path(environment_dir).expanduser()
-            if env_root.is_absolute():
-                return env_root.resolve().parent
+        home = settings.home
+        if home:
+            home_root = Path(home).expanduser()
+            if home_root.is_absolute():
+                return home_root.resolve().parent
 
     if fallback_path is not None:
         return fallback_path.resolve()
@@ -57,59 +57,52 @@ def resolve_settings_start_path(
     return Path.cwd().resolve()
 
 
-def _is_ambient_legacy_environment_dir(value: str | Path | None) -> bool:
-    if value is None:
-        return False
-    legacy_value = os.getenv("ENVIRONMENT_DIR")
-    if not legacy_value:
-        return False
-    return Path(value).expanduser() == Path(legacy_value).expanduser()
-
-
-def resolve_environment_dir(
+def resolve_home_dir(
     settings: "Settings | None" = None,
     *,
     cwd: Path | None = None,
     override: str | Path | None = None,
 ) -> Path:
     base = cwd or Path.cwd()
-    environment_dir = override
-    if environment_dir is None:
+    home = override
+    if home is None:
         if settings is None:
             from fast_agent.config import get_settings
 
             settings = get_settings()
-        if settings._fast_agent_noenv:
+        if settings._fast_agent_no_home:
             raise ValueError("fast-agent home is disabled for these settings")
-        configured_environment_dir = settings.environment_dir
-        if configured_environment_dir is not None and not _is_ambient_legacy_environment_dir(
-            configured_environment_dir
-        ):
-            environment_dir = configured_environment_dir
-            env_path = Path(environment_dir).expanduser()
-            return _resolve_relative_path(env_path, base)
+        configured_home = settings.home
+        if configured_home is not None:
+            home = configured_home
+            home_path = Path(home).expanduser()
+            return _resolve_relative_path(home_path, base)
         if settings._fast_agent_home is not None:
             return Path(settings._fast_agent_home).expanduser().resolve()
 
-    if environment_dir is not None:
-        env_path = Path(environment_dir).expanduser()
-        return _resolve_relative_path(env_path, base)
+    if home is not None:
+        home_path = Path(home).expanduser()
+        return _resolve_relative_path(home_path, base)
+
+    runtime_home = os.getenv(FAST_AGENT_RUNTIME_HOME)
+    if runtime_home:
+        return _resolve_relative_path(Path(runtime_home).expanduser(), base)
 
     home = resolve_fast_agent_home(cwd=base)
     if home is not None:
         return home.path
 
-    return _resolve_relative_path(Path(DEFAULT_ENVIRONMENT_DIR), base)
+    return _resolve_relative_path(Path(DEFAULT_HOME_DIR), base)
 
 
-def resolve_environment_paths(
+def resolve_home_paths(
     settings: "Settings | None" = None,
     *,
     cwd: Path | None = None,
     override: str | Path | None = None,
-) -> EnvironmentPaths:
-    root = resolve_environment_dir(settings=settings, cwd=cwd, override=override)
-    return EnvironmentPaths(
+) -> HomePaths:
+    root = resolve_home_dir(settings=settings, cwd=cwd, override=override)
+    return HomePaths(
         root=root,
         card_packs=root / "card-packs",
         plugins=root / "plugins",
@@ -133,19 +126,19 @@ def default_skill_paths(
         from fast_agent.config import Settings
 
         settings = Settings()
-    env_paths = (
+    home_paths = (
         None
-        if override is None and settings._fast_agent_noenv
-        else resolve_environment_paths(settings=settings, cwd=base, override=override)
+        if override is None and settings._fast_agent_no_home
+        else resolve_home_paths(settings=settings, cwd=base, override=override)
     )
     resolved: list[Path] = []
-    env_skills_entry = Path(DEFAULT_ENVIRONMENT_DIR) / "skills"
+    home_skills_entry = Path(DEFAULT_HOME_DIR) / "skills"
     for entry in DEFAULT_SKILLS_PATHS:
         raw_path = Path(entry).expanduser()
-        if raw_path == env_skills_entry:
-            if env_paths is None:
+        if raw_path == home_skills_entry:
+            if home_paths is None:
                 continue
-            path = env_paths.skills
+            path = home_paths.skills
         else:
             path = _resolve_relative_path(raw_path, base)
         if path not in resolved:
@@ -166,8 +159,8 @@ def resolve_mcp_ui_output_dir(
         settings = get_settings()
 
     dir_setting = settings.mcp_ui_output_dir
-    env_paths = resolve_environment_paths(settings=settings, cwd=base, override=override)
-    if dir_setting in (None, str(Path(DEFAULT_ENVIRONMENT_DIR) / "ui")):
-        return env_paths.ui
+    home_paths = resolve_home_paths(settings=settings, cwd=base, override=override)
+    if dir_setting in (None, str(Path(DEFAULT_HOME_DIR) / "ui")):
+        return home_paths.ui
 
     return _resolve_relative_path(Path(dir_setting).expanduser(), base)

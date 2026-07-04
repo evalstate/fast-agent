@@ -20,8 +20,15 @@ from fast_agent.constants import (
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
 from fast_agent.event_progress import ProgressAction
+from fast_agent.tools.execution_environment import (
+    ShellExecution,
+    ShellExecutionCallbacks,
+    ShellExecutionOptions,
+    ShellExecutionRequest,
+    ShellExecutionResult,
+    ShellRuntimeInfo,
+)
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
-from fast_agent.tools.session_environment import ShellExecutionResult
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.ui import console
 from fast_agent.ui.display_suppression import suppress_interactive_display
@@ -111,8 +118,43 @@ class _TestLocalShellExecutor(LocalShellExecutor):
         self._test_runtime_info = dict(runtime_info)
         super().__init__(**kwargs)
 
-    def runtime_info(self) -> dict[str, str | None]:
-        return self._test_runtime_info
+    def runtime_info(self) -> ShellRuntimeInfo:
+        return ShellRuntimeInfo(
+            name=self._test_runtime_info.get("name") or "shell",
+            path=self._test_runtime_info.get("path"),
+        )
+
+
+class _RecordingShellEnvironment:
+    def __init__(self, cwd: str = "/workspace") -> None:
+        self._cwd = cwd
+        self.requests: list[ShellExecutionRequest] = []
+
+    async def open(self) -> None:
+        return None
+
+    @property
+    def cwd(self) -> str:
+        return self._cwd
+
+    def runtime_info(self) -> ShellRuntimeInfo:
+        return ShellRuntimeInfo(name="bash", kind="docker", provider="test")
+
+    async def execute(
+        self,
+        request: ShellExecutionRequest,
+        *,
+        callbacks: ShellExecutionCallbacks | None = None,
+    ) -> ShellExecution:
+        del callbacks
+        self.requests.append(request)
+        return ShellExecution(
+            result=ShellExecutionResult(stdout="", stderr="", exit_code=0),
+            options=ShellExecutionOptions(),
+        )
+
+    async def close(self) -> None:
+        return None
 
 
 class _CancellableLocalShellExecutor(LocalShellExecutor):
@@ -160,7 +202,7 @@ def _setup_runtime(
     **runtime_kwargs: Any,
 ) -> tuple[ShellRuntime, DummyProcess, dict[str, Any]]:
     logger = logging.getLogger("shell-runtime-test")
-    shell_executor = _TestLocalShellExecutor(
+    shell_environment = _TestLocalShellExecutor(
         logger=logger,
         runtime_info=runtime_info,
         timeout_seconds=runtime_kwargs.get("timeout_seconds", 90),
@@ -170,7 +212,7 @@ def _setup_runtime(
     runtime = ShellRuntime(
         activation_reason="test",
         logger=logger,
-        shell_executor=shell_executor,
+        shell_environment=shell_environment,
         **runtime_kwargs,
     )
 
@@ -249,13 +291,13 @@ def test_shell_runtime_reads_typed_shell_settings() -> None:
 
 
 @pytest.mark.asyncio
-async def test_shell_executor_exports_runtime_home(tmp_path: Path) -> None:
+async def test_shell_environment_exports_runtime_home(tmp_path: Path) -> None:
     settings = Settings()
     settings._fast_agent_home = str(tmp_path / ".fast-agent")
     executor = LocalShellExecutor(logger=logging.getLogger(__name__), config=settings)
 
     result = await executor.execute_shell(
-        f"{sys.executable} -c \"import os; print(os.environ['ENVIRONMENT_DIR'])\"",
+        f"{sys.executable} -c \"import os; print(os.environ['FAST_AGENT_HOME'])\"",
         cwd=tmp_path,
     )
 
@@ -264,14 +306,14 @@ async def test_shell_executor_exports_runtime_home(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_shell_executor_strips_runtime_home_in_noenv(tmp_path: Path) -> None:
+async def test_shell_environment_strips_runtime_home_in_no_home(tmp_path: Path) -> None:
     settings = Settings()
     settings._fast_agent_home = str(tmp_path / ".fast-agent")
-    settings._fast_agent_noenv = True
+    settings._fast_agent_no_home = True
     executor = LocalShellExecutor(logger=logging.getLogger(__name__), config=settings)
 
     result = await executor.execute_shell(
-        (f"{sys.executable} -c \"import os; print(os.environ.get('ENVIRONMENT_DIR', 'missing'))\""),
+        (f"{sys.executable} -c \"import os; print(os.environ.get('FAST_AGENT_HOME', 'missing'))\""),
         cwd=tmp_path,
     )
 
@@ -280,10 +322,10 @@ async def test_shell_executor_strips_runtime_home_in_noenv(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_shell_executor_terminates_process_when_cancelled() -> None:
+async def test_shell_environment_terminates_process_when_cancelled() -> None:
     executor = _CancellableLocalShellExecutor(logger=logging.getLogger(__name__))
 
-    task = asyncio.create_task(executor.execute("long-running"))
+    task = asyncio.create_task(executor.execute(ShellExecutionRequest(command="long-running")))
     await executor.waiting.wait()
     task.cancel()
 
@@ -294,12 +336,12 @@ async def test_shell_executor_terminates_process_when_cancelled() -> None:
 
 
 @pytest.mark.asyncio
-async def test_shell_executor_terminates_parallel_processes_when_cancelled() -> None:
+async def test_shell_environment_terminates_parallel_processes_when_cancelled() -> None:
     executor = _CancellableLocalShellExecutor(logger=logging.getLogger(__name__))
 
     tasks = [
-        asyncio.create_task(executor.execute("long-running-a")),
-        asyncio.create_task(executor.execute("long-running-b")),
+        asyncio.create_task(executor.execute(ShellExecutionRequest(command="long-running-a"))),
+        asyncio.create_task(executor.execute(ShellExecutionRequest(command="long-running-b"))),
     ]
     while executor.waiting_count < len(tasks):
         await executor.waiting.wait()
@@ -418,6 +460,41 @@ async def test_set_working_directory_updates_execute_shell_cwd(tmp_path: Path) -
 
     assert result.exit_code == 0
     assert result.stdout.strip() == str(updated_dir)
+
+
+@pytest.mark.asyncio
+async def test_shared_shell_environment_preserves_runtime_working_directory() -> None:
+    environment = _RecordingShellEnvironment(cwd="/workspace")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        working_directory=Path("/agent-cwd"),
+        shell_environment=environment,
+    )
+
+    await runtime.execute_shell("pwd")
+
+    assert environment.cwd == "/workspace"
+    assert [(request.command, request.cwd) for request in environment.requests] == [("pwd", "/agent-cwd")]
+    assert [request.timeout for request in environment.requests] == [90]
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_uses_runtime_working_directory_with_shared_environment() -> None:
+    environment = _RecordingShellEnvironment(cwd="/workspace")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        working_directory=Path("/agent-cwd"),
+        shell_environment=environment,
+    )
+
+    result = await runtime.execute({"command": "pwd"})
+
+    assert result.isError is False
+    assert environment.cwd == "/workspace"
+    assert [request.cwd for request in environment.requests] == ["/agent-cwd"]
+    assert [request.timeout for request in environment.requests] == [90]
 
 
 @pytest.mark.asyncio
@@ -818,7 +895,7 @@ async def test_execute_emits_shell_lifecycle_progress_events(
         logger=logger,
         timeout_seconds=10,
         agent_name="assistant",
-        shell_executor=_TestLocalShellExecutor(
+        shell_environment=_TestLocalShellExecutor(
             logger=logger,
             runtime_info={"name": "bash", "path": "/bin/bash"},
             timeout_seconds=10,

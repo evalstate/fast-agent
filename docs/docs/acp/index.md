@@ -150,12 +150,12 @@ shell_execution:
 Tool calls in ACP mode prompt for permission by default. You will see options for Allow Once / Always Allow / Reject Once / Never Allow.
 
 - Disable prompts entirely with `fast-agent-acp --no-permissions` (all tools are allowed).
-- Persistent “Always” decisions are stored in the fast-agent environment directory (default `.fast-agent/auths.md`) so you can audit or edit them later. The file is only created when you choose an “Always” option.
-- “Once” decisions are remembered only for the current session and are not written to disk. Removing the permissions file clears any saved Always rules. Use `fast-agent --env <path>` or `environment_dir` in the config file to relocate the environment folder.
+- Persistent “Always” decisions are stored in the fast-agent home (default `.fast-agent/auths.md`) so you can audit or edit them later. The file is only created when you choose an “Always” option.
+- “Once” decisions are remembered only for the current session and are not written to disk. Removing the permissions file clears any saved Always rules. Use `fast-agent --home <path>` or `home` in the config file to relocate the home.
 
-### `--noenv` in ACP mode
+### `--no-home` in ACP mode
 
-Use `fast-agent-acp --noenv` (or `fast-agent serve --transport acp --noenv`) for ephemeral runs.
+Use `fast-agent-acp --no-home` (or `fast-agent serve --transport acp --no-home`) for ephemeral runs.
 
 - Session persistence and resume are disabled.
 - Slash session operations are disabled.
@@ -163,8 +163,8 @@ Use `fast-agent-acp --noenv` (or `fast-agent serve --transport acp --noenv`) for
 
 Conflicts (fail fast):
 
-- `--noenv` + `--env`
-- `--noenv` + `--resume`
+- `--no-home` + `--home`
+- `--no-home` + `--resume`
 
 ## Structured Outputs
 

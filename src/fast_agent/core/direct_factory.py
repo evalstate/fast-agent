@@ -63,6 +63,7 @@ if TYPE_CHECKING:
     from fast_agent.agents.workflow.agents_as_tools_agent import AgentsAsToolsOptions
     from fast_agent.config import Settings
     from fast_agent.hooks.hook_context import HookAgentProtocol
+    from fast_agent.tools.execution_environment import ShellEnvironment
 
 # Type aliases for improved readability and IDE support
 AgentDict = dict[str, AgentProtocol]
@@ -80,6 +81,7 @@ class AgentBuildContext:
     model_factory_func: ModelFactoryFunctionProtocol
     session_history_enabled: bool
     global_function_tools: Sequence[FunctionTool]
+    shell_environment: "ShellEnvironment | None" = None
 
 
 @dataclass(frozen=True)
@@ -704,6 +706,7 @@ async def _create_basic_agent(
             options=inputs.options,
             tools=inputs.function_tools,
             child_message_files=inputs.child_message_files,
+            shell_environment=build_ctx.shell_environment,
         )
     else:
         function_tools = _resolve_function_tools_with_globals(config, agent_data, build_ctx)
@@ -712,6 +715,7 @@ async def _create_basic_agent(
             config,
             build_ctx.app_instance.context,
             tools=function_tools,
+            shell_environment=build_ctx.shell_environment,
         )
 
     await _finalize_agent(
@@ -745,6 +749,7 @@ async def _create_smart_agent(
             options=inputs.options,
             tools=inputs.function_tools,
             child_message_files=inputs.child_message_files,
+            shell_environment=build_ctx.shell_environment,
         )
     else:
         function_tools = _resolve_function_tools_with_globals(config, agent_data, build_ctx)
@@ -759,12 +764,14 @@ async def _create_smart_agent(
                 context=build_ctx.app_instance.context,
                 ui_mode=ui_mode,
                 tools=function_tools,
+                shell_environment=build_ctx.shell_environment,
             )
         else:
             agent = SmartAgent(
                 config=config,
                 context=build_ctx.app_instance.context,
                 tools=function_tools,
+                shell_environment=build_ctx.shell_environment,
             )
 
     await _finalize_agent(
@@ -1092,6 +1099,7 @@ async def create_agents_by_type(
     model_factory_func: ModelFactoryFunctionProtocol,
     active_agents: AgentDict | None = None,
     global_function_tools: Sequence[FunctionTool] = (),
+    shell_environment: "ShellEnvironment | None" = None,
 ) -> AgentDict:
     """
     Generic method to create agents of a specific type without using proxies.
@@ -1123,6 +1131,7 @@ async def create_agents_by_type(
         model_factory_func=model_factory_func,
         session_history_enabled=session_history_enabled,
         global_function_tools=global_function_tools,
+        shell_environment=shell_environment,
     )
 
     for name, agent_data in _iter_agents_of_type(agents_dict, agent_type):
@@ -1138,6 +1147,7 @@ async def active_agents_in_dependency_group(
     global_function_tools: Sequence[FunctionTool],
     group: list[str],
     active_agents: AgentDict,
+    shell_environment: "ShellEnvironment | None" = None,
 ):
     """
     For each of the possible agent types, create agents and update the active agents dictionary.
@@ -1158,6 +1168,7 @@ async def active_agents_in_dependency_group(
             model_factory_func,
             active_agents,
             global_function_tools,
+            shell_environment=shell_environment,
         )
         active_agents.update(agents)
 
@@ -1168,6 +1179,7 @@ async def create_agents_in_dependency_order(
     model_factory_func: ModelFactoryFunctionProtocol,
     global_function_tools: Sequence[FunctionTool] = (),
     allow_cycles: bool = False,
+    shell_environment: "ShellEnvironment | None" = None,
 ) -> AgentDict:
     """
     Create agent instances in dependency order without proxies.
@@ -1193,6 +1205,7 @@ async def create_agents_in_dependency_order(
         agents_dict,
         model_factory_func,
         global_function_tools,
+        shell_environment=shell_environment,
     )
 
     # Create agent proxies for each group in dependency order

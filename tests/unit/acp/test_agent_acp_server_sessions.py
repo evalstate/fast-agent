@@ -186,10 +186,10 @@ async def test_load_session_falls_back_when_primary_agent_was_removed(
     def fake_get_session_manager(
         *,
         cwd: Any = None,
-        environment_override: Any = None,
+        home_override: Any = None,
         respect_env_override: bool = True,
     ) -> Any:
-        del cwd, environment_override, respect_env_override
+        del cwd, home_override, respect_env_override
 
         class _Manager:
             workspace_dir = Path("/workspace")
@@ -286,10 +286,10 @@ async def test_load_session_uses_request_cwd_for_session_manager(
     def fake_get_session_manager(
         *,
         cwd: Any = None,
-        environment_override: Any = None,
+        home_override: Any = None,
         respect_env_override: bool = True,
     ) -> Any:
-        manager_cwds.append((cwd, environment_override, respect_env_override))
+        manager_cwds.append((cwd, home_override, respect_env_override))
 
         class _Manager:
             workspace_dir = workspace
@@ -365,10 +365,10 @@ async def test_load_session_applies_restored_prompt_cache(
     def fake_get_session_manager(
         *,
         cwd: Any = None,
-        environment_override: Any = None,
+        home_override: Any = None,
         respect_env_override: bool = True,
     ) -> Any:
-        del cwd, environment_override, respect_env_override
+        del cwd, home_override, respect_env_override
 
         class _Manager:
             workspace_dir = Path("/workspace")
@@ -441,10 +441,10 @@ async def test_load_session_does_not_cache_prompt_when_hydrator_did_not_restore_
     def fake_get_session_manager(
         *,
         cwd: Any = None,
-        environment_override: Any = None,
+        home_override: Any = None,
         respect_env_override: bool = True,
     ) -> Any:
-        del cwd, environment_override, respect_env_override
+        del cwd, home_override, respect_env_override
 
         class _Manager:
             workspace_dir = Path("/workspace")
@@ -545,8 +545,8 @@ async def test_list_sessions_uses_manager_workspace_for_legacy_sessions(
 ) -> None:
     server = _build_server(_build_instance(["main"]))
     workspace = tmp_path / "workspace"
-    env_root = tmp_path / "custom-env"
-    custom_sessions_dir = env_root / "sessions"
+    home_root = tmp_path / "custom-env"
+    custom_sessions_dir = home_root / "sessions"
     now = datetime.now()
 
     legacy_session = SessionInfo(
@@ -605,10 +605,10 @@ async def test_list_sessions_uses_request_cwd_for_session_manager(
     def fake_get_session_manager(
         *,
         cwd: Any = None,
-        environment_override: Any = None,
+        home_override: Any = None,
         respect_env_override: bool = True,
     ) -> Any:
-        manager_cwds.append((cwd, environment_override, respect_env_override))
+        manager_cwds.append((cwd, home_override, respect_env_override))
         return _Manager()
 
     monkeypatch.setattr(server, "_get_session_manager", fake_get_session_manager)
@@ -686,10 +686,10 @@ async def test_load_session_prefers_workspace_duplicate_session_across_stores(
     def fake_get_session_manager(
         *,
         cwd: Any = None,
-        environment_override: Any = None,
+        home_override: Any = None,
         respect_env_override: bool = True,
     ) -> Any:
-        del environment_override, respect_env_override
+        del home_override, respect_env_override
         if cwd is not None:
             return request_manager
         return app_manager
@@ -783,10 +783,10 @@ async def test_load_session_marks_selected_manager_session_current(
     def fake_get_session_manager(
         *,
         cwd: Any = None,
-        environment_override: Any = None,
+        home_override: Any = None,
         respect_env_override: bool = True,
     ) -> Any:
-        del cwd, environment_override, respect_env_override
+        del cwd, home_override, respect_env_override
         return manager
 
     class _Hydrator:
@@ -864,10 +864,10 @@ async def test_list_sessions_prefers_workspace_duplicate_session_across_stores(
     def fake_get_session_manager(
         *,
         cwd: Any = None,
-        environment_override: Any = None,
+        home_override: Any = None,
         respect_env_override: bool = True,
     ) -> Any:
-        del environment_override, respect_env_override
+        del home_override, respect_env_override
         if cwd is not None:
             return request_manager
         return app_manager
@@ -938,10 +938,10 @@ async def test_load_session_falls_back_to_app_store_when_workspace_store_misses(
     def fake_get_session_manager(
         *,
         cwd: Any = None,
-        environment_override: Any = None,
+        home_override: Any = None,
         respect_env_override: bool = True,
     ) -> Any:
-        del environment_override, respect_env_override
+        del home_override, respect_env_override
         if cwd is not None:
             return workspace_manager
         return app_manager
@@ -1002,10 +1002,10 @@ async def test_load_session_rejects_noncanonical_identifier(
     def fake_get_session_manager(
         *,
         cwd: Any = None,
-        environment_override: Any = None,
+        home_override: Any = None,
         respect_env_override: bool = True,
     ) -> Any:
-        del cwd, environment_override, respect_env_override
+        del cwd, home_override, respect_env_override
         return _Manager()
 
     monkeypatch.setattr(server, "_get_session_manager", fake_get_session_manager)
@@ -1082,10 +1082,10 @@ async def test_load_session_skips_workspace_duplicate_when_cwd_mismatches(
     def fake_get_session_manager(
         *,
         cwd: Any = None,
-        environment_override: Any = None,
+        home_override: Any = None,
         respect_env_override: bool = True,
     ) -> Any:
-        del environment_override, respect_env_override
+        del home_override, respect_env_override
         if cwd is not None:
             return workspace_manager
         return app_manager

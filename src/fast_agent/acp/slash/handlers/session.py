@@ -50,12 +50,12 @@ def _invalid_session_arguments_response(intent: SessionCommandIntent) -> str:
 
 
 async def handle_session(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
-    if handler._noenv:
+    if handler._no_home:
         return "\n".join(
             [
                 "# session",
                 "",
-                "Session commands are disabled in --noenv mode.",
+                "Session commands are disabled in --no-home mode.",
             ]
         )
 
@@ -162,12 +162,12 @@ _SESSION_ACTION_HANDLERS: dict[SessionAction, _SessionActionHandler] = {
 
 
 def render_session_list(handler: "SlashCommandHandler") -> str:
-    if handler._noenv:
+    if handler._no_home:
         return "\n".join(
             [
                 "# sessions",
                 "",
-                "Session commands are disabled in --noenv mode.",
+                "Session commands are disabled in --no-home mode.",
             ]
         )
     ctx = handler._build_command_context()

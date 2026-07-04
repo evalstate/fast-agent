@@ -140,10 +140,10 @@ def test_normalize_interactive_reference_token_adds_missing_dollar_prefix() -> N
     assert model_command._normalize_interactive_reference_token(" system.fast ") == "$system.fast"
 
 
-def test_bootstrap_settings_start_path_normalizes_env_dir(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
+def test_bootstrap_settings_start_path_normalizes_home(tmp_path: Path) -> None:
+    home = tmp_path / ".fast-agent"
 
-    assert model_command._bootstrap_settings_start_path(f"  {env_dir}  ") == tmp_path
+    assert model_command._bootstrap_settings_start_path(f"  {home}  ") == tmp_path
     assert model_command._bootstrap_settings_start_path("   ") == Path.cwd()
 
 
@@ -169,7 +169,7 @@ def test_merge_setup_items_dedupes_repeated_extra_tokens() -> None:
 @pytest.mark.asyncio
 async def test_run_model_setup_creates_alias_in_env_config(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
 
     io = _StubIO(
@@ -182,13 +182,13 @@ async def test_run_model_setup_creates_alias_in_env_config(tmp_path: Path) -> No
         os.chdir(workspace)
         outcome = await model_command.run_model_setup(
             io=io,
-            settings=Settings(environment_dir=str(env_dir)),
+            settings=Settings(home=str(home)),
             token=None,
         )
     finally:
         os.chdir(previous_cwd)
 
-    saved = _read_yaml(env_dir / "fast-agent.yaml")
+    saved = _read_yaml(home / "fast-agent.yaml")
     assert saved["model_references"]["system"]["fast"] == "claude-haiku-4-5"
     assert outcome.messages
     assert "model references set" in str(outcome.messages[0].text)
@@ -199,7 +199,7 @@ async def test_run_model_setup_prefills_system_default_alias_when_no_aliases_exi
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
 
     io = _StubIO(model_selection_responses=["claude-haiku-4-5"])
@@ -209,13 +209,13 @@ async def test_run_model_setup_prefills_system_default_alias_when_no_aliases_exi
         os.chdir(workspace)
         outcome = await model_command.run_model_setup(
             io=io,
-            settings=Settings(environment_dir=str(env_dir)),
+            settings=Settings(home=str(home)),
             token=None,
         )
     finally:
         os.chdir(previous_cwd)
 
-    saved = _read_yaml(env_dir / "fast-agent.yaml")
+    saved = _read_yaml(home / "fast-agent.yaml")
     assert saved["model_references"]["system"]["default"] == "claude-haiku-4-5"
     assert io.prompt_text_calls == [("Reference token ($namespace.key):", "$system.default", False)]
     assert outcome.messages
@@ -227,7 +227,7 @@ async def test_run_model_setup_repairs_invalid_default_alias_from_diagnostics(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
     (workspace / "fast-agent.yaml").write_text(
         'default_model: "$system.default"\nmodel_references:\n  system:\n    default: ""\n',
@@ -241,13 +241,13 @@ async def test_run_model_setup_repairs_invalid_default_alias_from_diagnostics(
         os.chdir(workspace)
         outcome = await model_command.run_model_setup(
             io=io,
-            settings=Settings(environment_dir=str(env_dir)),
+            settings=Settings(home=str(home)),
             token=None,
         )
     finally:
         os.chdir(previous_cwd)
 
-    saved = _read_yaml(env_dir / "fast-agent.yaml")
+    saved = _read_yaml(home / "fast-agent.yaml")
     assert saved["model_references"]["system"]["default"] == "claude-haiku-4-5"
     assert io.prompt_text_calls == []
     assert outcome.messages
@@ -257,9 +257,9 @@ async def test_run_model_setup_repairs_invalid_default_alias_from_diagnostics(
 @pytest.mark.asyncio
 async def test_run_model_setup_updates_named_alias_via_model_selector(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
-    config_path = env_dir / "fast-agent.yaml"
+    config_path = home / "fast-agent.yaml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
         "model_references:\n  system:\n    fast: claude-sonnet-4-5\n",
@@ -273,7 +273,7 @@ async def test_run_model_setup_updates_named_alias_via_model_selector(tmp_path: 
         os.chdir(workspace)
         outcome = await model_command.run_model_setup(
             io=io,
-            settings=Settings(environment_dir=str(env_dir)),
+            settings=Settings(home=str(home)),
             token="$system.fast",
         )
     finally:
@@ -290,7 +290,7 @@ async def test_run_model_setup_updates_named_alias_via_model_selector(tmp_path: 
 @pytest.mark.asyncio
 async def test_run_model_doctor_reports_unresolved_default_alias(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
     (workspace / "fast-agent.yaml").write_text(
         'default_model: "$system.default"\n',
@@ -304,7 +304,7 @@ async def test_run_model_doctor_reports_unresolved_default_alias(tmp_path: Path)
         os.chdir(workspace)
         outcome = await model_command.run_model_doctor(
             io=io,
-            settings=Settings(environment_dir=str(env_dir)),
+            settings=Settings(home=str(home)),
         )
     finally:
         os.chdir(previous_cwd)
@@ -316,12 +316,12 @@ async def test_run_model_doctor_reports_unresolved_default_alias(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_run_model_doctor_uses_environment_dir_parent_when_cwd_differs(
+async def test_run_model_doctor_uses_home_parent_when_cwd_differs(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
     elsewhere = tmp_path / "elsewhere"
-    env_dir = workspace / ".model-env"
+    home = workspace / ".model-env"
     workspace.mkdir(parents=True)
     elsewhere.mkdir(parents=True)
     (workspace / "fast-agent.yaml").write_text(
@@ -336,7 +336,7 @@ async def test_run_model_doctor_uses_environment_dir_parent_when_cwd_differs(
         os.chdir(elsewhere)
         outcome = await model_command.run_model_doctor(
             io=io,
-            settings=Settings(environment_dir=str(env_dir)),
+            settings=Settings(home=str(home)),
         )
     finally:
         os.chdir(previous_cwd)

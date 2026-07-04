@@ -119,7 +119,7 @@ class AgentApp:
         | None = None,
         tool_only_agents: set[str] | None = None,
         card_collision_warnings: list[str] | None = None,
-        noenv_mode: bool = False,
+        no_home_mode: bool = False,
         plugin_commands: dict[str, PluginCommandActionSpec] | None = None,
         plugin_command_base_path: Path | None = None,
     ) -> None:
@@ -158,7 +158,7 @@ class AgentApp:
         self._plugin_command_base_path = plugin_command_base_path
         self._last_refresh_result = AgentRefreshResult(changed=False)
         self._session_restore_result: ResumeSessionAgentsResult | None = None
-        self._noenv_mode = noenv_mode
+        self._no_home_mode = no_home_mode
         self._missing_shell_cwd_policy_override: "MissingShellCwdPolicy | None" = None
         self._apply_agent_registry()
 
@@ -516,12 +516,12 @@ class AgentApp:
         return list(self._card_collision_warnings)
 
     @property
-    def noenv_mode(self) -> bool:
-        return self._noenv_mode
+    def no_home_mode(self) -> bool:
+        return self._no_home_mode
 
-    @noenv_mode.setter
-    def noenv_mode(self, value: bool) -> None:
-        self._noenv_mode = value
+    @no_home_mode.setter
+    def no_home_mode(self, value: bool) -> None:
+        self._no_home_mode = value
 
     @property
     def missing_shell_cwd_policy_override(self) -> "MissingShellCwdPolicy | None":

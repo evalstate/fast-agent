@@ -199,7 +199,7 @@ async def test_hydrate_session_restores_transcript_prompt_and_active_agent(
 ) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -262,7 +262,7 @@ async def test_hydrate_session_restores_transcript_prompt_and_active_agent(
 async def test_hydrate_session_warns_for_missing_agent_and_history_file(tmp_path: Path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -309,7 +309,7 @@ async def test_hydrate_session_warns_when_git_commit_or_branch_changed(
     first_commit = _init_git_repo(workspace)
     manager = SessionManager(
         cwd=workspace,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -357,7 +357,7 @@ async def test_hydrate_session_warns_when_git_dirty_state_changed(
     first_commit = _init_git_repo(workspace)
     manager = SessionManager(
         cwd=workspace,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -398,7 +398,7 @@ async def test_hydrate_session_warns_when_git_dirty_state_changed(
 async def test_hydrate_session_does_not_report_prompt_when_restore_fails(tmp_path: Path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -433,7 +433,7 @@ async def test_hydrate_session_falls_back_to_latest_history_for_thin_snapshot(
 ) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -474,7 +474,7 @@ async def test_hydrate_session_restores_runtime_state_and_replaces_usage(
 ) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -563,7 +563,7 @@ async def test_hydrate_session_refresh_policy_skips_prompt_and_runtime_state(
 ) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()
@@ -637,7 +637,7 @@ async def test_hydrate_session_restores_persisted_agent_tools(
 ) -> None:
     manager = SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
     session = manager.create_session()

@@ -22,10 +22,16 @@ from fast_agent.core.fastagent import (
 from fast_agent.core.server_runtime import ServerRuntimeContext, run_mcp_server
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
 from fast_agent.session.session_manager import ResumeSessionAgentsResult, Session, SessionInfo
-from fast_agent.tools.session_environment import ShellExecutionResult
+from fast_agent.tools.execution_environment import (
+    ShellExecution,
+    ShellExecutionCallbacks,
+    ShellExecutionOptions,
+    ShellExecutionRequest,
+    ShellExecutionResult,
+    ShellRuntimeInfo,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
     from pathlib import Path
 
     from fast_agent.core.fastagent import RuntimeCallbacks
@@ -61,17 +67,31 @@ def _unused_model_factory(model: str | None = None) -> LLMFactoryProtocol:
     return _unused_llm_factory
 
 
-class _FakeShellExecutor:
-    async def execute_shell(
+class _FakeShellEnvironment:
+    async def open(self) -> None:
+        return None
+
+    @property
+    def cwd(self) -> str:
+        return "."
+
+    def runtime_info(self) -> ShellRuntimeInfo:
+        return ShellRuntimeInfo(name="test")
+
+    async def execute(
         self,
-        command: str,
+        request: ShellExecutionRequest,
         *,
-        cwd: str | Path | None = None,
-        env: Mapping[str, str] | None = None,
-        timeout: float | None = None,
-    ) -> ShellExecutionResult:
-        del command, cwd, env, timeout
-        return ShellExecutionResult(stdout="", stderr="", exit_code=0)
+        callbacks: ShellExecutionCallbacks | None = None,
+    ) -> ShellExecution:
+        del request, callbacks
+        return ShellExecution(
+            result=ShellExecutionResult(stdout="", stderr="", exit_code=0),
+            options=ShellExecutionOptions(),
+        )
+
+    async def close(self) -> None:
+        return None
 
 
 def _run_runtime(
@@ -86,10 +106,10 @@ def _run_runtime(
         model_factory_func=_unused_model_factory,
         global_prompt_context=global_prompt_context,
         is_acp_server_mode=is_acp_server_mode,
-        noenv_mode=False,
+        no_home_mode=False,
         managed_instances=[],
         instance_lock=asyncio.Lock(),
-        shell_executor=_FakeShellExecutor(),
+        shell_environment=_FakeShellEnvironment(),
         resume_requested=resume_requested,
         resume_session_id=resume_session_id,
         target_agent_name=target_agent_name,
@@ -204,7 +224,7 @@ async def test_run_mcp_server_forwards_instance_scope(monkeypatch: pytest.Monkey
                     AgentApp({"agent": cast("AgentProtocol", _Agent("agent"))}),
                     {"agent": cast("AgentProtocol", _Agent("agent"))},
                 ),
-                runtime=SimpleNamespace(shell_executor=None),
+                runtime=SimpleNamespace(shell_environment=None),
             ),
         ),
         callbacks=cast(
@@ -407,10 +427,10 @@ async def test_runtime_callback_instances_inherit_mcp_runtime_callbacks(
             model_factory_func=_unused_model_factory,
             global_prompt_context=None,
             is_acp_server_mode=True,
-            noenv_mode=False,
+            no_home_mode=False,
             managed_instances=[],
             instance_lock=asyncio.Lock(),
-            shell_executor=_FakeShellExecutor(),
+            shell_environment=_FakeShellEnvironment(),
         ),
         primary_instance=AgentInstance(wrapper, {"main": agent}),
         wrapper=wrapper,
@@ -419,7 +439,7 @@ async def test_runtime_callback_instances_inherit_mcp_runtime_callbacks(
     settings = RunSettings(
         quiet_mode=True,
         cli_model_override=None,
-        noenv_mode=False,
+        no_home_mode=False,
         server_mode=True,
         transport="acp",
         is_acp_server_mode=True,
@@ -508,10 +528,10 @@ async def test_runtime_mcp_callbacks_bind_to_instance_agents_not_primary_state(
             model_factory_func=_unused_model_factory,
             global_prompt_context=None,
             is_acp_server_mode=True,
-            noenv_mode=False,
+            no_home_mode=False,
             managed_instances=[],
             instance_lock=asyncio.Lock(),
-            shell_executor=_FakeShellExecutor(),
+            shell_environment=_FakeShellEnvironment(),
         ),
         primary_instance=AgentInstance(wrapper, {"main": primary_agent}),
         wrapper=wrapper,
@@ -520,7 +540,7 @@ async def test_runtime_mcp_callbacks_bind_to_instance_agents_not_primary_state(
     settings = RunSettings(
         quiet_mode=True,
         cli_model_override=None,
-        noenv_mode=False,
+        no_home_mode=False,
         server_mode=True,
         transport="acp",
         is_acp_server_mode=True,
@@ -578,10 +598,10 @@ async def test_load_card_tools_rejects_default_agent_without_agent_tool_support(
             model_factory_func=_unused_model_factory,
             global_prompt_context=None,
             is_acp_server_mode=False,
-            noenv_mode=False,
+            no_home_mode=False,
             managed_instances=[],
             instance_lock=asyncio.Lock(),
-            shell_executor=_FakeShellExecutor(),
+            shell_environment=_FakeShellEnvironment(),
         ),
         primary_instance=AgentInstance(wrapper, {"main": main_agent}),
         wrapper=wrapper,

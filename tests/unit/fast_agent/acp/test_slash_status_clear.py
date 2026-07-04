@@ -9,7 +9,10 @@ import pytest
 from fast_agent.acp.acp_aware_mixin import ACPCommand
 from fast_agent.acp.slash.handlers import status as status_slash_handlers
 from fast_agent.acp.slash_commands import SlashCommandHandler
+from fast_agent.config import Settings, get_settings, update_global_settings
 from fast_agent.core.fastagent import AgentInstance
+from fast_agent.tools.environment_config import LocalEnvironmentSpec
+from fast_agent.tools.execution_environment import ShellRuntimeInfo
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -77,6 +80,24 @@ class _App:
     pass
 
 
+class _ShellRuntime:
+    def runtime_info(self) -> ShellRuntimeInfo:
+        return ShellRuntimeInfo(
+            name="bash",
+            kind="local",
+            environment_name="workspace",
+        )
+
+
+class _EnvironmentAgent:
+    name = "main"
+    context = SimpleNamespace(config=None, session_manager=None)
+
+    @property
+    def shell_runtime(self) -> _ShellRuntime:
+        return _ShellRuntime()
+
+
 def _handler(*, reload_enabled: bool = False) -> SlashCommandHandler:
     async def _reload() -> bool:
         return True
@@ -102,6 +123,34 @@ def test_reload_session_command_is_advertised_only_when_available() -> None:
 
     assert "reload" not in default_command_names
     assert "reload" in command_names
+
+
+@pytest.mark.asyncio
+async def test_environment_session_command_lists_configured_environments() -> None:
+    settings = Settings(
+        environments={"workspace": LocalEnvironmentSpec(cwd=".")},
+        default_environment="workspace",
+    )
+    old_settings = get_settings()
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=AgentInstance(
+            app=cast("AgentApp", _App()),
+            agents={"main": cast("AgentProtocol", _EnvironmentAgent())},
+            registry_version=0,
+        ),
+        primary_agent_name="main",
+    )
+
+    try:
+        update_global_settings(settings)
+        rendered = await handler.execute_command("environment", "")
+    finally:
+        update_global_settings(old_settings)
+
+    assert "# environments" in rendered
+    assert "| `workspace` | `local` | yes |" in rendered
+    assert "Active runtime: `local / bash`" in rendered
 
 
 @pytest.mark.asyncio

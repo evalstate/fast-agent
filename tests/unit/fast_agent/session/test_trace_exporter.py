@@ -111,7 +111,7 @@ def _write_history_with_timestamps(
 def _build_manager(tmp_path: Path) -> SessionManager:
     return SessionManager(
         cwd=tmp_path,
-        environment_override=tmp_path / ".fast-agent",
+        home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
 

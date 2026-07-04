@@ -21,7 +21,7 @@ from fast_agent.commands.command_catalog import (
 from fast_agent.commands.option_parsing import ValueOption, is_long_option_token, read_value_option
 from fast_agent.commands.results import CommandChannel, CommandMessage, CommandOutcome
 from fast_agent.commands.summary_utils import optional_string
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
+from fast_agent.constants import DEFAULT_HOME_DIR
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.model_resolution import parse_model_reference_token, resolve_model_reference
 from fast_agent.interfaces import LlmCapableProtocol
@@ -209,8 +209,8 @@ class _AgentModelRuntimeResolution:
 @dataclass(frozen=True)
 class _ModelsDoctorReport:
     readiness_ready: bool
-    env_dir_env: str | None
-    effective_env_dir: object
+    home_env: str | None
+    effective_home: object
     fast_agent_model_env: str | None
     loaded_config_file: object
     unresolved: list[tuple[str, str, str]]
@@ -634,11 +634,11 @@ def _provider_display_choices() -> str:
 
 def _resolve_reference_service(ctx: "CommandContext") -> ModelReferenceConfigService:
     settings = ctx.resolve_settings()
-    env_dir = settings.environment_dir
+    home = settings.home
     start_path = resolve_model_reference_start_path(settings=settings)
-    if env_dir is None and settings._config_file:
-        env_dir = start_path / DEFAULT_ENVIRONMENT_DIR
-    return ModelReferenceConfigService(start_path=start_path, env_dir=env_dir)
+    if home is None and settings._config_file:
+        home = start_path / DEFAULT_HOME_DIR
+    return ModelReferenceConfigService(start_path=start_path, home=home)
 
 
 def _flatten_references(references: dict[str, dict[str, str]]) -> list[tuple[str, str]]:
@@ -713,9 +713,9 @@ def _provider_is_ready(provider: Provider, configured: set[Provider]) -> bool:
 
 def _build_models_doctor_report(ctx: "CommandContext") -> _ModelsDoctorReport:
     settings = ctx.resolve_settings()
-    env_dir_env = os.getenv("ENVIRONMENT_DIR")
+    home_env = os.getenv("FAST_AGENT_HOME")
     fast_agent_model_env = os.getenv("FAST_AGENT_MODEL")
-    effective_env_dir = settings.environment_dir
+    effective_home = settings.home
     loaded_config_file = settings._config_file
 
     service = _resolve_reference_service(ctx)
@@ -741,8 +741,8 @@ def _build_models_doctor_report(ctx: "CommandContext") -> _ModelsDoctorReport:
     readiness_ready = not unresolved and default_provider_ready and bool(configured_providers)
     return _ModelsDoctorReport(
         readiness_ready=readiness_ready,
-        env_dir_env=env_dir_env,
-        effective_env_dir=effective_env_dir,
+        home_env=home_env,
+        effective_home=effective_home,
         fast_agent_model_env=fast_agent_model_env,
         loaded_config_file=loaded_config_file,
         unresolved=unresolved,
@@ -778,11 +778,11 @@ def _extend_markdown_doctor_overview(lines: list[str], report: _ModelsDoctorRepo
 
     lines.extend(["", "## Runtime config context"])
     lines.append(
-        f"- **ENVIRONMENT_DIR**: {_markdown_code_or_placeholder(report.env_dir_env, '<unset>')}"
+        f"- **FAST_AGENT_HOME**: {_markdown_code_or_placeholder(report.home_env, '<unset>')}"
     )
     lines.append(
-        "- **Effective environment_dir**: "
-        f"{_markdown_code_or_placeholder(report.effective_env_dir, '<unset>')}"
+        "- **Effective home**: "
+        f"{_markdown_code_or_placeholder(report.effective_home, '<unset>')}"
     )
     lines.append(
         f"- **FAST_AGENT_MODEL**: "
@@ -980,12 +980,12 @@ def _append_doctor_runtime_context(content: Text, report: _ModelsDoctorReport) -
     _append_line(content, _a3_section("Runtime config context:"))
     _append_line(
         content,
-        _a3_bullet(f"ENVIRONMENT_DIR: {report.env_dir_env or '<unset>'}", style="dim"),
+        _a3_bullet(f"FAST_AGENT_HOME: {report.home_env or '<unset>'}", style="dim"),
     )
     _append_line(
         content,
         _a3_bullet(
-            f"Effective environment_dir: {report.effective_env_dir or '<unset>'}",
+            f"Effective home: {report.effective_home or '<unset>'}",
             style="dim",
         ),
     )
@@ -1399,7 +1399,7 @@ async def _resolve_reference_mutation_args(
 ) -> _ResolvedReferenceMutationArgs:
     references = service.list_references_tolerant()
     target_path = (
-        service.paths.env_path
+        service.paths.home_path
         if mutation_args.target == "env"
         else service.paths.project_write_path
     )

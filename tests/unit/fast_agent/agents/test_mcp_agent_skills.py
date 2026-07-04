@@ -134,6 +134,32 @@ async def test_mcp_agent_skills_default_uses_context_registry(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_mcp_agent_run_resolved_empty_default_skills_do_not_use_context_registry(
+    tmp_path: Path,
+) -> None:
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "alpha", body="Alpha body")
+
+    context = Context()
+    context.skill_registry = SkillRegistry(base_dir=tmp_path, directories=[skills_root])
+
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        skills=SKILLS_DEFAULT,
+        skills_resolved_for_run=True,
+    )
+
+    agent = McpAgent(config=config, context=context)
+
+    tools_result = await agent.list_tools()
+    tool_names = {tool.name for tool in tools_result.tools}
+    assert "read_skill" not in tool_names
+    assert "read_text_file" not in tool_names
+
+
+@pytest.mark.asyncio
 async def test_mcp_agent_skills_none_disables_context_registry(tmp_path: Path) -> None:
     skills_root = tmp_path / "skills"
     create_skill(skills_root, "alpha", body="Alpha body")

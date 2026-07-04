@@ -18,35 +18,35 @@ from fast_agent.core.exceptions import ConfigFileError
 
 
 def test_resolve_update_check_marker_path_uses_environment_root(tmp_path: Path) -> None:
-    environment_dir = tmp_path / "custom-env"
-    environment_dir.mkdir()
+    home = tmp_path / "custom-env"
+    home.mkdir()
 
-    marker_path = resolve_update_check_marker_path(environment_dir)
+    marker_path = resolve_update_check_marker_path(home)
 
-    assert marker_path == environment_dir / ".check_for_update_done"
+    assert marker_path == home / ".check_for_update_done"
 
 
-def test_resolve_update_check_marker_path_uses_environment_dir_env_var(
+def test_resolve_update_check_marker_path_uses_home_env_var(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    environment_dir = tmp_path / "env-from-var"
-    environment_dir.mkdir()
-    monkeypatch.setenv("ENVIRONMENT_DIR", str(environment_dir))
+    home = tmp_path / "env-from-var"
+    home.mkdir()
+    monkeypatch.setenv("FAST_AGENT_HOME", str(home))
 
     marker_path = resolve_update_check_marker_path(None, cwd=tmp_path)
 
-    assert marker_path == environment_dir / ".check_for_update_done"
+    assert marker_path == home / ".check_for_update_done"
 
 
-def test_resolve_update_check_marker_path_uses_configured_environment_dir(
+def test_resolve_update_check_marker_path_uses_configured_home(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     previous_settings = get_settings()
-    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
-    update_global_settings(Settings(environment_dir=".dev"))
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+    update_global_settings(Settings(home=".dev"))
     (tmp_path / ".dev").mkdir()
 
     try:
@@ -57,7 +57,7 @@ def test_resolve_update_check_marker_path_uses_configured_environment_dir(
     assert marker_path == tmp_path / ".dev" / ".check_for_update_done"
 
 
-def test_resolve_update_check_marker_path_returns_none_without_existing_environment_dir(
+def test_resolve_update_check_marker_path_returns_none_without_existing_home(
     tmp_path: Path,
 ) -> None:
     marker_path = resolve_update_check_marker_path(tmp_path / "missing-env")
@@ -83,8 +83,8 @@ def test_is_prerelease_or_dev_recognizes_pep440_prerelease_forms() -> None:
 
 
 def test_check_for_update_notice_uses_marker_to_rate_limit(tmp_path: Path) -> None:
-    environment_dir = tmp_path / "env"
-    environment_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     calls = 0
 
     def fetch_latest_version() -> str:
@@ -93,7 +93,7 @@ def test_check_for_update_notice_uses_marker_to_rate_limit(tmp_path: Path) -> No
         return "0.6.19"
 
     notice = check_for_update_notice(
-        environment_dir=environment_dir,
+        home=home,
         current_version="0.6.18",
         now=200000.0,
         fetch_latest_version=fetch_latest_version,
@@ -104,7 +104,7 @@ def test_check_for_update_notice_uses_marker_to_rate_limit(tmp_path: Path) -> No
     assert calls == 1
 
     second_notice = check_for_update_notice(
-        environment_dir=environment_dir,
+        home=home,
         current_version="0.6.18",
         now=200100.0,
         fetch_latest_version=fetch_latest_version,
@@ -131,22 +131,22 @@ def test_should_check_now_respects_marker_age(tmp_path: Path) -> None:
 
 
 def test_check_for_update_notice_skips_dev_versions(tmp_path: Path) -> None:
-    environment_dir = tmp_path / "env"
+    home = tmp_path / "env"
 
     notice = check_for_update_notice(
-        environment_dir=environment_dir,
+        home=home,
         current_version="0.6.19.dev0",
         fetch_latest_version=lambda: "0.6.19",
     )
 
     assert notice is None
-    marker_path = resolve_update_check_marker_path(environment_dir)
+    marker_path = resolve_update_check_marker_path(home)
     assert marker_path is None or not marker_path.exists()
 
 
 def test_check_for_update_notice_does_not_rate_limit_failed_fetch(tmp_path: Path) -> None:
-    environment_dir = tmp_path / "env"
-    environment_dir.mkdir()
+    home = tmp_path / "env"
+    home.mkdir()
     calls = 0
 
     def failing_fetch_latest_version() -> str:
@@ -155,7 +155,7 @@ def test_check_for_update_notice_does_not_rate_limit_failed_fetch(tmp_path: Path
         raise TimeoutError("temporary failure")
 
     first_notice = check_for_update_notice(
-        environment_dir=environment_dir,
+        home=home,
         current_version="0.6.18",
         now=200000.0,
         fetch_latest_version=failing_fetch_latest_version,
@@ -163,7 +163,7 @@ def test_check_for_update_notice_does_not_rate_limit_failed_fetch(tmp_path: Path
 
     assert first_notice is None
     assert calls == 1
-    marker_path = resolve_update_check_marker_path(environment_dir)
+    marker_path = resolve_update_check_marker_path(home)
     assert marker_path is not None
     assert not marker_path.exists()
 
@@ -173,7 +173,7 @@ def test_check_for_update_notice_does_not_rate_limit_failed_fetch(tmp_path: Path
         return "0.6.19"
 
     second_notice = check_for_update_notice(
-        environment_dir=environment_dir,
+        home=home,
         current_version="0.6.18",
         now=200100.0,
         fetch_latest_version=fetch_latest_version,
@@ -184,10 +184,10 @@ def test_check_for_update_notice_does_not_rate_limit_failed_fetch(tmp_path: Path
     assert calls == 2
 
 
-def test_check_for_update_notice_does_not_create_marker_without_existing_environment_dir(
+def test_check_for_update_notice_does_not_create_marker_without_existing_home(
     tmp_path: Path,
 ) -> None:
-    environment_dir = tmp_path / "missing-env"
+    home = tmp_path / "missing-env"
     calls = 0
 
     def fetch_latest_version() -> str:
@@ -196,13 +196,13 @@ def test_check_for_update_notice_does_not_create_marker_without_existing_environ
         return "0.6.19"
 
     first_notice = check_for_update_notice(
-        environment_dir=environment_dir,
+        home=home,
         current_version="0.6.18",
         now=200000.0,
         fetch_latest_version=fetch_latest_version,
     )
     second_notice = check_for_update_notice(
-        environment_dir=environment_dir,
+        home=home,
         current_version="0.6.18",
         now=200100.0,
         fetch_latest_version=fetch_latest_version,
@@ -211,7 +211,7 @@ def test_check_for_update_notice_does_not_create_marker_without_existing_environ
     assert first_notice is not None
     assert second_notice is not None
     assert calls == 2
-    assert resolve_update_check_marker_path(environment_dir) is None
+    assert resolve_update_check_marker_path(home) is None
 
 
 def test_check_for_update_notice_skips_config_resolution_failures(monkeypatch) -> None:
@@ -223,7 +223,7 @@ def test_check_for_update_notice_skips_config_resolution_failures(monkeypatch) -
     )
 
     notice = check_for_update_notice(
-        environment_dir=None,
+        home=None,
         current_version="0.6.18",
         fetch_latest_version=lambda: "0.6.19",
     )

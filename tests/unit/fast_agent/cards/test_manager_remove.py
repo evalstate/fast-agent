@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 
 from fast_agent.cards import manager
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 
 
 def _git(repo, *args: str) -> str:
@@ -56,7 +56,7 @@ def test_remove_only_owned_files_preserves_unmanaged(tmp_path) -> None:
     _write_pack(repo)
     _commit_all(repo, "initial")
 
-    env_paths = resolve_environment_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
+    home_paths = resolve_home_paths(override=tmp_path / ".fast-agent", cwd=tmp_path)
     manager._install_marketplace_card_pack_sync(
         manager.MarketplaceCardPack(
             name="alpha",
@@ -67,21 +67,21 @@ def test_remove_only_owned_files_preserves_unmanaged(tmp_path) -> None:
             repo_path="packs/alpha",
             source_url=None,
         ),
-        env_paths,
+        home_paths,
         False,
         False,
         None,
     )
 
-    unmanaged = env_paths.root / "shared" / "keep.txt"
+    unmanaged = home_paths.root / "shared" / "keep.txt"
     unmanaged.parent.mkdir(parents=True, exist_ok=True)
     unmanaged.write_text("keep\n", encoding="utf-8")
 
-    removal = manager.remove_local_card_pack("alpha", environment_paths=env_paths)
+    removal = manager.remove_local_card_pack("alpha", home_paths=home_paths)
     assert "agent-cards/alpha.md" in removal.removed_paths
     assert "shared/helper.txt" in removal.removed_paths
 
-    assert not (env_paths.agent_cards / "alpha.md").exists()
-    assert not (env_paths.root / "shared" / "helper.txt").exists()
+    assert not (home_paths.agent_cards / "alpha.md").exists()
+    assert not (home_paths.root / "shared" / "helper.txt").exists()
     assert unmanaged.exists()
-    assert not (env_paths.card_packs / "alpha").exists()
+    assert not (home_paths.card_packs / "alpha").exists()

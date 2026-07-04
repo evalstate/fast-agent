@@ -25,7 +25,7 @@ class _Agent:
 class _App:
     def __init__(self) -> None:
         self._attached = ["local"]
-        self.noenv_mode = False
+        self.no_home_mode = False
 
     def _agent(self, _name: str):
         return _Agent()

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Protocol
 from fast_agent.core.exceptions import (
     AgentConfigError,
     CircularDependencyError,
+    EnvironmentStartupError,
     ModelConfigError,
     PromptExitError,
     ProviderKeyError,
@@ -14,6 +15,7 @@ from fast_agent.core.exceptions import (
     ServerInitializationError,
 )
 from fast_agent.core.harness_app import AppOpenRequest
+from fast_agent.tools.environment_registry import UnknownEnvironmentError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -23,16 +25,25 @@ if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.harness import AgentHarness, HarnessSession
     from fast_agent.session.session_manager import SessionManager
+    from fast_agent.tools.environment_registry import EnvironmentSelection
 
 
 class HarnessProvider(Protocol):
-    def harness(self) -> AbstractAsyncContextManager[AgentHarness]: ...
+    def harness(
+        self,
+        *,
+        environment: EnvironmentSelection = None,
+    ) -> AbstractAsyncContextManager[AgentHarness]: ...
 
     def _handle_error(self, e: Exception, error_type: str | None = None) -> None: ...
 
 
 class CliRuntimeProvider(HarnessProvider, Protocol):
-    def run(self) -> AbstractAsyncContextManager[AgentApp]: ...
+    def run(
+        self,
+        *,
+        environment: EnvironmentSelection = None,
+    ) -> AbstractAsyncContextManager[AgentApp]: ...
 
 
 class CliFlow(Protocol):
@@ -59,18 +70,42 @@ class ParallelCliFlow(Protocol):
 
 
 def should_use_harness_startup(request: AgentRunRequest) -> bool:
-    return (
-        request.mode == "interactive"
-        and request.allow_sessions
-        and request.resume is None
-    )
+    return request.mode == "interactive" and request.allow_sessions
 
 
-def new_harness_session_id(request: AgentRunRequest) -> str:
+def initial_harness_session_id(request: AgentRunRequest) -> str:
     from fast_agent.session.session_manager import SessionManager
 
-    manager = SessionManager(environment_override=request.environment_dir)
+    manager = SessionManager(home_override=request.home)
+    if request.resume is not None:
+        if request.resume:
+            resolved = manager.resolve_session_name(request.resume)
+            if resolved is not None:
+                return resolved
+        latest = manager.load_latest_session(require_content=True)
+        if latest is not None:
+            return latest.info.name
     return manager.generate_session_id()
+
+
+def _disable_core_resume_for_harness_startup(fast: HarnessProvider) -> tuple[bool, object | None]:
+    """Let harness persistence own initial session hydration for interactive runs."""
+    args = getattr(fast, "args", None)
+    if args is None:
+        return False, None
+    original = getattr(args, "resume_requested", None)
+    if original is not True:
+        return False, original
+    args.resume_requested = False
+    return True, original
+
+
+def _restore_core_resume_flag(fast: HarnessProvider, disabled: bool, original: object | None) -> None:
+    if not disabled:
+        return
+    args = getattr(fast, "args", None)
+    if args is not None:
+        args.resume_requested = original
 
 
 async def run_harness_cli_flow(
@@ -80,9 +115,10 @@ async def run_harness_cli_flow(
     flow: CliFlow,
     prepare: Callable[[], None] | None = None,
 ) -> None:
-    session_id = new_harness_session_id(request)
+    session_id = initial_harness_session_id(request)
+    disabled_resume, original_resume = _disable_core_resume_for_harness_startup(fast)
     try:
-        async with fast.harness() as harness:
+        async with fast.harness(environment=request.environment) as harness:
             if prepare is not None:
                 prepare()
             app = harness.app()
@@ -103,11 +139,15 @@ async def run_harness_cli_flow(
         ProviderKeyError,
         AgentConfigError,
         ServerInitializationError,
+        EnvironmentStartupError,
         ModelConfigError,
         CircularDependencyError,
+        UnknownEnvironmentError,
     ) as exc:
         fast._handle_error(exc)
         raise SystemExit(1) from exc
+    finally:
+        _restore_core_resume_flag(fast, disabled_resume, original_resume)
 
 
 async def run_cli_flow(
@@ -123,7 +163,7 @@ async def run_cli_flow(
 
     if prepare is not None:
         prepare()
-    async with fast.run() as agent_app:
+    async with fast.run(environment=request.environment) as agent_app:
         await flow(agent_app, request)
 
 
@@ -134,9 +174,10 @@ async def run_harness_parallel_cli_flow(
     *,
     flow: ParallelCliFlow,
 ) -> None:
-    session_id = new_harness_session_id(request)
+    session_id = initial_harness_session_id(request)
+    disabled_resume, original_resume = _disable_core_resume_for_harness_startup(fast)
     try:
-        async with fast.harness() as harness:
+        async with fast.harness(environment=request.environment) as harness:
             app = harness.app()
             async with app.open(
                 AppOpenRequest(session_id=session_id, agent=request.target_agent_name)
@@ -156,11 +197,15 @@ async def run_harness_parallel_cli_flow(
         ProviderKeyError,
         AgentConfigError,
         ServerInitializationError,
+        EnvironmentStartupError,
         ModelConfigError,
         CircularDependencyError,
+        UnknownEnvironmentError,
     ) as exc:
         fast._handle_error(exc)
         raise SystemExit(1) from exc
+    finally:
+        _restore_core_resume_flag(fast, disabled_resume, original_resume)
 
 
 async def run_parallel_cli_flow(
@@ -179,5 +224,5 @@ async def run_parallel_cli_flow(
         )
         return
 
-    async with fast.run() as agent_app:
+    async with fast.run(environment=request.environment) as agent_app:
         await flow(agent_app, request, fan_out_agent_names)

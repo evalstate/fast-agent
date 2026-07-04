@@ -32,6 +32,7 @@ fast-agent go [OPTIONS]
 - `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers when dynamic client registration is not available
 - `--model`, `--models <model_string>`: Override the default model (e.g., haiku, sonnet, gpt-4)
 - `--model`, `--models <model1>,<model2>,...`: Run one agent per model in parallel and print a side-by-side comparison of responses
+- `--environment`, `-E <name>`: Select a named execution environment from config
 - `--pack`, `--card-pack <name>`: Ensure a named card pack is installed in the selected environment before starting
 - `--pack-registry <path or uri>`: Marketplace file path, HTTP(S) URL, `file://` URI, or `hf://` URI used to resolve `--pack` when it is not already installed
 - `--agent-cards`, `--card <path or uri>`: Load AgentCards as runnable agents from a path, HTTP(S) URL, `file://` URI, or `hf://` URI (repeatable)
@@ -43,8 +44,9 @@ fast-agent go [OPTIONS]
 - `--schema-model <module.path:ClassName>`: Pydantic `BaseModel` import path used for one-shot structured output
 - `--structured-tool-policy <auto|always|defer|no_tools>`: Control whether tools may be used with one-shot structured output
 - `--results <path>`: Write the resulting history to a file, or per-model suffixed files in comparison mode
-- `--env <path>`: Override the base `.fast-agent` environment directory (where default `agent-cards/` and `tool-cards/` are discovered)
-- `--noenv`, `--no-env`: Run in ephemeral mode (disable implicit environment card loading, session persistence/resume, and permission-store side effects)
+- `--workspace <path>`: Override the workspace root; when `--home` is omitted, the home defaults to `<workspace>/.fast-agent`
+- `--home <path>`: Override the base `.fast-agent` home (where default `agent-cards/` and `tool-cards/` are discovered)
+- `--no-home`: Run in ephemeral mode (disable implicit home card loading, session persistence/resume, and permission-store side effects)
 - `--resume <id|latest>`: Resume the latest session (or a specific session id)
 - `--smart`: Prefer a smart default agent when fast-agent creates the default agent
 - `--prompt-file`, `-p <path or uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to a prompt file to use (either text or JSON)
@@ -108,7 +110,7 @@ fast-agent go --message="What is the weather today?" --model=haiku
 fast-agent go --message "Summarize these" --attach ./report.pdf --attach https://example.com/chart.png --model=haiku
 
 # Machine-readable structured one-shot output
-fast-agent go --noenv --model haiku --message "What is the weather in London?" --json-schema ./schema.json
+fast-agent go --no-home --model haiku --message "What is the weather in London?" --json-schema ./schema.json
 
 # Use a prompt stored in Hugging Face Hub generic storage
 fast-agent go --prompt-file hf://buckets/evalstate/home/demo.md --model=haiku
@@ -134,6 +136,9 @@ fast-agent go --skills ~/my-skills/
 # Provider LLM shell access (use at your own risk)
 fast-agent go -x
 
+# Run shell-enabled agents in a configured environment
+fast-agent go --environment ubuntu -x
+
 ```
 
 ### Machine-readable JSON output
@@ -151,13 +156,13 @@ Rules:
 
 Recommended automation pattern:
 
-- use `--noenv` to avoid implicit environment-side effects
+- use `--no-home` to avoid implicit home side effects
 - keep input one-shot with `--message` or `--prompt-file`
 - provide a schema file that describes the exact payload you want
 
 ```bash
 fast-agent go \
-  --noenv \
+  --no-home \
   --model sonnet \
   --message "What is the weather in London?" \
   --json-schema ./schema.json
@@ -199,12 +204,12 @@ fast-agent go --models "sonnet,gpt-5-mini?reasoning=low" --agent sonnet --messag
 - `--agent-cards`: load cards as normal runnable agents.
 - `--card-tool`: load cards, then attach those loaded agents as tools to a parent agent.
 
-By default, `fast-agent go` will auto-discover cards from your environment folder when present:
+By default, `fast-agent go` will auto-discover cards from your home when present:
 
-- `<env>/agent-cards/` for runnable agents
-- `<env>/tool-cards/` for cards to attach as tools
+- `<home>/agent-cards/` for runnable agents
+- `<home>/tool-cards/` for cards to attach as tools
 
-When `--noenv` is set, this implicit discovery is disabled. Explicit `--agent-cards` and
+When `--no-home` is set, this implicit discovery is disabled. Explicit `--agent-cards` and
 `--card-tool` values still work.
 
 Cards loaded via `--agent-cards` / `--card-tool` can include `mcp_connect` entries;
@@ -215,35 +220,35 @@ See [AgentCards and ToolCards reference](../agents/defining/agent_cards/) for de
 ### Card packs
 
 Use `--pack` when you want fast-agent to install or reuse a named card pack in
-the selected environment and then launch immediately.
+the selected home and then launch immediately.
 
 Typical flow:
 
-1. Resolve the environment from `--env` or normal fast-agent settings
+1. Resolve the home from `--home`, `--workspace <path>/.fast-agent`, or normal fast-agent settings
 2. Reuse the pack if it is already installed there
 3. Otherwise resolve it from the configured marketplace (or `--pack-registry`)
-4. Install it into the environment
+4. Install it into the home
 5. Continue through the normal `fast-agent go` startup path
 
 Notes:
 
-- `--pack` cannot be combined with `--noenv`
+- `--pack` cannot be combined with `--no-home`
 - `--model` is a fallback only; an explicit model declared in an AgentCard still takes precedence
 - Some packs install multiple agents, so you may also want `--agent <name>`
 
-### `--noenv` mode
+### `--no-home` mode
 
-Use `--noenv` when you want to run without implicit environment side effects.
+Use `--no-home` when you want to run without implicit home side effects.
 
 - Session persistence is disabled.
 - Session resume is disabled.
-- Default environment card auto-loading is disabled.
+- Default home card auto-loading is disabled.
 
 Conflicts (fail fast):
 
-- `--noenv` + `--env`
-- `--noenv` + `--resume`
-- `--noenv` + `--pack`
+- `--no-home` + `--home`
+- `--no-home` + `--resume`
+- `--no-home` + `--pack`
 
 ### URL Connection Details
 

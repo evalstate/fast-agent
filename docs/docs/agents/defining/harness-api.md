@@ -310,7 +310,7 @@ The harness uses the same initialization path as `fast.run()`:
 
 - app initialization;
 - config and model loading;
-- AgentCard loading from the active environment's `agent-cards/` directory;
+- AgentCard loading from the active fast-agent home's `agent-cards/` directory;
 - Agent Skill discovery and prompt injection;
 - MCP server configuration;
 - shell/filesystem runtime setup;
@@ -325,7 +325,7 @@ It does not enter:
 - MCP server mode;
 - ACP server mode.
 
-If the active environment contains AgentCards, the harness loads them before
+If the active fast-agent home contains AgentCards, the harness loads them before
 validating that agents exist:
 
 ```text
@@ -335,7 +335,7 @@ validating that agents exist:
 ```
 
 ```python
-fast = FastAgent("Support Bot", parse_cli_args=False, environment_dir=".fast-agent")
+fast = FastAgent("Support Bot", parse_cli_args=False, home=".fast-agent")
 
 async with fast.harness() as harness:
     session = await harness.session("customer-123", agent_name="support")
@@ -571,7 +571,7 @@ Behavior:
 - different session IDs get different `AgentInstance` objects;
 - histories, MCP aggregators, and tool runtime objects are isolated between sessions;
 - when `session_history` is enabled, the harness creates or loads
-  `environment_dir/sessions/<session_id>/`;
+  `home/sessions/<session_id>/`;
 - persisted history for the same session ID is hydrated when a new harness
   process starts;
 - deleting a session disposes its `AgentInstance`;
@@ -581,7 +581,7 @@ Behavior:
 For example:
 
 ```python
-fast = FastAgent("Support Bot", parse_cli_args=False, environment_dir=".fast-agent")
+fast = FastAgent("Support Bot", parse_cli_args=False, home=".fast-agent")
 
 async with fast.harness() as harness:
     session = await harness.session("customer-123", agent_name="support")
@@ -600,7 +600,7 @@ creates:
 
 Running the program again with the same `session_id` loads that persisted
 history before the next turn. Set `session_history: false` in config or use
-`noenv=True` to disable persistence.
+`no_home=True` to disable persistence.
 
 Delete a session explicitly when you are done with it:
 
@@ -788,7 +788,7 @@ resolved agent's `message_history` with `ConversationSummary`:
 from fast_agent import ConversationSummary, FastAgent
 
 
-fast = FastAgent("Support Bot", parse_cli_args=False, environment_dir=".fast-agent")
+fast = FastAgent("Support Bot", parse_cli_args=False, home=".fast-agent")
 
 
 async with fast.harness() as harness:
@@ -814,7 +814,7 @@ For deterministic test cases, prefer one session ID per case so saved history
 cannot leak between cases. Reuse a session ID only when the eval is intentionally
 checking conversation memory. When `session_history` is enabled, call
 `await session.delete()` after a case if you do not want the persisted eval
-session kept under `environment_dir/sessions/`.
+session kept under `home/sessions/`.
 
 GEPA and artifact-heavy eval loops can use the same pattern inside their scorer
 or candidate evaluator, while writing candidate inputs, outputs, summaries, and
@@ -852,9 +852,34 @@ async with fast.harness() as harness:
 ```
 
 `harness.shell()` returns a structured `ShellExecutionResult` with `stdout`,
-`stderr`, and `exit_code`. It runs through the same local shell execution
-configuration as the model-facing shell tool, but it does not create a harness
-session and does not update agent history.
+`stderr`, and `exit_code`. It runs through the harness shell environment, but it
+does not create a harness session and does not update agent history.
+
+By default, the harness uses the configured `default_environment`, falling back
+to the implicit `local` environment. Select a named environment from
+`fast-agent.yaml` with `fast.harness(environment="ubuntu")`, or pass a
+`ShellEnvironment` instance directly. See
+[Execution Environments](../environments.md) for config examples and the
+`ShellEnvironment` protocol.
+
+```python
+async with fast.harness(environment="ubuntu") as harness:
+    result = await harness.shell("pwd")
+```
+
+Harness code also has a host-side local environment at `harness.local`, even
+when the active shell environment is Docker or remote. Use it with transfer
+helpers to seed remote workspaces and collect artifacts:
+
+```python
+from fast_agent.tools.environment_transfer import copy_tree
+
+async with fast.harness(environment="hf-gpu") as harness:
+    await copy_tree(harness.local, "inputs", harness.environment, "/workspace/inputs")
+    session = await harness.session("job-1", agent_name="researcher")
+    await session.generate("Process /workspace/inputs and write output to /workspace/out")
+    await copy_tree(harness.environment, "/workspace/out", harness.local, "outputs")
+```
 
 Use `session.shell()` when you want shell work serialized with a specific
 `HarnessSession`:
@@ -886,11 +911,13 @@ The shell/tool activity belongs to the selected agent in that session's
 flow. Use this when the model should decide which commands to run or when the
 tool interaction should be part of the agent turn.
 
-Filesystem access remains tool-mediated through configured agents. A future
-sandbox/session-environment API may expose first-class filesystem operations.
+Filesystem access remains tool-mediated through configured agents. Model-facing
+file tools use the same workspace tree as the active shell environment when
+that environment implements `EnvironmentFilesystem`; shell-only environments do
+not get a host filesystem fallback.
 
 Session IDs are conversation/runtime affinity keys, not security boundaries. A
-session does not automatically create a per-session filesystem sandbox. For
+session does not automatically create a filesystem sandbox. For
 multi-user applications that expose shell or filesystem tools, use separate
 harnesses, environment roots, process-level sandboxes, or another explicit
 isolation layer appropriate for your deployment.

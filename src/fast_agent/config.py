@@ -18,7 +18,8 @@ if TYPE_CHECKING:
 else:  # pragma: no cover - used only to satisfy type checkers
     Implementation = Any
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic.fields import FieldInfo
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
 from fast_agent.core.exceptions import ConfigFileError
@@ -40,6 +41,7 @@ from fast_agent.mcp.provider_management import (
     validate_provider_managed_server_settings,
 )
 from fast_agent.mcp.ui_modes import McpUIMode
+from fast_agent.tools.environment_config import EnvironmentSpec
 from fast_agent.types.streaming import StreamingMode
 from fast_agent.utils.action_normalization import (
     FALSE_ACTION_ALIASES,
@@ -1641,12 +1643,12 @@ def load_yaml_mapping(path: Path | None) -> dict[str, Any]:
 def load_implicit_settings(
     *,
     start_path: Path,
-    env_dir: str | Path | None = None,
-    noenv: bool = False,
+    home: str | Path | None = None,
+    no_home: bool = False,
 ) -> tuple[dict[str, Any], ConfigDiscoveryResult]:
     """Load settings from the discovered config file."""
-    home = resolve_fast_agent_home(cwd=start_path, cli_override=env_dir, noenv=noenv)
-    discovery = discover_config_files(cwd=start_path, home=home)
+    resolved_home = resolve_fast_agent_home(cwd=start_path, cli_override=home, no_home=no_home)
+    discovery = discover_config_files(cwd=start_path, home=resolved_home)
     merged: dict[str, Any] = {}
     if discovery.config_path and discovery.config_path.exists():
         merged = load_yaml_mapping(discovery.config_path)
@@ -1739,9 +1741,9 @@ def resolve_global_plugin_home_path(
     fast_agent_home: str | None,
     home: Path,
     cwd: Path,
-    noenv: bool = False,
+    no_home: bool = False,
 ) -> Path | None:
-    if noenv:
+    if no_home:
         return None
 
     if fast_agent_home:
@@ -1753,7 +1755,7 @@ def resolve_global_plugin_home_path(
     return (home / ".fast-agent").resolve()
 
 
-def _resolve_global_plugin_home(*, noenv: bool) -> Path | None:
+def _resolve_global_plugin_home(*, no_home: bool) -> Path | None:
     try:
         home = Path.home()
     except RuntimeError:
@@ -1762,14 +1764,14 @@ def _resolve_global_plugin_home(*, noenv: bool) -> Path | None:
         fast_agent_home=os.getenv("FAST_AGENT_HOME"),
         home=home,
         cwd=Path.cwd(),
-        noenv=noenv,
+        no_home=no_home,
     )
 
 
 def load_layered_model_settings(
     *,
     start_path: Path,
-    env_dir: str | Path | None = None,
+    home: str | Path | None = None,
 ) -> dict[str, Any]:
     """Load layered model settings from project + env config.
 
@@ -1779,12 +1781,12 @@ def load_layered_model_settings(
     """
     layered: dict[str, Any] = {}
 
-    home = resolve_fast_agent_home(cwd=start_path, cli_override=env_dir)
+    resolved_home = resolve_fast_agent_home(cwd=start_path, cli_override=home)
     project_config = find_config_in_directory(start_path)
-    env_config = find_config_in_directory(home.path) if home is not None else None
+    home_config = find_config_in_directory(resolved_home.path) if resolved_home is not None else None
 
     config_paths: list[Path] = []
-    for config_path in (project_config, env_config):
+    for config_path in (project_config, home_config):
         if config_path is not None and config_path not in config_paths:
             config_paths.append(config_path)
 
@@ -1832,6 +1834,27 @@ def _lookup_nested_mapping_value(
     return True, current
 
 
+class _WithoutAmbiguousHomeSource(PydanticBaseSettingsSource):
+    """Filter HOME-derived ``home`` values from env and dotenv settings sources."""
+
+    def __init__(self, source: PydanticBaseSettingsSource) -> None:
+        super().__init__(source.settings_cls)
+        self._source = source
+
+    def __call__(self) -> dict[str, Any]:
+        values = self._source()
+        if "home" not in values:
+            return values
+        filtered = dict(values)
+        filtered.pop("home")
+        return filtered
+
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
+        if field_name == "home":
+            return None, field_name, False
+        return self._source.get_field_value(field, field_name)
+
+
 class Settings(BaseSettings):
     """
     Settings class for the fast-agent application.
@@ -1845,6 +1868,28 @@ class Settings(BaseSettings):
         nested_model_default_partial_update=True,
     )  # Customize the behavior of settings here
 
+    @staticmethod
+    def _without_ambiguous_home_source(
+        source: PydanticBaseSettingsSource,
+    ) -> PydanticBaseSettingsSource:
+        return _WithoutAmbiguousHomeSource(source)
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            cls._without_ambiguous_home_source(env_settings),
+            cls._without_ambiguous_home_source(dotenv_settings),
+            file_secret_settings,
+        )
+
     mcp: MCPSettings | None = Field(default_factory=MCPSettings)
     """MCP config, such as MCP servers"""
 
@@ -1854,7 +1899,7 @@ class Settings(BaseSettings):
     execution_engine: Literal["asyncio"] = "asyncio"
     """Execution engine for the fast-agent application"""
 
-    environment_dir: str | None = None
+    home: str | None = None
     """Base directory for fast-agent runtime data (defaults to .fast-agent)."""
 
     default_model: str | None = None
@@ -1867,6 +1912,12 @@ class Settings(BaseSettings):
 
     model_references: dict[str, dict[str, str]] = Field(default_factory=dict)
     """Model references grouped by namespace (e.g. $system.default)."""
+
+    environments: dict[str, EnvironmentSpec] = Field(default_factory=dict)
+    """Named execution environment definitions."""
+
+    default_environment: str = "local"
+    """Default named execution environment. The implicit default is local."""
 
     model_source: str | None = None
     """Where the default model was resolved from for the current run, if noteworthy."""
@@ -1986,7 +2037,7 @@ class Settings(BaseSettings):
     _fast_agent_home: str | None = PrivateAttr(default=None)
     _fast_agent_home_source: str | None = PrivateAttr(default=None)
     _fast_agent_global_plugin_home: str | None = PrivateAttr(default=None)
-    _fast_agent_noenv: bool = PrivateAttr(default=False)
+    _fast_agent_no_home: bool = PrivateAttr(default=False)
     _fast_agent_settings_source: Literal["manual", "discovered"] = PrivateAttr(default="manual")
 
     @field_validator("commands", mode="before")
@@ -2026,6 +2077,23 @@ class Settings(BaseSettings):
 
         return normalized
 
+    @model_validator(mode="after")
+    def _validate_environment_names(self) -> "Settings":
+        for name in self.environments:
+            if name.startswith("_"):
+                raise ValueError("Environment names starting with '_' are reserved.")
+            if not name.strip():
+                raise ValueError("Environment names must be non-empty.")
+
+        if self.default_environment != "local" and self.default_environment not in self.environments:
+            valid_names = sorted({"local", *self.environments})
+            choices = ", ".join(valid_names)
+            raise ValueError(
+                f"default_environment '{self.default_environment}' is not configured. "
+                f"Valid environments: {choices}"
+            )
+        return self
+
 # Global settings object
 _settings: Settings | None = None
 
@@ -2033,43 +2101,43 @@ _settings: Settings | None = None
 def _cached_settings_match_environment_request(
     settings: Settings,
     *,
-    env_dir: str | Path | None,
-    noenv: bool,
+    home: str | Path | None,
+    no_home: bool,
 ) -> bool:
     if settings._fast_agent_settings_source == "manual":
-        return not noenv and env_dir is None
+        return not no_home and home is None
 
-    if noenv:
-        return settings._fast_agent_noenv
+    if no_home:
+        return settings._fast_agent_no_home
 
-    if settings._fast_agent_noenv:
+    if settings._fast_agent_no_home:
         return False
 
-    requested_global_home = _resolve_global_plugin_home(noenv=False)
+    requested_global_home = _resolve_global_plugin_home(no_home=False)
     if settings._fast_agent_global_plugin_home != (
         str(requested_global_home) if requested_global_home is not None else None
     ):
         return False
 
-    if env_dir is None and settings._fast_agent_home is None:
+    if home is None and settings._fast_agent_home is None:
         return True
 
     requested_home = resolve_fast_agent_home(
         cwd=Path.cwd(),
-        cli_override=env_dir,
-        noenv=False,
+        cli_override=home,
+        no_home=False,
     )
     return (
         requested_home is not None
         and settings._fast_agent_home == str(requested_home.path)
-        and (env_dir is None or settings._fast_agent_home_source == "cli")
+        and (home is None or settings._fast_agent_home_source == "cli")
     )
 
 
-def _env_dir_override(env_dir: str | os.PathLike[str] | None) -> str | Path | None:
-    if env_dir is None or isinstance(env_dir, str):
-        return env_dir
-    return Path(env_dir)
+def _home_override(home: str | os.PathLike[str] | None) -> str | Path | None:
+    if home is None or isinstance(home, str):
+        return home
+    return Path(home)
 
 
 def _resolve_explicit_config_path(config_path: str | os.PathLike[str]) -> Path:
@@ -2086,16 +2154,16 @@ def _resolve_explicit_config_path(config_path: str | os.PathLike[str]) -> Path:
 def _load_explicit_settings_sources(
     config_path: str | os.PathLike[str],
     *,
-    env_dir: str | Path | None,
-    noenv: bool,
+    home: str | Path | None,
+    no_home: bool,
 ) -> _LoadedSettingsSources:
     config_file = _resolve_explicit_config_path(config_path)
     discovery = discover_config_files(
         cwd=Path.cwd(),
         home=resolve_fast_agent_home(
             cwd=Path.cwd(),
-            cli_override=env_dir,
-            noenv=noenv,
+            cli_override=home,
+            no_home=no_home,
         ),
         explicit_config_path=config_file,
     )
@@ -2119,13 +2187,13 @@ def _load_explicit_settings_sources(
 
 def _load_implicit_settings_sources(
     *,
-    env_dir: str | Path | None,
-    noenv: bool,
+    home: str | Path | None,
+    no_home: bool,
 ) -> _LoadedSettingsSources:
     merged_settings, discovery = load_implicit_settings(
         start_path=Path.cwd(),
-        env_dir=env_dir,
-        noenv=noenv,
+        home=home,
+        no_home=no_home,
     )
     config_file = discovery.config_path
     config_sources: list[tuple[Path, dict[str, Any]]] = []
@@ -2144,16 +2212,16 @@ def _load_implicit_settings_sources(
 def _load_settings_sources(
     config_path: str | os.PathLike[str] | None,
     *,
-    env_dir: str | Path | None,
-    noenv: bool,
+    home: str | Path | None,
+    no_home: bool,
 ) -> _LoadedSettingsSources:
     if config_path:
         return _load_explicit_settings_sources(
             config_path,
-            env_dir=env_dir,
-            noenv=noenv,
+            home=home,
+            no_home=no_home,
         )
-    return _load_implicit_settings_sources(env_dir=env_dir, noenv=noenv)
+    return _load_implicit_settings_sources(home=home, no_home=no_home)
 
 
 def _warn_for_legacy_anthropic_reasoning_config(merged_settings: dict[str, Any]) -> None:
@@ -2217,7 +2285,7 @@ def _settings_from_sources(
     sources: _LoadedSettingsSources,
     *,
     global_plugin_home: Path | None,
-    noenv: bool,
+    no_home: bool,
 ) -> Settings:
     settings = Settings(**sources.merged_settings)
     settings._config_file = str(sources.config_file) if sources.config_file else None
@@ -2228,7 +2296,7 @@ def _settings_from_sources(
     settings._fast_agent_global_plugin_home = (
         str(global_plugin_home) if global_plugin_home is not None else None
     )
-    settings._fast_agent_noenv = noenv
+    settings._fast_agent_no_home = no_home
     settings._fast_agent_settings_source = "discovered"
     _set_theme_file_config_path(settings, sources.config_sources)
     _set_compaction_config_file_path(settings, sources.config_sources)
@@ -2239,26 +2307,26 @@ def _settings_from_sources(
 def get_settings(
     config_path: str | os.PathLike[str] | None = None,
     *,
-    env_dir: str | os.PathLike[str] | None = None,
-    noenv: bool = False,
+    home: str | os.PathLike[str] | None = None,
+    no_home: bool = False,
 ) -> Settings:
     """Get settings instance, automatically loading from config file if available."""
 
     global _settings
 
-    env_dir_override = _env_dir_override(env_dir)
+    home_override = _home_override(home)
 
     if config_path:
         _settings = None
     elif _settings and _cached_settings_match_environment_request(
         _settings,
-        env_dir=env_dir_override,
-        noenv=noenv,
+        home=home_override,
+        no_home=no_home,
     ):
         return _settings
 
-    sources = _load_settings_sources(config_path, env_dir=env_dir_override, noenv=noenv)
-    global_plugin_home = _resolve_global_plugin_home(noenv=noenv)
+    sources = _load_settings_sources(config_path, home=home_override, no_home=no_home)
+    global_plugin_home = _resolve_global_plugin_home(no_home=no_home)
     merged_settings = _merge_home_plugin_settings(
         sources.merged_settings,
         global_plugin_home=global_plugin_home,
@@ -2278,7 +2346,7 @@ def get_settings(
             config_sources=sources.config_sources,
         ),
         global_plugin_home=global_plugin_home,
-        noenv=noenv,
+        no_home=no_home,
     )
     return _settings
 
@@ -2289,7 +2357,7 @@ def _merge_enabled_plugin_commands(settings: Settings) -> dict[str, PluginComman
     if not enabled_sources.home and not enabled_sources.project:
         return inline_commands or None
 
-    from fast_agent.paths import resolve_environment_paths
+    from fast_agent.paths import resolve_home_paths
     from fast_agent.plugins.operations import load_enabled_plugin_commands
 
     plugin_commands: dict[str, PluginCommandActionSpec] = {}
@@ -2306,7 +2374,7 @@ def _merge_enabled_plugin_commands(settings: Settings) -> dict[str, PluginComman
     if enabled_sources.project:
         plugin_commands.update(
             _load_enabled_plugin_commands_from_root(
-                destination_root=resolve_environment_paths(settings).plugins,
+                destination_root=resolve_home_paths(settings).plugins,
                 enabled=enabled_sources.project,
                 scope="project",
                 load_enabled_plugin_commands=load_enabled_plugin_commands,

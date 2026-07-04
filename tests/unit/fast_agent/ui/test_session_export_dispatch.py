@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
 
 
-class _NoenvPromptProvider:
-    noenv_mode = True
+class _NoHomePromptProvider:
+    no_home_mode = True
 
     def _agent(self, name: str) -> object:
         del name
@@ -24,8 +24,8 @@ class _NoenvPromptProvider:
         return {"agent": object()}
 
 
-class _PromptProvider(_NoenvPromptProvider):
-    noenv_mode = False
+class _PromptProvider(_NoHomePromptProvider):
+    no_home_mode = False
 
 
 class _SessionManager:
@@ -33,7 +33,7 @@ class _SessionManager:
 
 
 @pytest.mark.asyncio
-async def test_noenv_session_export_dispatch_does_not_resolve_session_manager(
+async def test_no_home_session_export_dispatch_does_not_resolve_session_manager(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     emitted: list[CommandOutcome] = []
@@ -42,7 +42,7 @@ async def test_noenv_session_export_dispatch_does_not_resolve_session_manager(
         emitted.append(outcome)
 
     def fail_get_session_manager(**_kwargs: Any) -> object:
-        raise AssertionError("session manager should not be resolved in --noenv mode")
+        raise AssertionError("session manager should not be resolved in --no-home mode")
 
     monkeypatch.setattr(command_dispatch, "emit_command_outcome", collect_outcome)
     monkeypatch.setattr("fast_agent.session.get_session_manager", fail_get_session_manager)
@@ -64,7 +64,7 @@ async def test_noenv_session_export_dispatch_does_not_resolve_session_manager(
             show_help=False,
             error=None,
         ),
-        prompt_provider=cast("AgentApp", _NoenvPromptProvider()),
+        prompt_provider=cast("AgentApp", _NoHomePromptProvider()),
         agent="agent",
         session_manager=None,
     )

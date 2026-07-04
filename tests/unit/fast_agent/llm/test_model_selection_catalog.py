@@ -30,8 +30,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _write_overlay(env_dir: "Path", name: str, *, provider: str, model: str) -> None:
-    overlays_dir = env_dir / "model-overlays"
+def _write_overlay(home: "Path", name: str, *, provider: str, model: str) -> None:
+    overlays_dir = home / "model-overlays"
     overlays_dir.mkdir(parents=True, exist_ok=True)
     (overlays_dir / f"{name}.yaml").write_text(
         "\n".join(
@@ -238,8 +238,8 @@ def test_configured_providers_does_not_treat_overlay_only_provider_as_ready(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    overlays_dir = env_dir / "model-overlays"
+    home = tmp_path / ".fast-agent"
+    overlays_dir = home / "model-overlays"
     overlays_dir.mkdir(parents=True)
     (overlays_dir / "haikutiny.yaml").write_text(
         "\n".join(
@@ -254,18 +254,18 @@ def test_configured_providers_does_not_treat_overlay_only_provider_as_ready(
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+    previous_home = os.environ.get("FAST_AGENT_HOME")
+    os.environ["FAST_AGENT_HOME"] = str(home)
     try:
         providers = ModelSelectionCatalog.configured_providers({})
     finally:
-        empty_env_dir = tmp_path / ".empty-fast-agent-overlay-ready"
-        empty_env_dir.mkdir(parents=True, exist_ok=True)
-        load_model_overlay_registry(start_path=tmp_path, env_dir=empty_env_dir)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        empty_home = tmp_path / ".empty-fast-agent-overlay-ready"
+        empty_home.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, home=empty_home)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
     assert Provider.ANTHROPIC not in providers
 
@@ -306,8 +306,8 @@ def test_list_all_models_for_provider() -> None:
 
 
 def test_cross_provider_overlay_alias_does_not_hide_curated_model(tmp_path: Path) -> None:
-    env_dir = tmp_path / ".fast-agent"
-    overlays_dir = env_dir / "model-overlays"
+    home = tmp_path / ".fast-agent"
+    overlays_dir = home / "model-overlays"
     overlays_dir.mkdir(parents=True)
     (overlays_dir / "sonnet.yaml").write_text(
         "\n".join(
@@ -320,19 +320,19 @@ def test_cross_provider_overlay_alias_does_not_hide_curated_model(tmp_path: Path
         encoding="utf-8",
     )
 
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+    previous_home = os.environ.get("FAST_AGENT_HOME")
+    os.environ["FAST_AGENT_HOME"] = str(home)
     try:
         aliases = ModelSelectionCatalog.list_current_aliases(Provider.ANTHROPIC)
         assert "sonnet" in aliases
     finally:
-        empty_env_dir = tmp_path / ".empty-fast-agent"
-        empty_env_dir.mkdir(parents=True, exist_ok=True)
-        load_model_overlay_registry(start_path=tmp_path, env_dir=empty_env_dir)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        empty_home = tmp_path / ".empty-fast-agent"
+        empty_home.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, home=empty_home)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
 
 def test_codexresponses_current_entries_use_explicit_transports() -> None:
@@ -400,32 +400,32 @@ def test_overlay_catalog_uses_explicit_environment_context(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    env_dir = tmp_path / "project-env"
-    ambient_env_dir = tmp_path / "ambient-env"
+    home = tmp_path / "project-env"
+    ambient_home = tmp_path / "ambient-env"
     _write_overlay(
-        env_dir,
+        home,
         "projectoverlay",
         provider="openresponses",
         model="overlay-tests/project",
     )
     _write_overlay(
-        ambient_env_dir,
+        ambient_home,
         "ambientoverlay",
         provider="openresponses",
         model="overlay-tests/ambient",
     )
 
-    monkeypatch.setenv("ENVIRONMENT_DIR", str(ambient_env_dir))
+    monkeypatch.setenv("FAST_AGENT_HOME", str(ambient_home))
 
     models = ModelSelectionCatalog.list_all_models(
         Provider.OPENRESPONSES,
         start_path=tmp_path,
-        env_dir=env_dir,
+        home=home,
     )
     current_aliases = ModelSelectionCatalog.list_current_aliases(
         Provider.OPENRESPONSES,
         start_path=tmp_path,
-        env_dir=env_dir,
+        home=home,
     )
 
     assert "openresponses.overlay-tests/project" in models

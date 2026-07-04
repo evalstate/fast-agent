@@ -230,8 +230,8 @@ def test_agent_model_markdown_notes_escape_backticks_in_agent_names() -> None:
 def test_models_doctor_markdown_sections_escape_backticks_in_inline_code() -> None:
     report = models_manager._ModelsDoctorReport(
         readiness_ready=False,
-        env_dir_env="/tmp/env`dir",
-        effective_env_dir="/tmp/effective`dir",
+        home_env="/tmp/env`dir",
+        effective_home="/tmp/effective`dir",
         fast_agent_model_env="model`env",
         loaded_config_file="/tmp/config`file.yaml",
         unresolved=[("$system.`fast", "default model", "missing")],
@@ -246,8 +246,8 @@ def test_models_doctor_markdown_sections_escape_backticks_in_inline_code() -> No
     models_manager._extend_markdown_unresolved_references(lines, report.unresolved)
 
     rendered = "\n".join(lines)
-    assert "ENVIRONMENT_DIR**: `` /tmp/env`dir ``" in rendered
-    assert "Effective environment_dir**: `` /tmp/effective`dir ``" in rendered
+    assert "FAST_AGENT_HOME**: `` /tmp/env`dir ``" in rendered
+    assert "Effective home**: `` /tmp/effective`dir ``" in rendered
     assert "FAST_AGENT_MODEL**: `` model`env ``" in rendered
     assert "Loaded config file**: `` /tmp/config`file.yaml ``" in rendered
     assert "- `` $system.`fast `` (default model)" in rendered
@@ -342,7 +342,7 @@ def test_normalize_interactive_reference_token_uses_shared_text_rules() -> None:
 @pytest.mark.asyncio
 async def test_models_aliases_lists_layered_project_and_env_values(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     _write_yaml(
@@ -357,7 +357,7 @@ async def test_models_aliases_lists_layered_project_and_env_values(tmp_path: Pat
         },
     )
     _write_yaml(
-        env_dir / "fast-agent.yaml",
+        home / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -371,7 +371,7 @@ async def test_models_aliases_lists_layered_project_and_env_values(tmp_path: Pat
     try:
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
-            _context(Settings(environment_dir=str(env_dir))),
+            _context(Settings(home=str(home))),
             agent_name="main",
             action="references",
             argument=None,
@@ -390,7 +390,7 @@ async def test_models_aliases_lists_layered_project_and_env_values(tmp_path: Pat
 @pytest.mark.asyncio
 async def test_models_doctor_reports_unresolved_default_alias(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     previous_cwd = Path.cwd()
@@ -399,7 +399,7 @@ async def test_models_doctor_reports_unresolved_default_alias(tmp_path: Path) ->
         outcome = await models_manager.handle_models_command(
             _context(
                 Settings(
-                    environment_dir=str(env_dir),
+                    home=str(home),
                     default_model="$system.fast",
                 )
             ),
@@ -413,7 +413,7 @@ async def test_models_doctor_reports_unresolved_default_alias(tmp_path: Path) ->
     assert outcome.messages
     rendered = str(outcome.messages[0].text)
     assert "▎ model doctor" in rendered
-    assert "• ENVIRONMENT_DIR:" in rendered
+    assert "• FAST_AGENT_HOME:" in rendered
     assert "▎•" not in rendered
     assert "Readiness: action required" in rendered
     assert "Agent summary:" in rendered
@@ -423,11 +423,11 @@ async def test_models_doctor_reports_unresolved_default_alias(tmp_path: Path) ->
 @pytest.mark.asyncio
 async def test_models_doctor_lists_all_agents_including_tool_only(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     _write_yaml(
-        env_dir / "fast-agent.yaml",
+        home / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -454,7 +454,7 @@ async def test_models_doctor_lists_all_agents_including_tool_only(tmp_path: Path
     try:
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
-            _context(Settings(environment_dir=str(env_dir)), agents=agents),
+            _context(Settings(home=str(home)), agents=agents),
             agent_name="main",
             action="doctor",
             argument=None,
@@ -477,7 +477,7 @@ async def test_models_doctor_lists_all_agents_including_tool_only(tmp_path: Path
 @pytest.mark.asyncio
 async def test_models_doctor_marks_runtime_fallback_when_alias_unresolved(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     agents = {
@@ -492,7 +492,7 @@ async def test_models_doctor_marks_runtime_fallback_when_alias_unresolved(tmp_pa
     try:
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
-            _context(Settings(environment_dir=str(env_dir)), agents=agents),
+            _context(Settings(home=str(home)), agents=agents),
             agent_name="main",
             action="doctor",
             argument=None,
@@ -511,7 +511,7 @@ async def test_models_doctor_marks_runtime_fallback_when_alias_unresolved(tmp_pa
 @pytest.mark.asyncio
 async def test_models_doctor_dedupes_repeated_alias_missing_note(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     agents = {
@@ -531,7 +531,7 @@ async def test_models_doctor_dedupes_repeated_alias_missing_note(tmp_path: Path)
     try:
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
-            _context(Settings(environment_dir=str(env_dir)), agents=agents),
+            _context(Settings(home=str(home)), agents=agents),
             agent_name="main",
             action="doctor",
             argument=None,
@@ -550,7 +550,7 @@ async def test_models_doctor_dedupes_repeated_alias_missing_note(tmp_path: Path)
 @pytest.mark.asyncio
 async def test_models_doctor_treats_builtin_model_alias_as_equivalent(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
     resolved_opus = ModelFactory.parse_model_string("opus").model_name
 
@@ -566,7 +566,7 @@ async def test_models_doctor_treats_builtin_model_alias_as_equivalent(tmp_path: 
     try:
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
-            _context(Settings(environment_dir=str(env_dir)), agents=agents),
+            _context(Settings(home=str(home)), agents=agents),
             agent_name="main",
             action="doctor",
             argument=None,
@@ -587,7 +587,7 @@ async def test_models_doctor_treats_gpt_oss_alias_and_normalized_model_as_equiva
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     agents = {
@@ -602,7 +602,7 @@ async def test_models_doctor_treats_gpt_oss_alias_and_normalized_model_as_equiva
     try:
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
-            _context(Settings(environment_dir=str(env_dir)), agents=agents),
+            _context(Settings(home=str(home)), agents=agents),
             agent_name="main",
             action="doctor",
             argument=None,
@@ -778,14 +778,14 @@ def test_parse_catalog_arguments_reports_split_errors() -> None:
 @pytest.mark.asyncio
 async def test_models_aliases_set_writes_env_target(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     previous_cwd = Path.cwd()
     try:
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
-            _context(Settings(environment_dir=str(env_dir))),
+            _context(Settings(home=str(home))),
             agent_name="main",
             action="references",
             argument="set $system.fast claude-haiku-4-5 --target env",
@@ -793,7 +793,7 @@ async def test_models_aliases_set_writes_env_target(tmp_path: Path) -> None:
     finally:
         os.chdir(previous_cwd)
 
-    config_path = env_dir / "fast-agent.yaml"
+    config_path = home / "fast-agent.yaml"
     assert config_path.exists()
     saved = _read_yaml(config_path)
     assert saved["model_references"]["system"]["fast"] == "claude-haiku-4-5"
@@ -810,10 +810,10 @@ async def test_models_aliases_set_writes_env_target(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_models_aliases_set_uses_model_selector_for_existing_alias(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
     _write_yaml(
-        env_dir / "fast-agent.yaml",
+        home / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -829,7 +829,7 @@ async def test_models_aliases_set_uses_model_selector_for_existing_alias(tmp_pat
     try:
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
-            _context_with_io(Settings(environment_dir=str(env_dir)), io),
+            _context_with_io(Settings(home=str(home)), io),
             agent_name="main",
             action="references",
             argument="set $system.fast",
@@ -837,7 +837,7 @@ async def test_models_aliases_set_uses_model_selector_for_existing_alias(tmp_pat
     finally:
         os.chdir(previous_cwd)
 
-    saved = _read_yaml(env_dir / "fast-agent.yaml")
+    saved = _read_yaml(home / "fast-agent.yaml")
     assert saved["model_references"]["system"]["fast"] == "claude-haiku-4-5"
 
     rendered = str(outcome.messages[0].text)
@@ -850,10 +850,10 @@ async def test_models_aliases_set_uses_model_selector_for_existing_alias(tmp_pat
 @pytest.mark.asyncio
 async def test_models_aliases_set_reopens_vertex_selection_for_vertex_model(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
     _write_yaml(
-        env_dir / "fast-agent.yaml",
+        home / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -869,7 +869,7 @@ async def test_models_aliases_set_reopens_vertex_selection_for_vertex_model(tmp_
     try:
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
-            _context_with_io(Settings(environment_dir=str(env_dir)), io),
+            _context_with_io(Settings(home=str(home)), io),
             agent_name="main",
             action="references",
             argument="set $system.fast",
@@ -885,7 +885,7 @@ async def test_models_aliases_set_reopens_vertex_selection_for_vertex_model(tmp_
 @pytest.mark.asyncio
 async def test_models_aliases_set_can_create_new_alias_interactively(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     io = _StubCommandIO(
@@ -897,7 +897,7 @@ async def test_models_aliases_set_can_create_new_alias_interactively(tmp_path: P
     try:
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
-            _context_with_io(Settings(environment_dir=str(env_dir)), io),
+            _context_with_io(Settings(home=str(home)), io),
             agent_name="main",
             action="references",
             argument="set",
@@ -905,7 +905,7 @@ async def test_models_aliases_set_can_create_new_alias_interactively(tmp_path: P
     finally:
         os.chdir(previous_cwd)
 
-    saved = _read_yaml(env_dir / "fast-agent.yaml")
+    saved = _read_yaml(home / "fast-agent.yaml")
     assert saved["model_references"]["custom"]["review"] == "gpt-4.1-mini"
 
     rendered = str(outcome.messages[0].text)
@@ -918,10 +918,10 @@ async def test_models_aliases_set_can_create_new_alias_interactively(tmp_path: P
 @pytest.mark.asyncio
 async def test_models_aliases_set_can_choose_existing_alias_by_number(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
     _write_yaml(
-        env_dir / "fast-agent.yaml",
+        home / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -940,7 +940,7 @@ async def test_models_aliases_set_can_choose_existing_alias_by_number(tmp_path: 
     try:
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
-            _context_with_io(Settings(environment_dir=str(env_dir)), io),
+            _context_with_io(Settings(home=str(home)), io),
             agent_name="main",
             action="references",
             argument="set",
@@ -948,11 +948,11 @@ async def test_models_aliases_set_can_choose_existing_alias_by_number(tmp_path: 
     finally:
         os.chdir(previous_cwd)
 
-    saved = _read_yaml(env_dir / "fast-agent.yaml")
+    saved = _read_yaml(home / "fast-agent.yaml")
     assert saved["model_references"]["system"]["fast"] == "gpt-4.1-mini"
     assert io.emitted_messages
     assert (
-        _message_text(io.emitted_messages[0]).find(str((env_dir / "fast-agent.yaml").resolve()))
+        _message_text(io.emitted_messages[0]).find(str((home / "fast-agent.yaml").resolve()))
         != -1
     )
 
@@ -964,7 +964,7 @@ async def test_models_aliases_set_can_choose_existing_alias_by_number(tmp_path: 
 @pytest.mark.asyncio
 async def test_models_aliases_unset_writes_project_target(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
     project_config = workspace / "fast-agent.yaml"
     _write_yaml(
@@ -983,7 +983,7 @@ async def test_models_aliases_unset_writes_project_target(tmp_path: Path) -> Non
     try:
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
-            _context(Settings(environment_dir=str(env_dir))),
+            _context(Settings(home=str(home))),
             agent_name="main",
             action="references",
             argument="unset $system.fast --target project",
@@ -1007,14 +1007,14 @@ async def test_models_aliases_unset_writes_project_target(tmp_path: Path) -> Non
 @pytest.mark.asyncio
 async def test_models_aliases_set_dry_run_is_deterministic(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     previous_cwd = Path.cwd()
     try:
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
-            _context(Settings(environment_dir=str(env_dir))),
+            _context(Settings(home=str(home))),
             agent_name="main",
             action="references",
             argument="set $system.fast claude-haiku-4-5 --target env --dry-run",
@@ -1022,7 +1022,7 @@ async def test_models_aliases_set_dry_run_is_deterministic(tmp_path: Path) -> No
     finally:
         os.chdir(previous_cwd)
 
-    assert (env_dir / "fast-agent.yaml").exists() is False
+    assert (home / "fast-agent.yaml").exists() is False
 
     rendered = str(outcome.messages[0].text)
     assert "▎ model references set" in rendered
@@ -1162,14 +1162,14 @@ def test_models_references_parser_reports_shell_quoting_errors() -> None:
 @pytest.mark.asyncio
 async def test_models_aliases_set_invalid_token_returns_usage(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     previous_cwd = Path.cwd()
     try:
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
-            _context(Settings(environment_dir=str(env_dir))),
+            _context(Settings(home=str(home))),
             agent_name="main",
             action="references",
             argument="set system.fast claude-haiku-4-5",
@@ -1185,28 +1185,28 @@ async def test_models_aliases_set_invalid_token_returns_usage(tmp_path: Path) ->
 @pytest.mark.asyncio
 async def test_models_doctor_displays_runtime_config_context(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     workspace.mkdir(parents=True)
 
     previous_cwd = Path.cwd()
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    previous_home = os.environ.get("FAST_AGENT_HOME")
     previous_fast_model = os.environ.get("FAST_AGENT_MODEL")
     try:
         os.chdir(workspace)
-        os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+        os.environ["FAST_AGENT_HOME"] = str(home)
         os.environ["FAST_AGENT_MODEL"] = "kimi"
         outcome = await models_manager.handle_models_command(
-            _context(Settings(environment_dir=str(env_dir))),
+            _context(Settings(home=str(home))),
             agent_name="main",
             action="doctor",
             argument=None,
         )
     finally:
         os.chdir(previous_cwd)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
         if previous_fast_model is None:
             os.environ.pop("FAST_AGENT_MODEL", None)
         else:
@@ -1214,8 +1214,8 @@ async def test_models_doctor_displays_runtime_config_context(tmp_path: Path) -> 
 
     rendered = str(outcome.messages[0].text)
     assert "▎ Runtime config context" in rendered
-    assert f"ENVIRONMENT_DIR: {env_dir}" in rendered
-    assert f"Effective environment_dir: {env_dir}" in rendered
+    assert f"FAST_AGENT_HOME: {home}" in rendered
+    assert f"Effective home: {home}" in rendered
     assert "FAST_AGENT_MODEL: kimi" in rendered
 
 
@@ -1225,7 +1225,7 @@ async def test_models_references_follow_loaded_config_root_instead_of_cwd_overla
 ) -> None:
     parent = tmp_path / "parent"
     workspace = parent / "workspace"
-    env_dir = workspace / ".fast-agent"
+    home = workspace / ".fast-agent"
     parent.mkdir(parents=True)
     workspace.mkdir(parents=True)
 
@@ -1240,7 +1240,7 @@ async def test_models_references_follow_loaded_config_root_instead_of_cwd_overla
         },
     )
     _write_yaml(
-        env_dir / "fast-agent.yaml",
+        home / "fast-agent.yaml",
         {
             "model_references": {
                 "system": {
@@ -1250,13 +1250,13 @@ async def test_models_references_follow_loaded_config_root_instead_of_cwd_overla
         },
     )
 
-    settings = Settings(environment_dir=None)
+    settings = Settings(home=None)
     settings._config_file = str(parent / "fast-agent.yaml")
 
     previous_cwd = Path.cwd()
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    previous_home = os.environ.get("FAST_AGENT_HOME")
     try:
-        os.environ.pop("ENVIRONMENT_DIR", None)
+        os.environ.pop("FAST_AGENT_HOME", None)
         os.chdir(workspace)
         outcome = await models_manager.handle_models_command(
             _context(settings),
@@ -1266,10 +1266,10 @@ async def test_models_references_follow_loaded_config_root_instead_of_cwd_overla
         )
     finally:
         os.chdir(previous_cwd)
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        if previous_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+            os.environ["FAST_AGENT_HOME"] = previous_home
 
     rendered = str(outcome.messages[0].text)
     assert "$system.code = parent-code" in rendered

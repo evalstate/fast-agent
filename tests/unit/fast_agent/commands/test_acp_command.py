@@ -18,8 +18,8 @@ def test_acp_command_builds_request_with_watch() -> None:
         auth=None,
         client_metadata_url=None,
         model=None,
-        env_dir=None,
-        noenv=False,
+        home=None,
+        no_home=False,
         force_smart=False,
         skills_dir=None,
         npx=None,
@@ -46,7 +46,7 @@ def test_acp_command_builds_request_with_watch() -> None:
     assert request.watch is True
 
 
-def test_acp_command_noenv_forces_permissions_disabled() -> None:
+def test_acp_command_no_home_forces_permissions_disabled() -> None:
     ctx = typer.Context(click.Command("acp"))
     request = acp_command._build_run_request(
         ctx=ctx,
@@ -60,8 +60,8 @@ def test_acp_command_noenv_forces_permissions_disabled() -> None:
         auth=None,
         client_metadata_url=None,
         model=None,
-        env_dir=None,
-        noenv=True,
+        home=None,
+        no_home=True,
         force_smart=False,
         skills_dir=None,
         npx=None,
@@ -77,7 +77,7 @@ def test_acp_command_noenv_forces_permissions_disabled() -> None:
         watch=False,
     )
 
-    assert request.noenv is True
+    assert request.no_home is True
     assert request.permissions_enabled is False
 
 
@@ -95,8 +95,8 @@ def test_acp_command_builds_request_with_missing_shell_cwd_override() -> None:
         auth=None,
         client_metadata_url=None,
         model=None,
-        env_dir=None,
-        noenv=False,
+        home=None,
+        no_home=False,
         force_smart=False,
         skills_dir=None,
         npx=None,
@@ -130,8 +130,8 @@ def test_acp_command_builds_request_with_prefer_local_shell() -> None:
         auth=None,
         client_metadata_url=None,
         model=None,
-        env_dir=None,
-        noenv=False,
+        home=None,
+        no_home=False,
         force_smart=False,
         skills_dir=None,
         npx=None,

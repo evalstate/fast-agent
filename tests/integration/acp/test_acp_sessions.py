@@ -180,7 +180,7 @@ async def test_acp_prompt_saves_session_history_in_workspace_store_for_session_c
 
 
 @pytest.mark.integration
-async def test_acp_prompt_saves_session_history_in_configured_environment_dir(
+async def test_acp_prompt_saves_session_history_in_configured_home(
     tmp_path: Path,
 ) -> None:
     server_cwd = tmp_path / "server"
@@ -191,7 +191,7 @@ async def test_acp_prompt_saves_session_history_in_configured_environment_dir(
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
         (TEST_DIR / "fastagent.config.yaml").read_text()
-        + '\nenvironment_dir: ".custom-fast-agent"\n'
+        + '\nhome: ".custom-fast-agent"\n'
     )
 
     cmd = [
@@ -364,13 +364,13 @@ async def test_acp_session_resume_emits_current_mode_update(
     )
 
     original_cwd = Path.cwd()
-    original_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    environment_dir = tmp_path / ".fast-agent"
-    os.environ["ENVIRONMENT_DIR"] = str(environment_dir)
+    original_home = os.environ.get("FAST_AGENT_HOME")
+    home = tmp_path / ".fast-agent"
+    os.environ["FAST_AGENT_HOME"] = str(home)
     os.chdir(tmp_path)
     session_manager_module._session_manager = None
     try:
-        manager = SessionManager(cwd=tmp_path, environment_override=environment_dir)
+        manager = SessionManager(cwd=tmp_path, home_override=home)
         session = manager.create_session()
         history_message = PromptMessageExtended(
             role="user",
@@ -392,10 +392,10 @@ async def test_acp_session_resume_emits_current_mode_update(
     finally:
         session_manager_module._session_manager = None
         os.chdir(original_cwd)
-        if original_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        if original_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = original_env_dir
+            os.environ["FAST_AGENT_HOME"] = original_home
 
     assert session is not None
 
@@ -422,7 +422,7 @@ async def test_acp_session_resume_emits_current_mode_update(
         lambda _: client,
         *cmd,
         cwd=tmp_path,
-        env={"ENVIRONMENT_DIR": str(environment_dir)},
+        env={"FAST_AGENT_HOME": str(home)},
     ) as (connection, _process):
         await _initialize_connection(connection)
         session_response = await connection.new_session(mcp_servers=[], cwd=str(tmp_path))
@@ -445,24 +445,24 @@ async def test_acp_session_list_returns_saved_sessions(
     tmp_path: Path,
 ) -> None:
     original_cwd = Path.cwd()
-    original_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    environment_dir = tmp_path / ".fast-agent"
-    os.environ["ENVIRONMENT_DIR"] = str(environment_dir)
+    original_home = os.environ.get("FAST_AGENT_HOME")
+    home = tmp_path / ".fast-agent"
+    os.environ["FAST_AGENT_HOME"] = str(home)
     os.chdir(tmp_path)
     session_manager_module._session_manager = None
     session = None
     try:
-        manager = SessionManager(cwd=tmp_path, environment_override=environment_dir)
+        manager = SessionManager(cwd=tmp_path, home_override=home)
         session = manager.create_session(
             metadata={"title": "ACP list test", "cwd": str(tmp_path.resolve())}
         )
     finally:
         session_manager_module._session_manager = None
         os.chdir(original_cwd)
-        if original_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        if original_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = original_env_dir
+            os.environ["FAST_AGENT_HOME"] = original_home
 
     config_path = TEST_DIR / "fastagent.config.yaml"
     cmd = [
@@ -485,7 +485,7 @@ async def test_acp_session_list_returns_saved_sessions(
         lambda _: client,
         *cmd,
         cwd=tmp_path,
-        env={"ENVIRONMENT_DIR": str(environment_dir)},
+        env={"FAST_AGENT_HOME": str(home)},
     ) as (connection, _process):
         await _initialize_connection(connection)
         response = await connection.list_sessions(cwd=str(tmp_path))
@@ -514,7 +514,7 @@ async def test_acp_session_list_reads_workspace_scoped_sessions_when_server_runs
         os.chdir(session_cwd)
         manager = SessionManager(
             cwd=session_cwd,
-            environment_override=".fast-agent",
+            home_override=".fast-agent",
         )
         session = manager.create_session(metadata={"title": "Workspace scoped list"})
     finally:
@@ -572,14 +572,14 @@ async def test_acp_load_session_streams_history(
     )
 
     original_cwd = Path.cwd()
-    original_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    environment_dir = tmp_path / ".fast-agent"
-    os.environ["ENVIRONMENT_DIR"] = str(environment_dir)
+    original_home = os.environ.get("FAST_AGENT_HOME")
+    home = tmp_path / ".fast-agent"
+    os.environ["FAST_AGENT_HOME"] = str(home)
     os.chdir(tmp_path)
     session_manager_module._session_manager = None
     session = None
     try:
-        manager = SessionManager(cwd=tmp_path, environment_override=environment_dir)
+        manager = SessionManager(cwd=tmp_path, home_override=home)
         session = manager.create_session(metadata={"title": "History load"})
         history_messages = [
             PromptMessageExtended(
@@ -607,10 +607,10 @@ async def test_acp_load_session_streams_history(
     finally:
         session_manager_module._session_manager = None
         os.chdir(original_cwd)
-        if original_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
+        if original_home is None:
+            os.environ.pop("FAST_AGENT_HOME", None)
         else:
-            os.environ["ENVIRONMENT_DIR"] = original_env_dir
+            os.environ["FAST_AGENT_HOME"] = original_home
 
     config_path = TEST_DIR / "fastagent.config.yaml"
     cmd = [
@@ -633,7 +633,7 @@ async def test_acp_load_session_streams_history(
         lambda _: client,
         *cmd,
         cwd=tmp_path,
-        env={"ENVIRONMENT_DIR": str(environment_dir)},
+        env={"FAST_AGENT_HOME": str(home)},
     ) as (connection, _process):
         await _initialize_connection(connection)
         await connection.load_session(
@@ -692,7 +692,7 @@ async def test_acp_load_session_reads_workspace_scoped_session_when_server_runs_
         os.chdir(session_cwd)
         manager = SessionManager(
             cwd=session_cwd,
-            environment_override=".fast-agent",
+            home_override=".fast-agent",
         )
         session = manager.create_session(metadata={"title": "Workspace scoped load"})
         history_messages = [
@@ -793,12 +793,12 @@ async def test_acp_load_session_missing_returns_resource_not_found(
 
     client = TestClient()
     missing_session_id = "missing-session"
-    environment_dir = tmp_path / ".fast-agent"
+    home = tmp_path / ".fast-agent"
     async with spawn_agent_process(
         lambda _: client,
         *cmd,
         cwd=tmp_path,
-        env={"ENVIRONMENT_DIR": str(environment_dir)},
+        env={"FAST_AGENT_HOME": str(home)},
     ) as (connection, _process):
         await _initialize_connection(connection)
         with pytest.raises(RequestError) as exc_info:

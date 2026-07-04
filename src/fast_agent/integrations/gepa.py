@@ -329,7 +329,7 @@ class ReflectiveDatasetBuilder(Protocol):
 
 
 class BatchRunnerFactory(Protocol):
-    def __call__(self, env_dir: Path | None, *, backend: "BatchBackend") -> BatchRunner: ...
+    def __call__(self, home: Path | None, *, backend: "BatchBackend") -> BatchRunner: ...
 
 
 CommandRunner = Callable[
@@ -353,14 +353,14 @@ class FastAgentReflectionLM:
     def __init__(
         self,
         *,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
         model: str | None = None,
         audit_dir: str | Path,
         agent: str | None = None,
         timeout_seconds: float | None = None,
         command_runner: CommandRunner | None = None,
     ):
-        self.env_dir = Path(env_dir) if env_dir is not None else None
+        self.home = Path(home) if home is not None else None
         self.model = model
         self.audit_dir = Path(audit_dir)
         self.agent = agent
@@ -437,7 +437,7 @@ class FastAgentReflectionLM:
                 {
                     "model": self.model,
                     "agent": self.agent,
-                    "env_dir": str(self.env_dir) if self.env_dir is not None else None,
+                    "home": str(self.home) if self.home is not None else None,
                     "backend": "process",
                 },
                 indent=2,
@@ -456,8 +456,8 @@ class FastAgentReflectionLM:
 
     def _command(self, prompt: str | list[dict[str, Any]], audit: ReflectionAudit) -> list[str]:
         command = [sys.executable, "-m", "fast_agent.cli.__main__", "go", "--quiet"]
-        if self.env_dir is not None:
-            command.extend(["--env", str(self.env_dir)])
+        if self.home is not None:
+            command.extend(["--home", str(self.home)])
         if self.model is not None:
             command.extend(["--model", self.model])
         if self.agent is not None:
@@ -511,7 +511,7 @@ class FastAgentBatchEvaluator:
     def __init__(
         self,
         *,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
         agent_card: str | Path,
         agent: str | None = None,
         candidate_variables: Mapping[str, str],
@@ -526,7 +526,7 @@ class FastAgentBatchEvaluator:
         backend: BatchBackend = "harness",
         include_input: bool = True,
     ):
-        self.env_dir = Path(env_dir) if env_dir is not None else None
+        self.home = Path(home) if home is not None else None
         self.agent_card = agent_card
         self.agent = agent
         self.candidate_variables = dict(candidate_variables)
@@ -566,7 +566,7 @@ class FastAgentBatchEvaluator:
         candidate_run: CandidateRun,
         variables: dict[str, str],
     ) -> BatchRunResult:
-        runner = BatchRunner(env_dir=self.env_dir, backend=self.backend)
+        runner = BatchRunner(home=self.home, backend=self.backend)
         return await runner.run(
             input=self.input,
             output_path=candidate_run.path / "results.jsonl",
@@ -596,7 +596,7 @@ class FastAgentSingleTaskAdapter:
     def __init__(
         self,
         *,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
         agent_card: str | Path | None = None,
         agent: str | None = None,
         model: str | None = None,
@@ -610,7 +610,7 @@ class FastAgentSingleTaskAdapter:
         include_input: bool = True,
         batch_runner_factory: BatchRunnerFactory | None = None,
     ) -> None:
-        self.env_dir = Path(env_dir) if env_dir is not None else None
+        self.home = Path(home) if home is not None else None
         self.agent_card = agent_card
         self.agent = agent
         self.model = model
@@ -634,7 +634,7 @@ class FastAgentSingleTaskAdapter:
         scorer: SingleTaskScorer,
         run_dir: str | Path,
         candidate_key: str = "prompt",
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
         template: str = "{{prompt}}",
         backend: "BatchBackend" = "harness",
         batch_runner_factory: BatchRunnerFactory | None = None,
@@ -646,7 +646,7 @@ class FastAgentSingleTaskAdapter:
         """
 
         return cls(
-            env_dir=env_dir,
+            home=home,
             model=model,
             input_builder=lambda candidate, example=None: {"prompt": candidate[candidate_key]},
             scorer=scorer,
@@ -705,7 +705,7 @@ class FastAgentSingleTaskAdapter:
         return parsed.score, side_info
 
     async def _run_batch(self, eval_dir: Path, input_path: Path) -> BatchRunResult:
-        runner = self.batch_runner_factory(self.env_dir, backend=self.backend)
+        runner = self.batch_runner_factory(self.home, backend=self.backend)
         return await runner.run(
             input=input_path,
             output_path=eval_dir / "results.jsonl",
@@ -737,7 +737,7 @@ class FastAgentRowWiseBatchAdapter:
     def __init__(
         self,
         *,
-        env_dir: str | Path | None = None,
+        home: str | Path | None = None,
         agent_card: str | Path,
         agent: str | None = None,
         candidate_variables: Mapping[str, str],
@@ -754,7 +754,7 @@ class FastAgentRowWiseBatchAdapter:
         reflective_dataset_builder: ReflectiveDatasetBuilder | None = None,
         batch_runner_factory: BatchRunnerFactory | None = None,
     ):
-        self.env_dir = Path(env_dir) if env_dir is not None else None
+        self.home = Path(home) if home is not None else None
         self.agent_card = agent_card
         self.agent = agent
         self.candidate_variables = dict(candidate_variables)
@@ -863,7 +863,7 @@ class FastAgentRowWiseBatchAdapter:
         variables: dict[str, str],
         batch_size: int,
     ) -> BatchRunResult:
-        runner = self.batch_runner_factory(self.env_dir, backend=self.backend)
+        runner = self.batch_runner_factory(self.home, backend=self.backend)
         return await runner.run(
             input=input_path,
             output_path=eval_dir / "results.jsonl",

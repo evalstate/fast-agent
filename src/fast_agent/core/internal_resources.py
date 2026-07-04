@@ -93,7 +93,7 @@ def format_internal_resources_for_prompt(resources: Sequence[InternalResource]) 
         return ""
 
     lines: list[str] = [
-        "For detailed fast-agent guidance, call `get_resource` with `internal://fast-agent/smart-agent-cards` for AgentCards and `internal://fast-agent/model-overlays` for model overlay manifests.",
+        "For detailed fast-agent guidance, call `get_resource` with `internal://fast-agent/smart-agent-cards` for AgentCards, `internal://fast-agent/model-overlays` for model overlay manifests, and `internal://fast-agent/execution-environments` for named execution environment config.",
         "The bundled internal resources listed below are always available to `get_resource`.",
         "<available_resources>",
     ]

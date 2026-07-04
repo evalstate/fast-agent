@@ -117,7 +117,7 @@ class ServerRegistry:
                 config=config,
                 trigger_oauth=oauth_enabled,
                 active_home=getattr(self._config, "_fast_agent_home", None),
-                noenv=bool(getattr(self._config, "_fast_agent_noenv", False)),
+                no_home=bool(getattr(self._config, "_fast_agent_no_home", False)),
             )
 
             async with transport_context as (read_stream, write_stream, _get_session_id_cb):

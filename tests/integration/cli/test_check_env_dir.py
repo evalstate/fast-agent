@@ -6,11 +6,11 @@ import pytest
 
 
 @pytest.mark.integration
-def test_check_uses_env_dir_for_config(tmp_path: Path) -> None:
-    env_dir = tmp_path / "env"
-    env_dir.mkdir()
-    env_config = env_dir / "fastagent.config.yaml"
-    env_secrets = env_dir / "fastagent.secrets.yaml"
+def test_check_uses_home_for_config(tmp_path: Path) -> None:
+    home = tmp_path / "env"
+    home.mkdir()
+    env_config = home / "fastagent.config.yaml"
+    env_secrets = home / "fastagent.secrets.yaml"
     env_config.write_text("default_model: gpt-4.1\n", encoding="utf-8")
     env_secrets.write_text("openai:\n  api_key: sk-env-test\n", encoding="utf-8")
 
@@ -24,12 +24,12 @@ def test_check_uses_env_dir_for_config(tmp_path: Path) -> None:
     )
 
     env = os.environ.copy()
-    env.pop("ENVIRONMENT_DIR", None)
+    env.pop("FAST_AGENT_HOME", None)
     env["COLUMNS"] = "200"
     env["RICH_WIDTH"] = "200"
 
     result = subprocess.run(
-        ["uv", "run", "fast-agent", "check", "--env", str(env_dir)],
+        ["uv", "run", "fast-agent", "check", "--home", str(home)],
         capture_output=True,
         text=True,
         cwd=work_dir,

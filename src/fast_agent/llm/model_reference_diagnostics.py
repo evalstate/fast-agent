@@ -10,7 +10,7 @@ from fast_agent.core.agent_card_loader import load_agent_cards
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.model_resolution import parse_model_reference_token
 from fast_agent.llm.model_reference_config import ModelReferenceConfigService
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import resolve_home_paths
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -52,10 +52,10 @@ class _CollectedItem:
 def collect_model_reference_setup_diagnostics(
     *,
     cwd: Path,
-    env_dir: str | Path | None,
+    home: str | Path | None,
 ) -> ModelReferenceSetupDiagnostics:
     """Collect missing/invalid model references referenced by config, cards, and packs."""
-    service = ModelReferenceConfigService(start_path=cwd, env_dir=env_dir)
+    service = ModelReferenceConfigService(start_path=cwd, home=home)
     model_settings = service.load_effective_model_settings()
     valid_references = service.list_references_tolerant()
 
@@ -77,7 +77,7 @@ def collect_model_reference_setup_diagnostics(
 
     for token, priority, reference in _collect_card_pack_references(
         cwd=cwd,
-        env_dir=env_dir,
+        home=home,
     ):
         _collect_reference(
             collected,
@@ -89,7 +89,7 @@ def collect_model_reference_setup_diagnostics(
 
     for token, reference in _collect_agent_card_references(
         cwd=cwd,
-        env_dir=env_dir,
+        home=home,
     ):
         _collect_reference(
             collected,
@@ -181,10 +181,10 @@ def _collect_invalid_reference_entries(
 def _collect_card_pack_references(
     *,
     cwd: Path,
-    env_dir: str | Path | None,
+    home: str | Path | None,
 ) -> list[tuple[str, ModelReferenceSetupPriority, str]]:
-    env_paths = resolve_environment_paths(cwd=cwd, override=env_dir)
-    card_pack_root = env_paths.card_packs
+    home_paths = resolve_home_paths(cwd=cwd, override=home)
+    card_pack_root = home_paths.card_packs
     if not card_pack_root.exists() or not card_pack_root.is_dir():
         return []
 
@@ -212,12 +212,12 @@ def _collect_card_pack_references(
 def _collect_agent_card_references(
     *,
     cwd: Path,
-    env_dir: str | Path | None,
+    home: str | Path | None,
 ) -> list[tuple[str, str]]:
-    env_paths = resolve_environment_paths(cwd=cwd, override=env_dir)
+    home_paths = resolve_home_paths(cwd=cwd, override=home)
     candidate_dirs = {
         (cwd / "agent-cards").resolve(),
-        env_paths.agent_cards.resolve(),
+        home_paths.agent_cards.resolve(),
     }
 
     references: list[tuple[str, str]] = []

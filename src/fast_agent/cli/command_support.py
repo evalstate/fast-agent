@@ -56,8 +56,8 @@ def resolve_context_path_option(
 def get_settings_or_exit(
     config_path: str | Path | None = None,
     *,
-    env_dir: str | Path | None = None,
-    noenv: bool = False,
+    home: str | Path | None = None,
+    no_home: bool = False,
 ) -> "Settings":
     """Load settings or exit with a concise user-facing error."""
     import typer
@@ -72,7 +72,7 @@ def get_settings_or_exit(
             if config_path is not None
             else None
         )
-        return get_settings(resolved_config_path, env_dir=env_dir, noenv=noenv)
+        return get_settings(resolved_config_path, home=home, no_home=no_home)
     except FastAgentError as exc:
         typer.echo(f"Error loading fast-agent settings: {format_fast_agent_error(exc)}", err=True)
         raise typer.Exit(1) from exc

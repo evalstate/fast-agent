@@ -114,31 +114,31 @@ def normalize_explicit_card_sources(sources: list[str] | None) -> list[str] | No
     return unique_preserve_order(sources) or None
 
 
-def _default_card_directories(environment_dir: Path | None) -> tuple[Path, Path]:
-    from fast_agent.paths import resolve_environment_paths
+def _default_card_directories(home: Path | None) -> tuple[Path, Path]:
+    from fast_agent.paths import resolve_home_paths
 
-    if environment_dir is not None:
-        env_paths = resolve_environment_paths(override=environment_dir)
+    if home is not None:
+        home_paths = resolve_home_paths(override=home)
     else:
-        env_paths = resolve_environment_paths()
-    return env_paths.agent_cards, env_paths.tool_cards
+        home_paths = resolve_home_paths()
+    return home_paths.agent_cards, home_paths.tool_cards
 
 
-def validate_noenv_conflicts(
+def validate_no_home_conflicts(
     *,
-    noenv: bool,
-    environment_dir: Path | None,
+    no_home: bool,
+    home: Path | None,
     resume: str | None,
 ) -> None:
-    """Validate unsupported option combinations for --noenv mode."""
-    if not noenv:
+    """Validate unsupported option combinations for --no-home mode."""
+    if not no_home:
         return
 
-    if environment_dir is not None:
-        raise typer.BadParameter("Cannot combine --noenv with --env.")
+    if home is not None:
+        raise typer.BadParameter("Cannot combine --no-home with --home.")
 
     if resume is not None:
-        raise typer.BadParameter("Cannot combine --noenv with --resume.")
+        raise typer.BadParameter("Cannot combine --no-home with --resume.")
 
 
 def validate_shell_conflicts(*, shell_enabled: bool, no_shell: bool) -> None:
@@ -251,8 +251,8 @@ def validate_multi_model_card_conflicts(
         message += " Remove --agent-cards/--card-tool, or use a single --model value."
     else:
         message += (
-            " Implicit cards were found in your environment; re-run with --noenv "
-            "(or --env pointing to a directory without cards)."
+            " Implicit cards were found in your environment; re-run with --no-home "
+            "(or --home pointing to a directory without cards)."
         )
 
     raise typer.BadParameter(message, param_hint="--model")
@@ -434,7 +434,7 @@ def build_agent_run_request(
     agent_name: str | None,
     target_agent_name: str | None,
     skills_directory: Path | None,
-    environment_dir: Path | None,
+    home: Path | None,
     shell_enabled: bool,
     mode: Literal["interactive", "serve"],
     transport: str,
@@ -455,13 +455,14 @@ def build_agent_run_request(
     schema_model: str | None = None,
     structured_tool_policy: str | None = None,
     force_smart: bool = False,
-    noenv: bool = False,
+    no_home: bool = False,
     attachments: list[str] | None = None,
+    environment: str | None = None,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
-    validate_noenv_conflicts(
-        noenv=noenv,
-        environment_dir=environment_dir,
+    validate_no_home_conflicts(
+        no_home=no_home,
+        home=home,
         resume=resume,
     )
     validate_shell_conflicts(shell_enabled=shell_enabled, no_shell=no_shell)
@@ -492,11 +493,11 @@ def build_agent_run_request(
     stdio_servers = stdio_merge.stdio_servers
     server_list = stdio_merge.server_list
 
-    if noenv:
+    if no_home:
         merged_agent_cards = normalize_explicit_card_sources(agent_cards)
         merged_card_tools = normalize_explicit_card_sources(card_tools)
     else:
-        default_agent_cards_dir, default_tool_cards_dir = _default_card_directories(environment_dir)
+        default_agent_cards_dir, default_tool_cards_dir = _default_card_directories(home)
         merged_agent_cards = merge_card_sources(agent_cards, default_agent_cards_dir)
         merged_card_tools = merge_card_sources(card_tools, default_tool_cards_dir)
 
@@ -509,8 +510,9 @@ def build_agent_run_request(
     )
 
     effective_permissions_enabled = (
-        permissions_enabled if not (noenv and mode == "serve") else False
+        permissions_enabled if not (no_home and mode == "serve") else False
     )
+    effective_shell_enabled = shell_enabled or (environment is not None and not no_shell)
 
     return AgentRunRequest(
         name=name,
@@ -532,11 +534,12 @@ def build_agent_run_request(
         stdio_servers=stdio_servers,
         agent_name=agent_name,
         target_agent_name=target_agent_name,
+        environment=environment,
         skills_directory=skills_directory,
-        environment_dir=None if noenv else environment_dir,
-        noenv=noenv,
+        home=None if no_home else home,
+        no_home=no_home,
         force_smart=force_smart,
-        shell_runtime=shell_enabled,
+        shell_runtime=effective_shell_enabled,
         no_shell=no_shell,
         prefer_local_shell=prefer_local_shell,
         mode=mode,
@@ -591,7 +594,7 @@ def build_command_run_request(
     stdio: str | None,
     target_agent_name: str | None,
     skills_directory: Path | None,
-    environment_dir: Path | None,
+    home: Path | None,
     shell_enabled: bool,
     mode: Literal["interactive", "serve"],
     transport: str = "http",
@@ -609,16 +612,17 @@ def build_command_run_request(
     no_shell: bool = False,
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
     force_smart: bool = False,
-    noenv: bool = False,
+    no_home: bool = False,
     json_schema: str | None = None,
     schema_model: str | None = None,
     structured_tool_policy: str | None = None,
     attachments: list[str] | None = None,
+    environment: str | None = None,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
-    validate_noenv_conflicts(
-        noenv=noenv,
-        environment_dir=environment_dir,
+    validate_no_home_conflicts(
+        no_home=no_home,
+        home=home,
         resume=resume,
     )
     validate_shell_conflicts(shell_enabled=shell_enabled, no_shell=no_shell)
@@ -653,9 +657,10 @@ def build_command_run_request(
         stdio_commands=stdio_commands,
         agent_name=resolved_instruction.agent_name,
         target_agent_name=target_agent_name,
+        environment=environment,
         skills_directory=skills_directory,
-        environment_dir=environment_dir,
-        noenv=noenv,
+        home=home,
+        no_home=no_home,
         force_smart=force_smart,
         shell_enabled=shell_enabled,
         prefer_local_shell=prefer_local_shell,

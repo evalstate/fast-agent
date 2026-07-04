@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 from fast_agent.core.exceptions import (
     AgentConfigError,
     CircularDependencyError,
+    EnvironmentStartupError,
     ModelConfigError,
     PromptExitError,
     ProviderKeyError,
@@ -25,6 +26,7 @@ from fast_agent.core.server_runtime import (
     run_server_mode,
 )
 from fast_agent.mcp.prompts.prompt_load import load_prompt
+from fast_agent.tools.environment_registry import UnknownEnvironmentError, environment_name
 from fast_agent.ui.usage_display import display_usage_report
 from fast_agent.utils.transports import uses_protocol_stdio
 
@@ -40,6 +42,7 @@ if TYPE_CHECKING:
         RuntimeCallbacks,
     )
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.tools.environment_registry import EnvironmentSelection
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
@@ -264,7 +267,11 @@ class FastAgentRunMixin:
         display_usage_report(active_agents, show_if_progress_disabled=False, subdued_colors=True)
 
     @asynccontextmanager
-    async def run(self) -> AsyncIterator["AgentApp"]:
+    async def run(
+        self,
+        *,
+        environment: "EnvironmentSelection" = None,
+    ) -> AsyncIterator["AgentApp"]:
         """
         Context manager for running the application.
         Initializes all registered agents.
@@ -277,6 +284,29 @@ class FastAgentRunMixin:
         lifecycle_state = None
         try:
             lifecycle_state = await lifecycle.enter()
+            lifecycle_state.runtime.shell_environment = cast(
+                "FastAgent", self
+            ).environments.resolve(environment)
+            if lifecycle_state.runtime.global_prompt_context is not None:
+                from fast_agent.core.prompt_templates import refresh_execution_environment_context
+
+                refresh_execution_environment_context(
+                    lifecycle_state.runtime.global_prompt_context,
+                    lifecycle_state.runtime.shell_environment,
+                )
+            from fast_agent.core.environment_lifecycle import open_environment_with_progress
+
+            await open_environment_with_progress(
+                lifecycle_state.runtime.shell_environment,
+                logger=logger,
+            )
+            await cast("FastAgent", self)._apply_environment_skills(
+                lifecycle_state.runtime.shell_environment
+            )
+            if lifecycle_state.runtime.global_prompt_context is not None:
+                cast("FastAgent", self)._refresh_prompt_context_skills(
+                    lifecycle_state.runtime.global_prompt_context
+                )
             settings = lifecycle_state.settings
             run_state = await self._initialize_managed_run_state(lifecycle_state.runtime)
             active_agents = run_state.active_agents
@@ -303,8 +333,10 @@ class FastAgentRunMixin:
             ProviderKeyError,
             AgentConfigError,
             ServerInitializationError,
+            EnvironmentStartupError,
             ModelConfigError,
             CircularDependencyError,
+            UnknownEnvironmentError,
         ) as e:
             had_error = True
             self._handle_error(e)
@@ -313,16 +345,21 @@ class FastAgentRunMixin:
         finally:
             if lifecycle_state is not None:
                 exc_type, exc, traceback = sys.exc_info()
-                await lifecycle.exit(
-                    lifecycle_state,
-                    run_state,
-                    active_agents,
-                    had_error=had_error,
-                    shutdown_timeout=shutdown_timeout,
-                    exc_type=exc_type,
-                    exc=exc,
-                    traceback=traceback,
-                )
+                try:
+                    await lifecycle.exit(
+                        lifecycle_state,
+                        run_state,
+                        active_agents,
+                        had_error=had_error,
+                        shutdown_timeout=shutdown_timeout,
+                        exc_type=exc_type,
+                        exc=exc,
+                        traceback=traceback,
+                    )
+                finally:
+                    if environment_name(lifecycle_state.runtime.shell_environment) is not None:
+                        with suppress(Exception):
+                            await lifecycle_state.runtime.shell_environment.close()
 
     async def start_server(
         self,

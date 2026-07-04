@@ -192,7 +192,7 @@ def test_load_config_defaults_to_environment_config_path(tmp_path: Path, monkeyp
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     monkeypatch.chdir(workspace)
-    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
 
     expected = workspace / ".fast-agent" / "fast-agent.yaml"
 
@@ -208,7 +208,7 @@ def test_load_config_prefers_cwd_config_before_legacy(tmp_path: Path, monkeypatc
     workspace.mkdir()
     nested.mkdir()
     monkeypatch.chdir(nested)
-    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     (workspace / "fastagent.config.yaml").write_text(
         "logger:\n  show_tools: false\n",
         encoding="utf-8",
@@ -230,7 +230,7 @@ def test_load_config_ignores_parent_config(tmp_path: Path, monkeypatch) -> None:
     workspace.mkdir()
     nested.mkdir()
     monkeypatch.chdir(nested)
-    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     (workspace / "fastagent.config.yaml").write_text(
         "logger:\n  show_tools: false\n",
         encoding="utf-8",
@@ -250,7 +250,7 @@ def test_config_display_writes_selected_home_config_when_parent_config_exists(
     workspace.mkdir()
     nested.mkdir()
     monkeypatch.chdir(nested)
-    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     (workspace / "fastagent.config.yaml").write_text(
         "logger:\n  show_tools: false\n",
         encoding="utf-8",

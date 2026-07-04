@@ -23,15 +23,15 @@ if TYPE_CHECKING:
 @pytest.mark.asyncio
 async def test_tui_and_acp_share_session_pin_state_effect(tmp_path: Path) -> None:
     old_settings = get_settings()
-    env_dir = tmp_path / "env"
-    update_global_settings(old_settings.model_copy(update={"environment_dir": str(env_dir)}))
+    home = tmp_path / "env"
+    update_global_settings(old_settings.model_copy(update={"home": str(home)}))
     reset_session_manager()
 
     try:
         provider = CommandSurfaceProvider({"main": CommandSurfaceAgent(name="main")})
         owner = CommandSurfaceOwner(agent_types=provider.agent_types())
 
-        manager = SessionManager(environment_override=env_dir)
+        manager = SessionManager(home_override=home)
         set_session_manager(manager)
         provider._agent("main").context = SimpleNamespace(session_manager=manager)
         session = manager.create_session("sprint")

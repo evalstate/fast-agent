@@ -10,7 +10,7 @@ def test_cli_config_path_accepts_file_uri(tmp_path):
     config = tmp_path / "fast-agent.yaml"
     config.write_text("default_model: passthrough\n", encoding="utf-8")
 
-    settings = get_settings_or_exit(config.as_uri(), noenv=True)
+    settings = get_settings_or_exit(config.as_uri(), no_home=True)
 
     assert settings._config_file == str(config)
     assert settings.default_model == "passthrough"

@@ -93,7 +93,7 @@ def test_settings_merges_fast_agent_home_plugins(tmp_path: Path, monkeypatch) ->
     project.mkdir()
     config_path = project / "fast-agent.yaml"
     config_path.write_text(
-        f"environment_dir: '{project_env.as_posix()}'\nplugins:\n  enabled: ['project-helper']\n",
+        f"home: '{project_env.as_posix()}'\nplugins:\n  enabled: ['project-helper']\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("FAST_AGENT_HOME", home.as_posix())
@@ -139,9 +139,9 @@ def test_env_override_still_loads_fast_agent_home_plugins(
     monkeypatch,
 ) -> None:
     home = tmp_path / "home"
-    env_root = tmp_path / "env"
+    home_root = tmp_path / "env"
     home_plugin = home / "plugins" / "global-finder"
-    local_plugin = env_root / "plugins" / "local-helper"
+    local_plugin = home_root / "plugins" / "local-helper"
     home_plugin.mkdir(parents=True)
     local_plugin.mkdir(parents=True)
     for plugin_dir, command_name in (
@@ -170,7 +170,7 @@ def test_env_override_still_loads_fast_agent_home_plugins(
         "      page_size: 5\n",
         encoding="utf-8",
     )
-    (env_root / "fast-agent.yaml").write_text(
+    (home_root / "fast-agent.yaml").write_text(
         "plugins:\n"
         "  enabled: ['local-helper']\n"
         "  config:\n"
@@ -183,7 +183,7 @@ def test_env_override_still_loads_fast_agent_home_plugins(
     monkeypatch.setenv("FAST_AGENT_HOME", home.as_posix())
     monkeypatch.chdir(tmp_path)
 
-    settings = get_settings(env_dir=env_root)
+    settings = get_settings(home=home_root)
 
     assert settings.plugins.enabled == ["global-finder", "local-helper"]
     assert settings.plugins.config == {
@@ -203,10 +203,10 @@ def test_env_override_still_loads_fast_agent_home_plugins(
 def test_default_user_global_plugins_are_loaded(tmp_path: Path, monkeypatch) -> None:
     user_home = tmp_path / "user-home"
     global_home = user_home / ".fast-agent"
-    env_root = tmp_path / "env"
+    home_root = tmp_path / "env"
     plugin = global_home / "plugins" / "global-finder"
     plugin.mkdir(parents=True)
-    env_root.mkdir()
+    home_root.mkdir()
     (plugin / "plugin.yaml").write_text(
         "schema_version: 1\n"
         "name: global-finder\n"
@@ -224,12 +224,12 @@ def test_default_user_global_plugins_are_loaded(tmp_path: Path, monkeypatch) -> 
         "plugins:\n  enabled: ['global-finder']\n",
         encoding="utf-8",
     )
-    (env_root / "fast-agent.yaml").write_text("default_model: passthrough\n", encoding="utf-8")
+    (home_root / "fast-agent.yaml").write_text("default_model: passthrough\n", encoding="utf-8")
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     monkeypatch.setenv("HOME", user_home.as_posix())
     monkeypatch.chdir(tmp_path)
 
-    settings = get_settings(env_dir=env_root)
+    settings = get_settings(home=home_root)
 
     assert settings.commands is not None
     assert set(settings.commands) == {"global-finder"}
@@ -266,7 +266,7 @@ def test_missing_home_plugin_is_skipped_without_dropping_project_plugins(
     project.mkdir()
     config_path = project / "fast-agent.yaml"
     config_path.write_text(
-        f"environment_dir: '{project_env.as_posix()}'\nplugins:\n  enabled: ['project-helper']\n",
+        f"home: '{project_env.as_posix()}'\nplugins:\n  enabled: ['project-helper']\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("FAST_AGENT_HOME", home.as_posix())
@@ -315,7 +315,7 @@ def test_enabled_plugin_sources_returns_named_groups(tmp_path: Path, monkeypatch
     )
     config_path = project / "fast-agent.yaml"
     config_path.write_text(
-        f"environment_dir: '{project_env.as_posix()}'\nplugins:\n  enabled: ['project-helper']\n",
+        f"home: '{project_env.as_posix()}'\nplugins:\n  enabled: ['project-helper']\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("FAST_AGENT_HOME", home.as_posix())

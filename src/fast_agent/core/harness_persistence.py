@@ -40,7 +40,7 @@ class HarnessSessionPersistence(Protocol):
 class FileHarnessSessionPersistence:
     """File-backed Harness persistence using ``SessionManager``."""
 
-    environment_dir: str | Path | None
+    home: str | Path | None
 
     async def create_or_load(
         self,
@@ -52,7 +52,7 @@ class FileHarnessSessionPersistence:
         from fast_agent.session.session_manager import SessionManager
 
         manager = SessionManager(
-            environment_override=self.environment_dir,
+            home_override=self.home,
         )
         persisted_session = manager.create_session_with_id(
             session_id,
@@ -81,7 +81,7 @@ class FileHarnessSessionPersistence:
         from fast_agent.session.session_manager import SessionManager
 
         manager = SessionManager(
-            environment_override=self.environment_dir,
+            home_override=self.home,
         )
         manager.delete_session(session_id)
 

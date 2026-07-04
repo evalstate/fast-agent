@@ -91,7 +91,7 @@ The repository contains A2A examples under `examples/a2a/`:
 | `examples/a2a/server.py` | Low-level Harness adapter example that manually wires A2A SDK routes to `FastAgent.harness()`. |
 | `examples/a2a/research/server.py` | A2A-native research intake server with standalone refinement `Message` and started research `Task` paths. |
 
-The research example uses an example-local fast-agent environment at
+The research example uses an example-local fast-agent home at
 `examples/a2a/research/.fast-agent/`. Its refiner and worker are AgentCards in
 `.fast-agent/agent-cards/`, loaded automatically by `fast.harness()` at server
 startup.

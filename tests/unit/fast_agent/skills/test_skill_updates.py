@@ -585,7 +585,7 @@ def test_format_skill_provenance_details(tmp_path: Path) -> None:
 
 
 def test_order_skill_directories_for_display_puts_manager_dir_last(tmp_path: Path) -> None:
-    settings = get_settings().model_copy(update={"environment_dir": str(tmp_path / ".fast-agent")})
+    settings = get_settings().model_copy(update={"home": str(tmp_path / ".fast-agent")})
     manager_dir = get_manager_directory(settings, cwd=tmp_path)
     claude_dir = (tmp_path / ".claude" / "skills").resolve()
     agents_dir = (tmp_path / ".agents" / "skills").resolve()
@@ -605,7 +605,7 @@ def test_resolve_skills_management_scope_uses_override_for_management_only(tmp_p
     override_dir = (tmp_path / "managed-skills").resolve()
     settings = get_settings().model_copy(
         update={
-            "environment_dir": str(tmp_path / ".fast-agent"),
+            "home": str(tmp_path / ".fast-agent"),
             "skills": SkillsSettings(directories=[str(configured_dir)]),
         }
     )
@@ -622,7 +622,7 @@ def test_resolve_skills_management_scope_uses_override_for_management_only(tmp_p
 
 
 def test_get_manager_directory_accepts_explicit_management_override(tmp_path: Path) -> None:
-    settings = get_settings().model_copy(update={"environment_dir": str(tmp_path / ".fast-agent")})
+    settings = get_settings().model_copy(update={"home": str(tmp_path / ".fast-agent")})
     override_dir = tmp_path / "skills-manager"
 
     managed_dir = get_manager_directory(

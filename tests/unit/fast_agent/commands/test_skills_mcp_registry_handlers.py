@@ -171,8 +171,8 @@ async def test_selected_mcp_registry_survives_fresh_command_context() -> None:
 
 @pytest.mark.asyncio
 async def test_skills_update_reports_mcp_digest_update_available(tmp_path) -> None:
-    environment_dir = tmp_path / ".fast-agent"
-    skill_dir = environment_dir / "skills" / "hub-search"
+    home = tmp_path / ".fast-agent"
+    skill_dir = home / "skills" / "hub-search"
     skill_dir.mkdir(parents=True)
     skill_text = "---\nname: hub-search\ndescription: Search\n---\nv1\n"
     (skill_dir / "SKILL.md").write_text(skill_text, encoding="utf-8")
@@ -189,7 +189,7 @@ async def test_skills_update_reports_mcp_digest_update_available(tmp_path) -> No
         ),
     )
     settings = Settings(
-        environment_dir=str(environment_dir),
+        home=str(home),
         skills=SkillsSettings(),
     )
 

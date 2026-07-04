@@ -36,6 +36,28 @@ class SkillManifest:
     allowed_tools: list[str] | None = None
 
 
+def merge_skill_manifests(
+    manifests: "Sequence[SkillManifest]",
+) -> tuple[list[SkillManifest], list[str]]:
+    """Merge manifests keyed case-insensitively by name; later entries override.
+
+    Returns the merged manifests and a warning per overridden duplicate.
+    """
+    merged: dict[str, SkillManifest] = {}
+    warnings: list[str] = []
+    for manifest in manifests:
+        key = strip_casefold(manifest.name)
+        prior = merged.pop(key, None)
+        if prior is not None:
+            warning = (
+                f"Duplicate skill '{manifest.name}' from {manifest.path} overrides {prior.path}"
+            )
+            warnings.append(warning)
+            logger.warning("Duplicate skill manifest", data={"warning": warning})
+        merged[key] = manifest
+    return list(merged.values()), warnings
+
+
 class SkillRegistry:
     """Simple registry that resolves skills directories and parses manifests."""
 
@@ -72,21 +94,12 @@ class SkillRegistry:
         ]
         if not self._directories:
             return []
-        manifests_by_name: dict[str, SkillManifest] = {}
+        collected: list[SkillManifest] = []
         for directory in self._directories:
-            for manifest in self._load_directory(directory, self._errors):
-                key = strip_casefold(manifest.name)
-                if key in manifests_by_name:
-                    prior = manifests_by_name[key]
-                    warning = (
-                        f"Duplicate skill '{manifest.name}' from {manifest.path} overrides "
-                        f"{prior.path}"
-                    )
-                    self._warnings.append(warning)
-                    logger.warning("Duplicate skill manifest", data={"warning": warning})
-                manifests_by_name.pop(key, None)
-                manifests_by_name[key] = manifest
-        return list(manifests_by_name.values())
+            collected.extend(self._load_directory(directory, self._errors))
+        manifests, duplicate_warnings = merge_skill_manifests(collected)
+        self._warnings.extend(duplicate_warnings)
+        return manifests
 
     def load_manifests_with_errors(self) -> tuple[list[SkillManifest], list[dict[str, str]]]:
         manifests = self.load_manifests()

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from fast_agent.config import Settings
-    from fast_agent.tools.session_environment import ShellExecutionResult
+    from fast_agent.tools.execution_environment import ShellEnvironment, ShellExecutionResult
 
 # Import tool progress context for reporting shell execution progress
 from fast_agent.agents.tool_agent import _tool_progress_context
@@ -24,14 +24,17 @@ from fast_agent.constants import (
 )
 from fast_agent.core.logging.progress_payloads import build_progress_payload
 from fast_agent.event_progress import ProgressAction
+from fast_agent.tools.execution_environment import (
+    ShellExecution,
+    ShellExecutionRequest,
+    ShellRuntimeInfo,
+    execute_shell,
+)
 from fast_agent.tools.filesystem_tool_args import (
     coerce_required_string_argument,
     coerce_tool_arguments,
 )
-from fast_agent.tools.local_shell_executor import (
-    LocalShellExecution,
-    LocalShellExecutor,
-)
+from fast_agent.tools.local_shell_executor import LocalShellExecutor
 from fast_agent.tools.tool_sources import SHELL_TOOL_SOURCE, set_tool_source
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -123,7 +126,7 @@ class _ShellRuntimeCallbacks:
 
 @dataclass(slots=True)
 class _ShellRuntimeExecution:
-    execution: LocalShellExecution
+    execution: ShellExecution
     output_state: _ShellOutputState
     display_state: _ShellDisplayState
 
@@ -135,7 +138,7 @@ def _coerce_output_byte_limit(output_byte_limit: int | None) -> int:
 
 
 class ShellRuntime:
-    """Helper for managing the optional local shell execute tool."""
+    """Helper for managing the optional shell execute tool."""
 
     def __init__(
         self,
@@ -147,9 +150,10 @@ class ShellRuntime:
         output_byte_limit: int | None = None,
         config: Settings | None = None,
         agent_name: str | None = None,
-        shell_executor: LocalShellExecutor | None = None,
+        shell_environment: ShellEnvironment | None = None,
     ) -> None:
-        self._executor = shell_executor or LocalShellExecutor(
+        self._working_directory = str(working_directory) if working_directory is not None else None
+        self._environment = shell_environment or LocalShellExecutor(
             logger=logger,
             timeout_seconds=timeout_seconds,
             warning_interval_seconds=warning_interval_seconds,
@@ -179,7 +183,7 @@ class ShellRuntime:
         if self.enabled:
             # Detect the shell early so we can include it in the tool description
             runtime_info = self.runtime_info()
-            shell_name = runtime_info.get("name", "shell")
+            shell_name = runtime_info.name
 
             self._tool = set_tool_source(
                 Tool(
@@ -228,7 +232,7 @@ class ShellRuntime:
         if not self.enabled or not self._activation_reason:
             return
 
-        message = f"Local shell execute tool enabled {self._activation_reason}."
+        message = f"Shell execute tool enabled {self._activation_reason}."
         self._logger.info(message)
 
     def _render_display_line(self, text: str, style: str | None) -> Text:
@@ -242,18 +246,35 @@ class ShellRuntime:
 
     def working_directory(self) -> Path:
         """Return the working directory used for shell execution."""
-        return self._executor.working_directory()
+        from pathlib import Path
+
+        return Path(self._working_directory or self._environment.cwd)
 
     def set_working_directory(self, working_directory: Path | None) -> None:
         """Set the working directory used for shell execution."""
-        self._executor.set_working_directory(working_directory)
+        self._working_directory = str(working_directory) if working_directory is not None else None
 
-    def runtime_info(self) -> dict[str, str | None]:
-        """Best-effort detection of the shell runtime used for local execution.
+    def runtime_info(self) -> ShellRuntimeInfo:
+        """Best-effort detection of the shell runtime used for execution.
 
         Prefers modern shells like pwsh (PowerShell 7+) and bash.
         """
-        return self._executor.runtime_info()
+        info = self._environment.runtime_info()
+        if info.environment_name is not None:
+            return info
+
+        from fast_agent.tools.environment_registry import environment_name
+
+        name = environment_name(self._environment)
+        if name is None:
+            return info
+        return ShellRuntimeInfo(
+            name=info.name,
+            path=info.path,
+            kind=info.kind,
+            provider=info.provider,
+            environment_name=name,
+        )
 
     def metadata(self, command: str | None) -> dict[str, Any]:
         """Build metadata for display when the shell tool is invoked."""
@@ -263,8 +284,10 @@ class ShellRuntime:
         return {
             "variant": "shell",
             "command": command,
-            "shell_name": info.get("name"),
-            "shell_path": info.get("path"),
+            "shell_name": info.name,
+            "shell_path": info.path,
+            "shell_kind": info.kind,
+            "shell_provider": info.provider,
             "working_dir": str(working_dir),
             "working_dir_display": format_relative_path(working_dir),
             "timeout_seconds": self._timeout_seconds,
@@ -506,7 +529,7 @@ class ShellRuntime:
     def _build_shell_result(
         self,
         *,
-        execution: LocalShellExecution,
+        execution: ShellExecution,
         output_state: _ShellOutputState,
     ) -> tuple[CallToolResult, str]:
         shell_result = execution.result
@@ -606,11 +629,13 @@ class ShellRuntime:
         display_state = self._build_display_state(
             defer_display_to_tool_result=defer_display_to_tool_result
         )
-        execution = await self._executor.execute(
-            command,
-            cwd=cwd,
-            env=env,
-            timeout=timeout,
+        execution = await self._environment.execute(
+            ShellExecutionRequest(
+                command=command,
+                cwd=str(cwd) if cwd is not None else self._working_directory,
+                env=env,
+                timeout=self._timeout_seconds if timeout is None else timeout,
+            ),
             callbacks=_ShellRuntimeCallbacks(
                 runtime=self,
                 output_state=output_state,
@@ -631,11 +656,12 @@ class ShellRuntime:
         env: Mapping[str, str] | None = None,
         timeout: float | None = None,
     ) -> ShellExecutionResult:
-        execution = await self._executor.execute_shell(
+        execution = await execute_shell(
+            self._environment,
             command,
-            cwd=cwd,
+            cwd=cwd if cwd is not None else self._working_directory,
             env=env,
-            timeout=timeout,
+            timeout=self._timeout_seconds if timeout is None else timeout,
         )
         return execution
 
@@ -739,7 +765,7 @@ class ShellRuntime:
         )
 
         try:
-            info("Local shell tool lifecycle", data=payload)
+            info("Shell tool lifecycle", data=payload)
         except TypeError:
             # Standard library loggers reject custom keyword arguments.
             return

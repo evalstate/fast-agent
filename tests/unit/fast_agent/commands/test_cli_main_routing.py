@@ -13,10 +13,10 @@ from fast_agent.cli.__main__ import _first_positional_argument
 @pytest.mark.parametrize(
     ("arguments", "expected"),
     [
-        (["--env", "demo", "demo", "--help"], "demo"),
-        (["--env", "demo", "--message", "hi"], None),
+        (["--home", "demo", "demo", "--help"], "demo"),
+        (["--home", "demo", "--message", "hi"], None),
         (["-m", "serve", "--help"], None),
-        (["--env=demo", "cards", "--help"], "cards"),
+        (["--home=demo", "cards", "--help"], "cards"),
         (["--", "demo"], "demo"),
     ],
 )
@@ -36,12 +36,17 @@ def _run_fast_agent_cli(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _assert_routed_help(output: str, command: str) -> None:
+    assert f"Usage: python -m fast_agent.cli {command} [OPTIONS]" in output
+    assert "COMMAND" in output
+
+
 def test_auto_routes_to_go_when_env_value_matches_subcommand() -> None:
-    result = _run_fast_agent_cli("--env", "demo", "--message", "hi", "--help")
+    result = _run_fast_agent_cli("--home", "demo", "--message", "hi", "--help")
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "go [OPTIONS] COMMAND" in output
+    _assert_routed_help(output, "go")
     assert "--message" in output
 
 
@@ -50,7 +55,7 @@ def test_auto_routes_to_go_when_message_matches_subcommand() -> None:
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "go [OPTIONS] COMMAND" in output
+    _assert_routed_help(output, "go")
 
 
 def test_auto_routes_to_go_with_trailing_quiet_option() -> None:
@@ -58,7 +63,7 @@ def test_auto_routes_to_go_with_trailing_quiet_option() -> None:
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "go [OPTIONS] COMMAND" in output
+    _assert_routed_help(output, "go")
     assert "--quiet" in output
 
 
@@ -67,7 +72,7 @@ def test_auto_routes_to_go_with_json_schema_option() -> None:
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "go [OPTIONS] COMMAND" in output
+    _assert_routed_help(output, "go")
     assert "--json-schema" in output
 
 
@@ -76,9 +81,19 @@ def test_auto_routes_to_go_when_pack_flag_used_at_root() -> None:
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "go [OPTIONS] COMMAND" in output
+    _assert_routed_help(output, "go")
     assert "--pack" in output
     assert "--pack-registry" in output
+
+
+@pytest.mark.parametrize("option", ["--environment", "-E"])
+def test_auto_routes_to_go_when_environment_flag_used_at_root(option: str) -> None:
+    result = _run_fast_agent_cli(option, "hf-gpu", "--help")
+    output = strip_ansi(result.stdout)
+
+    assert result.returncode == 0, result.stderr
+    _assert_routed_help(output, "go")
+    assert "--environment" in output
 
 
 def test_auto_routes_to_go_when_no_shell_used_at_root() -> None:
@@ -86,7 +101,7 @@ def test_auto_routes_to_go_when_no_shell_used_at_root() -> None:
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "go [OPTIONS] COMMAND" in output
+    _assert_routed_help(output, "go")
     assert "--no-shell" in output
 
 
@@ -162,20 +177,20 @@ def test_root_serve_transport_routes_to_serve_command(
     def capture_app() -> None:
         captured.extend(sys.argv)
 
-    monkeypatch.setattr(sys, "argv", ["fast-agent", "--env", "demo", "--serve=stdio"])
+    monkeypatch.setattr(sys, "argv", ["fast-agent", "--home", "demo", "--serve=stdio"])
     monkeypatch.setattr(cli_main, "app", capture_app)
 
     cli_main.main()
 
-    assert captured == ["fast-agent", "--env", "demo", "serve", "--transport", "stdio"]
+    assert captured == ["fast-agent", "--home", "demo", "serve", "--transport", "stdio"]
 
 
 def test_demo_subcommand_still_detected_after_env_option_value() -> None:
-    result = _run_fast_agent_cli("--env", "demo", "demo", "--help")
+    result = _run_fast_agent_cli("--home", "demo", "demo", "--help")
     output = strip_ansi(result.stdout)
 
     assert result.returncode == 0, result.stderr
-    assert "demo [OPTIONS] COMMAND" in output
+    _assert_routed_help(output, "demo")
     assert "Demo commands for UI features." in output
 
 

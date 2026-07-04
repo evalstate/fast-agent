@@ -13,10 +13,10 @@ def test_go_specific_options_include_results() -> None:
     assert "--results" in GO_SPECIFIC_OPTIONS
 
 
-def test_go_specific_options_include_agent_and_noenv() -> None:
+def test_go_specific_options_include_agent_and_no_home() -> None:
     assert "--agent" in GO_SPECIFIC_OPTIONS
-    assert "--noenv" in GO_SPECIFIC_OPTIONS
-    assert "--no-env" in GO_SPECIFIC_OPTIONS
+    assert "--no-home" in GO_SPECIFIC_OPTIONS
+    assert "--no-home" in GO_SPECIFIC_OPTIONS
     assert "--no-shell" in GO_SPECIFIC_OPTIONS
 
 
@@ -28,3 +28,8 @@ def test_go_specific_options_include_pack_flags() -> None:
     assert "--pack" in GO_SPECIFIC_OPTIONS
     assert "--card-pack" in GO_SPECIFIC_OPTIONS
     assert "--pack-registry" in GO_SPECIFIC_OPTIONS
+
+
+def test_go_specific_options_include_environment_flags() -> None:
+    assert "--environment" in GO_SPECIFIC_OPTIONS
+    assert "-E" in GO_SPECIFIC_OPTIONS

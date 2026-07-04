@@ -30,6 +30,7 @@ from rich.text import Text
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.session.session_manager import SessionManager
+    from fast_agent.tools.execution_environment import ShellRuntimeInfo
     from fast_agent.ui.console_display import ConsoleDisplay
 
 from fast_agent.agents.agent_types import AgentType
@@ -47,7 +48,7 @@ from fast_agent.commands.protocols import HistoryEditableAgent
 from fast_agent.config import get_settings
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.interfaces import AgentProtocol, TurnCancellationStateCapable
-from fast_agent.tools.session_environment import ShellExecutionResult
+from fast_agent.tools.execution_environment import ShellExecutionResult
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt
@@ -114,6 +115,8 @@ class PendingCommandExecution:
     hash_send_message: str | None = None
     hash_send_quiet: bool = False
     shell_execute_cmd: str | None = None
+    shell_execute_local: bool = False
+    shell_execute_interactive: bool = False
 
     def has_pending_execution(self) -> bool:
         return (
@@ -121,6 +124,19 @@ class PendingCommandExecution:
             and self.hash_send_message is not None
             or self.shell_execute_cmd is not None
         )
+
+
+@runtime_checkable
+class _ShellRuntimeProvider(Protocol):
+    @property
+    def shell_runtime(self) -> object | None: ...
+
+
+@runtime_checkable
+class _PromptShellRuntime(Protocol):
+    def runtime_info(self) -> "ShellRuntimeInfo": ...
+
+    async def execute_shell(self, command: str) -> ShellExecutionResult: ...
 
 
 @dataclass(slots=True)
@@ -674,6 +690,8 @@ class InteractivePrompt:
             hash_send_message=dispatch_result.hash_send_message,
             hash_send_quiet=dispatch_result.hash_send_quiet,
             shell_execute_cmd=dispatch_result.shell_execute_cmd,
+            shell_execute_local=dispatch_result.shell_execute_local,
+            shell_execute_interactive=dispatch_result.shell_execute_interactive,
         )
         next_buffer_prefill = (
             dispatch_result.buffer_prefill
@@ -741,7 +759,7 @@ class InteractivePrompt:
         ctrl_c_exit_window_seconds: float,
         session_manager: "SessionManager | None",
     ) -> PromptInputPhase:
-        noenv_mode = prompt_provider.noenv_mode
+        no_home_mode = prompt_provider.no_home_mode
         try:
             user_input = await get_enhanced_input(
                 agent_name=agent_state.current_agent,
@@ -752,7 +770,7 @@ class InteractivePrompt:
                 available_agent_names=agent_state.available_agents,
                 agent_types=self.agent_types,
                 agent_provider=prompt_provider,
-                noenv_mode=noenv_mode,
+                no_home_mode=no_home_mode,
                 pre_populate_buffer=buffer_prefill,
                 session_manager=session_manager,
             )
@@ -941,6 +959,7 @@ class InteractivePrompt:
         send_func: SendFunc,
         quiet_send_func: SendFunc | None,
         prompt_provider: "AgentApp",
+        agent_name: str,
         display: "ConsoleDisplay",
         current_result: PromptLoopResult,
         runtime_state: PromptLoopRuntimeState,
@@ -975,23 +994,105 @@ class InteractivePrompt:
             )
 
         if pending.shell_execute_cmd:
-            print(f"$ {pending.shell_execute_cmd}", flush=True)
-            emit_prompt_mark("C")
-            result = run_interactive_shell_command(
-                pending.shell_execute_cmd,
-                echo_command=False,
+            result = await self._execute_pending_shell_command(
+                pending=pending,
+                prompt_provider=prompt_provider,
+                agent_name=agent_name,
+                display=display,
             )
-            emit_prompt_mark(f"D;{result.exit_code}")
-
-            if result.stdout.strip():
-                set_last_copyable_output(result.stdout.rstrip())
-
-            if result.exit_code != 0:
-                display.show_shell_exit_code(result.exit_code)
-
             return PendingExecutionResult(result=result, handled=True)
 
         return PendingExecutionResult(result=current_result)
+
+    async def _execute_pending_shell_command(
+        self,
+        *,
+        pending: PendingCommandExecution,
+        prompt_provider: "AgentApp",
+        agent_name: str,
+        display: "ConsoleDisplay",
+    ) -> ShellExecutionResult:
+        command = pending.shell_execute_cmd
+        if command is None:
+            raise RuntimeError("No shell command is pending.")
+
+        if pending.shell_execute_local:
+            return self._execute_local_interactive_shell_command(command, display=display)
+
+        shell_runtime = self._active_prompt_shell_runtime(prompt_provider, agent_name)
+        if shell_runtime is None:
+            rich_print("[yellow]Shell is not available for the active agent.[/yellow]")
+            return ShellExecutionResult(stdout="", stderr="", exit_code=1)
+
+        if pending.shell_execute_interactive:
+            runtime_info = shell_runtime.runtime_info()
+            if runtime_info.kind == "local":
+                return self._execute_local_interactive_shell_command(command, display=display)
+            environment_label = (
+                runtime_info.environment_name or runtime_info.provider or runtime_info.kind
+            )
+            rich_print(
+                "[yellow]"
+                f"Interactive shell is not available for {environment_label}, "
+                "use `!!` to start a local shell"
+                "[/yellow]"
+            )
+            return ShellExecutionResult(stdout="", stderr="", exit_code=1)
+
+        print(f"$ {command}", flush=True)
+        emit_prompt_mark("C")
+        result = await shell_runtime.execute_shell(command)
+        emit_prompt_mark(f"D;{result.exit_code}")
+        self._print_shell_execution_result(result)
+        self._record_shell_execution_result(result, display=display)
+        return result
+
+    def _execute_local_interactive_shell_command(
+        self,
+        command: str,
+        *,
+        display: "ConsoleDisplay",
+    ) -> ShellExecutionResult:
+        print(f"$ {command}", flush=True)
+        emit_prompt_mark("C")
+        result = run_interactive_shell_command(command, echo_command=False)
+        emit_prompt_mark(f"D;{result.exit_code}")
+        self._record_shell_execution_result(result, display=display)
+        return result
+
+    def _active_prompt_shell_runtime(
+        self,
+        prompt_provider: "AgentApp",
+        agent_name: str,
+    ) -> _PromptShellRuntime | None:
+        agent = prompt_provider._agent(agent_name)
+        if not isinstance(agent, _ShellRuntimeProvider):
+            return None
+        shell_runtime = agent.shell_runtime
+        if not isinstance(shell_runtime, _PromptShellRuntime):
+            return None
+        return shell_runtime
+
+    @staticmethod
+    def _print_shell_execution_result(result: ShellExecutionResult) -> None:
+        if result.stdout:
+            sys.stdout.write(result.stdout)
+            sys.stdout.flush()
+        if result.stderr:
+            sys.stderr.write(result.stderr)
+            sys.stderr.flush()
+
+    @staticmethod
+    def _record_shell_execution_result(
+        result: ShellExecutionResult,
+        *,
+        display: "ConsoleDisplay",
+    ) -> None:
+        copyable_output = result.stdout.rstrip() or result.stderr.rstrip()
+        if copyable_output:
+            set_last_copyable_output(copyable_output)
+        if result.exit_code != 0:
+            display.show_shell_exit_code(result.exit_code)
 
     async def _resolve_prompt_payload(
         self,
@@ -1236,6 +1337,7 @@ class InteractivePrompt:
                 send_func=send_func,
                 quiet_send_func=quiet_send_func,
                 prompt_provider=prompt_provider,
+                agent_name=agent_state.current_agent,
                 display=display,
                 current_result=result,
                 runtime_state=runtime_state,

@@ -17,7 +17,7 @@ def test_resolve_skills_management_scope_keeps_override_visible(tmp_path: Path) 
     override_dir = (tmp_path / "override").resolve()
     settings = get_settings().model_copy(
         update={
-            "environment_dir": str(tmp_path / ".fast-agent"),
+            "home": str(tmp_path / ".fast-agent"),
             "skills": SkillsSettings(directories=[str(configured_dir)]),
         }
     )
@@ -34,7 +34,7 @@ def test_resolve_skills_management_scope_keeps_override_visible(tmp_path: Path) 
 
 
 def test_order_skill_directories_for_display_puts_managed_directory_last(tmp_path: Path) -> None:
-    settings = get_settings().model_copy(update={"environment_dir": str(tmp_path / ".fast-agent")})
+    settings = get_settings().model_copy(update={"home": str(tmp_path / ".fast-agent")})
     managed_dir = (tmp_path / ".fast-agent" / "skills").resolve()
     agents_dir = (tmp_path / ".agents" / "skills").resolve()
     claude_dir = (tmp_path / ".claude" / "skills").resolve()

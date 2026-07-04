@@ -137,7 +137,7 @@ def _generic_progress_details(
 
     if action == ProgressAction.TOOL_PROGRESS:
         return _append_details(tool_context, str(raw_details or ""))
-    return tool_context
+    return _append_details(tool_context, str(raw_details or ""))
 
 
 def _target_and_details(
@@ -177,8 +177,6 @@ def _target_and_details(
             tool_context=tool_context,
             raw_details=raw_details,
         )
-        if tool_context
-        else "",
     )
 
 

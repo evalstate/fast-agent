@@ -327,7 +327,7 @@ def _session_persistence_enabled(agent: CompactableAgent) -> bool:
     config = context.config if context else None
     if config is None:
         return True
-    return not config._fast_agent_noenv and config.session_history
+    return not config._fast_agent_no_home and config.session_history
 
 
 def _archive_history(
@@ -513,7 +513,7 @@ async def compact_conversation(
     )
 
 
-async def persist_compacted_session(agent: CompactableAgent, *, noenv: bool = False) -> None:
+async def persist_compacted_session(agent: CompactableAgent, *, no_home: bool = False) -> None:
     """Persist the agent's (now compacted) history into the active session."""
 
     class _StubRunner:
@@ -521,7 +521,7 @@ async def persist_compacted_session(agent: CompactableAgent, *, noenv: bool = Fa
         request_params = None
 
     try:
-        if noenv or not _session_persistence_enabled(agent):
+        if no_home or not _session_persistence_enabled(agent):
             return
 
         from fast_agent.hooks.hook_context import HookAgentProtocol, HookContext

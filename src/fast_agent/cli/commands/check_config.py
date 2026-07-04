@@ -21,9 +21,9 @@ from fast_agent.cli.codex_oauth_display import (
     codex_oauth_source_display,
     codex_oauth_source_label,
 )
-from fast_agent.cli.env_helpers import resolve_environment_dir_option
+from fast_agent.cli.home_helpers import resolve_home_option
 from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
+from fast_agent.constants import DEFAULT_HOME_DIR
 from fast_agent.core.agent_card_validation import AgentCardScanResult, scan_agent_card_directory
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.keyring_utils import KeyringStatus, get_keyring_status
@@ -35,7 +35,7 @@ from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.openai.openresponses import DEFAULT_OPENRESPONSES_BASE_URL
 from fast_agent.llm.provider_key_manager import API_KEY_HINT_TEXT, ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
-from fast_agent.paths import EnvironmentPaths, default_skill_paths, resolve_environment_paths
+from fast_agent.paths import HomePaths, default_skill_paths, resolve_home_paths
 from fast_agent.skills import SkillManifest, SkillRegistry
 from fast_agent.ui.a3_headers import build_a3_section_header
 from fast_agent.ui.console import console
@@ -205,7 +205,7 @@ def _resolve_active_model_providers(
     api_keys: dict[str, dict[str, str]],
     config_payload: dict[str, Any] | None,
     start_path: Path,
-    env_dir: Path | None,
+    home: Path | None,
 ) -> set[Provider]:
     active_providers: set[Provider] = set()
 
@@ -222,16 +222,16 @@ def _resolve_active_model_providers(
         ModelSelectionCatalog.configured_providers(
             config_mapping,
             start_path=start_path,
-            env_dir=env_dir,
+            home=home,
         )
     )
     return active_providers
 
 
-def find_config_files(start_path: Path, env_dir: Path | None = None) -> dict[str, Path | None]:
+def find_config_files(start_path: Path, home: Path | None = None) -> dict[str, Path | None]:
     """Find FastAgent configuration files using home then cwd discovery."""
-    home = resolve_fast_agent_home(cwd=start_path, cli_override=env_dir)
-    discovery = discover_config_files(cwd=start_path, home=home)
+    resolved_home = resolve_fast_agent_home(cwd=start_path, cli_override=home)
+    discovery = discover_config_files(cwd=start_path, home=resolved_home)
     return {
         "config": discovery.config_path,
         "secrets": discovery.secrets_path,
@@ -732,26 +732,26 @@ def get_config_summary(config_path: Path | None) -> dict:
     return result
 
 
-def _load_catalog_config(env_dir: Path | None) -> dict[str, Any] | None:
+def _load_catalog_config(home: Path | None) -> dict[str, Any] | None:
     from fast_agent.config import load_implicit_settings
 
-    config_payload, _ = load_implicit_settings(start_path=Path.cwd(), env_dir=env_dir)
+    config_payload, _ = load_implicit_settings(start_path=Path.cwd(), home=home)
     return config_payload or None
 
 
-def show_models_overview(env_dir: Path | None = None) -> None:
+def show_models_overview(home: Path | None = None) -> None:
     """Show providers accepted by `fast-agent check models <provider>` and alias status."""
     cwd = Path.cwd()
-    config_files = find_config_files(cwd, env_dir=env_dir)
+    config_files = find_config_files(cwd, home=home)
     config_summary = get_config_summary(config_files["config"])
     secrets_summary = get_secrets_summary(config_files["secrets"])
     api_keys = check_api_keys(secrets_summary, config_summary)
-    config_payload = _load_catalog_config(env_dir)
+    config_payload = _load_catalog_config(home)
     active_providers = _resolve_active_model_providers(
         api_keys=api_keys,
         config_payload=config_payload,
         start_path=cwd,
-        env_dir=env_dir,
+        home=home,
     )
 
     _print_section_header("Model Catalog", color="blue")
@@ -917,12 +917,12 @@ def show_provider_model_catalog(
     provider_name: str,
     *,
     show_all: bool = False,
-    env_dir: Path | None = None,
+    home: Path | None = None,
 ) -> None:
     """Show provider model catalog with curated entries first."""
     scope = _resolve_provider_catalog_scope(provider_name)
-    config_payload = _load_catalog_config(env_dir)
-    overlay_registry = load_model_overlay_registry(start_path=Path.cwd(), env_dir=env_dir)
+    config_payload = _load_catalog_config(home)
+    overlay_registry = load_model_overlay_registry(start_path=Path.cwd(), home=home)
     all_models_by_provider = _load_all_models_by_provider(
         scope,
         config_payload=config_payload,
@@ -1118,7 +1118,7 @@ def _render_model_secret_requirements_table(
 def show_model_secret_requirements(
     models: str,
     *,
-    env_dir: Path | None = None,
+    home: Path | None = None,
     json_output: bool = False,
 ) -> None:
     """Show provider + secret-env requirements for one or more model specs."""
@@ -1127,11 +1127,11 @@ def show_model_secret_requirements(
     if not specs:
         raise ValueError("No model values provided. Pass one or more model specs.")
 
-    config_files = find_config_files(Path.cwd(), env_dir=env_dir)
+    config_files = find_config_files(Path.cwd(), home=home)
     config_summary = get_config_summary(config_files["config"])
     secrets_summary = get_secrets_summary(config_files["secrets"])
     api_keys = check_api_keys(secrets_summary, config_summary)
-    config_payload = _load_catalog_config(env_dir)
+    config_payload = _load_catalog_config(home)
     aliases = _build_model_references(config_payload)
     resolved_entries, unique_secret_envs = _resolve_model_secret_entries(
         specs,
@@ -1154,34 +1154,34 @@ def show_model_secret_requirements(
     )
 
 
-def _effective_environment_override(
+def _effective_home_override(
     *,
-    env_dir: Path | None,
+    home: Path | None,
     config_summary: dict[str, Any],
 ) -> str | Path:
-    if env_dir is not None:
-        return env_dir
+    if home is not None:
+        return home
 
-    env_override = os.getenv("ENVIRONMENT_DIR")
-    normalized_env_override = strip_str_to_none(env_override)
-    if normalized_env_override is not None:
-        return normalized_env_override
+    home_override = os.getenv("FAST_AGENT_HOME")
+    normalized_home_override = strip_str_to_none(home_override)
+    if normalized_home_override is not None:
+        return normalized_home_override
 
     config_payload = config_summary.get("config")
     if isinstance(config_payload, dict):
-        configured_env_dir = config_payload.get("environment_dir")
-        normalized_configured_env_dir = strip_str_to_none(configured_env_dir)
-        if normalized_configured_env_dir is not None:
-            return normalized_configured_env_dir
+        configured_home = config_payload.get("home")
+        normalized_configured_home = strip_str_to_none(configured_home)
+        if normalized_configured_home is not None:
+            return normalized_configured_home
 
-    return DEFAULT_ENVIRONMENT_DIR
+    return DEFAULT_HOME_DIR
 
 
 def _validate_effective_settings(
     *,
     cwd: Path,
     config_files: dict[str, Path | None],
-    env_override: str | Path,
+    home_override: str | Path,
 ) -> str | None:
     from fast_agent.config import (
         Settings,
@@ -1191,7 +1191,7 @@ def _validate_effective_settings(
     )
 
     try:
-        merged_settings, discovery = load_implicit_settings(start_path=cwd, env_dir=env_override)
+        merged_settings, discovery = load_implicit_settings(start_path=cwd, home=home_override)
 
         secrets_path = discovery.secrets_path or config_files.get("secrets")
         if isinstance(secrets_path, Path):
@@ -1214,16 +1214,17 @@ class _CheckSummaryContext:
     secrets_summary: dict[str, Any]
     api_keys: dict[str, dict[str, str]]
     fastagent_version: str
-    environment_override: str | Path
+    home_override: str | Path
     effective_settings_error: str | None
     keyring: Any | None
     keyring_status: KeyringStatus
     skills_dirs: list[Path]
     skills_manifests: list[SkillManifest]
     skill_errors: list[dict[str, str]]
-    env_paths: EnvironmentPaths
+    home_paths: HomePaths
     server_names: set[str] | None
     overlay_preset_collision_messages: tuple[str, ...]
+    environment_rows: tuple[tuple[str, str, str, str], ...]
 
 
 def _relative_summary_path(search_root: Path, path: Path) -> str:
@@ -1248,24 +1249,73 @@ def _load_optional_keyring_module() -> Any | None:
         return None
 
 
-def _build_check_summary_context(env_dir: Path | None) -> _CheckSummaryContext:
+def _collect_environment_rows(
+    *,
+    cwd: Path,
+    config_files: dict[str, Path | None],
+    home_override: str | Path,
+) -> tuple[tuple[str, str, str, str], ...]:
+    from fast_agent.config import (
+        Settings,
+        deep_merge,
+        load_implicit_settings,
+        load_yaml_mapping,
+    )
+    from fast_agent.tools.environment_config import LocalEnvironmentSpec
+    from fast_agent.tools.environment_factory import build_environment
+
+    try:
+        merged_settings, discovery = load_implicit_settings(start_path=cwd, home=home_override)
+        secrets_path = discovery.secrets_path or config_files.get("secrets")
+        if isinstance(secrets_path, Path):
+            merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_path))
+        settings = Settings(**merged_settings)
+    except Exception as exc:
+        return (("config", "-", "", f"[orange_red1]{exc}[/orange_red1]"),)
+
+    environment_specs = dict(settings.environments)
+    environment_specs.setdefault("local", LocalEnvironmentSpec())
+    valid_names = ", ".join(sorted(environment_specs))
+    rows: list[tuple[str, str, str, str]] = []
+    for name, spec in sorted(environment_specs.items(), key=lambda item: item[0]):
+        default_marker = "[green]yes[/green]" if name == settings.default_environment else ""
+        try:
+            environment = build_environment(
+                spec,
+                settings=settings,
+                workspace_root=cwd,
+                name=name,
+            )
+            runtime_info = environment.runtime_info()
+            detail = runtime_info.provider or runtime_info.kind
+            status = f"[green]valid[/green] ({detail})"
+        except Exception as exc:
+            status = (
+                f"[orange_red1]{exc}[/orange_red1] "
+                f"[dim]Valid names: {valid_names}[/dim]"
+            )
+        rows.append((name, spec.type, default_marker, status))
+    return tuple(rows)
+
+
+def _build_check_summary_context(home: Path | None) -> _CheckSummaryContext:
     cwd = Path.cwd()
-    home = resolve_fast_agent_home(cwd=cwd, cli_override=env_dir)
-    search_root = home.path if home is not None else cwd
-    config_files = find_config_files(cwd, env_dir=env_dir)
+    resolved_home = resolve_fast_agent_home(cwd=cwd, cli_override=home)
+    search_root = resolved_home.path if resolved_home is not None else cwd
+    config_files = find_config_files(cwd, home=home)
     system_info = get_system_info()
     config_summary = get_config_summary(config_files["config"])
     secrets_summary = get_secrets_summary(config_files["secrets"])
     api_keys = check_api_keys(secrets_summary, config_summary)
     fastagent_version = get_fastagent_version()
-    environment_override = _effective_environment_override(
-        env_dir=env_dir,
+    home_override = _effective_home_override(
+        home=home,
         config_summary=config_summary,
     )
     effective_settings_error = _validate_effective_settings(
         cwd=cwd,
         config_files=config_files,
-        env_override=environment_override,
+        home_override=home_override,
     )
     keyring = _load_optional_keyring_module()
     keyring_status = get_keyring_status()
@@ -1277,7 +1327,7 @@ def _build_check_summary_context(env_dir: Path | None) -> _CheckSummaryContext:
         else None
     )
     default_directories = (
-        default_skill_paths(cwd=search_root, override=environment_override)
+        default_skill_paths(cwd=search_root, override=home_override)
         if override_directories is None
         else None
     )
@@ -1289,11 +1339,16 @@ def _build_check_summary_context(env_dir: Path | None) -> _CheckSummaryContext:
     )
     skills_dirs = list(skills_registry.directories)
     skills_manifests, skill_errors = skills_registry.load_manifests_with_errors()
-    env_paths = resolve_environment_paths(cwd=cwd, override=environment_override)
+    home_paths = resolve_home_paths(cwd=cwd, override=home_override)
     server_names = _build_server_names_from_config(config_summary)
     overlay_preset_collision_messages = _collect_overlay_preset_collision_messages(
         start_path=cwd,
-        env_dir=environment_override,
+        home=home_override,
+    )
+    environment_rows = _collect_environment_rows(
+        cwd=cwd,
+        config_files=config_files,
+        home_override=home_override,
     )
 
     return _CheckSummaryContext(
@@ -1305,16 +1360,17 @@ def _build_check_summary_context(env_dir: Path | None) -> _CheckSummaryContext:
         secrets_summary=secrets_summary,
         api_keys=api_keys,
         fastagent_version=fastagent_version,
-        environment_override=environment_override,
+        home_override=home_override,
         effective_settings_error=effective_settings_error,
         keyring=keyring,
         keyring_status=keyring_status,
         skills_dirs=skills_dirs,
         skills_manifests=skills_manifests,
         skill_errors=skill_errors,
-        env_paths=env_paths,
+        home_paths=home_paths,
         server_names=server_names,
         overlay_preset_collision_messages=overlay_preset_collision_messages,
+        environment_rows=environment_rows,
     )
 
 
@@ -1329,10 +1385,10 @@ def _built_in_preset_sources() -> dict[str, str]:
 def _collect_overlay_preset_collision_messages(
     *,
     start_path: Path,
-    env_dir: str | Path | None,
+    home: str | Path | None,
 ) -> tuple[str, ...]:
     preset_sources = _built_in_preset_sources()
-    overlay_registry = load_model_overlay_registry(start_path=start_path, env_dir=env_dir)
+    overlay_registry = load_model_overlay_registry(start_path=start_path, home=home)
 
     messages: list[str] = []
     for overlay in overlay_registry.overlays:
@@ -1520,6 +1576,20 @@ def _render_application_settings(config_summary: dict[str, Any]) -> None:
 
     _print_section_header("Application Settings", color="blue")
     console.print(logger_table)
+
+
+def _render_environments_panel(context: _CheckSummaryContext) -> None:
+    _print_section_header("Environments", color="blue")
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Name", style="cyan")
+    table.add_column("Type")
+    table.add_column("Default")
+    table.add_column("Status")
+
+    for name, environment_type, default_marker, status in context.environment_rows:
+        table.add_row(name, environment_type, default_marker, status)
+
+    console.print(table)
 
 
 def _render_model_overlay_notices(context: _CheckSummaryContext) -> None:
@@ -1890,11 +1960,11 @@ def _should_warn_for_provider(
 
 
 def _collect_card_directories(
-    env_paths: EnvironmentPaths,
+    home_paths: HomePaths,
 ) -> list[tuple[str, Path]]:
     return [
-        ("Agent Cards", env_paths.agent_cards),
-        ("Tool Cards", env_paths.tool_cards),
+        ("Agent Cards", home_paths.agent_cards),
+        ("Tool Cards", home_paths.tool_cards),
     ]
 
 
@@ -2037,7 +2107,7 @@ def _build_agent_card_status(
 
 def _render_agent_card_panel(context: _CheckSummaryContext) -> None:
     _print_section_header("Agent Cards", color="blue")
-    card_directories = _collect_card_directories(context.env_paths)
+    card_directories = _collect_card_directories(context.home_paths)
     found_card_dir, all_card_names = _collect_all_card_names(
         card_directories,
         server_names=context.server_names,
@@ -2097,7 +2167,7 @@ def _render_agent_card_panel(context: _CheckSummaryContext) -> None:
 
     if not found_card_dir:
         console.print(
-            "[dim]No local AgentCard directories found in the fast-agent environment.[/dim]"
+            "[dim]No local AgentCard directories found in the fast-agent home.[/dim]"
         )
 
 
@@ -2137,11 +2207,12 @@ def _render_check_summary_guidance(context: _CheckSummaryContext) -> None:
         console.print(f"2. Or set environment variables ({env_vars})")
 
 
-def show_check_summary(env_dir: Path | None = None) -> None:
+def show_check_summary(home: Path | None = None) -> None:
     """Show a summary of checks with colorful styling."""
-    context = _build_check_summary_context(env_dir)
+    context = _build_check_summary_context(home)
     _render_environment_summary(context)
     _render_application_settings(context.config_summary)
+    _render_environments_panel(context)
     _render_model_overlay_notices(context)
     _render_api_keys_panel(context.api_keys)
     _render_codex_oauth_panel(context.keyring_status)
@@ -2203,20 +2274,20 @@ def show(
         console.print(f"[red]Error parsing {file_type} file:[/red] {e}")
 
 
-def _context_env_dir(ctx: typer.Context) -> Path | None:
+def _context_home(ctx: typer.Context) -> Path | None:
     payload = ctx.obj
     if not isinstance(payload, dict):
         return None
 
-    env_dir = payload.get("env_dir")
-    if isinstance(env_dir, Path):
-        return env_dir
+    home = payload.get("home")
+    if isinstance(home, Path):
+        return home
     return None
 
 
 def _resolve_check_update_notice(
     ctx: typer.Context,
-    env_dir: Path | None,
+    home: Path | None,
 ) -> str | None:
     if ctx.invoked_subcommand is not None:
         return None
@@ -2231,7 +2302,7 @@ def _resolve_check_update_notice(
     if not should_run_update_check(disabled=no_update_check):
         return None
 
-    return check_for_update_notice(environment_dir=env_dir)
+    return check_for_update_notice(home=home)
 
 
 @app.command("models")
@@ -2261,7 +2332,7 @@ def models(
     ),
 ) -> None:
     """Show model catalog provider guidance or provider-specific model entries."""
-    env_dir = _context_env_dir(ctx)
+    home = _context_home(ctx)
 
     if for_model is not None:
         if provider is not None:
@@ -2269,7 +2340,7 @@ def models(
         if all_models:
             raise typer.BadParameter("Do not combine --all with --for-model.")
         try:
-            show_model_secret_requirements(for_model, env_dir=env_dir, json_output=json_output)
+            show_model_secret_requirements(for_model, home=home, json_output=json_output)
         except ValueError as exc:
             raise typer.BadParameter(str(exc), param_hint="--for-model") from exc
         return
@@ -2283,14 +2354,14 @@ def models(
                 "[yellow]Tip:[/yellow] Pass a provider name with [cyan]--all[/cyan], "
                 "for example: [cyan]fast-agent check models openai --all[/cyan]"
             )
-        show_models_overview(env_dir=env_dir)
+        show_models_overview(home=home)
         return
 
     try:
         show_provider_model_catalog(
             provider,
             show_all=all_models,
-            env_dir=env_dir,
+            home=home,
         )
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="provider") from exc
@@ -2405,20 +2476,20 @@ def _run_structured_output_probe(
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    env_dir: Path | None = typer.Option(
-        None, "--env", help="Override the base fast-agent environment directory"
+    home: Path | None = typer.Option(
+        None, "--home", help="Override the base fast-agent home"
     ),
 ) -> None:
     """Check and diagnose FastAgent configuration."""
-    env_dir = resolve_environment_dir_option(ctx, env_dir)
+    home = resolve_home_option(ctx, home)
     if isinstance(ctx.obj, dict):
-        ctx.obj["env_dir"] = env_dir
+        ctx.obj["home"] = home
     else:
-        ctx.obj = {"env_dir": env_dir}
+        ctx.obj = {"home": home}
 
-    update_notice = _resolve_check_update_notice(ctx, env_dir)
+    update_notice = _resolve_check_update_notice(ctx, home)
     if update_notice:
         console.print(update_notice)
 
     if ctx.invoked_subcommand is None:
-        show_check_summary(env_dir=env_dir)
+        show_check_summary(home=home)

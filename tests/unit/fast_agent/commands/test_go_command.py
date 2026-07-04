@@ -7,7 +7,8 @@ from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 from fast_agent.cli.commands import go as go_command
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.cli.main import app as root_app
+from fast_agent.paths import resolve_home_paths
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -121,7 +122,7 @@ def test_run_async_agent_passes_card_tools() -> None:
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="interactive",
         transport="http",
@@ -162,7 +163,7 @@ def test_run_async_agent_merges_default_tool_cards(tmp_path: Path) -> None:
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=tmp_path,
+        home=tmp_path,
         shell_enabled=False,
         mode="interactive",
         transport="http",
@@ -179,7 +180,7 @@ def test_run_async_agent_merges_default_tool_cards(tmp_path: Path) -> None:
     assert run_kwargs["card_tools"] == [str(tool_dir)]
 
 
-def test_run_async_agent_noenv_passes_flag_and_disables_implicit_cards() -> None:
+def test_run_async_agent_no_home_passes_flag_and_disables_implicit_cards() -> None:
     run_kwargs = go_command._build_run_agent_kwargs(
         name="test-agent",
         instruction="test instruction",
@@ -199,7 +200,7 @@ def test_run_async_agent_noenv_passes_flag_and_disables_implicit_cards() -> None
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
-        environment_dir=None,
+        home=None,
         shell_enabled=False,
         mode="interactive",
         transport="http",
@@ -211,10 +212,10 @@ def test_run_async_agent_noenv_passes_flag_and_disables_implicit_cards() -> None
         permissions_enabled=True,
         reload=False,
         watch=False,
-        noenv=True,
+        no_home=True,
     )
 
-    assert run_kwargs["noenv"] is True
+    assert run_kwargs["no_home"] is True
     assert run_kwargs["agent_cards"] is None
     assert run_kwargs["card_tools"] is None
 
@@ -267,6 +268,100 @@ def test_go_accepts_timeout_flag(monkeypatch) -> None:
     assert captured_requests[0].timeout_seconds == 120
 
 
+def test_go_workspace_sets_default_home_base(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    captured_requests = []
+    original_cwd = Path.cwd()
+
+    monkeypatch.setattr(go_command, "run_request", captured_requests.append)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        go_command.app,
+        [
+            "--workspace",
+            workspace.as_posix(),
+            "--message",
+            "summarize",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert Path.cwd() == original_cwd
+    assert len(captured_requests) == 1
+    assert captured_requests[0].home == workspace / ".fast-agent"
+
+
+def test_go_workspace_resolves_relative_home(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    captured_requests = []
+
+    monkeypatch.setattr(go_command, "run_request", captured_requests.append)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        go_command.app,
+        [
+            "--workspace",
+            workspace.as_posix(),
+            "--home",
+            "custom-home",
+            "--message",
+            "summarize",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(captured_requests) == 1
+    assert captured_requests[0].home == workspace / "custom-home"
+
+
+def test_root_relative_workspace_is_not_resolved_twice(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "demo"
+    workspace.mkdir()
+    captured_requests = []
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(go_command, "run_request", captured_requests.append)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        root_app,
+        [
+            "--workspace",
+            "demo",
+            "go",
+            "--message",
+            "summarize",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(captured_requests) == 1
+    assert captured_requests[0].home == workspace / ".fast-agent"
+
+
+def test_go_workspace_rejects_missing_directory(tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        go_command.app,
+        [
+            "--workspace",
+            (tmp_path / "missing").as_posix(),
+            "--message",
+            "summarize",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert (tmp_path / "missing").as_posix() in strip_ansi(result.output)
+
+
 def test_go_attach_requires_one_shot_mode() -> None:
     runner = CliRunner()
     result = runner.invoke(go_command.app, ["--attach", "report.txt"])
@@ -277,7 +372,7 @@ def test_go_attach_requires_one_shot_mode() -> None:
 
 def test_go_pack_installs_then_runs(tmp_path: Path, monkeypatch) -> None:
     _, marketplace_path = _build_pack_repo(tmp_path)
-    env_root = tmp_path / ".fast-agent-demo"
+    home_root = tmp_path / ".fast-agent-demo"
     captured_requests = []
 
     monkeypatch.setattr(go_command, "run_request", captured_requests.append)
@@ -292,19 +387,49 @@ def test_go_pack_installs_then_runs(tmp_path: Path, monkeypatch) -> None:
             marketplace_path.as_posix(),
             "--model",
             "haiku",
-            "--env",
-            env_root.as_posix(),
+            "--home",
+            home_root.as_posix(),
         ],
     )
 
     assert result.exit_code == 0, result.output
     assert "Installed card pack: alpha" in result.output
-    assert f"Launching fast-agent go with environment: {env_root}" in result.output
-    assert (env_root / "agent-cards" / "alpha.md").exists()
+    assert f"Launching fast-agent go with home: {home_root}" in result.output
+    assert (home_root / "agent-cards" / "alpha.md").exists()
     assert len(captured_requests) == 1
-    assert captured_requests[0].environment_dir == env_root
+    assert captured_requests[0].home == home_root
     assert captured_requests[0].model == "haiku"
-    assert captured_requests[0].agent_cards == [str(env_root / "agent-cards")]
+    assert captured_requests[0].agent_cards == [str(home_root / "agent-cards")]
+
+
+def test_go_pack_defaults_home_under_workspace(tmp_path: Path, monkeypatch) -> None:
+    _, marketplace_path = _build_pack_repo(tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    expected_home = workspace / ".fast-agent"
+    captured_requests = []
+
+    monkeypatch.setattr(go_command, "run_request", captured_requests.append)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        go_command.app,
+        [
+            "--workspace",
+            workspace.as_posix(),
+            "--pack",
+            "alpha",
+            "--pack-registry",
+            marketplace_path.as_posix(),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert f"Launching fast-agent go with home: {expected_home}" in result.output
+    assert (expected_home / "agent-cards" / "alpha.md").exists()
+    assert len(captured_requests) == 1
+    assert captured_requests[0].home == expected_home
+    assert captured_requests[0].agent_cards == [str(expected_home / "agent-cards")]
 
 
 def test_go_pack_reuses_installed_pack_without_registry_lookup(
@@ -314,14 +439,14 @@ def test_go_pack_reuses_installed_pack_without_registry_lookup(
     from fast_agent.cards import service as card_service
 
     _, marketplace_path = _build_pack_repo(tmp_path)
-    env_root = tmp_path / ".fast-agent-demo"
-    env_paths = resolve_environment_paths(override=env_root, cwd=tmp_path)
+    home_root = tmp_path / ".fast-agent-demo"
+    home_paths = resolve_home_paths(override=home_root, cwd=tmp_path)
     captured_requests = []
 
     card_service.install_pack_sync(
         marketplace_path.as_posix(),
         "alpha",
-        environment_paths=env_paths,
+        home_paths=home_paths,
         force=False,
     )
 
@@ -339,26 +464,26 @@ def test_go_pack_reuses_installed_pack_without_registry_lookup(
             "alpha",
             "--model",
             "haiku",
-            "--env",
-            env_root.as_posix(),
+            "--home",
+            home_root.as_posix(),
         ],
     )
 
     assert result.exit_code == 0, result.output
     assert "Using installed card pack: alpha" in result.output
     assert len(captured_requests) == 1
-    assert captured_requests[0].environment_dir == env_root
+    assert captured_requests[0].home == home_root
 
 
-def test_go_pack_rejects_noenv() -> None:
+def test_go_pack_rejects_no_home() -> None:
     runner = CliRunner()
     result = runner.invoke(
         go_command.app,
-        ["--pack", "alpha", "--noenv"],
+        ["--pack", "alpha", "--no-home"],
     )
 
     assert result.exit_code == 2
-    assert "Cannot combine --pack with --noenv." in strip_ansi(result.output)
+    assert "Cannot combine --pack with --no-home." in strip_ansi(result.output)
 
 
 def test_go_pack_preserves_agent_target(tmp_path: Path, monkeypatch) -> None:
@@ -366,7 +491,7 @@ def test_go_pack_preserves_agent_target(tmp_path: Path, monkeypatch) -> None:
         tmp_path,
         agent_names=("alpha", "planner"),
     )
-    env_root = tmp_path / ".fast-agent-demo"
+    home_root = tmp_path / ".fast-agent-demo"
     captured_requests = []
 
     monkeypatch.setattr(go_command, "run_request", captured_requests.append)
@@ -381,8 +506,8 @@ def test_go_pack_preserves_agent_target(tmp_path: Path, monkeypatch) -> None:
             marketplace_path.as_posix(),
             "--model",
             "haiku",
-            "--env",
-            env_root.as_posix(),
+            "--home",
+            home_root.as_posix(),
             "--agent",
             "planner",
         ],
@@ -401,7 +526,7 @@ def test_go_pack_keeps_installed_card_dirs_after_explicit_sources(
         tmp_path,
         tool_names=("alpha-tool",),
     )
-    env_root = tmp_path / ".fast-agent-demo"
+    home_root = tmp_path / ".fast-agent-demo"
     explicit_agent_dir = tmp_path / "extra-agent-cards"
     explicit_tool_dir = tmp_path / "extra-tool-cards"
     explicit_agent_dir.mkdir()
@@ -418,8 +543,8 @@ def test_go_pack_keeps_installed_card_dirs_after_explicit_sources(
             "alpha",
             "--pack-registry",
             marketplace_path.as_posix(),
-            "--env",
-            env_root.as_posix(),
+            "--home",
+            home_root.as_posix(),
             "--agent-cards",
             explicit_agent_dir.as_posix(),
             "--card-tool",
@@ -431,11 +556,11 @@ def test_go_pack_keeps_installed_card_dirs_after_explicit_sources(
     assert len(captured_requests) == 1
     assert captured_requests[0].agent_cards == [
         explicit_agent_dir.as_posix(),
-        str(env_root / "agent-cards"),
+        str(home_root / "agent-cards"),
     ]
     assert captured_requests[0].card_tools == [
         explicit_tool_dir.as_posix(),
-        str(env_root / "tool-cards"),
+        str(home_root / "tool-cards"),
     ]
 
 
@@ -455,7 +580,7 @@ def test_go_pack_reports_missing_pack(tmp_path: Path, monkeypatch) -> None:
             "missing",
             "--pack-registry",
             marketplace_path.as_posix(),
-            "--env",
+            "--home",
             (tmp_path / ".fast-agent-demo").as_posix(),
         ],
     )
@@ -472,7 +597,7 @@ def test_go_pack_queues_readme_notice_for_interactive_startup(
         tmp_path,
         readme="# Alpha Pack\n\nInstall notes.\n",
     )
-    env_root = tmp_path / ".fast-agent-demo"
+    home_root = tmp_path / ".fast-agent-demo"
     plain_notices: list[str] = []
     markdown_notices: list[tuple[str, dict[str, str | None]]] = []
 
@@ -497,8 +622,8 @@ def test_go_pack_queues_readme_notice_for_interactive_startup(
             "alpha",
             "--pack-registry",
             marketplace_path.as_posix(),
-            "--env",
-            env_root.as_posix(),
+            "--home",
+            home_root.as_posix(),
         ],
     )
 
@@ -523,7 +648,7 @@ def test_go_pack_skips_readme_notice_for_noninteractive_runs(
         tmp_path,
         readme="# Alpha Pack\n\nInstall notes.\n",
     )
-    env_root = tmp_path / ".fast-agent-demo"
+    home_root = tmp_path / ".fast-agent-demo"
 
     monkeypatch.setattr(go_command, "run_request", lambda _request: None)
     monkeypatch.setattr(
@@ -547,8 +672,8 @@ def test_go_pack_skips_readme_notice_for_noninteractive_runs(
             "alpha",
             "--pack-registry",
             marketplace_path.as_posix(),
-            "--env",
-            env_root.as_posix(),
+            "--home",
+            home_root.as_posix(),
             "--message",
             "hello",
         ],
@@ -564,8 +689,8 @@ def test_go_quiet_skips_update_notice(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda *, disabled: not disabled,
     )
 
-    def _unexpected_update_check(*, environment_dir: Path | None) -> str | None:
-        raise AssertionError(f"quiet mode should not check for updates: {environment_dir}")
+    def _unexpected_update_check(*, home: Path | None) -> str | None:
+        raise AssertionError(f"quiet mode should not check for updates: {home}")
 
     monkeypatch.setattr("fast_agent.cli.update_check.check_for_update_notice", _unexpected_update_check)
     monkeypatch.setattr(
