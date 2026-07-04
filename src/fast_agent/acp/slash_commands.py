@@ -53,6 +53,7 @@ from fast_agent.command_actions.accessors import (
 )
 from fast_agent.commands.command_catalog import command_action_names
 from fast_agent.commands.context import CommandContext, StaticAgentProvider
+from fast_agent.commands.handlers import display as display_handlers
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.protocols import ACPCommandAllowlistProvider
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
@@ -305,6 +306,11 @@ class SlashCommandHandler:
                 name="tools",
                 description="List available tools",
                 handler=self._handle_tools,
+            ),
+            _BuiltinSlashCommandSpec(
+                name="environment",
+                description="List configured execution environments",
+                handler=self._handle_environment,
             ),
             _BuiltinSlashCommandSpec(
                 name="commands",
@@ -888,6 +894,14 @@ class SlashCommandHandler:
     async def _handle_tools(self, arguments: str | None = None) -> str:
         del arguments
         return await tools_slash_handlers.handle_tools(self)
+
+    async def _handle_environment(self, arguments: str | None = None) -> str:
+        del arguments
+        outcome = await display_handlers.handle_environment(
+            self._build_command_context(),
+            agent_name=self.current_agent_name,
+        )
+        return self._format_outcome_as_markdown(outcome, "/environment")
 
     async def _handle_commands(self, arguments: str | None = None) -> str:
         return await commands_slash_handlers.handle_commands(self, arguments)

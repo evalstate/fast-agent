@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from fast_agent.commands.command_discovery import (
     command_discovery_names,
@@ -14,6 +14,7 @@ from fast_agent.commands.command_discovery import (
     render_commands_json,
 )
 from fast_agent.commands.results import CommandOutcome
+from fast_agent.config import get_settings
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.usage_display import collect_agents_from_provider
 from fast_agent.utils.commandline import split_commandline
@@ -26,7 +27,19 @@ if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.tools.execution_environment import ShellRuntimeInfo
     from fast_agent.types import PromptMessageExtended
+
+
+@runtime_checkable
+class _ShellRuntimeProvider(Protocol):
+    @property
+    def shell_runtime(self) -> object | None: ...
+
+
+@runtime_checkable
+class _ShellRuntimeInfoProvider(Protocol):
+    def runtime_info(self) -> "ShellRuntimeInfo": ...
 
 
 def _last_assistant_text(message_history: Sequence["PromptMessageExtended"]) -> str | None:
@@ -110,6 +123,51 @@ async def handle_show_mcp_status(ctx: CommandContext, *, agent_name: str) -> Com
     from fast_agent.ui.enhanced_prompt import show_mcp_status
 
     await show_mcp_status(agent_name, cast("AgentApp", ctx.agent_provider))
+    return outcome
+
+
+def _active_environment_name(agent: object) -> str | None:
+    if not isinstance(agent, _ShellRuntimeProvider):
+        return None
+    shell_runtime = agent.shell_runtime
+    if not isinstance(shell_runtime, _ShellRuntimeInfoProvider):
+        return None
+    return shell_runtime.runtime_info().environment_name
+
+
+def _active_runtime_detail(agent: object) -> str:
+    if not isinstance(agent, _ShellRuntimeProvider):
+        return ""
+    shell_runtime = agent.shell_runtime
+    if not isinstance(shell_runtime, _ShellRuntimeInfoProvider):
+        return ""
+    info = shell_runtime.runtime_info()
+    parts = (
+        info.kind,
+        info.provider,
+        info.name,
+    )
+    return " / ".join(part for part in parts if part)
+
+
+async def handle_environment(ctx: CommandContext, *, agent_name: str) -> CommandOutcome:
+    outcome = CommandOutcome()
+    settings = ctx.settings or get_settings()
+    active_agent = ctx.agent_provider._agent(agent_name)
+    active_name = _active_environment_name(active_agent) or settings.default_environment
+    runtime_detail = _active_runtime_detail(active_agent)
+
+    lines = ["# environments", ""]
+    if runtime_detail:
+        lines.extend([f"Active runtime: `{runtime_detail}`", ""])
+    lines.extend(["| Name | Type | Active |", "| --- | --- | --- |"])
+    for name in sorted({"local", *settings.environments}):
+        spec = settings.environments.get(name)
+        environment_type = spec.type if spec is not None else "local"
+        marker = "yes" if name == active_name else ""
+        lines.append(f"| `{name}` | `{environment_type}` | {marker} |")
+
+    outcome.add_message("\n".join(lines), right_info="environment", render_markdown=True)
     return outcome
 
 

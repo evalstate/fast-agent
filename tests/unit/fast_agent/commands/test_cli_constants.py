@@ -28,3 +28,8 @@ def test_go_specific_options_include_pack_flags() -> None:
     assert "--pack" in GO_SPECIFIC_OPTIONS
     assert "--card-pack" in GO_SPECIFIC_OPTIONS
     assert "--pack-registry" in GO_SPECIFIC_OPTIONS
+
+
+def test_go_specific_options_include_environment_flags() -> None:
+    assert "--environment" in GO_SPECIFIC_OPTIONS
+    assert "-E" in GO_SPECIFIC_OPTIONS

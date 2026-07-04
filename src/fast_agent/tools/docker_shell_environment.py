@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import posixpath
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import rmtree
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Callable, Literal
 
+from fast_agent.core.exceptions import EnvironmentStartupError
 from fast_agent.tools.execution_environment import (
     EnvironmentFileEntry,
     ShellExecution,
@@ -74,6 +76,7 @@ class DockerShellEnvironment:
         container_cli: str = "docker",
         shell: str = "bash",
         cwd: str = "/workspace",
+        default_env: dict[str, str] | None = None,
         timeout_seconds: int = 90,
         warning_interval_seconds: int = 30,
     ) -> None:
@@ -81,11 +84,24 @@ class DockerShellEnvironment:
         self._container_cli = container_cli
         self._shell = shell
         self._cwd = cwd
+        self._default_env = dict(default_env or {})
         self._timeout_seconds = timeout_seconds
         self._warning_interval_seconds = warning_interval_seconds
+        self._startup_progress_callback: Callable[[str], None] | None = None
 
     async def open(self) -> None:
+        self._emit_startup_stage(f"using existing container {self._container}")
         return None
+
+    def set_startup_progress_callback(
+        self,
+        callback: Callable[[str], None] | None,
+    ) -> None:
+        self._startup_progress_callback = callback
+
+    def _emit_startup_stage(self, stage: str) -> None:
+        if self._startup_progress_callback is not None:
+            self._startup_progress_callback(stage)
 
     @property
     def cwd(self) -> str:
@@ -111,11 +127,20 @@ class DockerShellEnvironment:
             warning_interval_seconds=self._warning_interval_seconds,
         )
         argv = self._exec_argv(request)
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        process_env = self._exec_process_env(request)
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=process_env,
+            )
+        except FileNotFoundError as exc:
+            raise EnvironmentStartupError(
+                f"Could not start {self._container_cli} shell environment.",
+                f"Container CLI not found: {self._container_cli}. "
+                f"Install {self._container_cli} or choose an environment that uses an available CLI.",
+            ) from exc
         output = _DockerOutputCapture.create()
         stdout_task = asyncio.create_task(
             self._stream_output(
@@ -154,15 +179,20 @@ class DockerShellEnvironment:
 
     def _exec_argv(self, request: ShellExecutionRequest) -> list[str]:
         cwd = request.cwd or self._cwd
-        env_args = [
-            item
-            for name, value in (request.env or {}).items()
-            for item in ("-e", f"{name}={value}")
-        ]
+        effective_env = dict(self._default_env)
+        effective_env.update(request.env or {})
+        env_args = [item for name in effective_env for item in ("-e", name)]
         base = [self._container_cli, "exec", *env_args, "-w", cwd, self._container, self._shell]
         if self._shell in {"pwsh", "powershell"}:
             return [*base, "-NoLogo", "-NoProfile", "-Command", request.command]
         return [*base, "-lc", request.command]
+
+    def _exec_process_env(self, request: ShellExecutionRequest) -> dict[str, str]:
+        effective_env = dict(self._default_env)
+        effective_env.update(request.env or {})
+        process_env = dict(os.environ)
+        process_env.update(effective_env)
+        return process_env
 
     async def _stream_output(
         self,
@@ -264,12 +294,15 @@ class DockerManagedShellEnvironment(DockerShellEnvironment):
         shell: str = "bash",
         cwd: str = "/workspace",
         mounts: Sequence[DockerMount] = (),
+        docker_args: Sequence[str] = (),
+        default_env: dict[str, str] | None = None,
         remove: bool = True,
         timeout_seconds: int = 90,
         warning_interval_seconds: int = 30,
     ) -> None:
         self._image = image
         self._mounts = tuple(mounts)
+        self._docker_args = tuple(docker_args)
         self._remove = remove
         self._owned_container: str | None = None
         super().__init__(
@@ -277,14 +310,17 @@ class DockerManagedShellEnvironment(DockerShellEnvironment):
             container_cli=container_cli,
             shell=shell,
             cwd=cwd,
+            default_env=default_env,
             timeout_seconds=timeout_seconds,
             warning_interval_seconds=warning_interval_seconds,
         )
 
     async def open(self) -> None:
         if self._owned_container is not None:
+            self._emit_startup_stage(f"container already running {self._owned_container}")
             return
         container = f"fast-agent-{uuid.uuid4().hex[:12]}"
+        self._emit_startup_stage(f"starting {self._container_cli} container {container}")
         argv = [
             self._container_cli,
             "run",
@@ -294,15 +330,25 @@ class DockerManagedShellEnvironment(DockerShellEnvironment):
             "-w",
             self.cwd,
             *self._mount_args(),
+            *self._docker_args,
             self._image,
             "sleep",
             "infinity",
         ]
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            self._emit_startup_stage(f"running {' '.join(argv[:3])} ... {self._image}")
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError as exc:
+            raise EnvironmentStartupError(
+                f"Could not start {self._container_cli} shell environment.",
+                f"Container CLI not found: {self._container_cli}. "
+                f"Install {self._container_cli} or choose an environment that uses an available CLI.",
+            ) from exc
+        self._emit_startup_stage("waiting for container start")
         stdout, stderr = await process.communicate()
         if process.returncode != 0:
             message = stderr.decode(errors="replace") or stdout.decode(errors="replace")
@@ -311,6 +357,7 @@ class DockerManagedShellEnvironment(DockerShellEnvironment):
             )
         self._owned_container = container
         self._container = container
+        self._emit_startup_stage(f"container ready {container}")
 
     def _mount_args(self) -> list[str]:
         return [item for mount in self._mounts for item in ("-v", mount.docker_arg())]
@@ -346,6 +393,8 @@ class DockerMountedEnvironment(DockerManagedShellEnvironment):
         container_cli: str = "docker",
         shell: str = "bash",
         remove: bool = True,
+        docker_args: Sequence[str] = (),
+        default_env: dict[str, str] | None = None,
         timeout_seconds: int = 90,
         warning_interval_seconds: int = 30,
     ) -> None:
@@ -357,6 +406,8 @@ class DockerMountedEnvironment(DockerManagedShellEnvironment):
             shell=shell,
             cwd=self._target,
             mounts=(DockerMount(self._host_workspace, self._target, "rw"),),
+            docker_args=docker_args,
+            default_env=default_env,
             remove=remove,
             timeout_seconds=timeout_seconds,
             warning_interval_seconds=warning_interval_seconds,
@@ -375,6 +426,14 @@ class DockerMountedEnvironment(DockerManagedShellEnvironment):
         host_path.parent.mkdir(parents=True, exist_ok=True)
         host_path.write_text(content, encoding="utf-8")
 
+    async def read_bytes(self, path: str) -> bytes:
+        return self._host_path(path).read_bytes()
+
+    async def write_bytes(self, path: str, content: bytes) -> None:
+        host_path = self._host_path(path)
+        host_path.parent.mkdir(parents=True, exist_ok=True)
+        host_path.write_bytes(content)
+
     async def exists(self, path: str) -> bool:
         return self._host_path(path).exists()
 
@@ -383,7 +442,9 @@ class DockerMountedEnvironment(DockerManagedShellEnvironment):
         container_dir = self.resolve_path(path)
         entries: list[EnvironmentFileEntry] = []
         for child in sorted(host_dir.iterdir(), key=lambda item: item.name):
-            if child.is_dir():
+            if child.is_symlink():
+                kind = "other"
+            elif child.is_dir():
                 kind = "directory"
             elif child.is_file():
                 kind = "file"

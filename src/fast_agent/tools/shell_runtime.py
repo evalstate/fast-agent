@@ -259,7 +259,22 @@ class ShellRuntime:
 
         Prefers modern shells like pwsh (PowerShell 7+) and bash.
         """
-        return self._environment.runtime_info()
+        info = self._environment.runtime_info()
+        if info.environment_name is not None:
+            return info
+
+        from fast_agent.tools.environment_registry import environment_name
+
+        name = environment_name(self._environment)
+        if name is None:
+            return info
+        return ShellRuntimeInfo(
+            name=info.name,
+            path=info.path,
+            kind=info.kind,
+            provider=info.provider,
+            environment_name=name,
+        )
 
     def metadata(self, command: str | None) -> dict[str, Any]:
         """Build metadata for display when the shell tool is invoked."""

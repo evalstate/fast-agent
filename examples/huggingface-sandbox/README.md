@@ -4,6 +4,9 @@ This example runs the model-facing `execute` and filesystem helper tools inside
 a Hugging Face Sandbox. It is a manual smoke test, not part of the automated
 test suite, because it creates remote Hugging Face Jobs resources.
 
+For the config-driven equivalent using `environment="hf-gpu"`, see
+[`examples/environments/`](../environments/).
+
 ## Run
 
 From the repository root:

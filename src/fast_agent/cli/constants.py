@@ -45,6 +45,8 @@ GO_SPECIFIC_OPTIONS = {
     "--results",
     "--servers",
     "--auth",
+    "--environment",
+    "-E",
     "--client-metadata-url",
     "--name",
     "--config-path",

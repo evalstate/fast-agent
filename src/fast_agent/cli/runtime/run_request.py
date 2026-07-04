@@ -92,6 +92,7 @@ class AgentRunRequest:
     prefer_local_shell: bool = False
     attachments: list[str] | None = None
     managed_mcp_agent_names: list[str] | None = None
+    environment: str | None = None
 
     def __post_init__(self) -> None:
         self._validate_environment_options()
@@ -180,6 +181,7 @@ class AgentRunRequest:
             "stdio_servers": self.stdio_servers,
             "agent_name": self.agent_name,
             "target_agent_name": self.target_agent_name,
+            "environment": self.environment,
             "skills_directory": self.skills_directory,
             "home": self.home,
             "no_home": self.no_home,

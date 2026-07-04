@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from fast_agent.tools import huggingface_sandbox_environment as hf_sandbox_environment
 from fast_agent.tools.execution_environment import ShellExecutionRequest
 from fast_agent.tools.huggingface_sandbox_environment import (
+    FAST_AGENT_HF_SANDBOX_LABEL,
     HuggingFaceSandboxEnvironment,
+    HuggingFaceVolumeMount,
     _SandboxCommandResult,
     _SandboxFiles,
 )
@@ -52,6 +57,7 @@ class _Files(_SandboxFiles):
 
 class _Sandbox(SandboxProtocol):
     def __init__(self) -> None:
+        self.id = "sandbox-job-123"
         self.test_files = _Files()
         self.files: _Files = self.test_files
         self.cwd: str | None = None
@@ -99,6 +105,22 @@ async def test_open_creates_configured_cwd() -> None:
 
 
 @pytest.mark.asyncio
+async def test_open_existing_sandbox_emits_startup_stages() -> None:
+    sandbox = _Sandbox()
+    environment = HuggingFaceSandboxEnvironment(sandbox=sandbox, cwd="/workspace/project")
+    stages: list[str] = []
+    environment.set_startup_progress_callback(stages.append)
+
+    await environment.open()
+
+    assert stages == [
+        "using existing sandbox sandbox-job-123",
+        "preparing cwd /workspace/project",
+        "sandbox filesystem ready",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_execute_uses_created_default_cwd() -> None:
     sandbox = _Sandbox()
     environment = HuggingFaceSandboxEnvironment(sandbox=sandbox, cwd="/workspace")
@@ -126,3 +148,167 @@ async def test_list_dir_returns_session_file_entries() -> None:
     assert isinstance(sandbox.commands[-1], list)
     assert sandbox.commands[-1][0] == "python3"
     assert sandbox.commands[-1][-1] == "/workspace/skills"
+
+
+def test_create_sandbox_adds_fast_agent_version_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_update: dict[str, Any] | None = None
+
+    class FakeSandbox:
+        @staticmethod
+        def create(
+            image: str = "python:3.12",
+            *,
+            flavor: str = "cpu-basic",
+            idle_timeout: int | float | str | None = None,
+            env: dict[str, Any] | None = None,
+            secrets: dict[str, Any] | None = None,
+            volumes: list[Any] | None = None,
+            namespace: str | None = None,
+            forward_hf_token: bool = False,
+            start_timeout: float = 120.0,
+            token: str | None = None,
+        ) -> _Sandbox:
+            del (
+                image,
+                flavor,
+                idle_timeout,
+                env,
+                secrets,
+                volumes,
+                namespace,
+                forward_hf_token,
+                start_timeout,
+                token,
+            )
+            return _Sandbox()
+
+    class FakeHfApi:
+        def __init__(self, token: str | None = None) -> None:
+            self.token = token
+
+        def update_job_labels(
+            self,
+            *,
+            job_id: str,
+            labels: dict[str, str],
+            namespace: str | None = None,
+            token: str | None = None,
+        ) -> None:
+            nonlocal captured_update
+            captured_update = {
+                "job_id": job_id,
+                "labels": labels,
+                "namespace": namespace,
+                "token": token,
+            }
+
+    class FakeVolume:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        SimpleNamespace(HfApi=FakeHfApi, Sandbox=FakeSandbox, Volume=FakeVolume),
+    )
+    monkeypatch.setattr(hf_sandbox_environment, "version", lambda package: "0.9.0")
+
+    environment = HuggingFaceSandboxEnvironment(namespace="test-org", token="hf_test")
+
+    environment._create_sandbox()
+
+    assert captured_update == {
+        "job_id": "sandbox-job-123",
+        "labels": {FAST_AGENT_HF_SANDBOX_LABEL: "0_9_0"},
+        "namespace": "test-org",
+        "token": "hf_test",
+    }
+
+
+def test_create_sandbox_passes_configured_hf_volume_mounts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_volumes: list[Any] | None = None
+
+    class FakeSandbox:
+        @staticmethod
+        def create(
+            image: str = "python:3.12",
+            *,
+            flavor: str = "cpu-basic",
+            idle_timeout: int | float | str | None = None,
+            env: dict[str, Any] | None = None,
+            secrets: dict[str, Any] | None = None,
+            volumes: list[Any] | None = None,
+            namespace: str | None = None,
+            forward_hf_token: bool = False,
+            start_timeout: float = 120.0,
+            token: str | None = None,
+        ) -> _Sandbox:
+            del (
+                image,
+                flavor,
+                idle_timeout,
+                env,
+                secrets,
+                namespace,
+                forward_hf_token,
+                start_timeout,
+                token,
+            )
+            nonlocal captured_volumes
+            captured_volumes = volumes
+            return _Sandbox()
+
+    class FakeHfApi:
+        def __init__(self, token: str | None = None) -> None:
+            self.token = token
+
+        def update_job_labels(
+            self,
+            *,
+            job_id: str,
+            labels: dict[str, str],
+            namespace: str | None = None,
+            token: str | None = None,
+        ) -> None:
+            del job_id, labels, namespace, token
+
+    class FakeVolume:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        SimpleNamespace(HfApi=FakeHfApi, Sandbox=FakeSandbox, Volume=FakeVolume),
+    )
+
+    environment = HuggingFaceSandboxEnvironment(
+        volume_mounts=(
+            HuggingFaceVolumeMount(
+                type="dataset",
+                source="org/data",
+                mount_path="/data",
+                read_only=True,
+                path="train",
+                revision="main",
+            ),
+        )
+    )
+
+    environment._create_sandbox()
+
+    assert captured_volumes is not None
+    assert [volume.kwargs for volume in captured_volumes] == [
+        {
+            "type": "dataset",
+            "source": "org/data",
+            "mount_path": "/data",
+            "read_only": True,
+            "path": "train",
+            "revision": "main",
+        }
+    ]

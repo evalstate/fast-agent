@@ -145,6 +145,8 @@ model_references:
 
 For a complete guide, see [Model Overlays](../models/model_overlays/).
 
+--8<-- "_generated/execution_environments_reference.md"
+
 ## Runtime Environment Variables
 
 - `FAST_AGENT_DISABLE_UV_LOOP=1`: Disable uvloop even if installed (non-Windows). By default, uvloop is used when available.

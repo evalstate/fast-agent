@@ -3,6 +3,9 @@
 This example runs `harness.shell(...)` inside a disposable Docker container
 instead of the host shell.
 
+For the config-driven equivalent using `environment="ubuntu"`, see
+[`examples/environments/`](../environments/).
+
 It is intentionally a manual smoke test rather than part of the automated test
 suite, so the project does not require Docker for normal development or CI.
 

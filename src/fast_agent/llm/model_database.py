@@ -193,7 +193,7 @@ class ModelDatabase:
     OPENAI_GPT_51_CLASS_REASONING = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["none", "low", "medium", "high", "xhigh"],
-        default=ReasoningEffortSetting(kind="effort", value="none"),
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
     )
 
     OPENAI_GPT_5_CODEX_CLASS_REASONING = ReasoningEffortSpec(

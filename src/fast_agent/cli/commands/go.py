@@ -245,6 +245,13 @@ def go(
         help="Marketplace path, HTTP(S) URL, file:// URI, or hf:// URI used to resolve --pack when it is not already installed.",
     ),
     agent: str | None = CommonAgentOptions.agent(),
+    environment: str | None = typer.Option(
+        None,
+        "--environment",
+        "-E",
+        metavar="<name>",
+        help="Named execution environment from fast-agent config",
+    ),
     message: str | None = typer.Option(
         None,
         "--message",
@@ -415,6 +422,7 @@ def go(
         uvx=uvx,
         stdio=stdio,
         target_agent_name=agent,
+        environment=environment,
         skills_directory=skills_dir,
         home=effective_home,
         no_home=no_home,

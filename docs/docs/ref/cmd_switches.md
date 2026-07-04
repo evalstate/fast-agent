@@ -89,6 +89,12 @@ The `fast-agent go` command lets you run an interactive agent directly without c
 
 For ephemeral runs with no implicit home side effects, use `--no-home`.
 
+Select a configured execution environment with `--environment` / `-E`:
+
+```bash
+fast-agent go --environment ubuntu -x
+```
+
 For machine-readable one-shot JSON output, use:
 
 ```bash

@@ -3,6 +3,7 @@ from fast_agent.cli.commands.check_config import (
     DEFAULT_OPENRESPONSES_BASE_URL,
     Provider,
     _adjacent_settings_pairs,
+    _collect_environment_rows,
     _effective_home_override,
     _extract_skills_directories,
     _format_provider_row,
@@ -185,3 +186,44 @@ def test_should_warn_for_openresponses_provider_normalizes_base_url(monkeypatch)
             "config": {"openresponses": {"base_url": f"  {DEFAULT_OPENRESPONSES_BASE_URL}/  "}},
         },
     )
+
+
+def test_collect_environment_rows_includes_implicit_local(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    rows = _collect_environment_rows(
+        cwd=tmp_path,
+        config_files={"config": None, "secrets": None},
+        home_override=tmp_path / ".fast-agent",
+    )
+
+    assert rows == (("local", "local", "[green]yes[/green]", "[green]valid[/green] (local)"),)
+
+
+def test_collect_environment_rows_reports_custom_import_errors(tmp_path, monkeypatch) -> None:
+    home = tmp_path / ".fast-agent"
+    home.mkdir()
+    (home / "fast-agent.yaml").write_text(
+        "\n".join(
+            [
+                "default_environment: staging",
+                "environments:",
+                "  staging:",
+                "    type: custom",
+                "    class: missing.module:Environment",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    rows = _collect_environment_rows(
+        cwd=tmp_path,
+        config_files={"config": home / "fast-agent.yaml", "secrets": None},
+        home_override=home,
+    )
+
+    row_by_name = {name: row for name, *row in rows}
+    assert row_by_name["staging"][0] == "custom"
+    assert "Could not import custom environment module missing.module" in row_by_name["staging"][2]
+    assert "Valid names: local, staging" in row_by_name["staging"][2]

@@ -33,6 +33,11 @@ class ShowMcpStatusCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class EnvironmentCommand(CommandBase):
+    kind: Literal["environment"] = "environment"
+
+
+@dataclass(frozen=True, slots=True)
 class A2ACommand(CommandBase):
     action: str
     argument: str | None
@@ -360,6 +365,8 @@ class ShellCommand(CommandBase):
     """Execute a shell command directly."""
 
     command: str
+    local: bool = False
+    interactive: bool = False
     kind: Literal["shell_command"] = "shell_command"
 
 
@@ -443,6 +450,7 @@ CommandPayload = (
     | ShowSystemCommand
     | ShowMarkdownCommand
     | ShowMcpStatusCommand
+    | EnvironmentCommand
     | A2ACommand
     | CheckCommand
     | CommandsCommand

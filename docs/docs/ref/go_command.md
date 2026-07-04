@@ -32,6 +32,7 @@ fast-agent go [OPTIONS]
 - `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers when dynamic client registration is not available
 - `--model`, `--models <model_string>`: Override the default model (e.g., haiku, sonnet, gpt-4)
 - `--model`, `--models <model1>,<model2>,...`: Run one agent per model in parallel and print a side-by-side comparison of responses
+- `--environment`, `-E <name>`: Select a named execution environment from config
 - `--pack`, `--card-pack <name>`: Ensure a named card pack is installed in the selected environment before starting
 - `--pack-registry <path or uri>`: Marketplace file path, HTTP(S) URL, `file://` URI, or `hf://` URI used to resolve `--pack` when it is not already installed
 - `--agent-cards`, `--card <path or uri>`: Load AgentCards as runnable agents from a path, HTTP(S) URL, `file://` URI, or `hf://` URI (repeatable)
@@ -134,6 +135,9 @@ fast-agent go --skills ~/my-skills/
 
 # Provider LLM shell access (use at your own risk)
 fast-agent go -x
+
+# Run shell-enabled agents in a configured environment
+fast-agent go --environment ubuntu -x
 
 ```
 

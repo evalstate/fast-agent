@@ -1,0 +1,52 @@
+default_environment: local
+
+environments:
+  local:
+    type: local
+    cwd: .
+
+  ubuntu:
+    type: docker
+    image: ubuntu:24.04
+    shell: bash
+    cwd: /workspace
+    mounts:
+    - source: .
+      target: /workspace
+      mode: rw
+
+  wslc:
+    type: docker
+    container_cli: wslc
+    image: ubuntu:24.04
+    shell: bash
+    cwd: /workspace
+    mounts:
+    - source: .
+      target: /workspace
+      mode: rw
+
+  wslc-container:
+    type: docker
+    container_cli: wslc
+    container: fast-agent-wslc-container
+    shell: bash
+    cwd: /workspace
+
+  hf-gpu:
+    type: huggingface
+    image: python:3.12
+    flavor: cpu-basic
+    cwd: /workspace
+    # Optional Hub volume mounts:
+    # volume_mounts:
+    #   - hf://buckets/username/my-bucket:/workspace/bucket:rw
+
+  custom-local:
+    type: custom
+    class: custom_environment:ExampleEnvironment
+    params:
+      label: custom-local
+model_references:
+  system:
+    last_used: codexresponses.gpt-5.5?reasoning=medium

@@ -71,7 +71,11 @@ def resolve_model_info(llm: "FastAgentLLMProtocol | None") -> "ModelInfo | None"
 def resolve_reasoning_effort(
     llm: "FastAgentLLMProtocol | None",
 ) -> "ReasoningEffortSetting | None":
-    return cast("ReasoningEffortSetting | None", _llm_attr(llm, "reasoning_effort"))
+    configured = cast("ReasoningEffortSetting | None", _llm_attr(llm, "reasoning_effort"))
+    if configured is not None:
+        return configured
+    spec = resolve_reasoning_effort_spec(llm)
+    return spec.default if spec is not None else None
 
 
 def resolve_reasoning_effort_spec(

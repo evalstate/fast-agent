@@ -61,6 +61,13 @@ class ServerInitializationError(FastAgentError):
         super().__init__(message, details)
 
 
+class EnvironmentStartupError(FastAgentError):
+    """Raised when an execution environment fails to start or attach."""
+
+    def __init__(self, message: str, details: str = "") -> None:
+        super().__init__(message, details)
+
+
 class ModelConfigError(FastAgentError):
     """Raised when there are issues with LLM model configuration
     Example: Unknown model name in model specification string

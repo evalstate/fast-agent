@@ -12,11 +12,13 @@ import time
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
+from shutil import rmtree
 from typing import TYPE_CHECKING, Any
 
 from fast_agent.core.logging.logger import Logger
 from fast_agent.home import build_child_environment
 from fast_agent.tools.execution_environment import (
+    EnvironmentFileEntry,
     ShellExecution,
     ShellExecutionCallbacks,
     ShellExecutionOptions,
@@ -79,12 +81,14 @@ class LocalShellExecutor:
         warning_interval_seconds: int = 30,
         working_directory: Path | None = None,
         config: Settings | None = None,
+        default_env: Mapping[str, str] | None = None,
     ) -> None:
         self._logger = logger
         self._timeout_seconds = timeout_seconds
         self._warning_interval_seconds = warning_interval_seconds
         self._working_directory = working_directory
         self._config = config
+        self._default_env = dict(default_env or {})
 
     @property
     def timeout_seconds(self) -> int:
@@ -255,6 +259,8 @@ class LocalShellExecutor:
             active_home=getattr(self._config, "_fast_agent_home", None),
             no_home=bool(getattr(self._config, "_fast_agent_no_home", False)),
         )
+        if self._default_env:
+            child_env.update(self._default_env)
         if env is not None:
             child_env.update(env)
         process_kwargs: dict[str, Any] = {
@@ -508,7 +514,71 @@ class LocalShellExecutor:
         return None
 
 
+class LocalEnvironment(LocalShellExecutor):
+    """Local shell environment with filesystem operations rooted at its cwd."""
+
+    def resolve_path(self, path: str) -> str:
+        return str(self._resolve_filesystem_path(path))
+
+    async def read_text(self, path: str) -> str:
+        return self._resolve_filesystem_path(path).read_text(encoding="utf-8", errors="replace")
+
+    async def write_text(self, path: str, content: str) -> None:
+        resolved = self._resolve_filesystem_path(path)
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_text(content, encoding="utf-8")
+
+    async def read_bytes(self, path: str) -> bytes:
+        return self._resolve_filesystem_path(path).read_bytes()
+
+    async def write_bytes(self, path: str, content: bytes) -> None:
+        resolved = self._resolve_filesystem_path(path)
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_bytes(content)
+
+    async def exists(self, path: str) -> bool:
+        return self._resolve_filesystem_path(path).exists()
+
+    async def list_dir(self, path: str) -> list[EnvironmentFileEntry]:
+        resolved_dir = self._resolve_filesystem_path(path)
+        entries: list[EnvironmentFileEntry] = []
+        for child in sorted(resolved_dir.iterdir(), key=lambda item: item.name):
+            if child.is_symlink():
+                kind = "other"
+            elif child.is_dir():
+                kind = "directory"
+            elif child.is_file():
+                kind = "file"
+            else:
+                kind = "other"
+            entries.append(
+                EnvironmentFileEntry(
+                    path=str(child),
+                    name=child.name,
+                    kind=kind,
+                )
+            )
+        return entries
+
+    async def mkdir(self, path: str) -> None:
+        self._resolve_filesystem_path(path).mkdir(parents=True, exist_ok=True)
+
+    async def remove(self, path: str) -> None:
+        resolved = self._resolve_filesystem_path(path)
+        if resolved.is_dir():
+            rmtree(resolved)
+            return
+        resolved.unlink()
+
+    def _resolve_filesystem_path(self, path: str) -> Path:
+        candidate = Path(path).expanduser()
+        if candidate.is_absolute():
+            return candidate.resolve()
+        return (self.working_directory() / candidate).resolve()
+
+
 __all__ = [
+    "LocalEnvironment",
     "LocalShellExecutor",
     "ShellEnvironmentLogger",
 ]

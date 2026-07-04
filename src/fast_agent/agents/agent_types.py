@@ -111,6 +111,7 @@ class AgentConfig:
     prompts: dict[str, list[str]] = field(default_factory=dict)  # MCP prompt filters by server
     skills: SkillConfig = SKILLS_DEFAULT
     skill_manifests: list[SkillManifest] = field(default_factory=list, repr=False)
+    skills_resolved_for_run: bool = field(default=False, repr=False)
     model: str | None = None
     use_history: bool = True
     save_trajectory: bool = False

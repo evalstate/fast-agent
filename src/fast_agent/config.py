@@ -8,7 +8,7 @@ import re
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 # Importing the MCP Implementation type eagerly pulls in the full MCP server
 # stack (uvicorn, Starlette, etc.) which slows down startup. We only need the
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 else:  # pragma: no cover - used only to satisfy type checkers
     Implementation = Any
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
+from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
@@ -40,6 +41,7 @@ from fast_agent.mcp.provider_management import (
     validate_provider_managed_server_settings,
 )
 from fast_agent.mcp.ui_modes import McpUIMode
+from fast_agent.tools.environment_config import EnvironmentSpec
 from fast_agent.types.streaming import StreamingMode
 from fast_agent.utils.action_normalization import (
     FALSE_ACTION_ALIASES,
@@ -1832,6 +1834,27 @@ def _lookup_nested_mapping_value(
     return True, current
 
 
+class _WithoutAmbiguousHomeSource(PydanticBaseSettingsSource):
+    """Filter HOME-derived ``home`` values from env and dotenv settings sources."""
+
+    def __init__(self, source: PydanticBaseSettingsSource) -> None:
+        super().__init__(source.settings_cls)
+        self._source = source
+
+    def __call__(self) -> dict[str, Any]:
+        values = self._source()
+        if "home" not in values:
+            return values
+        filtered = dict(values)
+        filtered.pop("home")
+        return filtered
+
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
+        if field_name == "home":
+            return None, field_name, False
+        return self._source.get_field_value(field, field_name)
+
+
 class Settings(BaseSettings):
     """
     Settings class for the fast-agent application.
@@ -1849,16 +1872,7 @@ class Settings(BaseSettings):
     def _without_ambiguous_home_source(
         source: PydanticBaseSettingsSource,
     ) -> PydanticBaseSettingsSource:
-        def filtered_source() -> dict[str, Any]:
-            values = source()
-            if "home" not in values:
-                return values
-            filtered = dict(values)
-            filtered.pop("home")
-            return filtered
-
-        filtered_source.__name__ = f"filtered_{type(source).__name__}"
-        return cast("PydanticBaseSettingsSource", filtered_source)
+        return _WithoutAmbiguousHomeSource(source)
 
     @classmethod
     def settings_customise_sources(
@@ -1875,21 +1889,6 @@ class Settings(BaseSettings):
             cls._without_ambiguous_home_source(dotenv_settings),
             file_secret_settings,
         )
-
-    def __init__(self, **data: Any) -> None:
-        if "home" in data:
-            super().__init__(**data)
-            return
-
-        sentinel = object()
-        original_home = os.environ.pop("HOME", sentinel)
-        try:
-            super().__init__(**data)
-        finally:
-            if original_home is sentinel:
-                os.environ.pop("HOME", None)
-            else:
-                os.environ["HOME"] = str(original_home)
 
     mcp: MCPSettings | None = Field(default_factory=MCPSettings)
     """MCP config, such as MCP servers"""
@@ -1913,6 +1912,12 @@ class Settings(BaseSettings):
 
     model_references: dict[str, dict[str, str]] = Field(default_factory=dict)
     """Model references grouped by namespace (e.g. $system.default)."""
+
+    environments: dict[str, EnvironmentSpec] = Field(default_factory=dict)
+    """Named execution environment definitions."""
+
+    default_environment: str = "local"
+    """Default named execution environment. The implicit default is local."""
 
     model_source: str | None = None
     """Where the default model was resolved from for the current run, if noteworthy."""
@@ -2071,6 +2076,23 @@ class Settings(BaseSettings):
             normalized[namespace] = normalized_entries
 
         return normalized
+
+    @model_validator(mode="after")
+    def _validate_environment_names(self) -> "Settings":
+        for name in self.environments:
+            if name.startswith("_"):
+                raise ValueError("Environment names starting with '_' are reserved.")
+            if not name.strip():
+                raise ValueError("Environment names must be non-empty.")
+
+        if self.default_environment != "local" and self.default_environment not in self.environments:
+            valid_names = sorted({"local", *self.environments})
+            choices = ", ".join(valid_names)
+            raise ValueError(
+                f"default_environment '{self.default_environment}' is not configured. "
+                f"Valid environments: {choices}"
+            )
+        return self
 
 # Global settings object
 _settings: Settings | None = None

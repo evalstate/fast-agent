@@ -23,6 +23,32 @@ default_model: gpt-5.4-mini?reasoning=low
 # default_model: "$system.default"
 # agent model: "$system.fast"
 
+# Named execution environments. `local` is implicit; uncomment and edit entries as needed.
+# default_environment: local
+# environments:
+#   local:
+#     type: local
+#     cwd: .
+#   ubuntu:
+#     type: docker
+#     image: ubuntu:24.04
+#     shell: bash
+#     cwd: /workspace
+#     mounts:
+#       - source: .
+#         target: /workspace
+#         mode: rw
+#   hf-gpu:
+#     type: huggingface
+#     image: python:3.12
+#     flavor: cpu-basic
+#     cwd: /workspace
+#   custom:
+#     type: custom
+#     class: mycompany.envs:KubernetesEnvironment
+#     params:
+#       namespace: agents-staging
+
 # Number of times to retry transient LLM API errors (falls back to FAST_AGENT_RETRIES env var)
 # llm_retries: 2
 

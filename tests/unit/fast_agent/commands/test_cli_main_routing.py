@@ -86,6 +86,16 @@ def test_auto_routes_to_go_when_pack_flag_used_at_root() -> None:
     assert "--pack-registry" in output
 
 
+@pytest.mark.parametrize("option", ["--environment", "-E"])
+def test_auto_routes_to_go_when_environment_flag_used_at_root(option: str) -> None:
+    result = _run_fast_agent_cli(option, "hf-gpu", "--help")
+    output = strip_ansi(result.stdout)
+
+    assert result.returncode == 0, result.stderr
+    _assert_routed_help(output, "go")
+    assert "--environment" in output
+
+
 def test_auto_routes_to_go_when_no_shell_used_at_root() -> None:
     result = _run_fast_agent_cli("--no-shell", "--help")
     output = strip_ansi(result.stdout)

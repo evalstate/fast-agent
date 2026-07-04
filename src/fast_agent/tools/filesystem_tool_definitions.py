@@ -29,10 +29,11 @@ def build_attach_media_tool(
     return Tool(
         name=ATTACH_MEDIA_TOOL_NAME,
         description=(
-            "Stage a local file, file:// URI, or provider-fetchable media/document URL as "
-            "multimodal user input for the next model call. Use this for images, PDFs, audio, "
-            f"and video{youtube_suffix}. Do not use this for internal:// or MCP resource "
-            "URIs; use get_resource for those. Use read_text_file for plain text/code files."
+            "Stage a file from the active filesystem, file:// URI, or provider-fetchable "
+            "media/document URL as multimodal user input for the next model call. Use this for "
+            f"images, PDFs, audio, and video{youtube_suffix}. Do not use this for internal:// "
+            "or MCP resource URIs; use get_resource for those. Use read_text_file for plain "
+            "text/code files."
             + supported
         ),
         inputSchema={
@@ -41,7 +42,7 @@ def build_attach_media_tool(
                 "source": {
                     "type": "string",
                     "description": (
-                        "Local path, file:// URI, or provider-fetchable remote URI/URL to attach."
+                        "Active filesystem path, file:// URI, or provider-fetchable remote URI/URL to attach."
                     ),
                 },
                 "mime_type": {

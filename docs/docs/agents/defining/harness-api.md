@@ -855,10 +855,31 @@ async with fast.harness() as harness:
 `stderr`, and `exit_code`. It runs through the harness shell environment, but it
 does not create a harness session and does not update agent history.
 
-By default, the harness uses the local shell environment. You can inject another
-environment, such as Docker, with `fast.harness(environment=...)`. See
-[Execution Environments](../environments.md) for Docker examples and the
+By default, the harness uses the configured `default_environment`, falling back
+to the implicit `local` environment. Select a named environment from
+`fast-agent.yaml` with `fast.harness(environment="ubuntu")`, or pass a
+`ShellEnvironment` instance directly. See
+[Execution Environments](../environments.md) for config examples and the
 `ShellEnvironment` protocol.
+
+```python
+async with fast.harness(environment="ubuntu") as harness:
+    result = await harness.shell("pwd")
+```
+
+Harness code also has a host-side local environment at `harness.local`, even
+when the active shell environment is Docker or remote. Use it with transfer
+helpers to seed remote workspaces and collect artifacts:
+
+```python
+from fast_agent.tools.environment_transfer import copy_tree
+
+async with fast.harness(environment="hf-gpu") as harness:
+    await copy_tree(harness.local, "inputs", harness.environment, "/workspace/inputs")
+    session = await harness.session("job-1", agent_name="researcher")
+    await session.generate("Process /workspace/inputs and write output to /workspace/out")
+    await copy_tree(harness.environment, "/workspace/out", harness.local, "outputs")
+```
 
 Use `session.shell()` when you want shell work serialized with a specific
 `HarnessSession`:
@@ -890,10 +911,10 @@ The shell/tool activity belongs to the selected agent in that session's
 flow. Use this when the model should decide which commands to run or when the
 tool interaction should be part of the agent turn.
 
-Filesystem access remains tool-mediated through configured agents. If the
-injected shell environment also implements `EnvironmentFilesystem`, model-facing
-file tools such as `read_text_file`, `write_text_file`, `edit_file`, and
-`apply_patch` use that environment filesystem.
+Filesystem access remains tool-mediated through configured agents. Model-facing
+file tools use the same workspace tree as the active shell environment when
+that environment implements `EnvironmentFilesystem`; shell-only environments do
+not get a host filesystem fallback.
 
 Session IDs are conversation/runtime affinity keys, not security boundaries. A
 session does not automatically create a filesystem sandbox. For

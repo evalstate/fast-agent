@@ -26,6 +26,7 @@ from fast_agent.ui.command_payloads import (
     McpListCommand,
     ResumeSessionCommand,
     SaveHistoryCommand,
+    ShellCommand,
     TitleSessionCommand,
     UnknownCommand,
 )
@@ -73,6 +74,7 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
         "markdown",
         "reload",
         "mcpstatus",
+        "environment",
         "tools",
         "prompts",
         "exit",
@@ -349,6 +351,21 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
             "",
             id="leading-whitespace-slash",
         ),
+        pytest.param(
+            "! pwd",
+            ShellCommand(command="pwd", local=False, interactive=False),
+            id="environment-shell-command",
+        ),
+        pytest.param(
+            "!!",
+            ShellCommand(command=prompt_parser.default_shell_command(), local=True, interactive=True),
+            id="local-interactive-shell",
+        ),
+        pytest.param(
+            "!! pwd",
+            ShellCommand(command="pwd", local=True, interactive=False),
+            id="local-shell-command",
+        ),
     ],
 )
 def test_parse_special_input_intent_contract(
@@ -365,6 +382,14 @@ def test_parse_special_input_intent_contract(
         assert actual.error == expected["error"]
         return
     assert actual == expected
+
+
+def test_parse_special_input_environment_command() -> None:
+    from fast_agent.ui.command_payloads import EnvironmentCommand
+
+    actual = parse_special_input("/environment")
+
+    assert isinstance(actual, EnvironmentCommand)
 
 
 def test_parse_attach_uses_windows_aware_tokenization(monkeypatch: pytest.MonkeyPatch) -> None:

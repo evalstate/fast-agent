@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
+import pytest
+
+from fast_agent.core.exceptions import EnvironmentStartupError
 from fast_agent.tools.docker_shell_environment import (
     DockerManagedShellEnvironment,
     DockerMount,
@@ -25,7 +29,7 @@ def test_docker_shell_environment_builds_bash_exec_argv() -> None:
         "docker",
         "exec",
         "-e",
-        "TOKEN=value",
+        "TOKEN",
         "-w",
         "/work",
         "workspace",
@@ -33,6 +37,9 @@ def test_docker_shell_environment_builds_bash_exec_argv() -> None:
         "-lc",
         "pwd",
     ]
+    assert environment._exec_process_env(  # noqa: SLF001
+        ShellExecutionRequest(command="pwd", cwd="/work", env={"TOKEN": "value"})
+    )["TOKEN"] == "value"
 
 
 def test_docker_shell_environment_builds_powershell_exec_argv() -> None:
@@ -83,3 +90,43 @@ def test_managed_docker_environment_mount_args() -> None:
 
     assert args[0] == "-v"
     assert args[1].endswith(":/workspace:rw")
+
+
+@pytest.mark.asyncio
+async def test_managed_docker_environment_reports_missing_container_cli(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def missing_cli(*args: object, **kwargs: object) -> object:
+        raise FileNotFoundError("docker")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", missing_cli)
+    environment = DockerManagedShellEnvironment(image="ubuntu:24.04")
+
+    with pytest.raises(EnvironmentStartupError, match="Container CLI not found: docker"):
+        await environment.open()
+
+
+@pytest.mark.asyncio
+async def test_managed_docker_environment_emits_startup_stages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Process:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return b"container-id\n", b""
+
+    async def create_process(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        return _Process()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
+    environment = DockerManagedShellEnvironment(image="ubuntu:24.04")
+    stages: list[str] = []
+    environment.set_startup_progress_callback(stages.append)
+
+    await environment.open()
+
+    assert any(stage.startswith("starting docker container fast-agent-") for stage in stages)
+    assert "waiting for container start" in stages
+    assert any(stage.startswith("container ready fast-agent-") for stage in stages)

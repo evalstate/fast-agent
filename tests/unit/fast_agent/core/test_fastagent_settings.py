@@ -6,6 +6,7 @@ from fast_agent.config import get_settings, update_global_settings
 from fast_agent.core.fastagent import FastAgent
 from fast_agent.paths import resolve_home_paths
 from fast_agent.plugins.configuration import installed_plugin_roots
+from fast_agent.tools.local_shell_executor import LocalShellExecutor
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -62,5 +63,43 @@ def test_fastagent_startup_preserves_global_plugin_home(
         assert settings._fast_agent_global_plugin_home == global_home.as_posix()
         assert [scope for scope, _root in roots] == ["project", "global"]
         assert sorted((settings.commands or {}).keys()) == ["discover", "images"]
+    finally:
+        update_global_settings(old_settings)
+
+
+def test_fastagent_environments_use_instance_settings_and_config_root(
+    tmp_path: Path,
+) -> None:
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    for root in (first_root, second_root):
+        config_dir = root / ".fast-agent"
+        config_dir.mkdir(parents=True)
+        (config_dir / "fast-agent.yaml").write_text(
+            "default_environment: workspace\n"
+            "environments:\n"
+            "  workspace:\n"
+            "    type: local\n"
+            "    cwd: .\n",
+            encoding="utf-8",
+        )
+
+    old_settings = get_settings()
+    try:
+        first = FastAgent(
+            "first",
+            config_path=str(first_root / ".fast-agent" / "fast-agent.yaml"),
+            parse_cli_args=False,
+        )
+        FastAgent(
+            "second",
+            config_path=str(second_root / ".fast-agent" / "fast-agent.yaml"),
+            parse_cli_args=False,
+        )
+
+        environment = first.environments.build("workspace")
+
+        assert isinstance(environment, LocalShellExecutor)
+        assert environment.working_directory() == first_root
     finally:
         update_global_settings(old_settings)

@@ -45,7 +45,6 @@ from fast_agent.commands.model_capabilities import resolve_model_name, resolve_r
 from fast_agent.config import MCPServerSettings
 from fast_agent.constants import (
     HUMAN_INPUT_TOOL_NAME,
-    SHELL_NOTICE_PREFIX,
     should_parallelize_tool_calls,
 )
 from fast_agent.core.exceptions import AgentConfigError, PromptExitError
@@ -105,6 +104,7 @@ from fast_agent.types import (
 )
 from fast_agent.ui import console
 from fast_agent.ui.message_display_helpers import resolve_highlight_index
+from fast_agent.ui.shell_notice import format_shell_notice
 from fast_agent.utils.async_utils import gather_with_cancel
 from fast_agent.utils.numeric import positive_int_or_none
 from fast_agent.utils.text import strip_casefold, strip_to_none
@@ -284,6 +284,8 @@ class McpAgent(ABC, ToolAgent):
 
     def _initial_skill_manifests(self, context: "Context | None") -> list[SkillManifest]:
         manifests: list[SkillManifest] = list(self.config.skill_manifests or [])
+        if self.config.skills_resolved_for_run:
+            return manifests
         if self.config.skills is not SKILLS_DEFAULT or manifests:
             return manifests
         if not context or not context.skill_registry:
@@ -594,11 +596,28 @@ class McpAgent(ABC, ToolAgent):
                 return fallback
         return None
 
-    def _consume_pending_media_attachments(self) -> list[ContentBlock]:
+    def _drop_local_filesystem_runtime(self) -> None:
         local_runtime = self._local_filesystem_runtime()
         if local_runtime is None:
-            return []
-        return local_runtime.consume_pending_media_attachments()
+            return
+        runtime = self._filesystem_runtime
+        if runtime is local_runtime:
+            self._filesystem_runtime = None
+            return
+        if isinstance(runtime, CompositeFilesystemRuntime):
+            if runtime.primary is local_runtime:
+                self._filesystem_runtime = runtime.fallback
+            elif runtime.fallback is local_runtime:
+                self._filesystem_runtime = runtime.primary
+
+    def _consume_pending_media_attachments(self) -> list[ContentBlock]:
+        local_runtime = self._local_filesystem_runtime()
+        if local_runtime is not None:
+            return local_runtime.consume_pending_media_attachments()
+        environment_runtime = self._environment_filesystem_runtime()
+        if environment_runtime is not None:
+            return environment_runtime.consume_pending_media_attachments()
+        return []
 
     @property
     def has_filesystem_read_text_file_tool(self) -> bool:
@@ -611,18 +630,17 @@ class McpAgent(ABC, ToolAgent):
 
     @property
     def skill_read_tool_name(self) -> str:
-        """Return the tool name that should be referenced for reading skill content."""
-        if self._skills_require_host_reader():
-            return READ_SKILL_TOOL_NAME
+        """Return the tool name that should be referenced for reading skill content.
+
+        Skills are discovered from the active environment filesystem, so the
+        environment ``read_text_file`` tool reads skill paths directly;
+        ``read_skill`` remains the fallback when no read tool is exposed.
+        """
         return (
             READ_TEXT_FILE_TOOL_NAME
             if self.has_filesystem_read_text_file_tool
             else READ_SKILL_TOOL_NAME
         )
-
-    def _skills_require_host_reader(self) -> bool:
-        """Return whether configured skills should be read from host paths."""
-        return bool(self._skill_manifests and self._environment_filesystem_runtime() is not None)
 
     @property
     def initialized(self) -> bool:
@@ -833,6 +851,8 @@ class McpAgent(ABC, ToolAgent):
             return
 
         enable_read = self._shell_read_text_file_enabled()
+        enable_attach_media = self._shell_attach_media_mode()
+        model_info = self.llm.model_info if self.llm else None
         edit_flags = self._shell_edit_tool_flags()
         environment_filesystem = self._shell_environment
         environment_runtime = self._environment_filesystem_runtime()
@@ -843,7 +863,10 @@ class McpAgent(ABC, ToolAgent):
                     enable_write=edit_flags.write_text_file,
                     enable_apply_patch=edit_flags.apply_patch,
                     enable_edit_file=edit_flags.edit_file,
+                    enable_attach_media=enable_attach_media,
                 )
+                environment_runtime.set_model_info(model_info)
+                environment_runtime.set_tool_handler_resolver(self._get_tool_handler)
                 return
 
             environment_runtime = EnvironmentFilesystemRuntime(
@@ -852,6 +875,9 @@ class McpAgent(ABC, ToolAgent):
                 enable_write=edit_flags.write_text_file,
                 enable_apply_patch=edit_flags.apply_patch,
                 enable_edit_file=edit_flags.edit_file,
+                enable_attach_media=enable_attach_media,
+                model_info=model_info,
+                tool_handler_resolver=self._get_tool_handler,
             )
             if self._filesystem_runtime is None:
                 self._filesystem_runtime = environment_runtime
@@ -867,11 +893,14 @@ class McpAgent(ABC, ToolAgent):
                 write_enabled=edit_flags.write_text_file,
                 apply_patch_enabled=edit_flags.apply_patch,
                 edit_file_enabled=edit_flags.edit_file,
+                attach_media_enabled=enable_attach_media,
             )
             return
 
-        enable_attach_media = self._shell_attach_media_mode()
-        model_info = self.llm.model_info if self.llm else None
+        if self._shell_environment is not None:
+            self._drop_local_filesystem_runtime()
+            return
+
         local_runtime = self._local_filesystem_runtime()
         if local_runtime is not None:
             if working_directory is not None:
@@ -961,7 +990,9 @@ class McpAgent(ABC, ToolAgent):
                 enable_write=edit_flags.write_text_file,
                 enable_apply_patch=edit_flags.apply_patch,
                 enable_edit_file=edit_flags.edit_file,
+                enable_attach_media=self._shell_attach_media_mode(),
             )
+            environment_runtime.set_model_info(llm.model_info)
 
         if self._shell_runtime is None:
             return
@@ -1011,7 +1042,9 @@ class McpAgent(ABC, ToolAgent):
             if show_shell_notice and self._allow_shell_notice and not self._shell_notice_emitted:
                 self._shell_notice_emitted = True
                 with suppress(Exception):
-                    console.console.print(SHELL_NOTICE_PREFIX)
+                    console.console.print(
+                        format_shell_notice(self._shell_access_modes, self._shell_runtime)
+                    )
 
     @property
     def shell_runtime_enabled(self) -> bool:

@@ -15,7 +15,9 @@ from fast_agent.core.prompt_templates import (
     _format_client_info,
     enrich_with_environment_context,
     load_skills_for_context,
+    refresh_execution_environment_context,
 )
+from fast_agent.tools.execution_environment import ShellRuntimeInfo
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -109,6 +111,30 @@ class StubMcpAgent(StubAgent):
         return "read_skill"
 
 
+class _PromptEnvironment:
+    @property
+    def cwd(self) -> str:
+        return "/workspace"
+
+    def runtime_info(self) -> ShellRuntimeInfo:
+        return ShellRuntimeInfo(
+            name="sh",
+            kind="remote",
+            provider="huggingface",
+            environment_name="hf-gpu",
+        )
+
+    async def open(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+    async def execute(self, request, *, callbacks=None):
+        del request, callbacks
+        raise NotImplementedError
+
+
 def test_format_client_info_ignores_blank_title_and_trims_version() -> None:
     assert (
         _format_client_info({"title": "   ", "name": " zed ", "version": " 1.2.3 "}) == "zed 1.2.3"
@@ -133,6 +159,42 @@ def test_format_client_info_normalizes_via_client() -> None:
         )
         == "fast-agent 1.0 via terminal 2.0"
     )
+
+
+def test_enrich_environment_context_describes_active_execution_environment() -> None:
+    context: dict[str, str] = {}
+
+    enrich_with_environment_context(
+        context,
+        "/host/project",
+        {"name": "fast-agent"},
+        shell_environment=_PromptEnvironment(),
+    )
+
+    assert context["workspaceRoot"] == "/workspace"
+    assert context["hostWorkspaceRoot"] == "/host/project"
+    assert context["executionEnvironmentName"] == "hf-gpu"
+    assert context["executionEnvironmentKind"] == "remote"
+    assert context["executionEnvironmentProvider"] == "huggingface"
+    assert context["executionEnvironmentShell"] == "sh"
+    assert context["executionEnvironmentCwd"] == "/workspace"
+    assert "Workspace root: /workspace" in context["env"]
+    assert "/host/project" not in context["env"]
+    assert "Execution environment: hf-gpu remote huggingface (shell: sh, cwd: /workspace)" in context["env"]
+    assert "Client host platform:" not in context["env"]
+    assert "Host platform:" not in context["env"]
+
+
+def test_refresh_execution_environment_context_preserves_client_summary() -> None:
+    context: dict[str, str] = {}
+    enrich_with_environment_context(context, "/host/project", {"name": "fast-agent"})
+
+    refresh_execution_environment_context(context, _PromptEnvironment())
+
+    assert "Client: fast-agent" in context["env"]
+    assert "Execution environment: hf-gpu remote huggingface" in context["env"]
+    assert "Workspace root: /workspace" in context["env"]
+    assert "/host/project" not in context["env"]
 
 
 def test_build_agent_instruction_context_includes_agent_metadata(tmp_path: Path) -> None:

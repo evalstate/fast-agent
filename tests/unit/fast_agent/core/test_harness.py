@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
@@ -17,6 +18,7 @@ from fast_agent import (
     HarnessSessions,
 )
 from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.config import get_settings, update_global_settings
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
 from fast_agent.core.fastagent import AgentInstance, RunRuntime, RunSettings
@@ -48,6 +50,125 @@ def test_public_harness_exports_and_factory() -> None:
     assert AgentResponse.__name__ == "AgentResponse"
     assert HarnessSession.__name__ == "HarnessSession"
     assert HarnessSessions.__name__ == "HarnessSessions"
+
+
+def test_environments_resolve_relative_paths_from_explicit_config(
+    tmp_path: "Path",
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    caller = tmp_path / "caller"
+    workspace = project / "workspace"
+    workspace.mkdir(parents=True)
+    caller.mkdir()
+    config_path = project / "fast-agent.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "default_environment: named",
+                "environments:",
+                "  named:",
+                "    type: local",
+                "    cwd: workspace",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    old_settings = get_settings()
+    monkeypatch.chdir(caller)
+    try:
+        fast = FastAgent("test", parse_cli_args=False, config_path=str(config_path))
+
+        environment = fast.environments.build("named")
+
+        assert environment.cwd == str(workspace)
+    finally:
+        update_global_settings(old_settings)
+
+
+@pytest.mark.asyncio
+async def test_harness_resolves_configured_default_environment(
+    tmp_path: "Path",
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_path = tmp_path / "harness_custom_env.py"
+    module_path.write_text(
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "LOG = Path(__file__).with_name('events.txt')",
+                "class CustomEnv:",
+                "    def __init__(self, label):",
+                "        self.label = label",
+                "    async def open(self):",
+                "        LOG.write_text(f'open:{self.label}', encoding='utf-8')",
+                "    @property",
+                "    def cwd(self):",
+                "        return '.'",
+                "    def runtime_info(self):",
+                "        from fast_agent.tools.execution_environment import ShellRuntimeInfo",
+                "        return ShellRuntimeInfo(name=self.label, kind='custom')",
+                "    async def execute(self, request, *, callbacks=None):",
+                "        raise AssertionError('not used')",
+                "    async def close(self):",
+                "        LOG.write_text(LOG.read_text(encoding='utf-8') + ':close', encoding='utf-8')",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    home = tmp_path / ".fast-agent"
+    home.mkdir()
+    (home / "fast-agent.yaml").write_text(
+        "\n".join(
+            [
+                "default_environment: named",
+                "environments:",
+                "  named:",
+                "    type: custom",
+                "    class: harness_custom_env:CustomEnv",
+                "    params:",
+                "      label: selected",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    old_settings = get_settings()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    try:
+        fast = FastAgent("test", parse_cli_args=False, home=home)
+
+        @fast.agent(name="main", model="passthrough", default=True)
+        async def main() -> str:
+            return "ok"
+
+        async with fast.harness() as harness:
+            assert harness.environment.runtime_info().name == "selected"
+            await harness.local.write_text("local-artifact.txt", "host-side")
+
+        assert (tmp_path / "events.txt").read_text(encoding="utf-8") == "open:selected:close"
+        assert (tmp_path / "local-artifact.txt").read_text(encoding="utf-8") == "host-side"
+    finally:
+        # syspath_prepend is undone by monkeypatch, but the imported module would
+        # otherwise shadow other tests' modules named custom_env.
+        sys.modules.pop("custom_env", None)
+        update_global_settings(old_settings)
+
+
+@pytest.mark.asyncio
+async def test_harness_does_not_close_caller_owned_environment() -> None:
+    fast = FastAgent("test", parse_cli_args=False)
+    shell_environment = FakeShellEnvironment()
+
+    @fast.agent(name="main", model="passthrough", default=True)
+    async def main() -> str:
+        return "ok"
+
+    async with fast.harness(environment=shell_environment) as harness:
+        assert harness.environment is shell_environment
+        assert shell_environment.opened is True
+
+    assert shell_environment.closed is False
 
 
 @pytest.mark.asyncio

@@ -1224,6 +1224,7 @@ class _CheckSummaryContext:
     home_paths: HomePaths
     server_names: set[str] | None
     overlay_preset_collision_messages: tuple[str, ...]
+    environment_rows: tuple[tuple[str, str, str, str], ...]
 
 
 def _relative_summary_path(search_root: Path, path: Path) -> str:
@@ -1246,6 +1247,55 @@ def _load_optional_keyring_module() -> Any | None:
         return keyring_module
     except Exception:
         return None
+
+
+def _collect_environment_rows(
+    *,
+    cwd: Path,
+    config_files: dict[str, Path | None],
+    home_override: str | Path,
+) -> tuple[tuple[str, str, str, str], ...]:
+    from fast_agent.config import (
+        Settings,
+        deep_merge,
+        load_implicit_settings,
+        load_yaml_mapping,
+    )
+    from fast_agent.tools.environment_config import LocalEnvironmentSpec
+    from fast_agent.tools.environment_factory import build_environment
+
+    try:
+        merged_settings, discovery = load_implicit_settings(start_path=cwd, home=home_override)
+        secrets_path = discovery.secrets_path or config_files.get("secrets")
+        if isinstance(secrets_path, Path):
+            merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_path))
+        settings = Settings(**merged_settings)
+    except Exception as exc:
+        return (("config", "-", "", f"[orange_red1]{exc}[/orange_red1]"),)
+
+    environment_specs = dict(settings.environments)
+    environment_specs.setdefault("local", LocalEnvironmentSpec())
+    valid_names = ", ".join(sorted(environment_specs))
+    rows: list[tuple[str, str, str, str]] = []
+    for name, spec in sorted(environment_specs.items(), key=lambda item: item[0]):
+        default_marker = "[green]yes[/green]" if name == settings.default_environment else ""
+        try:
+            environment = build_environment(
+                spec,
+                settings=settings,
+                workspace_root=cwd,
+                name=name,
+            )
+            runtime_info = environment.runtime_info()
+            detail = runtime_info.provider or runtime_info.kind
+            status = f"[green]valid[/green] ({detail})"
+        except Exception as exc:
+            status = (
+                f"[orange_red1]{exc}[/orange_red1] "
+                f"[dim]Valid names: {valid_names}[/dim]"
+            )
+        rows.append((name, spec.type, default_marker, status))
+    return tuple(rows)
 
 
 def _build_check_summary_context(home: Path | None) -> _CheckSummaryContext:
@@ -1295,6 +1345,11 @@ def _build_check_summary_context(home: Path | None) -> _CheckSummaryContext:
         start_path=cwd,
         home=home_override,
     )
+    environment_rows = _collect_environment_rows(
+        cwd=cwd,
+        config_files=config_files,
+        home_override=home_override,
+    )
 
     return _CheckSummaryContext(
         cwd=cwd,
@@ -1315,6 +1370,7 @@ def _build_check_summary_context(home: Path | None) -> _CheckSummaryContext:
         home_paths=home_paths,
         server_names=server_names,
         overlay_preset_collision_messages=overlay_preset_collision_messages,
+        environment_rows=environment_rows,
     )
 
 
@@ -1520,6 +1576,20 @@ def _render_application_settings(config_summary: dict[str, Any]) -> None:
 
     _print_section_header("Application Settings", color="blue")
     console.print(logger_table)
+
+
+def _render_environments_panel(context: _CheckSummaryContext) -> None:
+    _print_section_header("Environments", color="blue")
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Name", style="cyan")
+    table.add_column("Type")
+    table.add_column("Default")
+    table.add_column("Status")
+
+    for name, environment_type, default_marker, status in context.environment_rows:
+        table.add_row(name, environment_type, default_marker, status)
+
+    console.print(table)
 
 
 def _render_model_overlay_notices(context: _CheckSummaryContext) -> None:
@@ -2142,6 +2212,7 @@ def show_check_summary(home: Path | None = None) -> None:
     context = _build_check_summary_context(home)
     _render_environment_summary(context)
     _render_application_settings(context.config_summary)
+    _render_environments_panel(context)
     _render_model_overlay_notices(context)
     _render_api_keys_panel(context.api_keys)
     _render_codex_oauth_panel(context.keyring_status)

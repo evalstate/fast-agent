@@ -181,6 +181,70 @@ def test_build_command_run_request_resolves_defaults() -> None:
     assert request.host == "127.0.0.1"
     assert request.result_file == "out.json"
     assert request.execution_mode == "repl"
+    assert request.environment is None
+
+
+def test_build_command_run_request_carries_environment_name() -> None:
+    request = build_command_run_request(
+        name="cli",
+        instruction_option=None,
+        config_path=None,
+        servers=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        agent_cards=None,
+        card_tools=None,
+        model=None,
+        message=None,
+        prompt_file=None,
+        result_file=None,
+        resume=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        target_agent_name=None,
+        skills_directory=None,
+        home=Path("."),
+        shell_enabled=False,
+        mode="interactive",
+        environment="ubuntu",
+    )
+
+    assert request.environment == "ubuntu"
+    assert request.shell_runtime is True
+
+
+def test_build_command_run_request_no_shell_overrides_environment_shell() -> None:
+    request = build_command_run_request(
+        name="cli",
+        instruction_option=None,
+        config_path=None,
+        servers=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        agent_cards=None,
+        card_tools=None,
+        model=None,
+        message=None,
+        prompt_file=None,
+        result_file=None,
+        resume=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        target_agent_name=None,
+        skills_directory=None,
+        home=Path("."),
+        shell_enabled=False,
+        no_shell=True,
+        mode="interactive",
+        environment="ubuntu",
+    )
+
+    assert request.environment == "ubuntu"
+    assert request.shell_runtime is False
 
 
 def test_build_command_run_request_propagates_timeout() -> None:

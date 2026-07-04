@@ -457,6 +457,7 @@ def build_agent_run_request(
     force_smart: bool = False,
     no_home: bool = False,
     attachments: list[str] | None = None,
+    environment: str | None = None,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
     validate_no_home_conflicts(
@@ -511,6 +512,7 @@ def build_agent_run_request(
     effective_permissions_enabled = (
         permissions_enabled if not (no_home and mode == "serve") else False
     )
+    effective_shell_enabled = shell_enabled or (environment is not None and not no_shell)
 
     return AgentRunRequest(
         name=name,
@@ -532,11 +534,12 @@ def build_agent_run_request(
         stdio_servers=stdio_servers,
         agent_name=agent_name,
         target_agent_name=target_agent_name,
+        environment=environment,
         skills_directory=skills_directory,
         home=None if no_home else home,
         no_home=no_home,
         force_smart=force_smart,
-        shell_runtime=shell_enabled,
+        shell_runtime=effective_shell_enabled,
         no_shell=no_shell,
         prefer_local_shell=prefer_local_shell,
         mode=mode,
@@ -614,6 +617,7 @@ def build_command_run_request(
     schema_model: str | None = None,
     structured_tool_policy: str | None = None,
     attachments: list[str] | None = None,
+    environment: str | None = None,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_no_home_conflicts(
@@ -653,6 +657,7 @@ def build_command_run_request(
         stdio_commands=stdio_commands,
         agent_name=resolved_instruction.agent_name,
         target_agent_name=target_agent_name,
+        environment=environment,
         skills_directory=skills_directory,
         home=home,
         no_home=no_home,

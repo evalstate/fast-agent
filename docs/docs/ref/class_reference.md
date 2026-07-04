@@ -72,8 +72,22 @@ async with fast.run(environment=None) as agent:
 
 An async context manager that initializes all registered agents and returns an `AgentApp` instance that can be used to interact with the agents.
 
-Pass `environment=` to run shell-enabled agent tool calls in a custom shell
-environment, such as Docker. See [Execution Environments](../agents/environments.md).
+Pass `environment=` as a configured environment name or a `ShellEnvironment`
+instance to run shell-enabled agent tool calls outside the default local
+environment. See [Execution Environments](../agents/environments.md).
+
+#### Environment helpers
+
+- `fast.environments.names()` lists configured environment names, including the
+  implicit `local`.
+- `fast.environments.build(name)` returns a fresh unopened environment instance.
+- `fast.environments.resolve(name_or_instance)` resolves a name or passes an
+  instance through.
+- `harness.environment` is the active shell environment for the harness.
+- `harness.local` is a host-side `LocalEnvironment` available for staging files
+  and collecting artifacts.
+- `fast_agent.tools.environment_transfer.copy_file(...)` and `copy_tree(...)`
+  copy bytes between environment filesystems and return a `TransferReport`.
 
 --8<-- "docs/docs/_generated/fastagent_harness_method.md"
 

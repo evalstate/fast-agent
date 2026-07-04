@@ -41,6 +41,7 @@ from fast_agent.core.error_handling import handle_error
 from fast_agent.core.exceptions import (
     AgentConfigError,
     CircularDependencyError,
+    EnvironmentStartupError,
     ModelConfigError,
     PromptExitError,
     ProviderKeyError,
@@ -55,6 +56,7 @@ from fast_agent.core.run_runtime import FastAgentRunMixin
 from fast_agent.core.validation import validate_server_references, validate_workflow_references
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
+from fast_agent.tools.environment_registry import UnknownEnvironmentError
 from fast_agent.ui.console import configure_console_stream
 from fast_agent.utils.count_display import plural_label
 from fast_agent.utils.text import strip_casefold
@@ -72,6 +74,7 @@ if TYPE_CHECKING:
     from fast_agent.core.harness import AgentHarness
     from fast_agent.interfaces import AgentProtocol, ModelFactoryFunctionProtocol
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
+    from fast_agent.tools.environment_registry import EnvironmentRegistry, EnvironmentSelection
     from fast_agent.tools.execution_environment import ShellEnvironment
     from fast_agent.types import PromptMessageExtended
 
@@ -194,9 +197,11 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
 
         self.name = name
         self.config_path = config_path
+        self._settings: config.Settings
 
         try:
             instance_settings = self._load_instance_settings()
+            self._settings = instance_settings
             self.app = Core(name=name, settings=instance_settings, **kwargs)
             self._stop_progress_display_if_quiet()
 
@@ -766,6 +771,57 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
             )
             return []
 
+    async def _apply_environment_skills(self, environment: "ShellEnvironment") -> None:
+        """Re-discover run skills from a non-local environment's filesystem.
+
+        Skills follow the environment: for non-local environments the skill
+        tree must be visible inside the environment filesystem (mounted or
+        copied there). Local environments keep host discovery, which already
+        scans the same filesystem the agent's tools use.
+        """
+        from fast_agent.tools.execution_environment import EnvironmentFilesystem
+        from fast_agent.tools.local_shell_executor import LocalEnvironment
+
+        if isinstance(environment, LocalEnvironment):
+            return
+
+        if not isinstance(environment, EnvironmentFilesystem):
+            if self._default_skill_manifests:
+                logger.warning(
+                    "Skills are unavailable: the selected environment has no filesystem",
+                    data={"environment": type(environment).__name__},
+                )
+                self._apply_skills_to_agent_configs([])
+            return
+
+        from fast_agent.skills.environment_scan import scan_environment_skills
+
+        manifests, warnings = await scan_environment_skills(
+            environment,
+            directories=self._environment_skill_directories(),
+        )
+        for warning in warnings:
+            logger.warning("Environment skill scan", data={"warning": warning})
+        self._apply_skills_to_agent_configs(manifests)
+
+    def _refresh_prompt_context_skills(self, context: dict[str, str]) -> None:
+        """Keep shared prompt skills aligned with the active run environment."""
+        from fast_agent.skills.registry import format_skills_for_prompt
+        from fast_agent.tools.filesystem_tool_definitions import READ_TEXT_FILE_TOOL_NAME
+
+        context["agentSkills"] = format_skills_for_prompt(
+            self._default_skill_manifests,
+            read_tool_name=READ_TEXT_FILE_TOOL_NAME,
+        )
+
+    def _environment_skill_directories(self) -> list[str] | None:
+        """Skill directories to scan inside a non-local environment, if configured."""
+        if self._skills_directory_override is not None:
+            return [str(path) for path in self._skills_directory_override]
+        if self._settings.skills.directories:
+            return list(self._settings.skills.directories)
+        return None
+
     def _configure_quiet_mode_for_run(self) -> None:
         """Disable run-time progress and chat display output."""
         cfg = self.app.context.config
@@ -848,12 +904,23 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         self,
         *,
         model: str | None = None,
-        environment: ShellEnvironment | None = None,
+        environment: "EnvironmentSelection" = None,
     ) -> "AgentHarness":
         """Create a headless session harness for this fast-agent app."""
         from fast_agent.core.harness import AgentHarness
 
         return AgentHarness(self, model=model, environment=environment)
+
+    @property
+    def environments(self) -> "EnvironmentRegistry":
+        """Named execution environments configured for this fast-agent run."""
+        from fast_agent.paths import resolve_settings_start_path
+        from fast_agent.tools.environment_registry import EnvironmentRegistry
+
+        return EnvironmentRegistry(
+            self._settings,
+            workspace_root=resolve_settings_start_path(self._settings),
+        )
 
     async def _apply_instruction_context(
         self, instance: AgentInstance, context_vars: dict[str, str]
@@ -971,6 +1038,7 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
                 resolved = self._deduplicate_skills(resolved)
 
             config_obj.skill_manifests = resolved
+            config_obj.skills_resolved_for_run = True
 
     def _resolve_skills(
         self,
@@ -1082,6 +1150,12 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
                 "MCP Server Startup Error",
                 "There was an error starting up the MCP Server.",
             )
+        elif isinstance(e, EnvironmentStartupError):
+            handle_error(
+                e,
+                "Environment Startup Error",
+                "Check the selected execution environment and any required local CLIs.",
+            )
         elif isinstance(e, ModelConfigError):
             handle_error(
                 e,
@@ -1093,6 +1167,12 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
                 e,
                 "Circular Dependency Detected",
                 "Check your agent configuration for circular dependencies.",
+            )
+        elif isinstance(e, UnknownEnvironmentError):
+            handle_error(
+                e,
+                "Environment Selection Error",
+                "Choose one of the configured environments or update your 'fast-agent.yaml' configuration file.",
             )
         elif isinstance(e, PromptExitError):
             handle_error(

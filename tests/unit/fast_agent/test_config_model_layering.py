@@ -189,6 +189,19 @@ def test_dotenv_home_does_not_populate_fast_agent_home(
     assert settings.default_model == "haiku"
 
 
+def test_settings_ignores_home_env_without_mutating_process_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shell_home = tmp_path / "shell-home"
+    monkeypatch.setenv("HOME", shell_home.as_posix())
+
+    settings = Settings()
+
+    assert settings.home is None
+    assert os.environ["HOME"] == shell_home.as_posix()
+
+
 def test_get_settings_prefers_env_config_over_cwd_and_legacy(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     nested = workspace / "child"

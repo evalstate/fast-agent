@@ -24,7 +24,7 @@ Current agent identity:
 - AgentCard path: {{agentCardPath}}
 - AgentCard directory: {{agentCardDir}}
 
-For fast-agent configuration guidance, call `get_resource` with `internal://fast-agent/smart-agent-cards` for AgentCards and `internal://fast-agent/model-overlays` for model overlay manifests.
+For fast-agent configuration guidance, call `get_resource` with `internal://fast-agent/smart-agent-cards` for AgentCards, `internal://fast-agent/model-overlays` for model overlay manifests, and `internal://fast-agent/execution-environments` for named execution environment config.
 Use `list_resources` to discover bundled internal resources and attached MCP resources.
 `internal` is always available and `list_resources` returns valid `server_names` for disambiguation.
 Use the smart tool to load AgentCards temporarily when you need extra agents.

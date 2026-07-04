@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import posixpath
+import re
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import PurePosixPath
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Callable, Literal, Protocol, cast
 
 from fast_agent.tools.execution_environment import (
     EnvironmentFileEntry,
@@ -20,6 +23,7 @@ from fast_agent.tools.execution_environment import (
 )
 
 DEFAULT_HF_SANDBOX_IDLE_TIMEOUT = 10 * 60
+FAST_AGENT_HF_SANDBOX_LABEL = "fast-agent"
 _LIST_DIR_SCRIPT = """
 import json
 import os
@@ -37,6 +41,13 @@ for name in sorted(os.listdir(root)):
         kind = "other"
     entries.append({"path": path, "name": name, "kind": kind})
 print(json.dumps(entries), end="")
+""".strip()
+_READ_BYTES_SCRIPT = """
+import base64
+import pathlib
+import sys
+
+sys.stdout.write(base64.b64encode(pathlib.Path(sys.argv[1]).read_bytes()).decode("ascii"))
 """.strip()
 
 
@@ -60,6 +71,7 @@ class _SandboxFiles(Protocol):
 
 
 class _Sandbox(Protocol):
+    id: str
     files: _SandboxFiles
 
     def run(
@@ -103,6 +115,18 @@ class _VolumeClass(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class HuggingFaceVolumeMount:
+    """Volume mount for a Hugging Face sandbox."""
+
+    type: Literal["bucket", "model", "dataset", "space"]
+    source: str
+    mount_path: str
+    read_only: bool | None = None
+    path: str | None = None
+    revision: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class HuggingFaceBucketMount:
     """Bucket mount for a Hugging Face sandbox."""
 
@@ -110,6 +134,15 @@ class HuggingFaceBucketMount:
     mount_path: str
     read_only: bool = False
     path: str | None = None
+
+    def as_volume_mount(self) -> HuggingFaceVolumeMount:
+        return HuggingFaceVolumeMount(
+            type="bucket",
+            source=self.source,
+            mount_path=self.mount_path,
+            read_only=self.read_only,
+            path=self.path,
+        )
 
 
 class HuggingFaceSandboxEnvironment:
@@ -123,6 +156,7 @@ class HuggingFaceSandboxEnvironment:
         flavor: str = "cpu-basic",
         cwd: str = "/workspace",
         bucket_mounts: tuple[HuggingFaceBucketMount, ...] = (),
+        volume_mounts: tuple[HuggingFaceVolumeMount, ...] = (),
         idle_timeout: int | float | str | None = None,
         env: dict[str, Any] | None = None,
         secrets: dict[str, Any] | None = None,
@@ -136,7 +170,9 @@ class HuggingFaceSandboxEnvironment:
         self._image = image
         self._flavor = flavor
         self._cwd = _normalize_posix(cwd)
-        self._bucket_mounts = bucket_mounts
+        self._volume_mounts = tuple(
+            [*(mount.as_volume_mount() for mount in bucket_mounts), *volume_mounts]
+        )
         self._idle_timeout = idle_timeout
         self._env = env
         self._secrets = secrets
@@ -145,37 +181,60 @@ class HuggingFaceSandboxEnvironment:
         self._token = token
         self._start_timeout = start_timeout
         self._owns_sandbox = owns_sandbox
+        self._execution_env = dict(env or {})
+        self._startup_progress_callback: Callable[[str], None] | None = None
 
     async def open(self) -> None:
         if self._sandbox is None:
+            self._emit_startup_stage(
+                f"creating sandbox image={self._image} flavor={self._flavor}"
+            )
             self._sandbox = await asyncio.to_thread(self._create_sandbox)
             self._owns_sandbox = True
+        else:
+            self._emit_startup_stage(f"using existing sandbox {self._sandbox.id}")
+        self._emit_startup_stage(f"preparing cwd {self._cwd}")
         await asyncio.to_thread(self._sandbox.files.mkdir, self._cwd)
+        self._emit_startup_stage("sandbox filesystem ready")
+
+    def set_startup_progress_callback(
+        self,
+        callback: Callable[[str], None] | None,
+    ) -> None:
+        self._startup_progress_callback = callback
+
+    def _emit_startup_stage(self, stage: str) -> None:
+        if self._startup_progress_callback is not None:
+            self._startup_progress_callback(stage)
 
     def _create_sandbox(self) -> _Sandbox:
         try:
-            from huggingface_hub import Sandbox, Volume
+            from huggingface_hub import HfApi, Sandbox, Volume
         except ImportError as exc:
             raise RuntimeError(
                 "Hugging Face sandbox support requires huggingface_hub with Sandbox support."
             ) from exc
+        api = HfApi(token=self._token)
         sandbox_cls: _SandboxClass = Sandbox
         volume_cls: _VolumeClass = Volume
 
         idle_timeout = (
             DEFAULT_HF_SANDBOX_IDLE_TIMEOUT if self._idle_timeout is None else self._idle_timeout
         )
+        self._emit_startup_stage(f"building {len(self._volume_mounts)} volume mount(s)")
         volumes = [
             volume_cls(
-                type="bucket",
+                type=mount.type,
                 source=mount.source,
                 mount_path=mount.mount_path,
                 read_only=mount.read_only,
                 path=mount.path,
+                revision=mount.revision,
             )
-            for mount in self._bucket_mounts
+            for mount in self._volume_mounts
         ]
-        return cast(
+        self._emit_startup_stage("calling Sandbox.create")
+        sandbox = cast(
             "_Sandbox",
             sandbox_cls.create(
                 image=self._image,
@@ -190,6 +249,20 @@ class HuggingFaceSandboxEnvironment:
                 token=self._token,
             ),
         )
+        self._emit_startup_stage(f"sandbox created {sandbox.id}")
+        try:
+            self._emit_startup_stage("applying fast-agent sandbox labels")
+            api.update_job_labels(
+                job_id=sandbox.id,
+                labels=_fast_agent_sandbox_labels(),
+                namespace=self._namespace,
+                token=self._token,
+            )
+        except Exception:
+            self._emit_startup_stage("label update failed; killing sandbox")
+            sandbox.kill()
+            raise
+        return sandbox
 
     @property
     def cwd(self) -> str:
@@ -213,10 +286,12 @@ class HuggingFaceSandboxEnvironment:
         cwd = self.resolve_path(request.cwd) if request.cwd is not None else self._cwd
 
         def run_command():
+            effective_env = dict(self._execution_env)
+            effective_env.update(request.env or {})
             return sandbox.run(
                 request.command,
                 shell=True,
-                env=dict(request.env or {}),
+                env=effective_env,
                 cwd=cwd,
                 timeout=request.timeout,
                 check=False,
@@ -245,6 +320,27 @@ class HuggingFaceSandboxEnvironment:
         return await asyncio.to_thread(sandbox.files.read_text, self.resolve_path(path))
 
     async def write_text(self, path: str, content: str) -> None:
+        sandbox = self._require_sandbox()
+        await asyncio.to_thread(sandbox.files.write, self.resolve_path(path), content)
+
+    async def read_bytes(self, path: str) -> bytes:
+        sandbox = self._require_sandbox()
+        resolved_path = self.resolve_path(path)
+
+        def read_file() -> _SandboxCommandResult:
+            return sandbox.run(
+                ["python3", "-c", _READ_BYTES_SCRIPT, resolved_path],
+                shell=False,
+                check=False,
+            )
+
+        result = await asyncio.to_thread(read_file)
+        if result.exit_code not in {0, None}:
+            message = result.stderr.strip() or f"Unable to read file: {resolved_path}"
+            raise RuntimeError(message)
+        return base64.b64decode(result.stdout.encode("ascii"))
+
+    async def write_bytes(self, path: str, content: bytes) -> None:
         sandbox = self._require_sandbox()
         await asyncio.to_thread(sandbox.files.write, self.resolve_path(path), content)
 
@@ -336,7 +432,22 @@ def _coerce_environment_file_kind(
     return "unknown"
 
 
+def _fast_agent_sandbox_labels() -> dict[str, str]:
+    return {FAST_AGENT_HF_SANDBOX_LABEL: _label_safe_fast_agent_version()}
+
+
+def _label_safe_fast_agent_version() -> str:
+    try:
+        raw_version = version("fast-agent-mcp")
+    except PackageNotFoundError:
+        raw_version = "unknown"
+    label_value = re.sub(r"[^A-Za-z0-9_-]", "_", raw_version)
+    return label_value[:100] or "unknown"
+
+
 __all__ = [
+    "FAST_AGENT_HF_SANDBOX_LABEL",
     "HuggingFaceBucketMount",
     "HuggingFaceSandboxEnvironment",
+    "HuggingFaceVolumeMount",
 ]

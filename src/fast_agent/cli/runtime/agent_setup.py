@@ -393,7 +393,8 @@ async def _run_cli_flow(
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
-    await _resume_session_if_requested(agent_app, request)
+    if harness_session is None:
+        await _resume_session_if_requested(agent_app, request)
     transient_messages_by_agent: dict[str, list[PromptMessageExtended]] | None = None
     if request.execution_mode == "one_shot_message":
         assert request.message is not None
@@ -1013,7 +1014,8 @@ async def _run_parallel_cli_flow(
     session_manager: "SessionManager | None" = None,
     harness_session: "HarnessSession | None" = None,
 ) -> None:
-    await _resume_session_if_requested(agent_app, request)
+    if harness_session is None:
+        await _resume_session_if_requested(agent_app, request)
     transient_messages_by_agent: dict[str, list["PromptMessageExtended"]] | None = None
     if request.execution_mode == "one_shot_message":
         transient_messages_by_agent = await _run_parallel_message(agent_app, request)

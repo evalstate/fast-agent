@@ -9,7 +9,7 @@
 fast.harness(
     *,
     model: str | None = None,
-    environment: ShellEnvironment | None = None
+    environment: "'EnvironmentSelection'" = None
 ) -> AgentHarness
 ```
 Creates a headless `AgentHarness` for typed, session-oriented Python usage.

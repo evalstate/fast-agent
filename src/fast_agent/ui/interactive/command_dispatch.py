@@ -56,6 +56,7 @@ from fast_agent.ui.command_payloads import (
     CommandsCommand,
     CompactCommand,
     CreateSessionCommand,
+    EnvironmentCommand,
     ExportSessionCommand,
     ForkSessionCommand,
     HashAgentCommand,
@@ -149,6 +150,8 @@ class DispatchResult:
     hash_send_message: str | None = None
     hash_send_quiet: bool = False
     shell_execute_cmd: str | None = None
+    shell_execute_local: bool = False
+    shell_execute_interactive: bool = False
     should_return: bool = False
     available_agents: list[str] | None = None
     available_agents_set: set[str] | None = None
@@ -251,6 +254,12 @@ _COMMAND_OUTCOME_ROUTES: tuple[_CommandOutcomeRoute, ...] = (
         "display",
         "agent_name",
         display_handlers.handle_show_mcp_status,
+    ),
+    _CommandOutcomeRoute(
+        EnvironmentCommand,
+        "display",
+        "agent_name",
+        display_handlers.handle_environment,
     ),
     _CommandOutcomeRoute(
         CheckCommand,
@@ -587,8 +596,10 @@ async def _dispatch_local_ui_payload(
 def _dispatch_simple_local_ui_payload(payload: CommandPayload) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
-        case ShellCommand(command=shell_cmd):
+        case ShellCommand(command=shell_cmd, local=local, interactive=interactive):
             result.shell_execute_cmd = shell_cmd
+            result.shell_execute_local = local
+            result.shell_execute_interactive = interactive
         case UnknownCommand(command=command):
             _print_styled(f"Command not found: {command}", "red")
         case CommandError(message=message):

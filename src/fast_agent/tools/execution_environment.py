@@ -13,7 +13,7 @@ Adapter authoring rule of thumb:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Callable, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -45,6 +45,7 @@ class ShellRuntimeInfo:
     path: str | None = None
     kind: RuntimeEnvironmentKind = "local"
     provider: str | None = None
+    environment_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +97,7 @@ class ShellExecutionCallbacks(Protocol):
     async def on_timeout(self) -> None: ...
 
 
+@runtime_checkable
 class ShellEnvironment(Protocol):
     """Minimal environment contract used by harness and shell tools.
 
@@ -139,6 +141,16 @@ class ShellEnvironment(Protocol):
     async def close(self) -> None:
         """Release owned runtime resources, if any."""
         ...
+
+
+@runtime_checkable
+class EnvironmentStartupProgress(Protocol):
+    """Optional startup progress hook for environment adapters."""
+
+    def set_startup_progress_callback(
+        self,
+        callback: Callable[[str], None] | None,
+    ) -> None: ...
 
 
 class ShellExecutor(Protocol):
@@ -207,6 +219,30 @@ class EnvironmentFilesystem(Protocol):
         ...
 
 
+@runtime_checkable
+class EnvironmentBinaryFilesystem(Protocol):
+    """Binary filesystem operations for environment-to-environment transfer."""
+
+    async def read_bytes(self, path: str) -> bytes:
+        """Read raw bytes from the environment filesystem."""
+        ...
+
+    async def write_bytes(self, path: str, content: bytes) -> None:
+        """Write raw bytes to the environment filesystem, creating parents as needed."""
+        ...
+
+
+@runtime_checkable
+class EnvironmentFilesystemWithBytes(
+    EnvironmentFilesystem,
+    EnvironmentBinaryFilesystem,
+    Protocol,
+):
+    """Filesystem contract that supports text tools and binary-safe transfer."""
+
+    pass
+
+
 class ShellEnvironmentWithFilesystem(ShellEnvironment, EnvironmentFilesystem, Protocol):
     """Environment that owns both shell execution and model-facing files."""
 
@@ -236,7 +272,9 @@ async def execute_shell(
 __all__ = [
     "EnvironmentFileEntry",
     "EnvironmentFileKind",
+    "EnvironmentBinaryFilesystem",
     "EnvironmentFilesystem",
+    "EnvironmentFilesystemWithBytes",
     "RuntimeEnvironmentKind",
     "ShellEnvironment",
     "ShellEnvironmentWithFilesystem",

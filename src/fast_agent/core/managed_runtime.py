@@ -30,7 +30,7 @@ from fast_agent.core.runtime_finalization import (
 )
 from fast_agent.core.validation import get_agent_dependencies, get_dependencies_groups
 from fast_agent.mcp.prompts.prompt_load import load_prompt
-from fast_agent.tools.local_shell_executor import LocalShellExecutor
+from fast_agent.tools.local_shell_executor import LocalEnvironment
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -157,7 +157,7 @@ class ManagedRuntimeMixin:
             no_home_mode=settings.no_home_mode,
             managed_instances=[],
             instance_lock=asyncio.Lock(),
-            shell_environment=LocalShellExecutor(
+            shell_environment=LocalEnvironment(
                 logger=logger,
                 timeout_seconds=shell_settings.timeout_seconds,
                 warning_interval_seconds=shell_settings.warning_interval_seconds,

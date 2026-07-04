@@ -221,6 +221,9 @@ upskill
 !examples/a2a/research/.fast-agent/
 !examples/a2a/research/.fast-agent/agent-cards/
 !examples/a2a/research/.fast-agent/agent-cards/*.md
+!examples/environments/.fast-agent/
+examples/environments/.fast-agent/*
+!examples/environments/.fast-agent/fast-agent.yaml
 
 /fastagent.config.yaml
 
