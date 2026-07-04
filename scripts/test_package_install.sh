@@ -73,8 +73,8 @@ except Exception as e:
     raise
 PY
 
-# Smoke test: cards CLI with env-scoped registry configuration and override
-echo "Running cards CLI env smoke test..."
+# Smoke test: cards CLI with home-scoped registry configuration and override
+echo "Running cards CLI home smoke test..."
 FAST_AGENT_BIN="$FAST_AGENT_BIN" bash ../../scripts/test_cards_cli_env.sh
 
 # Smoke test: plugins CLI with env/global config merging and local marketplace

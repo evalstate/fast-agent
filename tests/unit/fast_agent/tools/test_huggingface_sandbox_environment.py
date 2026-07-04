@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from fast_agent.core.exceptions import EnvironmentStartupError
 from fast_agent.tools import huggingface_sandbox_environment as hf_sandbox_environment
 from fast_agent.tools.execution_environment import ShellExecutionRequest
 from fast_agent.tools.huggingface_sandbox_environment import (
@@ -225,6 +226,143 @@ def test_create_sandbox_adds_fast_agent_version_label(
         "namespace": "test-org",
         "token": "hf_test",
     }
+
+
+def test_create_sandbox_resolves_hf_token_reference_from_hub_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_token: str | None = None
+
+    class FakeSandbox:
+        @staticmethod
+        def create(
+            image: str = "python:3.12",
+            *,
+            flavor: str = "cpu-basic",
+            idle_timeout: int | float | str | None = None,
+            env: dict[str, Any] | None = None,
+            secrets: dict[str, Any] | None = None,
+            volumes: list[Any] | None = None,
+            namespace: str | None = None,
+            forward_hf_token: bool = False,
+            start_timeout: float = 120.0,
+            token: str | None = None,
+        ) -> _Sandbox:
+            del (
+                image,
+                flavor,
+                idle_timeout,
+                env,
+                secrets,
+                volumes,
+                namespace,
+                forward_hf_token,
+                start_timeout,
+            )
+            nonlocal captured_token
+            captured_token = token
+            return _Sandbox()
+
+    class FakeHfApi:
+        def __init__(self, token: str | None = None) -> None:
+            self.token = token
+
+        def update_job_labels(
+            self,
+            *,
+            job_id: str,
+            labels: dict[str, str],
+            namespace: str | None = None,
+            token: str | None = None,
+        ) -> None:
+            del job_id, labels, namespace, token
+
+    class FakeVolume:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        SimpleNamespace(HfApi=FakeHfApi, Sandbox=FakeSandbox, Volume=FakeVolume),
+    )
+    monkeypatch.setattr(
+        hf_sandbox_environment,
+        "get_huggingface_hub_token",
+        lambda: "hf_cached_token",
+    )
+    environment = HuggingFaceSandboxEnvironment(token="${HF_TOKEN}")
+
+    environment._create_sandbox()
+
+    assert captured_token == "hf_cached_token"
+
+
+def test_create_sandbox_rejects_unresolved_token_env_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(hf_sandbox_environment, "get_huggingface_hub_token", lambda: None)
+    environment = HuggingFaceSandboxEnvironment(token="${HF_TOKEN}")
+
+    with pytest.raises(EnvironmentStartupError) as exc_info:
+        environment._create_sandbox()
+
+    assert exc_info.value.message == "Could not start Hugging Face sandbox environment."
+    assert "Environment variable HF_TOKEN is not set" in exc_info.value.details
+
+
+def test_create_sandbox_wraps_huggingface_auth_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeSandbox:
+        @staticmethod
+        def create(
+            image: str = "python:3.12",
+            *,
+            flavor: str = "cpu-basic",
+            idle_timeout: int | float | str | None = None,
+            env: dict[str, Any] | None = None,
+            secrets: dict[str, Any] | None = None,
+            volumes: list[Any] | None = None,
+            namespace: str | None = None,
+            forward_hf_token: bool = False,
+            start_timeout: float = 120.0,
+            token: str | None = None,
+        ) -> _Sandbox:
+            del (
+                image,
+                flavor,
+                idle_timeout,
+                env,
+                secrets,
+                volumes,
+                namespace,
+                forward_hf_token,
+                start_timeout,
+                token,
+            )
+            raise RuntimeError("Invalid user token.")
+
+    class FakeHfApi:
+        def __init__(self, token: str | None = None) -> None:
+            self.token = token
+
+    class FakeVolume:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        SimpleNamespace(HfApi=FakeHfApi, Sandbox=FakeSandbox, Volume=FakeVolume),
+    )
+    environment = HuggingFaceSandboxEnvironment(token="bad-token")
+
+    with pytest.raises(EnvironmentStartupError) as exc_info:
+        environment._create_sandbox()
+
+    assert exc_info.value.message == "Could not start Hugging Face sandbox environment."
+    assert "Hugging Face rejected the configured token" in exc_info.value.details
 
 
 def test_create_sandbox_passes_configured_hf_volume_mounts(

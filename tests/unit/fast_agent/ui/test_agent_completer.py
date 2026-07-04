@@ -1578,6 +1578,15 @@ def test_top_level_completion_includes_catalogued_models_and_check() -> None:
     names = [completion.text for completion in completions]
     assert "commands" in names
 
+    completions = list(
+        completer.get_completions(
+            Document("/en", cursor_position=len("/en")),
+            None,
+        )
+    )
+    names = [completion.text for completion in completions]
+    assert "environment" in names
+
 
 def test_get_completions_for_model_subcommands() -> None:
     completer = AgentCompleter(agents=["agent1"])

@@ -12,6 +12,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import PurePosixPath
 from typing import Any, Callable, Literal, Protocol, cast
 
+from fast_agent.core.exceptions import EnvironmentStartupError
 from fast_agent.tools.execution_environment import (
     EnvironmentFileEntry,
     ShellExecution,
@@ -21,9 +22,11 @@ from fast_agent.tools.execution_environment import (
     ShellExecutionResult,
     ShellRuntimeInfo,
 )
+from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 
 DEFAULT_HF_SANDBOX_IDLE_TIMEOUT = 10 * 60
 FAST_AGENT_HF_SANDBOX_LABEL = "fast-agent"
+_ENV_REFERENCE_PATTERN = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 _LIST_DIR_SCRIPT = """
 import json
 import os
@@ -208,13 +211,14 @@ class HuggingFaceSandboxEnvironment:
             self._startup_progress_callback(stage)
 
     def _create_sandbox(self) -> _Sandbox:
+        token = _resolve_huggingface_token(self._token)
         try:
             from huggingface_hub import HfApi, Sandbox, Volume
         except ImportError as exc:
             raise RuntimeError(
                 "Hugging Face sandbox support requires huggingface_hub with Sandbox support."
             ) from exc
-        api = HfApi(token=self._token)
+        api = HfApi(token=token)
         sandbox_cls: _SandboxClass = Sandbox
         volume_cls: _VolumeClass = Volume
 
@@ -234,21 +238,33 @@ class HuggingFaceSandboxEnvironment:
             for mount in self._volume_mounts
         ]
         self._emit_startup_stage("calling Sandbox.create")
-        sandbox = cast(
-            "_Sandbox",
-            sandbox_cls.create(
-                image=self._image,
-                flavor=self._flavor,
-                idle_timeout=idle_timeout,
-                env=self._env,
-                secrets=self._secrets,
-                volumes=volumes,
-                namespace=self._namespace,
-                forward_hf_token=self._forward_hf_token,
-                start_timeout=self._start_timeout,
-                token=self._token,
-            ),
-        )
+        try:
+            sandbox = cast(
+                "_Sandbox",
+                sandbox_cls.create(
+                    image=self._image,
+                    flavor=self._flavor,
+                    idle_timeout=idle_timeout,
+                    env=self._env,
+                    secrets=self._secrets,
+                    volumes=volumes,
+                    namespace=self._namespace,
+                    forward_hf_token=self._forward_hf_token,
+                    start_timeout=self._start_timeout,
+                    token=token,
+                ),
+            )
+        except Exception as exc:
+            if _is_huggingface_auth_error(exc):
+                raise EnvironmentStartupError(
+                    "Could not start Hugging Face sandbox environment.",
+                    (
+                        "Hugging Face rejected the configured token. "
+                        "Check the environment token setting, set HF_TOKEN, "
+                        "or run `huggingface-cli login` to use the local token cache."
+                    ),
+                ) from exc
+            raise
         self._emit_startup_stage(f"sandbox created {sandbox.id}")
         try:
             self._emit_startup_stage("applying fast-agent sandbox labels")
@@ -256,7 +272,7 @@ class HuggingFaceSandboxEnvironment:
                 job_id=sandbox.id,
                 labels=_fast_agent_sandbox_labels(),
                 namespace=self._namespace,
-                token=self._token,
+                token=token,
             )
         except Exception:
             self._emit_startup_stage("label update failed; killing sandbox")
@@ -434,6 +450,48 @@ def _coerce_environment_file_kind(
 
 def _fast_agent_sandbox_labels() -> dict[str, str]:
     return {FAST_AGENT_HF_SANDBOX_LABEL: _label_safe_fast_agent_version()}
+
+
+def _unresolved_env_reference(value: str | None) -> str | None:
+    if value is None:
+        return None
+    match = _ENV_REFERENCE_PATTERN.fullmatch(value)
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def _resolve_huggingface_token(configured_token: str | None) -> str | None:
+    if unresolved_env_var := _unresolved_env_reference(configured_token):
+        if unresolved_env_var == "HF_TOKEN":
+            token = get_huggingface_hub_token()
+            if token is not None:
+                return token
+            details = (
+                "Environment variable HF_TOKEN is not set and no Hugging Face "
+                "token was found in the local token cache. Set HF_TOKEN or run "
+                "`huggingface-cli login`."
+            )
+        else:
+            details = (
+                f"Environment variable {unresolved_env_var} is not set. "
+                f"Set {unresolved_env_var}, or remove "
+                f"`token: ${{{unresolved_env_var}}}` to use the Hugging Face token cache."
+            )
+        raise EnvironmentStartupError(
+            "Could not start Hugging Face sandbox environment.",
+            details,
+        )
+    return configured_token
+
+
+def _is_huggingface_auth_error(exc: Exception) -> bool:
+    message = str(exc)
+    return (
+        "Invalid user token" in message
+        or "Invalid username or password" in message
+        or "401 Unauthorized" in message
+    )
 
 
 def _label_safe_fast_agent_version() -> str:

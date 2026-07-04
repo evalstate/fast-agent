@@ -35,7 +35,7 @@ from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.cli.workspace_helpers import resolve_workspace_option
 from fast_agent.constants import DEFAULT_HOME_DIR, FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.agent_card_paths import AGENT_CARD_EXTENSIONS as _CARD_EXTENSIONS
-from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.exceptions import AgentConfigError, EnvironmentStartupError
 from fast_agent.mcp.hf_auth import add_explicit_bearer_auth_header
 
 if TYPE_CHECKING:
@@ -449,7 +449,7 @@ def go(
 
     try:
         run_request(request)
-    except AgentConfigError as exc:
+    except (AgentConfigError, EnvironmentStartupError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
     finally:

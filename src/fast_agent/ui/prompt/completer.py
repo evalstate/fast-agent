@@ -309,6 +309,7 @@ class AgentCompleter(Completer):
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
+            "environment": "List configured execution environments",
             "resume": "Resume the last session or specified session id",
             "session": "Manage sessions (/session list|new|resume|title|fork|delete|pin|unpin|export)",
             "card": "Load an AgentCard (add --tool to attach/remove as tool)",
