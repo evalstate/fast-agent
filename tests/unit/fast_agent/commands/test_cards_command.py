@@ -283,8 +283,9 @@ def test_top_level_env_flag_routes_to_cards_subcommand(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "Usage: python -m fast_agent.cli cards [OPTIONS]" in result.stdout
-    assert "COMMAND" in result.stdout
+    plain_stdout = strip_ansi(result.stdout)
+    assert "Usage: python -m fast_agent.cli cards [OPTIONS]" in plain_stdout
+    assert "COMMAND" in plain_stdout
 
 
 def test_cards_add_uses_configured_marketplace_urls_by_default(tmp_path: Path) -> None:

@@ -144,7 +144,7 @@ def _refresh_env_summary(context: MutableMapping[str, str]) -> None:
     host_platform = context.get("hostPlatform")
     environment_kind = context.get("executionEnvironmentKind")
     if host_platform and (environment_kind is None or environment_kind == "local"):
-        env_lines.append(f"Client host platform: {host_platform}")
+        env_lines.append(f"Host platform: {host_platform}")
 
     if env_lines:
         context["env"] = "Environment:\n- " + "\n- ".join(env_lines)
