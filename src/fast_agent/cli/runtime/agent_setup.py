@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 import typer
 
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
+from fast_agent.core.card_tool_attachment import load_and_attach_card_tool_agents
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
@@ -661,6 +662,7 @@ def _apply_fast_args(
     fast.args.no_home = request.no_home
     fast.args.reload = request.reload
     fast.args.watch = request.watch
+    fast.args.card_tools = request.card_tools
     fast.args.agent = request.target_agent_name or request.agent_name or "agent"
 
 
@@ -745,38 +747,6 @@ def _define_card_fallback_agent(
         pass
 
 
-def _attach_loaded_card_tools(
-    fast: Any,
-    request: AgentRunRequest,
-    tool_loaded_names: list[str],
-) -> None:
-    if not tool_loaded_names:
-        return
-
-    target_name = (
-        request.target_agent_name
-        if request.target_agent_name and request.target_agent_name in fast.agents
-        else None
-    )
-    if not target_name:
-        target_name = (
-            request.agent_name if request.agent_name and request.agent_name in fast.agents else None
-        )
-    if not target_name:
-        target_name = fast.get_default_agent_name()
-    if target_name:
-        target_data = fast.agents.get(target_name)
-        if target_data and target_data.get("type") in ("basic", "smart", "custom"):
-            fast.attach_agent_tools(target_name, tool_loaded_names)
-
-
-def _load_card_tool_agents(fast: Any, request: AgentRunRequest) -> list[str]:
-    tool_loaded_names: list[str] = []
-    for card_source in request.card_tools or []:
-        tool_loaded_names.extend(fast.load_agents(card_source))
-    return tool_loaded_names
-
-
 def _configure_card_agents(
     fast: Any,
     request: AgentRunRequest,
@@ -816,10 +786,10 @@ def _configure_card_agents(
                 smart_agent_enabled,
             )
 
-        _attach_loaded_card_tools(
+        load_and_attach_card_tool_agents(
             fast,
-            request,
-            _load_card_tool_agents(fast, request),
+            request.card_tools,
+            preferred_agent_names=[request.target_agent_name, request.agent_name],
         )
 
         _validate_target_agent_name(fast, request)

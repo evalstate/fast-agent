@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.core.agent_app import AgentApp, AgentRefreshResult
-from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.fastagent import (
     AgentInstance,
     FastAgent,
@@ -586,11 +586,22 @@ async def test_runtime_mcp_callbacks_bind_to_instance_agents_not_primary_state(
 
 
 @pytest.mark.asyncio
-async def test_load_card_tools_rejects_default_agent_without_agent_tool_support(
+async def test_load_card_tools_attaches_to_registry_before_refresh(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fast = FastAgent("TestAgent", parse_cli_args=False)
     fast.args = argparse.Namespace(card_tools=["tool-cards"], agent="main")
+    fast.agents = {
+        "main": {
+            "type": AgentType.SMART.value,
+            "config": AgentConfig(name="main", default=True),
+        },
+        "tool": {
+            "type": AgentType.BASIC.value,
+            "tool_only": True,
+            "config": AgentConfig(name="tool"),
+        },
+    }
     main_agent = cast("AgentProtocol", _Agent("main"))
     wrapper = AgentApp({"main": main_agent})
     state = ManagedRunState(
@@ -609,13 +620,17 @@ async def test_load_card_tools_rejects_default_agent_without_agent_tool_support(
     )
 
     monkeypatch.setattr(fast, "load_agents", lambda _source: ["tool"])
+    refreshed_child_agents: list[str] | None = None
 
     async def refresh() -> AgentRefreshResult:
+        nonlocal refreshed_child_agents
+        refreshed_child_agents = list(fast.agents["main"].get("child_agents") or [])
         state.active_agents["tool"] = cast("AgentProtocol", _Agent("tool"))
         return AgentRefreshResult(changed=True)
 
-    with pytest.raises(AgentConfigError, match="does not support agents-as-tools"):
-        await fast._apply_card_tool_cli_option(state, refresh)
+    await fast._apply_card_tool_cli_option(state, refresh)
+
+    assert refreshed_child_agents == ["tool"]
 
 
 @pytest.mark.asyncio

@@ -9,10 +9,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 from fast_agent import config
 from fast_agent.core.agent_app import AgentApp, AgentCardLoadResult, AgentRefreshResult
-from fast_agent.core.agent_tools import add_tools_for_agents
+from fast_agent.core.card_tool_attachment import load_and_attach_card_tool_agents
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.direct_factory import (
-    AgentToolAttachable,
     active_agents_in_dependency_group,
     create_agents_in_dependency_order,
 )
@@ -763,33 +762,17 @@ class ManagedRuntimeMixin:
         if not card_tools:
             return
 
-        card_tool_agent_names: list[str] = []
         try:
-            for card_source in card_tools:
-                names = self.load_agents(card_source)
-                card_tool_agent_names.extend(names)
+            load_and_attach_card_tool_agents(
+                self,
+                card_tools,
+                preferred_agent_names=[getattr(self.args, "agent", None)],
+            )
         except AgentConfigError as exc:
             self._handle_error(exc)
             raise SystemExit(1) from exc
 
         await refresh_callback()
-
-        default_agent_name = getattr(self.args, "agent", None)
-        if default_agent_name and default_agent_name not in state.active_agents:
-            default_agent_name = None
-        default_agent = state.wrapper._agent(default_agent_name)
-        if default_agent is None:
-            return
-
-        if not isinstance(default_agent, AgentToolAttachable):
-            raise AgentConfigError(
-                f"Agent '{default_agent_name or 'default'}' does not support agents-as-tools"
-            )
-
-        tool_agents = [
-            state.active_agents.get(tool_agent_name) for tool_agent_name in card_tool_agent_names
-        ]
-        add_tools_for_agents(default_agent.add_agent_tool, tool_agents)
 
 
 __all__ = ["ManagedRuntimeMixin"]
