@@ -30,6 +30,26 @@ result = await harness.shell("pwd")
 print(result.stdout, result.stderr, result.exit_code)
 ```
 
+## Simple Setup
+
+The easiest way to configure environments is to prompt **`fast-agent`**: 
+
+```bash
+# container
+fast-agent -x --smart \
+-m "configure a docker execution environment (ubuntu) named docker-env " \
+" with a read only mount of the current working directory. make it the default" \
+--model codexplan
+```
+
+```bash
+# hf sandbox
+fast-agent -x --smart --url https://huggingface.co/mcp?bouquet=files \ 
+-m "i want to set up an execution environment (hf sandbox) with my most " \
+" recent dataset attached" 
+\ --model codexplan 
+```
+
 ## Named environments
 
 Add `environments:` to `<home>/fast-agent.yaml`. Relative mount sources resolve
