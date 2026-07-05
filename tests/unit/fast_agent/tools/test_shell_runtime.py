@@ -157,6 +157,57 @@ class _RecordingShellEnvironment:
         return None
 
 
+class _DirectShellEnvironment:
+    def __init__(
+        self,
+        *,
+        stream_output: bool,
+        timed_out: bool = False,
+        stdout: str | None = None,
+    ) -> None:
+        self.stream_output = stream_output
+        self.timed_out = timed_out
+        self.stdout = stdout
+        self.requests: list[ShellExecutionRequest] = []
+
+    async def open(self) -> None:
+        return None
+
+    @property
+    def cwd(self) -> str:
+        return "/workspace"
+
+    def runtime_info(self) -> ShellRuntimeInfo:
+        return ShellRuntimeInfo(name="bash", kind="remote", provider="test")
+
+    async def execute(
+        self,
+        request: ShellExecutionRequest,
+        *,
+        callbacks: ShellExecutionCallbacks | None = None,
+    ) -> ShellExecution:
+        self.requests.append(request)
+        stdout = self.stdout or ("streamed\n" if self.stream_output else "buffered\n")
+        if self.stream_output and callbacks is not None:
+            for line in stdout.splitlines(keepends=True):
+                await callbacks.on_stdout(line)
+            if self.timed_out:
+                await callbacks.on_timeout()
+            return ShellExecution(
+                result=ShellExecutionResult(stdout=stdout, stderr="", exit_code=0),
+                options=ShellExecutionOptions(timeout_seconds=request.timeout),
+                timed_out=self.timed_out,
+            )
+        return ShellExecution(
+            result=ShellExecutionResult(stdout=stdout, stderr="", exit_code=0),
+            options=ShellExecutionOptions(timeout_seconds=request.timeout),
+            timed_out=self.timed_out,
+        )
+
+    async def close(self) -> None:
+        return None
+
+
 class _CancellableLocalShellExecutor(LocalShellExecutor):
     def __init__(self, *, logger: logging.Logger) -> None:
         super().__init__(logger=logger)
@@ -805,6 +856,100 @@ async def test_execute_no_output_shows_compact_exit_banner_detail() -> None:
     assert "exit code 0" in rendered
     assert "(no output)" in rendered
     assert "id: call_" in rendered
+
+
+@pytest.mark.asyncio
+async def test_execute_direct_shell_displays_streamed_output_once() -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        shell_environment=_DirectShellEnvironment(stream_output=True),
+    )
+
+    with console.console.capture() as capture:
+        result = await runtime.execute_direct_shell("print-streamed")
+
+    rendered = capture.get()
+    assert result.stdout == "streamed\n"
+    assert rendered.count("streamed") == 1
+    assert "exit code" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_execute_direct_shell_displays_buffered_output_when_adapter_does_not_stream() -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        shell_environment=_DirectShellEnvironment(stream_output=False),
+    )
+
+    with console.console.capture() as capture:
+        result = await runtime.execute_direct_shell("print-buffered")
+
+    rendered = capture.get()
+    assert result.stdout == "buffered\n"
+    assert rendered.count("buffered") == 1
+    assert "exit code" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_execute_direct_shell_ignores_configured_display_line_limit() -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        config=Settings(shell_execution=ShellSettings(output_display_lines=5, show_bash=True)),
+        shell_environment=_DirectShellEnvironment(
+            stream_output=True,
+            stdout="0\n1\n2\n3\n4\n5\n6\n",
+        ),
+    )
+
+    with console.console.capture() as capture:
+        result = await runtime.execute_direct_shell("seven-lines")
+
+    rendered = capture.get()
+    assert result.stdout == "0\n1\n2\n3\n4\n5\n6\n"
+    for line in ("0", "1", "2", "3", "4", "5", "6"):
+        assert line in rendered
+    assert SHELL_OUTPUT_TRUNCATION_MARKER not in rendered
+
+
+@pytest.mark.asyncio
+async def test_execute_direct_shell_displays_final_timeout_notice() -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        shell_environment=_DirectShellEnvironment(stream_output=False, timed_out=True),
+    )
+
+    with console.console.capture() as capture:
+        result = await runtime.execute_direct_shell("sleep-too-long", timeout=5)
+
+    rendered = capture.get()
+    assert result.stdout == "buffered\n"
+    assert "buffered" in rendered
+    assert "Timeout after 5s - process terminated" in rendered
+
+
+@pytest.mark.asyncio
+async def test_execute_direct_shell_does_not_duplicate_callback_timeout_notice() -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        shell_environment=_DirectShellEnvironment(stream_output=True, timed_out=True),
+    )
+
+    with console.console.capture() as capture:
+        result = await runtime.execute_direct_shell("sleep-too-long", timeout=5)
+
+    rendered = capture.get()
+    assert result.stdout == "streamed\n"
+    assert rendered.count("Timeout") == 1
 
 
 @pytest.mark.asyncio

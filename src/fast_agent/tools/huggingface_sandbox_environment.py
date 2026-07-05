@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import PurePosixPath
-from typing import Any, Callable, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, Protocol, cast
 
 from fast_agent.core.exceptions import EnvironmentStartupError
 from fast_agent.tools.execution_environment import (
@@ -23,6 +23,9 @@ from fast_agent.tools.execution_environment import (
     ShellRuntimeInfo,
 )
 from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
+
+if TYPE_CHECKING:
+    from concurrent.futures import Future
 
 DEFAULT_HF_SANDBOX_IDLE_TIMEOUT = 10 * 60
 FAST_AGENT_HF_SANDBOX_LABEL = "fast-agent"
@@ -85,6 +88,8 @@ class _Sandbox(Protocol):
         env: dict[str, Any] | None = None,
         cwd: str | None = None,
         timeout: float | None = None,
+        on_stdout: Callable[[str], None] | None = None,
+        on_stderr: Callable[[str], None] | None = None,
         check: bool = True,
     ) -> _SandboxCommandResult: ...
 
@@ -300,6 +305,21 @@ class HuggingFaceSandboxEnvironment:
     ) -> ShellExecution:
         sandbox = self._require_sandbox()
         cwd = self.resolve_path(request.cwd) if request.cwd is not None else self._cwd
+        loop = asyncio.get_running_loop()
+        active_callbacks = callbacks
+        callback_futures: list[Future[None]] = []
+
+        def on_stdout(text: str) -> None:
+            if active_callbacks is not None:
+                callback_futures.append(
+                    asyncio.run_coroutine_threadsafe(active_callbacks.on_stdout(text), loop)
+                )
+
+        def on_stderr(text: str) -> None:
+            if active_callbacks is not None:
+                callback_futures.append(
+                    asyncio.run_coroutine_threadsafe(active_callbacks.on_stderr(text), loop)
+                )
 
         def run_command():
             effective_env = dict(self._execution_env)
@@ -310,17 +330,23 @@ class HuggingFaceSandboxEnvironment:
                 env=effective_env,
                 cwd=cwd,
                 timeout=request.timeout,
+                on_stdout=on_stdout if active_callbacks is not None else None,
+                on_stderr=on_stderr if active_callbacks is not None else None,
                 check=False,
             )
 
         result = await asyncio.to_thread(run_command)
-        if callbacks is not None:
-            if result.stdout:
-                await callbacks.on_stdout(result.stdout)
-            if result.stderr:
-                await callbacks.on_stderr(result.stderr)
+        if callback_futures:
+            callback_results = await asyncio.gather(
+                *(asyncio.wrap_future(future) for future in callback_futures),
+                return_exceptions=True,
+            )
+            for callback_result in callback_results:
+                if isinstance(callback_result, BaseException):
+                    raise callback_result
+        if active_callbacks is not None:
             if result.timed_out:
-                await callbacks.on_timeout()
+                await active_callbacks.on_timeout()
         return ShellExecution(
             result=ShellExecutionResult(
                 stdout=result.stdout,
