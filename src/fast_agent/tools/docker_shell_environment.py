@@ -29,6 +29,24 @@ if TYPE_CHECKING:
 _STREAM_READ_CHUNK_SIZE = 4096
 _PROCESS_EXIT_POLL_SECONDS = 0.1
 _IDLE_POLL_SECONDS = 1.0
+_DOCKER_FS_MISSING_EXIT_CODE = 43
+_DOCKER_FS_NOT_DIRECTORY_EXIT_CODE = 44
+_DOCKER_LIST_DIR_SCRIPT = """
+dir="$1"
+[ -e "$dir" ] || exit 43
+[ -d "$dir" ] || exit 44
+find "$dir" -mindepth 1 -maxdepth 1 -printf '%y\\0%p\\0%f\\0'
+""".strip()
+_DOCKER_READ_FILE_SCRIPT = """
+path="$1"
+[ -e "$path" ] || exit 43
+exec cat -- "$path"
+""".strip()
+_DOCKER_WRITE_FILE_SCRIPT = """
+path="$1"
+parent="$2"
+mkdir -p -- "$parent" && cat > "$path"
+""".strip()
 
 DockerMountMode = Literal["ro", "rw"]
 
@@ -64,6 +82,13 @@ class _DockerOutputCapture:
             stderr="".join(self.stderr_segments),
             exit_code=self.exit_code,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _DockerExecResult:
+    exit_code: int
+    stdout: bytes
+    stderr: str
 
 
 class DockerShellEnvironment:
@@ -106,6 +131,11 @@ class DockerShellEnvironment:
     @property
     def cwd(self) -> str:
         return self._cwd
+
+    def resolve_path(self, path: str) -> str:
+        if path.startswith("/"):
+            return _normalize_container_path(path)
+        return _normalize_container_path(posixpath.join(self._cwd, path))
 
     def runtime_info(self) -> ShellRuntimeInfo:
         return ShellRuntimeInfo(
@@ -278,6 +308,112 @@ class DockerShellEnvironment:
             except asyncio.CancelledError:
                 pass
         return bool(pending)
+
+    async def _docker_exec_bytes(
+        self,
+        args: list[str],
+        *,
+        stdin: bytes | None = None,
+    ) -> _DockerExecResult:
+        argv = [self._container_cli, "exec"]
+        if stdin is not None:
+            argv.append("-i")
+        argv.extend([self._container, *args])
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError as exc:
+            raise EnvironmentStartupError(
+                f"Could not start {self._container_cli} filesystem operation.",
+                f"Container CLI not found: {self._container_cli}. "
+                f"Install {self._container_cli} or choose an environment that uses an available CLI.",
+            ) from exc
+        stdout, stderr = await process.communicate(stdin)
+        return _DockerExecResult(
+            exit_code=process.returncode if process.returncode is not None else 1,
+            stdout=stdout,
+            stderr=stderr.decode(errors="replace"),
+        )
+
+    async def _docker_shell_bytes(
+        self,
+        script: str,
+        args: list[str],
+        *,
+        stdin: bytes | None = None,
+    ) -> _DockerExecResult:
+        return await self._docker_exec_bytes(
+            ["sh", "-c", script, "fast-agent-docker-fs", *args],
+            stdin=stdin,
+        )
+
+    def _raise_filesystem_error(
+        self,
+        result: _DockerExecResult,
+        *,
+        path: str,
+        operation: str,
+    ) -> None:
+        message = result.stderr.strip() or f"Docker filesystem {operation} failed for {path}"
+        raise RuntimeError(message)
+
+    async def read_bytes(self, path: str) -> bytes:
+        resolved = self.resolve_path(path)
+        result = await self._docker_shell_bytes(_DOCKER_READ_FILE_SCRIPT, [resolved])
+        if result.exit_code == _DOCKER_FS_MISSING_EXIT_CODE:
+            raise FileNotFoundError(resolved)
+        if result.exit_code != 0:
+            self._raise_filesystem_error(result, path=resolved, operation="read")
+        return result.stdout
+
+    async def read_text(self, path: str) -> str:
+        return (await self.read_bytes(path)).decode("utf-8", errors="replace")
+
+    async def write_bytes(self, path: str, content: bytes) -> None:
+        resolved = self.resolve_path(path)
+        parent = posixpath.dirname(resolved) or "/"
+        result = await self._docker_shell_bytes(
+            _DOCKER_WRITE_FILE_SCRIPT,
+            [resolved, parent],
+            stdin=content,
+        )
+        if result.exit_code != 0:
+            self._raise_filesystem_error(result, path=resolved, operation="write")
+
+    async def write_text(self, path: str, content: str) -> None:
+        await self.write_bytes(path, content.encode("utf-8"))
+
+    async def exists(self, path: str) -> bool:
+        resolved = self.resolve_path(path)
+        result = await self._docker_shell_bytes('test -e "$1"', [resolved])
+        return result.exit_code == 0
+
+    async def list_dir(self, path: str) -> list[EnvironmentFileEntry]:
+        resolved = self.resolve_path(path)
+        result = await self._docker_shell_bytes(_DOCKER_LIST_DIR_SCRIPT, [resolved])
+        if result.exit_code == _DOCKER_FS_MISSING_EXIT_CODE:
+            raise FileNotFoundError(resolved)
+        if result.exit_code == _DOCKER_FS_NOT_DIRECTORY_EXIT_CODE:
+            raise NotADirectoryError(resolved)
+        if result.exit_code != 0:
+            self._raise_filesystem_error(result, path=resolved, operation="list")
+        return _parse_docker_directory_entries(result.stdout)
+
+    async def mkdir(self, path: str) -> None:
+        resolved = self.resolve_path(path)
+        result = await self._docker_shell_bytes('mkdir -p -- "$1"', [resolved])
+        if result.exit_code != 0:
+            self._raise_filesystem_error(result, path=resolved, operation="mkdir")
+
+    async def remove(self, path: str) -> None:
+        resolved = self.resolve_path(path)
+        result = await self._docker_shell_bytes('rm -f -- "$1"', [resolved])
+        if result.exit_code != 0:
+            self._raise_filesystem_error(result, path=resolved, operation="remove")
 
     async def close(self) -> None:
         return None
@@ -488,6 +624,25 @@ def _normalize_container_path(path: str) -> str:
     if not path.startswith("/"):
         path = f"/{path}"
     return posixpath.normpath(path)
+
+
+def _parse_docker_directory_entries(payload: bytes) -> list[EnvironmentFileEntry]:
+    if not payload:
+        return []
+    parts = payload.split(b"\0")
+    if parts[-1] == b"":
+        parts = parts[:-1]
+    if len(parts) % 3 != 0:
+        raise RuntimeError("Docker directory listing returned invalid data.")
+
+    entries: list[EnvironmentFileEntry] = []
+    for index in range(0, len(parts), 3):
+        type_code = parts[index].decode("ascii", errors="replace")
+        path = parts[index + 1].decode("utf-8", errors="replace")
+        name = parts[index + 2].decode("utf-8", errors="replace")
+        kind = "directory" if type_code == "d" else "file" if type_code == "f" else "other"
+        entries.append(EnvironmentFileEntry(path=path, name=name, kind=kind))
+    return entries
 
 
 def _relative_to_mount(path: str, mount_target: str) -> Path:
