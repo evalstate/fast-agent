@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
+from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.core.exceptions import (
     AgentConfigError,
     CircularDependencyError,
@@ -78,7 +79,7 @@ def initial_harness_session_id(request: AgentRunRequest) -> str:
 
     manager = SessionManager(home_override=request.home)
     if request.resume is not None:
-        if request.resume:
+        if request.resume and request.resume != RESUME_LATEST_SENTINEL:
             resolved = manager.resolve_session_name(request.resume)
             if resolved is not None:
                 return resolved

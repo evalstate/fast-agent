@@ -13,6 +13,7 @@ from mcp import CallToolRequest
 from mcp.types import CallToolRequestParams, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.cli.runtime.agent_setup import (
     _apply_fast_args,
     _apply_shell_cwd_policy_preflight,
@@ -495,6 +496,18 @@ def test_initial_harness_session_id_uses_explicit_resume_session(tmp_path: Path)
     request = _make_request(result_file=None, message=None)
     request.home = tmp_path
     request.resume = "2607032031-AiS7lt"
+
+    assert initial_harness_session_id(request) == "2607032031-AiS7lt"
+
+
+def test_initial_harness_session_id_uses_latest_resume_sentinel(tmp_path: Path) -> None:
+    from fast_agent.session import SessionManager
+
+    session = SessionManager(home_override=tmp_path).create_session_with_id("2607032031-AiS7lt")
+    (session.directory / "history_agent.json").write_text("[]", encoding="utf-8")
+    request = _make_request(result_file=None, message=None)
+    request.home = tmp_path
+    request.resume = RESUME_LATEST_SENTINEL
 
     assert initial_harness_session_id(request) == "2607032031-AiS7lt"
 

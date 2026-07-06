@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
 import pytest
 
@@ -72,9 +73,11 @@ class _Sandbox(SandboxProtocol):
         env: dict[str, Any] | None = None,
         cwd: str | None = None,
         timeout: float | None = None,
+        on_stdout: Callable[[str], None] | None = None,
+        on_stderr: Callable[[str], None] | None = None,
         check: bool = True,
     ) -> _CommandResult:
-        del shell, env, timeout, check
+        del shell, env, timeout, on_stdout, on_stderr, check
         self.commands.append(cmd)
         self.cwd = cwd
         if isinstance(cmd, list) and cmd[:2] == ["python3", "-c"]:
@@ -93,6 +96,54 @@ class _Sandbox(SandboxProtocol):
 
     def close(self) -> None:
         pass
+
+
+class _StreamingSandbox(_Sandbox):
+    def __init__(self, *, timed_out: bool = False) -> None:
+        super().__init__()
+        self.timed_out = timed_out
+
+    def run(
+        self,
+        cmd: str | list[str],
+        *,
+        shell: bool | None = None,
+        env: dict[str, Any] | None = None,
+        cwd: str | None = None,
+        timeout: float | None = None,
+        on_stdout: Callable[[str], None] | None = None,
+        on_stderr: Callable[[str], None] | None = None,
+        check: bool = True,
+    ) -> _CommandResult:
+        del shell, env, timeout, check
+        self.commands.append(cmd)
+        self.cwd = cwd
+        if on_stdout is not None:
+            on_stdout("a")
+        if on_stderr is not None:
+            on_stderr("b")
+        if on_stdout is not None:
+            on_stdout("c")
+        return _CommandResult(stdout="ac", stderr="b", timed_out=self.timed_out)
+
+
+class _RecordingCallbacks:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str]] = []
+
+    async def on_stdout(self, text: str) -> None:
+        await asyncio.sleep(0.01)
+        self.events.append(("stdout", text))
+
+    async def on_stderr(self, text: str) -> None:
+        await asyncio.sleep(0.01)
+        self.events.append(("stderr", text))
+
+    async def on_idle_warning(self, elapsed: float, remaining: float) -> None:
+        self.events.append(("idle", f"{elapsed}:{remaining}"))
+
+    async def on_timeout(self) -> None:
+        self.events.append(("timeout", ""))
 
 
 @pytest.mark.asyncio
@@ -130,6 +181,44 @@ async def test_execute_uses_created_default_cwd() -> None:
     await environment.execute(ShellExecutionRequest(command="pwd"))
 
     assert sandbox.cwd == "/workspace"
+
+
+@pytest.mark.asyncio
+async def test_execute_streams_huggingface_output_chunks_without_duplicates() -> None:
+    sandbox = _StreamingSandbox()
+    environment = HuggingFaceSandboxEnvironment(sandbox=sandbox, cwd="/workspace")
+    callbacks = _RecordingCallbacks()
+    await environment.open()
+
+    execution = await environment.execute(
+        ShellExecutionRequest(command="printf output"),
+        callbacks=callbacks,
+    )
+
+    assert callbacks.events == [("stdout", "a"), ("stderr", "b"), ("stdout", "c")]
+    assert execution.result.stdout == "ac"
+    assert execution.result.stderr == "b"
+
+
+@pytest.mark.asyncio
+async def test_execute_reports_huggingface_timeout_after_streaming_output() -> None:
+    sandbox = _StreamingSandbox(timed_out=True)
+    environment = HuggingFaceSandboxEnvironment(sandbox=sandbox, cwd="/workspace")
+    callbacks = _RecordingCallbacks()
+    await environment.open()
+
+    execution = await environment.execute(
+        ShellExecutionRequest(command="sleep 10", timeout=1),
+        callbacks=callbacks,
+    )
+
+    assert callbacks.events == [
+        ("stdout", "a"),
+        ("stderr", "b"),
+        ("stdout", "c"),
+        ("timeout", ""),
+    ]
+    assert execution.timed_out is True
 
 
 @pytest.mark.asyncio

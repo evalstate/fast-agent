@@ -11,7 +11,28 @@ from fast_agent.tools.docker_shell_environment import (
     DockerMount,
     DockerShellEnvironment,
 )
-from fast_agent.tools.execution_environment import ShellExecutionRequest
+from fast_agent.tools.execution_environment import (
+    EnvironmentFilesystemWithBytes,
+    ShellExecutionRequest,
+)
+
+
+class _DockerFsProcess:
+    def __init__(
+        self,
+        *,
+        stdout: bytes = b"",
+        stderr: bytes = b"",
+        returncode: int = 0,
+    ) -> None:
+        self._stdout = stdout
+        self._stderr = stderr
+        self.returncode = returncode
+        self.communicated_stdin: bytes | None = None
+
+    async def communicate(self, stdin: bytes | None = None) -> tuple[bytes, bytes]:
+        self.communicated_stdin = stdin
+        return self._stdout, self._stderr
 
 
 def test_docker_shell_environment_builds_bash_exec_argv() -> None:
@@ -74,6 +95,14 @@ def test_docker_shell_environment_uses_configured_container_cli() -> None:
     assert environment.runtime_info().provider == "wslc"
 
 
+def test_docker_shell_environment_exposes_container_filesystem_protocol() -> None:
+    environment = DockerShellEnvironment(container="workspace", cwd="/workspace/project")
+
+    assert isinstance(environment, EnvironmentFilesystemWithBytes)
+    assert environment.resolve_path("src/main.py") == "/workspace/project/src/main.py"
+    assert environment.resolve_path("/tmp/file.txt") == "/tmp/file.txt"
+
+
 def test_docker_mount_formats_host_path() -> None:
     mount = DockerMount(source=Path("."), target="/workspace", mode="ro")
 
@@ -90,6 +119,75 @@ def test_managed_docker_environment_mount_args() -> None:
 
     assert args[0] == "-v"
     assert args[1].endswith(":/workspace:rw")
+
+
+@pytest.mark.asyncio
+async def test_docker_shell_environment_reads_text_from_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    async def create_process(*args: object, **kwargs: object) -> _DockerFsProcess:
+        calls.append((args, kwargs))
+        return _DockerFsProcess(stdout=b"hello")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
+    environment = DockerShellEnvironment(
+        container="workspace",
+        container_cli="wslc",
+        cwd="/workspace",
+    )
+
+    content = await environment.read_text("README.md")
+
+    assert content == "hello"
+    assert calls[0][0][:3] == ("wslc", "exec", "workspace")
+    assert calls[0][0][-1] == "/workspace/README.md"
+
+
+@pytest.mark.asyncio
+async def test_docker_shell_environment_writes_bytes_to_container_stdin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    processes: list[_DockerFsProcess] = []
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    async def create_process(*args: object, **kwargs: object) -> _DockerFsProcess:
+        process = _DockerFsProcess()
+        processes.append(process)
+        calls.append((args, kwargs))
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
+    environment = DockerShellEnvironment(container="workspace", cwd="/workspace")
+
+    await environment.write_bytes("dir/file.bin", b"payload")
+
+    assert calls[0][0][:4] == ("docker", "exec", "-i", "workspace")
+    assert calls[0][0][-2:] == ("/workspace/dir/file.bin", "/workspace/dir")
+    assert processes[0].communicated_stdin == b"payload"
+
+
+@pytest.mark.asyncio
+async def test_docker_shell_environment_lists_container_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = b"d\0/workspace/pkg\0pkg\0f\0/workspace/README.md\0README.md\0l\0/workspace/link\0link\0"
+
+    async def create_process(*args: object, **kwargs: object) -> _DockerFsProcess:
+        del args, kwargs
+        return _DockerFsProcess(stdout=payload)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
+    environment = DockerShellEnvironment(container="workspace", cwd="/workspace")
+
+    entries = await environment.list_dir(".")
+
+    assert [(entry.name, entry.path, entry.kind) for entry in entries] == [
+        ("pkg", "/workspace/pkg", "directory"),
+        ("README.md", "/workspace/README.md", "file"),
+        ("link", "/workspace/link", "other"),
+    ]
 
 
 @pytest.mark.asyncio

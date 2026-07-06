@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 class _RemoteShellRuntime:
     def __init__(self) -> None:
         self.commands: list[str] = []
+        self.direct_commands: list[str] = []
 
     def runtime_info(self) -> ShellRuntimeInfo:
         return ShellRuntimeInfo(
@@ -26,6 +27,11 @@ class _RemoteShellRuntime:
 
     async def execute_shell(self, command: str) -> ShellExecutionResult:
         self.commands.append(command)
+        return ShellExecutionResult(stdout="remote output\n", stderr="", exit_code=0)
+
+    async def execute_direct_shell(self, command: str) -> ShellExecutionResult:
+        self.direct_commands.append(command)
+        print("remote output")
         return ShellExecutionResult(stdout="remote output\n", stderr="", exit_code=0)
 
 
@@ -63,7 +69,8 @@ async def test_environment_shell_command_uses_active_shell_runtime(capsys: pytes
     )
 
     captured = capsys.readouterr()
-    assert runtime.commands == ["pwd"]
+    assert runtime.commands == []
+    assert runtime.direct_commands == ["pwd"]
     assert result.exit_code == 0
     assert "remote output" in captured.out
     assert display.exit_codes == []

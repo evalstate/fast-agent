@@ -79,6 +79,7 @@ class _ShellDisplayState:
     display_total_line_count: int = 0
     display_overflowed: bool = False
     display_ellipsis_printed: bool = False
+    timeout_notice_printed: bool = False
     display_tail_buffer: deque[tuple[int, str, str | None]] = field(
         default_factory=lambda: deque(maxlen=1)
     )
@@ -117,11 +118,7 @@ class _ShellRuntimeCallbacks:
         await self.runtime._emit_watchdog_progress(elapsed)
 
     async def on_timeout(self) -> None:
-        if self.display_state.use_live_shell_display:
-            console.console.print(
-                "▶ Timeout exceeded - terminating process",
-                style="black on red",
-            )
+        self.runtime._print_timeout_notice(self.display_state)
 
 
 @dataclass(slots=True)
@@ -308,11 +305,11 @@ class ShellRuntime:
         self,
         *,
         defer_display_to_tool_result: bool,
+        display_line_limit: int | None = None,
     ) -> _ShellDisplayState:
         use_live_shell_display = (
             self._show_bash_output and not defer_display_to_tool_result and display_tools_enabled()
         )
-        display_line_limit = self._output_display_lines
         state = _ShellDisplayState(
             use_live_shell_display=use_live_shell_display,
             display_line_limit=display_line_limit,
@@ -387,6 +384,20 @@ class ShellRuntime:
                 style="black on red",
             )
         output_state.truncation_notice_printed = True
+
+    def _print_timeout_notice(
+        self,
+        display_state: _ShellDisplayState,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> None:
+        if not display_state.use_live_shell_display or display_state.timeout_notice_printed:
+            return
+        message = "▶ Timeout exceeded - terminating process"
+        if timeout_seconds is not None:
+            message = f"▶ Timeout after {timeout_seconds:g}s - process terminated"
+        console.console.print(message, style="black on red")
+        display_state.timeout_notice_printed = True
 
     def _render_live_shell_output(
         self,
@@ -568,17 +579,16 @@ class ShellRuntime:
             not display_state.use_live_shell_display
             or display_state.display_line_limit is None
             or display_state.display_line_limit <= 0
-            or not display_state.display_overflowed
         ):
             return
-        if not display_state.display_ellipsis_printed:
+        if display_state.display_overflowed and not display_state.display_ellipsis_printed:
             console.console.print(
                 SHELL_OUTPUT_TRUNCATION_MARKER,
                 style="dim",
                 markup=False,
             )
         for buffered_index, buffered_text, buffered_style in display_state.display_tail_buffer:
-            if buffered_index <= display_state.display_line_limit:
+            if display_state.display_overflowed and buffered_index <= display_state.display_line_limit:
                 continue
             console.console.print(
                 self._render_display_line(buffered_text, buffered_style),
@@ -624,10 +634,12 @@ class ShellRuntime:
         env: Mapping[str, str] | None,
         timeout: float | None,
         defer_display_to_tool_result: bool,
+        display_line_limit: int | None,
     ) -> _ShellRuntimeExecution:
         output_state = _ShellOutputState()
         display_state = self._build_display_state(
-            defer_display_to_tool_result=defer_display_to_tool_result
+            defer_display_to_tool_result=defer_display_to_tool_result,
+            display_line_limit=display_line_limit,
         )
         execution = await self._environment.execute(
             ShellExecutionRequest(
@@ -665,6 +677,52 @@ class ShellRuntime:
         )
         return execution
 
+    async def execute_direct_shell(
+        self,
+        command: str,
+        *,
+        cwd: str | Path | None = None,
+        env: Mapping[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> ShellExecutionResult:
+        """Execute a user-entered shell command and display output live when available."""
+        runtime_execution = await self._execute_shell_command(
+            command,
+            cwd=cwd,
+            env=env,
+            timeout=timeout,
+            defer_display_to_tool_result=False,
+            display_line_limit=None,
+        )
+        execution = runtime_execution.execution
+        output_state = runtime_execution.output_state
+        display_state = runtime_execution.display_state
+
+        if not output_state.had_stream_output:
+            if execution.result.stdout:
+                self._record_stream_output(
+                    execution.result.stdout,
+                    style=None,
+                    output_state=output_state,
+                    display_state=display_state,
+                    is_stderr=False,
+                )
+            if execution.result.stderr:
+                self._record_stream_output(
+                    execution.result.stderr,
+                    style="red",
+                    output_state=output_state,
+                    display_state=display_state,
+                    is_stderr=True,
+                )
+        self._flush_live_display_tail(display_state)
+        if execution.timed_out:
+            self._print_timeout_notice(
+                display_state,
+                timeout_seconds=execution.options.timeout_seconds,
+            )
+        return execution.result
+
     async def execute(
         self,
         arguments: dict[str, Any] | None = None,
@@ -697,6 +755,7 @@ class ShellRuntime:
                     env=None,
                     timeout=None,
                     defer_display_to_tool_result=defer_display_to_tool_result,
+                    display_line_limit=self._output_display_lines,
                 )
                 result, completion_details = self._build_shell_result(
                     execution=runtime_execution.execution,

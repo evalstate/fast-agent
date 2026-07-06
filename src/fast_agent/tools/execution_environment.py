@@ -86,7 +86,13 @@ class ShellExecution:
 
 
 class ShellExecutionCallbacks(Protocol):
-    """Optional observer hooks for streaming shell execution."""
+    """Optional observer hooks for shell execution.
+
+    Environments that support live output should call stdout/stderr callbacks as
+    chunks arrive. Environments that cannot stream live output may omit these
+    callbacks; the returned ``ShellExecution`` remains the authoritative complete
+    result. Callers must tolerate zero, one, or many stdout/stderr callback chunks.
+    """
 
     async def on_stdout(self, text: str) -> None: ...
 

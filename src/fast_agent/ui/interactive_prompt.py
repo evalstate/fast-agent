@@ -138,6 +138,8 @@ class _PromptShellRuntime(Protocol):
 
     async def execute_shell(self, command: str) -> ShellExecutionResult: ...
 
+    async def execute_direct_shell(self, command: str) -> ShellExecutionResult: ...
+
 
 @dataclass(slots=True)
 class PromptTurnPreparation:
@@ -1041,9 +1043,8 @@ class InteractivePrompt:
 
         print(f"$ {command}", flush=True)
         emit_prompt_mark("C")
-        result = await shell_runtime.execute_shell(command)
+        result = await shell_runtime.execute_direct_shell(command)
         emit_prompt_mark(f"D;{result.exit_code}")
-        self._print_shell_execution_result(result)
         self._record_shell_execution_result(result, display=display)
         return result
 
@@ -1072,15 +1073,6 @@ class InteractivePrompt:
         if not isinstance(shell_runtime, _PromptShellRuntime):
             return None
         return shell_runtime
-
-    @staticmethod
-    def _print_shell_execution_result(result: ShellExecutionResult) -> None:
-        if result.stdout:
-            sys.stdout.write(result.stdout)
-            sys.stdout.flush()
-        if result.stderr:
-            sys.stderr.write(result.stderr)
-            sys.stderr.flush()
 
     @staticmethod
     def _record_shell_execution_result(
