@@ -29,6 +29,7 @@ _FENCE_LANGUAGE_ALIASES = {
     "terminal": "console",
 }
 _APPLY_PATCH_LANGUAGES = frozenset({"apply_patch", "patch"})
+_TABLE_SEPARATOR_LINE_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
 
 
 @dataclass(frozen=True)
@@ -464,6 +465,21 @@ def _render_markdown_chunk(
     return Markdown(prepared, code_theme=code_theme)
 
 
+def _ensure_final_table_row_newline(text: str) -> str:
+    if not text.endswith("|"):
+        return text
+
+    lines = text.split("\n")
+    if len(lines) < 3:
+        return text
+
+    final_line = lines[-1]
+    separator_line = lines[-2]
+    if "|" in final_line and _TABLE_SEPARATOR_LINE_RE.match(separator_line):
+        return f"{text}\n"
+    return text
+
+
 def _render_code_chunk(
     text: str,
     *,
@@ -549,6 +565,9 @@ def build_markdown_renderable(
 
     if close_incomplete_fences:
         text = close_incomplete_code_blocks(text)
+
+    if not cursor_suffix:
+        text = _ensure_final_table_row_newline(text)
 
     if render_fences_with_syntax:
         code_block = extract_single_fenced_code_block(text)
