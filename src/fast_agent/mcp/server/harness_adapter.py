@@ -313,6 +313,9 @@ class HarnessMCPAdapter:
     def agent_auth() -> AgentAuth | None:
         access_token = get_access_token()
         if access_token is None:
+            token = HarnessMCPAdapter._raw_bearer_token_from_request()
+            if token:
+                return AgentAuth.bearer(token, provider="huggingface")
             return None
         claims = dict(access_token.claims)
         provider = claims.get("provider")
@@ -330,6 +333,24 @@ class HarnessMCPAdapter:
             scopes=tuple(access_token.scopes),
             claims=claims,
         )
+
+    @staticmethod
+    def _raw_bearer_token_from_request() -> str | None:
+        try:
+            ctx = get_context()
+        except Exception:
+            return None
+        request_context = getattr(ctx, "request_context", None)
+        request = getattr(request_context, "request", None)
+        headers = getattr(request, "headers", None)
+        if headers is None:
+            return None
+        for header_name in ("authorization", "x-hf-authorization"):
+            value = headers.get(header_name)
+            if isinstance(value, str) and value.lower().startswith("bearer "):
+                token = value[7:].strip()
+                return token or None
+        return None
 
     @staticmethod
     def mcp_session_id(ctx: MCPContext) -> str | None:
