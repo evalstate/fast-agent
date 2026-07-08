@@ -16,7 +16,7 @@ from fast_agent.types import AgentRequest, AgentResponse, PromptMessageExtended,
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Mapping
+    from collections.abc import AsyncIterator, Iterator, Mapping
     from contextlib import AbstractAsyncContextManager
 
     from mcp.types import PromptMessage
