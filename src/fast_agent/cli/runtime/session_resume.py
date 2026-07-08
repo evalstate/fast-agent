@@ -73,7 +73,9 @@ async def resume_session_if_requested(
 
     preview_agent = resume_preview_agent(agent_app, request, default_agent, result.loaded)
     emit_resume_assistant_preview(
+        agent_app,
         preview_agent,
+        result.loaded,
         interactive_notice,
         queue_startup_markdown_notice,
     )
@@ -264,20 +266,41 @@ def resume_preview_agent(
     return preview_agent
 
 
-def emit_resume_assistant_preview(
+def resume_preview_candidates(
+    agent_app: AgentApp,
     preview_agent: AgentProtocol,
+    loaded: Mapping[str, Path],
+) -> list[AgentProtocol]:
+    candidates = [preview_agent]
+    for agent_name in loaded:
+        agent = agent_app.get_agent(agent_name)
+        if agent is not None and agent not in candidates:
+            candidates.append(agent)
+    return candidates
+
+
+def emit_resume_assistant_preview(
+    agent_app: AgentApp,
+    preview_agent: AgentProtocol,
+    loaded: Mapping[str, Path],
     interactive_notice: bool,
     queue_startup_markdown_notice: StartupMarkdownNotice,
 ) -> None:
-    preview_history = preview_agent.message_history
-    assistant_text = find_last_assistant_text(list(preview_history))
+    assistant_text = None
+    assistant_agent = preview_agent
+    for candidate in resume_preview_candidates(agent_app, preview_agent, loaded):
+        assistant_text = find_last_assistant_text(list(candidate.message_history))
+        if assistant_text:
+            assistant_agent = candidate
+            break
+
     if assistant_text:
         if interactive_notice:
             queue_startup_markdown_notice(
                 assistant_text,
                 title="Last assistant message",
                 right_info="session",
-                agent_name=preview_agent.name,
+                agent_name=assistant_agent.name,
             )
         else:
             typer.echo("Last assistant message:", err=True)

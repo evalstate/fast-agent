@@ -680,6 +680,8 @@ async def _show_input_startup(
     global help_message_shown
     _show_stop_hint_message(default=default, show_stop_hint=show_stop_hint)
     if help_message_shown:
+        if agent_provider and _startup_notices:
+            _render_startup_notices(agent_name=agent_name, agent_provider=agent_provider)
         return
 
     _show_input_help_banner(

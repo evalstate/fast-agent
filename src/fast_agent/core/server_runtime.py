@@ -65,16 +65,6 @@ def resolve_server_instance_scope(
     return instance_scope
 
 
-def _configured_harness_entrypoint(config: "Settings | None") -> str | None:
-    if config is None:
-        return None
-    entrypoint = config.harness_app.entrypoint
-    if entrypoint is None:
-        return None
-    normalized = entrypoint.strip()
-    return normalized or None
-
-
 def _managed_agent_tool_specs(
     app: "AgentApp",
     names: Sequence[str] | None,
@@ -172,12 +162,10 @@ async def run_mcp_server(context: ServerRuntimeContext) -> None:
     default_agent = getattr(context.args, "agent", None)
     if default_agent not in context.state.primary_instance.agents:
         default_agent = context.state.primary_instance.app.get_default_agent_name()
-    managed_agent_tools = None
-    if _configured_harness_entrypoint(context.config) is None:
-        managed_agent_tools = _managed_agent_tool_specs(
-            context.state.primary_instance.app,
-            getattr(context.args, "managed_mcp_agent_names", None),
-        )
+    managed_agent_tools = _managed_agent_tool_specs(
+        context.state.primary_instance.app,
+        getattr(context.args, "managed_mcp_agent_names", None),
+    )
     await run_harness_mcp_app_server(
         instance_factory=context.callbacks.instance_factory(),
         shell_environment=context.state.runtime.shell_environment,

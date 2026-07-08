@@ -50,9 +50,10 @@ FastAgent runtime
 
 Use the Python form when you want a packaged application and the `serve` form
 when you want a declarative/card-based server. A configured
-`harness_app.entrypoint` is an advanced escape hatch: managed AgentCard tool
-publication is disabled, and the harness author owns the MCP-facing interface
-through custom server code.
+`harness_app.entrypoint` wraps the harness application used by managed
+AgentCard tools, so authors can intercept sessions/invocations while keeping
+the standard MCP tool surface. Use a custom FastMCP server only when you want to
+own the MCP-facing interface or expose non-AgentCard tools.
 
 For hosted MCP, prefer request-scoped serving. Each tool call opens a transient
 harness session and durable state lives in storage you control. For stateful MCP

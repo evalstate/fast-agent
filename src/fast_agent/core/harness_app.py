@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import shlex
+import sys
 from collections.abc import Sequence
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
@@ -15,7 +16,7 @@ from fast_agent.types import AgentRequest, AgentResponse, PromptMessageExtended,
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Mapping
+    from collections.abc import AsyncIterator, Iterator, Mapping
     from contextlib import AbstractAsyncContextManager
 
     from mcp.types import PromptMessage
@@ -343,7 +344,8 @@ def load_harness_app(
     if resolved_entrypoint is None:
         return default_app
 
-    factory = _load_harness_app_factory(resolved_entrypoint)
+    with _harness_app_import_path(settings):
+        factory = _load_harness_app_factory(resolved_entrypoint)
     return factory(
         HarnessAppContext(
             default_app=default_app,
@@ -379,6 +381,23 @@ def _load_harness_app_factory(entrypoint: str) -> HarnessAppFactory:
     if not callable(factory):
         raise TypeError(f"harness_app.entrypoint {entrypoint!r} is not callable.")
     return factory
+
+
+@contextmanager
+def _harness_app_import_path(settings: "Settings | None") -> Iterator[None]:
+    paths: list[str] = []
+    if settings is not None:
+        home = getattr(settings, "_fast_agent_home", None)
+        if home:
+            paths.append(str(Path(home)))
+
+    original = list(sys.path)
+    try:
+        for path in reversed([path for path in paths if path not in sys.path]):
+            sys.path.insert(0, path)
+        yield
+    finally:
+        sys.path[:] = original
 
 
 __all__ = [

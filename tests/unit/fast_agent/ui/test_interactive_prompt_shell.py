@@ -12,12 +12,15 @@ if TYPE_CHECKING:
     from fast_agent.ui.console_display import ConsoleDisplay
 
 
-class _RemoteShellRuntime:
-    def __init__(self) -> None:
+class _ShellRuntime:
+    def __init__(self, *, kind: str = "remote") -> None:
+        self.kind = kind
         self.commands: list[str] = []
         self.direct_commands: list[str] = []
 
     def runtime_info(self) -> ShellRuntimeInfo:
+        if self.kind == "local":
+            return ShellRuntimeInfo(name="bash", kind="local")
         return ShellRuntimeInfo(
             name="sh",
             kind="remote",
@@ -36,12 +39,12 @@ class _RemoteShellRuntime:
 
 
 class _Agent:
-    def __init__(self, shell_runtime: _RemoteShellRuntime) -> None:
+    def __init__(self, shell_runtime: _ShellRuntime) -> None:
         self.shell_runtime = shell_runtime
 
 
 class _Provider:
-    def __init__(self, shell_runtime: _RemoteShellRuntime) -> None:
+    def __init__(self, shell_runtime: _ShellRuntime) -> None:
         self._agent_obj = _Agent(shell_runtime)
 
     def _agent(self, _agent_name: str) -> _Agent:
@@ -58,7 +61,7 @@ class _Display:
 
 @pytest.mark.asyncio
 async def test_environment_shell_command_uses_active_shell_runtime(capsys: pytest.CaptureFixture[str]) -> None:
-    runtime = _RemoteShellRuntime()
+    runtime = _ShellRuntime()
     display = _Display()
 
     result = await InteractivePrompt()._execute_pending_shell_command(
@@ -77,10 +80,33 @@ async def test_environment_shell_command_uses_active_shell_runtime(capsys: pytes
 
 
 @pytest.mark.asyncio
+async def test_local_environment_shell_command_uses_attached_terminal(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runtime = _ShellRuntime(kind="local")
+    display = _Display()
+
+    result = await InteractivePrompt()._execute_pending_shell_command(
+        pending=PendingCommandExecution(shell_execute_cmd="printf local-output"),
+        prompt_provider=cast("AgentApp", _Provider(runtime)),
+        agent_name="agent",
+        display=cast("ConsoleDisplay", display),
+    )
+
+    captured = capsys.readouterr()
+    assert runtime.commands == []
+    assert runtime.direct_commands == []
+    assert result.exit_code == 0
+    assert result.stdout == "local-output"
+    assert "$ printf local-output" in captured.out
+    assert display.exit_codes == []
+
+
+@pytest.mark.asyncio
 async def test_bare_environment_shell_reports_interactive_unavailable(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    runtime = _RemoteShellRuntime()
+    runtime = _ShellRuntime()
     display = _Display()
 
     result = await InteractivePrompt()._execute_pending_shell_command(
