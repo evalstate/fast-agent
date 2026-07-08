@@ -35,7 +35,9 @@ Tools can be labelled as generating python code for syntax highlighting (especia
 
 ## Shell Integration
 
-You can run a shell command with `!` - for example `! git status`. You can enter an interactive shell by typing `!` ++return++. Child shells get `FAST_AGENT_SHELL_CHILD=1`. Type `exit` to return to `fast-agent`.
+You can run a shell command with `!` - for example `! git status`. When the active agent uses a local shell environment, commands run attached to your terminal, so interactive programs such as `! nano` work as expected. If the active agent uses a remote or sandbox environment, `!` runs in that environment; use `!!` to force a local shell command instead.
+
+You can enter an interactive shell by typing `!` ++return++ (`!!` ++return++ for a local shell). Child shells get `FAST_AGENT_SHELL_CHILD=1`. Type `exit` to return to `fast-agent`.
 
 File names and paths can be automatically completed with either ++tab++ or ++ctrl+space++.
 

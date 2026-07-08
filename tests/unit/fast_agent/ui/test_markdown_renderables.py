@@ -233,6 +233,51 @@ def test_build_markdown_renderable_renders_blockquote_prefix() -> None:
     assert "▌ quoted <tag>" in output.getvalue()
 
 
+def test_build_markdown_renderable_adds_newline_after_final_table_row() -> None:
+    renderable = build_markdown_renderable(
+        "| Name | Value |\n| --- | --- |\n| one | two |",
+        code_theme="monokai",
+        escape_xml=True,
+    )
+
+    assert isinstance(renderable, Markdown)
+    assert renderable.markup.endswith("| one | two |\n")
+
+
+def test_build_markdown_renderable_adds_newline_after_optional_pipe_table_row() -> None:
+    renderable = build_markdown_renderable(
+        "Name | Value\n--- | ---\none | two |",
+        code_theme="monokai",
+        escape_xml=True,
+    )
+
+    assert isinstance(renderable, Markdown)
+    assert renderable.markup.endswith("one | two |\n")
+
+
+def test_build_markdown_renderable_leaves_non_table_trailing_pipe() -> None:
+    renderable = build_markdown_renderable(
+        "not a table |",
+        code_theme="monokai",
+        escape_xml=True,
+    )
+
+    assert isinstance(renderable, Markdown)
+    assert renderable.markup.endswith("not a table |")
+
+
+def test_build_markdown_renderable_does_not_treat_cursor_suffix_as_table_pipe() -> None:
+    renderable = build_markdown_renderable(
+        "| Name | Value |\n| --- | --- |\n| one | two",
+        code_theme="monokai",
+        escape_xml=True,
+        cursor_suffix="|",
+    )
+
+    assert isinstance(renderable, Markdown)
+    assert renderable.markup.endswith("| one | two|")
+
+
 def test_extract_single_fenced_code_block_handles_incomplete_stream() -> None:
     block = extract_single_fenced_code_block("```python\nprint('hi')")
 

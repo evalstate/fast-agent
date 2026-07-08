@@ -1026,10 +1026,11 @@ class InteractivePrompt:
             rich_print("[yellow]Shell is not available for the active agent.[/yellow]")
             return ShellExecutionResult(stdout="", stderr="", exit_code=1)
 
+        runtime_info = shell_runtime.runtime_info()
+        if runtime_info.kind == "local":
+            return self._execute_local_interactive_shell_command(command, display=display)
+
         if pending.shell_execute_interactive:
-            runtime_info = shell_runtime.runtime_info()
-            if runtime_info.kind == "local":
-                return self._execute_local_interactive_shell_command(command, display=display)
             environment_label = (
                 runtime_info.environment_name or runtime_info.provider or runtime_info.kind
             )

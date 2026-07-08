@@ -469,7 +469,8 @@ class MCPAggregator(ContextDependent):
 
     def _should_use_request_scoped_connection(self, server_name: str) -> bool:
         """Use a fresh MCP transport when auth.forward depends on request context."""
-        if not request_bearer_token.get():
+        token_present = bool(request_bearer_token.get())
+        if not token_present:
             return False
         try:
             config = self._require_server_registry().get_server_config(server_name)
