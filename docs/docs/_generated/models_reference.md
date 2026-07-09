@@ -119,6 +119,8 @@
 | `grok-4-fast` | `xai` | Text, Vision | `json` (schema) | — | — | — |
 | `grok-4-latest` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok-4-latest.low` | — | — |
 | `grok-4.3-latest` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok-4.3-latest.low` | — | — |
+| `grok-4.5-latest` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok-4.5-latest.low` | — | — |
 | `grok-4` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok-4.low` | — | — |
+| `grok43` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok43.low` | — | — |
 | `grok` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok.low` | — | — |
 | `grok` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok.low` | — | — |

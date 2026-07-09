@@ -736,6 +736,19 @@ class ModelDatabase:
         response_websocket_providers=(Provider.XAI,),
     )
 
+    GROK_45 = ModelParameters(
+        context_window=500_000,
+        max_output_tokens=65535,
+        tokenizes=XAI_VISION,
+        json_mode="schema",
+        structured_tool_policy="always",
+        reasoning="openai",
+        reasoning_effort_spec=XAI_GROK_43_REASONING_EFFORT_SPEC,
+        default_provider=Provider.XAI,
+        response_transports=("sse", "websocket"),
+        response_websocket_providers=(Provider.XAI,),
+    )
+
     GROK_4_VLM = ModelParameters(
         context_window=2000000,
         max_output_tokens=16385,
@@ -1055,6 +1068,8 @@ class ModelDatabase:
         "grok": GROK_43,
         "grok-4.3": GROK_43,
         "grok-4.3-latest": GROK_43,
+        "grok-4.5": GROK_45,
+        "grok-4.5-latest": GROK_45,
         "grok-4-1-fast-reasoning": GROK_4_VLM,
         "grok-4-1-fast-non-reasoning": GROK_4_VLM,
         "grok-4-fast-reasoning": GROK_4_VLM,
