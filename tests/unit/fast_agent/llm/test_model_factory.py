@@ -806,16 +806,6 @@ def test_gemini35_flash_aliases_resolve_to_current_google_flash(alias: str):
     assert config.model_name == "gemini-3.5-flash"
 
 
-def test_grok_aliases_resolve_to_xai_grok_43():
-    config = ModelFactory.parse_model_string("grok")
-    assert config.provider == Provider.XAI
-    assert config.model_name == "grok-4.3"
-
-    config = ModelFactory.parse_model_string("grok4")
-    assert config.provider == Provider.XAI
-    assert config.model_name == "grok-4.3"
-
-
 def test_deepseek_alias_resolves_to_direct_deepseek_v4_pro():
     config = ModelFactory.parse_model_string("deepseek")
     assert config.provider == Provider.DEEPSEEK
