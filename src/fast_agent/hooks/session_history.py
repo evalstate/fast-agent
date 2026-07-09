@@ -29,6 +29,13 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _effective_use_history(ctx: "HookContext") -> bool:
+    request_params = ctx.request_params
+    if request_params is not None:
+        return request_params.use_history
+    return ctx.agent.config.use_history
+
+
 @runtime_checkable
 class _AttachedMcpServerProvider(Protocol):
     def list_attached_mcp_servers(self) -> list[str]: ...
@@ -108,6 +115,9 @@ async def save_session_history(ctx: "HookContext") -> None:
 
     agent_config = ctx.agent.config
     if agent_config.tool_only:
+        return
+
+    if not _effective_use_history(ctx):
         return
 
     if not ctx.message_history:

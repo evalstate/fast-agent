@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 
 import pytest
@@ -7,6 +8,43 @@ import pytest
 import fast_agent.config as config_module
 from fast_agent.constants import FAST_AGENT_RUNTIME_HOME
 from fast_agent.session import reset_session_manager
+
+
+@pytest.fixture(autouse=True)
+def shorten_logging_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep unit tests from waiting on full production logging shutdown timeouts."""
+
+    from fast_agent.core.logging.transport import AsyncEventBus
+
+    async def drain_queue_before_stop(self: AsyncEventBus, same_loop_task: bool) -> None:
+        queue = self._queue
+        if queue is not None:
+            self._discard_queued_events(queue)
+        self._queue = None
+
+    async def cancel_process_task(
+        self: AsyncEventBus, *, same_loop_task: bool | None = None
+    ) -> None:
+        task = self._task
+        if task is None:
+            return
+        if task.done():
+            self._task = None
+            return
+
+        task.cancel()
+        should_await = (
+            self._is_task_on_current_loop(task) if same_loop_task is None else same_loop_task
+        )
+        if should_await:
+            try:
+                await asyncio.wait_for(task, timeout=0.1)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+        self._task = None
+
+    monkeypatch.setattr(AsyncEventBus, "_drain_queue_before_stop", drain_queue_before_stop)
+    monkeypatch.setattr(AsyncEventBus, "_cancel_process_task", cancel_process_task)
 
 
 @pytest.fixture(autouse=True)

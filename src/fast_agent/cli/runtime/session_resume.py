@@ -38,6 +38,7 @@ class StartupMarkdownNotice(Protocol):
 
 
 DEFERRED_RESUME_WARNING_CODES = frozenset({"git-state-changed"})
+RESUME_LATEST_ALIASES = frozenset({"", RESUME_LATEST_SENTINEL, "latest"})
 
 
 def find_last_assistant_text(history: Sequence[object]) -> str | None:
@@ -89,7 +90,7 @@ def validate_resume_request(request: AgentRunRequest) -> None:
 
 
 def resume_session_id(request: AgentRunRequest) -> str | None:
-    return None if request.resume in ("", RESUME_LATEST_SENTINEL) else request.resume
+    return None if request.resume in RESUME_LATEST_ALIASES else request.resume
 
 
 def plain_resume_notice(notice: str) -> str:

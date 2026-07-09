@@ -119,6 +119,9 @@ class ModelSelectionCatalog:
                 alias="grok41fast-nr", model="grok-4-1-fast-non-reasoning", fast=True, current=False
             ),
         ),
+        Provider.META_AI: (
+            CatalogModelEntry(alias="Muse Spark 1.1", model="metaai.muse-spark-1.1"),
+        ),
         Provider.DEEPSEEK: (
             CatalogModelEntry(
                 alias="deepseek",

@@ -141,7 +141,7 @@ class ShellRuntime:
         self,
         activation_reason: str | None,
         logger,
-        timeout_seconds: int = 90,
+        timeout_seconds: float = 90,
         warning_interval_seconds: int = 30,
         working_directory: Path | None = None,
         output_byte_limit: int | None = None,
@@ -216,7 +216,7 @@ class ShellRuntime:
         return self._output_byte_limit
 
     @property
-    def timeout_seconds(self) -> int:
+    def timeout_seconds(self) -> float:
         """Return the idle/no-output timeout used for shell execution."""
         return self._timeout_seconds
 

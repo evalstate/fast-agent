@@ -38,6 +38,7 @@ _STREAM_READ_CHUNK_SIZE = 4096
 _MAX_PENDING_STREAM_BYTES = 65536
 _IO_DRAIN_TIMEOUT_SECONDS = 2.0
 _PROCESS_EXIT_POLL_SECONDS = 0.1
+_WATCHDOG_POLL_SECONDS = 1.0
 _asyncio_sleep = asyncio.sleep
 
 
@@ -77,7 +78,7 @@ class LocalShellExecutor:
         self,
         *,
         logger: ShellEnvironmentLogger,
-        timeout_seconds: int = 90,
+        timeout_seconds: float = 90,
         warning_interval_seconds: int = 30,
         working_directory: Path | None = None,
         config: Settings | None = None,
@@ -91,7 +92,7 @@ class LocalShellExecutor:
         self._default_env = dict(default_env or {})
 
     @property
-    def timeout_seconds(self) -> int:
+    def timeout_seconds(self) -> float:
         return self._timeout_seconds
 
     @property
@@ -388,7 +389,7 @@ class LocalShellExecutor:
         )
 
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(_WATCHDOG_POLL_SECONDS)
             if process.returncode is not None:
                 self._logger.debug("Watchdog: process exited normally")
                 return

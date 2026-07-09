@@ -66,6 +66,18 @@ class FileHarnessSessionPersistence:
             agents=instance.agents,
             fallback_agent_name=fallback_agent_name,
         )
+        from fast_agent.session.session_manager import ResumeSessionAgentsResult
+
+        instance.app.set_session_restore_result(
+            ResumeSessionAgentsResult(
+                session=hydration.session,
+                loaded=hydration.loaded_agents,
+                missing_agents=hydration.skipped_agents,
+                usage_notices=hydration.usage_notices,
+                warnings=hydration.warnings,
+                active_agent=hydration.active_agent,
+            )
+        )
         return hydration.session
 
     async def save(

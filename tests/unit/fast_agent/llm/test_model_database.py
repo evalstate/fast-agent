@@ -487,6 +487,19 @@ def test_model_database_xai_image_input_mime_types_match_docs():
     assert not ModelDatabase.supports_mime("grok-4.3", "image/webp")
 
 
+def test_model_database_metaai_muse_spark_metadata():
+    assert ModelDatabase.get_default_provider("muse-spark-1.1") == Provider.META_AI
+    assert ModelDatabase.get_context_window("muse-spark-1.1") == 1_048_576
+    assert ModelDatabase.get_response_transports("muse-spark-1.1") == ("sse",)
+    assert not ModelDatabase.supports_response_websocket_provider(
+        "muse-spark-1.1",
+        Provider.META_AI,
+    )
+    assert ModelDatabase.supports_mime("muse-spark-1.1", "image/png")
+    assert ModelDatabase.supports_mime("muse-spark-1.1", "application/pdf")
+    assert ModelDatabase.supports_mime("muse-spark-1.1", "video/mp4")
+
+
 def test_model_database_google_video_audio_mime_types():
     """Test that Google models support expanded video/audio MIME types."""
     # Video formats (MP4, AVI, FLV, MOV, MPEG, MPG, WebM)

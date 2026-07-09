@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 import pytest
 from mcp import CallToolRequest
@@ -8,6 +9,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks
 from fast_agent.config import get_settings, update_global_settings
+from fast_agent.constants import FAST_AGENT_RUNTIME_HOME
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content
@@ -27,6 +29,8 @@ async def ok_tool() -> str:
 
 
 def _register_session_manager(home) -> SessionManager:
+    os.environ["FAST_AGENT_HOME"] = str(home)
+    os.environ[FAST_AGENT_RUNTIME_HOME] = str(home)
     manager = SessionManager(home_override=home)
     set_session_manager(manager)
     return manager
@@ -123,6 +127,8 @@ class ExplodingSecondTurnLlm(PassthroughLLM):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._turn = 0
+        self.retry_count = 2
+        self.retry_backoff_seconds = 0.0
 
     async def _apply_prompt_provider_specific(
         self,
@@ -538,6 +544,7 @@ async def test_second_llm_error_after_tool_use_persists_resumable_checkpoint(tmp
 
     try:
         manager = _register_session_manager(tmp_path / "env")
+        manager.create_session(metadata={"agent_name": "checkpointed-mid-loop"})
         llm = ExplodingSecondTurnLlm()
         agent = ToolAgent(AgentConfig("checkpointed-mid-loop"), [ok_tool])
         agent._llm = llm
@@ -545,7 +552,7 @@ async def test_second_llm_error_after_tool_use_persists_resumable_checkpoint(tmp
         with pytest.raises(RuntimeError, match="llm boom"):
             await agent.generate("trigger")
 
-        session = manager.current_session
+        session = manager.load_latest_session(require_content=True)
         assert session is not None
 
         history_path = session.latest_history_path(agent.name)
@@ -584,6 +591,7 @@ async def test_resumed_tool_result_history_does_not_rerun_completed_tool(tmp_pat
 
     try:
         manager = _register_session_manager(tmp_path / "env")
+        manager.create_session(metadata={"agent_name": "checkpointed-side-effect"})
         exploding_llm = ExplodingSecondTurnLlm()
         agent = ToolAgent(AgentConfig("checkpointed-side-effect"), [ok_tool])
         agent._llm = exploding_llm

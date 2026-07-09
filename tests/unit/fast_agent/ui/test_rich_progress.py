@@ -866,10 +866,11 @@ class TestThreadSafety:
         display.start()
 
         errors: list[Exception] = []
-        stop_event = threading.Event()
+        start_event = threading.Event()
 
         def updater() -> None:
-            while not stop_event.is_set():
+            start_event.wait()
+            for _ in range(25):
                 try:
                     display.update(
                         _make_event(
@@ -881,10 +882,10 @@ class TestThreadSafety:
                     errors.append(e)
 
         def pauser() -> None:
-            while not stop_event.is_set():
+            start_event.wait()
+            for _ in range(25):
                 try:
                     display.pause()
-                    time.sleep(0.001)
                     display.resume()
                 except Exception as e:
                     errors.append(e)
@@ -897,11 +898,11 @@ class TestThreadSafety:
         for t in threads:
             t.start()
 
-        time.sleep(0.1)
-        stop_event.set()
+        start_event.set()
 
         for t in threads:
             t.join(timeout=2)
+            assert not t.is_alive()
 
         display.stop()
         assert errors == [], f"Concurrent operations raised: {errors}"

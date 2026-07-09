@@ -11,6 +11,7 @@ from fast_agent.config import (
     GoogleSettings,
     GroqSettings,
     HuggingFaceSettings,
+    MetaAISettings,
     OpenAISettings,
     OpenRouterSettings,
     Settings,
@@ -56,6 +57,12 @@ class TestSettingsDefaultHeaders:
         """xAI settings should support default_headers."""
         headers = {"Authorization-Extra": "token"}
         settings = XAISettings(default_headers=headers)
+        assert settings.default_headers == headers
+
+    def test_metaai_settings_default_headers(self):
+        """MetaAI settings should support default_headers."""
+        headers = {"X-MetaAI-Custom": "value"}
+        settings = MetaAISettings(default_headers=headers)
         assert settings.default_headers == headers
 
     def test_groq_settings_default_headers(self):

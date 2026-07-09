@@ -169,6 +169,17 @@ class ModelDatabase:
         "video/mpeg",  # MPEG, MPG
         "video/webm",
     ]
+    META_AI_MULTIMODAL: ClassVar[list[str]] = [
+        "text/plain",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "application/pdf",
+        "video/mp4",
+        "video/quicktime",
+        "video/mpeg",
+        "video/webm",
+    ]
     QWEN_MULTIMODAL: ClassVar[list[str]] = ["text/plain", "image/jpeg", "image/png", "image/webp"]
     XAI_VISION: ClassVar[list[str]] = ["text/plain", "image/jpeg", "image/png"]
     TEXT_ONLY: ClassVar[list[str]] = ["text/plain"]
@@ -769,6 +780,16 @@ class ModelDatabase:
         default_provider=Provider.XAI,
     )
 
+    MUSE_SPARK_11 = ModelParameters(
+        context_window=1_048_576,
+        max_output_tokens=65535,
+        tokenizes=META_AI_MULTIMODAL,
+        json_mode="schema",
+        structured_tool_policy="always",
+        default_provider=Provider.META_AI,
+        response_transports=("sse",),
+    )
+
     # H U G G I N G F A C E - max output tokens are not documented, using 16k as a reasonable default
     GLM_46 = ModelParameters(
         context_window=202752,
@@ -1082,6 +1103,7 @@ class ModelDatabase:
         "grok-3-mini": GROK_3,
         "grok-3-fast": GROK_3,
         "grok-3-mini-fast": _with_fast(GROK_3),
+        "muse-spark-1.1": MUSE_SPARK_11,
         "moonshotai/kimi-k2": _with_fast(KIMI_MOONSHOT_INSTRUCT),
         "moonshotai/kimi-k2-instruct-0905": _with_fast(KIMI_MOONSHOT_INSTRUCT),
         "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,

@@ -11,6 +11,11 @@ import pytest
 import pytest_asyncio
 import uvicorn
 from a2a.client import ClientConfig, create_client
+from a2a.server.tasks import (
+    InMemoryPushNotificationConfigStore,
+    PushNotificationEvent,
+    PushNotificationSender,
+)
 from a2a.types import (
     CancelTaskRequest,
     GetTaskRequest,
@@ -145,6 +150,11 @@ class StreamingRecordingAgent(RecordingAgent):
     def __init__(self, name: str = "worker") -> None:
         super().__init__(name=name)
         self._stream_listeners: list[Any] = []
+        self.tools: list[Any] = []
+
+    def add_tool(self, tool: Any, *, replace: bool = True) -> None:
+        del replace
+        self.tools.append(tool)
 
     def add_stream_listener(self, listener: Any) -> Any:
         self._stream_listeners.append(listener)
@@ -223,6 +233,14 @@ class InputRequiredRecordingAgent(RecordingAgent):
         )
         self.message_history.append(response)
         return response
+
+
+class RecordingPushNotificationSender(PushNotificationSender):
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, PushNotificationEvent]] = []
+
+    async def send_notification(self, task_id: str, event: PushNotificationEvent) -> None:
+        self.sent.append((task_id, event))
 
 
 class NoHistoryRecordingAgent(RecordingAgent):
@@ -378,6 +396,30 @@ def _multi_agent_instance(*agents: RecordingAgent) -> AgentInstance:
         app=AgentApp(protocol_agents),
         agents=protocol_agents,
     )
+
+
+def test_fast_agent_a2a_server_wires_push_notification_callbacks() -> None:
+    async def create_instance() -> AgentInstance:
+        return _instance(RecordingAgent(name="worker"))
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        await instance.shutdown()
+
+    push_config_store = InMemoryPushNotificationConfigStore()
+    push_sender = RecordingPushNotificationSender()
+    server = AgentA2AServer(
+        primary_instance=_instance(RecordingAgent(name="worker")),
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        server_name="fast-agent push test server",
+        push_config_store=push_config_store,
+        push_sender=push_sender,
+    )
+
+    request_handler = cast("Any", server.request_handler)
+    assert server.agent_card.capabilities.push_notifications
+    assert request_handler._push_config_store is push_config_store
+    assert request_handler._push_sender is push_sender
 
 
 @pytest_asyncio.fixture
@@ -1350,8 +1392,11 @@ async def test_fast_agent_a2a_server_aggregates_live_artifact_updates_without_cl
     finally:
         await client.shutdown()
 
-    assert chunks == []
+    assert chunks == ["stream from server"]
     assert response.all_text() == "stream from server"
+    assert client.current_task_id is None
+    assert client.last_task_state is None
+    assert client.last_event_kind == "message"
 
 
 @pytest.mark.integration

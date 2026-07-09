@@ -111,6 +111,10 @@ _PROVIDER_CLASS_PATHS: dict[Provider, tuple[str, str]] = {
         "HuggingFaceLLM",
     ),
     Provider.XAI: ("fast_agent.llm.provider.openai.xai_responses", "XAIResponsesLLM"),
+    Provider.META_AI: (
+        "fast_agent.llm.provider.openai.metaai_responses",
+        "MetaAIResponsesLLM",
+    ),
     Provider.OPENROUTER: ("fast_agent.llm.provider.openai.llm_openrouter", "OpenRouterLLM"),
     Provider.TENSORZERO: (
         "fast_agent.llm.provider.openai.llm_tensorzero_openai",
@@ -800,6 +804,8 @@ class ModelFactory:
         "grok45": "xai.grok-4.5",
         "grok-4-fast": "xai.grok-4-fast-non-reasoning",
         "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
+        "muse": "metaai.muse-spark-1.1",
+        "muse-spark": "metaai.muse-spark-1.1",
         "minimax": "hf.MiniMaxAI/MiniMax-M3:together?temperature=1.0&top_p=0.95&top_k=40",
         "minimax25": "hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
         "minimax27": "hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
