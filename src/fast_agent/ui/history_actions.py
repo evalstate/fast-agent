@@ -145,7 +145,7 @@ class _HistoryTurnDisplayContext:
                 message_text=assistant_payload["message_text"],
                 name=self.agent_name,
                 bottom_items=assistant_payload["bottom_items"],
-                highlight_index=assistant_payload["highlight_index"],
+                highlight_indexes=assistant_payload["highlight_indexes"],
                 additional_message=assistant_payload["additional_message"],
                 pre_content=assistant_payload["pre_content"],
             )
@@ -194,10 +194,10 @@ class _HistoryTurnDisplayContext:
             return None
 
         bottom_items: list[str] | None = badges or None
-        highlight_index = 0 if badges else None
+        highlight_indexes = [0] if badges else []
         if shell_access or read_file_access:
             bottom_items = None
-            highlight_index = None
+            highlight_indexes = []
 
         message_text: str | PromptMessageExtended = message
         if last_text is None and additional_message is None and not badges:
@@ -206,7 +206,7 @@ class _HistoryTurnDisplayContext:
         return {
             "message_text": message_text,
             "bottom_items": bottom_items,
-            "highlight_index": highlight_index,
+            "highlight_indexes": highlight_indexes,
             "additional_message": additional_message,
             "pre_content": pre_content,
         }

@@ -22,7 +22,7 @@ _SHELL_EXIT_CODE_ERROR_STYLE = "red reverse bold"
 
 def _format_bottom_metadata_compact(
     items: list[str],
-    highlight_index: int | None,
+    highlight_indexes: list[int],
     highlight_color: str,
     max_width: int | None = None,
 ) -> Text:
@@ -31,7 +31,7 @@ def _format_bottom_metadata_compact(
     default_style = "white dim"
     return _format_items_with_highlight_jump(
         items=items,
-        highlight_index=highlight_index,
+        highlight_indexes=highlight_indexes,
         highlight_color=highlight_color,
         default_style=default_style,
         separator=separator,
@@ -41,16 +41,16 @@ def _format_bottom_metadata_compact(
 
 def _format_items_with_highlight_jump(
     items: list[str],
-    highlight_index: int | None,
+    highlight_indexes: list[int],
     highlight_color: str,
     default_style: str,
     separator: str,
     max_width: int | None,
 ) -> Text:
     """
-    Format a list of items, ensuring the highlighted item is always visible.
+    Format a list of items, ensuring highlighted items are visible when space permits.
 
-    If the highlighted item would be truncated in normal rendering, we:
+    If a highlighted item would be truncated in normal rendering, we:
     1. Truncate the visible items earlier to leave space
     2. Add a dim "▶" jump indicator
     3. Show the highlighted item at the end
@@ -58,14 +58,14 @@ def _format_items_with_highlight_jump(
     if not items:
         return Text()
 
-    highlight_idx: int | None = None
-    if highlight_index is not None and 0 <= highlight_index < len(items):
-        highlight_idx = highlight_index
+    valid_highlights = sorted(
+        {index for index in highlight_indexes if 0 <= index < len(items)}
+    )
 
-    if highlight_idx is None:
+    if not valid_highlights:
         return _render_items_normal(
             items=items,
-            highlight_index=None,
+            highlight_indexes=[],
             highlight_color=highlight_color,
             default_style=default_style,
             separator=separator,
@@ -87,23 +87,22 @@ def _format_items_with_highlight_jump(
         current_len += segment_len
         visible_count += 1
 
-    highlight_visible = highlight_idx < visible_count
+    hidden_highlights = [index for index in valid_highlights if index >= visible_count]
 
-    if highlight_visible:
-        # Normal rendering - highlight is visible or no highlight
+    if not hidden_highlights:
         return _render_items_normal(
             items=items,
-            highlight_index=highlight_idx,
+            highlight_indexes=valid_highlights,
             highlight_color=highlight_color,
             default_style=default_style,
             separator=separator,
             max_width=max_width,
         )
 
-    # Jump rendering - highlight would be truncated
     return _render_items_with_jump(
         items=items,
-        highlight_index=highlight_idx,
+        highlight_indexes=valid_highlights,
+        jump_index=hidden_highlights[0],
         highlight_color=highlight_color,
         default_style=default_style,
         separator=separator,
@@ -113,7 +112,7 @@ def _format_items_with_highlight_jump(
 
 def _render_items_normal(
     items: list[str],
-    highlight_index: int | None,
+    highlight_indexes: list[int],
     highlight_color: str,
     default_style: str,
     separator: str,
@@ -124,7 +123,7 @@ def _render_items_normal(
 
     for i, item in enumerate(items):
         sep = Text(separator, style="dim") if i > 0 else Text("")
-        should_highlight = highlight_index is not None and i == highlight_index
+        should_highlight = i in highlight_indexes
         item_style = highlight_color if should_highlight else default_style
         item_text = Text(item, style=item_style)
 
@@ -152,7 +151,8 @@ def _append_item_segment(formatted: Text, separator: Text, item_text: Text) -> N
 
 def _render_items_with_jump(
     items: list[str],
-    highlight_index: int,
+    highlight_indexes: list[int],
+    jump_index: int,
     highlight_color: str,
     default_style: str,
     separator: str,
@@ -166,9 +166,9 @@ def _render_items_with_jump(
     formatted = Text()
 
     # Build the highlighted item segment
-    highlight_item = items[highlight_index]
+    highlight_item = items[jump_index]
     highlight_text = Text(highlight_item, style=highlight_color)
-    use_jump_indicator = highlight_index > 0
+    use_jump_indicator = jump_index > 0
     jump_indicator = Text(_JUMP_INDICATOR, style="dim") if use_jump_indicator else Text("")
 
     # Calculate space needed for jump indicator + highlighted item
@@ -192,7 +192,9 @@ def _render_items_with_jump(
 
         _append_prefix_items(
             formatted,
-            items[:highlight_index],
+            items[:jump_index],
+            highlight_indexes=highlight_indexes,
+            highlight_color=highlight_color,
             default_style=default_style,
             separator=separator,
             max_width=available_for_prefix,
@@ -201,7 +203,9 @@ def _render_items_with_jump(
     else:
         _append_prefix_items(
             formatted,
-            items[:highlight_index],
+            items[:jump_index],
+            highlight_indexes=highlight_indexes,
+            highlight_color=highlight_color,
             default_style=default_style,
             separator=separator,
             max_width=None,
@@ -219,13 +223,16 @@ def _append_prefix_items(
     formatted: Text,
     items: list[str],
     *,
+    highlight_indexes: list[int],
+    highlight_color: str,
     default_style: str,
     separator: str,
     max_width: int | None,
 ) -> None:
     for index, item in enumerate(items):
         sep = Text(separator, style="dim") if index > 0 else Text("")
-        item_text = Text(item, style=default_style)
+        item_style = highlight_color if index in highlight_indexes else default_style
+        item_text = Text(item, style=item_style)
         if (
             max_width is not None
             and formatted.cell_len + sep.cell_len + item_text.cell_len > max_width
@@ -298,7 +305,7 @@ class A3MessageStyle:
     def bottom_metadata_line(
         self,
         items: list[str] | None,
-        highlight_index: int | None,
+        highlight_indexes: list[int],
         highlight_color: str,
         max_item_length: int | None,
         width: int,
@@ -315,7 +322,7 @@ class A3MessageStyle:
 
         metadata_text = _format_bottom_metadata_compact(
             display_items,
-            highlight_index,
+            highlight_indexes,
             highlight_color,
             max_width=available,
         )

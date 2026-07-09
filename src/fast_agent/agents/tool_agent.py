@@ -36,7 +36,7 @@ from fast_agent.mcp.tool_result_metadata import (
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams, ToolTimingInfo
-from fast_agent.ui.message_display_helpers import resolve_highlight_index
+from fast_agent.ui.message_display_helpers import resolve_highlight_indexes
 from fast_agent.utils.async_utils import gather_with_cancel
 
 logger = get_logger(__name__)
@@ -636,7 +636,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             tool_args=planned_call.arguments,
             bottom_items=available_tools,
             tool_name=planned_call.name,
-            highlight_index=resolve_highlight_index(available_tools, planned_call.name),
+            highlight_indexes=resolve_highlight_indexes(available_tools, planned_call.name),
             max_item_length=12,
             metadata=metadata,
             tool_call_id=planned_call.correlation_id if parallel else None,

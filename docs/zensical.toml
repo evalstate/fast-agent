@@ -54,6 +54,7 @@ nav = [
       { "Hugging Face" = "models/providers/huggingface.md" },
       { "llama.cpp" = "models/providers/llamacpp.md" },
       { "xAI" = "models/providers/xai.md" },
+      { "MetaAI" = "models/providers/metaai.md" },
       { "Azure" = "models/providers/azure.md" },
       { "Bedrock" = "models/providers/bedrock.md" },
       { "Additional Providers" = "models/providers/additional.md" },

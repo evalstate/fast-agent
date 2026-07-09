@@ -83,7 +83,7 @@ Start with the native providers for common use, or use additional providers for 
 | OpenAI Responses     | `gpt55`, `gpt54`, `gpt52`, `gpt-5-mini`, `codex`         | GPT-5 class models, reasoning, text verbosity, structured outputs, `web_search`, SSE/WebSocket transports, service tiers, connectors            |
 | Anthropic            | `fable`, `sonnet`, `opus`, `opus48`, `opus47`, `haiku`   | Claude 4.x, prompt caching, adaptive reasoning/effort, structured outputs, `web_search`, `web_fetch`, long context, task budget where supported |
 | Google               | `gemini`, `gemini35flash`                                | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments             |
-| xAI / Grok           | `grok`, `grok4`, `grok-4.3`                              | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                             |
+| xAI / Grok           | `grok43`, `grok45`, `grok-4.3`, `grok-4.5`               | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                             |
 | Hugging Face         | `kimi`, `kimi26instant`, `deepseek-hf`, `glm`, `minimax` | Hugging Face Inference Providers routing, curated aliases, and HF MCP authentication                                                            |
 | Additional providers | `deepseek`, `qwen-turbo`, `gpt-oss`                      | Groq, DeepSeek, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints                                         |
 

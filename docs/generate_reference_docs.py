@@ -1002,10 +1002,6 @@ def generate_models_reference() -> str:
         if overridden is not None:
             return overridden
 
-        provider = ModelDatabase.get_default_provider(model_name)
-        if provider is not None:
-            return provider
-
         if alias:
             target = ModelFactory.MODEL_PRESETS.get(alias)
             if target:
@@ -1013,6 +1009,10 @@ def generate_models_reference() -> str:
                     return ModelFactory.parse_model_string(target).provider
                 except ModelConfigError:
                     pass
+
+        provider = ModelDatabase.get_default_provider(model_name)
+        if provider is not None:
+            return provider
 
         lower = model_name.lower()
         if lower.startswith(("gpt-5", "o1", "o3", "o4")):
@@ -1517,6 +1517,15 @@ def main() -> int:
             repo_root=repo_root,
         ),
     )
+    _write(
+        GENERATED_DIR / "model_aliases_metaai.md",
+        generate_model_alias_table(
+            "metaai",
+            include_default_models=True,
+            two_column=True,
+            repo_root=repo_root,
+        ),
+    )
 
     # Best-effort: these require importing `fast_agent` (and its runtime deps).
     _try_enable_fast_agent_import(repo_root)
@@ -1545,6 +1554,7 @@ def main() -> int:
             generate_current_model_table("codexresponses"),
         )
         _write(GENERATED_DIR / "current_models_openai.md", generate_current_model_table("openai"))
+        _write(GENERATED_DIR / "current_models_metaai.md", generate_current_model_table("metaai"))
         _write(GENERATED_DIR / "tui_runtime_reference.md", generate_tui_runtime_reference())
         _write(GENERATED_DIR / "compaction_config_snippet.md", generate_compaction_config_snippet())
         _write(

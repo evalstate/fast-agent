@@ -51,7 +51,7 @@ def _make_llm(model: str):
 @pytest.mark.parametrize(
     ("model", "expected"),
     [
-        ("codexplan?reasoning=high", "gpt-5.5"),
+        ("codexplan?reasoning=high", "gpt-5.6-terra"),
         ("sonnet", "claude-sonnet-5"),
         ("glm", "GLM-5.2"),
         ("hf.moonshotai/Kimi-K2-Instruct-0905:groq", "Kimi-K2-Instruct-0905"),

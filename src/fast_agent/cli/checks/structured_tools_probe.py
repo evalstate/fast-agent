@@ -22,6 +22,7 @@ StructuredProbeMode = Literal["direct", "pydantic", "tools"]
 StructuredProbeCase = Literal["json_schema", "pydantic"]
 
 ORDER_ID = "ORD-7291"
+PROBE_MAX_TOKENS = 2048
 
 ORDER_REPORT_SCHEMA = validate_json_schema_definition(
     {
@@ -227,7 +228,7 @@ async def _probe_direct_model(core: Core, model: str) -> ProbeResult:
         parsed, response = await agent.structured_schema(
             _build_direct_prompt(),
             DIRECT_PROBE_SCHEMA,
-            RequestParams(use_history=False, maxTokens=1400),
+            RequestParams(use_history=False, maxTokens=PROBE_MAX_TOKENS),
         )
         if not isinstance(parsed, dict):
             raise ValueError(f"structured response was not a JSON object: {type(parsed).__name__}")
@@ -293,7 +294,7 @@ async def _probe_pydantic_model(core: Core, model: str) -> ProbeResult:
         result, response = await agent.structured(
             _build_pydantic_prompt(),
             ProbeOrderSummary,
-            RequestParams(use_history=False, maxTokens=1400),
+            RequestParams(use_history=False, maxTokens=PROBE_MAX_TOKENS),
         )
         if result is None:
             raise ValueError("structured response did not validate as ProbeOrderSummary")
@@ -384,7 +385,7 @@ async def _probe_tools_model(
         use_history=False,
         structured_schema=PROBE_SCHEMA,
         structured_tool_policy=structured_tool_policy,
-        maxTokens=1400,
+        maxTokens=PROBE_MAX_TOKENS,
         max_iterations=4,
     )
 

@@ -37,12 +37,26 @@ class ModelSelectionCatalog:
     CATALOG_ENTRIES_BY_PROVIDER: ClassVar[dict[Provider, tuple[CatalogModelEntry, ...]]] = {
         Provider.RESPONSES: (
             CatalogModelEntry(
-                alias="gpt-5.5",
-                model="responses.gpt-5.5?reasoning=medium",
+                alias="gpt-5.6-sol",
+                model="responses.gpt-5.6-sol?reasoning=medium",
+            ),
+            CatalogModelEntry(
+                alias="gpt-5.6-terra",
+                model="responses.gpt-5.6-terra?reasoning=medium",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="gpt-5.6-luna",
+                model="responses.gpt-5.6-luna?reasoning=medium",
+                fast=True,
             ),
             CatalogModelEntry(
                 alias="chat-latest",
                 model="responses.chat-latest",
+            ),
+            CatalogModelEntry(
+                alias="gpt-5.5",
+                model="responses.gpt-5.5?reasoning=medium",
             ),
             CatalogModelEntry(alias="gpt-5.4", model="responses.gpt-5.4?reasoning=medium"),
             CatalogModelEntry(
@@ -112,12 +126,6 @@ class ModelSelectionCatalog:
             CatalogModelEntry(alias="Grok 4.3", model="xai.grok-4.3"),
             CatalogModelEntry(alias="Grok 4.3 (instant)", model="xai.grok-4.3?reasoning=none"),
             CatalogModelEntry(alias="Grok 4.3 (X Search)", model="xai.grok-4.3?x_search=true"),
-            CatalogModelEntry(
-                alias="grok41fast", model="grok-4-1-fast-reasoning", fast=True, current=False
-            ),
-            CatalogModelEntry(
-                alias="grok41fast-nr", model="grok-4-1-fast-non-reasoning", fast=True, current=False
-            ),
         ),
         Provider.META_AI: (
             CatalogModelEntry(alias="Muse Spark 1.1", model="metaai.muse-spark-1.1"),
@@ -289,7 +297,23 @@ class ModelSelectionCatalog:
         ),
         Provider.CODEX_RESPONSES: (
             CatalogModelEntry(
+                alias="sol",
+                model="codexresponses.gpt-5.6-sol?reasoning=medium",
+            ),
+            CatalogModelEntry(
+                alias="terra",
+                model="codexresponses.gpt-5.6-terra?reasoning=medium",
+            ),
+            CatalogModelEntry(
+                alias="luna",
+                model="codexresponses.gpt-5.6-luna?reasoning=medium",
+            ),
+            CatalogModelEntry(
                 alias="codexplan",
+                model="codexresponses.gpt-5.6-terra?reasoning=medium",
+            ),
+            CatalogModelEntry(
+                alias="codexplan55",
                 model="codexresponses.gpt-5.5?reasoning=medium",
             ),
             CatalogModelEntry(

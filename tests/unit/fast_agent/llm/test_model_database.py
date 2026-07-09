@@ -53,6 +53,19 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("unknown-model") is None
 
 
+def test_gpt_56_context_windows_follow_provider_limits() -> None:
+    assert ModelDatabase.get_context_window("gpt-5.6-sol", provider=Provider.RESPONSES) == 1_050_000
+    assert (
+        ModelDatabase.get_context_window("gpt-5.6-terra", provider=Provider.RESPONSES) == 1_050_000
+    )
+    assert ModelDatabase.get_context_window("gpt-5.6-luna", provider=Provider.RESPONSES) == 400_000
+
+    for model in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
+        assert (
+            ModelDatabase.get_context_window(model, provider=Provider.CODEX_RESPONSES) == 372_000
+        )
+
+
 def test_deepseek_v4_direct_model_metadata():
     assert ModelDatabase.get_max_output_tokens("deepseek-v4-flash") == 393_216
     assert ModelDatabase.get_max_output_tokens("deepseek-v4-pro") == 393_216
@@ -464,20 +477,20 @@ def test_model_database_supports_mime_basic():
 def test_model_database_xai_grok_aliases_and_responses_transport():
     assert ModelDatabase.get_default_provider("grok") == Provider.XAI
     assert ModelDatabase.get_default_provider("grok-4.3") == Provider.XAI
-    assert ModelDatabase.get_default_provider("grok-4.3-latest") == Provider.XAI
-    assert ModelDatabase.get_default_provider("grok-4-latest") == Provider.XAI
-    assert ModelDatabase.get_default_provider("grok-3-latest") == Provider.XAI
+    assert ModelDatabase.get_default_provider("grok-4.5") == Provider.XAI
 
-    assert ModelDatabase.get_context_window("grok") == 1_000_000
+    assert ModelDatabase.get_context_window("grok") == 500_000
     assert ModelDatabase.get_context_window("grok-4.3") == 1_000_000
-    assert ModelDatabase.get_context_window("grok-4") == 1_000_000
-    assert ModelDatabase.get_context_window("grok-4-0709") == 256000
+    assert ModelDatabase.get_context_window("grok-4.5") == 500_000
+    assert ModelDatabase.get_model_params("grok-4.3-latest") is None
+    assert ModelDatabase.get_model_params("grok-4-fast-reasoning") is None
+    assert ModelDatabase.get_model_params("grok-3") is None
     assert ModelDatabase.get_response_transports("grok-4.3") == ("sse", "websocket")
     assert ModelDatabase.supports_response_websocket_provider("grok-4.3", Provider.XAI)
 
 
 def test_model_database_xai_image_input_mime_types_match_docs():
-    vision_model = "grok-4-fast-reasoning"
+    vision_model = "grok-4.5"
 
     assert ModelDatabase.supports_mime(vision_model, "image/jpeg")
     assert ModelDatabase.supports_mime(vision_model, "jpg")

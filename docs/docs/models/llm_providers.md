@@ -40,6 +40,7 @@ The `default_headers` option is available for OpenAI-compatible providers (inclu
 | Bedrock | `bedrock` | AWS credentials | Amazon Bedrock models |
 | Groq | `groq` | `GROQ_API_KEY` | Additional provider; OpenAI-compatible hosted inference |
 | xAI / Grok | `xai` | `XAI_API_KEY` | Grok models, reasoning, web search, and X Search |
+| MetaAI | `metaai` | `META_AI_API_KEY` | Muse Spark Responses API models |
 | DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | Additional provider; OpenAI-format API |
 | Aliyun | `aliyun` | `ALIYUN_API_KEY` | Additional provider; DashScope compatible-mode endpoint |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` | Additional provider; routed upstream models |
@@ -58,5 +59,6 @@ See [Additional Providers](providers/additional/) for the long-tail reference wi
 - [Azure OpenAI](providers/azure/) for Azure deployments, authentication modes, and regional availability.
 - [AWS Bedrock](providers/bedrock/) for Bedrock model IDs, AWS authentication, and capability caveats.
 - [xAI / Grok](providers/xai/) for Grok models, reasoning, web search, and X Search.
+- [MetaAI](providers/metaai/) for Muse Spark Responses API models.
 - [Hugging Face](providers/huggingface/) for Inference Providers routing, curated aliases, and HF MCP authentication.
 - [Additional Providers](providers/additional/) for Groq, DeepSeek, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints.

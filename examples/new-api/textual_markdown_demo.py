@@ -81,7 +81,7 @@ class ChatMessage:
     name: str | None = None
     right_info: str | None = None
     bottom_metadata: list[str] | None = None
-    highlight_index: int | None = None
+    highlight_indexes: list[int] | None = None
     max_item_length: int | None = None
     pre_content: str | None = None
     block_color_override: str | None = None
@@ -231,7 +231,7 @@ class ChatDisplay(RichLog):
 
         metadata_text = self._format_metadata(
             display_items,
-            message.highlight_index,
+            message.highlight_indexes,
             highlight_color,
             available,
         )
@@ -252,7 +252,7 @@ class ChatDisplay(RichLog):
     def _format_metadata(
         self,
         items: Sequence[str],
-        highlight_index: int | None,
+        highlight_indexes: list[int] | None,
         highlight_color: str,
         max_width: int,
     ) -> RichText:
@@ -268,7 +268,7 @@ class ChatDisplay(RichLog):
             sep = RichText(" | ", style="dim") if index > 0 else RichText()
             item_style = (
                 highlight_color
-                if highlight_index is not None and index == highlight_index
+                if highlight_indexes and index in highlight_indexes
                 else "dim"
             )
             item_text = RichText(item, style=item_style)
@@ -309,7 +309,7 @@ class TextualDisplay(ConsoleDisplay):
         self,
         message_text: str | RichText | PromptMessageExtended,
         bottom_items: list[str] | None = None,
-        highlight_index: int | None = None,
+        highlight_indexes: list[int] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
@@ -345,7 +345,7 @@ class TextualDisplay(ConsoleDisplay):
             content=display_text,
             pre_content=pre_content,
             bottom_items=bottom_items,
-            highlight_index=highlight_index,
+            highlight_indexes=highlight_indexes,
             max_item_length=max_item_length,
             name=name,
             model=model,
@@ -358,7 +358,7 @@ class TextualDisplay(ConsoleDisplay):
         tool_args: dict | None,
         bottom_items: list[str] | None = None,
         name: str | None = None,
-        highlight_index: int | None = None,
+        highlight_indexes: list[int] | None = None,
         max_item_length: int | None = None,
         metadata: dict | None = None,
     ) -> None:
@@ -367,7 +367,7 @@ class TextualDisplay(ConsoleDisplay):
             tool_name=tool_name,
             tool_args=tool_args or {},
             bottom_items=bottom_items,
-            highlight_index=highlight_index,
+            highlight_indexes=highlight_indexes,
             max_item_length=max_item_length,
             metadata=metadata,
         )
@@ -641,7 +641,7 @@ class MarkdownLLMApp(App[None]):
         content: str,
         pre_content: str | None,
         bottom_items: list[str] | None,
-        highlight_index: int | None,
+        highlight_indexes: list[int] | None,
         max_item_length: int | None,
         name: str | None,
         model: str | None,
@@ -662,7 +662,7 @@ class MarkdownLLMApp(App[None]):
             extra = f"\n\n{additional_text}" if message.content else additional_text
             message.content = (message.content or "") + extra
         message.bottom_metadata = bottom_items
-        message.highlight_index = highlight_index
+        message.highlight_indexes = highlight_indexes
         message.max_item_length = max_item_length
         message.block_color_override = None
         message.arrow_style_override = None
@@ -678,7 +678,7 @@ class MarkdownLLMApp(App[None]):
         tool_name: str,
         tool_args: dict,
         bottom_items: list[str] | None,
-        highlight_index: int | None,
+        highlight_indexes: list[int] | None,
         max_item_length: int | None,
         metadata: dict | None,
     ) -> None:
@@ -740,7 +740,7 @@ class MarkdownLLMApp(App[None]):
             name=agent_name or "Tool",
             right_info=right_info,
             bottom_metadata=bottom_items,
-            highlight_index=highlight_index,
+            highlight_indexes=highlight_indexes,
             max_item_length=max_item_length,
         )
         self._messages.append(message)

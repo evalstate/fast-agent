@@ -450,6 +450,22 @@ class ModelDatabase:
         default_provider=Provider.RESPONSES,
     )
 
+    OPENAI_GPT_56 = ModelParameters(
+        context_window=1_050_000,
+        max_output_tokens=128_000,
+        tokenizes=OPENAI_VISION,
+        reasoning="openai",
+        reasoning_effort_spec=OPENAI_GPT_51_CLASS_REASONING,
+        text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
+        response_transports=("sse", "websocket"),
+        response_websocket_providers=(Provider.RESPONSES, Provider.CODEX_RESPONSES),
+        response_service_tiers=("fast", "flex"),
+        default_provider=Provider.RESPONSES,
+        model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
+    )
+
+    OPENAI_GPT_56_LUNA = OPENAI_GPT_56.model_copy(update={"context_window": 400_000})
+
     OPENAI_GPT_CODEX_SPARK = ModelParameters(
         context_window=128000,
         max_output_tokens=128000,
@@ -718,22 +734,6 @@ class ModelDatabase:
         model_specific="You have vision capabilities.",
     )
 
-    # xAI recommends Grok 4.3 for general text workloads. The pricing/tool
-    # invocation tables and file/collection storage pricing are billing policy,
-    # not model capability metadata, so they are intentionally not encoded here.
-    # xAI has not documented the max output tokens for Grok 4.x; keep the prior
-    # Grok 3-derived placeholder until an official per-model value is published.
-    GROK_4 = ModelParameters(
-        context_window=256000,
-        max_output_tokens=16385,
-        tokenizes=TEXT_ONLY,
-        json_mode="schema",
-        structured_tool_policy="always",
-        default_provider=Provider.XAI,
-        response_transports=("sse", "websocket"),
-        response_websocket_providers=(Provider.XAI,),
-    )
-
     GROK_43 = ModelParameters(
         context_window=1_000_000,
         max_output_tokens=65535,
@@ -758,26 +758,6 @@ class ModelDatabase:
         default_provider=Provider.XAI,
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.XAI,),
-    )
-
-    GROK_4_VLM = ModelParameters(
-        context_window=2000000,
-        max_output_tokens=16385,
-        tokenizes=XAI_VISION,
-        json_mode="schema",
-        structured_tool_policy="always",
-        default_provider=Provider.XAI,
-        response_transports=("sse", "websocket"),
-        response_websocket_providers=(Provider.XAI,),
-    )
-
-    # Source for Grok 3 max output: https://www.reddit.com/r/grok/comments/1j7209p/exploring_grok_3_beta_output_capacity_a_simple/
-    # xAI does not document Grok 3 max output tokens, using the above source as a reference.
-    GROK_3 = ModelParameters(
-        context_window=131072,
-        max_output_tokens=16385,
-        tokenizes=TEXT_ONLY,
-        default_provider=Provider.XAI,
     )
 
     MUSE_SPARK_11 = ModelParameters(
@@ -1023,6 +1003,10 @@ class ModelDatabase:
                 "model_specific": GPT_53_PLUS_MODEL_SPECIFIC,
             }
         ),
+        "gpt-5.6": OPENAI_GPT_56,
+        "gpt-5.6-sol": OPENAI_GPT_56,
+        "gpt-5.6-terra": _with_fast(OPENAI_GPT_56),
+        "gpt-5.6-luna": _with_fast(OPENAI_GPT_56_LUNA),
         "gpt-5.4-mini": OPENAI_GPT_54_SMALL.model_copy(
             update={"model_specific": GPT_53_PLUS_MODEL_SPECIFIC}
         ),
@@ -1086,23 +1070,8 @@ class ModelDatabase:
         "gemini-3.1-pro-preview": GEMINI_STANDARD_STRUCTURED,
         "gemini-3.1-flash-lite-preview": _with_fast(GEMINI_STANDARD),
         # xAI Grok Models
-        "grok": GROK_43,
         "grok-4.3": GROK_43,
-        "grok-4.3-latest": GROK_43,
         "grok-4.5": GROK_45,
-        "grok-4.5-latest": GROK_45,
-        "grok-4-1-fast-reasoning": GROK_4_VLM,
-        "grok-4-1-fast-non-reasoning": GROK_4_VLM,
-        "grok-4-fast-reasoning": GROK_4_VLM,
-        "grok-4-fast-non-reasoning": GROK_4_VLM,
-        "grok-4": GROK_43,
-        "grok-4-latest": GROK_43,
-        "grok-4-0709": GROK_4,
-        "grok-3": GROK_3,
-        "grok-3-latest": GROK_3,
-        "grok-3-mini": GROK_3,
-        "grok-3-fast": GROK_3,
-        "grok-3-mini-fast": _with_fast(GROK_3),
         "muse-spark-1.1": MUSE_SPARK_11,
         "moonshotai/kimi-k2": _with_fast(KIMI_MOONSHOT_INSTRUCT),
         "moonshotai/kimi-k2-instruct-0905": _with_fast(KIMI_MOONSHOT_INSTRUCT),
@@ -1138,7 +1107,17 @@ class ModelDatabase:
         # aliyun modern
         "qwen3-max": ALIYUN_QWEN3_MODERN,
     }
-    _PROVIDER_MODEL_OVERRIDES: ClassVar[dict[tuple[Provider, str], ModelParameters]] = {}
+    _PROVIDER_MODEL_OVERRIDES: ClassVar[dict[tuple[Provider, str], ModelParameters]] = {
+        (Provider.CODEX_RESPONSES, model): params.model_copy(
+            update={"context_window": 372_000}
+        )
+        for model, params in (
+            ("gpt-5.6", OPENAI_GPT_56),
+            ("gpt-5.6-sol", OPENAI_GPT_56),
+            ("gpt-5.6-terra", _with_fast(OPENAI_GPT_56)),
+            ("gpt-5.6-luna", _with_fast(OPENAI_GPT_56_LUNA)),
+        )
+    }
     _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {}
 
     @classmethod
