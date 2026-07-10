@@ -434,6 +434,13 @@ class InterruptCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class EOFCommand(CommandBase):
+    """Represents a Ctrl+D end-of-file event captured by the prompt layer."""
+
+    kind: Literal["eof"] = "eof"
+
+
+@dataclass(frozen=True, slots=True)
 class UnknownCommand(CommandBase):
     command: str
     kind: Literal["unknown_command"] = "unknown_command"
@@ -502,6 +509,7 @@ CommandPayload = (
     | ModelWebFetchCommand
     | ModelSwitchCommand
     | InterruptCommand
+    | EOFCommand
     | CommandError
     | UnknownCommand
 )

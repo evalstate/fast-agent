@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.9.5"
+version = "0.9.6"
 description = "Code, Build and Evaluate agents - excellent Model and Skills/MCP/ACP/A2A Support"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -15,7 +15,7 @@ classifiers = [
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "fastapi==0.136.3",
-    "fastmcp==3.4.3",
+    "fastmcp==3.4.4",
     "mcp==1.27.2",
     "pydantic-settings==2.14.2",
     "pydantic==2.13.4",

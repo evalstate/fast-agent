@@ -205,8 +205,9 @@ def _parse_hash_agent_command(body: str, *, quiet: bool) -> HashAgentCommand | s
 
 
 def try_parse_hash_agent_command(text: str) -> HashAgentCommand | None:
-    prefix = ""
-    quiet = False
+    if text.startswith("###"):
+        return None
+
     if text.startswith("##"):
         prefix = "##"
         quiet = True

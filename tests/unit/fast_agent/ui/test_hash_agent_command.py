@@ -46,6 +46,17 @@ class TestParseHashAgentCommand:
         result = parse_special_input("# heading\nmore")
         assert result == "# heading\nmore"
 
+    @pytest.mark.parametrize(
+        "heading",
+        [
+            "### 2. Use",
+            "###heading",
+            "#### Notes",
+        ],
+    )
+    def test_parse_heading_with_three_or_more_hashes_returns_plain_text(self, heading: str):
+        assert parse_special_input(heading) == heading
+
     def test_parse_hash_agent_multiline_message(self):
         """Test parsing with newlines in message."""
         result = parse_special_input("#agent line1\nline2")

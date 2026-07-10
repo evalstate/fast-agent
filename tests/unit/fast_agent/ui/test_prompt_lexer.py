@@ -23,6 +23,13 @@ def test_later_hash_lines_do_not_trigger_command_highlighting() -> None:
     assert tokens(1) == [("", "# heading")]
 
 
+def test_markdown_heading_is_not_highlighted_as_hash_command() -> None:
+    lexer = ShellPrefixLexer()
+    document = Document("### 2. Use")
+
+    assert lexer.lex_document(document)(0) == [("", "### 2. Use")]
+
+
 def test_shell_highlighting_only_applies_to_first_line() -> None:
     lexer = ShellPrefixLexer()
     document = Document("!echo hi\n!not-a-new-command")

@@ -6,9 +6,9 @@ import os
 from importlib.metadata import version as get_version
 from typing import Literal
 
+from fastmcp.server.auth.providers.huggingface import DEFAULT_HUGGINGFACE_SCOPES
 from fastmcp.utilities.auth import parse_scopes
 
-from fast_agent.mcp.auth.providers.huggingface import DEFAULT_HUGGINGFACE_SCOPES
 from fast_agent.utils.text import strip_casefold
 
 TransportMode = Literal["http", "stdio"]

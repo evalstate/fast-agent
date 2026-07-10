@@ -3,6 +3,9 @@
 This example deploys a custom FastMCP server backed by fast-agent Harness API,
 Hugging Face OAuth, and AgentCards.
 
+FastMCP owns the OAuth provider. fast-agent adds support for ordinary Hugging
+Face Hub tokens and the `X-HF-Authorization` header used by Spaces.
+
 It exposes two MCP tools:
 
 - `research(topic, depth)` — structured tool backed by the `researcher` card.

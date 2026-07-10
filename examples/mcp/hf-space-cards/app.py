@@ -7,13 +7,14 @@ from typing import Any, cast
 
 from fastmcp import FastMCP
 from fastmcp.server.auth import RemoteAuthProvider
+from fastmcp.server.auth.providers.huggingface import DEFAULT_HUGGINGFACE_SCOPES
 from pydantic import AnyHttpUrl
 from starlette.middleware import Middleware
 from starlette.responses import PlainTextResponse
 
 from fast_agent import FastAgent
+from fast_agent.mcp.auth.huggingface import HuggingFaceOAuthOrHubTokenVerifier
 from fast_agent.mcp.auth.middleware import HFAuthHeaderMiddleware
-from fast_agent.mcp.auth.providers.huggingface import HuggingFaceTokenVerifier
 from fast_agent.mcp.server import HarnessMCPAdapter, HarnessMCPAdapterOptions
 from fast_agent.mcp.server.common import get_fast_agent_version, get_oauth_config
 
@@ -28,7 +29,9 @@ def auth_provider() -> RemoteAuthProvider | None:
     if oauth_provider != "huggingface":
         return None
     return RemoteAuthProvider(
-        token_verifier=HuggingFaceTokenVerifier(),
+        token_verifier=HuggingFaceOAuthOrHubTokenVerifier(
+            required_scopes=oauth_scopes or list(DEFAULT_HUGGINGFACE_SCOPES)
+        ),
         authorization_servers=[AnyHttpUrl("https://huggingface.co")],
         base_url=AnyHttpUrl(resource_url),
         scopes_supported=oauth_scopes,

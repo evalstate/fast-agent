@@ -8,8 +8,8 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from fast_agent.core.harness_app import AppOpenRequest
+from fast_agent.mcp.auth.huggingface import HuggingFaceOAuthOrHubTokenVerifier
 from fast_agent.mcp.auth.middleware import HFAuthHeaderMiddleware
-from fast_agent.mcp.auth.providers.huggingface import HuggingFaceTokenVerifier
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.server.harness_app_server import (
     HarnessMCPAppServer,
@@ -68,7 +68,7 @@ def _mock_hf_token_verifier(monkeypatch: pytest.MonkeyPatch) -> None:
             return None
         return AccessToken(token=token, client_id="test-client", scopes=["access"])
 
-    monkeypatch.setattr(HuggingFaceTokenVerifier, "verify_token", verify_token)
+    monkeypatch.setattr(HuggingFaceOAuthOrHubTokenVerifier, "verify_token", verify_token)
 
 
 def _build_server() -> HarnessMCPAppServer:

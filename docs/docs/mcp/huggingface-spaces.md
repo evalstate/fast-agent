@@ -122,6 +122,10 @@ uv run agent.py \
 
 ## Auth in tools
 
+FastMCP provides the Hugging Face OAuth provider and OAuth token verification.
+fast-agent extends its verifier to also accept ordinary Hugging Face Hub tokens,
+and normalizes the `X-HF-Authorization` header used by Spaces.
+
 The verified Hugging Face caller is translated into `AgentAuth` for the harness
 request. Use verified identity fields for resource ownership. Do not use raw
 bearer tokens as durable user ids.
@@ -176,4 +180,3 @@ Hugging Face organization grant flow.
 - Prefer verified identity claims over raw tokens for resource keys.
 - Use explicit handles for durable application state.
 - If serving shell/filesystem tools, keep the Space private or tightly scoped.
-

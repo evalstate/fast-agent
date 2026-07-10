@@ -15,7 +15,7 @@ from prompt_toolkit.styles import Style
 from rich import print as rich_print
 from rich.markup import escape as escape_markup
 
-from fast_agent.ui.command_payloads import CommandPayload, InterruptCommand
+from fast_agent.ui.command_payloads import CommandPayload, EOFCommand, InterruptCommand
 from fast_agent.ui.prompt.keybindings import PromptInputInterrupt
 from fast_agent.ui.prompt_marks import emit_prompt_mark, prompt_mark_sequence
 from fast_agent.ui.terminal_streams import is_tty_stream
@@ -168,7 +168,7 @@ async def _prompt_async_result(
         return InterruptCommand(), None
     except EOFError:
         _emit_prompt_end_mark_if_needed(emitted=prompt_end_state["emitted"])
-        return "STOP", None
+        return EOFCommand(), None
     except Exception as exc:
         _emit_prompt_end_mark_if_needed(emitted=prompt_end_state["emitted"])
         print(f"\nInput error: {type(exc).__name__}: {exc}")
