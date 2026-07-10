@@ -414,7 +414,7 @@ class ConsoleDisplay:
         name: str | None = None,
         right_info: str = "",
         bottom_metadata: list[str] | None = None,
-        highlight_index: int | None = None,
+        highlight_indexes: list[int] | None = None,
         max_item_length: int | None = None,
         is_error: bool = False,
         truncate_content: bool = True,
@@ -434,7 +434,7 @@ class ConsoleDisplay:
             name: Optional name to display (agent name, user name, etc.)
             right_info: Information to display on the right side of the header
             bottom_metadata: Optional list of items for bottom separator
-            highlight_index: Index of item to highlight in bottom metadata (0-based), or None
+            highlight_indexes: Indexes of items to highlight in bottom metadata
             max_item_length: Optional max length for bottom metadata items (with ellipsis)
             is_error: For tool results, whether this is an error (uses red color)
             truncate_content: Whether to truncate long content
@@ -483,7 +483,7 @@ class ConsoleDisplay:
         self._render_bottom_metadata(
             message_type=message_type,
             bottom_metadata=bottom_metadata,
-            highlight_index=highlight_index,
+            highlight_indexes=highlight_indexes,
             max_item_length=max_item_length,
         )
 
@@ -876,7 +876,7 @@ class ConsoleDisplay:
         *,
         message_type: MessageType,
         bottom_metadata: list[str] | None,
-        highlight_index: int | None,
+        highlight_indexes: list[int] | None,
         max_item_length: int | None,
     ) -> None:
         """
@@ -885,17 +885,20 @@ class ConsoleDisplay:
         Args:
             message_type: The type of message being displayed
             bottom_metadata: Optional list of items to show in the separator
-            highlight_index: Optional index of the item to highlight
+            highlight_indexes: Optional indexes of items to highlight
             max_item_length: Optional maximum length for individual items
         """
-        if not bottom_metadata or highlight_index is None:
+        if not bottom_metadata or not highlight_indexes:
             return
-        if highlight_index < 0 or highlight_index >= len(bottom_metadata):
+        valid_highlights = [
+            index for index in highlight_indexes if 0 <= index < len(bottom_metadata)
+        ]
+        if not valid_highlights:
             return
 
         line = self._style.bottom_metadata_line(
             bottom_metadata,
-            highlight_index,
+            valid_highlights,
             MESSAGE_CONFIGS[message_type]["highlight_color"],
             max_item_length,
             console.console.size.width,
@@ -940,7 +943,7 @@ class ConsoleDisplay:
         tool_name: str,
         tool_args: dict[str, Any] | None,
         bottom_items: list[str] | None = None,
-        highlight_index: int | None = None,
+        highlight_indexes: list[int] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
@@ -950,7 +953,7 @@ class ConsoleDisplay:
     ) -> None:
         kwargs: dict[str, Any] = {
             "bottom_items": bottom_items,
-            "highlight_index": highlight_index,
+            "highlight_indexes": highlight_indexes,
             "max_item_length": max_item_length,
             "name": name,
             "metadata": metadata,
@@ -1182,7 +1185,7 @@ class ConsoleDisplay:
         self,
         message_text: "str | Text | PromptMessageExtended",
         bottom_items: list[str] | None = None,
-        highlight_index: int | None = None,
+        highlight_indexes: list[int] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
@@ -1197,7 +1200,7 @@ class ConsoleDisplay:
         Args:
             message_text: The message content to display (str, Text, or PromptMessageExtended)
             bottom_items: Optional list of items for bottom separator (e.g., servers, destinations)
-            highlight_index: Index of item to highlight in the bottom separator (0-based), or None
+            highlight_indexes: Indexes of items to highlight in the bottom separator
             max_item_length: Optional max length for bottom items (with ellipsis)
             title: Title for the message (default "ASSISTANT")
             name: Optional agent name
@@ -1255,7 +1258,7 @@ class ConsoleDisplay:
             name=name,
             right_info=right_info,
             bottom_metadata=bottom_items,
-            highlight_index=highlight_index,
+            highlight_indexes=highlight_indexes,
             max_item_length=max_item_length,
             truncate_content=False,  # Assistant messages shouldn't be truncated
             additional_message=additional_message,

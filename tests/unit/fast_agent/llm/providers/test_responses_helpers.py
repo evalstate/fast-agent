@@ -375,6 +375,15 @@ class _LoggerSpy:
         self.warning_calls.append((message, data))
 
 
+def _normalize_responses_fixture_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        input_details = usage.get("input_tokens_details")
+        if isinstance(input_details, dict):
+            input_details.setdefault("cache_write_tokens", 0)
+    return payload
+
+
 def _load_reasoning_summary_trace_response() -> Response:
     repo_root = next(
         parent
@@ -397,7 +406,7 @@ def _load_reasoning_summary_trace_response() -> Response:
         for line in trace_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    response_payload = payloads[-1]["response"]
+    response_payload = _normalize_responses_fixture_payload(payloads[-1]["response"])
     return Response.model_validate(response_payload)
 
 

@@ -42,7 +42,7 @@ class StubAgent:
         self,
         message,
         bottom_items: list[str] | None = None,
-        highlight_index: int | None = None,
+        highlight_indexes: list[int] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
@@ -57,7 +57,7 @@ class StubAgent:
             {
                 "message": message,
                 "bottom_items": bottom_items,
-                "highlight_index": highlight_index,
+                "highlight_indexes": highlight_indexes,
                 "max_item_length": max_item_length,
                 "name": name,
                 "model": model,

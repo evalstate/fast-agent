@@ -10,7 +10,7 @@ def test_tool_call_hides_redundant_single_tool_footer() -> None:
             tool_name="hf_hub_query_raw",
             tool_args={"code": "x = 1"},
             bottom_items=["hf_hub_query_raw"],
-            highlight_index=0,
+            highlight_indexes=[0],
             name="hub_search",
         )
 
@@ -27,7 +27,7 @@ def test_tool_call_keeps_footer_when_multiple_tools_are_available() -> None:
             tool_name="hf_hub_query_raw",
             tool_args={"code": "x = 1"},
             bottom_items=["hf_hub_query_raw", "hf_trending"],
-            highlight_index=0,
+            highlight_indexes=[0],
             name="hub_search",
         )
 

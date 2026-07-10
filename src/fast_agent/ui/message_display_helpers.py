@@ -194,25 +194,24 @@ def build_safety_additional_message(message: "PromptMessageExtended") -> Text | 
     return Text(f"\n\nRequest refused by safety classifier{suffix}.", style="dim red italic")
 
 
-def resolve_highlight_index(
+def resolve_highlight_indexes(
     items: "Sequence[str] | None",
     highlight_items: str | "Sequence[str]" | None,
-) -> int | None:
-    """Resolve a highlighted item name (or names) to its index in a displayed list."""
+) -> list[int]:
+    """Resolve highlighted item names to indexes in a displayed list."""
     if not items or highlight_items is None:
-        return None
+        return []
 
-    target: str
     if isinstance(highlight_items, str):
         if not highlight_items:
-            return None
-        target = highlight_items
+            return []
+        targets = {highlight_items}
     else:
         if not highlight_items:
-            return None
-        target = highlight_items[0]
+            return []
+        targets = set(highlight_items)
 
-    return next((index for index, item in enumerate(items) if item == target), None)
+    return [index for index, item in enumerate(items) if item in targets]
 
 
 def _tool_call_name(call: "CallToolRequest") -> str:
@@ -281,7 +280,7 @@ __all__ = [
     "build_user_message_image_previews",
     "extract_user_attachments",
     "extract_user_local_image_previews",
-    "resolve_highlight_index",
+    "resolve_highlight_indexes",
     "tool_use_requests_file_read_access",
     "tool_use_requests_shell_access",
 ]

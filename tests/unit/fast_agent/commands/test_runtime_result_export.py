@@ -33,6 +33,7 @@ from fast_agent.cli.runtime.harness_startup import (
 )
 from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.cli.runtime.runner import _should_convert_keyboard_interrupt_to_task_cancel
+from fast_agent.cli.runtime.session_resume import resume_session_id
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.core.exceptions import AgentConfigError, EnvironmentStartupError
 from fast_agent.core.harness_app import DefaultHarnessApp
@@ -411,6 +412,63 @@ async def test_run_cli_flow_harness_resume_disables_core_double_restore() -> Non
 
 
 @pytest.mark.asyncio
+async def test_run_cli_flow_harness_resume_queues_assistant_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _make_request(result_file=None, message=None)
+    request.resume = "2607032031-AiS7lt"
+    fast = _DummyFastRuntime()
+    agent = fast.harness_app._agent("agent")
+    agent.message_history = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="welcome back")],
+        )
+    ]
+    session = SimpleNamespace(
+        info=SimpleNamespace(
+            name="2607032031-AiS7lt",
+            last_activity=datetime(2026, 2, 26, 12, 0, 0),
+        )
+    )
+    fast.harness_app._session_restore_result = ResumeSessionAgentsResult(
+        session=cast("Any", session),
+        loaded={"agent": Path("history_agent.json")},
+        missing_agents=[],
+    )
+
+    markdown_notices: list[tuple[str, dict[str, str | None]]] = []
+
+    monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", lambda *_args: None)
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
+        lambda text, **kwargs: markdown_notices.append((text, kwargs)),
+    )
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_app, request, session_manager, harness_session
+
+    await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert markdown_notices == [
+        (
+            "welcome back",
+            {
+                "title": "Last assistant message",
+                "right_info": "session",
+                "agent_name": "agent",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_run_cli_flow_prepare_runs_after_harness_startup() -> None:
     request = _make_request(result_file=None, message=None)
     fast = _DummyFastRuntime()
@@ -500,16 +558,58 @@ def test_initial_harness_session_id_uses_explicit_resume_session(tmp_path: Path)
     assert initial_harness_session_id(request) == "2607032031-AiS7lt"
 
 
-def test_initial_harness_session_id_uses_latest_resume_sentinel(tmp_path: Path) -> None:
+@pytest.mark.parametrize("resume", [RESUME_LATEST_SENTINEL, "latest"])
+def test_initial_harness_session_id_uses_latest_resume_alias(
+    tmp_path: Path,
+    resume: str,
+) -> None:
     from fast_agent.session import SessionManager
 
     session = SessionManager(home_override=tmp_path).create_session_with_id("2607032031-AiS7lt")
     (session.directory / "history_agent.json").write_text("[]", encoding="utf-8")
     request = _make_request(result_file=None, message=None)
     request.home = tmp_path
+    request.resume = resume
+
+    assert initial_harness_session_id(request) == "2607032031-AiS7lt"
+
+
+def test_initial_harness_session_id_skips_latest_without_assistant_preview(
+    tmp_path: Path,
+) -> None:
+    from fast_agent.mcp.prompt_serialization import save_messages
+    from fast_agent.session import SessionManager
+
+    manager = SessionManager(home_override=tmp_path)
+    assistant_session = manager.create_session_with_id("2607032031-AiS7lt")
+    save_messages(
+        [
+            PromptMessageExtended(
+                role="assistant",
+                content=[TextContent(type="text", text="previous answer")],
+            )
+        ],
+        str(assistant_session.directory / "history_agent.json"),
+    )
+    empty_session = manager.create_session_with_id("2607042031-Empty1")
+    (empty_session.directory / "history_agent.json").write_text(
+        '{"messages":[]}',
+        encoding="utf-8",
+    )
+
+    request = _make_request(result_file=None, message=None)
+    request.home = tmp_path
     request.resume = RESUME_LATEST_SENTINEL
 
     assert initial_harness_session_id(request) == "2607032031-AiS7lt"
+
+
+@pytest.mark.parametrize("resume", [RESUME_LATEST_SENTINEL, "latest", ""])
+def test_resume_session_id_treats_latest_aliases_as_unspecified(resume: str) -> None:
+    request = _make_request(result_file=None, message=None)
+    request.resume = resume
+
+    assert resume_session_id(request) is None
 
 
 @pytest.mark.asyncio

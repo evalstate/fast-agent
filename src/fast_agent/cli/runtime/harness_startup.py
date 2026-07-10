@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.core.exceptions import (
     AgentConfigError,
     CircularDependencyError,
@@ -25,7 +24,7 @@ if TYPE_CHECKING:
     from fast_agent.cli.runtime.run_request import AgentRunRequest
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.harness import AgentHarness, HarnessSession
-    from fast_agent.session.session_manager import SessionManager
+    from fast_agent.session.session_manager import Session, SessionManager
     from fast_agent.tools.environment_registry import EnvironmentSelection
 
 
@@ -74,15 +73,50 @@ def should_use_harness_startup(request: AgentRunRequest) -> bool:
     return request.mode == "interactive" and request.allow_sessions
 
 
+def _session_has_assistant_preview(session: "Session") -> bool:
+    from fast_agent.mcp.prompt_serialization import load_messages
+    from fast_agent.session.preview import find_last_assistant_preview_text
+
+    history_files = list(session.info.history_files)
+    if not history_files:
+        history_files = [path.name for path in session.directory.glob("history_*.json")]
+
+    for filename in history_files:
+        if filename.endswith("_previous.json"):
+            continue
+        history_path = session.directory / filename
+        if not history_path.exists():
+            continue
+        try:
+            history = load_messages(str(history_path))
+        except Exception:
+            continue
+        if find_last_assistant_preview_text(history):
+            return True
+    return False
+
+
+def _latest_session_id_with_assistant_preview(manager: "SessionManager") -> str | None:
+    for info in manager.list_sessions():
+        session = manager.get_session(info.name)
+        if session is not None and _session_has_assistant_preview(session):
+            return info.name
+    return None
+
+
 def initial_harness_session_id(request: AgentRunRequest) -> str:
+    from fast_agent.cli.runtime.session_resume import RESUME_LATEST_ALIASES
     from fast_agent.session.session_manager import SessionManager
 
     manager = SessionManager(home_override=request.home)
     if request.resume is not None:
-        if request.resume and request.resume != RESUME_LATEST_SENTINEL:
+        if request.resume not in RESUME_LATEST_ALIASES:
             resolved = manager.resolve_session_name(request.resume)
             if resolved is not None:
                 return resolved
+        preview_session_id = _latest_session_id_with_assistant_preview(manager)
+        if preview_session_id is not None:
+            return preview_session_id
         latest = manager.load_latest_session(require_content=True)
         if latest is not None:
             return latest.info.name
@@ -126,6 +160,9 @@ async def run_harness_cli_flow(
             async with app.open(
                 AppOpenRequest(session_id=session_id, agent=request.target_agent_name)
             ) as session:
+                from fast_agent.cli.runtime.session_resume import resume_session_if_requested
+
+                await resume_session_if_requested(session.agent_app, request)
                 await flow(
                     session.agent_app,
                     request,
@@ -183,6 +220,9 @@ async def run_harness_parallel_cli_flow(
             async with app.open(
                 AppOpenRequest(session_id=session_id, agent=request.target_agent_name)
             ) as session:
+                from fast_agent.cli.runtime.session_resume import resume_session_if_requested
+
+                await resume_session_if_requested(session.agent_app, request)
                 await flow(
                     session.agent_app,
                     request,

@@ -35,7 +35,7 @@ from fast_agent.ui.console_display import ConsoleDisplay
 
 class _DisplayCall(TypedDict):
     bottom_items: list[str] | None
-    highlight_index: int | None
+    highlight_indexes: list[int] | None
     additional_message: Text | None
 
 
@@ -48,7 +48,7 @@ class CaptureDisplay(ConsoleDisplay):
         self,
         message_text: str | Text | PromptMessageExtended,
         bottom_items: list[str] | None = None,
-        highlight_index: int | None = None,
+        highlight_indexes: list[int] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
@@ -71,7 +71,7 @@ class CaptureDisplay(ConsoleDisplay):
         self.calls.append(
             {
                 "bottom_items": bottom_items,
-                "highlight_index": highlight_index,
+                "highlight_indexes": highlight_indexes,
                 "additional_message": additional_message,
             }
         )
@@ -294,7 +294,54 @@ async def test_card_tools_label_highlighted_on_use() -> None:
     assert capture_display.calls
     call = capture_display.calls[-1]
     assert call["bottom_items"] == ["card_tools"]
-    assert call["highlight_index"] == 0
+    assert call["highlight_indexes"] == [0]
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_shell_and_card_tools_are_both_highlighted() -> None:
+    def lsp_diagnostics(file_path: str) -> str:
+        return file_path
+
+    agent = McpAgent(
+        config=AgentConfig(
+            name="test-agent",
+            instruction="do things",
+            servers=[],
+            shell=True,
+        ),
+        connection_persistence=False,
+        context=Context(),
+        tools=[lsp_diagnostics],
+    )
+    capture_display = CaptureDisplay()
+    agent.display = capture_display
+
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="response")],
+        tool_calls={
+            "shell": CallToolRequest(
+                params=CallToolRequestParams(name="execute", arguments={"command": "pwd"})
+            ),
+            "lsp": CallToolRequest(
+                params=CallToolRequestParams(
+                    name="lsp_diagnostics",
+                    arguments={"file_path": "app.py"},
+                )
+            ),
+        },
+    )
+
+    await agent.show_assistant_message(message)
+
+    call = capture_display.calls[-1]
+    bottom_items = _bottom_items(call)
+    assert call["highlight_indexes"] == [
+        bottom_items.index("bash"),
+        bottom_items.index("card_tools"),
+    ]
 
     await agent._aggregator.close()
 
@@ -338,7 +385,7 @@ async def test_skills_tool_listed_and_highlighted(tmp_path) -> None:
     call = capture_display.calls[-1]
     bottom_items = _bottom_items(call)
     assert "skill" in bottom_items
-    assert call["highlight_index"] == bottom_items.index("skill")
+    assert call["highlight_indexes"] == [bottom_items.index("skill")]
 
     await agent._aggregator.close()
 
@@ -1367,7 +1414,7 @@ async def test_shell_tool_use_turn_hides_bottom_bar_and_mentions_shell_access() 
     assert capture_display.calls
     call = capture_display.calls[-1]
     assert call["bottom_items"] is None
-    assert call["highlight_index"] is None
+    assert call["highlight_indexes"] == []
     additional = call["additional_message"]
     assert isinstance(additional, Text)
     assert "requested shell access" in additional.plain
@@ -1402,7 +1449,7 @@ async def test_read_text_file_tool_use_turn_hides_bottom_bar_without_extra_messa
     assert capture_display.calls
     call = capture_display.calls[-1]
     assert call["bottom_items"] is None
-    assert call["highlight_index"] is None
+    assert call["highlight_indexes"] == []
     assert call["additional_message"] is None
 
     await agent._aggregator.close()

@@ -14,6 +14,8 @@ from typing import Any, cast
 import pytest
 from mcp.types import TextContent
 
+import fast_agent.tools.local_shell_executor as local_shell_executor
+import fast_agent.tools.shell_runtime as shell_runtime_module
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
@@ -647,7 +649,11 @@ async def test_execute_handles_overlong_output_lines_without_timeout() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(platform.system() == "Windows", reason="Unix inherited-pipe behavior")
-async def test_execute_returns_when_descendant_keeps_pipe_open(tmp_path: Path) -> None:
+async def test_execute_returns_when_descendant_keeps_pipe_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(local_shell_executor, "_IO_DRAIN_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(shell_runtime_module, "_IO_DRAIN_TIMEOUT_SECONDS", 0.1)
     logger = logging.getLogger("shell-runtime-test")
     runtime = ShellRuntime(
         activation_reason="test",
@@ -681,7 +687,7 @@ async def test_execute_returns_when_descendant_keeps_pipe_open(tmp_path: Path) -
         _terminate_pid(pid_path)
     elapsed = time.monotonic() - started
 
-    assert elapsed < 7
+    assert elapsed < 1
     assert result.isError is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
@@ -693,12 +699,26 @@ async def test_execute_returns_when_descendant_keeps_pipe_open(tmp_path: Path) -
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(platform.system() == "Windows", reason="Unix inherited-pipe behavior")
-async def test_timeout_with_inherited_pipe_does_not_hang(tmp_path: Path) -> None:
+async def test_timeout_with_inherited_pipe_does_not_hang(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(local_shell_executor, "_IO_DRAIN_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(local_shell_executor, "_WATCHDOG_POLL_SECONDS", 0.05)
+    monkeypatch.setattr(shell_runtime_module, "_IO_DRAIN_TIMEOUT_SECONDS", 0.1)
+
+    async def terminate_unix_process(self: LocalShellExecutor, process: Any) -> None:
+        os.killpg(process.pid, signal.SIGTERM)
+
+    monkeypatch.setattr(
+        LocalShellExecutor,
+        "_terminate_unix_process",
+        terminate_unix_process,
+    )
     logger = logging.getLogger("shell-runtime-test")
     runtime = ShellRuntime(
         activation_reason="test",
         logger=logger,
-        timeout_seconds=1,
+        timeout_seconds=0.1,
         warning_interval_seconds=10,
         config=Settings(shell_execution=ShellSettings(show_bash=False)),
     )
@@ -729,14 +749,14 @@ async def test_timeout_with_inherited_pipe_does_not_hang(tmp_path: Path) -> None
         _terminate_pid(pid_path)
     elapsed = time.monotonic() - started
 
-    assert elapsed < 8
+    assert elapsed < 1
     assert result.isError is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     text = result.content[0].text
     assert "before idle timeout" in text
     assert "output collection stopped after" in text
-    assert "timeout after 1s" in text
+    assert "timeout after 0.1s" in text
 
 
 @pytest.mark.asyncio

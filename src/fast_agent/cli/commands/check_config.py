@@ -110,6 +110,10 @@ _PROVIDER_CATALOG_SCOPES_BY_KEY: dict[str, ProviderCatalogScope] = {
         display_name="xAI",
         providers=(Provider.XAI,),
     ),
+    "metaai": ProviderCatalogScope(
+        display_name="MetaAI",
+        providers=(Provider.META_AI,),
+    ),
     "openrouter": ProviderCatalogScope(
         display_name="OpenRouter",
         providers=(Provider.OPENROUTER,),
@@ -132,6 +136,7 @@ _PROVIDER_CATALOG_VISIBLE_CHOICES: tuple[str, ...] = (
     "aliyun",
     "huggingface",
     "xai",
+    "metaai",
     "openrouter",
     "responses",
     "codexresponses",

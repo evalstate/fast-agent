@@ -1235,6 +1235,26 @@ class XAISettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class MetaAISettings(BaseModel):
+    """Settings for using MetaAI Muse models via the Responses API."""
+
+    api_key: str | None = Field(default=None, description="MetaAI API key")
+    base_url: str | None = Field(
+        default="https://api.meta.ai/v1",
+        description="MetaAI API endpoint (default: https://api.meta.ai/v1)",
+    )
+    default_model: str | None = Field(
+        default=None,
+        description="Default model when MetaAI provider is selected without an explicit model",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class GenericSettings(BaseModel):
     """Settings for using generic OpenAI-compatible models (e.g., Ollama)."""
 
@@ -1966,6 +1986,9 @@ class Settings(BaseSettings):
 
     xai: XAISettings | None = None
     """Settings for using xAI Grok models in the fast-agent application"""
+
+    metaai: MetaAISettings | None = None
+    """Settings for using MetaAI Muse models in the fast-agent application"""
 
     openrouter: OpenRouterSettings | None = None
     """Settings for using OpenRouter models in the fast-agent application"""

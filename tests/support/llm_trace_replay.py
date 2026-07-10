@@ -134,11 +134,23 @@ class ReplaySummary:
     tool_events: list[dict[str, Any]]
 
 
+def normalize_responses_fixture_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Fill SDK fields added after historical Responses traces were captured."""
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        input_details = usage.get("input_tokens_details")
+        if isinstance(input_details, dict):
+            input_details.setdefault("cache_write_tokens", 0)
+    return payload
+
+
 class ResponsesReplayStream:
     def __init__(self, payloads: list[dict[str, Any]]) -> None:
         self._events = [_to_attr_object(payload) for payload in payloads]
         self._index = 0
-        response_payload = _final_responses_payload(payloads)
+        response_payload = normalize_responses_fixture_payload(
+            _final_responses_payload(payloads)
+        )
         self._final_response = Response.model_validate(response_payload)
 
     def __aiter__(self) -> ResponsesReplayStream:

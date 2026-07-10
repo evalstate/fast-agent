@@ -2,6 +2,7 @@ from dataclasses import asdict
 
 from fast_agent.cli.checks.structured_tools_probe import (
     ORDER_REPORT_SCHEMA,
+    PROBE_MAX_TOKENS,
     ProbeOrderSummary,
     ProbeResult,
     _base_order_report,
@@ -11,6 +12,10 @@ from fast_agent.cli.checks.structured_tools_probe import (
     _matches_order_report,
 )
 from fast_agent.llm.structured_schema import validate_json_instance
+
+
+def test_probe_max_tokens_allows_hidden_reasoning_budget() -> None:
+    assert PROBE_MAX_TOKENS >= 2048
 
 
 def test_probe_schema_is_medium_complexity_and_validates_sample_payload() -> None:

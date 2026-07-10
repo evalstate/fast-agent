@@ -97,7 +97,7 @@ class PreparedToolCallDisplay:
     content: object
     right_info: str
     bottom_items: list[str] | None
-    highlight_index: int | None
+    highlight_indexes: list[int]
     max_item_length: int | None
     truncate_content: bool = True
     render_markdown: bool | None = None
@@ -829,7 +829,7 @@ class ToolDisplay:
     ) -> None:
         line = self._display.style.bottom_metadata_line(
             bottom_metadata_items,
-            None,
+            [],
             highlight_color,
             None,
             console.console.size.width,
@@ -1134,7 +1134,7 @@ class ToolDisplay:
             ),
             right_info=self._shell_tool_call_right_info(metadata, tool_call_id),
             bottom_items=self._shell_tool_call_bottom_items(metadata),
-            highlight_index=None,
+            highlight_indexes=[],
             max_item_length=50,
             truncate_content=False,
             render_markdown=False,
@@ -1178,7 +1178,7 @@ class ToolDisplay:
         tool_name: str,
         tool_args: dict[str, Any],
         bottom_items: list[str] | None,
-        highlight_index: int | None,
+        highlight_indexes: list[int],
         max_item_length: int | None,
         metadata: dict[str, Any],
         tool_call_id: str | None,
@@ -1207,7 +1207,7 @@ class ToolDisplay:
                 content=content,
                 right_info=right_info,
                 bottom_items=[*(normalized_bottom_items or []), *footer_items],
-                highlight_index=highlight_index,
+                highlight_indexes=highlight_indexes,
                 max_item_length=max(max_item_length or 0, 50) or None,
                 truncate_content=False,
                 render_markdown=False,
@@ -1218,7 +1218,7 @@ class ToolDisplay:
                 content=self._apply_patch_tool_call_content(tool_args),
                 right_info=right_info,
                 bottom_items=normalized_bottom_items,
-                highlight_index=highlight_index,
+                highlight_indexes=highlight_indexes,
                 max_item_length=max_item_length,
                 truncate_content=False,
                 render_markdown=False,
@@ -1236,7 +1236,7 @@ class ToolDisplay:
             content=content,
             right_info=right_info,
             bottom_items=normalized_bottom_items,
-            highlight_index=highlight_index,
+            highlight_indexes=highlight_indexes,
             max_item_length=max_item_length,
             truncate_content=truncate_content,
         )
@@ -1247,7 +1247,7 @@ class ToolDisplay:
         tool_args: dict[str, Any] | None,
         *,
         bottom_items: list[str] | None = None,
-        highlight_index: int | None = None,
+        highlight_indexes: list[int] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
@@ -1268,7 +1268,7 @@ class ToolDisplay:
                 tool_name=tool_name,
                 tool_args=tool_args,
                 bottom_items=bottom_items,
-                highlight_index=highlight_index,
+                highlight_indexes=highlight_indexes or [],
                 max_item_length=max_item_length,
                 metadata=metadata,
                 tool_call_id=tool_call_id,
@@ -1282,7 +1282,7 @@ class ToolDisplay:
                 pre_content=pre_content,
                 right_info=prepared.right_info,
                 bottom_metadata=prepared.bottom_items,
-                highlight_index=prepared.highlight_index,
+                highlight_indexes=prepared.highlight_indexes,
                 max_item_length=prepared.max_item_length,
                 truncate_content=prepared.truncate_content,
                 render_markdown=prepared.render_markdown,

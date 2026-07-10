@@ -27,10 +27,10 @@ Environment variables:
 ## Use a model
 
 ```bash
-fast-agent --model grok
 fast-agent --model "xai.grok-4.3?reasoning=high"
 fast-agent --model "xai.grok-4.3?web_search=on"
 fast-agent --model "xai.grok-4.3?x_search=on"
+fast-agent --model "xai.grok-4.5"
 ```
 
 ## Reasoning and search tools

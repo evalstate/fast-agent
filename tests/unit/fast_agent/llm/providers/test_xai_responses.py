@@ -57,7 +57,7 @@ def test_xai_responses_uses_xai_config_fallback() -> None:
             api_key="xai-key",
             base_url="https://gateway.example/xai/v1",
             default_headers={"X-Test": "1"},
-            default_model="grok-4",
+            default_model="grok-4.5",
         )
     )
     llm = XAIResponsesLLM(context=Context(config=settings), model="")
@@ -65,7 +65,7 @@ def test_xai_responses_uses_xai_config_fallback() -> None:
     assert llm._api_key() == "xai-key"
     assert llm._base_url() == "https://gateway.example/xai/v1"
     assert llm._default_headers() == {"X-Test": "1"}
-    assert llm.default_request_params.model == "grok-4"
+    assert llm.default_request_params.model == "grok-4.5"
 
 
 def test_xai_responses_websocket_url_uses_responses_endpoint() -> None:

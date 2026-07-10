@@ -382,7 +382,7 @@ def test_minimax25_alias_sets_sampling_defaults() -> None:
 def test_model_query_transport_websocket_alias():
     config = ModelFactory.parse_model_string("codexplan?transport=ws")
     assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-5.5"
+    assert config.model_name == "gpt-5.6-terra"
     assert config.transport == "websocket"
 
 
@@ -579,6 +579,19 @@ def test_factory_passes_x_search_override_to_xai_responses_llm() -> None:
     assert isinstance(llm, XAIResponsesLLM)
     assert llm.provider == Provider.XAI
     assert llm._x_search_override is True
+
+
+def test_factory_builds_metaai_responses_llm_by_default() -> None:
+    factory = ModelFactory.create_factory("metaai.muse-spark-1.1")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+    assert isinstance(llm, ResponsesLLM)
+    assert llm.provider == Provider.META_AI
+    assert llm._transport == "sse"
+
+
+def test_transport_query_rejects_metaai_provider() -> None:
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("metaai.muse-spark-1.1?transport=ws")
 
 
 def test_factory_passes_service_tier_query_to_request_params() -> None:
@@ -885,7 +898,7 @@ def test_query_backed_catalog_alias_applies_runtime_defaults() -> None:
 def test_codexplan_aliases_use_codex_oauth_provider():
     config = ModelFactory.parse_model_string("codexplan")
     assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-5.5"
+    assert config.model_name == "gpt-5.6-terra"
 
     config = ModelFactory.parse_model_string("gpt54")
     assert config.provider == Provider.RESPONSES

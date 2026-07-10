@@ -20,6 +20,7 @@ PROVIDER_ENVIRONMENT_MAP: dict[str, str] = {
     "responses": "OPENAI_API_KEY",  # Temporary workaround
     "openresponses": "OPENRESPONSES_API_KEY",
     "codexresponses": "CODEX_API_KEY",
+    "metaai": "META_AI_API_KEY",
 }
 PROVIDER_CONFIG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     # HuggingFace historically used "huggingface" (full name) in config files,

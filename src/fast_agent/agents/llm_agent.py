@@ -54,7 +54,7 @@ from fast_agent.ui.message_display_helpers import (
     build_tool_use_additional_message,
     build_user_message_display,
     build_user_message_image_previews,
-    resolve_highlight_index,
+    resolve_highlight_indexes,
     tool_use_requests_file_read_access,
     tool_use_requests_shell_access,
 )
@@ -306,7 +306,7 @@ class LlmAgent(LlmDecorator):
             shell_only_tool_use=shell_only_tool_use,
             read_only_tool_use=read_only_tool_use,
         )
-        highlight_index = resolve_highlight_index(bottom_items, highlight_items)
+        highlight_indexes = resolve_highlight_indexes(bottom_items, highlight_items)
         hook_indicator = self._resolve_assistant_hook_indicator(show_hook_indicator)
         message_text = message
         if render_message:
@@ -325,7 +325,7 @@ class LlmAgent(LlmDecorator):
                 await self.display.show_assistant_message(
                     message_text,
                     bottom_items=bottom_items,
-                    highlight_index=highlight_index,
+                    highlight_indexes=highlight_indexes,
                     max_item_length=max_item_length,
                     name=display_name,
                     model=display_model,

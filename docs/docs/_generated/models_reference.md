@@ -30,6 +30,9 @@
 | `opus` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `opus.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `sonnet4` | `anthropic` | Text, Vision, Document | `json` (schema) | effort: `auto`, `low`, `medium`, `high`, `max`, `off`<br>Example: `sonnet4.auto` | — | `web_search` (web_search_20260209)<br>`web_fetch` (web_fetch_20260209)<br>beta: `code-execution-web-tools-2026-02-09` |
 | `codexspark` | `codexresponses` | Text | `json` (schema) | — | — | — |
+| `luna` | `codexresponses` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `luna.medium` | `low`, `medium`, `high`<br>Example: `luna?verbosity=low` | — |
+| `sol` | `codexresponses` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `sol.medium` | `low`, `medium`, `high`<br>Example: `sol?verbosity=low` | — |
+| `terra` | `codexresponses` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `terra.medium` | `low`, `medium`, `high`<br>Example: `terra?verbosity=low` | — |
 | `deepseek-chat` | `deepseek` | Text | `json` (object) | — | — | — |
 | `deepseek-reasoner` | `deepseek` | Text | `json` (schema) | effort: `high`, `max`, `off`<br>Example: `deepseek-reasoner.high` | — | — |
 | `deepseek.deepseek-ai/deepseek-v3.1` | `deepseek` | Text | `json` (schema) | — | — | — |
@@ -73,6 +76,7 @@
 | `minimax` | `hf` | Text, Vision | `json` (schema) | — | — | — |
 | `qwen35` | `hf` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen35?reasoning=off` | — | — |
 | `qwen36` | `hf` | Text | — | toggle: `on`, `off`<br>Example: `qwen36?reasoning=off` | — | — |
+| `muse` | `metaai` | Text, Vision, Document, Video | `json` (schema) | — | — | — |
 | `gpt-4.1-2025-04-14` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4.1-mini-2025-04-14` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4.1-mini` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
@@ -96,6 +100,7 @@
 | `gpt54-nano` | `responses` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt54-nano.medium` | `low`, `medium`, `high`<br>Example: `gpt54-nano?verbosity=low` | — |
 | `gpt54` | `responses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt54.medium` | `low`, `medium`, `high`<br>Example: `gpt54?verbosity=low` | — |
 | `gpt55` | `responses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt55.medium` | `low`, `medium`, `high`<br>Example: `gpt55?verbosity=low` | — |
+| `gpt56` | `responses` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `off`<br>Example: `gpt56.medium` | `low`, `medium`, `high`<br>Example: `gpt56?verbosity=low` | — |
 | `o1-2024-12-17` | `responses` | Text, Vision | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `o1-2024-12-17.medium` | — | — |
 | `o1-mini` | `responses` | Text, Vision | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `o1-mini.medium` | — | — |
 | `o1-preview` | `responses` | Text, Vision | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `o1-preview.medium` | — | — |
@@ -107,20 +112,5 @@
 | `o4-mini-2025-04-16` | `responses` | Text, Vision, Document | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `o4-mini-2025-04-16.medium` | — | — |
 | `o4-mini` | `responses` | Text, Vision, Document | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `o4-mini.medium` | — | — |
 | `responses.o3-pro` | `responses` | Text | `json` (schema) | — | — | — |
-| `grok-3-fast` | `xai` | Text | `json` (schema) | — | — | — |
-| `grok-3-latest` | `xai` | Text | `json` (schema) | — | — | — |
-| `grok-3-mini-fast` | `xai` | Text | `json` (schema) | — | — | — |
-| `grok-3-mini` | `xai` | Text | `json` (schema) | — | — | — |
-| `grok-3` | `xai` | Text | `json` (schema) | — | — | — |
-| `grok-4-0709` | `xai` | Text | `json` (schema) | — | — | — |
-| `grok-4-1-fast-non-reasoning` | `xai` | Text, Vision | `json` (schema) | — | — | — |
-| `grok-4-1-fast-reasoning` | `xai` | Text, Vision | `json` (schema) | — | — | — |
-| `grok-4-fast-reasoning` | `xai` | Text, Vision | `json` (schema) | — | — | — |
-| `grok-4-fast` | `xai` | Text, Vision | `json` (schema) | — | — | — |
-| `grok-4-latest` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok-4-latest.low` | — | — |
-| `grok-4.3-latest` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok-4.3-latest.low` | — | — |
-| `grok-4.5-latest` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok-4.5-latest.low` | — | — |
-| `grok-4` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok-4.low` | — | — |
 | `grok43` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok43.low` | — | — |
-| `grok` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok.low` | — | — |
 | `grok` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok.low` | — | — |

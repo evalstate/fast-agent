@@ -103,7 +103,7 @@ from fast_agent.types import (
     ToolTimingInfo,
 )
 from fast_agent.ui import console
-from fast_agent.ui.message_display_helpers import resolve_highlight_index
+from fast_agent.ui.message_display_helpers import resolve_highlight_indexes
 from fast_agent.ui.shell_notice import format_shell_notice
 from fast_agent.utils.async_utils import gather_with_cancel
 from fast_agent.utils.numeric import positive_int_or_none
@@ -2084,7 +2084,7 @@ class McpAgent(ABC, ToolAgent):
         metadata: dict[str, Any] | None,
         tool_call_id: str | None,
     ) -> str:
-        display_tool_name, bottom_items, highlight_index = self._prepare_tool_display(
+        display_tool_name, bottom_items, highlight_indexes = self._prepare_tool_display(
             tool_name=tool_name,
             namespaced_tool=namespaced_tool,
             candidate_namespaced_tool=candidate_namespaced_tool,
@@ -2099,7 +2099,7 @@ class McpAgent(ABC, ToolAgent):
             tool_args=tool_args,
             bottom_items=bottom_items,
             tool_name=display_tool_name,
-            highlight_index=highlight_index,
+            highlight_indexes=highlight_indexes,
             max_item_length=12,
             metadata=metadata,
             tool_call_id=tool_call_id,
@@ -2115,11 +2115,11 @@ class McpAgent(ABC, ToolAgent):
         candidate_namespaced_tool: "NamespacedTool | None",
         local_tool: Any | None,
         fallback_order: list[str],
-    ) -> tuple[str, list[str] | None, int | None]:
+    ) -> tuple[str, list[str] | None, list[int]]:
         """
         Determine how we present tool metadata for the console display.
 
-        Returns a tuple of (display_tool_name, bottom_items, highlight_index).
+        Returns a tuple of (display_tool_name, bottom_items, highlight_indexes).
         """
         active_namespaced = namespaced_tool or candidate_namespaced_tool
         display_tool_name = (
@@ -2145,16 +2145,16 @@ class McpAgent(ABC, ToolAgent):
             bottom_items = [HUMAN_INPUT_TOOL_NAME]
             highlight_target = HUMAN_INPUT_TOOL_NAME
 
-        highlight_index = resolve_highlight_index(bottom_items, highlight_target)
+        highlight_indexes = resolve_highlight_indexes(bottom_items, highlight_target)
 
         if bottom_items is None and fallback_order:
             bottom_items = fallback_order
             fallback_target = display_tool_name if display_tool_name in bottom_items else tool_name
-            highlight_index = resolve_highlight_index(bottom_items, fallback_target)
+            highlight_indexes = resolve_highlight_indexes(bottom_items, fallback_target)
 
         if bottom_items is not None:
             bottom_items = [TOOL_DISPLAY_NAMES.get(name, name) for name in bottom_items]
-        return display_tool_name, bottom_items, highlight_index
+        return display_tool_name, bottom_items, highlight_indexes
 
     def resolve_stream_tool_metadata(self, tool_name: str) -> Mapping[str, Any] | None:
         metadata = super().resolve_stream_tool_metadata(tool_name)

@@ -33,7 +33,7 @@ class _CaptureDisplay(ConsoleDisplay):
         self,
         message_text: str | Text | PromptMessageExtended,
         bottom_items: list[str] | None = None,
-        highlight_index: int | None = None,
+        highlight_indexes: list[int] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
@@ -46,7 +46,7 @@ class _CaptureDisplay(ConsoleDisplay):
         payload = {
             "message_text": message_text,
             "bottom_items": bottom_items,
-            "highlight_index": highlight_index,
+            "highlight_indexes": highlight_indexes,
             "max_item_length": max_item_length,
             "name": name,
             "model": model,
@@ -73,7 +73,7 @@ class _CaptureDisplay(ConsoleDisplay):
         tool_name: str,
         tool_args: dict[str, Any] | None,
         bottom_items: list[str] | None = None,
-        highlight_index: int | None = None,
+        highlight_indexes: list[int] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
@@ -87,7 +87,7 @@ class _CaptureDisplay(ConsoleDisplay):
                 "tool_name": tool_name,
                 "tool_args": tool_args,
                 "bottom_items": bottom_items,
-                "highlight_index": highlight_index,
+                "highlight_indexes": highlight_indexes,
                 "max_item_length": max_item_length,
                 "name": name,
                 "metadata": metadata,
@@ -259,7 +259,7 @@ async def test_show_assistant_message_renders_web_metadata_for_final_turn() -> N
     assert "Sources" in plain
     assert "done" not in plain
     assert "Web activity: web_search x1" in plain
-    assert call.get("highlight_index") == 0
+    assert call.get("highlight_indexes") == [0]
 
 
 @pytest.mark.unit
@@ -414,7 +414,7 @@ async def test_show_assistant_message_suppresses_bottom_metadata_for_shell_tool_
     assert len(capture_display.calls) == 1
     call = capture_display.calls[0]
     assert call.get("bottom_items") is None
-    assert call.get("highlight_index") is None
+    assert call.get("highlight_indexes") == []
 
 
 @pytest.mark.unit

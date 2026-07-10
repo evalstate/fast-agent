@@ -251,7 +251,7 @@ class ACPTerminalRuntime:
         session_id: str,
         activation_reason: str,
         logger_instance=None,
-        timeout_seconds: int = 90,
+        timeout_seconds: float = 90,
         tool_handler: "ToolExecutionHandler | None" = None,
         default_output_byte_limit: int = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
         permission_handler: "ToolPermissionHandler | None" = None,

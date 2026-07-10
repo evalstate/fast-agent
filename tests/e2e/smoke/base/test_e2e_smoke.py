@@ -31,7 +31,7 @@ if TYPE_CHECKING:
         "gemini2",
         "gemini25",  # Works -> Done. Works most of the time, unless Gemini decides to write very long outputs.
         "azure.gpt-4.1",
-        "grok-3-fast",
+        "grok-4.3",
         "groq.moonshotai/kimi-k2-instruct",
         "gpt-5-mini?reasoning=minimal",
     ],
@@ -62,7 +62,7 @@ async def test_basic_textual_prompting(fast_agent, model_name):
 @pytest.mark.e2e
 @pytest.mark.parametrize(
     "model_name",
-    ["gpt-4.1-nano", "generic.qwen2.5:latest", "haiku", "grok-3-fast"],
+    ["gpt-4.1-nano", "generic.qwen2.5:latest", "haiku", "grok-4.3"],
 )
 async def test_open_ai_history(fast_agent, model_name):
     """Test that the agent can process an image and respond appropriately."""
@@ -192,7 +192,7 @@ class WeatherForecast(BaseModel):
         "gemini2",
         "gemini25",  # Works -> DONE.
         "azure.gpt-4.1",
-        "grok-3",
+        "grok-4.3",
         "gpt-5-mini?reasoning=minimal",
         #  "grok-4", slow,
     ],
@@ -316,7 +316,7 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "o3-mini?reasoning=low",
         "o4-mini?reasoning=low",
         "azure.gpt-4.1",
-        "grok-3",
+        "grok-4.3",
         "groq.moonshotai/kimi-k2-instruct",
         "groq.qwen/qwen3-32b",
         "gpt-oss",
@@ -370,7 +370,7 @@ async def test_basic_tool_calling(fast_agent, model_name):
         "openrouter.anthropic/claude-3.7-sonnet",
         "openrouter.google/gemini-2.5-flash",
         "azure.gpt-4.1",
-        "grok-3",
+        "grok-4.3",
         "groq.moonshotai/kimi-k2-instruct",
         "gpt-5-nano?reasoning=minimal",
     ],

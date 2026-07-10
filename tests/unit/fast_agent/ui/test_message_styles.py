@@ -15,20 +15,33 @@ class TestFormatBottomMetadataCompact:
     def test_all_items_fit_no_highlight(self) -> None:
         """When all items fit and no highlight, render normally."""
         items = ["aaa", "bbb", "ccc"]
-        result = _format_bottom_metadata_compact(items, None, "bold", max_width=50)
+        result = _format_bottom_metadata_compact(items, [], "bold", max_width=50)
         assert result.plain == "aaa • bbb • ccc"
 
     def test_all_items_fit_with_highlight(self) -> None:
         """When all items fit with highlight, render normally with highlight applied."""
         items = ["aaa", "bbb", "ccc"]
-        result = _format_bottom_metadata_compact(items, 1, "bold", max_width=50)
+        result = _format_bottom_metadata_compact(items, [1], "bold", max_width=50)
         assert result.plain == "aaa • bbb • ccc"
+
+    def test_all_items_fit_with_multiple_highlights(self) -> None:
+        items = ["bash", "skill", "card_tools"]
+
+        result = _format_bottom_metadata_compact(items, [0, 2], "bold", max_width=50)
+
+        assert [(span.start, span.end, span.style) for span in result.spans] == [
+            (0, 4, "bold"),
+            (4, 7, "dim"),
+            (7, 12, "white dim"),
+            (12, 15, "dim"),
+            (15, 25, "bold"),
+        ]
 
     def test_truncation_no_highlight(self) -> None:
         """When items don't fit and no highlight, truncate with ellipsis."""
         items = ["aaa", "bbb", "ccc"]
         # Width 10: "aaa • bbb" = 9 chars, so ccc won't fit
-        result = _format_bottom_metadata_compact(items, None, "bold", max_width=10)
+        result = _format_bottom_metadata_compact(items, [], "bold", max_width=10)
         assert "…" in result.plain
         assert "ccc" not in result.plain
 
@@ -36,14 +49,14 @@ class TestFormatBottomMetadataCompact:
         """When highlight is visible even with truncation, render normally."""
         items = ["aaa", "bbb", "ccc"]
         # Highlight index 0 (aaa) - it's visible
-        result = _format_bottom_metadata_compact(items, 0, "bold", max_width=10)
+        result = _format_bottom_metadata_compact(items, [0], "bold", max_width=10)
         assert "aaa" in result.plain
 
     def test_truncation_highlight_not_visible_shows_jump(self) -> None:
         """When highlighted item would be truncated, show jump indicator and item."""
         items = ["aaa", "bbb", "ccc", "ddd", "eee"]
         # Highlight index 4 (eee) - won't be visible normally in width 15
-        result = _format_bottom_metadata_compact(items, 4, "bold", max_width=20)
+        result = _format_bottom_metadata_compact(items, [4], "bold", max_width=20)
         # Should show jump indicator and the highlighted item
         assert "▶" in result.plain
         assert "eee" in result.plain
@@ -52,14 +65,14 @@ class TestFormatBottomMetadataCompact:
         """Highlight at the end of a long list should show jump."""
         items = ["item1", "item2", "item3", "item4", "item5", "highlighted"]
         # Small width forces truncation
-        result = _format_bottom_metadata_compact(items, 5, "bold", max_width=30)
+        result = _format_bottom_metadata_compact(items, [5], "bold", max_width=30)
         assert "▶" in result.plain
         assert "highlighted" in result.plain
 
     def test_truncation_with_wide_chars_forces_jump(self) -> None:
         """Wide characters should be measured by display width, not len()."""
         items = ["a", "🐍🐍", "bb", "cc"]
-        result = _format_bottom_metadata_compact(items, 2, "bold", max_width=11)
+        result = _format_bottom_metadata_compact(items, [2], "bold", max_width=11)
         assert "▶" in result.plain
         assert "bb" in result.plain
 
@@ -79,17 +92,17 @@ class TestRenderItemsNormal:
 
     def test_empty_list(self) -> None:
         """Empty list returns empty Text."""
-        result = _render_items_normal([], None, "bold", "dim", " • ", max_width=50)
+        result = _render_items_normal([], [], "bold", "dim", " • ", max_width=50)
         assert result.plain == ""
 
     def test_single_item(self) -> None:
         """Single item renders without separator."""
-        result = _render_items_normal(["single"], None, "bold", "dim", " • ", max_width=50)
+        result = _render_items_normal(["single"], [], "bold", "dim", " • ", max_width=50)
         assert result.plain == "single"
 
     def test_ellipsis_when_nothing_fits(self) -> None:
         """Very small width shows just ellipsis."""
-        result = _render_items_normal(["toolong"], None, "bold", "dim", " • ", max_width=3)
+        result = _render_items_normal(["toolong"], [], "bold", "dim", " • ", max_width=3)
         assert result.plain == "…"
 
 
@@ -99,7 +112,7 @@ class TestRenderItemsWithJump:
     def test_jump_to_highlighted(self) -> None:
         """Jump indicator shown before highlighted item."""
         items = ["a", "b", "c", "d", "highlighted"]
-        result = _render_items_with_jump(items, 4, "bold", "dim", " • ", max_width=30)
+        result = _render_items_with_jump(items, [4], 4, "bold", "dim", " • ", max_width=30)
         assert " ▶ " in result.plain
         assert "highlighted" in result.plain
 
@@ -107,13 +120,13 @@ class TestRenderItemsWithJump:
         """When no space for prefix, show just jump + highlight."""
         items = ["a", "b", "c", "highlighted"]
         # Very small width - just enough for jump + highlight
-        result = _render_items_with_jump(items, 3, "bold", "dim", " • ", max_width=16)
+        result = _render_items_with_jump(items, [3], 3, "bold", "dim", " • ", max_width=16)
         assert "highlighted" in result.plain
 
     def test_jump_preserves_some_prefix_items(self) -> None:
         """Prefix items that fit before jump are shown."""
         items = ["a", "b", "c", "d", "e", "highlighted"]
-        result = _render_items_with_jump(items, 5, "bold", "dim", " • ", max_width=30)
+        result = _render_items_with_jump(items, [5], 5, "bold", "dim", " • ", max_width=30)
         # Should have some prefix, jump, then highlighted
         assert "▶" in result.plain
         assert "highlighted" in result.plain
@@ -123,7 +136,7 @@ class TestRenderItemsWithJump:
     def test_jump_skips_indicator_for_first_item(self) -> None:
         """Jump indicator is omitted when highlighting the first item."""
         items = ["highlighted", "b", "c"]
-        result = _render_items_with_jump(items, 0, "bold", "dim", " • ", max_width=20)
+        result = _render_items_with_jump(items, [0], 0, "bold", "dim", " • ", max_width=20)
         assert "▶" not in result.plain
         assert "highlighted" in result.plain
 
@@ -161,7 +174,7 @@ class TestA3MessageStyle:
         items = ["tool1", "tool2", "tool3", "tool4", "highlighted"]
         result = style.bottom_metadata_line(
             items=items,
-            highlight_index=4,
+            highlight_indexes=[4],
             highlight_color="bold",
             max_item_length=None,
             width=40,
@@ -215,7 +228,7 @@ class TestA3MessageStyle:
 
         result = style.bottom_metadata_line(
             items=["alpha", "beta"],
-            highlight_index=None,
+            highlight_indexes=[],
             highlight_color="bold",
             max_item_length=0,
             width=40,

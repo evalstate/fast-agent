@@ -49,8 +49,10 @@ from starlette.responses import JSONResponse
 
 from fast_agent.a2a.task_api import (
     _current_task_returned_message,
+    _current_task_started,
     _ensure_current_task_started,
     _reset_current_task,
+    _return_message_parts,
     _set_current_task,
 )
 from fast_agent.a2a.task_api import return_artifact as a2a_return_artifact
@@ -75,18 +77,12 @@ if TYPE_CHECKING:
 
     from a2a.server.agent_execution.context import RequestContext
     from a2a.server.events.event_queue import EventQueue
+    from a2a.server.tasks import PushNotificationConfigStore, PushNotificationSender
     from starlette.requests import Request
     from starlette.types import ASGIApp, Receive, Scope, Send
 
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.interfaces import AgentProtocol
-    from fast_agent.llm.stream_types import StreamChunk
-
-
-@runtime_checkable
-class _StreamListenerCapable(Protocol):
-    def add_stream_listener(self, listener: Any) -> Any:
-        """Register a text stream listener."""
 
 
 @runtime_checkable
@@ -357,6 +353,10 @@ class FastAgentA2AExecutor(AgentExecutor):
                 )
                 return
 
+            if not _current_task_started():
+                await _return_message_parts(_parts_from_prompt_message(response_message))
+                return
+
             if streamed_text:
                 if response_text and response_text != streamed_text:
                     assert stream_context is not None
@@ -391,16 +391,6 @@ class FastAgentA2AExecutor(AgentExecutor):
             updater=updater,
             artifact_id=f"{updater.task_id}:response",
         )
-        if not isinstance(agent, _StreamListenerCapable):
-            return stream_context
-        stream_context.start()
-
-        def on_stream_chunk(chunk: StreamChunk) -> None:
-            if not chunk.text or chunk.is_reasoning:
-                return
-            stream_context.record_chunk(chunk.text)
-
-        stream_context.remove_listener = agent.add_stream_listener(on_stream_chunk)
         return stream_context
 
     async def _cleanup_streaming_context(self, stream_context: "_A2AStreamingContext") -> None:
@@ -624,11 +614,16 @@ class AgentA2AServer:
         host: str = DEFAULT_A2A_HOST,
         port: int = 8000,
         instance_scope: str = "connection",
+        push_config_store: PushNotificationConfigStore | None = None,
+        push_sender: PushNotificationSender | None = None,
     ) -> None:
         self._host = host
         self._port = port
         self._oauth_provider = _get_a2a_oauth_provider()
         self._primary_agent_name = _select_primary_agent(primary_instance)
+        push_notifications_enabled = (
+            push_config_store is not None and push_sender is not None
+        )
         self.agent_card = _build_agent_card(
             primary_instance=primary_instance,
             server_name=server_name,
@@ -636,6 +631,7 @@ class AgentA2AServer:
             host=host,
             port=port,
             auth_enabled=self._oauth_provider == "huggingface",
+            push_notifications=push_notifications_enabled,
         )
         self.executor = FastAgentA2AExecutor(
             primary_instance=primary_instance,
@@ -648,6 +644,8 @@ class AgentA2AServer:
             agent_executor=self.executor,
             task_store=InMemoryTaskStore(),
             agent_card=self.agent_card,
+            push_config_store=push_config_store,
+            push_sender=push_sender,
         )
 
     def asgi_app(self) -> FastAPI:
@@ -706,6 +704,7 @@ def _build_agent_card(
     host: str,
     port: int,
     auth_enabled: bool = False,
+    push_notifications: bool = False,
 ) -> AgentCard:
     base_url = _base_url(host=host, port=port)
     security_requirements = _security_requirements() if auth_enabled else []
@@ -722,7 +721,10 @@ def _build_agent_card(
         description=server_description or "A fast-agent A2A server.",
         provider=AgentProvider(organization="fast-agent", url="https://fast-agent.ai"),
         version=_fast_agent_version(),
-        capabilities=AgentCapabilities(streaming=True, push_notifications=False),
+        capabilities=AgentCapabilities(
+            streaming=True,
+            push_notifications=push_notifications,
+        ),
         default_input_modes=A2A_INPUT_MODES,
         default_output_modes=A2A_OUTPUT_MODES,
         skills=skills,

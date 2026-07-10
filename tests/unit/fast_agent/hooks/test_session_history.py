@@ -9,6 +9,7 @@ from mcp.types import TextContent
 
 from fast_agent.hooks.hook_context import HookContext
 from fast_agent.hooks.session_history import save_session_history
+from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 if TYPE_CHECKING:
@@ -72,9 +73,14 @@ class _Agent:
         *,
         acp_context: object,
         history: list[PromptMessageExtended],
+        use_history: bool = True,
     ) -> None:
         self.name = "main"
-        self.config = SimpleNamespace(tool_only=False, model="passthrough")
+        self.config = SimpleNamespace(
+            tool_only=False,
+            model="passthrough",
+            use_history=use_history,
+        )
         self.context = SimpleNamespace(acp=acp_context, session_manager=None)
         self.message_history = history
         self.usage_accumulator = None
@@ -161,3 +167,63 @@ async def test_save_session_history_uses_app_store_for_app_scoped_acp_session(
     with pytest.raises(AttributeError):
         object.__getattribute__(saved_agent, "unknown_session_history_proxy_attribute")
     assert session_info_updates == [{"updated_at": "2024-01-01T00:00:00"}]
+
+
+@pytest.mark.asyncio
+async def test_save_session_history_skips_agents_with_use_history_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _Manager("workspace")
+    monkeypatch.setattr(
+        "fast_agent.hooks.session_history.get_current_context",
+        lambda: SimpleNamespace(config=SimpleNamespace(session_history=True)),
+    )
+
+    history = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="stateless answer")],
+        )
+    ]
+    agent = _Agent(acp_context=None, history=history, use_history=False)
+    agent.context.session_manager = manager
+    ctx = HookContext(
+        runner=SimpleNamespace(iteration=1, request_params=None),
+        agent=agent,
+        message=agent.message_history[-1],
+        hook_type="after_turn_complete",
+    )
+
+    await save_session_history(ctx)
+
+    assert manager.saved_agents == []
+
+
+@pytest.mark.asyncio
+async def test_save_session_history_skips_request_use_history_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _Manager("workspace")
+    monkeypatch.setattr(
+        "fast_agent.hooks.session_history.get_current_context",
+        lambda: SimpleNamespace(config=SimpleNamespace(session_history=True)),
+    )
+
+    history = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="one-shot answer")],
+        )
+    ]
+    agent = _Agent(acp_context=None, history=history)
+    agent.context.session_manager = manager
+    ctx = HookContext(
+        runner=SimpleNamespace(iteration=1, request_params=RequestParams(use_history=False)),
+        agent=agent,
+        message=agent.message_history[-1],
+        hook_type="after_turn_complete",
+    )
+
+    await save_session_history(ctx)
+
+    assert manager.saved_agents == []

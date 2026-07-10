@@ -12,7 +12,7 @@ from fast_agent.ui.message_display_helpers import (
     build_user_message_image_previews,
     extract_user_attachments,
     extract_user_local_image_previews,
-    resolve_highlight_index,
+    resolve_highlight_indexes,
     tool_use_requests_file_read_access,
     tool_use_requests_shell_access,
 )
@@ -163,28 +163,28 @@ def test_build_safety_additional_message_handles_missing_category() -> None:
     assert additional.plain == "\n\nRequest refused by safety classifier."
 
 
-def test_resolve_highlight_index_for_string_target() -> None:
-    assert resolve_highlight_index(["shell", "web"], "web") == 1
+def test_resolve_highlight_indexes_for_string_target() -> None:
+    assert resolve_highlight_indexes(["shell", "web"], "web") == [1]
 
 
-def test_resolve_highlight_index_for_first_list_target() -> None:
-    assert resolve_highlight_index(["shell", "web"], ["web", "shell"]) == 1
+def test_resolve_highlight_indexes_for_multiple_targets() -> None:
+    assert resolve_highlight_indexes(["shell", "web"], ["web", "shell"]) == [0, 1]
 
 
-def test_resolve_highlight_index_only_uses_first_list_candidate() -> None:
-    assert resolve_highlight_index(["shell", "web"], ["missing", "web"]) is None
+def test_resolve_highlight_indexes_ignores_missing_candidates() -> None:
+    assert resolve_highlight_indexes(["shell", "web"], ["missing", "web"]) == [1]
 
 
-def test_resolve_highlight_index_ignores_empty_string_target() -> None:
-    assert resolve_highlight_index(["shell", "web"], "") is None
+def test_resolve_highlight_indexes_ignores_empty_string_target() -> None:
+    assert resolve_highlight_indexes(["shell", "web"], "") == []
 
 
-def test_resolve_highlight_index_handles_empty_candidate_list() -> None:
-    assert resolve_highlight_index(["shell", "web"], []) is None
+def test_resolve_highlight_indexes_handles_empty_candidate_list() -> None:
+    assert resolve_highlight_indexes(["shell", "web"], []) == []
 
 
-def test_resolve_highlight_index_returns_none_without_items() -> None:
-    assert resolve_highlight_index(None, "shell") is None
+def test_resolve_highlight_indexes_returns_empty_without_items() -> None:
+    assert resolve_highlight_indexes(None, "shell") == []
 
 
 def test_extract_user_attachments_includes_local_image_source_uri() -> None:

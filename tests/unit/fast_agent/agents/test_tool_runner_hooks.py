@@ -529,7 +529,7 @@ class ToolEventCapturingDisplay(CapturingConsoleDisplay):
         tool_name: str,
         tool_args: dict[str, object] | None,
         bottom_items: list[str] | None = None,
-        highlight_index: int | None = None,
+        highlight_indexes: list[int] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         metadata: dict[str, object] | None = None,
@@ -540,7 +540,7 @@ class ToolEventCapturingDisplay(CapturingConsoleDisplay):
         del (
             tool_args,
             bottom_items,
-            highlight_index,
+            highlight_indexes,
             max_item_length,
             name,
             metadata,

@@ -94,7 +94,7 @@ def _separator_line(left_content: str, right_info: str = "") -> Text:
     return combined
 
 
-def _render_bottom_bar(items: list[str], highlight_index: int | None = None) -> None:
+def _render_bottom_bar(items: list[str], highlight_indexes: list[int] | None = None) -> None:
     if not items:
         return
 
@@ -106,7 +106,7 @@ def _render_bottom_bar(items: list[str], highlight_index: int | None = None) -> 
             bar.append(" • ", style="dim")
 
         style = "white dim"
-        if highlight_index is not None and idx == highlight_index:
+        if highlight_indexes and idx in highlight_indexes:
             style = "green"
 
         bar.append(item, style=style)
@@ -156,7 +156,7 @@ def render_current_style(messages: list[DemoMessage]) -> None:
         console.print(_separator_line(left, right_info="demo"), markup=True)
         console.print(message.text)
         if message.message_type != MessageType.USER:
-            _render_bottom_bar(DEMO_BOTTOM_ITEMS, highlight_index=2)
+            _render_bottom_bar(DEMO_BOTTOM_ITEMS, highlight_indexes=[2])
         console.print()
 
 
@@ -172,7 +172,7 @@ def render_header_only_style(messages: list[DemoMessage]) -> None:
         console.print(_separator_header_only(left, right_info="demo"), markup=True)
         console.print(message.text)
         if message.message_type != MessageType.USER:
-            _render_bottom_bar(DEMO_BOTTOM_ITEMS, highlight_index=2)
+            _render_bottom_bar(DEMO_BOTTOM_ITEMS, highlight_indexes=[2])
         console.print()
 
 
@@ -188,7 +188,7 @@ def render_header_inline_style(messages: list[DemoMessage]) -> None:
         console.print(_separator_header_inline(left, right_info="demo"), markup=True)
         console.print(message.text)
         if message.message_type != MessageType.USER:
-            _render_bottom_bar(DEMO_BOTTOM_ITEMS, highlight_index=2)
+            _render_bottom_bar(DEMO_BOTTOM_ITEMS, highlight_indexes=[2])
         console.print()
 
 

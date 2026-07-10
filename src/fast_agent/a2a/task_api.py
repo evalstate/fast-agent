@@ -100,6 +100,15 @@ async def return_message(
     metadata: dict[str, object] | None = None,
 ) -> A2ATaskHandle:
     """Publish a standalone A2A agent message for the current request."""
+    return await _return_message_parts([Part(text=text)], metadata=metadata)
+
+
+async def _return_message_parts(
+    parts: list[Part],
+    *,
+    metadata: dict[str, object] | None = None,
+) -> A2ATaskHandle:
+    """Publish standalone A2A agent message parts for the current request."""
     runtime = _require_a2a_task()
     if runtime.task_started:
         raise RuntimeError("Cannot return a standalone A2A message after starting a task.")
@@ -110,7 +119,7 @@ async def return_message(
             context_id=runtime.updater.context_id,
             message_id=str(uuid.uuid4()),
             metadata=metadata,
-            parts=[Part(text=text)],
+            parts=parts,
         )
     )
     return runtime.handle
@@ -124,6 +133,11 @@ async def _ensure_current_task_started() -> None:
 def _current_task_returned_message() -> bool:
     runtime = _current_a2a_task.get()
     return runtime.returned_message if runtime is not None else False
+
+
+def _current_task_started() -> bool:
+    runtime = _current_a2a_task.get()
+    return runtime.task_started if runtime is not None else False
 
 
 def _set_current_task(
