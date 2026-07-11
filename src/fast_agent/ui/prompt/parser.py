@@ -213,6 +213,7 @@ def try_parse_hash_agent_command(text: str) -> HashAgentCommand | None:
         quiet = True
     elif text.startswith("#"):
         prefix = "#"
+        quiet = False
     else:
         return None
 
