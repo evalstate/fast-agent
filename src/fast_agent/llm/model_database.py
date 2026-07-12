@@ -66,6 +66,9 @@ class ModelParameters(BaseModel):
     response_service_tiers: tuple[Literal["fast", "flex"], ...] | None = None
     """Supported service_tier values for Responses APIs, if explicitly defined."""
 
+    codex_responses_lite: bool = False
+    """Whether Codex uses the internal Responses Lite request contract."""
+
     anthropic_web_search_version: str | None = None
     """Anthropic built-in web_search tool version, if supported by the model."""
 
@@ -459,7 +462,7 @@ class ModelDatabase:
     OPENAI_GPT_56 = ModelParameters(
         context_window=1_050_000,
         max_output_tokens=128_000,
-        tokenizes=OPENAI_VISION,
+        tokenizes=[*OPENAI_VISION, "application/pdf"],
         reasoning="openai",
         reasoning_effort_spec=OPENAI_GPT_56_CLASS_REASONING,
         text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
@@ -470,7 +473,9 @@ class ModelDatabase:
         model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
     )
 
-    OPENAI_GPT_56_LUNA = OPENAI_GPT_56.model_copy(update={"context_window": 400_000})
+    OPENAI_GPT_56_LUNA = OPENAI_GPT_56.model_copy(
+        update={"context_window": 400_000, "codex_responses_lite": True}
+    )
 
     OPENAI_GPT_CODEX_SPARK = ModelParameters(
         context_window=128000,
@@ -1409,6 +1414,12 @@ class ModelDatabase:
         """Get supported Responses service tiers for a model, if explicitly defined."""
         params = cls.get_model_params(model)
         return params.response_service_tiers if params else None
+
+    @classmethod
+    def uses_codex_responses_lite(cls, model: str) -> bool:
+        """Return whether Codex uses the Responses Lite contract for a model."""
+        params = cls.get_model_params(model)
+        return params.codex_responses_lite if params else False
 
     @classmethod
     def supports_response_service_tier(

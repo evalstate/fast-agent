@@ -1139,6 +1139,14 @@ def test_gpt_56_supports_api_reasoning_efforts_through_max():
         assert spec is not None
         assert spec.allowed_efforts == ["none", "low", "medium", "high", "xhigh", "max"]
         assert spec.default == ReasoningEffortSetting(kind="effort", value="medium")
+        assert ModelDatabase.supports_mime(model_name, "application/pdf")
+        assert ModelDatabase.supports_mime(model_name, "image/png")
+
+    assert ModelDatabase.uses_codex_responses_lite("gpt-5.6-luna")
+    assert not ModelDatabase.uses_codex_responses_lite("gpt-5.6")
+    assert not ModelDatabase.uses_codex_responses_lite("gpt-5.6-sol")
+    assert not ModelDatabase.uses_codex_responses_lite("gpt-5.6-terra")
+    assert not ModelDatabase.uses_codex_responses_lite("gpt-5.5")
 
 
 def test_gemini_model_specific_mentions_youtube_capability():
