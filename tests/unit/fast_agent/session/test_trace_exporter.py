@@ -22,6 +22,8 @@ from mcp.types import (
 from fast_agent.constants import (
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
     FAST_AGENT_TIMING,
+    FAST_AGENT_TOOL_METADATA,
+    FAST_AGENT_TOOL_TIMING,
     FAST_AGENT_USAGE,
     OPENAI_ASSISTANT_MESSAGE_ITEMS,
 )
@@ -228,6 +230,258 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     assert "timestamp" not in records[8]
     assert records[8]["payload"]["type"] == "task_complete"
     assert records[8]["payload"]["last_agent_message"] == "done"
+
+
+def test_session_trace_exporter_writes_atif_v17_with_tool_observation(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-atif"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    call_id = "call_shell_1"
+    error_call_id = "call_shell_2"
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[
+                TextContent(type="text", text="check Alice's directory"),
+                ImageContent(type="image", data="aW1hZ2U=", mimeType="image/png"),
+            ],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="I'll inspect it.")],
+            tool_calls={
+                call_id: CallToolRequest(
+                    params=CallToolRequestParams(name="shell", arguments={"command": "pwd"})
+                ),
+                error_call_id: CallToolRequest(
+                    params=CallToolRequestParams(
+                        name="shell", arguments={"command": "missing-command"}
+                    )
+                ),
+            },
+            channels={
+                "reasoning": [TextContent(type="text", text="Use the shell tool.")],
+                FAST_AGENT_USAGE: [
+                    TextContent(
+                        type="text",
+                        text=json.dumps(
+                            {
+                                "turn": {
+                                    "provider": "codexresponses",
+                                    "model": "gpt-5.4",
+                                    "input_tokens": 20,
+                                    "output_tokens": 8,
+                                    "cache_usage": {
+                                        "cache_hit_tokens": 5,
+                                        "cache_read_tokens": 5,
+                                        "cache_write_tokens": 0,
+                                    },
+                                    "reasoning_tokens": 3,
+                                    "tool_use_tokens": 2,
+                                    "tool_calls": 2,
+                                    "cost_usd": 0.01,
+                                }
+                            }
+                        ),
+                    )
+                ],
+                FAST_AGENT_TIMING: [
+                    TextContent(
+                        type="text",
+                        text='{"duration_ms": 1200, "ttft_ms": 150}',
+                    )
+                ],
+            },
+        ),
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                error_call_id: CallToolResult(
+                    content=[TextContent(type="text", text="command not found")], isError=True
+                ),
+                call_id: CallToolResult(
+                    content=[TextContent(type="text", text="/workspace")], isError=False
+                )
+            },
+            channels={
+                FAST_AGENT_TOOL_TIMING: [
+                    TextContent(
+                        type="text",
+                        text=json.dumps(
+                            {
+                                call_id: {
+                                    "timing_ms": 25,
+                                    "transport_channel": "stdio",
+                                },
+                                error_call_id: {"timing_ms": 10},
+                            }
+                        ),
+                    )
+                ],
+                FAST_AGENT_TOOL_METADATA: [
+                    TextContent(
+                        type="text",
+                        text=json.dumps({call_id: {"server": "filesystem"}}),
+                    )
+                ],
+            },
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="The directory is /workspace.")],
+        ),
+    ]
+    save_json(messages, str(session_dir / "history_dev.json"))
+    trajectory_dir = session_dir / "trajectories"
+    trajectory_dir.mkdir()
+    child_messages = [
+        PromptMessageExtended(
+            role="user", content=[TextContent(type="text", text="inspect cwd")]
+        ),
+        PromptMessageExtended(
+            role="assistant", content=[TextContent(type="text", text="child complete")]
+        ),
+    ]
+    (trajectory_dir / "child.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "trajectory_id": "traj_child_1",
+                "session_id": session_id,
+                "parent_agent_name": "dev",
+                "agent_name": "worker",
+                "tool_name": "shell",
+                "parent_tool_call_id": call_id,
+                "use_history": False,
+                "started_at": "2026-04-20T13:03:01Z",
+                "completed_at": "2026-04-20T13:03:02Z",
+                "usage_summary": {
+                    "cumulative_input_tokens": 11,
+                    "cumulative_output_tokens": 4,
+                    "cumulative_cache_hit_tokens": 3,
+                    "cumulative_reasoning_tokens": 2,
+                    "cumulative_tool_use_tokens": 1,
+                },
+                "messages": [message.model_dump(mode="json") for message in child_messages],
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={
+            "dev": SessionAgentSnapshot(
+                history_file="history_dev.json",
+                resolved_prompt="You are dev.",
+                model_spec="codexresponses.gpt-5.4?reasoning=high",
+                provider="codexresponses",
+            )
+        },
+    )
+
+    result = SessionTraceExporter(session_manager=manager).export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=None,
+            format="atif",
+        )
+    )
+
+    payload = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert result.output_path.name == f"{session_id}__dev__atif.json"
+    assert payload["schema_version"] == "ATIF-v1.7"
+    assert payload["session_id"] == session_id
+    assert payload["agent"]["model_name"] == "codexresponses.gpt-5.4?reasoning=high"
+    assert [step["source"] for step in payload["steps"]] == [
+        "system",
+        "user",
+        "agent",
+        "agent",
+    ]
+    assert payload["steps"][0]["message"] == "You are dev."
+    assert payload["steps"][1]["message"][1] == {
+        "type": "image",
+        "source": {"media_type": "image/png", "path": "data:image/png;base64,aW1hZ2U="},
+    }
+    tool_step = payload["steps"][2]
+    assert tool_step["reasoning_effort"] == "high"
+    assert tool_step["extra"] == {"duration_ms": 1200, "ttft_ms": 150}
+    assert tool_step["tool_calls"][0] == {
+        "tool_call_id": call_id,
+        "function_name": "shell",
+        "arguments": {"command": "pwd"},
+    }
+    assert tool_step["tool_calls"][1]["tool_call_id"] == error_call_id
+    results_by_id = {
+        result["source_call_id"]: result for result in tool_step["observation"]["results"]
+    }
+    assert results_by_id[error_call_id]["extra"]["is_error"] is True
+    assert results_by_id[error_call_id]["extra"]["timing_ms"] == 10
+    assert results_by_id[call_id]["extra"] == {
+        "is_error": False,
+        "timing_ms": 25,
+        "transport_channel": "stdio",
+        "tool_metadata": {"server": "filesystem"},
+    }
+    assert results_by_id[call_id]["subagent_trajectory_ref"] == [
+        {
+            "trajectory_id": "traj_child_1",
+            "session_id": session_id,
+            "extra": {"agent_name": "worker"},
+        }
+    ]
+    assert payload["subagent_trajectories"][0]["trajectory_id"] == "traj_child_1"
+    assert payload["subagent_trajectories"][0]["agent"]["name"] == "worker"
+    assert tool_step["metrics"]["cached_tokens"] == 5
+    assert tool_step["metrics"]["extra"] == {
+        "provider": "codexresponses",
+        "model": "gpt-5.4",
+        "reasoning_tokens": 3,
+        "tool_use_tokens": 2,
+        "tool_calls": 2,
+        "cache_read_tokens": 5,
+        "cache_write_tokens": 0,
+    }
+    assert payload["final_metrics"] == {
+        "total_prompt_tokens": 31,
+        "total_completion_tokens": 12,
+        "total_cached_tokens": 8,
+        "total_cost_usd": 0.01,
+        "total_steps": 4,
+        "extra": {
+            "total_reasoning_tokens": 3,
+            "total_tool_use_tokens": 2,
+            "root_prompt_tokens": 20,
+            "root_completion_tokens": 8,
+            "subagent_prompt_tokens": 11,
+            "subagent_completion_tokens": 4,
+        },
+    }
+
+    private_output = tmp_path / "private-atif.json"
+    private_output.write_text("stale", encoding="utf-8")
+    private_result = SessionTraceExporter(
+        session_manager=manager,
+        privacy_sanitizer=_FakePrivacySanitizer(),
+    ).export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=private_output,
+            format="atif",
+            privacy_filter=True,
+        )
+    )
+    private_payload = json.loads(private_output.read_text(encoding="utf-8"))
+    assert private_payload["steps"][1]["message"][0]["text"] == (
+        "check <PRIVATE_PERSON>'s directory"
+    )
+    assert private_result.redaction is not None
+    assert private_result.redaction.total == 1
 
 
 def test_session_trace_exporter_treats_latest_target_case_insensitively(tmp_path: Path) -> None:

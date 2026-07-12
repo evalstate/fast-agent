@@ -74,6 +74,9 @@ def export(
     ),
     agent: str | None = typer.Option(None, "--agent", "-a", help=SESSION_EXPORT_AGENT_HELP),
     output: Path | None = typer.Option(None, "--output", "-o", help=SESSION_EXPORT_OUTPUT_HELP),
+    export_format: str = typer.Option(
+        "codex", "--format", "--export-format", help="Trace format: codex or atif."
+    ),
     hf_url: str | None = typer.Option(
         None,
         "--hf-url",
@@ -139,6 +142,7 @@ def export(
             target is not None
             or agent is not None
             or output is not None
+            or export_format != "codex"
             or hf_url is not None
             or hf_dataset is not None
             or hf_dataset_path is not None
@@ -165,6 +169,7 @@ def export(
             target=target,
             agent_name=agent,
             output_path=str(output) if output is not None else None,
+            export_format=export_format,
             hf_url=hf_url,
             hf_dataset=hf_dataset,
             hf_dataset_path=hf_dataset_path,

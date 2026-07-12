@@ -10,9 +10,10 @@ from typing import Any, cast
 import pytest
 import typer
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, TextContent
+from mcp.types import CallToolRequestParams, ListToolsResult, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.cli.runtime.agent_setup import (
     _apply_fast_args,
@@ -20,6 +21,8 @@ from fast_agent.cli.runtime.agent_setup import (
     _build_fan_out_result_paths,
     _build_result_file_with_suffix,
     _cli_attachment_token,
+    _enable_atif_child_capture,
+    _export_parallel_atif_trajectory,
     _export_result_histories,
     _find_last_assistant_text,
     _resume_session_if_requested,
@@ -49,6 +52,11 @@ class _DummyAgent:
     def __init__(self, name: str) -> None:
         self.name = name
         self.message_history: list[object] = []
+        self.llm = None
+        self.instruction = "instruction"
+
+    async def list_tools(self) -> ListToolsResult:
+        return ListToolsResult(tools=[])
 
 
 class _NonPersistentMessageAgent(_DummyAgent):
@@ -92,6 +100,16 @@ class _StructuredMessageAgent(_DummyAgent):
             role="assistant",
             content=[TextContent(type="text", text=self.reply_text)],
         )
+
+
+class _FailingMessageAgent(_DummyAgent):
+    def __init__(self, name: str, error: BaseException | None = None) -> None:
+        super().__init__(name)
+        self.error = error or RuntimeError("provider unavailable")
+
+    async def generate(self, messages: object) -> PromptMessageExtended:
+        del messages
+        raise self.error
 
 
 class _DummyAgentApp:
@@ -239,6 +257,7 @@ def _make_request(
     attachments: list[str] | None = None,
     json_schema: str | None = None,
     environment: str | None = None,
+    trajectory_output: Path | None = None,
 ) -> AgentRunRequest:
     return AgentRunRequest(
         name="test",
@@ -275,11 +294,26 @@ def _make_request(
         watch=False,
         attachments=attachments,
         environment=environment,
+        trajectory_output=trajectory_output,
     )
 
 
 def test_build_result_file_with_suffix_without_extension() -> None:
     assert _build_result_file_with_suffix(Path("foo"), "haiku35") == Path("foo-haiku35")
+
+
+def test_trajectory_output_enables_stateless_child_capture(tmp_path: Path) -> None:
+    child = ToolAgent(AgentConfig("child", use_history=False))
+    app = _DummyAgentApp(["agent"])
+    app._agents["child"] = cast("Any", child)
+    request = _make_request(
+        result_file=None,
+        trajectory_output=tmp_path / "trajectory.json",
+    )
+
+    _enable_atif_child_capture(app, request)
+
+    assert child.config.save_trajectory is True
 
 
 def test_select_loaded_card_agent_targets_single_runnable_card() -> None:
@@ -864,6 +898,118 @@ async def test_run_cli_flow_exports_transient_turn_when_history_disabled(
     assert exported[1].last_text() == "done"
     captured = capsys.readouterr()
     assert captured.out.strip() == "done"
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_writes_direct_atif_trajectory_when_history_disabled(
+    tmp_path: Path,
+) -> None:
+    agent = _NonPersistentMessageAgent("agent", "done")
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+    output = tmp_path / "trajectory.json"
+
+    await _run_cli_flow(
+        app,
+        _make_request(
+            result_file=None,
+            message="hello",
+            trajectory_output=output,
+        ),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == "ATIF-v1.7"
+    assert payload["agent"]["extra"]["target_agent"] == "agent"
+    assert [step["source"] for step in payload["steps"]] == ["system", "user", "agent"]
+    assert payload["steps"][2]["message"] == "done"
+    assert payload["final_metrics"]["total_steps"] == 3
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_writes_atif_input_when_one_shot_raises(tmp_path: Path) -> None:
+    agent = _FailingMessageAgent("agent")
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+    output = tmp_path / "trajectory.json"
+
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        await _run_cli_flow(
+            app,
+            _make_request(
+                result_file=None,
+                message="hello",
+                trajectory_output=output,
+            ),
+        )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["steps"] == [
+        {"step_id": 1, "source": "system", "message": "instruction"},
+        {"step_id": 2, "source": "user", "message": "hello"},
+    ]
+    assert payload["extra"]["termination"] == {
+        "status": "error",
+        "error_type": "RuntimeError",
+        "message": "provider unavailable",
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_writes_partial_atif_when_cancelled(tmp_path: Path) -> None:
+    agent = _FailingMessageAgent("agent", asyncio.CancelledError())
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+    output = tmp_path / "trajectory.json"
+
+    with pytest.raises(asyncio.CancelledError):
+        await _run_cli_flow(
+            app,
+            _make_request(
+                result_file=None,
+                message="hello",
+                trajectory_output=output,
+            ),
+        )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["steps"][1]["message"] == "hello"
+    assert payload["extra"]["termination"]["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_parallel_atif_export_embeds_each_model_branch(tmp_path: Path) -> None:
+    app = _DummyAgentApp(["model-a", "model-b"])
+    output = tmp_path / "trajectory.json"
+    request = _make_request(result_file=None, trajectory_output=output)
+    messages = {
+        name: [
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="compare")]
+            ),
+            PromptMessageExtended(
+                role="assistant", content=[TextContent(type="text", text=f"from {name}")]
+            ),
+        ]
+        for name in ("model-a", "model-b")
+    }
+
+    await _export_parallel_atif_trajectory(
+        app,
+        request,
+        ["model-a", "model-b"],
+        transient_messages_by_agent=messages,
+        session_manager=None,
+        harness_session=None,
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["steps"][1]["llm_call_count"] == 0
+    assert len(payload["steps"][1]["observation"]["results"]) == 2
+    assert [child["agent"]["extra"]["target_agent"] for child in payload["subagent_trajectories"]] == [
+        "model-a",
+        "model-b",
+    ]
 
 
 @pytest.mark.asyncio

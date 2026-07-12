@@ -44,6 +44,25 @@ fast-agent go [OPTIONS]
 - `--schema-model <module.path:ClassName>`: Pydantic `BaseModel` import path used for one-shot structured output
 - `--structured-tool-policy <auto|always|defer|no_tools>`: Control whether tools may be used with one-shot structured output
 - `--results <path>`: Write the resulting history to a file, or per-model suffixed files in comparison mode
+- `--trajectory-output <path>`: Write a self-contained ATIF v1.7 JSON trajectory for a one-shot run
+- `--trajectory-format atif`: Select the direct trajectory format (currently ATIF)
+
+For Harbor-style one-shot execution, keep the Fast-Agent result artifact and
+the interoperability trajectory separate:
+
+```bash
+fast-agent go \
+  --message "$INSTRUCTION" \
+  --workspace . \
+  --home /logs/agent/fast-agent-home \
+  --shell \
+  --results /logs/agent/fast-agent-results.json \
+  --trajectory-output /logs/agent/trajectory.json
+```
+
+The trajectory is one self-contained `ATIF-v1.7` JSON document. Recorded
+agent-as-tool invocations are embedded in `subagent_trajectories`; Harbor does
+not need to inspect Fast-Agent session files or private message channels.
 - `--workspace <path>`: Override the workspace root; when `--home` is omitted, the home defaults to `<workspace>/.fast-agent`
 - `--home <path>`: Override the base `.fast-agent` home (where default `agent-cards/` and `tool-cards/` are discovered)
 - `--no-home`: Run in ephemeral mode (disable implicit home card loading, session persistence/resume, and permission-store side effects)

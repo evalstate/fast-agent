@@ -339,6 +339,7 @@ async def handle_session_export(
     target: str | None,
     agent_name: str | None,
     output_path: str | None,
+    export_format: str = "codex",
     hf_url: str | None = None,
     hf_dataset: str | None = None,
     hf_dataset_path: str | None = None,
@@ -360,6 +361,9 @@ async def handle_session_export(
     privacy_filter_path = strip_to_none(privacy_filter_path)
     privacy_filter_device = strip_to_none(privacy_filter_device)
     privacy_filter_variant = strip_to_none(privacy_filter_variant)
+    export_format = normalize_action_token(export_format)
+    if error is None and export_format not in {"codex", "atif"}:
+        error = f"Unsupported --format '{export_format}'. Supported formats: codex, atif."
 
     if _add_session_export_preflight_error(
         outcome,
@@ -393,6 +397,7 @@ async def handle_session_export(
         target=target,
         agent_name=agent_name,
         output_path=_path_option(output_path),
+        format=export_format,
         hf_url=hf_url,
         hf_dataset=hf_dataset,
         hf_dataset_path=hf_dataset_path,

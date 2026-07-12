@@ -53,6 +53,7 @@ ToolMutationAction = Literal["add_tool", "remove_tool"]
 _ExportValueName = Literal[
     "agent",
     "output",
+    "format",
     "hf_url",
     "hf_dataset",
     "hf_dataset_path",
@@ -209,6 +210,7 @@ class _ExportArgument:
     target: str | None = None
     agent: str | None = None
     output: str | None = None
+    format: str = "codex"
     hf_url: str | None = None
     hf_dataset: str | None = None
     hf_dataset_path: str | None = None
@@ -244,6 +246,7 @@ class _ExportTokenParseResult:
 _EXPORT_VALUE_OPTIONS: tuple[ValueOption[_ExportValueName], ...] = (
     ValueOption("agent", ("--agent", "-a"), error_name="--agent"),
     ValueOption("output", ("--output", "-o"), error_name="--output"),
+    ValueOption("format", ("--format", "--export-format"), error_name="--format"),
     ValueOption("hf_url", ("--hf-url",)),
     ValueOption("hf_dataset", ("--hf-dataset",)),
     ValueOption("hf_dataset_path", ("--hf-dataset-path",)),
@@ -610,6 +613,7 @@ class SessionCommandIntent:
     export_target: str | None = None
     export_agent: str | None = None
     export_output: str | None = None
+    export_format: str = "codex"
     export_hf_url: str | None = None
     export_hf_dataset: str | None = None
     export_hf_dataset_path: str | None = None
@@ -691,6 +695,7 @@ def _session_intent_from_export(export: _ExportArgument) -> SessionCommandIntent
         export_target=export.target,
         export_agent=export.agent,
         export_output=export.output,
+        export_format=export.format,
         export_hf_url=export.hf_url,
         export_hf_dataset=export.hf_dataset,
         export_hf_dataset_path=export.hf_dataset_path,
@@ -742,6 +747,7 @@ def _export_argument_from_parse(
         target=target,
         agent=option_values.get("agent"),
         output=option_values.get("output"),
+        format=option_values.get("format", "codex"),
         hf_url=option_values.get("hf_url"),
         hf_dataset=option_values.get("hf_dataset"),
         hf_dataset_path=option_values.get("hf_dataset_path"),

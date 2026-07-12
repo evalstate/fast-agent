@@ -43,6 +43,8 @@ GO_SPECIFIC_OPTIONS = {
     "--schema-model",
     "--structured-tool-policy",
     "--results",
+    "--trajectory-output",
+    "--trajectory-format",
     "--servers",
     "--auth",
     "--environment",

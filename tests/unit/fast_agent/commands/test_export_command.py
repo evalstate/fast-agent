@@ -133,6 +133,33 @@ def test_export_command_implicit_target_uses_latest_session(tmp_path: Path, monk
     assert records[0]["payload"]["id"] == session_id
 
 
+def test_export_command_supports_atif_export_format_alias(tmp_path: Path) -> None:
+    home = tmp_path / "env"
+    session_id = "2604201303-x5MNlH"
+    _write_session_fixture(home, session_id=session_id)
+    output_path = tmp_path / "trajectory.json"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--home",
+            str(home),
+            "export",
+            "latest",
+            "--export-format",
+            "atif",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Exported atif trace" in result.output
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == "ATIF-v1.7"
+    assert payload["session_id"] == session_id
+
+
 def test_export_command_lists_sessions(tmp_path: Path, monkeypatch) -> None:
     home = tmp_path / "env"
     _write_session_fixture(home, session_id="2604201303-x5MNlH")
@@ -158,7 +185,7 @@ def test_export_command_lists_sessions(tmp_path: Path, monkeypatch) -> None:
     assert "x5MNlH" in output
 
 
-def test_export_help_hides_completion_and_format_options() -> None:
+def test_export_help_shows_trace_format_and_hides_completion_options() -> None:
     runner = CliRunner()
     result = runner.invoke(export_command.app, ["--help"])
     output = strip_ansi(result.output)
@@ -170,6 +197,6 @@ def test_export_help_hides_completion_and_format_options() -> None:
     assert "--privacy-filter" in output
     assert "--privacy-filter-variant" in output
     assert "--show-redactions" in output
-    assert "--format" not in output
+    assert "--format" in output
     assert "--install-completion" not in output
     assert "--show-completion" not in output

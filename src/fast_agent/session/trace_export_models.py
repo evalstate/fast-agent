@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from fast_agent.privacy.sanitizer import RedactionSummary
     from fast_agent.session.snapshot import SessionSnapshot
 
-ExportFormat = Literal["codex"]
+ExportFormat = Literal["codex", "atif"]
 
 
 @dataclass(frozen=True, slots=True)

@@ -280,6 +280,16 @@ def go(
         "--results",
         help=("Write resulting history to file (single model) or per-model suffixed files "),
     ),
+    trajectory_output: Path | None = typer.Option(
+        None,
+        "--trajectory-output",
+        help="Write a self-contained ATIF trajectory JSON document.",
+    ),
+    trajectory_format: str = typer.Option(
+        "atif",
+        "--trajectory-format",
+        help="Trajectory format. Currently supports atif.",
+    ),
     resume: str | None = typer.Option(
         None,
         "--resume",
@@ -399,6 +409,11 @@ def go(
         if agent is None and len(a2a_cards) == 1:
             agent = Path(a2a_cards[0]).stem
 
+    if trajectory_format.casefold() != "atif":
+        raise typer.BadParameter(
+            "Only 'atif' is currently supported.", param_hint="--trajectory-format"
+        )
+
     request = build_command_run_request(
         name=name,
         instruction_option=instruction,
@@ -417,6 +432,8 @@ def go(
         schema_model=schema_model,
         structured_tool_policy=structured_tool_policy,
         result_file=results,
+        trajectory_output=trajectory_output,
+        trajectory_format="atif",
         resume=resume,
         npx=npx,
         uvx=uvx,
