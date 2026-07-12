@@ -1372,6 +1372,45 @@ def test_extract_reasoning_summary_omits_whitespace_only_streamed_fallback() -> 
     assert blocks == []
 
 
+def test_extract_reasoning_summary_drops_placeholder_only_parts() -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="reasoning",
+                summary=[
+                    SimpleNamespace(text="**Plan**\n\ndone"),
+                    SimpleNamespace(text="**Checking tests**\n\n<!-- -->"),
+                ],
+            )
+        ]
+    )
+
+    blocks = harness._extract_reasoning_summary(response, [])
+
+    assert len(blocks) == 1
+    assert isinstance(blocks[0], TextContent)
+    assert blocks[0].text == "**Plan**\n\ndone"
+
+
+def test_extract_reasoning_summary_preserves_literal_placeholder_in_prose() -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="reasoning",
+                summary=[SimpleNamespace(text="Use `<!-- -->` in JSX.")],
+            )
+        ]
+    )
+
+    blocks = harness._extract_reasoning_summary(response, [])
+
+    assert len(blocks) == 1
+    assert isinstance(blocks[0], TextContent)
+    assert blocks[0].text == "Use `<!-- -->` in JSX."
+
+
 def test_extract_reasoning_summary_preserves_markdown_heading_paragraph_breaks() -> None:
     harness = _OutputHarness()
     response = SimpleNamespace(

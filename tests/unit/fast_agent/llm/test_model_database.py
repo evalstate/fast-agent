@@ -1132,6 +1132,15 @@ def test_gpt_54_mini_default_reasoning_effort_is_medium():
     assert spec.default == ReasoningEffortSetting(kind="effort", value="medium")
 
 
+def test_gpt_56_supports_api_reasoning_efforts_through_max():
+    for model_name in ("gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
+        spec = ModelDatabase.get_reasoning_effort_spec(model_name)
+
+        assert spec is not None
+        assert spec.allowed_efforts == ["none", "low", "medium", "high", "xhigh", "max"]
+        assert spec.default == ReasoningEffortSetting(kind="effort", value="medium")
+
+
 def test_gemini_model_specific_mentions_youtube_capability():
     for model_name in (
         "gemini-2.0-flash",

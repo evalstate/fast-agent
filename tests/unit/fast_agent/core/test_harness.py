@@ -206,6 +206,67 @@ async def test_file_harness_persistence_attaches_session_manager(tmp_path: "Path
     assert manager.current_session is persisted
 
 
+@pytest.mark.asyncio
+async def test_file_harness_persistence_removes_empty_session_on_startup_error(
+    tmp_path: "Path",
+) -> None:
+    from fast_agent.context import Context
+    from fast_agent.core.harness_persistence import FileHarnessSessionPersistence
+
+    support = FakeAgent("support", default=True)
+    support.context = Context()
+    agents = {"support": cast("AgentProtocol", support)}
+    instance = AgentInstance(AgentApp(agents), agents)
+    persistence = FileHarnessSessionPersistence(tmp_path)
+
+    with pytest.raises(ValueError, match="Agent 'missing' not found"):
+        await persistence.create_or_load("customer-123", instance, "missing")
+
+    assert not (tmp_path / "sessions" / "customer-123").exists()
+
+
+@pytest.mark.asyncio
+async def test_file_harness_persistence_removes_empty_session_on_cancellation(
+    tmp_path: "Path",
+) -> None:
+    from fast_agent.context import Context
+    from fast_agent.core.harness_persistence import FileHarnessSessionPersistence
+    from fast_agent.session.session_manager import SessionManager
+    from fast_agent.session.snapshot import SessionAgentSnapshot, snapshot_from_session_info
+
+    restoring = asyncio.Event()
+
+    class BlockingModelRestoreAgent(FakeAgent):
+        async def set_model(self, model: str) -> None:
+            del model
+            restoring.set()
+            await asyncio.Event().wait()
+
+    support = BlockingModelRestoreAgent("support", default=True)
+    support.context = Context()
+    agents = {"support": cast("AgentProtocol", support)}
+    instance = AgentInstance(AgentApp(agents), agents)
+    manager = SessionManager(home_override=tmp_path)
+    session = manager.create_session_with_id(
+        "customer-123",
+        metadata={"harness_session_id": "customer-123"},
+        metadata_id_key="harness_session_id",
+    )
+    snapshot = snapshot_from_session_info(session.info)
+    snapshot.continuation.agents["support"] = SessionAgentSnapshot(model_spec="test-model")
+    session._save_snapshot(snapshot)
+    persistence = FileHarnessSessionPersistence(tmp_path)
+
+    task = asyncio.create_task(persistence.create_or_load("customer-123", instance, "support"))
+    await restoring.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert not session.directory.exists()
+
+
 class FakeAgent:
     def __init__(
         self,

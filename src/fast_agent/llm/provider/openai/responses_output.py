@@ -28,7 +28,10 @@ from fast_agent.types.assistant_message_phase import (
     coerce_assistant_message_phase,
 )
 from fast_agent.types.llm_stop_reason import LlmStopReason
-from fast_agent.utils.reasoning_chunk_join import join_reasoning_segments
+from fast_agent.utils.reasoning_chunk_join import (
+    join_reasoning_segments,
+    normalize_reasoning_summary_parts,
+)
 from fast_agent.utils.text import strip_casefold
 
 
@@ -435,13 +438,17 @@ class ResponsesOutputMixin:
                 if not isinstance(part_text, str) or not part_text:
                     continue
                 summary_parts.append(part_text)
-            summary_text = join_reasoning_segments(summary_parts)
+            summary_text = join_reasoning_segments(
+                normalize_reasoning_summary_parts(summary_parts)
+            )
             if summary_text.strip():
                 reasoning_blocks.append(text_content(summary_text.strip()))
         if reasoning_blocks:
             return reasoning_blocks
         if streamed_summary:
-            summary_text = "".join(streamed_summary).strip()
+            summary_text = join_reasoning_segments(
+                normalize_reasoning_summary_parts(streamed_summary)
+            ).strip()
             if summary_text:
                 return [text_content(summary_text)]
         return []

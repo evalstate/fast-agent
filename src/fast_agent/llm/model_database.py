@@ -207,6 +207,12 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value="medium"),
     )
 
+    OPENAI_GPT_56_CLASS_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "low", "medium", "high", "xhigh", "max"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
     OPENAI_GPT_5_CODEX_CLASS_REASONING = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["low", "medium", "high", "xhigh"],
@@ -455,7 +461,7 @@ class ModelDatabase:
         max_output_tokens=128_000,
         tokenizes=OPENAI_VISION,
         reasoning="openai",
-        reasoning_effort_spec=OPENAI_GPT_51_CLASS_REASONING,
+        reasoning_effort_spec=OPENAI_GPT_56_CLASS_REASONING,
         text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.RESPONSES, Provider.CODEX_RESPONSES),
