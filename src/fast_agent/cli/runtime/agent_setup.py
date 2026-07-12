@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
@@ -369,6 +370,214 @@ async def _export_result_histories(
         raise typer.Exit(1) from exc
 
 
+def _enable_atif_child_capture(agent_app: Any, request: AgentRunRequest) -> None:
+    if request.trajectory_output is None:
+        return
+    from fast_agent.agents.llm_agent import LlmAgent
+
+    for agent in agent_app.registered_agents().values():
+        if isinstance(agent, LlmAgent) and not agent.config.use_history:
+            agent.config.save_trajectory = True
+
+
+def _live_atif_session_id(
+    session_manager: SessionManager | None,
+    harness_session: HarnessSession | None,
+) -> str:
+    if harness_session is not None:
+        return harness_session.id
+    if session_manager is not None and session_manager.current_session is not None:
+        return session_manager.current_session.info.name
+    return f"run_{uuid.uuid4().hex}"
+
+
+def _live_atif_model_metadata(agent_obj: Any, request: AgentRunRequest) -> tuple[str | None, str | None]:
+    llm = agent_obj.llm
+    if llm is None:
+        return request.model, None
+    return llm.model_name or request.model, llm.provider.config_name
+
+
+def _live_child_trajectory_dir(
+    session_manager: SessionManager | None,
+    harness_session: HarnessSession | None,
+) -> Path | None:
+    if harness_session is not None and harness_session.session_manager is not None:
+        session = harness_session.session_manager.current_session
+        return None if session is None else session.directory / "trajectories"
+    if session_manager is None or session_manager.current_session is None:
+        return None
+    return session_manager.current_session.directory / "trajectories"
+
+
+async def _live_atif_tool_definitions(agent_obj: Any) -> list[dict[str, object]] | None:
+    listed = await agent_obj.list_tools()
+    definitions: list[dict[str, object]] = [
+        {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description or "",
+                "parameters": tool.inputSchema,
+            },
+        }
+        for tool in listed.tools
+    ]
+    return definitions or None
+
+
+async def _export_live_atif_trajectory(
+    agent_app: Any,
+    request: AgentRunRequest,
+    *,
+    transient_messages_by_agent: Mapping[str, list[PromptMessageExtended]] | None,
+    session_manager: SessionManager | None,
+    harness_session: HarnessSession | None,
+    termination_error: BaseException | None = None,
+) -> None:
+    if request.trajectory_output is None:
+        return
+
+    from fast_agent.session.trace_export_atif import (
+        AtifRunSource,
+        build_atif_trajectory,
+        write_atif_trajectory,
+    )
+
+    agent_obj = agent_app._agent(request.target_agent_name)
+    messages = (
+        transient_messages_by_agent.get(agent_obj.name)
+        if transient_messages_by_agent is not None
+        else None
+    ) or [message.model_copy(deep=True) for message in agent_obj.message_history]
+    if not messages:
+        return
+    model_name, provider = _live_atif_model_metadata(agent_obj, request)
+    trajectory = build_atif_trajectory(
+        AtifRunSource(
+            session_id=_live_atif_session_id(session_manager, harness_session),
+            agent_name=agent_obj.name,
+            model_name=model_name,
+            provider=provider,
+            history=messages,
+            message_timestamps=tuple(message.timestamp for message in messages),
+            child_trajectory_dir=_live_child_trajectory_dir(
+                session_manager, harness_session
+            ),
+            tool_definitions=await _live_atif_tool_definitions(agent_obj),
+            extra=(
+                {
+                    "termination": {
+                        "status": (
+                            "cancelled"
+                            if isinstance(
+                                termination_error,
+                                (asyncio.CancelledError, KeyboardInterrupt),
+                            )
+                            else "error"
+                        ),
+                        "error_type": type(termination_error).__name__,
+                        "message": str(termination_error),
+                    }
+                }
+                if termination_error is not None
+                else None
+            ),
+            system_prompt=agent_obj.instruction,
+        )
+    )
+    write_atif_trajectory(trajectory, request.trajectory_output.expanduser().resolve())
+
+
+async def _export_parallel_atif_trajectory(
+    agent_app: Any,
+    request: AgentRunRequest,
+    fan_out_agent_names: list[str],
+    *,
+    transient_messages_by_agent: Mapping[str, list[PromptMessageExtended]] | None,
+    session_manager: SessionManager | None,
+    harness_session: HarnessSession | None,
+) -> None:
+    if request.trajectory_output is None:
+        return
+    from fast_agent.session.trace_export_atif import (
+        AtifRunSource,
+        build_atif_fanout_trajectory,
+        write_atif_trajectory,
+    )
+
+    session_id = _live_atif_session_id(session_manager, harness_session)
+    sources: list[AtifRunSource] = []
+    for agent_name in fan_out_agent_names:
+        agent_obj = agent_app._agent(agent_name)
+        messages = (
+            transient_messages_by_agent.get(agent_name)
+            if transient_messages_by_agent is not None
+            else None
+        ) or [message.model_copy(deep=True) for message in agent_obj.message_history]
+        if not messages:
+            continue
+        model_name, provider = _live_atif_model_metadata(agent_obj, request)
+        sources.append(
+            AtifRunSource(
+                session_id=session_id,
+                agent_name=agent_name,
+                model_name=model_name,
+                provider=provider,
+                history=messages,
+                message_timestamps=tuple(message.timestamp for message in messages),
+                child_trajectory_dir=_live_child_trajectory_dir(
+                    session_manager, harness_session
+                ),
+                tool_definitions=await _live_atif_tool_definitions(agent_obj),
+                system_prompt=agent_obj.instruction,
+            )
+        )
+    if not sources:
+        return
+    trajectory = build_atif_fanout_trajectory(session_id=session_id, sources=sources)
+    write_atif_trajectory(trajectory, request.trajectory_output.expanduser().resolve())
+
+
+async def _export_failed_one_shot_atif(
+    agent_app: Any,
+    agent_obj: Any,
+    prompt_payload: str | PromptMessageExtended | list[PromptMessageExtended],
+    request: AgentRunRequest,
+    *,
+    history_before: list[PromptMessageExtended],
+    session_manager: SessionManager | None,
+    harness_session: HarnessSession | None,
+    error: BaseException,
+) -> None:
+    if request.trajectory_output is None:
+        return
+    from fast_agent.agents.tool_agent import ToolAgent
+    from fast_agent.types import normalize_to_extended_list
+
+    new_history = agent_obj.message_history[len(history_before) :]
+    if isinstance(agent_obj, ToolAgent) and agent_obj.last_turn_messages:
+        messages = [
+            message.model_copy(deep=True) for message in agent_obj.last_turn_messages
+        ]
+    else:
+        messages = [
+            *(
+                message.model_copy(deep=True)
+                for message in normalize_to_extended_list(prompt_payload)
+            ),
+            *(message.model_copy(deep=True) for message in new_history),
+        ]
+    await _export_live_atif_trajectory(
+        agent_app,
+        request,
+        transient_messages_by_agent={agent_obj.name: messages},
+        session_manager=session_manager,
+        harness_session=harness_session,
+        termination_error=error,
+    )
+
+
 async def _run_cli_flow(
     agent_app: Any,
     request: AgentRunRequest,
@@ -377,6 +586,8 @@ async def _run_cli_flow(
     harness_session: "HarnessSession | None" = None,
 ) -> None:
     from fast_agent.mcp.prompts.prompt_load import load_prompt
+
+    _enable_atif_child_capture(agent_app, request)
 
     # Allow interactive prompt startup checks to honor per-run CLI override policy.
     agent_app.missing_shell_cwd_policy_override = request.missing_shell_cwd_policy
@@ -408,13 +619,26 @@ async def _run_cli_flow(
             request.message,
             request.attachments,
         )
-        response = await _run_one_shot_payload(
-            agent_obj,
-            prompt_payload,
-            request,
-            structured_source,
-            harness_session=harness_session,
-        )
+        try:
+            response = await _run_one_shot_payload(
+                agent_obj,
+                prompt_payload,
+                request,
+                structured_source,
+                harness_session=harness_session,
+            )
+        except BaseException as exc:
+            await _export_failed_one_shot_atif(
+                agent_app,
+                agent_obj,
+                prompt_payload,
+                request,
+                history_before=history_before,
+                session_manager=session_manager,
+                harness_session=harness_session,
+                error=exc,
+            )
+            raise
         one_shot_response = response
         transient_messages_by_agent = _transient_result_messages_if_needed(
             agent_obj,
@@ -433,13 +657,26 @@ async def _run_cli_flow(
             prompt,
             request.attachments,
         )
-        response = await _run_one_shot_payload(
-            agent_obj,
-            prompt_payload,
-            request,
-            structured_source,
-            harness_session=harness_session,
-        )
+        try:
+            response = await _run_one_shot_payload(
+                agent_obj,
+                prompt_payload,
+                request,
+                structured_source,
+                harness_session=harness_session,
+            )
+        except BaseException as exc:
+            await _export_failed_one_shot_atif(
+                agent_app,
+                agent_obj,
+                prompt_payload,
+                request,
+                history_before=history_before,
+                session_manager=session_manager,
+                harness_session=harness_session,
+                error=exc,
+            )
+            raise
         one_shot_response = response
         transient_messages_by_agent = _transient_result_messages_if_needed(
             agent_obj,
@@ -460,6 +697,13 @@ async def _run_cli_flow(
         agent_app,
         request,
         transient_messages_by_agent=transient_messages_by_agent,
+    )
+    await _export_live_atif_trajectory(
+        agent_app,
+        request,
+        transient_messages_by_agent=transient_messages_by_agent,
+        session_manager=session_manager,
+        harness_session=harness_session,
     )
     if (
         one_shot_response is not None
@@ -526,10 +770,18 @@ def _transient_result_messages_if_needed(
     prompt_payload: str | PromptMessageExtended | list[PromptMessageExtended],
     response: PromptMessageExtended,
 ) -> dict[str, list[PromptMessageExtended]] | None:
-    if not request.result_file:
+    if not request.result_file and request.trajectory_output is None:
         return None
     if _response_was_persisted(history_before, agent_obj.message_history, response):
         return None
+    from fast_agent.agents.tool_agent import ToolAgent
+
+    if isinstance(agent_obj, ToolAgent) and agent_obj.last_turn_messages:
+        return {
+            agent_obj.name: [
+                message.model_copy(deep=True) for message in agent_obj.last_turn_messages
+            ]
+        }
     return {agent_obj.name: _build_transient_result_messages(prompt_payload, response)}
 
 
@@ -993,6 +1245,7 @@ async def _run_parallel_cli_flow(
     session_manager: "SessionManager | None" = None,
     harness_session: "HarnessSession | None" = None,
 ) -> None:
+    _enable_atif_child_capture(agent_app, request)
     if harness_session is None:
         await _resume_session_if_requested(agent_app, request)
     transient_messages_by_agent: dict[str, list["PromptMessageExtended"]] | None = None
@@ -1013,6 +1266,14 @@ async def _run_parallel_cli_flow(
         request,
         fan_out_agent_names=fan_out_agent_names,
         transient_messages_by_agent=transient_messages_by_agent,
+    )
+    await _export_parallel_atif_trajectory(
+        agent_app,
+        request,
+        fan_out_agent_names,
+        transient_messages_by_agent=transient_messages_by_agent,
+        session_manager=session_manager,
+        harness_session=harness_session,
     )
 
 

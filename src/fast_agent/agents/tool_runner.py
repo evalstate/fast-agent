@@ -147,6 +147,7 @@ class ToolRunner:
     ) -> None:
         self._agent = agent
         self._delta_messages: list[PromptMessageExtended] = list(messages)
+        self._turn_messages: list[PromptMessageExtended] = list(messages)
         self._request_params = request_params
         self._tools = tools
         self._hooks = hooks or ToolRunnerHooks()
@@ -242,6 +243,7 @@ class ToolRunner:
             tools=self._tools_for_next_llm_call(),
         )
         self._last_message = assistant_message
+        self._turn_messages.append(assistant_message)
         return assistant_message
 
     async def _run_after_llm_hook(self, assistant_message: PromptMessageExtended) -> None:
@@ -612,6 +614,12 @@ class ToolRunner:
         return self._delta_messages
 
     @property
+    def turn_messages(self) -> list[PromptMessageExtended]:
+        """Complete ordered messages observed during this tool-loop turn."""
+
+        return self._turn_messages
+
+    @property
     def iteration(self) -> int:
         return self._iteration
 
@@ -686,6 +694,7 @@ class ToolRunner:
 
         self._staged_terminal_response = None
         self._last_message = staged
+        self._turn_messages.append(staged)
         self._done = True
         return staged
 
@@ -784,6 +793,7 @@ class ToolRunner:
         tool_message = await self.generate_tool_call_response()
         if tool_message is None:
             return
+        self._turn_messages.append(tool_message)
 
         error_channel_messages = (tool_message.channels or {}).get(FAST_AGENT_ERROR_CHANNEL)
         if error_channel_messages and self._last_message is not None:

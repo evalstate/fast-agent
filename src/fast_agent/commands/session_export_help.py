@@ -37,7 +37,7 @@ class SessionExportActionDetail(TypedDict):
 
 
 SESSION_EXPORT_USAGE = (
-    "/session export [latest|id|path] [--agent name] [--output path] "
+    "/session export [latest|id|path] [--agent name] [--output path] [--format codex|atif] "
     "[--hf-url hf://...] [--hf-dataset owner/name] [--hf-dataset-path path] [--privacy-filter] "
     "[--privacy-filter-path path] [--download-privacy-filter] "
     "[--privacy-filter-device auto|cpu|cuda] "
@@ -52,6 +52,7 @@ SESSION_EXPORT_OUTPUT_HELP = (
     "Write trace to this file path. Relative paths resolve from the current "
     "working directory. Parent directories are created as needed."
 )
+SESSION_EXPORT_FORMAT_HELP = "Trace format: codex or atif. Defaults to codex."
 SESSION_EXPORT_HF_DATASET_HELP = "Compatibility option: upload the exported trace to this Hugging Face dataset repo (owner/name). Prefer --hf-url for new workflows."
 SESSION_EXPORT_HF_URL_HELP = "Upload the exported trace to this Hugging Face URL. Supports hf://buckets/... and hf://datasets/...."
 SESSION_EXPORT_HF_DATASET_PATH_HELP = (
@@ -81,6 +82,7 @@ SESSION_EXPORT_EXAMPLES: tuple[str, ...] = (
 
 SESSION_EXPORT_NOTES: tuple[str, ...] = (
     "Default format: codex.",
+    "ATIF exports use the ATIF-v1.7 JSON schema.",
     "If --output is omitted, the exporter writes "
     "`{session_id}__{agent_name}__codex.jsonl` in the current working directory.",
     "--output is a file path, not a directory path.",
@@ -117,6 +119,12 @@ def build_session_export_action_detail() -> SessionExportActionDetail:
                 "aliases": ["-o"],
                 "value_name": "path",
                 "summary": SESSION_EXPORT_OUTPUT_HELP,
+            },
+            {
+                "name": "--format",
+                "aliases": ["--export-format"],
+                "value_name": "codex|atif",
+                "summary": SESSION_EXPORT_FORMAT_HELP,
             },
             {
                 "name": "--hf-url",

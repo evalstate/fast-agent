@@ -83,6 +83,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         self._card_tool_names: set[str] = set()
         self._smart_tool_names: set[str] = set()
         self._parallel_smart_tool_calls = False
+        self.last_turn_messages: list[PromptMessageExtended] = []
 
         # Build a working list of tools and auto-inject human-input tool if missing
         working_tools: list[FunctionTool | Callable[..., Any]] = list(tools) if tools else []
@@ -406,7 +407,12 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             tools=tools,
             hooks=self._build_tool_runner_hooks(request_params),
         )
-        return await runner.until_done()
+        try:
+            return await runner.until_done()
+        finally:
+            self.last_turn_messages = [
+                message.model_copy(deep=True) for message in runner.turn_messages
+            ]
 
     async def structured_schema_impl(
         self,

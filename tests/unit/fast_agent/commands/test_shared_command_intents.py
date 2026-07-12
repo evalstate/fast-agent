@@ -22,7 +22,8 @@ def test_parse_current_agent_history_intent_unquotes_quoted_arguments() -> None:
 
 def test_parse_session_command_intent_parses_export_options() -> None:
     intent = parse_session_command_intent(
-        'export latest --agent dev --output "trace file.jsonl" --hf-url hf://buckets/me/traces/ '
+        'export latest --agent dev --output "trace file.jsonl" --format atif '
+        "--hf-url hf://buckets/me/traces/ "
         "--hf-dataset owner/dataset "
         "--hf-dataset-path exports/ --privacy-filter --privacy-filter-path /tmp/model "
         "--download-privacy-filter --privacy-filter-device cpu "
@@ -33,6 +34,7 @@ def test_parse_session_command_intent_parses_export_options() -> None:
     assert intent.export_target == "latest"
     assert intent.export_agent == "dev"
     assert intent.export_output == "trace file.jsonl"
+    assert intent.export_format == "atif"
     assert intent.export_hf_url == "hf://buckets/me/traces/"
     assert intent.export_hf_dataset == "owner/dataset"
     assert intent.export_hf_dataset_path == "exports/"
@@ -112,11 +114,12 @@ def test_parse_session_command_intent_reports_export_option_errors() -> None:
     assert intent.export_error == "Missing value for --agent"
 
 
-def test_parse_session_command_intent_rejects_unknown_export_options() -> None:
-    intent = parse_session_command_intent("export latest --format codex")
+def test_parse_session_command_intent_accepts_export_format_alias() -> None:
+    intent = parse_session_command_intent("export latest --export-format atif")
 
     assert intent.action == "export"
-    assert intent.export_error == "Unknown export option: --format"
+    assert intent.export_format == "atif"
+    assert intent.export_error is None
 
 
 def test_parse_session_command_intent_supports_export_help() -> None:

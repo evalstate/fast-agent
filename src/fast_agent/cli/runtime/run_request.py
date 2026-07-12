@@ -93,6 +93,8 @@ class AgentRunRequest:
     attachments: list[str] | None = None
     managed_mcp_agent_names: list[str] | None = None
     environment: str | None = None
+    trajectory_output: Path | None = None
+    trajectory_format: Literal["atif"] = "atif"
 
     def __post_init__(self) -> None:
         self._validate_environment_options()
@@ -176,6 +178,8 @@ class AgentRunRequest:
             "schema_model": self.schema_model,
             "structured_tool_policy": self.structured_tool_policy,
             "result_file": self.result_file,
+            "trajectory_output": self.trajectory_output,
+            "trajectory_format": self.trajectory_format,
             "resume": self.resume,
             "url_servers": self.url_servers,
             "stdio_servers": self.stdio_servers,

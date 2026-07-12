@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.session.snapshot import SessionSnapshot, load_session_snapshot
+from fast_agent.session.trace_export_atif import AtifTraceWriter
 from fast_agent.session.trace_export_codex import CodexTraceWriter
 from fast_agent.session.trace_export_errors import (
     InvalidSessionExportTargetError,
@@ -287,7 +288,8 @@ class SessionTraceExporter:
             if request.privacy_filter:
                 format_suffix = f"{format_suffix}-privacy"
             agent_filename = sanitize_filename_component(resolved.agent_name, fallback="agent")
-            filename = f"{resolved.session_id}__{agent_filename}__{format_suffix}.jsonl"
+            extension = "json" if request.format == "atif" else "jsonl"
+            filename = f"{resolved.session_id}__{agent_filename}__{format_suffix}.{extension}"
             return (workspace_dir / filename).resolve()
         output_path = output_path.expanduser()
         if not output_path.is_absolute():
@@ -344,6 +346,13 @@ class SessionTraceExporter:
                     "Privacy filtering was requested, but no privacy filter backend is configured."
                 )
             return CodexTraceWriter(sanitizer=sanitizer, progress_callback=self._progress_callback)
+        if export_format == "atif":
+            sanitizer = self._privacy_sanitizer if privacy_filter else None
+            if privacy_filter and sanitizer is None:
+                raise SessionExportPrivacyFilterError(
+                    "Privacy filtering was requested, but no privacy filter backend is configured."
+                )
+            return AtifTraceWriter(sanitizer=sanitizer)
         raise UnsupportedTraceExportFormatError(
             f"Unsupported session export format: {export_format}"
         )

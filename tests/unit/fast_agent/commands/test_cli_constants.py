@@ -11,6 +11,8 @@ def test_known_subcommands_includes_scaffold() -> None:
 
 def test_go_specific_options_include_results() -> None:
     assert "--results" in GO_SPECIFIC_OPTIONS
+    assert "--trajectory-output" in GO_SPECIFIC_OPTIONS
+    assert "--trajectory-format" in GO_SPECIFIC_OPTIONS
 
 
 def test_go_specific_options_include_agent_and_no_home() -> None:

@@ -141,6 +141,15 @@ async def test_passthrough_use_history_false_does_not_persist_turn_messages() ->
     assert result.last_text() == "raw-result"
     assert len(agent.message_history) == len(seed_history)
     assert [message.role for message in agent.message_history] == ["user", "assistant"]
+    assert [message.role for message in agent.last_turn_messages] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    assert agent.last_turn_messages[1].tool_calls is not None
+    assert agent.last_turn_messages[2].tool_results is not None
+    assert agent.last_turn_messages[3].last_text() == "raw-result"
 
 
 @pytest.mark.unit

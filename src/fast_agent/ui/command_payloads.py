@@ -357,6 +357,7 @@ class ExportSessionCommand(CommandBase):
     show_redactions: bool
     show_help: bool
     error: str | None
+    export_format: str = "codex"
     kind: Literal["export_session"] = "export_session"
 
 

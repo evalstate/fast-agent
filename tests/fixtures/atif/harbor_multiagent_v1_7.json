@@ -1,0 +1,138 @@
+{
+  "schema_version": "ATIF-v1.7",
+  "session_id": "harbor-golden-run",
+  "trajectory_id": "traj_root_golden",
+  "agent": {
+    "name": "fast-agent",
+    "version": "golden",
+    "model_name": "codexresponses.gpt-5.4?reasoning=high",
+    "extra": {
+      "target_agent": "dev",
+      "provider": "codexresponses"
+    }
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "timestamp": "2026-07-12T12:00:00Z",
+      "source": "user",
+      "message": "Inspect the workspace"
+    },
+    {
+      "step_id": 2,
+      "timestamp": "2026-07-12T12:00:01Z",
+      "source": "agent",
+      "model_name": "codexresponses.gpt-5.4?reasoning=high",
+      "reasoning_effort": "high",
+      "message": "I will inspect it.",
+      "reasoning_content": "Use the worker and shell tools.",
+      "tool_calls": [
+        {
+          "tool_call_id": "call_worker",
+          "function_name": "worker",
+          "arguments": {
+            "task": "inspect"
+          }
+        },
+        {
+          "tool_call_id": "call_shell",
+          "function_name": "shell",
+          "arguments": {
+            "command": "pwd"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "call_shell",
+            "content": "/workspace",
+            "extra": {
+              "is_error": false
+            }
+          },
+          {
+            "source_call_id": "call_worker",
+            "content": "worker complete",
+            "subagent_trajectory_ref": [
+              {
+                "trajectory_id": "traj_child_golden",
+                "session_id": "harbor-golden-run"
+              }
+            ],
+            "extra": {
+              "is_error": false
+            }
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 100,
+        "completion_tokens": 25,
+        "cached_tokens": 40
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 3,
+      "timestamp": "2026-07-12T12:00:02Z",
+      "source": "agent",
+      "model_name": "codexresponses.gpt-5.4?reasoning=high",
+      "reasoning_effort": "high",
+      "message": "The workspace is /workspace.",
+      "metrics": {
+        "prompt_tokens": 130,
+        "completion_tokens": 15,
+        "cached_tokens": 80
+      },
+      "llm_call_count": 1
+    }
+  ],
+  "final_metrics": {
+    "total_prompt_tokens": 250,
+    "total_completion_tokens": 50,
+    "total_cached_tokens": 120,
+    "total_steps": 3,
+    "extra": {
+      "root_prompt_tokens": 230,
+      "root_completion_tokens": 40,
+      "subagent_prompt_tokens": 20,
+      "subagent_completion_tokens": 10
+    }
+  },
+  "subagent_trajectories": [
+    {
+      "schema_version": "ATIF-v1.7",
+      "session_id": "harbor-golden-run",
+      "trajectory_id": "traj_child_golden",
+      "agent": {
+        "name": "worker[1]",
+        "version": "golden"
+      },
+      "steps": [
+        {
+          "step_id": 1,
+          "timestamp": "2026-07-12T12:00:01Z",
+          "source": "user",
+          "message": "inspect"
+        },
+        {
+          "step_id": 2,
+          "timestamp": "2026-07-12T12:00:02Z",
+          "source": "agent",
+          "message": "worker complete",
+          "metrics": {
+            "prompt_tokens": 20,
+            "completion_tokens": 10
+          },
+          "llm_call_count": 1
+        }
+      ],
+      "final_metrics": {
+        "total_prompt_tokens": 20,
+        "total_completion_tokens": 10,
+        "total_steps": 2
+      }
+    }
+  ]
+}

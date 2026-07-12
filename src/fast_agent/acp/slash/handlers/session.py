@@ -300,6 +300,7 @@ async def handle_session_export(handler: "SlashCommandHandler", intent) -> str:
         target=intent.export_target,
         agent_name=agent_name,
         output_path=intent.export_output,
+        export_format=intent.export_format,
         hf_url=intent.export_hf_url,
         hf_dataset=intent.export_hf_dataset,
         hf_dataset_path=intent.export_hf_dataset_path,
