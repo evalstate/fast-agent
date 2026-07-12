@@ -62,7 +62,7 @@ from fast_agent.core.default_agent import agent_is_default, resolve_default_agen
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.auth.context import request_bearer_token
-from fast_agent.mcp.auth.presence import HuggingFaceTokenVerifier
+from fast_agent.mcp.auth.huggingface import HuggingFaceOAuthOrHubTokenVerifier
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 from fast_agent.types import (
     AgentAuth,
@@ -162,7 +162,7 @@ class A2ABearerAuthMiddleware:
     def __init__(self, app: ASGIApp, *, provider: str) -> None:
         self.app = app
         self.provider = provider
-        self.token_verifier = HuggingFaceTokenVerifier(provider=provider)
+        self.token_verifier = HuggingFaceOAuthOrHubTokenVerifier()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":

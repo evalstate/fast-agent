@@ -59,26 +59,30 @@ class FileHarnessSessionPersistence:
             metadata={"harness_session_id": session_id},
             metadata_id_key="harness_session_id",
         )
-        attach_session_manager(instance, manager)
-        fallback_agent_name = instance.app.resolve_target_agent_name(default_agent_name)
-        hydration = await SessionHydrator().hydrate_session(
-            session=persisted_session,
-            agents=instance.agents,
-            fallback_agent_name=fallback_agent_name,
-        )
-        from fast_agent.session.session_manager import ResumeSessionAgentsResult
-
-        instance.app.set_session_restore_result(
-            ResumeSessionAgentsResult(
-                session=hydration.session,
-                loaded=hydration.loaded_agents,
-                missing_agents=hydration.skipped_agents,
-                usage_notices=hydration.usage_notices,
-                warnings=hydration.warnings,
-                active_agent=hydration.active_agent,
+        try:
+            attach_session_manager(instance, manager)
+            fallback_agent_name = instance.app.resolve_target_agent_name(default_agent_name)
+            hydration = await SessionHydrator().hydrate_session(
+                session=persisted_session,
+                agents=instance.agents,
+                fallback_agent_name=fallback_agent_name,
             )
-        )
-        return hydration.session
+            from fast_agent.session.session_manager import ResumeSessionAgentsResult
+
+            instance.app.set_session_restore_result(
+                ResumeSessionAgentsResult(
+                    session=hydration.session,
+                    loaded=hydration.loaded_agents,
+                    missing_agents=hydration.skipped_agents,
+                    usage_notices=hydration.usage_notices,
+                    warnings=hydration.warnings,
+                    active_agent=hydration.active_agent,
+                )
+            )
+            return hydration.session
+        except BaseException:
+            persisted_session.delete_if_empty()
+            raise
 
     async def save(
         self,

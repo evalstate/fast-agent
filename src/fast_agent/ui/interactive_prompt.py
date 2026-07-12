@@ -54,6 +54,7 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
     CommandPayload,
+    EOFCommand,
     InterruptCommand,
     ShellCommand,
     is_command_payload,
@@ -198,6 +199,7 @@ class PromptLoopRuntimeState:
     ctrl_c_deadline: float | None = None
     startup_warning_digest_checked: bool = False
     shell_cwd_startup_prompt_checked: bool = False
+    session_manager: "SessionManager | None" = None
 
 
 def _turn_preparation_ready(turn_preparation: PromptTurnPreparation) -> bool:
@@ -503,6 +505,26 @@ class InteractivePrompt:
             )
         )
 
+    def _print_session_exit(
+        self,
+        *,
+        runtime_state: PromptLoopRuntimeState,
+        lead: str,
+    ) -> None:
+        current_session = (
+            runtime_state.session_manager.current_session
+            if runtime_state.session_manager is not None
+            else None
+        )
+        if current_session is None:
+            rich_print(Text(f"{lead}exiting fast-agent session.", style="red"))
+            return
+
+        session_id = current_session.info.name
+        message = Text(f"{lead}exiting fast-agent session.\nResume with: ", style="red")
+        message.append(f"fast-agent resume {session_id}", style="bold red")
+        rich_print(message)
+
     def _handle_ctrl_c_interrupt(
         self,
         *,
@@ -511,7 +533,10 @@ class InteractivePrompt:
     ) -> None:
         now = time.monotonic()
         if runtime_state.ctrl_c_deadline is not None and now <= runtime_state.ctrl_c_deadline:
-            rich_print("[red]Second Ctrl+C received; exiting fast-agent session.[/red]")
+            self._print_session_exit(
+                runtime_state=runtime_state,
+                lead="Second Ctrl+C received; ",
+            )
             raise PromptExitError("User requested to exit fast-agent session")
 
         runtime_state.ctrl_c_deadline = now + exit_window_seconds
@@ -848,6 +873,19 @@ class InteractivePrompt:
         session_manager: "SessionManager | None",
     ) -> PromptCommandPhase:
         pending = PendingCommandExecution()
+
+        if isinstance(user_input, EOFCommand):
+            self._print_session_exit(
+                runtime_state=runtime_state,
+                lead="Ctrl+D received; ",
+            )
+            return PromptCommandPhase(
+                agent_state=agent_state,
+                pending=pending,
+                buffer_prefill=buffer_prefill,
+                should_return=True,
+            )
+
         command_result = await handle_special_commands(user_input, prompt_provider)
 
         if is_command_payload(command_result):
@@ -1254,7 +1292,7 @@ class InteractivePrompt:
         result: PromptLoopResult = ""
         buffer_prefill = ""  # One-off buffer content for # command results
         ctrl_c_exit_window_seconds = 2.0
-        runtime_state = PromptLoopRuntimeState()
+        runtime_state = PromptLoopRuntimeState(session_manager=session_manager)
         configured_shell_cwd_policy = get_settings().shell_execution.missing_cwd_policy
         resolved_shell_cwd_policy = resolve_missing_shell_cwd_policy(
             cli_override=prompt_provider.missing_shell_cwd_policy_override,

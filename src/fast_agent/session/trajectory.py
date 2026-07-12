@@ -50,6 +50,7 @@ class TrajectoryRecord:
     effective_tool_arguments: dict[str, Any] | None
     rendered_child_input: str | None
     messages: list["PromptMessageExtended"]
+    usage_summary: dict[str, Any] | None = None
     schema_version: int = TRAJECTORY_SCHEMA_VERSION
 
     def model_dump(self) -> dict[str, Any]:
@@ -69,6 +70,7 @@ class TrajectoryRecord:
             "tool_arguments": self.tool_arguments,
             "effective_tool_arguments": self.effective_tool_arguments,
             "rendered_child_input": self.rendered_child_input,
+            "usage_summary": self.usage_summary,
             "messages": [
                 message.model_dump(mode="json", exclude_none=True) for message in self.messages
             ],

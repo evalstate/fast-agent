@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 _SENTENCE_PUNCTUATION = ".!?;:"
 _MARKDOWN_PREFIXES = '"`*[#-'
 ReasoningDeltaNormalizer = Callable[[str | None, str], str]
+_EMPTY_SUMMARY_PLACEHOLDER = "<!-- -->"
 
 
 def _starts_sentence_or_markdown(incoming: str) -> bool:
@@ -88,3 +89,26 @@ def join_reasoning_segments(
     accumulator = ReasoningTextAccumulator(normalizer=normalizer)
     accumulator.extend(parts)
     return accumulator.text()
+
+
+def normalize_reasoning_summary_parts(parts: Sequence[str]) -> list[str]:
+    """Drop generated summary parts whose body is an empty HTML placeholder."""
+    normalized: list[str] = []
+    for part in parts:
+        stripped = part.strip()
+        if not stripped:
+            continue
+        if _reasoning_summary_body(stripped).strip() == _EMPTY_SUMMARY_PLACEHOLDER:
+            continue
+        normalized.append(stripped)
+    return normalized
+
+
+def _reasoning_summary_body(part: str) -> str:
+    if not part.startswith("**"):
+        return part
+    closing_index = part.find("**", 2)
+    if closing_index <= 2:
+        return part
+    remainder = part[closing_index + 2 :]
+    return remainder if remainder.startswith(("\n", "\r")) else part

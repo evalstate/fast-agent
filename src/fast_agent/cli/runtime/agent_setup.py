@@ -15,6 +15,7 @@ from fast_agent.cli.commands.server_helpers import add_servers_to_config
 from fast_agent.core.card_tool_attachment import load_and_attach_card_tool_agents
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.utils.filename import sanitize_filename_suffix
 from fast_agent.utils.text import strip_casefold, strip_to_none
@@ -397,6 +398,7 @@ async def _run_cli_flow(
     if harness_session is None:
         await _resume_session_if_requested(agent_app, request)
     transient_messages_by_agent: dict[str, list[PromptMessageExtended]] | None = None
+    one_shot_response: PromptMessageExtended | None = None
     if request.execution_mode == "one_shot_message":
         assert request.message is not None
         agent_obj = agent_app._agent(request.target_agent_name)
@@ -413,6 +415,7 @@ async def _run_cli_flow(
             structured_source,
             harness_session=harness_session,
         )
+        one_shot_response = response
         transient_messages_by_agent = _transient_result_messages_if_needed(
             agent_obj,
             request,
@@ -437,6 +440,7 @@ async def _run_cli_flow(
             structured_source,
             harness_session=harness_session,
         )
+        one_shot_response = response
         transient_messages_by_agent = _transient_result_messages_if_needed(
             agent_obj,
             request,
@@ -457,6 +461,11 @@ async def _run_cli_flow(
         request,
         transient_messages_by_agent=transient_messages_by_agent,
     )
+    if (
+        one_shot_response is not None
+        and one_shot_response.stop_reason == LlmStopReason.ERROR
+    ):
+        raise typer.Exit(1)
 
 
 async def _run_interactive_with_interrupt_recovery(

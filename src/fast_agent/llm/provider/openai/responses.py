@@ -471,6 +471,9 @@ class ResponsesLLM(
     def _build_websocket_headers(self) -> dict[str, str]:
         return build_ws_headers(api_key=self._api_key(), default_headers=self._default_headers())
 
+    def _prepare_websocket_arguments(self, arguments: dict[str, Any]) -> None:
+        """Apply provider-specific per-request websocket metadata."""
+
     async def _create_websocket_connection(
         self,
         url: str,
@@ -1256,6 +1259,11 @@ class ResponsesLLM(
 
         phase_started_at = time.perf_counter()
         arguments = self._build_response_args(normalized_input, request_params, tools)
+        request_headers = arguments.pop("extra_headers", None)
+        self._prepare_websocket_arguments(arguments)
+        ws_headers = self._build_websocket_headers()
+        if isinstance(request_headers, dict):
+            ws_headers.update(request_headers)
         self._record_ws_phase(phase_timings, "build_args", phase_started_at)
         self.logger.debug("Responses websocket request", data=arguments)
         capture_filename = _stream_capture_filename(self.chat_turn())
@@ -1267,7 +1275,7 @@ class ResponsesLLM(
             arguments=arguments,
             capture_filename=capture_filename,
             ws_url=resolve_responses_ws_url(self._base_responses_url()),
-            ws_headers=self._build_websocket_headers(),
+            ws_headers=ws_headers,
             timeout=request_params.streaming_timeout,
             started_at=started_at,
             phase_timings=phase_timings,

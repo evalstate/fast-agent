@@ -60,7 +60,7 @@ from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.mcp.auth.context import request_bearer_token
-from fast_agent.mcp.auth.presence import HuggingFaceTokenVerifier
+from fast_agent.mcp.auth.huggingface import HuggingFaceOAuthOrHubTokenVerifier
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 if TYPE_CHECKING:
@@ -70,13 +70,15 @@ if TYPE_CHECKING:
 
 
 def _patch_hf_token_verifier(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def verify_token(self: HuggingFaceTokenVerifier, token: str) -> AccessToken | None:
+    async def verify_token(
+        self: HuggingFaceOAuthOrHubTokenVerifier, token: str
+    ) -> AccessToken | None:
         del self
         if token == "invalid-token":
             return None
         return AccessToken(token=token, client_id="test-client", scopes=["access"])
 
-    monkeypatch.setattr(HuggingFaceTokenVerifier, "verify_token", verify_token)
+    monkeypatch.setattr(HuggingFaceOAuthOrHubTokenVerifier, "verify_token", verify_token)
 
 
 @dataclass

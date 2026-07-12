@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, TextIO, cast
 
 import pytest
 
+from fast_agent.ui.command_payloads import EOFCommand
 from fast_agent.ui.prompt import input_runtime
 from fast_agent.ui.prompt.keybindings import PromptInputInterrupt
 
@@ -101,3 +102,28 @@ async def test_run_prompt_once_converts_prompt_input_interrupt_to_interrupt_comm
     )
 
     assert type(result).__name__ == "InterruptCommand"
+
+
+@pytest.mark.asyncio
+async def test_run_prompt_once_converts_eof_to_eof_command() -> None:
+    class _Buffer:
+        def __init__(self) -> None:
+            self.accept_handler = None
+
+    class _Session:
+        def __init__(self) -> None:
+            self.default_buffer = _Buffer()
+
+        async def prompt_async(self, *_args, **_kwargs):
+            raise EOFError()
+
+    result = await input_runtime.run_prompt_once(
+        session=cast("PromptSession", _Session()),
+        agent_name="agent",
+        default_agent_name="agent",
+        default_buffer="",
+        resolve_prompt_text=lambda: "❯ ",
+        parse_special_input=lambda value: value,
+    )
+
+    assert isinstance(result, EOFCommand)

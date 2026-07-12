@@ -1,6 +1,10 @@
 from typing import Any, cast
 
-from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
+from fast_agent.llm.reasoning_effort import (
+    ReasoningEffortLevel,
+    ReasoningEffortSetting,
+    ReasoningEffortSpec,
+)
 from fast_agent.ui.gauge_glyph_palette import (
     PAIRED_REASONING_GAUGE_GLYPHS,
     STANDALONE_GAUGE_GLYPHS,
@@ -185,6 +189,33 @@ def test_reasoning_gauge_can_render_paired_palette() -> None:
     )
 
     assert gauge == "<style bg='ansigreen'>⢠</style>"
+
+
+def test_gpt_56_reasoning_scale_renders_all_paired_status_bar_levels() -> None:
+    spec = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "low", "medium", "high", "xhigh", "max"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+    expected: dict[ReasoningEffortLevel, str] = {
+        "none": "<style bg='ansibrightblack'>⢸</style>",
+        "low": "<style bg='ansigreen'>⢀</style>",
+        "medium": "<style bg='ansigreen'>⢠</style>",
+        "high": "<style bg='ansiyellow'>⢰</style>",
+        "xhigh": "<style bg='ansiyellow'>⢸</style>",
+        "max": "<style bg='ansired'>⢸</style>",
+    }
+
+    for effort, gauge in expected.items():
+        setting = ReasoningEffortSetting(kind="effort", value=effort)
+        assert (
+            render_reasoning_effort_gauge(
+                setting,
+                spec,
+                glyph_palette=PAIRED_REASONING_GAUGE_GLYPHS,
+            )
+            == gauge
+        )
 
 
 def test_budget_gauge_renders_inactive_for_malformed_runtime_value() -> None:

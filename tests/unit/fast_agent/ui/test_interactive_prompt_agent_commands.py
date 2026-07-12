@@ -19,9 +19,10 @@ from fast_agent.core.agent_app import AgentCardLoadResult, AgentRefreshResult
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.session.session_manager import SessionManager
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt, interactive_prompt
-from fast_agent.ui.command_payloads import InterruptCommand
+from fast_agent.ui.command_payloads import EOFCommand, InterruptCommand
 from fast_agent.ui.interactive_prompt import (
     InteractivePrompt,
     PromptLoopAgents,
@@ -995,6 +996,93 @@ async def test_prompt_loop_recovers_from_keyboard_interrupt_in_input(
     assert "Press Ctrl+C again within 2 seconds" in output
     # KeyboardInterrupt + STOP(exit)
     assert input_calls["count"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_session", [False, True])
+async def test_prompt_loop_second_keyboard_interrupt_reports_session(
+    monkeypatch,
+    capsys: Any,
+    tmp_path,
+    *,
+    with_session: bool,
+) -> None:
+    async def fake_get_enhanced_input(*_args: Any, **_kwargs: Any) -> str:
+        raise KeyboardInterrupt()
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    monkeypatch.setattr(interactive_prompt, "get_enhanced_input", fake_get_enhanced_input)
+
+    session_manager = None
+    if with_session:
+        session_manager = SessionManager(
+            cwd=tmp_path,
+            home_override=tmp_path / ".fast-agent",
+            respect_env_override=False,
+        )
+        session_manager.create_session_with_id("session-123")
+
+    with pytest.raises(PromptExitError):
+        await InteractivePrompt().prompt_loop(
+            send_func=fake_send,
+            default_agent="vertex-rag",
+            available_agents=["vertex-rag"],
+            prompt_provider=cast("AgentApp", _FakeAgentApp(["vertex-rag"])),
+            session_manager=session_manager,
+        )
+
+    output = capsys.readouterr().out
+    if with_session:
+        assert "Second Ctrl+C received; exiting fast-agent session." in output
+        assert "Resume with: fast-agent resume session-123" in output
+    else:
+        assert "Second Ctrl+C received; exiting fast-agent session." in output
+        assert "Resume with:" not in output
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_session", [False, True])
+async def test_prompt_loop_ctrl_d_reports_session(
+    monkeypatch,
+    capsys: Any,
+    tmp_path,
+    *,
+    with_session: bool,
+) -> None:
+    async def fake_get_enhanced_input(*_args: Any, **_kwargs: Any) -> EOFCommand:
+        return EOFCommand()
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    monkeypatch.setattr(interactive_prompt, "get_enhanced_input", fake_get_enhanced_input)
+
+    session_manager = None
+    if with_session:
+        session_manager = SessionManager(
+            cwd=tmp_path,
+            home_override=tmp_path / ".fast-agent",
+            respect_env_override=False,
+        )
+        session_manager.create_session_with_id("session-123")
+
+    await InteractivePrompt().prompt_loop(
+        send_func=fake_send,
+        default_agent="vertex-rag",
+        available_agents=["vertex-rag"],
+        prompt_provider=cast("AgentApp", _FakeAgentApp(["vertex-rag"])),
+        session_manager=session_manager,
+    )
+
+    output = capsys.readouterr().out
+    if with_session:
+        assert "Ctrl+D received; exiting fast-agent session." in output
+        assert "Resume with: fast-agent resume session-123" in output
+    else:
+        assert "Ctrl+D received; exiting fast-agent session." in output
+        assert "Resume with:" not in output
 
 
 @pytest.mark.asyncio

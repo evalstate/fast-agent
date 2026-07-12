@@ -866,6 +866,84 @@ def test_codexresponses_provider_defaults_to_websocket_preferred_transport() -> 
     assert llm.configured_transport == "auto"
 
 
+def test_codexresponses_lite_uses_internal_request_contract() -> None:
+    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name="gpt-5.6-luna")
+    input_items = [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "hello"}],
+        }
+    ]
+    tool = Tool(name="lookup", description="Lookup", inputSchema={"type": "object"})
+
+    args = llm._build_response_args(
+        input_items,
+        RequestParams(model="gpt-5.6-luna", systemPrompt="instructions"),
+        [tool],
+    )
+
+    assert args["extra_headers"] == {"x-openai-internal-codex-responses-lite": "true"}
+    assert "instructions" not in args
+    assert "tools" not in args
+    assert args["parallel_tool_calls"] is False
+    assert args["reasoning"]["context"] == "all_turns"
+    assert [item["type"] for item in args["input"]] == [
+        "additional_tools",
+        "message",
+        "message",
+    ]
+    assert args["input"][0]["tools"][0]["name"] == "lookup"
+    assert args["input"][1]["role"] == "developer"
+
+
+def test_codexresponses_lite_adds_per_request_websocket_metadata() -> None:
+    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name="gpt-5.6-luna")
+    arguments: dict[str, Any] = {"model": "gpt-5.6-luna"}
+
+    llm._prepare_websocket_arguments(arguments)
+
+    assert arguments["client_metadata"] == {
+        "ws_request_header_x_openai_internal_codex_responses_lite": "true"
+    }
+
+
+@pytest.mark.asyncio
+async def test_codexresponses_inlines_local_pdf_without_files_api(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "sample.pdf"
+    pdf_path.write_bytes(b"%PDF-1.7 sample")
+    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name="gpt-5.6-luna")
+
+    normalized, changed = await llm._normalize_input_file_part(
+        AsyncOpenAI(api_key="test-key"),
+        {"type": "input_file", "file_url": pdf_path.as_uri()},
+    )
+
+    assert changed
+    assert normalized == {
+        "type": "input_file",
+        "file_data": (
+            "data:application/pdf;base64,"
+            f"{base64.b64encode(pdf_path.read_bytes()).decode('ascii')}"
+        ),
+        "filename": "sample.pdf",
+    }
+
+
+@pytest.mark.parametrize("model_name", ["gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra"])
+def test_codexresponses_standard_model_omits_lite_contract(model_name: str) -> None:
+    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name=model_name)
+    args = llm._build_response_args(
+        [{"type": "message", "role": "user", "content": []}],
+        RequestParams(model=model_name, systemPrompt="instructions"),
+        None,
+    )
+
+    assert "extra_headers" not in args
+    assert args["instructions"] == "instructions"
+    assert "client_metadata" not in args
+
+
 def test_openresponses_provider_keeps_sse_transport_default() -> None:
     llm = _build_responses_family_llm(Provider.OPENRESPONSES, model_name="gpt-5-mini")
 
@@ -1370,6 +1448,45 @@ def test_extract_reasoning_summary_omits_whitespace_only_streamed_fallback() -> 
     blocks = harness._extract_reasoning_summary(response, ["\n", "   ", "\t"])
 
     assert blocks == []
+
+
+def test_extract_reasoning_summary_drops_placeholder_only_parts() -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="reasoning",
+                summary=[
+                    SimpleNamespace(text="**Plan**\n\ndone"),
+                    SimpleNamespace(text="**Checking tests**\n\n<!-- -->"),
+                ],
+            )
+        ]
+    )
+
+    blocks = harness._extract_reasoning_summary(response, [])
+
+    assert len(blocks) == 1
+    assert isinstance(blocks[0], TextContent)
+    assert blocks[0].text == "**Plan**\n\ndone"
+
+
+def test_extract_reasoning_summary_preserves_literal_placeholder_in_prose() -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="reasoning",
+                summary=[SimpleNamespace(text="Use `<!-- -->` in JSX.")],
+            )
+        ]
+    )
+
+    blocks = harness._extract_reasoning_summary(response, [])
+
+    assert len(blocks) == 1
+    assert isinstance(blocks[0], TextContent)
+    assert blocks[0].text == "Use `<!-- -->` in JSX."
 
 
 def test_extract_reasoning_summary_preserves_markdown_heading_paragraph_breaks() -> None:

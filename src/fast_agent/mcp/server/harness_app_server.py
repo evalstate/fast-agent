@@ -124,9 +124,9 @@ class HarnessMCPAppServer:
         if oauth_provider != "huggingface":
             return None
 
-        from fast_agent.mcp.auth.providers.huggingface import HuggingFaceTokenVerifier
+        from fast_agent.mcp.auth.huggingface import HuggingFaceOAuthOrHubTokenVerifier
 
-        token_verifier = HuggingFaceTokenVerifier()
+        token_verifier = HuggingFaceOAuthOrHubTokenVerifier()
         return RemoteAuthProvider(
             token_verifier=token_verifier,
             authorization_servers=[AnyHttpUrl("https://huggingface.co")],

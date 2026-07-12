@@ -283,6 +283,48 @@ async def test_responses_stream_trace_preserves_reasoning_summary_section_breaks
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_responses_stream_preserves_reasoning_summary_parts_for_fallback() -> None:
+    harness = _ResponsesHarness()
+    final_response = SimpleNamespace(output=[], usage=None)
+    stream = _FakeResponsesStream(
+        events=[
+            SimpleNamespace(
+                type="response.reasoning_summary_text.delta",
+                item_id="rs_1",
+                summary_index=0,
+                delta="**Plan**\n\ndone",
+            ),
+            SimpleNamespace(
+                type="response.reasoning_summary_text.delta",
+                item_id="rs_1",
+                summary_index=1,
+                delta="**Checking tests**\n\n<!--",
+            ),
+            SimpleNamespace(
+                type="response.reasoning_summary_text.delta",
+                item_id="rs_1",
+                summary_index=1,
+                delta=" -->",
+            ),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ],
+        final_response=final_response,
+    )
+
+    _response, reasoning_parts = await harness._process_stream(
+        stream,
+        model="gpt-test",
+        capture_filename=None,
+    )
+
+    assert reasoning_parts == ["**Plan**\n\ndone"]
+    assert "<!-- -->" not in "".join(
+        event["text"] for event in harness.stream_events if event["is_reasoning"]
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_responses_stream_namespaces_mcp_call_tool_with_server_label() -> None:
     harness = _ResponsesHarness()
     final_response = SimpleNamespace(output=[], usage=None)
