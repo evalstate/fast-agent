@@ -52,9 +52,16 @@ class _DummyAgent:
 
 
 class _NonPersistentMessageAgent(_DummyAgent):
-    def __init__(self, name: str, reply_text: str) -> None:
+    def __init__(
+        self,
+        name: str,
+        reply_text: str,
+        *,
+        stop_reason: LlmStopReason | None = None,
+    ) -> None:
         super().__init__(name)
         self.reply_text = reply_text
+        self.stop_reason = stop_reason
         self.generated_messages: list[object] = []
 
     async def generate(self, messages: object) -> PromptMessageExtended:
@@ -62,6 +69,7 @@ class _NonPersistentMessageAgent(_DummyAgent):
         return PromptMessageExtended(
             role="assistant",
             content=[TextContent(type="text", text=self.reply_text)],
+            stop_reason=self.stop_reason,
         )
 
 
@@ -856,6 +864,31 @@ async def test_run_cli_flow_exports_transient_turn_when_history_disabled(
     assert exported[1].last_text() == "done"
     captured = capsys.readouterr()
     assert captured.out.strip() == "done"
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_exits_nonzero_after_exporting_one_shot_error(
+    tmp_path: Path,
+) -> None:
+    agent = _NonPersistentMessageAgent(
+        "agent",
+        "provider failed",
+        stop_reason=LlmStopReason.ERROR,
+    )
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+    output = tmp_path / "out.json"
+
+    with pytest.raises(typer.Exit) as exc_info:
+        await _run_cli_flow(
+            app,
+            _make_request(result_file=str(output), message="hello"),
+        )
+
+    assert exc_info.value.exit_code == 1
+    exported = load_messages(str(output))
+    assert exported[-1].stop_reason == LlmStopReason.ERROR
+    assert exported[-1].last_text() == "provider failed"
 
 
 @pytest.mark.asyncio

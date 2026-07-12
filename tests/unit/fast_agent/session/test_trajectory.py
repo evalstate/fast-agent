@@ -37,6 +37,11 @@ async def test_save_trajectory_record_writes_replay_fields(tmp_path) -> None:
         effective_tool_arguments={"query": "hello"},
         rendered_child_input='{"query": "hello"}',
         messages=[Prompt.user('{"query": "hello"}'), Prompt.assistant("done")],
+        usage_summary={
+            "model": "gpt-5.3-codex-spark",
+            "cumulative_input_tokens": 42,
+            "cumulative_output_tokens": 7,
+        },
     )
 
     path = await save_trajectory_record(session, record)
@@ -46,6 +51,8 @@ async def test_save_trajectory_record_writes_replay_fields(tmp_path) -> None:
     assert '"tool_input_schema"' in text
     assert '"tool_arguments"' in text
     assert '"effective_tool_arguments"' in text
+    assert '"usage_summary"' in text
+    assert '"cumulative_input_tokens": 42' in text
     assert '"messages"' in text
 
 

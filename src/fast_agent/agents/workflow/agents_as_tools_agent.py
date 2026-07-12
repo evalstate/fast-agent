@@ -1120,6 +1120,7 @@ class AgentsAsToolsAgent(McpAgent):
             await self._save_child_trajectory(
                 trace_sink=trace_sink,
                 child=child,
+                clone=clone,
                 instance_name=instance_name,
                 tool_name=tool_name,
                 correlation_id=correlation_id,
@@ -1141,6 +1142,7 @@ class AgentsAsToolsAgent(McpAgent):
         *,
         trace_sink: list[_ChildInvocationTrace] | None,
         child: LlmAgent,
+        clone: LlmAgent,
         instance_name: str,
         tool_name: str,
         correlation_id: str,
@@ -1170,6 +1172,11 @@ class AgentsAsToolsAgent(McpAgent):
                     effective_tool_arguments=trace.effective_tool_arguments,
                     rendered_child_input=trace.rendered_child_input,
                     messages=trace.messages,
+                    usage_summary=(
+                        clone.usage_accumulator.get_summary()
+                        if clone.usage_accumulator is not None
+                        else None
+                    ),
                 ),
             )
         except Exception as exc:
