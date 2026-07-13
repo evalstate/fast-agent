@@ -1326,20 +1326,14 @@ def build_oauth_provider(
     if env_flag(_OAUTH_TRACE_ENV):
         redirect_uri = f"http://127.0.0.1:{selected_redirect_port}{settings.redirect_path}"
         print(
-            f"[MCP OAuth] configured server={server_name} url={_trace_url(oauth_server_url)} "
-            f"redirect_port={selected_redirect_port} persistence={settings.persist_mode} "
-            f"scope={settings.scope or 'discovered'} "
+            f"[MCP OAuth] configured persistence={settings.persist_mode} "
             f"client={'metadata-url' if settings.client_metadata_url else 'dynamic-registration'}",
             file=sys.stderr,
             flush=True,
         )
         logger.info(
             "MCP OAuth provider configured",
-            server_name=server_name,
-            server_url=_trace_url(oauth_server_url),
-            redirect_port=selected_redirect_port,
             persistence=settings.persist_mode,
-            configured_scope=settings.scope,
             client_id_mode=(
                 "metadata-url" if settings.client_metadata_url is not None else "dynamic-registration"
             ),
