@@ -1324,7 +1324,6 @@ def build_oauth_provider(
         selected_redirect_port=selected_redirect_port,
     )
     if env_flag(_OAUTH_TRACE_ENV):
-        redirect_uri = f"http://127.0.0.1:{selected_redirect_port}{settings.redirect_path}"
         print(
             f"[MCP OAuth] configured persistence={settings.persist_mode} "
             f"client={'metadata-url' if settings.client_metadata_url else 'dynamic-registration'}",
