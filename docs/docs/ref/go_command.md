@@ -64,7 +64,7 @@ The trajectory is one self-contained `ATIF-v1.7` JSON document. Recorded
 agent-as-tool invocations are embedded in `subagent_trajectories`; Harbor does
 not need to inspect Fast-Agent session files or private message channels.
 - `--workspace <path>`: Override the workspace root; when `--home` is omitted, the home defaults to `<workspace>/.fast-agent`
-- `--home <path>`: Override the base `.fast-agent` home (where default `agent-cards/` and `tool-cards/` are discovered)
+- `--home <path>`: Use `<path>` as the `.fast-agent` home itself (cards load from `<path>/agent-cards/`); relative paths resolve under the selected workspace
 - `--no-home`: Run in ephemeral mode (disable implicit home card loading, session persistence/resume, and permission-store side effects)
 - `--resume <id|latest>`: Resume the latest session (or a specific session id)
 - `--smart`: Prefer a smart default agent when fast-agent creates the default agent

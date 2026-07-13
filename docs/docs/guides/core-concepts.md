@@ -36,6 +36,8 @@ The table below introduces the main configuration concepts:
 
 The active fast-agent home stores local config and runtime state. By default it
 is `./.fast-agent` in your current workspace.
+`--home` names this directory itself, not its parent. Relative `--home` paths
+resolve under the selected workspace; use an absolute path for a separate home.
 
 ```text
 .fast-agent/

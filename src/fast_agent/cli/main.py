@@ -174,7 +174,9 @@ def main(
         help="Override the workspace root; default home resolves under this directory",
     ),
     home: Path | None = typer.Option(
-        None, "--home", help="Override the base fast-agent home"
+        None,
+        "--home",
+        help="Use PATH as the fast-agent home itself (contains agent-cards/, sessions/, etc.)",
     ),
 ) -> None:
     """fast-agent - Build effective agents using Model Context Protocol (MCP).
