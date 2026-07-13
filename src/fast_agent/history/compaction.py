@@ -24,6 +24,7 @@ from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.prompt import Prompt
+from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
     from fast_agent.config import CompactionSettings
@@ -57,6 +58,7 @@ SUMMARY_NOTICE = (
 _CHARS_PER_TOKEN = 4
 _MIN_COMPACTABLE_MESSAGES = 2
 _SUMMARY_TOKEN_ALLOWANCE = 2048
+MID_TURN_RECENT_TOOL_EXCHANGES = 3
 
 
 class CompactionSkipped(Exception):
@@ -214,26 +216,41 @@ def _plan_compaction_with_budget(
     *,
     keep_turns: int,
     max_tokens_after: int | None,
-    min_keep_turns: int = 0,
+    recent_tool_exchanges: int | None = None,
 ) -> CompactionPlan:
     """Return a compaction plan, reducing kept turns when the tail is too large."""
-    min_keep_turns = max(min_keep_turns, 0)
-    if min_keep_turns > 0:
-        template_count = 0
-        for message in history:
-            if message.is_template:
-                template_count += 1
-            else:
-                break
-        real_turns = _turn_start_indices(list(history[template_count:]))
-        if len(real_turns) <= min_keep_turns:
-            raise CompactionSkipped("No older turns to compact while preserving the active turn.")
+    if recent_tool_exchanges is not None:
+        if max_tokens_after is None or max_tokens_after <= 0:
+            return _plan_mid_turn_compaction(
+                history,
+                recent_tool_exchanges=max(recent_tool_exchanges, 0),
+            )
 
-    plan = plan_compaction(history, keep_turns=max(keep_turns, min_keep_turns))
+        plan: CompactionPlan | None = None
+        for exchanges_to_keep in range(max(recent_tool_exchanges, 0), -1, -1):
+            try:
+                candidate = _plan_mid_turn_compaction(
+                    history,
+                    recent_tool_exchanges=exchanges_to_keep,
+                )
+            except CompactionSkipped:
+                continue
+            projected = (
+                estimate_tokens(candidate.templates + candidate.retained_tail)
+                + _SUMMARY_TOKEN_ALLOWANCE
+            )
+            if projected <= max_tokens_after:
+                return candidate
+            plan = candidate
+        if plan is not None:
+            return plan
+        raise CompactionSkipped("No older tool-loop history to compact.")
+
+    plan = plan_compaction(history, keep_turns=keep_turns)
     if max_tokens_after is None or max_tokens_after <= 0:
         return plan
 
-    for candidate_keep in range(max(keep_turns, min_keep_turns, 0), min_keep_turns - 1, -1):
+    for candidate_keep in range(max(keep_turns, 0), -1, -1):
         candidate = plan_compaction(history, keep_turns=candidate_keep)
         projected = (
             estimate_tokens(candidate.templates + candidate.retained_tail)
@@ -243,6 +260,63 @@ def _plan_compaction_with_budget(
             return candidate
         plan = candidate
     return plan
+
+
+def _plan_mid_turn_compaction(
+    history: list[PromptMessageExtended],
+    *,
+    recent_tool_exchanges: int = MID_TURN_RECENT_TOOL_EXCHANGES,
+) -> CompactionPlan:
+    """Compact a tool loop while retaining recent complete exchanges and the pending call."""
+    template_count = 0
+    for message in history:
+        if message.is_template:
+            template_count += 1
+        else:
+            break
+
+    templates = list(history[:template_count])
+    body = list(history[template_count:])
+    if len(body) < _MIN_COMPACTABLE_MESSAGES:
+        raise CompactionSkipped("Not enough conversation history to compact.")
+
+    pending_call = body[-1]
+    if (
+        pending_call.role != "assistant"
+        or not pending_call.tool_calls
+        or pending_call.stop_reason != LlmStopReason.TOOL_USE
+    ):
+        raise CompactionSkipped("No trailing pending tool call to preserve.")
+
+    tail_start = len(body) - 1
+    cursor = tail_start
+    exchanges_kept = 0
+    while cursor >= 2 and exchanges_kept < recent_tool_exchanges:
+        request = body[cursor - 2]
+        result = body[cursor - 1]
+        request_ids = set(request.tool_calls or {})
+        result_ids = set(result.tool_results or {})
+        if (
+            request.role != "assistant"
+            or request.stop_reason != LlmStopReason.TOOL_USE
+            or not request_ids
+            or request_ids != result_ids
+            or result.role != "user"
+        ):
+            break
+        tail_start = cursor - 2
+        cursor -= 2
+        exchanges_kept += 1
+
+    compact_region = body[:tail_start]
+    if len(compact_region) < _MIN_COMPACTABLE_MESSAGES:
+        raise CompactionSkipped("No older tool-loop history to compact.")
+
+    return CompactionPlan(
+        templates=templates,
+        compact_region=compact_region,
+        retained_tail=body[tail_start:],
+    )
 
 
 def plan_compaction(
@@ -417,7 +491,7 @@ async def compact_conversation(
     *,
     settings: "CompactionSettings",
     instructions: str | None = None,
-    min_keep_turns: int = 0,
+    recent_tool_exchanges: int | None = None,
 ) -> CompactionResult:
     """
     Compact the agent's history into a checkpoint summary plus recent turns.
@@ -447,7 +521,7 @@ async def compact_conversation(
         history,
         keep_turns=settings.keep_turns,
         max_tokens_after=max_tokens_after,
-        min_keep_turns=min_keep_turns,
+        recent_tool_exchanges=recent_tool_exchanges,
     )
 
     prompt_text = resolve_compaction_prompt(settings)

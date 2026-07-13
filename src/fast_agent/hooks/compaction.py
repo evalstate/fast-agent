@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, cast
 from fast_agent.context import get_current_context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.history.compaction import (
+    MID_TURN_RECENT_TOOL_EXCHANGES,
     CompactionSkipped,
     compact_conversation,
     should_auto_compact,
@@ -47,16 +48,16 @@ async def auto_compact_history(ctx: "HookContext") -> None:
     """Compact history after the turn when context usage crossed the threshold."""
     if not ctx.is_turn_complete:
         return
-    await _auto_compact_history(ctx, min_keep_turns=0)
+    await _auto_compact_history(ctx, mid_turn=False)
 
 async def auto_compact_history_mid_turn(ctx: "HookContext") -> None:
-    """Compact history during a tool loop while preserving the active turn."""
+    """Compact history during a tool loop while preserving recent tool exchanges."""
     if ctx.is_turn_complete:
         return
-    await _auto_compact_history(ctx, min_keep_turns=1)
+    await _auto_compact_history(ctx, mid_turn=True)
 
 
-async def _auto_compact_history(ctx: "HookContext", *, min_keep_turns: int) -> None:
+async def _auto_compact_history(ctx: "HookContext", *, mid_turn: bool) -> None:
     settings = _resolve_compaction_settings(ctx)
     if settings is None or not settings.auto:
         return
@@ -72,7 +73,7 @@ async def _auto_compact_history(ctx: "HookContext", *, min_keep_turns: int) -> N
 
     usage = ctx.usage
     percent = usage.context_usage_percentage if usage else None
-    suffix = " mid-turn" if min_keep_turns else ""
+    suffix = " mid-turn" if mid_turn else ""
     show_hook_message(
         ctx,
         f"context at {percent:.0f}% — compacting history{suffix}"
@@ -86,7 +87,7 @@ async def _auto_compact_history(ctx: "HookContext", *, min_keep_turns: int) -> N
         result = await compact_conversation(
             cast("CompactableAgent", ctx.agent),
             settings=settings,
-            min_keep_turns=min_keep_turns,
+            recent_tool_exchanges=MID_TURN_RECENT_TOOL_EXCHANGES if mid_turn else None,
         )
     except CompactionSkipped as exc:
         logger.info("Auto-compaction skipped", data={"reason": str(exc)})
