@@ -442,6 +442,7 @@ def go(
         environment=environment,
         skills_directory=skills_dir,
         home=effective_home,
+        workspace=resolved_workspace,
         no_home=no_home,
         force_smart=smart,
         shell_enabled=shell,

@@ -86,6 +86,44 @@ def test_environments_resolve_relative_paths_from_explicit_config(
         update_global_settings(old_settings)
 
 
+def test_environments_prefer_explicit_workspace_to_external_home(
+    tmp_path: "Path",
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    home = tmp_path / "logs" / "fast-agent-home"
+    home.mkdir(parents=True)
+    (home / "fast-agent.yaml").write_text(
+        "default_model: passthrough\n"
+        "environments:\n"
+        "  nested:\n"
+        "    type: local\n"
+        "    cwd: subdir\n",
+        encoding="utf-8",
+    )
+    subdir = workspace / "subdir"
+    subdir.mkdir()
+    old_settings = get_settings()
+    monkeypatch.chdir(tmp_path)
+    try:
+        fast = FastAgent(
+            "test",
+            parse_cli_args=False,
+            home=home,
+            workspace=workspace,
+        )
+
+        default_environment = fast.environments.build()
+        nested_environment = fast.environments.build("nested")
+
+        assert fast.workspace_root == workspace
+        assert default_environment.cwd == str(workspace)
+        assert nested_environment.cwd == str(subdir)
+    finally:
+        update_global_settings(old_settings)
+
+
 @pytest.mark.asyncio
 async def test_harness_resolves_configured_default_environment(
     tmp_path: "Path",
