@@ -460,6 +460,7 @@ def build_agent_run_request(
     no_home: bool = False,
     attachments: list[str] | None = None,
     environment: str | None = None,
+    workspace: Path | None = None,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
     validate_no_home_conflicts(
@@ -541,6 +542,7 @@ def build_agent_run_request(
         environment=environment,
         skills_directory=skills_directory,
         home=None if no_home else home,
+        workspace=workspace,
         no_home=no_home,
         force_smart=force_smart,
         shell_runtime=effective_shell_enabled,
@@ -624,6 +626,7 @@ def build_command_run_request(
     structured_tool_policy: str | None = None,
     attachments: list[str] | None = None,
     environment: str | None = None,
+    workspace: Path | None = None,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_no_home_conflicts(
@@ -668,6 +671,7 @@ def build_command_run_request(
         environment=environment,
         skills_directory=skills_directory,
         home=home,
+        workspace=workspace,
         no_home=no_home,
         force_smart=force_smart,
         shell_enabled=shell_enabled,

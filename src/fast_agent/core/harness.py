@@ -675,11 +675,9 @@ class AgentHarness:
 
     def _build_local_environment(self) -> LocalEnvironment:
         from fast_agent.core.logging.logger import get_logger
-        from fast_agent.paths import resolve_settings_start_path
         from fast_agent.tools.local_shell_executor import LocalEnvironment
 
         settings = self._fast_agent.context.config
-        working_directory = resolve_settings_start_path(settings)
         shell_settings = settings.shell_execution if settings is not None else None
         return LocalEnvironment(
             logger=get_logger(__name__),
@@ -687,7 +685,7 @@ class AgentHarness:
             warning_interval_seconds=(
                 shell_settings.warning_interval_seconds if shell_settings is not None else 30
             ),
-            working_directory=working_directory,
+            working_directory=self._fast_agent.workspace_root,
             config=settings,
         )
 

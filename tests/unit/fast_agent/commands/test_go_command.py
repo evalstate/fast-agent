@@ -290,7 +290,34 @@ def test_go_workspace_sets_default_home_base(monkeypatch, tmp_path: Path) -> Non
     assert result.exit_code == 0, result.output
     assert Path.cwd() == original_cwd
     assert len(captured_requests) == 1
+    assert captured_requests[0].workspace == workspace
     assert captured_requests[0].home == workspace / ".fast-agent"
+
+
+def test_go_preserves_workspace_with_external_home(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    home = tmp_path / "logs" / "fast-agent-home"
+    captured_requests = []
+
+    monkeypatch.setattr(go_command, "run_request", captured_requests.append)
+
+    result = CliRunner().invoke(
+        go_command.app,
+        [
+            "--workspace",
+            workspace.as_posix(),
+            "--home",
+            home.as_posix(),
+            "--message",
+            "summarize",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(captured_requests) == 1
+    assert captured_requests[0].workspace == workspace
+    assert captured_requests[0].home == home
 
 
 def test_go_workspace_resolves_relative_home(monkeypatch, tmp_path: Path) -> None:

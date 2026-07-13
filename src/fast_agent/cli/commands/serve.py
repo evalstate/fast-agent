@@ -180,6 +180,7 @@ def _build_run_request(
         target_agent_name=None,
         skills_directory=skills_dir,
         home=resolved_home,
+        workspace=resolved_workspace,
         no_home=no_home,
         force_smart=force_smart,
         shell_enabled=shell,
