@@ -124,7 +124,9 @@ class CommonAgentOptions:
     @staticmethod
     def home():
         return typer.Option(
-            None, "--home", help="Override the base fast-agent home"
+            None,
+            "--home",
+            help="Use PATH as the fast-agent home itself (contains agent-cards/, sessions/, etc.)",
         )
 
     @staticmethod
