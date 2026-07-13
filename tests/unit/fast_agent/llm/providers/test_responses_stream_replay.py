@@ -325,6 +325,54 @@ async def test_responses_stream_preserves_reasoning_summary_parts_for_fallback()
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_responses_stream_uses_summary_index_for_split_heading_boundary() -> None:
+    harness = _ResponsesHarness()
+    final_response = SimpleNamespace(output=[], usage=None)
+    stream = _FakeResponsesStream(
+        events=[
+            SimpleNamespace(
+                type="response.reasoning_summary_text.delta",
+                item_id="rs_1",
+                summary_index=0,
+                delta="**Planning server initialization**",
+            ),
+            SimpleNamespace(
+                type="response.reasoning_summary_text.delta",
+                item_id="rs_1",
+                summary_index=1,
+                delta="**",
+            ),
+            SimpleNamespace(
+                type="response.reasoning_summary_text.delta",
+                item_id="rs_1",
+                summary_index=1,
+                delta="Reducing endpoint calls**",
+            ),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ],
+        final_response=final_response,
+    )
+
+    _response, reasoning_parts = await harness._process_stream(
+        stream,
+        model="gpt-test",
+        capture_filename=None,
+    )
+
+    reasoning_text = "".join(
+        event["text"] for event in harness.stream_events if event["is_reasoning"]
+    )
+    assert reasoning_text == (
+        "**Planning server initialization**\n\n"
+        "**Reducing endpoint calls**"
+    )
+    assert reasoning_parts == [
+        "**Planning server initialization**\n\n**Reducing endpoint calls**"
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_responses_stream_does_not_flush_reasoning_at_tool_event_boundaries() -> None:
     harness = _ResponsesHarness()
     final_response = SimpleNamespace(output=[], usage=None)

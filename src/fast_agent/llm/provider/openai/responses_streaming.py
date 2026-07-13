@@ -545,15 +545,18 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
 
         item_id = getattr(event, "item_id", None)
         summary_index = getattr(event, "summary_index", None)
+        starts_new_part = False
         if isinstance(item_id, str) and isinstance(summary_index, int):
             part_key = (item_id, summary_index)
             part = reasoning_summary_parts.get(part_key)
             if part is None:
                 part = ReasoningTextAccumulator()
                 reasoning_summary_parts[part_key] = part
+                starts_new_part = bool(reasoning_segments.text())
             part.append(delta)
 
-        normalized_delta = reasoning_segments.append(delta)
+        stream_delta = f"\n\n{delta.lstrip('\r\n')}" if starts_new_part else delta
+        normalized_delta = reasoning_segments.append(stream_delta)
         if not normalized_delta:
             return True, reasoning_chars
 
