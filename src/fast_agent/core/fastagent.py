@@ -169,6 +169,7 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         home: str | pathlib.Path | None = None,
         skills_directory: str | pathlib.Path | Sequence[str | pathlib.Path] | None = None,
         no_home: bool = False,
+        workspace: str | pathlib.Path | None = None,
         **kwargs,
     ) -> None:
         """
@@ -189,6 +190,7 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         self._initialize_runtime_options(
             quiet=quiet,
             home=home,
+            workspace=workspace,
             skills_directory=skills_directory,
         )
         if parse_cli_args:
@@ -220,10 +222,12 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         *,
         quiet: bool,
         home: str | pathlib.Path | None,
+        workspace: str | pathlib.Path | None,
         skills_directory: str | pathlib.Path | Sequence[str | pathlib.Path] | None,
     ) -> None:
         self._programmatic_quiet = quiet
         self._home_override = self._normalize_home(home)
+        self._workspace_override = self._normalize_home(workspace)
         self._skills_directory_override = self._normalize_skill_directories(skills_directory)
         self._default_skill_manifests: list[SkillManifest] = []
         self._extra_prompt_context: dict[str, str] = {}
@@ -914,13 +918,22 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
     @property
     def environments(self) -> "EnvironmentRegistry":
         """Named execution environments configured for this fast-agent run."""
-        from fast_agent.paths import resolve_settings_start_path
         from fast_agent.tools.environment_registry import EnvironmentRegistry
 
         return EnvironmentRegistry(
             self._settings,
-            workspace_root=resolve_settings_start_path(self._settings),
+            workspace_root=self.workspace_root,
         )
+
+    @property
+    def workspace_root(self) -> Path:
+        """Workspace root selected for this fast-agent run."""
+        if self._workspace_override is not None:
+            return self._workspace_override
+
+        from fast_agent.paths import resolve_settings_start_path
+
+        return resolve_settings_start_path(self._settings)
 
     async def _apply_instruction_context(
         self, instance: AgentInstance, context_vars: dict[str, str]

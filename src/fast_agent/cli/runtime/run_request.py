@@ -93,6 +93,7 @@ class AgentRunRequest:
     attachments: list[str] | None = None
     managed_mcp_agent_names: list[str] | None = None
     environment: str | None = None
+    workspace: Path | None = None
     trajectory_output: Path | None = None
     trajectory_format: Literal["atif"] = "atif"
 
@@ -188,6 +189,7 @@ class AgentRunRequest:
             "environment": self.environment,
             "skills_directory": self.skills_directory,
             "home": self.home,
+            "workspace": self.workspace,
             "no_home": self.no_home,
             "force_smart": self.force_smart,
             "shell_runtime": self.shell_runtime,
