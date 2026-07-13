@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from fast_agent.commands.renderers.markdown_blocks import (
@@ -12,9 +13,17 @@ from fast_agent.commands.summary_utils import optional_string
 from fast_agent.utils.markdown import escape_markdown_text, markdown_code_span
 
 if TYPE_CHECKING:
+    from mcp.types import Tool
+
     from fast_agent.commands.tool_summaries import ProviderToolSummary, ToolSummary
 
 from fast_agent.commands.tool_summaries import provider_tool_status_label
+
+
+def render_tool_schema_markdown(tool: "Tool") -> str:
+    schema = json.dumps(tool.inputSchema, ensure_ascii=False, indent=2)
+    name = escape_markdown_text(tool.name)
+    return f"# Tool schema: {name}\n\n```json\n{schema}\n```"
 
 
 def _format_args(args: list[str] | None) -> str | None:

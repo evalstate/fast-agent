@@ -20,6 +20,7 @@ from fast_agent.history.compaction import (
     FAST_AGENT_COMPACTION_CHANNEL,
     CompactionSkipped,
     _plan_compaction_with_budget,
+    _plan_mid_turn_compaction,
     build_summary_message,
     compact_conversation,
     estimate_tokens,
@@ -125,29 +126,74 @@ class TestPlanCompaction:
         assert len(plan.compact_region) == 4
         assert plan.retained_tail == []
 
-    def test_budget_planner_can_preserve_active_turn_tail(self):
-        history = _turn("one", "1") + [_user("two"), _assistant("calling", tool_call=True)]
+    def test_mid_turn_planner_keeps_three_complete_exchanges_and_pending_call(self):
+        history = [_user("one")]
+        for index in range(5):
+            history.extend(
+                [
+                    _assistant(f"calling {index}", tool_call=True),
+                    _tool_result(f"result {index}"),
+                ]
+            )
+        history.append(_assistant("pending", tool_call=True))
+
+        plan = _plan_mid_turn_compaction(
+            history,
+            recent_tool_exchanges=3,
+        )
+
+        assert [m.first_text() for m in plan.compact_region] == [
+            "one",
+            "calling 0",
+            "<no text>",
+            "calling 1",
+            "<no text>",
+        ]
+        assert [m.first_text() for m in plan.retained_tail] == [
+            "calling 2",
+            "<no text>",
+            "calling 3",
+            "<no text>",
+            "calling 4",
+            "<no text>",
+            "pending",
+        ]
+
+    def test_mid_turn_budget_reduces_recent_exchanges(self):
+        history = [
+            _user("one"),
+            _assistant("old", tool_call=True),
+            _tool_result("x" * 400),
+            _assistant("recent", tool_call=True),
+            _tool_result("y" * 400),
+            _assistant("pending", tool_call=True),
+        ]
 
         plan = _plan_compaction_with_budget(
             history,
             keep_turns=0,
-            max_tokens_after=None,
-            min_keep_turns=1,
+            max_tokens_after=2200,
+            recent_tool_exchanges=3,
         )
 
-        assert [m.first_text() for m in plan.compact_region] == ["one", "1"]
-        assert [m.first_text() for m in plan.retained_tail] == ["two", "calling"]
+        assert [m.first_text() for m in plan.retained_tail] == ["pending"]
 
-    def test_budget_planner_skips_when_active_turn_is_only_turn(self):
-        history = [_user("one"), _assistant("calling", tool_call=True)]
+    def test_mid_turn_planner_compacts_single_long_tool_turn(self):
+        history = [
+            _user("one"),
+            _assistant("completed", tool_call=True),
+            _tool_result("result"),
+            _assistant("pending", tool_call=True),
+        ]
 
-        with pytest.raises(CompactionSkipped):
-            _plan_compaction_with_budget(
-                history,
-                keep_turns=0,
-                max_tokens_after=None,
-                min_keep_turns=1,
-            )
+        plan = _plan_mid_turn_compaction(history, recent_tool_exchanges=0)
+
+        assert [m.first_text() for m in plan.compact_region] == [
+            "one",
+            "completed",
+            "<no text>",
+        ]
+        assert [m.first_text() for m in plan.retained_tail] == ["pending"]
 
     def test_skips_tiny_history(self):
         with pytest.raises(CompactionSkipped):

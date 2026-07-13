@@ -8,6 +8,7 @@ import pytest
 from fast_agent.config import CompactionSettings, Settings
 from fast_agent.context import Context
 from fast_agent.core.direct_factory import _auto_compaction_after_turn_hook
+from fast_agent.history.compaction import MID_TURN_RECENT_TOOL_EXCHANGES
 from fast_agent.hooks.compaction import auto_compact_history, auto_compact_history_mid_turn
 from fast_agent.hooks.hook_context import HookContext
 from fast_agent.llm.request_params import RequestParams
@@ -129,4 +130,4 @@ async def test_mid_turn_auto_compaction_preserves_active_turn(
     )
 
     assert kwargs_seen
-    assert kwargs_seen[0]["min_keep_turns"] == 1
+    assert kwargs_seen[0]["recent_tool_exchanges"] == MID_TURN_RECENT_TOOL_EXCHANGES

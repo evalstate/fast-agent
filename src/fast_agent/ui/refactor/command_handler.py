@@ -50,7 +50,7 @@ class CommandHandler:
                 for message in outcome.messages:
                     await io.emit(message)
                 return
-            case ListToolsCommand():
+            case ListToolsCommand(argument=argument):
                 settings = get_settings()
                 io = TuiCommandIO(
                     prompt_provider=cast("AgentProvider", prompt_provider),
@@ -66,6 +66,7 @@ class CommandHandler:
                 outcome = await tools_handlers.handle_list_tools(
                     context,
                     agent_name=agent,
+                    argument=argument,
                 )
                 for message in outcome.messages:
                     await io.emit(message)

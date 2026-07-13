@@ -198,7 +198,7 @@ _COMMAND_OUTCOME_ROUTES: tuple[_CommandOutcomeRoute, ...] = (
     _CommandOutcomeRoute(
         ListToolsCommand,
         "catalog",
-        "agent_name",
+        "argument",
         tools_handlers.handle_list_tools,
     ),
     _CommandOutcomeRoute(

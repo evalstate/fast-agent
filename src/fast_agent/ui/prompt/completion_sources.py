@@ -1348,6 +1348,33 @@ def _agent_command_completions(
     return _agent_name_completions(completer, current_token)
 
 
+def _tools_command_completions(
+    completer: "AgentCompleter",
+    text: str,
+    text_lower: str,
+) -> list[Completion] | None:
+    prefix = "/tools "
+    if not text_lower.startswith(prefix):
+        return None
+
+    partial = text[len(prefix) :].lstrip()
+    if any(char.isspace() for char in partial):
+        return []
+
+    entries = completer._run_async_completion(completer._list_tool_completion_entries) or []
+    candidates = [("summary", "List available tools"), *entries]
+    return [
+        Completion(
+            name,
+            start_position=-len(partial),
+            display=name,
+            display_meta=description,
+        )
+        for name, description in candidates
+        if starts_with_casefold(name, partial)
+    ]
+
+
 def command_completions(
     completer: "AgentCompleter",
     text: str,
@@ -1358,6 +1385,7 @@ def command_completions(
         "Callable[[AgentCompleter, str, str], list[Completion] | None]",
         ...,
     ] = (
+        _tools_command_completions,
         _history_command_completions,
         _compact_command_completions,
         _prompt_command_completions,

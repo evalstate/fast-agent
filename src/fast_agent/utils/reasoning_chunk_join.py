@@ -104,6 +104,11 @@ def normalize_reasoning_summary_parts(parts: Sequence[str]) -> list[str]:
     return normalized
 
 
+def join_reasoning_summary_parts(parts: Sequence[str]) -> str:
+    """Join complete summary parts without collapsing their paragraph boundaries."""
+    return "\n\n".join(normalize_reasoning_summary_parts(parts))
+
+
 def _reasoning_summary_body(part: str) -> str:
     if not part.startswith("**"):
         return part

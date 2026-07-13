@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fast_agent.commands.renderers.tools_markdown import render_tools_markdown
+from fast_agent.commands.renderers.tools_markdown import (
+    render_tool_schema_markdown,
+    render_tools_markdown,
+)
 from fast_agent.commands.tool_summaries import build_provider_tool_summaries, build_tool_summaries
 from fast_agent.interfaces import AgentProtocol
 
@@ -14,7 +17,7 @@ if TYPE_CHECKING:
     from fast_agent.acp.slash_commands import SlashCommandHandler
 
 
-async def handle_tools(handler: "SlashCommandHandler") -> str:
+async def handle_tools(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
     heading = "tools"
 
     agent, error = handler._get_current_agent_or_error(f"# {heading}")
@@ -43,6 +46,13 @@ async def handle_tools(handler: "SlashCommandHandler") -> str:
         )
 
     tools = tools_result.tools if tools_result else []
+    tool_name = arguments.strip() if arguments else ""
+    if tool_name and tool_name.casefold() != "summary":
+        tool = next((tool for tool in tools if tool.name == tool_name), None)
+        if tool is None:
+            return "\n".join([f"# {heading}", "", f"Tool not found: {tool_name}"])
+        return render_tool_schema_markdown(tool)
+
     provider_summaries = build_provider_tool_summaries(agent)
     if not tools and not provider_summaries:
         return "\n".join(

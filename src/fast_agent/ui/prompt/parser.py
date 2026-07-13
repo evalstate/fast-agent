@@ -162,7 +162,6 @@ _SIMPLE_SLASH_FACTORIES: dict[str, _NoArgumentCommandFactory] = {
     "reload": ReloadAgentsCommand,
     "mcpstatus": ShowMcpStatusCommand,
     "environment": EnvironmentCommand,
-    "tools": ListToolsCommand,
     "prompts": ListPromptsCommand,
     "exit": lambda: "EXIT",
     "stop": lambda: "STOP",
@@ -712,6 +711,7 @@ _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
     "attach": _parse_attach_command,
     "check": lambda remainder: CheckCommand(argument=remainder or None),
     "commands": lambda remainder: CommandsCommand(argument=remainder or None),
+    "tools": lambda remainder: ListToolsCommand(argument=strip_to_none(remainder)),
 }
 
 

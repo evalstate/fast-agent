@@ -19,8 +19,11 @@ from typing import (
     cast,
 )
 
+from anthropic import BadRequestError as AnthropicBadRequestError
+from anthropic import RequestTooLargeError as AnthropicRequestTooLargeError
 from mcp import Tool
 from mcp.types import GetPromptResult
+from openai import BadRequestError as OpenAIBadRequestError
 from pydantic_core import from_json
 
 from fast_agent.constants import (
@@ -87,6 +90,7 @@ _RETRYABLE_PROVIDER_KEY_ERROR_TERMS = (
     "unavailable",
     "timeout",
 )
+_NON_RETRYABLE_CONTEXT_ERROR_CODES = ("context_length_exceeded",)
 
 # Forward reference for type annotations
 if TYPE_CHECKING:
@@ -682,10 +686,22 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _is_fatal_retry_error(error: Exception) -> bool:
         if isinstance(error, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
             return True
+        if isinstance(
+            error,
+            (
+                OpenAIBadRequestError,
+                AnthropicBadRequestError,
+                AnthropicRequestTooLargeError,
+            ),
+        ):
+            return True
+
+        message = casefold_text(str(error))
+        if any(code in message for code in _NON_RETRYABLE_CONTEXT_ERROR_CODES):
+            return True
         if not isinstance(error, ProviderKeyError):
             return False
 
-        message = casefold_text(str(error))
         return not any(term in message for term in _RETRYABLE_PROVIDER_KEY_ERROR_TERMS)
 
     async def _wait_before_retry(

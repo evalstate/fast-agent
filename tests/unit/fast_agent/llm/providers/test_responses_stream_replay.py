@@ -318,9 +318,128 @@ async def test_responses_stream_preserves_reasoning_summary_parts_for_fallback()
     )
 
     assert reasoning_parts == ["**Plan**\n\ndone"]
-    assert "<!-- -->" not in "".join(
+    assert "<!-- -->" in "".join(
         event["text"] for event in harness.stream_events if event["is_reasoning"]
     )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_responses_stream_uses_summary_index_for_split_heading_boundary() -> None:
+    harness = _ResponsesHarness()
+    final_response = SimpleNamespace(output=[], usage=None)
+    stream = _FakeResponsesStream(
+        events=[
+            SimpleNamespace(
+                type="response.reasoning_summary_text.delta",
+                item_id="rs_1",
+                summary_index=0,
+                delta="**Planning server initialization**",
+            ),
+            SimpleNamespace(
+                type="response.reasoning_summary_text.delta",
+                item_id="rs_1",
+                summary_index=1,
+                delta="**",
+            ),
+            SimpleNamespace(
+                type="response.reasoning_summary_text.delta",
+                item_id="rs_1",
+                summary_index=1,
+                delta="Reducing endpoint calls**",
+            ),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ],
+        final_response=final_response,
+    )
+
+    _response, reasoning_parts = await harness._process_stream(
+        stream,
+        model="gpt-test",
+        capture_filename=None,
+    )
+
+    reasoning_text = "".join(
+        event["text"] for event in harness.stream_events if event["is_reasoning"]
+    )
+    assert reasoning_text == (
+        "**Planning server initialization**\n\n"
+        "**Reducing endpoint calls**"
+    )
+    assert reasoning_parts == [
+        "**Planning server initialization**\n\n**Reducing endpoint calls**"
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_responses_stream_does_not_flush_reasoning_at_tool_event_boundaries() -> None:
+    harness = _ResponsesHarness()
+    final_response = SimpleNamespace(output=[], usage=None)
+    stream = _FakeResponsesStream(
+        events=[
+            SimpleNamespace(
+                type="response.reasoning_summary_text.delta",
+                item_id="rs_1",
+                summary_index=0,
+                delta="**Checking tests**\n\n<!--",
+            ),
+            SimpleNamespace(
+                type="response.output_item.added",
+                output_index=0,
+                item_id="fc_123",
+                item=SimpleNamespace(
+                    type="function_call",
+                    id="fc_123",
+                    call_id="call_123",
+                    name="run_tests",
+                ),
+            ),
+            SimpleNamespace(
+                type="response.function_call_arguments.delta",
+                output_index=0,
+                item_id="fc_123",
+                delta='{"target":"unit"}',
+            ),
+            SimpleNamespace(
+                type="response.reasoning_summary_text.delta",
+                item_id="rs_1",
+                summary_index=0,
+                delta=" -->",
+            ),
+            SimpleNamespace(
+                type="response.output_item.done",
+                output_index=0,
+                item_id="fc_123",
+                item=SimpleNamespace(
+                    type="function_call",
+                    id="fc_123",
+                    call_id="call_123",
+                    name="run_tests",
+                ),
+            ),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ],
+        final_response=final_response,
+    )
+
+    _response, reasoning_parts = await harness._process_stream(
+        stream,
+        model="gpt-test",
+        capture_filename=None,
+    )
+
+    reasoning_text = "".join(
+        event["text"] for event in harness.stream_events if event["is_reasoning"]
+    )
+    assert reasoning_text == "**Checking tests**\n\n<!-- -->"
+    assert reasoning_parts == []
+    assert [event["event_type"] for event in harness.tool_events] == [
+        "start",
+        "delta",
+        "stop",
+    ]
+    assert harness.tool_events[1]["payload"]["chunk"] == '{"target":"unit"}'
 
 
 @pytest.mark.unit
