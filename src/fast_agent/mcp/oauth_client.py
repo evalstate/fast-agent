@@ -50,6 +50,7 @@ from fast_agent.core.keyring_utils import maybe_print_keyring_access_notice
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
 from fast_agent.utils.async_utils import run_in_thread
+from fast_agent.utils.env import env_flag
 from fast_agent.utils.text import strip_to_none
 from fast_agent.utils.transports import uses_mcp_remote_transport
 
@@ -63,6 +64,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 DEFAULT_CLIENT_METADATA_URL = "https://fast-agent.ai/oauth/client.json"
+_OAUTH_TRACE_ENV = "FAST_AGENT_TRACE_MCP_OAUTH"
 
 OAuthEventType = Literal[
     "authorization_url",
@@ -115,6 +117,41 @@ class _OAuthProviderSettings:
     scope: str | None
     persist_mode: str
     client_metadata_url: str | None
+
+
+def _trace_url(url: str) -> str:
+    parsed = urlparse(url)
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+
+
+def _trace_oauth_http(
+    phase: str,
+    request: httpx.Request,
+    response: httpx.Response | None = None,
+) -> None:
+    if not env_flag(_OAUTH_TRACE_ENV):
+        return
+
+    url = _trace_url(str(request.url))
+    status = str(response.status_code) if response is not None else "sending"
+    content_type = response.headers.get("content-type", "-") if response is not None else "-"
+    print(
+        f"[MCP OAuth] {phase}: {request.method} {url} "
+        f"status={status} content-type={content_type}",
+        file=sys.stderr,
+        flush=True,
+    )
+    logger.info(
+        "MCP OAuth HTTP trace",
+        phase=phase,
+        method=request.method,
+        url=url,
+        status_code=response.status_code if response is not None else None,
+        content_type=response.headers.get("content-type") if response is not None else None,
+        has_www_authenticate=(
+            "www-authenticate" in response.headers if response is not None else None
+        ),
+    )
 
 
 async def _emit_oauth_event(
@@ -568,7 +605,13 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
         try:
             for url in self._prm_discovery_urls_from_response(response):
                 discovery_request = create_oauth_metadata_request(url)
+                _trace_oauth_http("protected-resource request", discovery_request)
                 discovery_response = yield discovery_request
+                _trace_oauth_http(
+                    "protected-resource response",
+                    discovery_request,
+                    discovery_response,
+                )
 
                 if await self._handle_prm_discovery_response(
                     discovery_response,
@@ -583,7 +626,13 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
 
             for url in asm_discovery_urls:  # pragma: no cover
                 oauth_metadata_request = create_oauth_metadata_request(url)
+                _trace_oauth_http("authorization-server request", oauth_metadata_request)
                 oauth_metadata_response = yield oauth_metadata_request
+                _trace_oauth_http(
+                    "authorization-server response",
+                    oauth_metadata_request,
+                    oauth_metadata_response,
+                )
 
                 result = await self._handle_asm_discovery_response(
                     oauth_metadata_response,
@@ -595,11 +644,20 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
             self._update_client_metadata_scope(response)
             registration_request = await self._client_registration_request_if_needed()
             if registration_request is not None:
+                _trace_oauth_http("client-registration request", registration_request)
                 registration_response = yield registration_request
+                _trace_oauth_http(
+                    "client-registration response",
+                    registration_request,
+                    registration_response,
+                )
                 client_information = await handle_registration_response(registration_response)
                 await self._store_client_info(client_information)
 
-            token_response = yield await self._perform_authorization()
+            token_request = await self._perform_authorization()
+            _trace_oauth_http("token request", token_request)
+            token_response = yield token_request
+            _trace_oauth_http("token response", token_request, token_response)
             await self._handle_token_response(token_response)
         except Exception:  # pragma: no cover
             logger.exception("OAuth flow error")
@@ -616,7 +674,10 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
         try:
             self._update_client_metadata_scope(response)
 
-            token_response = yield await self._perform_authorization()
+            token_request = await self._perform_authorization()
+            _trace_oauth_http("step-up token request", token_request)
+            token_response = yield token_request
+            _trace_oauth_http("step-up token response", token_request, token_response)
             await self._handle_token_response(token_response)
 
             self._add_auth_header(request)
@@ -644,7 +705,9 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
             if self.context.is_token_valid():
                 self._add_auth_header(request)
 
+            _trace_oauth_http("protected MCP request", request)
             response = yield request
+            _trace_oauth_http("protected MCP response", request, response)
 
             if response.status_code == 401:
                 followup_flow = self._unauthorized_auth_flow(request, response)
@@ -1260,6 +1323,27 @@ def build_oauth_provider(
         settings,
         selected_redirect_port=selected_redirect_port,
     )
+    if env_flag(_OAUTH_TRACE_ENV):
+        redirect_uri = f"http://127.0.0.1:{selected_redirect_port}{settings.redirect_path}"
+        print(
+            f"[MCP OAuth] configured server={server_name} url={_trace_url(oauth_server_url)} "
+            f"redirect={redirect_uri} persistence={settings.persist_mode} "
+            f"scope={settings.scope or 'discovered'} "
+            f"client={'metadata-url' if settings.client_metadata_url else 'dynamic-registration'}",
+            file=sys.stderr,
+            flush=True,
+        )
+        logger.info(
+            "MCP OAuth provider configured",
+            server_name=server_name,
+            server_url=_trace_url(oauth_server_url),
+            redirect_uri=redirect_uri,
+            persistence=settings.persist_mode,
+            configured_scope=settings.scope,
+            client_id_mode=(
+                "metadata-url" if settings.client_metadata_url is not None else "dynamic-registration"
+            ),
+        )
 
     # Local callback server handler
     async def _redirect_handler(authorization_url: str) -> None:

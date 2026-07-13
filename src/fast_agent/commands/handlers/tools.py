@@ -10,6 +10,7 @@ from rich.text import Text
 
 from fast_agent.commands.handlers._text_formatting import indexed_row
 from fast_agent.commands.handlers._text_utils import truncate_description
+from fast_agent.commands.renderers.tools_markdown import render_tool_schema_markdown
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.tool_summaries import (
     ProviderToolSummary,
@@ -97,7 +98,12 @@ def _append_tool_detail(
     content.append("\n")
 
 
-async def handle_list_tools(ctx: CommandContext, *, agent_name: str) -> CommandOutcome:
+async def handle_list_tools(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    argument: str | None = None,
+) -> CommandOutcome:
     outcome = CommandOutcome()
 
     agent = ctx.agent_provider._agent(agent_name)
@@ -112,6 +118,25 @@ async def handle_list_tools(ctx: CommandContext, *, agent_name: str) -> CommandO
 
     tools_result = await agent.list_tools()
     provider_summaries = build_provider_tool_summaries(agent)
+    tool_name = strip_to_none(argument)
+
+    if tool_name is not None and tool_name.casefold() != "summary":
+        tool = next((tool for tool in tools_result.tools if tool.name == tool_name), None)
+        if tool is None:
+            outcome.add_message(
+                f"Tool not found: {tool_name}",
+                channel="warning",
+                right_info="tools",
+                agent_name=agent_name,
+            )
+            return outcome
+        outcome.add_message(
+            render_tool_schema_markdown(tool),
+            right_info="tools",
+            agent_name=agent_name,
+            render_markdown=True,
+        )
+        return outcome
 
     if not tools_result.tools and not provider_summaries:
         outcome.add_message(

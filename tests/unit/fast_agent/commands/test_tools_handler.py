@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from mcp.types import ListToolsResult
+from mcp.types import ListToolsResult, Tool
 from rich.text import Text
 
 from fast_agent.commands.context import CommandContext, NonInteractiveCommandIOBase
@@ -50,12 +50,13 @@ class _Agent:
     instruction = ""
     context = None
 
-    def __init__(self, llm: _MutableLlm) -> None:
+    def __init__(self, llm: _MutableLlm, tools: list[Tool] | None = None) -> None:
         self.llm = llm
+        self.tools = tools or []
         self.config = SimpleNamespace(model=llm.model_name)
 
     async def list_tools(self) -> ListToolsResult:
-        return ListToolsResult(tools=[])
+        return ListToolsResult(tools=self.tools)
 
     async def initialize(self) -> None:
         return None
@@ -201,3 +202,56 @@ async def test_tools_omits_disabled_provider_hosted_tools() -> None:
     rendered = "\n".join(_plain(message.text) for message in outcome.messages)
     assert "web_search" not in rendered
     assert "No tools available for this agent." in rendered
+
+
+@pytest.mark.asyncio
+async def test_tools_named_selection_renders_complete_input_schema() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Search query"},
+            "limit": {"type": "integer", "minimum": 1},
+        },
+        "required": ["query"],
+        "additionalProperties": False,
+    }
+    agent = _Agent(
+        _MutableLlm(),
+        [Tool(name="search", description="Search things", inputSchema=schema)],
+    )
+    ctx = CommandContext(
+        agent_provider=_Provider(agent),
+        current_agent_name="main",
+        io=NonInteractiveCommandIOBase(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_list_tools(ctx, agent_name="main", argument="search")
+
+    assert len(outcome.messages) == 1
+    message = outcome.messages[0]
+    assert message.render_markdown is True
+    rendered = _plain(message.text)
+    assert "# Tool schema: search" in rendered
+    assert '"additionalProperties": false' in rendered
+    assert '"required": [' in rendered
+
+
+@pytest.mark.asyncio
+async def test_tools_summary_argument_keeps_existing_list_behavior() -> None:
+    agent = _Agent(
+        _MutableLlm(),
+        [Tool(name="search", description="Search things", inputSchema={"type": "object"})],
+    )
+    ctx = CommandContext(
+        agent_provider=_Provider(agent),
+        current_agent_name="main",
+        io=NonInteractiveCommandIOBase(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_list_tools(ctx, agent_name="main", argument="summary")
+
+    rendered = "\n".join(_plain(message.text) for message in outcome.messages)
+    assert "Tools for agent main:" in rendered
+    assert "search" in rendered

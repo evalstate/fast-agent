@@ -133,6 +133,7 @@ class McpReconnectCommand(CommandBase):
 
 @dataclass(frozen=True, slots=True)
 class ListToolsCommand(CommandBase):
+    argument: str | None = None
     kind: Literal["list_tools"] = "list_tools"
 
 

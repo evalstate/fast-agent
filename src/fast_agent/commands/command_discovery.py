@@ -363,9 +363,9 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         _session_detail_entry(),
         _simple_command_entry(
             "tools",
-            summary="List callable tools",
-            usage="/tools",
-            examples=["/tools"],
+            summary="List callable tools or show a tool's JSON schema",
+            usage="/tools [summary|<tool-name>]",
+            examples=["/tools", "/tools <tool-name>"],
         ),
         _simple_command_entry(
             "prompts",

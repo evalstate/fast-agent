@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 from mcp.types import Completion as MCPCompletion
-from mcp.types import ResourceTemplate, TextContent
+from mcp.types import ListToolsResult, ResourceTemplate, TextContent, Tool
 from prompt_toolkit.completion import CompleteEvent, Completion
 from prompt_toolkit.document import Document
 
@@ -74,6 +74,20 @@ class _ProviderStub:
 
     def _agent(self, _name: str) -> object:
         return self._agent_obj
+
+
+class _ToolAgentStub:
+    async def list_tools(self) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="search",
+                    description="Search indexed documents",
+                    inputSchema={"type": "object"},
+                ),
+                Tool(name="read_file", inputSchema={"type": "object"}),
+            ]
+        )
 
 
 class _CapabilityLlmStub:
@@ -282,6 +296,48 @@ def test_model_verbosity_completion_values_use_capability_resolver() -> None:
     )
 
     assert completer._resolve_verbosity_values() == ["low", "medium", "high"]
+
+
+def test_tools_completion_lists_summary_first_and_available_tools() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_ToolAgentStub())),
+    )
+
+    completions = list(
+        completer.get_completions(
+            Document("/tools "),
+            CompleteEvent(completion_requested=True),
+        )
+    )
+
+    assert [completion.text for completion in completions] == [
+        "summary",
+        "search",
+        "read_file",
+    ]
+    assert "List available tools" in str(completions[0].display_meta)
+    assert "Search indexed documents" in str(completions[1].display_meta)
+    assert "View complete JSON schema" in str(completions[2].display_meta)
+
+
+def test_tools_completion_filters_tool_names() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_ToolAgentStub())),
+    )
+
+    completions = list(
+        completer.get_completions(
+            Document("/tools RE"),
+            CompleteEvent(completion_requested=True),
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["read_file"]
+    assert completions[0].start_position == -2
 
 
 def test_complete_history_files_finds_json_and_md():

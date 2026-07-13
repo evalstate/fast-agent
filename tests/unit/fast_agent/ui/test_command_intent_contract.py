@@ -19,6 +19,7 @@ from fast_agent.ui.command_payloads import (
     HistoryReviewCommand,
     HistoryViewCommand,
     ListPromptsCommand,
+    ListToolsCommand,
     LoadAgentCardCommand,
     LoadHistoryCommand,
     LoadPromptCommand,
@@ -75,7 +76,6 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
         "reload",
         "mcpstatus",
         "environment",
-        "tools",
         "prompts",
         "exit",
         "stop",
@@ -96,6 +96,7 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
         "attach",
         "check",
         "commands",
+        "tools",
     }
     assert frozenset(prompt_parser._SLASH_ACTION_FACTORIES) == {
         "skills",
@@ -269,8 +270,13 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
         ),
         pytest.param(
             "/tools extra",
-            CommandError(message="Unexpected arguments for /tools: extra"),
-            id="simple-command-rejects-extra-args",
+            ListToolsCommand(argument="extra"),
+            id="tools-selects-named-schema",
+        ),
+        pytest.param(
+            "/tools summary",
+            ListToolsCommand(argument="summary"),
+            id="tools-explicit-summary",
         ),
         pytest.param(
             "/check models --for-model gpt-5",

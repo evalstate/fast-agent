@@ -1,6 +1,7 @@
 from fast_agent.utils.reasoning_chunk_join import (
     ReasoningTextAccumulator,
     join_reasoning_segments,
+    join_reasoning_summary_parts,
     normalize_reasoning_delta,
 )
 
@@ -154,3 +155,15 @@ def test_join_reasoning_segments_preserves_heading_paragraph_breaks() -> None:
         "I think I should emphasize that there are really only "
         "three decisions to make."
     )
+
+
+def test_join_reasoning_summary_parts_preserves_explicit_part_breaks() -> None:
+    assert join_reasoning_summary_parts(["First sentence.", "Second sentence."]) == (
+        "First sentence.\n\nSecond sentence."
+    )
+
+
+def test_join_reasoning_summary_parts_drops_placeholder_only_parts() -> None:
+    assert join_reasoning_summary_parts(
+        ["**Plan**\n\ndone", "**Checking tests**\n\n<!-- -->"]
+    ) == "**Plan**\n\ndone"

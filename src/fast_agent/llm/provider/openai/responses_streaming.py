@@ -46,9 +46,8 @@ from fast_agent.tool_activity_presentation import (
 )
 from fast_agent.utils.reasoning_chunk_join import (
     ReasoningTextAccumulator,
-    join_reasoning_segments,
+    join_reasoning_summary_parts,
     normalize_reasoning_delta,
-    normalize_reasoning_summary_parts,
 )
 
 _logger = get_logger(__name__)
@@ -60,35 +59,12 @@ _ARGUMENT_DELTA_EVENT_TYPES = {
 }
 type _ResponsesToolKind = Literal["tool", "server_tool", "web_search"]
 _DEFAULT_TOOL_KIND: _ResponsesToolKind = "tool"
-_EMPTY_SUMMARY_PLACEHOLDER = "<!-- -->"
 _TOOL_KIND_BY_ACTIVITY_FAMILY: dict[ToolActivityFamily, _ResponsesToolKind] = {
     "web_search": "web_search",
     "remote_tool": "server_tool",
     "remote_tool_listing": "server_tool",
     "remote_tool_search": "server_tool",
 }
-
-
-class _ReasoningPlaceholderFilter:
-    def __init__(self) -> None:
-        self._pending = ""
-
-    def append(self, text: str) -> str:
-        combined = (self._pending + text).replace(_EMPTY_SUMMARY_PLACEHOLDER, "")
-        pending_length = 0
-        for length in range(1, min(len(combined), len(_EMPTY_SUMMARY_PLACEHOLDER) - 1) + 1):
-            if combined.endswith(_EMPTY_SUMMARY_PLACEHOLDER[:length]):
-                pending_length = length
-        if pending_length == 0:
-            self._pending = ""
-            return combined
-        self._pending = combined[-pending_length:]
-        return combined[:-pending_length]
-
-    def flush(self) -> str:
-        pending = self._pending
-        self._pending = ""
-        return pending
 
 
 def _preview_json_like(value: Any) -> str | None:
@@ -555,7 +531,6 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         event_type: str | None,
         reasoning_segments: ReasoningTextAccumulator,
         reasoning_summary_parts: dict[tuple[str, int], ReasoningTextAccumulator],
-        placeholder_filter: _ReasoningPlaceholderFilter,
         reasoning_chars: int,
         model: str,
     ) -> tuple[bool, int]:
@@ -571,14 +546,14 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         item_id = getattr(event, "item_id", None)
         summary_index = getattr(event, "summary_index", None)
         if isinstance(item_id, str) and isinstance(summary_index, int):
-            part = reasoning_summary_parts.setdefault(
-                (item_id, summary_index),
-                ReasoningTextAccumulator(),
-            )
+            part_key = (item_id, summary_index)
+            part = reasoning_summary_parts.get(part_key)
+            if part is None:
+                part = ReasoningTextAccumulator()
+                reasoning_summary_parts[part_key] = part
             part.append(delta)
 
-        filtered_delta = placeholder_filter.append(delta)
-        normalized_delta = reasoning_segments.append(filtered_delta)
+        normalized_delta = reasoning_segments.append(delta)
         if not normalized_delta:
             return True, reasoning_chars
 
@@ -649,7 +624,6 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         reasoning_chars = 0
         reasoning_segments = ReasoningTextAccumulator(normalizer=normalize_reasoning_delta)
         reasoning_summary_parts: dict[tuple[str, int], ReasoningTextAccumulator] = {}
-        placeholder_filter = _ReasoningPlaceholderFilter()
         tool_state = OpenAIToolStreamState()
         notified_tool_indices: set[int] = set()
         notified_tool_use_ids: set[str] = set()
@@ -664,18 +638,11 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 event_type=event_type,
                 reasoning_segments=reasoning_segments,
                 reasoning_summary_parts=reasoning_summary_parts,
-                placeholder_filter=placeholder_filter,
                 reasoning_chars=reasoning_chars,
                 model=model,
             )
             if handled:
                 continue
-
-            trailing_reasoning = reasoning_segments.append(placeholder_filter.flush())
-            if trailing_reasoning:
-                self._notify_stream_listeners(
-                    StreamChunk(text=trailing_reasoning, is_reasoning=True)
-                )
 
             if isinstance(event, ResponseTextDeltaEvent) or is_responses_text_delta_event(
                 event_type
@@ -701,12 +668,6 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 model=model,
             ):
                 continue
-
-        trailing_reasoning = reasoning_segments.append(placeholder_filter.flush())
-        if trailing_reasoning:
-            self._notify_stream_listeners(
-                StreamChunk(text=trailing_reasoning, is_reasoning=True)
-            )
 
         def emit_tool_fallback(
             output_items: list[Any],
@@ -745,9 +706,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             if part.text()
         ]
         if reasoning_parts:
-            summary_text = join_reasoning_segments(
-                normalize_reasoning_summary_parts(reasoning_parts)
-            )
+            summary_text = join_reasoning_summary_parts(reasoning_parts)
             return final_response, [summary_text] if summary_text else []
         return final_response, reasoning_segments.parts()
 

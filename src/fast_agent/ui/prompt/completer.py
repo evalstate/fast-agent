@@ -64,6 +64,8 @@ from fast_agent.utils.text import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterable, Iterator, Sequence
 
+    from mcp.types import ListToolsResult
+
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.interfaces import FastAgentLLMProtocol
     from fast_agent.session.session_manager import SessionManager
@@ -237,6 +239,11 @@ class CompleterResourceArgumentCompletion(Protocol):
     def values(self) -> object: ...
 
 
+@runtime_checkable
+class CompleterToolAgent(Protocol):
+    async def list_tools(self) -> "ListToolsResult": ...
+
+
 def _catalog_command_description(command_name: str) -> str:
     spec = get_command_spec(command_name)
     if spec is None:
@@ -296,7 +303,7 @@ class AgentCompleter(Completer):
                 "(or /history show|detail|save|load|clear|rewind|fix)"
             ),
             "compact": "Compact history into a checkpoint summary (/compact preview|prompt)",
-            "tools": "List tools",
+            "tools": "List tools or show a tool's JSON schema",
             "model": _catalog_command_description("model"),
             "models": _catalog_command_description("models"),
             "check": _catalog_command_description("check"),
@@ -1450,6 +1457,16 @@ class AgentCompleter(Completer):
             return self.agent_provider._agent(self.current_agent)
         except Exception:
             return None
+
+    async def _list_tool_completion_entries(self) -> list[tuple[str, str]]:
+        agent = self._current_agent_object()
+        if not isinstance(agent, CompleterToolAgent):
+            return []
+        result = await agent.list_tools()
+        return [
+            (tool.name, tool.description or "View complete JSON schema")
+            for tool in result.tools
+        ]
 
     @staticmethod
     def _feature_enabled(value: object | None) -> bool:

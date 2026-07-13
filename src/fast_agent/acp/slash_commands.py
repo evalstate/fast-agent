@@ -306,6 +306,7 @@ class SlashCommandHandler:
                 name="tools",
                 description="List available tools",
                 handler=self._handle_tools,
+                input_hint="[summary|<tool-name>]",
             ),
             _BuiltinSlashCommandSpec(
                 name="environment",
@@ -892,8 +893,7 @@ class SlashCommandHandler:
         return await status_slash_handlers.handle_status(self, arguments)
 
     async def _handle_tools(self, arguments: str | None = None) -> str:
-        del arguments
-        return await tools_slash_handlers.handle_tools(self)
+        return await tools_slash_handlers.handle_tools(self, arguments)
 
     async def _handle_environment(self, arguments: str | None = None) -> str:
         del arguments
