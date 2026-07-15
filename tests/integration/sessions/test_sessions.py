@@ -13,6 +13,7 @@ from fast_agent.session.session_manager import (
     SESSION_ID_PATTERN,
     display_session_name,
 )
+from fast_agent.session.snapshot import SESSION_SNAPSHOT_SCHEMA_VERSION
 
 
 def _as_object_dict(value: object) -> dict[str, object] | None:
@@ -115,7 +116,7 @@ async def test_session_history_autosave_default_on(tmp_path, monkeypatch):
     history_filename = continuation["agents"][agent_name]["history_file"]
     assert agent_name in history_filename
     assert session_meta["first_user_preview"] == "Hello session"
-    assert metadata["schema_version"] == 2
+    assert metadata["schema_version"] == SESSION_SNAPSHOT_SCHEMA_VERSION
     assert history_filename in _persisted_history_files(metadata)
 
     history_files = list(session_dirs[0].glob("history_*.json"))

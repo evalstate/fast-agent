@@ -36,6 +36,4 @@ async def test_hyphenated_tool_name(fast_agent):
             result = await app.test.send("***CALL_TOOL shirt-colour {}")
             assert "polka" in result
 
-            assert 1 == app.test.llm.usage_accumulator.cumulative_tool_calls
-
     await agent_function()

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import re
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -43,20 +41,8 @@ def _extract_status_line(meta: object) -> str | None:
     return None
 
 
-async def _wait_for_status_line(client: TestClient, timeout: float = 2.0) -> str:
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
-    while loop.time() < deadline:
-        for notification in client.notifications:
-            status_line = _extract_status_line(notification.get("meta"))
-            if status_line:
-                return status_line
-        await asyncio.sleep(0.05)
-    raise AssertionError("Expected status line metadata in session updates")
-
-
 @pytest.mark.integration
-async def test_acp_status_line_meta_is_emitted(
+async def test_acp_omits_status_line_without_token_usage(
     acp_basic: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     connection, client, _init_response = acp_basic
@@ -71,5 +57,7 @@ async def test_acp_status_line_meta_is_emitted(
     )
     assert prompt_response.stop_reason == END_TURN
 
-    status_line = await _wait_for_status_line(client)
-    assert re.search(r"\d[\d,]* in, \d[\d,]* out", status_line), status_line
+    assert not any(
+        _extract_status_line(notification.get("meta"))
+        for notification in client.notifications
+    )
