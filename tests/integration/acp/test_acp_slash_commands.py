@@ -969,7 +969,7 @@ async def test_slash_command_history_show_turn_summary() -> None:
                 FAST_AGENT_USAGE: [
                     TextContent(
                         type="text",
-                        text='{"turn": {"output_tokens": 8}, "raw_usage": {}, "summary": {}}',
+                        text='{"schema":"fast-agent.usage/v2","provider_attempts":[{"provider":"openai","usage_schema":"openai-chat","model":"test","prompt":{"total":10},"completion":{"total":8},"raw_usage":{}}]}',
                     )
                 ],
             },
@@ -1004,7 +1004,7 @@ async def test_slash_command_history_show_turn_summary() -> None:
                 FAST_AGENT_USAGE: [
                     TextContent(
                         type="text",
-                        text='{"turn": {"output_tokens": 12}, "raw_usage": {}, "summary": {}}',
+                        text='{"schema":"fast-agent.usage/v2","provider_attempts":[{"provider":"openai","usage_schema":"openai-chat","model":"test","prompt":{"total":20},"completion":{"total":12},"raw_usage":{}}]}',
                     )
                 ],
             },

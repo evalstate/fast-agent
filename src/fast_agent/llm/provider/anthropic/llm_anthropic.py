@@ -107,7 +107,7 @@ from fast_agent.llm.task_budget import (
 )
 from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 from fast_agent.llm.tool_tracking import ToolCallTracker
-from fast_agent.llm.usage_tracking import TurnUsage
+from fast_agent.llm.usage_tracking import usage_from_anthropic
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES, guess_mime_type, normalize_mime_type
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.provider_management import build_anthropic_provider_managed_mcp_payload
@@ -359,14 +359,23 @@ def _finalize_fallback_stream_span(
         span.set_attribute(GenAIAttributes.GEN_AI_RESPONSE_ID, response.id)
         span.set_attribute(GenAIAttributes.GEN_AI_RESPONSE_MODEL, response.model)
         if response.usage:
-            input_tokens = response.usage.input_tokens or 0
-            cache_read_tokens = response.usage.cache_read_input_tokens or 0
-            cache_creation_tokens = response.usage.cache_creation_input_tokens or 0
-            input_total = input_tokens + cache_read_tokens + cache_creation_tokens
-            output_tokens = response.usage.output_tokens or 0
-            span.set_attribute(GenAIAttributes.GEN_AI_USAGE_INPUT_TOKENS, input_total)
-            span.set_attribute(GenAIAttributes.GEN_AI_USAGE_OUTPUT_TOKENS, output_tokens)
-            span.set_attribute(SpanAttributes.LLM_USAGE_TOTAL_TOKENS, input_total + output_tokens)
+            usage = usage_from_anthropic(
+                response.usage,
+                provider=Provider.ANTHROPIC,
+                model=response.model,
+            )
+            if usage.prompt.total is not None:
+                span.set_attribute(
+                    GenAIAttributes.GEN_AI_USAGE_INPUT_TOKENS,
+                    usage.prompt.total,
+                )
+            if usage.completion.total is not None:
+                span.set_attribute(
+                    GenAIAttributes.GEN_AI_USAGE_OUTPUT_TOKENS,
+                    usage.completion.total,
+                )
+            if usage.total is not None:
+                span.set_attribute(SpanAttributes.LLM_USAGE_TOTAL_TOKENS, usage.total)
     if not had_error:
         span.set_status(Status(StatusCode.OK))
     span.end()
@@ -2639,10 +2648,10 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if not response.usage:
             return
         try:
-            turn_usage = TurnUsage.from_anthropic(
+            turn_usage = usage_from_anthropic(
                 response.usage,
-                model or DEFAULT_ANTHROPIC_MODEL,
                 provider=self.provider,
+                model=model or DEFAULT_ANTHROPIC_MODEL,
             )
             self._finalize_turn_usage(turn_usage)
         except Exception as exc:

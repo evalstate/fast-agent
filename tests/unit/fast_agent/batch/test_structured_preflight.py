@@ -382,19 +382,26 @@ def test_extracts_timing_and_usage_channels() -> None:
         content=[],
         channels={
             FAST_AGENT_TIMING: [text_content('{"duration_ms": 12.5}')],
-            FAST_AGENT_USAGE: [
-                text_content(
-                    '{"turn": {"total_tokens": 42}, "summary": {"cumulative_input_tokens": 40}}'
-                )
-            ],
+                FAST_AGENT_USAGE: [
+                    text_content(
+                        '{"schema":"fast-agent.usage/v2","provider_attempts":[{"provider":"openai",'
+                        '"usage_schema":"openai-chat","model":"test",'
+                        '"prompt":{"total":40},"completion":{"total":2}}'
+                        ']}'
+                    )
+                ],
         },
     )
 
     assert _extract_timing(response) == {"duration_ms": 12.5}
-    assert _extract_usage(response) == {
-        "turn": {"total_tokens": 42},
-        "summary": {"cumulative_input_tokens": 40},
-    }
+    usage = _extract_usage(response)
+    assert usage is not None
+    assert usage["schema"] == "fast-agent.usage/v2"
+    attempts = usage["provider_attempts"]
+    assert isinstance(attempts, list)
+    assert len(attempts) == 1
+    assert attempts[0]["prompt"]["total"] == 40
+    assert attempts[0]["completion"]["total"] == 2
 
 
 @pytest.mark.asyncio

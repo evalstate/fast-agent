@@ -552,52 +552,58 @@ class TestCompactConversation:
 @pytest.mark.unit
 class TestUsageEstimateOverride:
     def test_add_turn_clears_estimate(self):
-        from fast_agent.llm.usage_tracking import FastAgentUsage, TurnUsage
+        from fast_agent.llm.provider_types import Provider
+        from fast_agent.llm.usage_tracking import (
+            CompletionTokenUsage,
+            PromptTokenUsage,
+            TurnUsage,
+            UsageSchema,
+        )
 
         usage = UsageAccumulator()
         usage.set_context_estimate(1234)
         assert usage.current_context_tokens == 1234
 
         usage.add_turn(
-            TurnUsage.from_fast_agent(
-                FastAgentUsage(
-                    input_chars=400,
-                    output_chars=40,
-                    model_type="fake",
-                    tool_calls=0,
-                    delay_seconds=0.0,
-                ),
+            TurnUsage(
+                provider=Provider.OPENAI,
+                usage_schema=UsageSchema.OPENAI_CHAT,
                 model="fake",
+                prompt=PromptTokenUsage(total=400),
+                completion=CompletionTokenUsage(total=40),
             )
         )
         assert usage.current_context_tokens != 1234
 
-    def test_context_estimate_does_not_change_cumulative_billing_totals(self):
-        from fast_agent.llm.usage_tracking import FastAgentUsage, TurnUsage
+    def test_context_estimate_does_not_change_usage_summary(self):
+        from fast_agent.llm.provider_types import Provider
+        from fast_agent.llm.usage_tracking import (
+            CompletionTokenUsage,
+            PromptTokenUsage,
+            TurnUsage,
+            UsageSchema,
+        )
 
         usage = UsageAccumulator()
         usage.add_turn(
-            TurnUsage.from_fast_agent(
-                FastAgentUsage(
-                    input_chars=400,
-                    output_chars=40,
-                    model_type="fake",
-                    tool_calls=0,
-                    delay_seconds=0.0,
-                ),
+            TurnUsage(
+                provider=Provider.OPENAI,
+                usage_schema=UsageSchema.OPENAI_CHAT,
                 model="fake",
+                prompt=PromptTokenUsage(total=400),
+                completion=CompletionTokenUsage(total=40),
             )
         )
 
-        assert usage.cumulative_input_tokens == 400
-        assert usage.cumulative_output_tokens == 40
-        assert usage.cumulative_billing_tokens == 440
+        assert usage.summary.prompt.total == 400
+        assert usage.summary.completion.total == 40
+        assert usage.summary.total == 440
 
         usage.set_context_estimate(123)
 
         assert usage.current_context_tokens == 123
-        assert usage.cumulative_input_tokens == 400
-        assert usage.cumulative_output_tokens == 40
-        assert usage.cumulative_billing_tokens == 440
+        assert usage.summary.prompt.total == 400
+        assert usage.summary.completion.total == 40
+        assert usage.summary.total == 440
         assert usage.get_summary()["current_context_tokens"] == 123
-        assert usage.get_summary()["cumulative_billing_tokens"] == 440
+        assert usage.get_summary()["total"] == 440

@@ -98,48 +98,20 @@ async def test_returns_assistant_message_verbatim():
 
 
 @pytest.mark.asyncio
-async def test_usage_tracking():
-    """Test that PassthroughLLM correctly tracks usage"""
+async def test_passthrough_does_not_report_character_counts_as_tokens():
     llm: FastAgentLLMProtocol = PassthroughLLM()
 
-    # Initially no usage
-    assert llm.usage_accumulator.turn_count == 0
-    assert llm.usage_accumulator.cumulative_billing_tokens == 0
-
-    # Generate a response
     await llm.generate(messages=[Prompt.user("test message")])
-
-    # Should have tracked one turn
-    assert llm.usage_accumulator.turn_count == 1
-    assert llm.usage_accumulator.cumulative_billing_tokens > 0
-    assert llm.usage_accumulator.current_context_tokens > 0
-
-    # Generate another response
     await llm.generate(messages=[Prompt.user("second message")])
 
-    # Should have tracked two turns with cumulative totals
-    assert llm.usage_accumulator.turn_count == 2
-    assert llm.usage_accumulator.cumulative_billing_tokens > 0
+    assert llm.usage_accumulator.turns == []
+    assert llm.usage_accumulator.summary.total is None
 
 
 @pytest.mark.asyncio
-async def test_tool_call_usage_tracking():
-    """Test that PassthroughLLM correctly tracks tool call usage"""
+async def test_passthrough_tool_call_does_not_create_token_usage():
     llm: FastAgentLLMProtocol = PassthroughLLM()
 
-    # Initially no usage
-    assert llm.usage_accumulator.turn_count == 0
-
-    # Make a tool call
     await llm.generate(messages=[Prompt.user(f"{CALL_TOOL_INDICATOR} some_tool {{}}")])
 
-    # Should have tracked the tool call turn
-    assert llm.usage_accumulator.turn_count == 1
-    assert llm.usage_accumulator.cumulative_billing_tokens > 0
-    assert llm.usage_accumulator.current_context_tokens > 0
-
-    # Check that the usage was tracked with tool call data
-    last_turn = llm.usage_accumulator.turns[-1]
-    assert isinstance(last_turn.raw_usage, dict)
-    assert last_turn.raw_usage["tool_calls"] == 1
-    assert last_turn.raw_usage["model_type"] == "passthrough"
+    assert llm.usage_accumulator.turns == []

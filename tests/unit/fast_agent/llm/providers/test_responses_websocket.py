@@ -10,6 +10,7 @@ import pytest
 from aiohttp import WSMsgType
 from mcp.types import TextContent
 
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
@@ -1037,6 +1038,8 @@ async def test_responses_llm_close_closes_websocket_manager() -> None:
 class _TransportHarness(ResponsesLLM):
     def __init__(self, **kwargs: Any) -> None:
         self.ws_error: ResponsesWebSocketError | None = None
+        self.sse_errors: list[Exception | None] = []
+        self.sse_texts: list[str | None] = []
         self.sse_calls = 0
         self.ws_calls = 0
         super().__init__(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex", **kwargs)
@@ -1053,14 +1056,22 @@ class _TransportHarness(ResponsesLLM):
         model_name: str,
     ) -> tuple[Any, list[str], list[dict[str, Any]]]:
         self.sse_calls += 1
+        error = self.sse_errors.pop(0) if self.sse_errors else None
+        if error is not None:
+            raise error
+        text = self.sse_texts.pop(0) if self.sse_texts else "sse"
         response = SimpleNamespace(
             status="completed",
-            output=[
-                SimpleNamespace(
-                    type="message",
-                    content=[SimpleNamespace(type="output_text", text="sse")],
-                )
-            ],
+            output=(
+                [
+                    SimpleNamespace(
+                        type="message",
+                        content=[SimpleNamespace(type="output_text", text=text)],
+                    )
+                ]
+                if text is not None
+                else []
+            ),
             usage=None,
         )
         return response, [], input_items
@@ -1617,6 +1628,82 @@ async def test_auto_transport_falls_back_to_sse_before_stream_start() -> None:
     assert harness.sse_calls == 1
     assert harness.active_transport == "sse"
     assert result.content == [TextContent(type="text", text="sse")]
+
+
+@pytest.mark.asyncio
+async def test_empty_responses_completion_retries_once() -> None:
+    harness = _TransportHarness(name="transport-harness", transport="sse")
+    harness.sse_texts = [None, "recovered"]
+    params = RequestParams(model="gpt-5.3-codex")
+
+    result = await harness._responses_completion(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "hello"}],
+            }
+        ],
+        request_params=params,
+    )
+
+    assert harness.sse_calls == 2
+    assert result.content == [TextContent(type="text", text="recovered")]
+
+
+@pytest.mark.asyncio
+async def test_empty_response_retry_failure_uses_configured_retry_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = _TransportHarness(name="transport-harness", transport="sse")
+    harness.retry_count = 1
+    harness.sse_errors = [None, RuntimeError("transient transport failure"), None]
+    harness.sse_texts = [None, "recovered"]
+    params = RequestParams(model="gpt-5.3-codex")
+
+    async def no_wait(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+
+    monkeypatch.setattr(harness, "_wait_before_retry", no_wait)
+
+    result = await harness._execute_with_retry(
+        harness._responses_completion,
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "hello"}],
+            }
+        ],
+        request_params=params,
+    )
+
+    assert harness.sse_calls == 3
+    assert result.content == [TextContent(type="text", text="recovered")]
+
+
+@pytest.mark.asyncio
+async def test_repeated_empty_responses_completion_returns_error() -> None:
+    harness = _TransportHarness(name="transport-harness", transport="sse")
+    harness.sse_texts = [None, None]
+    params = RequestParams(model="gpt-5.3-codex")
+
+    result = await harness._responses_completion(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "hello"}],
+            }
+        ],
+        request_params=params,
+    )
+
+    assert harness.sse_calls == 2
+    assert result.stop_reason == "error"
+    assert "no assistant content or tool calls after one retry" in result.first_text()
+    assert result.channels is not None
+    assert FAST_AGENT_ERROR_CHANNEL in result.channels
 
 
 @pytest.mark.asyncio

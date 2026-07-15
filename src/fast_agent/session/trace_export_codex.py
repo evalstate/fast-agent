@@ -30,6 +30,7 @@ from fast_agent.constants import (
     REASONING,
 )
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator, UsageReport, UsageSummary
 from fast_agent.mcp.helpers.content_helpers import (
     canonicalize_tool_result_content_for_llm,
     get_image_data,
@@ -809,12 +810,19 @@ def _message_timing_payload(message: PromptMessageExtended) -> dict[str, object]
     return payloads[0] if payloads else None
 
 
-def _usage_turn_payload(message: PromptMessageExtended) -> dict[str, object] | None:
-    return _object_mapping((_message_usage_payload(message) or {}).get("turn"))
+def _usage_report(message: PromptMessageExtended) -> UsageReport | None:
+    payload = _message_usage_payload(message)
+    if payload is None:
+        return None
+    try:
+        return UsageReport.model_validate(payload)
+    except ValueError:
+        return None
 
 
-def _usage_summary_payload(message: PromptMessageExtended) -> dict[str, object] | None:
-    return _object_mapping((_message_usage_payload(message) or {}).get("summary"))
+def _turn_usage(message: PromptMessageExtended) -> TurnUsage | None:
+    report = _usage_report(message)
+    return report.final_attempt if report is not None else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -876,16 +884,13 @@ def _trace_meta(resolved: ResolvedSessionExport) -> _TraceMeta:
     model_context_window = _model_context_window(model_spec, model)
 
     for message in resolved.history:
-        turn_payload = _usage_turn_payload(message)
-        summary_payload = _usage_summary_payload(message)
+        turn = _turn_usage(message)
         if model is None:
-            model = _string_field(turn_payload, "model")
+            model = turn.model if turn is not None else None
         if model_spec is None:
-            model_spec = _string_field(turn_payload, "model")
+            model_spec = turn.model if turn is not None else None
         if provider is None:
-            provider = _string_field(turn_payload, "provider")
-        if model_context_window is None:
-            model_context_window = _int_field(summary_payload, "context_window_size")
+            provider = turn.provider.value if turn is not None else None
         if model_context_window is None:
             model_context_window = _model_context_window(model_spec, model)
         if (
@@ -906,78 +911,19 @@ def _trace_meta(resolved: ResolvedSessionExport) -> _TraceMeta:
     )
 
 
-def _cached_input_tokens(turn_payload: dict[str, object] | None) -> int | None:
-    cache_payload = _object_mapping((turn_payload or {}).get("cache_usage"))
-    cache_read_tokens = _int_field(cache_payload, "cache_read_tokens")
-    if cache_read_tokens not in {None, 0}:
-        return cache_read_tokens
-    return _int_field(cache_payload, "cache_hit_tokens")
-
-
-def _token_usage_from_turn_payload(turn_payload: dict[str, object]) -> dict[str, object] | None:
+def _token_usage_from_summary(summary: UsageSummary) -> dict[str, object] | None:
     token_usage: dict[str, object] = {}
 
-    input_tokens = _int_field(turn_payload, "display_input_tokens")
-    if input_tokens is None:
-        input_tokens = _int_field(turn_payload, "input_tokens")
-    if input_tokens is not None:
-        token_usage["input_tokens"] = input_tokens
-
-    cached_input_tokens = _cached_input_tokens(turn_payload)
-    if cached_input_tokens is not None:
-        token_usage["cached_input_tokens"] = cached_input_tokens
-
-    output_tokens = _int_field(turn_payload, "output_tokens")
-    if output_tokens is not None:
-        token_usage["output_tokens"] = output_tokens
-
-    reasoning_output_tokens = _int_field(turn_payload, "reasoning_tokens")
-    if reasoning_output_tokens is not None:
-        token_usage["reasoning_output_tokens"] = reasoning_output_tokens
-
-    total_tokens = _int_field(turn_payload, "total_tokens")
-    if total_tokens is not None:
-        token_usage["total_tokens"] = total_tokens
-
-    if not token_usage:
-        return None
-
-    return token_usage
-
-
-def _cached_input_tokens_from_summary(summary_payload: dict[str, object] | None) -> int | None:
-    cache_read_tokens = _int_field(summary_payload, "cumulative_cache_read_tokens")
-    cache_hit_tokens = _int_field(summary_payload, "cumulative_cache_hit_tokens")
-    total = (cache_read_tokens or 0) + (cache_hit_tokens or 0)
-    return total if total > 0 else None
-
-
-def _token_usage_from_summary_payload(
-    summary_payload: dict[str, object] | None,
-) -> dict[str, object] | None:
-    token_usage: dict[str, object] = {}
-
-    input_tokens = _int_field(summary_payload, "cumulative_input_tokens")
-    if input_tokens is not None:
-        token_usage["input_tokens"] = input_tokens
-
-    cached_input_tokens = _cached_input_tokens_from_summary(summary_payload)
-    if cached_input_tokens is not None:
-        token_usage["cached_input_tokens"] = cached_input_tokens
-
-    output_tokens = _int_field(summary_payload, "cumulative_output_tokens")
-    if output_tokens is not None:
-        token_usage["output_tokens"] = output_tokens
-
-    reasoning_output_tokens = _int_field(summary_payload, "cumulative_reasoning_tokens")
-    if reasoning_output_tokens is not None:
-        token_usage["reasoning_output_tokens"] = reasoning_output_tokens
-
-    total_tokens = _int_field(summary_payload, "cumulative_billing_tokens")
-    if total_tokens is None:
-        total_tokens = _int_field(summary_payload, "current_context_tokens")
-    if total_tokens is not None:
-        token_usage["total_tokens"] = total_tokens
+    if summary.prompt.total is not None:
+        token_usage["input_tokens"] = summary.prompt.total
+    if summary.prompt.cache_read is not None:
+        token_usage["cached_input_tokens"] = summary.prompt.cache_read
+    if summary.completion.total is not None:
+        token_usage["output_tokens"] = summary.completion.total
+    if summary.completion.reasoning is not None:
+        token_usage["reasoning_output_tokens"] = summary.completion.reasoning
+    if summary.total is not None:
+        token_usage["total_tokens"] = summary.total
 
     if not token_usage:
         return None
@@ -989,16 +935,19 @@ def _token_count_payload(
     message: PromptMessageExtended,
     *,
     model_context_window: int | None,
+    usage_accumulator: UsageAccumulator,
 ) -> dict[str, object] | None:
-    turn_payload = _usage_turn_payload(message)
-    if turn_payload is None:
+    report = _usage_report(message)
+    if report is None:
         return None
+    for attempt in report.provider_attempts:
+        usage_accumulator.add_turn(attempt)
 
-    last_token_usage = _token_usage_from_turn_payload(turn_payload)
+    last_token_usage = _token_usage_from_summary(report.consumed)
     if last_token_usage is None:
         return None
 
-    total_token_usage = _token_usage_from_summary_payload(_usage_summary_payload(message))
+    total_token_usage = _token_usage_from_summary(usage_accumulator.summary)
     if total_token_usage is None:
         total_token_usage = dict(last_token_usage)
 
@@ -1347,6 +1296,7 @@ def _message_records(
     message_timestamp: datetime | None,
     meta: _TraceMeta,
     sanitization: _TextSanitization | None,
+    usage_accumulator: UsageAccumulator,
 ) -> list[dict[str, object]]:
     records = [
         _record(
@@ -1362,6 +1312,7 @@ def _message_records(
     token_count = _token_count_payload(
         message,
         model_context_window=meta.model_context_window,
+        usage_accumulator=usage_accumulator,
     )
     if token_count is not None:
         records.append(
@@ -1517,6 +1468,7 @@ class CodexTraceWriter:
             records.append(_finish_turn_record(current_turn, sanitization))
             current_turn = None
 
+        usage_accumulator = UsageAccumulator()
         for message, message_timestamp in zip(
             resolved.history, resolved.message_timestamps, strict=True
         ):
@@ -1528,7 +1480,15 @@ class CodexTraceWriter:
 
             if current_turn is not None:
                 _observe_turn_message(current_turn, message, message_timestamp)
-            records.extend(_message_records(message, message_timestamp, meta, sanitization))
+            records.extend(
+                _message_records(
+                    message,
+                    message_timestamp,
+                    meta,
+                    sanitization,
+                    usage_accumulator,
+                )
+            )
 
         finish_turn()
         return records

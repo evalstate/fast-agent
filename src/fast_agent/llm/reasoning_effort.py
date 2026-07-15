@@ -285,6 +285,22 @@ def format_reasoning_setting(setting: ReasoningEffortSetting | None) -> str:
     return "unknown"
 
 
+def reasoning_setting_telemetry_value(
+    setting: ReasoningEffortSetting | None,
+) -> str | None:
+    """Serialize the effective setting without UI labels."""
+
+    if setting is None:
+        return None
+    if setting.kind == "effort":
+        return str(setting.value)
+    if setting.kind == "budget":
+        return str(setting.value)
+    if setting.kind == "toggle":
+        return "enabled" if setting.value else "none"
+    return None
+
+
 def _available_effort_values(spec: ReasoningEffortSpec) -> list[str]:
     values: list[str] = list(spec.allowed_efforts or EFFORT_LEVELS)
     if spec.allow_auto:

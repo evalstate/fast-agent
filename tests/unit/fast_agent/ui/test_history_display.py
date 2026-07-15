@@ -83,7 +83,19 @@ def test_display_history_show_includes_ttft_and_response_columns() -> None:
                     TextContent(
                         type="text",
                         text=json.dumps(
-                            {"turn": {"output_tokens": 8}, "raw_usage": {}, "summary": {}}
+                            {
+                                "schema": "fast-agent.usage/v2",
+                                "provider_attempts": [
+                                    {
+                                        "provider": "openai",
+                                        "usage_schema": "openai-chat",
+                                        "model": "test",
+                                        "prompt": {"total": 10},
+                                        "completion": {"total": 8},
+                                        "raw_usage": {},
+                                    }
+                                ],
+                            }
                         ),
                     )
                 ],

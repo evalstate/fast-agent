@@ -6,9 +6,7 @@ from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.interfaces import ModelT
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
 from fast_agent.mcp.prompt import Prompt
-from fast_agent.mcp.prompts.prompt_helpers import MessageContent
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 # TODO -- support tool usage/replay
@@ -78,28 +76,12 @@ class PlaybackLLM(PassthroughLLM):
 
             # In PlaybackLLM, we always return "HISTORY LOADED" on initialization,
             # regardless of the prompt content. The next call will return messages.
+            self._synthetic_turn_count += 1
             return Prompt.assistant(f"HISTORY LOADED ({len(self._messages)}) messages")
 
         response = self._get_next_assistant_message()
 
-        # Track usage for this playback "turn"
-        try:
-            input_content = str(messages) if messages else ""
-            output_content = MessageContent.get_first_text(response) or ""
-
-            turn_usage = create_turn_usage_from_messages(
-                input_content=input_content,
-                output_content=output_content,
-                model="playback",
-                model_type="playback",
-                tool_calls=0,
-                delay_seconds=0.0,
-            )
-            self.usage_accumulator.add_turn(turn_usage)
-
-        except Exception as e:
-            self.logger.warning(f"Failed to track usage: {e}")
-
+        self._synthetic_turn_count += 1
         return response
 
     async def structured(

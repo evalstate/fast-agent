@@ -18,7 +18,7 @@ from mcp.types import (
     Tool,
 )
 from openai import AsyncOpenAI
-from openai.types.responses import Response, ResponseFunctionToolCall
+from openai.types.responses import Response, ResponseFunctionToolCall, ResponseUsage
 from pydantic import AnyUrl, ValidationError
 
 from fast_agent.config import (
@@ -346,7 +346,8 @@ class _OutputHarness(ResponsesOutputMixin):
     def provider(self) -> Provider:
         return self._provider
 
-    def _finalize_turn_usage(self, usage) -> None:
+    def _finalize_turn_usage(self, usage, *, requested_service_tier=None) -> None:
+        usage.requested_service_tier = requested_service_tier
         self.captured_usages.append(usage)
 
     def _normalize_tool_ids(self, tool_use_id: str | None) -> tuple[str, str]:
@@ -737,7 +738,15 @@ def test_build_response_args_ignores_non_wire_custom_tool_meta_extra() -> None:
 def test_record_usage_uses_harness_provider() -> None:
     harness = _OutputHarness(provider=Provider.CODEX_RESPONSES)
 
-    usage = SimpleNamespace(input_tokens=12, output_tokens=8, total_tokens=20)
+    usage = ResponseUsage.model_validate(
+        {
+            "input_tokens": 12,
+            "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+            "output_tokens": 8,
+            "output_tokens_details": {"reasoning_tokens": 0},
+            "total_tokens": 20,
+        }
+    )
     harness._record_usage(usage, "gpt-5.3-codex")
 
     assert len(harness.captured_usages) == 1
@@ -2102,6 +2111,34 @@ def test_request_service_tier_overrides_configured_default() -> None:
     )
 
     assert args["service_tier"] == "flex"
+
+
+def test_request_service_tier_override_is_recorded_in_turn_usage() -> None:
+    llm = _build_responses_family_llm(
+        Provider.RESPONSES,
+        model_name="gpt-5.4",
+        configured_service_tier="fast",
+    )
+    context = llm._responses_completion_context(
+        RequestParams(model="gpt-5.4", service_tier="flex")
+    )
+    usage = ResponseUsage.model_validate(
+        {
+            "input_tokens": 12,
+            "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+            "output_tokens": 8,
+            "output_tokens_details": {"reasoning_tokens": 0},
+            "total_tokens": 20,
+        }
+    )
+
+    llm._record_usage(
+        usage,
+        context.model_name,
+        requested_service_tier=context.requested_service_tier,
+    )
+
+    assert llm.usage_accumulator.turns[-1].requested_service_tier == "flex"
 
 
 def test_codexresponses_request_service_tier_rejects_flex() -> None:

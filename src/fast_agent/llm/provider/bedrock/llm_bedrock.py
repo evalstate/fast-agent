@@ -32,7 +32,7 @@ from fast_agent.llm.reasoning_effort import (
     parse_reasoning_setting,
     validate_reasoning_setting,
 )
-from fast_agent.llm.usage_tracking import TurnUsage
+from fast_agent.llm.usage_tracking import usage_from_bedrock
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.utils.text import casefold_text, strip_casefold
@@ -1412,17 +1412,8 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             return
 
         try:
-            input_tokens = int(usage.get("input_tokens", 0) or 0)
-            output_tokens = int(usage.get("output_tokens", 0) or 0)
-            turn_usage = TurnUsage(
-                provider=Provider.BEDROCK,
-                model=model,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=input_tokens + output_tokens,
-                raw_usage=usage,
-            )
-            self.usage_accumulator.add_turn(turn_usage)
+            turn_usage = usage_from_bedrock(usage, model=model)
+            self._finalize_turn_usage(turn_usage)
         except Exception as exc:
             self.logger.warning(f"Failed to track usage: {exc}")
 

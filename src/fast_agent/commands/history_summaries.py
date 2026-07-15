@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from fast_agent.commands.summary_utils import json_object
 from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING, FAST_AGENT_USAGE
 from fast_agent.history.tool_activities import message_tool_call_count, message_tool_error_count
+from fast_agent.llm.usage_tracking import UsageReport
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.conversation_summary import ConversationSummary
 from fast_agent.utils.numeric import nonnegative_int_or_none, nonnegative_number_or_none
@@ -238,10 +239,11 @@ def extract_message_output_tokens(message: "PromptMessageExtended") -> int | Non
     payload = extract_message_usage_payload(message)
     if payload is None:
         return None
-    turn_payload = _json_object_or_none(payload.get("turn"))
-    if turn_payload is None:
+    try:
+        report = UsageReport.model_validate(payload)
+    except ValueError:
         return None
-    return _coerce_int(turn_payload.get("output_tokens"))
+    return report.consumed.completion.total
 
 
 def _extract_message_metric_ms(

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
+from fast_agent.llm.usage_tracking import UsageReport
 from fast_agent.utils.numeric import finite_number_or_none, nonnegative_int_or_none
 
 if TYPE_CHECKING:
@@ -41,127 +42,78 @@ class BatchTrackioOptions:
 class BatchUsageTotals:
     """Cumulative usage/cache totals across processed batch rows."""
 
-    input_tokens: int = 0
-    output_tokens: int = 0
-    total_tokens: int = 0
-    billing_tokens: int = 0
-    reasoning_tokens: int = 0
-    tool_use_tokens: int = 0
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    tool_use_prompt_tokens: int | None = None
     tool_calls: int = 0
     rows_with_usage: int = 0
-    cache_read_tokens: int = 0
-    cache_write_tokens: int = 0
-    cache_hit_tokens: int = 0
-    effective_input_tokens: int = 0
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
     rows_with_cache_activity: int = 0
 
     def add_row_usage(self, usage: Mapping[str, Any] | None) -> None:
-        """Add normalized fast-agent usage telemetry for one processed row."""
+        """Add one canonical fast-agent usage observation."""
 
-        source = _usage_source(usage)
-        if source is None:
+        if usage is None:
             return
+        try:
+            report = UsageReport.model_validate(usage)
+        except ValueError:
+            return
+        usage_summary = report.consumed
 
+        prior_rows = self.rows_with_usage
         self.rows_with_usage += 1
-        is_summary = _mapping(usage.get("summary")) is source if usage is not None else False
-        cache_source = source if is_summary else _mapping(source.get("cache_usage"))
-
-        if is_summary:
-            input_tokens = _int(source, "cumulative_input_tokens", "input_tokens")
-            output_tokens = _int(source, "cumulative_output_tokens", "output_tokens")
-            total_tokens = _int(source, "cumulative_total_tokens", "total_tokens")
-            billing_tokens = _int(source, "cumulative_billing_tokens", "billing_tokens")
-            tool_use_tokens = _int(source, "cumulative_tool_use_tokens", "tool_use_tokens")
-            reasoning_tokens = _int(source, "cumulative_reasoning_tokens", "reasoning_tokens")
-            tool_calls = _int(source, "cumulative_tool_calls", "tool_calls")
-            cache_read_tokens = _int(source, "cumulative_cache_read_tokens", "cache_read_tokens")
-            cache_write_tokens = _int(source, "cumulative_cache_write_tokens", "cache_write_tokens")
-            cache_hit_tokens = _int(source, "cumulative_cache_hit_tokens", "cache_hit_tokens")
-            effective_input_tokens = _int(
-                source, "cumulative_effective_input_tokens", "effective_input_tokens"
-            )
-        else:
-            input_tokens = _int(source, "display_input_tokens", "input_tokens")
-            output_tokens = _int(source, "output_tokens")
-            total_tokens = _int(source, "total_tokens")
-            billing_tokens = _int(source, "billing_tokens")
-            tool_use_tokens = _int(source, "tool_use_tokens")
-            reasoning_tokens = _int(source, "reasoning_tokens")
-            tool_calls = _int(source, "tool_calls")
-            cache_read_tokens = _int(cache_source, "cache_read_tokens")
-            cache_write_tokens = _int(cache_source, "cache_write_tokens")
-            cache_hit_tokens = _int(cache_source, "cache_hit_tokens")
-            effective_input_tokens = _int(source, "effective_input_tokens")
-
-        if total_tokens == 0:
-            total_tokens = input_tokens + output_tokens
-        if billing_tokens == 0:
-            billing_tokens = total_tokens
-
-        self.input_tokens += input_tokens
-        self.output_tokens += output_tokens
-        self.total_tokens += total_tokens
-        self.billing_tokens += billing_tokens
-        self.reasoning_tokens += reasoning_tokens
-        self.tool_use_tokens += tool_use_tokens
-        self.tool_calls += tool_calls
-        self.cache_read_tokens += cache_read_tokens
-        self.cache_write_tokens += cache_write_tokens
-        self.cache_hit_tokens += cache_hit_tokens
-        self.effective_input_tokens += effective_input_tokens
-        if cache_read_tokens + cache_write_tokens + cache_hit_tokens > 0:
+        self.prompt_tokens = _add_complete(
+            self.prompt_tokens, usage_summary.prompt.total, prior_rows=prior_rows
+        )
+        self.completion_tokens = _add_complete(
+            self.completion_tokens, usage_summary.completion.total, prior_rows=prior_rows
+        )
+        self.total_tokens = _add_complete(
+            self.total_tokens, usage_summary.total, prior_rows=prior_rows
+        )
+        self.reasoning_tokens = _add_complete(
+            self.reasoning_tokens, usage_summary.completion.reasoning, prior_rows=prior_rows
+        )
+        self.tool_use_prompt_tokens = _add_complete(
+            self.tool_use_prompt_tokens, usage_summary.prompt.tool_use, prior_rows=prior_rows
+        )
+        self.cache_read_tokens = _add_complete(
+            self.cache_read_tokens, usage_summary.prompt.cache_read, prior_rows=prior_rows
+        )
+        self.cache_write_tokens = _add_complete(
+            self.cache_write_tokens, usage_summary.prompt.cache_write, prior_rows=prior_rows
+        )
+        self.tool_calls += usage_summary.tool_calls
+        if (usage_summary.prompt.cache_read or 0) > 0 or (
+            usage_summary.prompt.cache_write or 0
+        ) > 0:
             self.rows_with_cache_activity += 1
 
-    @property
-    def served_tokens(self) -> int:
-        return self.cache_read_tokens + self.cache_hit_tokens
-
-    @property
-    def activity_tokens(self) -> int:
-        return self.served_tokens + self.cache_write_tokens
-
-    @property
-    def input_context_tokens(self) -> int:
-        return max(
-            self.input_tokens,
-            self.effective_input_tokens + self.served_tokens + self.cache_write_tokens,
-        )
-
     def usage_block(self, *, processed_rows: int) -> dict[str, Any]:
-        return {
-            "input_tokens": self.input_tokens,
-            "output_tokens": self.output_tokens,
+        return _without_none({
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
             "total_tokens": self.total_tokens,
-            "billing_tokens": self.billing_tokens,
             "reasoning_tokens": self.reasoning_tokens,
-            "tool_use_tokens": self.tool_use_tokens,
+            "tool_use_prompt_tokens": self.tool_use_prompt_tokens,
             "tool_calls": self.tool_calls,
             "rows_with_usage": self.rows_with_usage,
             "usage_coverage_percent": _percent(self.rows_with_usage, processed_rows),
-        }
+        })
 
     def cache_block(self) -> dict[str, Any]:
-        input_context_tokens = self.input_context_tokens
-        non_cached_input_tokens = max(0, input_context_tokens - self.served_tokens)
-        return {
+        return _without_none({
             "read_tokens": self.cache_read_tokens,
             "write_tokens": self.cache_write_tokens,
-            "hit_tokens": self.cache_hit_tokens,
-            "served_tokens": self.served_tokens,
-            "activity_tokens": self.activity_tokens,
-            "effective_input_tokens": self.effective_input_tokens,
-            "hit_rate_percent": _percent(self.served_tokens, input_context_tokens),
-            "write_rate_percent": _percent(self.cache_write_tokens, input_context_tokens),
-            "activity_rate_percent": _percent(self.activity_tokens, input_context_tokens),
             "rows_with_cache_activity": self.rows_with_cache_activity,
             "row_cache_activity_percent": _percent(
                 self.rows_with_cache_activity, self.rows_with_usage
             ),
-            "non_cached_input_tokens": non_cached_input_tokens,
-            "served_to_effective_input_ratio": _ratio(
-                self.served_tokens, self.effective_input_tokens
-            ),
-        }
+        })
 
 
 class BatchMonitor(Protocol):
@@ -326,47 +278,67 @@ def merge_usage_totals_from_summaries(summaries: Sequence[Mapping[str, Any]]) ->
     for summary in summaries:
         usage = _mapping(summary.get("usage"))
         cache = _mapping(summary.get("cache"))
-        totals.input_tokens += _int(usage, "input_tokens")
-        totals.output_tokens += _int(usage, "output_tokens")
-        totals.total_tokens += _int(usage, "total_tokens")
-        totals.billing_tokens += _int(usage, "billing_tokens")
-        totals.reasoning_tokens += _int(usage, "reasoning_tokens")
-        totals.tool_use_tokens += _int(usage, "tool_use_tokens")
+        prior_groups = 1 if totals.rows_with_usage > 0 else 0
+        totals.prompt_tokens = _add_complete(
+            totals.prompt_tokens, _optional_int(usage, "prompt_tokens"), prior_rows=prior_groups
+        )
+        totals.completion_tokens = _add_complete(
+            totals.completion_tokens,
+            _optional_int(usage, "completion_tokens"),
+            prior_rows=prior_groups,
+        )
+        totals.total_tokens = _add_complete(
+            totals.total_tokens, _optional_int(usage, "total_tokens"), prior_rows=prior_groups
+        )
+        totals.reasoning_tokens = _add_complete(
+            totals.reasoning_tokens,
+            _optional_int(usage, "reasoning_tokens"),
+            prior_rows=prior_groups,
+        )
+        totals.tool_use_prompt_tokens = _add_complete(
+            totals.tool_use_prompt_tokens,
+            _optional_int(usage, "tool_use_prompt_tokens"),
+            prior_rows=prior_groups,
+        )
         totals.tool_calls += _int(usage, "tool_calls")
         totals.rows_with_usage += _int(usage, "rows_with_usage")
-        totals.cache_read_tokens += _int(cache, "read_tokens")
-        totals.cache_write_tokens += _int(cache, "write_tokens")
-        totals.cache_hit_tokens += _int(cache, "hit_tokens")
-        totals.effective_input_tokens += _int(cache, "effective_input_tokens")
+        totals.cache_read_tokens = _add_complete(
+            totals.cache_read_tokens,
+            _optional_int(cache, "read_tokens"),
+            prior_rows=prior_groups,
+        )
+        totals.cache_write_tokens = _add_complete(
+            totals.cache_write_tokens,
+            _optional_int(cache, "write_tokens"),
+            prior_rows=prior_groups,
+        )
         totals.rows_with_cache_activity += _int(cache, "rows_with_cache_activity")
     return totals
 
 
-def _usage_source(usage: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
-    if usage is None:
-        return None
-    turn = _mapping(usage.get("turn"))
-    if turn is not None:
-        return turn
-    summary = _mapping(usage.get("summary"))
-    if summary is not None:
-        return summary
-    if any(
-        key in usage
-        for key in (
-            "input_tokens",
-            "display_input_tokens",
-            "cumulative_input_tokens",
-            "total_tokens",
-            "cumulative_billing_tokens",
-        )
-    ):
-        return usage
-    return None
-
-
 def _mapping(value: object) -> Mapping[str, Any] | None:
     return cast("Mapping[str, Any]", value) if isinstance(value, Mapping) else None
+
+
+def _add_complete(
+    current: int | None,
+    observation: int | None,
+    *,
+    prior_rows: int,
+) -> int | None:
+    if prior_rows == 0:
+        return observation
+    if current is None or observation is None:
+        return None
+    return current + observation
+
+
+def _without_none(values: dict[str, Any | None]) -> dict[str, Any]:
+    return {key: value for key, value in values.items() if value is not None}
+
+
+def _optional_int(source: Mapping[str, Any] | None, key: str) -> int | None:
+    return nonnegative_int_or_none(source.get(key)) if source is not None else None
 
 
 def _int(source: Mapping[str, Any] | None, *keys: str) -> int:
@@ -521,12 +493,11 @@ def _add_usage_cache_metrics(
         metrics,
         usage,
         {
-            "input_tokens": "batch/usage/input_tokens",
-            "output_tokens": "batch/usage/output_tokens",
+            "prompt_tokens": "batch/usage/prompt_tokens",
+            "completion_tokens": "batch/usage/completion_tokens",
             "total_tokens": "batch/usage/total_tokens",
-            "billing_tokens": "batch/usage/billing_tokens",
             "reasoning_tokens": "batch/usage/reasoning_tokens",
-            "tool_use_tokens": "batch/usage/tool_use_tokens",
+            "tool_use_prompt_tokens": "batch/usage/tool_use_prompt_tokens",
             "tool_calls": "batch/usage/tool_calls",
             "rows_with_usage": "batch/usage/rows_with_usage",
             "usage_coverage_percent": "batch/usage/usage_coverage_percent",
@@ -538,29 +509,24 @@ def _add_usage_cache_metrics(
         {
             "read_tokens": "batch/cache/read_tokens",
             "write_tokens": "batch/cache/write_tokens",
-            "hit_tokens": "batch/cache/hit_tokens",
-            "served_tokens": "batch/cache/served_tokens",
-            "activity_tokens": "batch/cache/activity_tokens",
-            "effective_input_tokens": "batch/cache/effective_input_tokens",
-            "hit_rate_percent": "batch/cache/hit_rate_percent",
-            "write_rate_percent": "batch/cache/write_rate_percent",
-            "activity_rate_percent": "batch/cache/activity_rate_percent",
             "rows_with_cache_activity": "batch/cache/rows_with_cache_activity",
             "row_cache_activity_percent": "batch/cache/row_cache_activity_percent",
-            "non_cached_input_tokens": "batch/cache/non_cached_input_tokens",
-            "served_to_effective_input_ratio": "batch/cache/served_to_effective_input_ratio",
         },
     )
     rows_with_usage = _int(usage, "rows_with_usage")
     denominator = rows_with_usage or processed_rows
     _add_per_row_metric(
-        metrics, usage, "input_tokens", "batch/usage/input_tokens_per_row", denominator
+        metrics, usage, "prompt_tokens", "batch/usage/prompt_tokens_per_row", denominator
     )
     _add_per_row_metric(
-        metrics, usage, "output_tokens", "batch/usage/output_tokens_per_row", denominator
+        metrics,
+        usage,
+        "completion_tokens",
+        "batch/usage/completion_tokens_per_row",
+        denominator,
     )
     _add_per_row_metric(
-        metrics, usage, "billing_tokens", "batch/usage/billing_tokens_per_row", denominator
+        metrics, usage, "total_tokens", "batch/usage/total_tokens_per_row", denominator
     )
     _add_per_row_metric(
         metrics, usage, "reasoning_tokens", "batch/usage/reasoning_tokens_per_row", denominator

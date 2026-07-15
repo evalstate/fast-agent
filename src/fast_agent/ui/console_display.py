@@ -1629,11 +1629,8 @@ class ConsoleDisplay:
         accumulator = agent.usage_accumulator
         if not accumulator:
             return 0, 0
-        summary = accumulator.get_summary()
-        tokens = summary.get("cumulative_input_tokens", 0) + summary.get(
-            "cumulative_output_tokens", 0
-        )
-        return tokens, summary.get("cumulative_tool_calls", 0)
+        summary = accumulator.summary
+        return summary.total or 0, summary.tool_calls
 
     @classmethod
     def _parallel_agent_result(cls, agent: Any) -> ParallelAgentDisplayResult | None:

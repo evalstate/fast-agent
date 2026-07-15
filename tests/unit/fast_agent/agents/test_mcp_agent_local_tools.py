@@ -1473,6 +1473,48 @@ async def test_shell_output_limit_override_is_preserved_after_llm_attach() -> No
 
 
 @pytest.mark.asyncio
+async def test_local_shell_result_is_not_retruncated_by_mcp_result_policy() -> None:
+    settings = Settings(shell_execution=ShellSettings(output_byte_limit=9000))
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
+    agent = McpAgent(config=config, context=Context(config=settings))
+    output = "x" * 80
+
+    async def fake_call_tool(
+        name: str,
+        arguments: dict[str, object] | None = None,
+        tool_use_id: str | None = None,
+        *,
+        request_tool_handler: object | None = None,
+        request_params: RequestParams | None = None,
+    ) -> CallToolResult:
+        del name, arguments, tool_use_id, request_tool_handler, request_params
+        return CallToolResult(content=[TextContent(type="text", text=output)], isError=False)
+
+    agent.call_tool = cast("Any", fake_call_tool)
+    agent._model_tool_output_byte_limit = cast("Any", lambda _llm=None: 40)
+    request = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        tool_calls={
+            "call-1": CallToolRequest(
+                params=CallToolRequestParams(
+                    name="execute",
+                    arguments={"command": "emit output"},
+                )
+            )
+        },
+    )
+
+    result = await agent.run_tools(request)
+
+    assert result.tool_results is not None
+    shell_result = result.tool_results["call-1"]
+    assert shell_result.content == [TextContent(type="text", text=output)]
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
 async def test_shell_startup_warns_when_configured_cwd_missing(tmp_path: Path) -> None:
     missing_dir = tmp_path / "missing-shell-cwd"
     config = AgentConfig(

@@ -17,7 +17,7 @@ from fast_agent.core.template_render import extract_template_variables, render_t
 from fast_agent.interfaces import AgentProtocol
 from fast_agent.io.source_resolver import materialized_text_source
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
+from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator, UsageReport, UsageSchema
 from fast_agent.mcp import mime_utils, resource_utils
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.message_roles import (
@@ -30,6 +30,7 @@ from fast_agent.mcp.prompts.prompt_template import (
     PromptContent,
 )
 from fast_agent.types import PromptMessageExtended
+from fast_agent.utils.numeric import nonnegative_int_or_none
 from fast_agent.utils.text import strip_casefold
 
 logger = get_logger("prompt_load")
@@ -287,52 +288,66 @@ def _extract_usage_payloads(messages: list[PromptMessageExtended]) -> list[dict[
     return payloads
 
 
-def _payload_model(payload: dict[str, Any]) -> str | None:
-    summary = payload.get("summary")
-    if isinstance(summary, dict):
-        summary_model = summary.get("model")
-        if isinstance(summary_model, str) and summary_model:
-            return summary_model
-
-    turn = payload.get("turn")
-    if isinstance(turn, dict):
-        turn_model = turn.get("model")
-        if isinstance(turn_model, str) and turn_model:
-            return turn_model
-
-    return None
+def _usage_report_from_payload(payload: dict[str, Any]) -> UsageReport | None:
+    try:
+        return UsageReport.model_validate(payload)
+    except ValueError:
+        return _legacy_responses_usage_report(payload)
 
 
-def _payload_provider(payload: dict[str, Any]) -> Provider | None:
+def _legacy_responses_usage_report(payload: dict[str, Any]) -> UsageReport | None:
+    """Translate released unversioned Responses usage at the history-load boundary."""
+
+    if "schema" in payload:
+        return None
     turn = payload.get("turn")
     if not isinstance(turn, dict):
         return None
 
     provider_value = turn.get("provider")
-    if isinstance(provider_value, Provider):
-        return provider_value
-    if not isinstance(provider_value, str) or not provider_value:
+    model = turn.get("model")
+    if not isinstance(provider_value, str) or not isinstance(model, str):
         return None
-
     try:
-        return Provider(provider_value)
+        provider = Provider(provider_value)
     except ValueError:
         return None
-
-
-def _turn_usage_from_payload(payload: dict[str, Any]) -> TurnUsage | None:
-    turn_data = payload.get("turn")
-    if not isinstance(turn_data, dict):
+    if provider not in _RESPONSES_USAGE_PROVIDERS:
         return None
 
-    turn_snapshot = dict(turn_data)
-    if "raw_usage" in payload:
-        turn_snapshot["raw_usage"] = payload.get("raw_usage")
+    prompt_tokens = nonnegative_int_or_none(turn.get("input_tokens"))
+    completion_tokens = nonnegative_int_or_none(turn.get("output_tokens"))
+    if prompt_tokens is None or completion_tokens is None:
+        return None
 
+    cache_usage = turn.get("cache_usage")
+    cache = cache_usage if isinstance(cache_usage, dict) else {}
+    snapshot: dict[str, object] = {
+        "provider": provider,
+        "usage_schema": UsageSchema.OPENAI_RESPONSES,
+        "model": model,
+        "prompt": {
+            "total": prompt_tokens,
+            "cache_read": nonnegative_int_or_none(cache.get("cache_hit_tokens")) or 0,
+            "cache_write": nonnegative_int_or_none(cache.get("cache_write_tokens")) or 0,
+            "tool_use": turn.get("tool_use_tokens", 0),
+        },
+        "completion": {
+            "total": completion_tokens,
+            "reasoning": turn.get("reasoning_tokens", 0),
+        },
+        "tool_calls": turn.get("tool_calls", 0),
+        "service_tier": turn.get("service_tier"),
+        "raw_usage": payload.get("raw_usage"),
+    }
+    timestamp = turn.get("timestamp")
+    if isinstance(timestamp, int | float) and not isinstance(timestamp, bool):
+        snapshot["timestamp"] = float(timestamp)
     try:
-        return TurnUsage.model_validate(turn_snapshot)
-    except Exception:
+        attempt = TurnUsage.model_validate(snapshot)
+    except ValueError:
         return None
+    return UsageReport(provider_attempts=[attempt])
 
 
 def _rehydrate_responses_usage(
@@ -353,13 +368,21 @@ def _rehydrate_responses_usage(
     if not payloads:
         return None
 
-    history_provider = _payload_provider(payloads[-1])
+    reports = [
+        report
+        for payload in payloads
+        if (report := _usage_report_from_payload(payload)) is not None
+    ]
+    if not reports:
+        return None
+
+    history_provider = reports[-1].final_attempt.provider
     current_provider = llm.provider
     switched_responses_provider = (
         history_provider in _RESPONSES_USAGE_PROVIDERS and history_provider != current_provider
     )
 
-    history_model = _payload_model(payloads[-1])
+    history_model = reports[-1].final_attempt.model
     current_model = llm.model_name
     if (
         not switched_responses_provider
@@ -375,11 +398,9 @@ def _rehydrate_responses_usage(
         logger.warning(notice)
         return notice
 
-    for payload in payloads:
-        turn_usage = _turn_usage_from_payload(payload)
-        if turn_usage is None:
-            continue
-        usage_accumulator.add_turn(turn_usage)
+    for report in reports:
+        for attempt in report.provider_attempts:
+            usage_accumulator.add_turn(attempt)
 
     return None
 
@@ -405,4 +426,3 @@ def rehydrate_usage_from_history(
     """Rebuild usage state from saved history without mutating transcript state."""
     messages = _history_messages(history)
     return _rehydrate_responses_usage(agent, messages)
-

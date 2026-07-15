@@ -113,6 +113,7 @@ class _ResponsesCompletionContext:
     model_name: str
     transport: ResponsesTransport
     display_model: str
+    requested_service_tier: ResponsesServiceTier | None
 
 
 @dataclass(slots=True)
@@ -926,6 +927,7 @@ class ResponsesLLM(
             model_name=model_name,
             transport=transport,
             display_model=display_model,
+            requested_service_tier=self._resolve_service_tier(request_params, model_name),
         )
 
     def _reset_responses_transport_diagnostics(self) -> None:
@@ -1128,7 +1130,11 @@ class ResponsesLLM(
         channels = self._responses_server_tool_channels(response, channels)
 
         if getattr(response, "usage", None):
-            self._record_usage(response.usage, context.model_name)
+            self._record_usage(
+                response.usage,
+                context.model_name,
+                requested_service_tier=context.requested_service_tier,
+            )
         self.history.set(result.input_items)
 
         return PromptMessageExtended(
@@ -1141,6 +1147,42 @@ class ResponsesLLM(
             ),
             phase=message_phase,
         )
+
+    @staticmethod
+    def _is_empty_responses_completion(message: PromptMessageExtended) -> bool:
+        has_content = any(
+            not isinstance(block, TextContent) or bool(block.text.strip())
+            for block in message.content
+        )
+        return (
+            message.stop_reason == LlmStopReason.END_TURN
+            and not has_content
+            and not message.tool_calls
+        )
+
+    def _empty_responses_error(
+        self,
+        *,
+        context: _ResponsesCompletionContext,
+        retry_error: Exception | None = None,
+    ) -> PromptMessageExtended:
+        if retry_error is None:
+            error = RuntimeError(
+                "OpenAI Responses returned no assistant content or tool calls after one retry."
+            )
+        else:
+            error = RuntimeError(
+                "OpenAI Responses retry after an empty response failed: "
+                f"{retry_error}"
+            )
+        self.logger.error(
+            str(error),
+            data={
+                "model": context.model_name,
+                "transport": self._last_transport_used or "unknown",
+            },
+        )
+        return build_stream_failure_response(self.provider, error, context.model_name)
 
     async def _responses_completion(
         self,
@@ -1163,7 +1205,38 @@ class ResponsesLLM(
                 TextContent(type="text", text=""),
                 stop_reason=LlmStopReason.CANCELLED,
             )
-        return self._finalize_responses_completion(result=result, context=context)
+        message = self._finalize_responses_completion(result=result, context=context)
+        if not self._is_empty_responses_completion(message):
+            return message
+
+        self.logger.warning(
+            "OpenAI Responses returned no assistant content or tool calls; retrying once",
+            data={
+                "model": context.model_name,
+                "transport": self._last_transport_used or "unknown",
+            },
+        )
+        self._reset_responses_transport_diagnostics()
+        try:
+            retry_result = await self._run_responses_transport(
+                input_items=input_items,
+                request_params=request_params,
+                tools=tools,
+                context=context,
+            )
+        except asyncio.CancelledError:
+            return Prompt.assistant(
+                TextContent(type="text", text=""),
+                stop_reason=LlmStopReason.CANCELLED,
+            )
+
+        retry_message = self._finalize_responses_completion(
+            result=retry_result,
+            context=context,
+        )
+        if self._is_empty_responses_completion(retry_message):
+            return self._empty_responses_error(context=context)
+        return retry_message
 
     async def _responses_completion_sse(
         self,

@@ -77,6 +77,7 @@ from fast_agent.mcp.provider_management import (
     build_provider_managed_mcp_state,
     split_managed_server_names,
 )
+from fast_agent.mcp.tool_result_truncation import truncate_tool_result_for_llm
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME
@@ -160,6 +161,7 @@ class _PlannedMcpToolCall:
     display_tool_name: str
     namespaced_tool: NamespacedTool | None
     candidate_namespaced_tool: NamespacedTool | None
+    is_local_shell: bool = False
     metadata: dict[str, Any] | None = None
 
 
@@ -999,12 +1001,22 @@ class McpAgent(ABC, ToolAgent):
         if self._shell_output_limit_overridden():
             return
 
-        resolved_model = resolve_resolved_model(llm)
+        self._shell_runtime.set_output_byte_limit(self._model_tool_output_byte_limit(llm))
+
+    def _model_tool_output_byte_limit(
+        self,
+        llm: FastAgentLLMProtocol | None = None,
+    ) -> int:
+        active_llm = llm or self._llm
+        resolved_model = resolve_resolved_model(active_llm) if active_llm is not None else None
         if resolved_model is not None:
-            output_byte_limit = calculate_terminal_output_limit_for_resolved_model(resolved_model)
-        else:
-            output_byte_limit = calculate_terminal_output_limit_for_model(resolve_model_name(llm))
-        self._shell_runtime.set_output_byte_limit(output_byte_limit)
+            return calculate_terminal_output_limit_for_resolved_model(resolved_model)
+        model_name = (
+            resolve_model_name(active_llm)
+            if active_llm is not None
+            else self._resolve_shell_tool_model_name()
+        )
+        return calculate_terminal_output_limit_for_model(model_name)
 
     def _activate_shell_runtime(
         self,
@@ -1840,6 +1852,11 @@ class McpAgent(ABC, ToolAgent):
         tool_timings: dict[str, ToolTimingInfo],
         parallel: bool,
     ) -> None:
+        if not call.is_local_shell:
+            result = truncate_tool_result_for_llm(
+                result,
+                byte_limit=self._model_tool_output_byte_limit(),
+            )
         self._attach_read_text_file_display_metadata(
             result,
             display_tool_name=call.display_tool_name,
@@ -1972,6 +1989,11 @@ class McpAgent(ABC, ToolAgent):
             display_tool_name=display_tool_name,
             namespaced_tool=namespaced_tool,
             candidate_namespaced_tool=candidate_namespaced_tool,
+            is_local_shell=(
+                self._bash_tool is not None
+                and tool_name == self._bash_tool.name
+                and namespaced_tool is None
+            ),
             metadata=metadata,
         )
 

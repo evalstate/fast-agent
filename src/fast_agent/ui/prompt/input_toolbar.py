@@ -419,7 +419,9 @@ def _build_toolbar_agent_state_cache_key(
         model_name,
         history_len,
         last_message_id,
-        _safe_cache_value(usage_accumulator.turn_count if usage_accumulator is not None else None),
+        _safe_cache_value(
+            len(usage_accumulator.turns) if usage_accumulator is not None else None
+        ),
         _safe_cache_value(
             usage_accumulator.current_context_tokens if usage_accumulator is not None else None
         ),

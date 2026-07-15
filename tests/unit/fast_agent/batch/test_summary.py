@@ -51,20 +51,23 @@ def test_batch_summary_includes_usage_and_cache_blocks() -> None:
     summary.processed_rows = 1
     summary.add_usage(
         {
-            "summary": {
-                "cumulative_input_tokens": 10,
-                "cumulative_output_tokens": 3,
-                "cumulative_billing_tokens": 13,
-                "cumulative_cache_hit_tokens": 4,
-                "cumulative_effective_input_tokens": 6,
-            }
+            "schema": "fast-agent.usage/v2",
+            "provider_attempts": [
+                {
+                    "provider": "openai",
+                    "usage_schema": "openai-chat",
+                    "model": "test",
+                    "prompt": {"total": 10, "cache_read": 4},
+                    "completion": {"total": 3},
+                    "raw_usage": {},
+                }
+            ],
         }
     )
 
     payload = summary.to_dict("2026-06-02T00:00:01Z")
 
-    assert payload["usage"]["input_tokens"] == 10
-    assert payload["usage"]["output_tokens"] == 3
+    assert payload["usage"]["prompt_tokens"] == 10
+    assert payload["usage"]["completion_tokens"] == 3
     assert payload["usage"]["usage_coverage_percent"] == 100.0
-    assert payload["cache"]["hit_tokens"] == 4
-    assert payload["cache"]["hit_rate_percent"] == 40.0
+    assert payload["cache"]["read_tokens"] == 4

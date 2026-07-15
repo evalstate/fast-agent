@@ -1212,8 +1212,8 @@ class ACPServerSessionRuntime:
         if not totals:
             return None
 
-        input_tokens = totals["input_tokens"]
-        output_tokens = totals["output_tokens"]
+        input_tokens = totals["prompt_tokens"]
+        output_tokens = totals["completion_tokens"]
         tool_calls = totals["tool_calls"]
         tool_info = f", {tool_calls} tools" if tool_calls > 0 else ""
         context_pct = agent.usage_accumulator.context_usage_percentage

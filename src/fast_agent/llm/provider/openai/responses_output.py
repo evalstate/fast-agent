@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.types import CallToolRequest, CallToolRequestParams, ContentBlock, TextContent
-from openai.types.responses import ResponseReasoningItem
+from openai.types.responses import ResponseReasoningItem, ResponseUsage
 from pydantic_core import from_json
 
 from fast_agent.core.logging.json_serializer import snapshot_json_value
@@ -20,7 +20,7 @@ from fast_agent.llm.provider.openai.web_tools import (
     normalize_web_search_call_payload,
 )
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.usage_tracking import CacheUsage, TurnUsage
+from fast_agent.llm.usage_tracking import usage_from_openai_responses
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_INPUT_FIELD
 from fast_agent.types.assistant_message_phase import (
@@ -37,6 +37,7 @@ from fast_agent.utils.text import strip_casefold
 class ResponsesOutputMixin:
     if TYPE_CHECKING:
         from fast_agent.core.logging.logger import Logger
+        from fast_agent.llm.usage_tracking import TurnUsage
 
         logger: Logger
         _tool_call_id_map: dict[str, str]
@@ -45,7 +46,12 @@ class ResponsesOutputMixin:
         _seen_tool_call_ids: set[str]
         _tool_call_diagnostics: dict[str, Any] | None
 
-        def _finalize_turn_usage(self, usage: TurnUsage) -> None: ...
+        def _finalize_turn_usage(
+            self,
+            usage: TurnUsage,
+            *,
+            requested_service_tier: Literal["fast", "flex"] | None = None,
+        ) -> None: ...
 
         def _normalize_tool_ids(self, tool_use_id: str | None) -> tuple[str, str]: ...
 
@@ -237,38 +243,38 @@ class ResponsesOutputMixin:
         message_phase = phases[0] if len(unique_phases) == 1 else None
         return blocks, message_phase
 
-    def _record_usage(self, usage: Any, model_name: str) -> None:
+    def _record_usage(
+        self,
+        usage: ResponseUsage,
+        model_name: str,
+        *,
+        requested_service_tier: Literal["fast", "flex"] | None = None,
+    ) -> None:
         try:
             provider_value = getattr(self, "provider", Provider.RESPONSES)
             provider = (
                 provider_value if isinstance(provider_value, Provider) else Provider.RESPONSES
             )
-            input_tokens = getattr(usage, "input_tokens", 0) or 0
-            output_tokens = getattr(usage, "output_tokens", 0) or 0
-            total_tokens = getattr(usage, "total_tokens", 0) or (input_tokens + output_tokens)
-            cached_tokens = 0
-            details = getattr(usage, "input_tokens_details", None)
-            if details is not None:
-                cached_tokens = getattr(details, "cached_tokens", 0) or 0
-            reasoning_tokens = 0
-            output_details = getattr(usage, "output_tokens_details", None)
-            if output_details is not None:
-                reasoning_tokens = getattr(output_details, "reasoning_tokens", 0) or 0
-
-            cache_usage = CacheUsage(cache_hit_tokens=cached_tokens)
-            turn_usage = TurnUsage(
+            turn_usage = self._translate_responses_usage(
+                usage,
                 provider=provider,
                 model=model_name,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=total_tokens,
-                cache_usage=cache_usage,
-                reasoning_tokens=reasoning_tokens,
-                raw_usage=snapshot_json_value(usage),
             )
-            self._finalize_turn_usage(turn_usage)
+            self._finalize_turn_usage(
+                turn_usage,
+                requested_service_tier=requested_service_tier,
+            )
         except Exception as e:
             self.logger.warning(f"Failed to track Responses usage: {e}")
+
+    def _translate_responses_usage(
+        self,
+        usage: ResponseUsage,
+        *,
+        provider: Provider,
+        model: str,
+    ) -> TurnUsage:
+        return usage_from_openai_responses(usage, provider=provider, model=model)
 
     def _extract_tool_calls(self, response: Any) -> dict[str, CallToolRequest] | None:
         tool_calls: dict[str, CallToolRequest] = {}

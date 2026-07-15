@@ -33,7 +33,21 @@ def _timing_payload(
 
 
 def _usage_payload(output_tokens: int) -> str:
-    return json.dumps({"turn": {"output_tokens": output_tokens}, "raw_usage": {}, "summary": {}})
+    return json.dumps(
+        {
+            "schema": "fast-agent.usage/v2",
+            "provider_attempts": [
+                {
+                    "provider": "openai",
+                    "usage_schema": "openai-chat",
+                    "model": "test",
+                    "prompt": {"total": 10},
+                    "completion": {"total": output_tokens},
+                    "raw_usage": {},
+                }
+            ],
+        }
+    )
 
 
 def test_build_history_turn_report_calculates_turn_metrics() -> None:
