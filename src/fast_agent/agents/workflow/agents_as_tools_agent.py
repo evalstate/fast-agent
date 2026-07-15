@@ -1173,7 +1173,7 @@ class AgentsAsToolsAgent(McpAgent):
                     rendered_child_input=trace.rendered_child_input,
                     messages=trace.messages,
                     usage_summary=(
-                        clone.usage_accumulator.get_summary()
+                        clone.usage_accumulator.summary.model_dump(mode="json")
                         if clone.usage_accumulator is not None
                         else None
                     ),

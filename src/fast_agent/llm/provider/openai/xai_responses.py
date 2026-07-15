@@ -21,9 +21,11 @@ from fast_agent.llm.provider.openai.web_tools import (
     build_xai_web_search_tool,
 )
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.usage_tracking import TurnUsage, usage_from_responses_compatible
 
 if TYPE_CHECKING:
     from mcp import Tool
+    from openai.types.responses import ResponseUsage
 
     from fast_agent.llm.provider.openai.responses import ResponsesTransport
     from fast_agent.tool_activity_presentation import ToolActivityFamily
@@ -43,6 +45,19 @@ XAI_X_SEARCH_INTERNAL_TOOL_NAMES = frozenset(
 
 class XAIResponsesLLM(ResponsesLLM):
     """LLM implementation for xAI's Responses-compatible API."""
+
+    def _translate_responses_usage(
+        self,
+        usage: ResponseUsage,
+        *,
+        provider: Provider,
+        model: str,
+    ) -> TurnUsage:
+        return usage_from_responses_compatible(
+            usage.model_dump(mode="json"),
+            provider=provider,
+            model=model,
+        )
 
     config_section: str | None = "xai"
 

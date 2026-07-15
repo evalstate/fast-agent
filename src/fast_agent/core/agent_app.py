@@ -828,8 +828,8 @@ class AgentApp:
     ) -> None:
         """Show usage for a parallel agent and its children."""
         child_usage_data = []
-        total_input = 0
-        total_output = 0
+        total_prompt = 0
+        total_completion = 0
         total_tool_calls = 0
 
         for child_agent in parallel_agent.fan_out_agents:
@@ -838,8 +838,8 @@ class AgentApp:
             )
             if usage_info:
                 child_usage_data.append({**usage_info, "name": child_agent.name})
-                total_input += usage_info["input_tokens"]
-                total_output += usage_info["output_tokens"]
+                total_prompt += usage_info["prompt_tokens"]
+                total_completion += usage_info["completion_tokens"]
                 total_tool_calls += usage_info["tool_calls"]
 
         if parallel_agent.fan_in_agent:
@@ -849,8 +849,8 @@ class AgentApp:
             )
             if usage_info:
                 child_usage_data.append({**usage_info, "name": parallel_agent.fan_in_agent.name})
-                total_input += usage_info["input_tokens"]
-                total_output += usage_info["output_tokens"]
+                total_prompt += usage_info["prompt_tokens"]
+                total_completion += usage_info["completion_tokens"]
                 total_tool_calls += usage_info["tool_calls"]
 
         if not child_usage_data:
@@ -860,7 +860,7 @@ class AgentApp:
         with progress_display.paused():
             tool_info = f", {total_tool_calls} tool calls" if total_tool_calls > 0 else ""
             rich_print(
-                f"[dim]Last turn (parallel): {total_input:,} Input, {total_output:,} Output{tool_info}[/dim]"
+                f"[dim]Last turn (parallel): {total_prompt:,} Prompt, {total_completion:,} Completion{tool_info}[/dim]"
             )
 
             # Show individual child agent usage
@@ -881,24 +881,27 @@ class AgentApp:
         if not turns:
             return None
 
-        usage_totals, turn_slice = self._usage_totals_and_turns(agent, turn_start_index)
-        input_tokens = usage_totals["input_tokens"]
-        output_tokens = usage_totals["output_tokens"]
+        usage_result = self._usage_totals_and_turns(agent, turn_start_index)
+        if usage_result is None:
+            return None
+        usage_totals, turn_slice = usage_result
+        prompt_tokens = usage_totals["prompt_tokens"]
+        completion_tokens = usage_totals["completion_tokens"]
         tool_calls = usage_totals["tool_calls"]
         cache_indicators = self._cache_indicators(turn_slice)
         cache_expiry_text = self._cache_expiry_text(agent, cache_indicators)
         context_percentage = agent.usage_accumulator.context_usage_percentage
         display_text = self._usage_display_text(
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
             tool_calls=tool_calls,
             context_percentage=context_percentage,
         )
         cache_suffix = f" {cache_indicators}{cache_expiry_text}" if cache_indicators else ""
 
         return {
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
             "tool_calls": tool_calls,
             "context_percentage": context_percentage,
             "display_text": display_text,
@@ -913,10 +916,12 @@ class AgentApp:
             return totals, turn_slice
 
         last_turn = turns[-1]
+        if last_turn.prompt.total is None or last_turn.completion.total is None:
+            return None
         return (
             {
-                "input_tokens": last_turn.display_input_tokens,
-                "output_tokens": last_turn.output_tokens,
+                "prompt_tokens": last_turn.prompt.total,
+                "completion_tokens": last_turn.completion.total,
                 "tool_calls": last_turn.tool_calls,
             },
             [last_turn],
@@ -925,10 +930,10 @@ class AgentApp:
     @staticmethod
     def _cache_indicators(turn_slice) -> str:
         indicators = ""
-        if any(turn.cache_usage.cache_write_tokens > 0 for turn in turn_slice):
+        if any((turn.prompt.cache_write or 0) > 0 for turn in turn_slice):
             indicators += "[bright_yellow]^[/bright_yellow]"
         if any(
-            turn.cache_usage.cache_read_tokens > 0 or turn.cache_usage.cache_hit_tokens > 0
+            (turn.prompt.cache_read or 0) > 0
             for turn in turn_slice
         ):
             indicators += "[bright_green]*[/bright_green]"
@@ -964,11 +969,14 @@ class AgentApp:
     @staticmethod
     def _usage_display_text(
         *,
-        input_tokens: int,
-        output_tokens: int,
+        prompt_tokens: int,
+        completion_tokens: int,
         tool_calls: int,
         context_percentage: float | None,
     ) -> str:
         tool_info = f", {tool_calls} tool calls" if tool_calls > 0 else ""
         context_info = f" ({context_percentage:.1f}%)" if context_percentage is not None else ""
-        return f"{input_tokens:,} Input, {output_tokens:,} Output{tool_info}{context_info}"
+        return (
+            f"{prompt_tokens:,} Prompt, {completion_tokens:,} Completion"
+            f"{tool_info}{context_info}"
+        )

@@ -52,6 +52,7 @@ from fast_agent.llm.structured_schema import (
     load_json_schema_file,
     load_pydantic_model,
 )
+from fast_agent.llm.usage_tracking import UsageReport
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.session.trace_export_errors import SessionExportUploadError
 from fast_agent.utils.numeric import nonnegative_int_or_none, positive_int_or_none
@@ -126,18 +127,15 @@ class ParallelManifest:
 
 @dataclass
 class _UsageTotalsSnapshot:
-    input_tokens: int = 0
-    output_tokens: int = 0
-    total_tokens: int = 0
-    billing_tokens: int = 0
-    reasoning_tokens: int = 0
-    tool_use_tokens: int = 0
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    tool_use_prompt_tokens: int | None = None
     tool_calls: int = 0
     rows_with_usage: int = 0
-    cache_read_tokens: int = 0
-    cache_write_tokens: int = 0
-    cache_hit_tokens: int = 0
-    effective_input_tokens: int = 0
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
     rows_with_cache_activity: int = 0
 
 
@@ -195,18 +193,15 @@ class _ParallelChunkMonitor:
 
 def _snapshot_usage_totals(totals: BatchUsageTotals) -> _UsageTotalsSnapshot:
     return _UsageTotalsSnapshot(
-        input_tokens=totals.input_tokens,
-        output_tokens=totals.output_tokens,
+        prompt_tokens=totals.prompt_tokens,
+        completion_tokens=totals.completion_tokens,
         total_tokens=totals.total_tokens,
-        billing_tokens=totals.billing_tokens,
         reasoning_tokens=totals.reasoning_tokens,
-        tool_use_tokens=totals.tool_use_tokens,
+        tool_use_prompt_tokens=totals.tool_use_prompt_tokens,
         tool_calls=totals.tool_calls,
         rows_with_usage=totals.rows_with_usage,
         cache_read_tokens=totals.cache_read_tokens,
         cache_write_tokens=totals.cache_write_tokens,
-        cache_hit_tokens=totals.cache_hit_tokens,
-        effective_input_tokens=totals.effective_input_tokens,
         rows_with_cache_activity=totals.rows_with_cache_activity,
     )
 
@@ -229,23 +224,68 @@ def _add_usage_totals_delta(
     current: BatchUsageTotals,
     previous: _UsageTotalsSnapshot,
 ) -> None:
-    target.input_tokens += current.input_tokens - previous.input_tokens
-    target.output_tokens += current.output_tokens - previous.output_tokens
-    target.total_tokens += current.total_tokens - previous.total_tokens
-    target.billing_tokens += current.billing_tokens - previous.billing_tokens
-    target.reasoning_tokens += current.reasoning_tokens - previous.reasoning_tokens
-    target.tool_use_tokens += current.tool_use_tokens - previous.tool_use_tokens
+    had_usage = target.rows_with_usage > 0
+    target.prompt_tokens = _add_optional_delta(
+        target.prompt_tokens, current.prompt_tokens, previous.prompt_tokens, had_usage=had_usage
+    )
+    target.completion_tokens = _add_optional_delta(
+        target.completion_tokens,
+        current.completion_tokens,
+        previous.completion_tokens,
+        had_usage=had_usage,
+    )
+    target.total_tokens = _add_optional_delta(
+        target.total_tokens, current.total_tokens, previous.total_tokens, had_usage=had_usage
+    )
+    target.reasoning_tokens = _add_optional_delta(
+        target.reasoning_tokens,
+        current.reasoning_tokens,
+        previous.reasoning_tokens,
+        had_usage=had_usage,
+    )
+    target.tool_use_prompt_tokens = _add_optional_delta(
+        target.tool_use_prompt_tokens,
+        current.tool_use_prompt_tokens,
+        previous.tool_use_prompt_tokens,
+        had_usage=had_usage,
+    )
     target.tool_calls += current.tool_calls - previous.tool_calls
     target.rows_with_usage += current.rows_with_usage - previous.rows_with_usage
-    target.cache_read_tokens += current.cache_read_tokens - previous.cache_read_tokens
-    target.cache_write_tokens += current.cache_write_tokens - previous.cache_write_tokens
-    target.cache_hit_tokens += current.cache_hit_tokens - previous.cache_hit_tokens
-    target.effective_input_tokens += (
-        current.effective_input_tokens - previous.effective_input_tokens
+    target.cache_read_tokens = _add_optional_delta(
+        target.cache_read_tokens,
+        current.cache_read_tokens,
+        previous.cache_read_tokens,
+        had_usage=had_usage,
+    )
+    target.cache_write_tokens = _add_optional_delta(
+        target.cache_write_tokens,
+        current.cache_write_tokens,
+        previous.cache_write_tokens,
+        had_usage=had_usage,
     )
     target.rows_with_cache_activity += (
         current.rows_with_cache_activity - previous.rows_with_cache_activity
     )
+
+
+def _add_optional_delta(
+    target: int | None,
+    current: int | None,
+    previous: int | None,
+    *,
+    had_usage: bool,
+) -> int | None:
+    if current is None:
+        return None
+    if previous is None:
+        if not had_usage:
+            return current
+        if target is None:
+            return None
+        return target + current
+    if target is None:
+        return None
+    return target + current - previous
 
 
 @dataclass(frozen=True, slots=True)
@@ -386,13 +426,10 @@ def _extract_usage(response: Any) -> dict[str, Any] | None:
     usage = _extract_json_channel(response, FAST_AGENT_USAGE)
     if usage is None:
         return None
-    if "turn" not in usage and "raw_usage" not in usage and "summary" not in usage:
-        return usage
-    return {
-        key: value
-        for key in ("turn", "raw_usage", "summary")
-        if (value := usage.get(key)) is not None
-    }
+    try:
+        return UsageReport.model_validate(usage).to_payload()
+    except ValueError:
+        return None
 
 
 def _write_optional_failure(

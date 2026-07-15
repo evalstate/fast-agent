@@ -6,6 +6,7 @@ import json
 import tempfile
 import uuid
 from dataclasses import dataclass
+from functools import cache
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -20,6 +21,7 @@ from fast_agent.constants import (
     FAST_AGENT_USAGE,
     REASONING,
 )
+from fast_agent.llm.usage_tracking import UsageReport, UsageSummary
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.privacy.sanitizer import RedactionAccumulator
 from fast_agent.session.atif_models import (
@@ -62,8 +64,10 @@ class AtifRunSource:
     extra: dict[str, object] | None = None
     notes: str | None = None
     system_prompt: str | None = None
+    reasoning_effort: str | None = None
 
 
+@cache
 def _package_version() -> str:
     try:
         return version("fast-agent-mcp")
@@ -107,57 +111,41 @@ def _usage(message: PromptMessageExtended) -> AtifMetrics | None:
     value = values[-1]
     if not isinstance(value, dict):
         return None
-    value_mapping: dict[str, object] = {str(key): item for key, item in value.items()}
-    turn_value = value_mapping.get("turn")
-    if not isinstance(turn_value, dict):
+    try:
+        report = UsageReport.model_validate(value)
+    except ValueError:
         return None
-    turn: dict[str, object] = {str(key): item for key, item in turn_value.items()}
-    cache_value = turn.get("cache_usage")
-    cache: dict[str, object] = (
-        {str(key): item for key, item in cache_value.items()}
-        if isinstance(cache_value, dict)
-        else {}
+    turn = report.final_attempt
+    usage = report.consumed
+    costs = [attempt.cost_usd for attempt in report.provider_attempts]
+    cost_usd = (
+        sum(cost for cost in costs if cost is not None)
+        if all(cost is not None for cost in costs)
+        else None
     )
-
-    def integer(*names: str) -> int | None:
-        for name in names:
-            candidate = turn.get(name)
-            if isinstance(candidate, int) and not isinstance(candidate, bool):
-                return candidate
-        return None
-
-    def number(*names: str) -> float | None:
-        for name in names:
-            candidate = turn.get(name)
-            if isinstance(candidate, (int, float)) and not isinstance(candidate, bool):
-                return float(candidate)
-        return None
-
-    cached_tokens = integer("cache_hit_tokens", "cached_tokens")
-    if cached_tokens is None:
-        cache_hit_tokens = cache.get("cache_hit_tokens")
-        if isinstance(cache_hit_tokens, int) and not isinstance(cache_hit_tokens, bool):
-            cached_tokens = cache_hit_tokens
     metric_extra = {
         key: value
         for key, value in {
-            "provider": turn.get("provider"),
-            "model": turn.get("model"),
-            "reasoning_tokens": turn.get("reasoning_tokens"),
-            "tool_use_tokens": turn.get("tool_use_tokens"),
-            "tool_calls": turn.get("tool_calls"),
-            "service_tier": turn.get("service_tier"),
-            "cache_read_tokens": cache.get("cache_read_tokens"),
-            "cache_write_tokens": cache.get("cache_write_tokens"),
-            "raw_usage": value_mapping.get("raw_usage"),
+            "provider": turn.provider.value,
+            "upstream_provider": turn.upstream_provider,
+            "usage_schema": turn.usage_schema.value,
+            "model": turn.model,
+            "cache_write_tokens": usage.prompt.cache_write,
+            "reasoning_tokens": usage.completion.reasoning,
+            "tool_use_prompt_tokens": usage.prompt.tool_use,
+            "tool_calls": usage.tool_calls,
+            "reasoning_effort": turn.reasoning_effort,
+            "requested_service_tier": turn.requested_service_tier,
+            "service_tier": turn.service_tier,
+            "raw_usage": [attempt.raw_usage for attempt in report.provider_attempts],
         }.items()
         if value is not None
     }
     return AtifMetrics(
-        prompt_tokens=integer("input_tokens", "prompt_tokens"),
-        completion_tokens=integer("output_tokens", "completion_tokens"),
-        cached_tokens=cached_tokens,
-        cost_usd=number("cost_usd"),
+        prompt_tokens=usage.prompt.total,
+        completion_tokens=usage.completion.total,
+        cached_tokens=usage.prompt.cache_read,
+        cost_usd=cost_usd,
         extra=metric_extra or None,
     )
 
@@ -312,7 +300,9 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 source=step_source,
                 model_name=model_name if step_source == "agent" else None,
                 reasoning_effort=(
-                    _reasoning_effort(model_name) if step_source == "agent" else None
+                    source.reasoning_effort or _reasoning_effort(model_name)
+                    if step_source == "agent"
+                    else None
                 ),
                 message=_atif_content(list(message.content)),
                 reasoning_content=(
@@ -331,7 +321,7 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
         _metric_extra_int(item, "reasoning_tokens") for item in metrics
     )
     total_tool_use_tokens = _sum_optional_int(
-        _metric_extra_int(item, "tool_use_tokens") for item in metrics
+        _metric_extra_int(item, "tool_use_prompt_tokens") for item in metrics
     )
     total = AtifFinalMetrics(
         total_prompt_tokens=_sum_optional_int(item.prompt_tokens for item in metrics),
@@ -376,8 +366,10 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
 
 
 def _sum_optional_int(values: Iterable[int | None]) -> int | None:
-    known = [value for value in values if value is not None]
-    return sum(known) if known else None
+    observations = list(values)
+    if not observations or any(value is None for value in observations):
+        return None
+    return sum(value for value in observations if value is not None)
 
 
 def _metric_extra_int(metrics: AtifMetrics, key: str) -> int | None:
@@ -386,8 +378,10 @@ def _metric_extra_int(metrics: AtifMetrics, key: str) -> int | None:
 
 
 def _sum_optional_float(values: Iterable[float | None]) -> float | None:
-    known = [value for value in values if value is not None]
-    return sum(known) if known else None
+    observations = list(values)
+    if not observations or any(value is None for value in observations):
+        return None
+    return sum(value for value in observations if value is not None)
 
 
 def build_atif_fanout_trajectory(
@@ -484,7 +478,6 @@ def _embed_subagent_trajectories(
                 provider=None,
                 history=messages,
                 message_timestamps=tuple(message.timestamp for message in messages),
-                child_trajectory_dir=directory,
             )
         )
         trajectory_id = payload.get("trajectory_id")
@@ -518,26 +511,22 @@ def _embed_subagent_trajectories(
         _include_subagent_metrics(root, embedded)
 
 
-def _summary_int(summary: dict[object, object], key: str) -> int | None:
-    value = summary.get(key)
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
-
-
 def _final_metrics_from_usage_summary(
     summary: dict[object, object],
     *,
     total_steps: int,
 ) -> AtifFinalMetrics:
+    usage = UsageSummary.model_validate(summary)
     return AtifFinalMetrics(
-        total_prompt_tokens=_summary_int(summary, "cumulative_input_tokens"),
-        total_completion_tokens=_summary_int(summary, "cumulative_output_tokens"),
-        total_cached_tokens=_summary_int(summary, "cumulative_cache_hit_tokens"),
+        total_prompt_tokens=usage.prompt.total,
+        total_completion_tokens=usage.completion.total,
+        total_cached_tokens=usage.prompt.cache_read,
         total_steps=total_steps,
         extra={
             key: value
             for key, value in {
-                "reasoning_tokens": _summary_int(summary, "cumulative_reasoning_tokens"),
-                "tool_use_tokens": _summary_int(summary, "cumulative_tool_use_tokens"),
+                "reasoning_tokens": usage.completion.reasoning,
+                "tool_use_prompt_tokens": usage.prompt.tool_use,
             }.items()
             if value is not None
         }

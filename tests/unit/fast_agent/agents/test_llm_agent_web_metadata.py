@@ -12,11 +12,26 @@ from fast_agent.agents.llm_decorator import RemovedContentSummary
 from fast_agent.constants import ANTHROPIC_CITATIONS_CHANNEL, ANTHROPIC_SERVER_TOOLS_CHANNEL
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.usage_tracking import FastAgentUsage, TurnUsage
+from fast_agent.llm.usage_tracking import (
+    CompletionTokenUsage,
+    PromptTokenUsage,
+    TurnUsage,
+    UsageSchema,
+)
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.url_elicitation_required import URLElicitationRequiredDisplayPayload
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
+
+
+def _usage_turn(prompt: int, completion: int) -> TurnUsage:
+    return TurnUsage(
+        provider=Provider.RESPONSES,
+        usage_schema=UsageSchema.OPENAI_RESPONSES,
+        model="gpt-5.3-codex",
+        prompt=PromptTokenUsage(total=prompt),
+        completion=CompletionTokenUsage(total=completion),
+    )
 
 
 class _CaptureDisplay(ConsoleDisplay):
@@ -476,10 +491,7 @@ async def test_show_assistant_message_places_websocket_indicator_before_context_
     llm._record_ws_turn_outcome("reused")
     llm.usage_accumulator.set_context_window_size(1000)
     llm.usage_accumulator.add_turn(
-        TurnUsage.from_fast_agent(
-            FastAgentUsage(input_chars=90, output_chars=10, model_type="test"),
-            model="gpt-5.3-codex",
-        )
+        _usage_turn(90, 10)
     )
     agent._llm = llm
 
@@ -511,10 +523,7 @@ async def test_show_assistant_message_uses_compact_context_format_for_low_usage(
     llm._record_ws_turn_outcome("reused")
     llm.usage_accumulator.set_context_window_size(1000)
     llm.usage_accumulator.add_turn(
-        TurnUsage.from_fast_agent(
-            FastAgentUsage(input_chars=9, output_chars=1, model_type="test"),
-            model="gpt-5.3-codex",
-        )
+        _usage_turn(9, 1)
     )
     agent._llm = llm
 

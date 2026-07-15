@@ -13,13 +13,15 @@ from urllib.parse import parse_qsl, urlencode
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from fast_agent.llm.usage_tracking import UsageAccumulator
+
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.llm.request_params import RequestParams
     from fast_agent.session.identity import SessionSaveIdentity
     from fast_agent.session.session_manager import Session, SessionInfo
 
-SESSION_SNAPSHOT_SCHEMA_VERSION = 2
+SESSION_SNAPSHOT_SCHEMA_VERSION = 3
 
 type JsonScalar = None | bool | int | float | str
 type JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -169,8 +171,8 @@ class SessionUsageSummarySnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    input_tokens: int | None = None
-    output_tokens: int | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
     total_tokens: int | None = None
 
 
@@ -211,7 +213,7 @@ class SessionSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[2] = SESSION_SNAPSHOT_SCHEMA_VERSION
+    schema_version: Literal[3] = SESSION_SNAPSHOT_SCHEMA_VERSION
     session_id: str
     created_at: datetime
     last_activity: datetime
@@ -244,7 +246,7 @@ class _SelectedModelNameProvider(Protocol):
 
 
 def load_session_snapshot(payload: object) -> SessionSnapshot:
-    """Load either a legacy v1 payload or an explicit v2 session snapshot."""
+    """Load a current snapshot or import an older session snapshot."""
     payload_mapping = _as_object_mapping(payload)
     if payload_mapping is None:
         raise ValueError("Session snapshot payload must be a JSON object")
@@ -252,6 +254,9 @@ def load_session_snapshot(payload: object) -> SessionSnapshot:
     raw_schema_version = payload_mapping.get("schema_version")
     if raw_schema_version is None:
         return synthesize_legacy_session_snapshot(payload_mapping)
+    if raw_schema_version == 2:
+        payload_mapping = _migrate_v2_session_snapshot(payload_mapping)
+        raw_schema_version = SESSION_SNAPSHOT_SCHEMA_VERSION
     if raw_schema_version != SESSION_SNAPSHOT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported session snapshot schema version: {raw_schema_version!r}")
     snapshot = SessionSnapshot.model_validate(payload_mapping)
@@ -260,8 +265,28 @@ def load_session_snapshot(payload: object) -> SessionSnapshot:
     return snapshot
 
 
+def _migrate_v2_session_snapshot(payload: Mapping[str, object]) -> dict[str, object]:
+    """Import the v2 usage-summary names into the current snapshot shape."""
+
+    migrated = dict(payload)
+    analysis = _as_object_mapping(migrated.get("analysis"))
+    if analysis is not None:
+        migrated_analysis = dict(analysis)
+        usage_summary = _as_object_mapping(migrated_analysis.get("usage_summary"))
+        if usage_summary is not None:
+            migrated_summary = dict(usage_summary)
+            if "input_tokens" in migrated_summary:
+                migrated_summary["prompt_tokens"] = migrated_summary.pop("input_tokens")
+            if "output_tokens" in migrated_summary:
+                migrated_summary["completion_tokens"] = migrated_summary.pop("output_tokens")
+            migrated_analysis["usage_summary"] = migrated_summary
+        migrated["analysis"] = migrated_analysis
+    migrated["schema_version"] = SESSION_SNAPSHOT_SCHEMA_VERSION
+    return migrated
+
+
 def synthesize_legacy_session_snapshot(payload: Mapping[str, object]) -> SessionSnapshot:
-    """Synthesize a typed v2 snapshot from a legacy unversioned v1 payload."""
+    """Synthesize a current snapshot from a legacy unversioned v1 payload."""
     session_id = _legacy_session_id(payload)
     now = datetime.now()
 
@@ -1004,28 +1029,17 @@ def _capture_model_overlay_refs(agent: "AgentProtocol") -> list[SessionModelOver
 
 def _capture_usage_summary(agent: "AgentProtocol") -> SessionUsageSummarySnapshot | None:
     usage_accumulator = agent.usage_accumulator
-    if usage_accumulator is None:
+    if not isinstance(usage_accumulator, UsageAccumulator):
         return None
 
-    summary = usage_accumulator.get_summary()
-    input_tokens = _summary_int(summary.get("cumulative_input_tokens"))
-    output_tokens = _summary_int(summary.get("cumulative_output_tokens"))
-    total_tokens = _summary_int(summary.get("cumulative_billing_tokens"))
-    if total_tokens is None and input_tokens is not None and output_tokens is not None:
-        total_tokens = input_tokens + output_tokens
+    summary = usage_accumulator.summary
 
     snapshot = SessionUsageSummarySnapshot(
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        total_tokens=total_tokens,
+        prompt_tokens=summary.prompt.total,
+        completion_tokens=summary.completion.total,
+        total_tokens=summary.total,
     )
     return snapshot if snapshot.model_dump(exclude_none=True) else None
-
-
-def _summary_int(value: object) -> int | None:
-    if isinstance(value, bool):
-        return None
-    return value if isinstance(value, int) else None
 
 
 def _load_existing_session_snapshot(session: "Session") -> SessionSnapshot | None:

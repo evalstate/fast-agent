@@ -1,0 +1,59 @@
+{
+  "anthropic": {
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 1612
+    },
+    "cache_creation_input_tokens": 1612,
+    "cache_read_input_tokens": 0,
+    "inference_geo": "global",
+    "input_tokens": 11611,
+    "iterations": null,
+    "output_tokens": 83,
+    "output_tokens_details": null,
+    "server_tool_use": null,
+    "service_tier": "standard",
+    "speed": null
+  },
+  "google": {
+    "cache_tokens_details": null,
+    "cached_content_token_count": null,
+    "candidates_token_count": 22,
+    "candidates_tokens_details": null,
+    "prompt_token_count": 7999,
+    "prompt_tokens_details": [
+      {
+        "modality": "TEXT",
+        "token_count": 7999
+      }
+    ],
+    "thoughts_token_count": 59,
+    "tool_use_prompt_token_count": null,
+    "tool_use_prompt_tokens_details": null,
+    "total_token_count": 8080,
+    "traffic_type": null
+  },
+  "openai_chat_compatible": {
+    "completion_tokens": 89,
+    "completion_tokens_details": null,
+    "prompt_tokens": 7046,
+    "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cache_write_tokens": null,
+      "cached_tokens": 15
+    },
+    "total_tokens": 7135
+  },
+  "openai_responses": {
+    "input_tokens": 7083,
+    "input_tokens_details": {
+      "cache_write_tokens": 0,
+      "cached_tokens": 0
+    },
+    "output_tokens": 84,
+    "output_tokens_details": {
+      "reasoning_tokens": 37
+    },
+    "total_tokens": 7167
+  }
+}

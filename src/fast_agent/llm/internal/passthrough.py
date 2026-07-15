@@ -10,7 +10,6 @@ from fast_agent.llm.fastagent_llm import (
     RequestParams,
 )
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
 from fast_agent.mcp.helpers.content_helpers import tool_result_text_for_llm
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import PromptMessageExtended
@@ -37,6 +36,7 @@ class PassthroughLLM(FastAgentLLM):
         self._messages = [PromptMessage]
         self._fixed_response: str | None = None
         self._correlation_id: int = 0
+        self._synthetic_turn_count = 0
 
     async def initialize(self) -> None:
         pass
@@ -137,17 +137,11 @@ class PassthroughLLM(FastAgentLLM):
                 stop_reason=stop_reason,
             )
 
-        turn_usage = create_turn_usage_from_messages(
-            input_content=multipart_messages[-1].all_text(),
-            output_content=result.all_text(),
-            model="passthrough",
-            model_type="passthrough",
-            tool_calls=len(tool_calls),
-            delay_seconds=0.0,
-        )
-        self.usage_accumulator.add_turn(turn_usage)
-
+        self._synthetic_turn_count += 1
         return result
+
+    def chat_turn(self) -> int:
+        return self._synthetic_turn_count + 1
 
     def _convert_extended_messages_to_provider(
         self, messages: list[PromptMessageExtended]

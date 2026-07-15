@@ -59,7 +59,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
-from fast_agent.llm.usage_tracking import TurnUsage
+from fast_agent.llm.usage_tracking import usage_from_openai_chat
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.mime_utils import guess_mime_type
 from fast_agent.mcp.prompt import Prompt
@@ -1211,7 +1211,11 @@ class OpenAILLM(
         if not usage:
             return
         try:
-            turn_usage = TurnUsage.from_openai(usage, model_name)
+            turn_usage = usage_from_openai_chat(
+                usage,
+                provider=self.provider,
+                model=model_name,
+            )
             self._finalize_turn_usage(turn_usage)
         except Exception as e:
             self.logger.warning(f"Failed to track usage: {e}")

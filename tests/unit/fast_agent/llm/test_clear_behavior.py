@@ -69,10 +69,10 @@ async def test_agent_clear_resets_usage_accumulator():
     await agent.generate(_make_user_message("hello"))
     await agent.generate(_make_user_message("again"))
 
-    assert llm.usage_accumulator.turn_count == 2
-    assert llm.usage_accumulator.current_context_tokens > 0
+    assert llm.usage_accumulator.turns == []
+    assert llm.usage_accumulator.current_context_tokens is None
 
     agent.clear()
 
-    assert llm.usage_accumulator.turn_count == 0
-    assert llm.usage_accumulator.current_context_tokens == 0
+    assert llm.usage_accumulator.turns == []
+    assert llm.usage_accumulator.current_context_tokens is None

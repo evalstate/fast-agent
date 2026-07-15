@@ -13,9 +13,11 @@ from urllib.parse import urlparse
 import typer
 
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
+from fast_agent.commands.model_capabilities import resolve_reasoning_effort
 from fast_agent.core.card_tool_attachment import load_and_attach_card_tool_agents
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.reasoning_effort import reasoning_setting_telemetry_value
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.utils.filename import sanitize_filename_suffix
@@ -453,6 +455,7 @@ async def _export_live_atif_trajectory(
     if not messages:
         return
     model_name, provider = _live_atif_model_metadata(agent_obj, request)
+    reasoning = resolve_reasoning_effort(agent_obj.llm)
     trajectory = build_atif_trajectory(
         AtifRunSource(
             session_id=_live_atif_session_id(session_manager, harness_session),
@@ -484,6 +487,9 @@ async def _export_live_atif_trajectory(
                 else None
             ),
             system_prompt=agent_obj.instruction,
+            reasoning_effort=(
+                reasoning_setting_telemetry_value(reasoning)
+            ),
         )
     )
     write_atif_trajectory(trajectory, request.trajectory_output.expanduser().resolve())
@@ -518,6 +524,7 @@ async def _export_parallel_atif_trajectory(
         if not messages:
             continue
         model_name, provider = _live_atif_model_metadata(agent_obj, request)
+        reasoning = resolve_reasoning_effort(agent_obj.llm)
         sources.append(
             AtifRunSource(
                 session_id=session_id,
@@ -531,6 +538,9 @@ async def _export_parallel_atif_trajectory(
                 ),
                 tool_definitions=await _live_atif_tool_definitions(agent_obj),
                 system_prompt=agent_obj.instruction,
+                reasoning_effort=(
+                    reasoning_setting_telemetry_value(reasoning)
+                ),
             )
         )
     if not sources:

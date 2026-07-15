@@ -1,507 +1,672 @@
-"""
-Usage tracking system for LLM providers with comprehensive cache support.
-
-This module provides unified usage tracking across Anthropic, OpenAI, and Google providers,
-including detailed cache metrics and context window management.
-"""
+"""Canonical provider-neutral token usage and provider translation."""
 
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
+from collections.abc import Mapping, Sequence
+from enum import StrEnum
+from typing import TYPE_CHECKING, Annotated, Literal
 
-if TYPE_CHECKING:
-    from anthropic.types.beta import BetaUsage as AnthropicUsage
-    from google.genai.types import GenerateContentResponseUsageMetadata, UsageMetadata
-    from openai.types.completion_usage import CompletionUsage as OpenAIUsage
-
-    GoogleUsage = GenerateContentResponseUsageMetadata | UsageMetadata
-from pydantic import BaseModel, Field, PrivateAttr, computed_field, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    PrivateAttr,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 from fast_agent.core.logging.json_serializer import JsonValue, snapshot_json_value
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
 
-_ANTHROPIC_USAGE_PROVIDERS = {Provider.ANTHROPIC, Provider.ANTHROPIC_VERTEX}
+if TYPE_CHECKING:
+    from anthropic.types.beta import BetaUsage as AnthropicUsage
+    from google.genai.types import GenerateContentResponseUsageMetadata, UsageMetadata
+    from openai.types.completion_usage import CompletionUsage
+    from openai.types.responses.response_usage import ResponseUsage
 
 
-# Fast-agent specific usage type for synthetic providers
-class FastAgentUsage(BaseModel):
-    """Usage data for fast-agent providers (passthrough, playback, slow)"""
-
-    input_chars: int = Field(description="Characters in input messages")
-    output_chars: int = Field(description="Characters in output messages")
-    model_type: str = Field(description="Type of fast-agent model (passthrough/playbook/slow)")
-    tool_calls: int = Field(default=0, description="Number of tool calls made")
-    delay_seconds: float = Field(default=0.0, description="Artificial delays added")
+TokenCount = Annotated[int, Field(ge=0)]
+CostUsd = Annotated[float, Field(ge=0)]
 
 
-class CacheUsage(BaseModel):
-    """Cache-specific usage metrics"""
+class CharacterUsage(BaseModel):
+    """Operational character telemetry for synthetic fast-agent providers."""
 
-    cache_read_tokens: int = Field(default=0, description="Tokens read from cache")
-    cache_write_tokens: int = Field(default=0, description="Tokens written to cache")
-    cache_hit_tokens: int = Field(default=0, description="Total tokens served from cache")
+    input_characters: TokenCount
+    output_characters: TokenCount
+    model_type: str
+    tool_calls: TokenCount = 0
+    delay_seconds: Annotated[float, Field(ge=0)] = 0.0
 
-    @computed_field
-    @property
-    def total_cache_tokens(self) -> int:
-        """Total cache-related tokens"""
-        return self.cache_read_tokens + self.cache_write_tokens + self.cache_hit_tokens
 
-    @computed_field
-    @property
-    def has_cache_activity(self) -> bool:
-        """Whether any cache activity occurred"""
-        return self.total_cache_tokens > 0
+class PromptTokenUsage(BaseModel):
+    """Complete prompt usage and provider-observed prompt partitions."""
+
+    total: TokenCount | None = None
+    uncached: TokenCount | None = None
+    cache_read: TokenCount | None = None
+    cache_write: TokenCount | None = None
+    tool_use: TokenCount | None = None
+
+    @model_validator(mode="after")
+    def validate_subsets(self) -> PromptTokenUsage:
+        if self.total is None:
+            return self
+        for name in ("uncached", "cache_read", "cache_write", "tool_use"):
+            value = getattr(self, name)
+            if value is not None and value > self.total:
+                raise ValueError(f"prompt.{name} exceeds prompt.total")
+        return self
+
+
+class CompletionTokenUsage(BaseModel):
+    """Complete generated usage and provider-observed output subsets."""
+
+    total: TokenCount | None = None
+    reasoning: TokenCount | None = None
+
+    @model_validator(mode="after")
+    def validate_subsets(self) -> CompletionTokenUsage:
+        if (
+            self.total is not None
+            and self.reasoning is not None
+            and self.reasoning > self.total
+        ):
+            raise ValueError("completion.reasoning exceeds completion.total")
+        return self
+
+
+class UsageSchema(StrEnum):
+    ANTHROPIC = "anthropic"
+    OPENAI_CHAT = "openai-chat"
+    OPENAI_RESPONSES = "openai-responses"
+    OPENAI_RESPONSES_COMPATIBLE = "openai-responses-compatible"
+    GOOGLE_GENERATE_CONTENT = "google-generate-content"
+    BEDROCK = "bedrock"
 
 
 class TurnUsage(BaseModel):
-    """Usage data for a single turn/completion with cache support"""
+    """Canonical usage observation for one completed provider inference."""
 
     provider: Provider
+    upstream_provider: str | None = None
+    usage_schema: UsageSchema
     model: str
-    input_tokens: int
-    output_tokens: int
-    total_tokens: int
+    prompt: PromptTokenUsage
+    completion: CompletionTokenUsage
+    tool_calls: TokenCount = 0
+    reasoning_effort: str | None = None
+    requested_service_tier: str | None = None
+    service_tier: str | None = None
+    cost_usd: CostUsd | None = None
     timestamp: float = Field(default_factory=time.time)
-
-    # Cache-specific metrics
-    cache_usage: CacheUsage = Field(default_factory=CacheUsage)
-
-    # Provider-specific token types
-    tool_use_tokens: int = Field(default=0, description="Tokens used for tool calling prompts")
-    reasoning_tokens: int = Field(default=0, description="Tokens used for reasoning/thinking")
-
-    # Tool call count for this turn
-    tool_calls: int = Field(default=0, description="Number of tool calls made in this turn")
-
-    # Provider-observed service tier when returned in usage metadata.
-    service_tier: str | None = Field(default=None, description="Observed provider service tier")
-
-    # JSON-safe raw usage telemetry snapshot captured at ingestion time.
     raw_usage: JsonValue = None
 
     @field_validator("raw_usage", mode="before")
     @classmethod
-    def _snapshot_raw_usage(cls, value: object | None) -> JsonValue:
+    def snapshot_raw_usage(cls, value: object | None) -> JsonValue:
         return snapshot_json_value(value)
 
-    @computed_field
-    @property
-    def current_context_tokens(self) -> int:
-        """Current context size after this turn (total input including cache + output)"""
-        # For Anthropic: input_tokens + cache_read_tokens represents total input context
-        total_input = (
-            self.input_tokens
-            + self.cache_usage.cache_read_tokens
-            + self.cache_usage.cache_write_tokens
+    @model_validator(mode="after")
+    def validate_provider_contract(self) -> TurnUsage:
+        if self.usage_schema is not UsageSchema.ANTHROPIC:
+            return self
+        values = (
+            self.prompt.uncached,
+            self.prompt.cache_read,
+            self.prompt.cache_write,
         )
-        return total_input + self.output_tokens
-
-    @computed_field
-    @property
-    def effective_input_tokens(self) -> int:
-        """Input tokens actually processed (new tokens, not from cache)"""
-        # For Anthropic: input_tokens already excludes cached content
-        # For other providers: subtract cache hits from input_tokens
-        if self.provider in _ANTHROPIC_USAGE_PROVIDERS:
-            return self.input_tokens
-        return max(0, self.input_tokens - self.cache_usage.cache_hit_tokens)
+        if self.prompt.total is not None and all(value is not None for value in values):
+            known_values = [value for value in values if value is not None]
+            if self.prompt.total != sum(known_values):
+                raise ValueError("Anthropic prompt total does not equal its partitions")
+        return self
 
     @computed_field
     @property
-    def display_input_tokens(self) -> int:
-        """Input tokens to display for 'Last turn' (total submitted tokens)"""
-        # For Anthropic: input_tokens excludes cache, so add cache tokens
-        if self.provider in _ANTHROPIC_USAGE_PROVIDERS:
-            return (
-                self.input_tokens
-                + self.cache_usage.cache_read_tokens
-                + self.cache_usage.cache_write_tokens
-            )
-        # For OpenAI/Google: input_tokens already includes cached tokens
-        return self.input_tokens
+    def total(self) -> int | None:
+        if self.prompt.total is None or self.completion.total is None:
+            return None
+        return self.prompt.total + self.completion.total
 
-    @classmethod
-    def from_anthropic(
-        cls,
-        usage: AnthropicUsage,
-        model: str,
-        *,
-        provider: Provider = Provider.ANTHROPIC,
-    ) -> "TurnUsage":
-        # Extract cache tokens with proper null handling
-        cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", 0) or 0
-        cache_read_tokens = getattr(usage, "cache_read_input_tokens", 0) or 0
 
-        cache_usage = CacheUsage(
-            cache_read_tokens=cache_read_tokens,  # Tokens read from cache (90% discount)
-            cache_write_tokens=cache_creation_tokens,  # Tokens written to cache (25% surcharge)
+class UsageSummary(BaseModel):
+    """Complete-data aggregate of canonical usage observations."""
+
+    prompt: PromptTokenUsage
+    completion: CompletionTokenUsage
+    provider_attempts: TokenCount
+    tool_calls: TokenCount
+
+    @computed_field
+    @property
+    def total(self) -> int | None:
+        if self.prompt.total is None or self.completion.total is None:
+            return None
+        return self.prompt.total + self.completion.total
+
+
+class UsageReport(BaseModel):
+    """Usage for one outward inference, including every provider attempt."""
+
+    schema_version: Literal["fast-agent.usage/v2"] = Field(
+        default="fast-agent.usage/v2",
+        alias="schema",
+    )
+    provider_attempts: list[TurnUsage] = Field(min_length=1)
+
+    def to_payload(self) -> dict[str, object]:
+        """Serialize the canonical report using its wire-format field names."""
+
+        return self.model_dump(mode="json", by_alias=True)
+
+    @property
+    def final_attempt(self) -> TurnUsage:
+        """The provider attempt whose token count represents current context."""
+
+        return self.provider_attempts[-1]
+
+    @property
+    def consumed(self) -> UsageSummary:
+        """Aggregate provider consumption across all attempts."""
+
+        return summarize_usage(self.provider_attempts)
+
+
+def _complete_sum(values: list[int | None]) -> int | None:
+    if not values or any(value is None for value in values):
+        return None
+    return sum(value for value in values if value is not None)
+
+
+def summarize_usage(attempts: Sequence[TurnUsage]) -> UsageSummary:
+    """Aggregate canonical provider attempts using complete-data semantics."""
+
+    return UsageSummary(
+        prompt=PromptTokenUsage(
+            total=_complete_sum([attempt.prompt.total for attempt in attempts]),
+            uncached=_complete_sum([attempt.prompt.uncached for attempt in attempts]),
+            cache_read=_complete_sum([attempt.prompt.cache_read for attempt in attempts]),
+            cache_write=_complete_sum([attempt.prompt.cache_write for attempt in attempts]),
+            tool_use=_complete_sum([attempt.prompt.tool_use for attempt in attempts]),
+        ),
+        completion=CompletionTokenUsage(
+            total=_complete_sum([attempt.completion.total for attempt in attempts]),
+            reasoning=_complete_sum([attempt.completion.reasoning for attempt in attempts]),
+        ),
+        provider_attempts=len(attempts),
+        tool_calls=sum(attempt.tool_calls for attempt in attempts),
+    )
+
+
+def _validated_provider_total(
+    reported: int,
+    prompt_total: int,
+    completion_total: int,
+    *,
+    schema: UsageSchema,
+) -> None:
+    if reported != prompt_total + completion_total:
+        raise ValueError(f"{schema} reported total does not equal prompt plus completion")
+
+
+def usage_from_anthropic(
+    usage: AnthropicUsage,
+    *,
+    provider: Provider,
+    model: str,
+) -> TurnUsage:
+    """Translate Anthropic's disjoint prompt partitions."""
+
+    cache_read = usage.cache_read_input_tokens
+    cache_write = usage.cache_creation_input_tokens
+    prompt_total = (
+        usage.input_tokens + cache_read + cache_write
+        if cache_read is not None and cache_write is not None
+        else None
+    )
+    output_details = usage.output_tokens_details
+    return TurnUsage(
+        provider=provider,
+        usage_schema=UsageSchema.ANTHROPIC,
+        model=model,
+        prompt=PromptTokenUsage(
+            total=prompt_total,
+            uncached=usage.input_tokens,
+            cache_read=cache_read,
+            cache_write=cache_write,
+        ),
+        completion=CompletionTokenUsage(
+            total=usage.output_tokens,
+            reasoning=(
+                output_details.thinking_tokens if output_details is not None else None
+            ),
+        ),
+        service_tier=usage.service_tier,
+        raw_usage=snapshot_json_value(usage),
+    )
+
+
+def usage_from_openai_chat(
+    usage: CompletionUsage,
+    *,
+    provider: Provider,
+    model: str,
+    upstream_provider: str | None = None,
+) -> TurnUsage:
+    """Translate OpenAI Chat Completions subset semantics."""
+
+    _validated_provider_total(
+        usage.total_tokens,
+        usage.prompt_tokens,
+        usage.completion_tokens,
+        schema=UsageSchema.OPENAI_CHAT,
+    )
+    prompt_details = usage.prompt_tokens_details
+    completion_details = usage.completion_tokens_details
+    return TurnUsage(
+        provider=provider,
+        upstream_provider=upstream_provider,
+        usage_schema=UsageSchema.OPENAI_CHAT,
+        model=model,
+        prompt=PromptTokenUsage(
+            total=usage.prompt_tokens,
+            cache_read=prompt_details.cached_tokens if prompt_details is not None else None,
+            cache_write=(
+                prompt_details.cache_write_tokens if prompt_details is not None else None
+            ),
+        ),
+        completion=CompletionTokenUsage(
+            total=usage.completion_tokens,
+            reasoning=(
+                completion_details.reasoning_tokens
+                if completion_details is not None
+                else None
+            ),
+        ),
+        raw_usage=snapshot_json_value(usage),
+    )
+
+
+def usage_from_openai_responses(
+    usage: ResponseUsage,
+    *,
+    provider: Provider,
+    model: str,
+    upstream_provider: str | None = None,
+) -> TurnUsage:
+    """Translate the distinct OpenAI Responses usage type."""
+
+    _validated_provider_total(
+        usage.total_tokens,
+        usage.input_tokens,
+        usage.output_tokens,
+        schema=UsageSchema.OPENAI_RESPONSES,
+    )
+    return TurnUsage(
+        provider=provider,
+        upstream_provider=upstream_provider,
+        usage_schema=UsageSchema.OPENAI_RESPONSES,
+        model=model,
+        prompt=PromptTokenUsage(
+            total=usage.input_tokens,
+            cache_read=usage.input_tokens_details.cached_tokens,
+            cache_write=usage.input_tokens_details.cache_write_tokens,
+        ),
+        completion=CompletionTokenUsage(
+            total=usage.output_tokens,
+            reasoning=usage.output_tokens_details.reasoning_tokens,
+        ),
+        raw_usage=snapshot_json_value(usage),
+    )
+
+
+def usage_from_responses_compatible(
+    usage: Mapping[str, object],
+    *,
+    provider: Provider,
+    model: str,
+) -> TurnUsage:
+    """Translate Responses-compatible usage without inventing omitted details."""
+
+    def optional_count(mapping: Mapping[str, object], key: str) -> TokenCount | None:
+        value = mapping.get(key)
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{key} must be a nonnegative integer or null")
+        return value
+
+    def details(key: str) -> Mapping[str, object]:
+        value = usage.get(key)
+        if value is None:
+            return {}
+        if not isinstance(value, Mapping):
+            raise ValueError(f"{key} must be an object or null")
+        return {str(name): item for name, item in value.items()}
+
+    input_details = details("input_tokens_details")
+    output_details = details("output_tokens_details")
+    input_total = optional_count(usage, "input_tokens")
+    output_total = optional_count(usage, "output_tokens")
+    reported_total = optional_count(usage, "total_tokens")
+    if None not in (reported_total, input_total, output_total):
+        assert reported_total is not None
+        assert input_total is not None
+        assert output_total is not None
+        _validated_provider_total(
+            reported_total,
+            input_total,
+            output_total,
+            schema=UsageSchema.OPENAI_RESPONSES_COMPATIBLE,
         )
+    return TurnUsage(
+        provider=provider,
+        usage_schema=UsageSchema.OPENAI_RESPONSES_COMPATIBLE,
+        model=model,
+        prompt=PromptTokenUsage(
+            total=input_total,
+            cache_read=optional_count(input_details, "cached_tokens"),
+            cache_write=optional_count(input_details, "cache_write_tokens"),
+        ),
+        completion=CompletionTokenUsage(
+            total=output_total,
+            reasoning=optional_count(output_details, "reasoning_tokens"),
+        ),
+        raw_usage=snapshot_json_value(usage),
+    )
 
-        # Extract thinking/reasoning tokens if available (extended thinking feature)
-        # Note: For Claude 4 models, you're billed for full thinking tokens, not summaries
-        thinking_tokens = getattr(usage, "thinking_tokens", 0) or 0
 
-        return cls(
-            provider=provider,
-            model=model,
-            input_tokens=usage.input_tokens,
-            output_tokens=usage.output_tokens,
-            total_tokens=usage.input_tokens + usage.output_tokens,
-            cache_usage=cache_usage,
-            reasoning_tokens=thinking_tokens,
-            raw_usage=snapshot_json_value(usage),
+def _google_completion_total(
+    *,
+    prompt: int | None,
+    visible: int | None,
+    thoughts: int | None,
+    provider_total: int | None,
+) -> int | None:
+    if visible is not None and thoughts is not None:
+        return visible + thoughts
+    if prompt is not None and provider_total is not None and provider_total >= prompt:
+        return provider_total - prompt
+    return None
+
+
+def _usage_from_google(
+    *,
+    prompt: int | None,
+    visible: int | None,
+    thoughts: int | None,
+    cached: int | None,
+    tool_use: int | None,
+    provider_total: int | None,
+    service_tier: str | None,
+    model: str,
+    raw_usage: object,
+) -> TurnUsage:
+    # Google reports tool-use prompt tokens separately from prompt_token_count,
+    # while total_token_count includes them. We have not observed a nonzero
+    # value in captured responses yet; the synthetic contract test covers it.
+    prompt_total = prompt + tool_use if prompt is not None and tool_use is not None else prompt
+    completion_total = _google_completion_total(
+        prompt=prompt_total,
+        visible=visible,
+        thoughts=thoughts,
+        provider_total=provider_total,
+    )
+    if (
+        provider_total is not None
+        and prompt_total is not None
+        and completion_total is not None
+        and provider_total != prompt_total + completion_total
+    ):
+        raise ValueError("Google reported total does not equal prompt plus completion")
+    return TurnUsage(
+        provider=Provider.GOOGLE,
+        usage_schema=UsageSchema.GOOGLE_GENERATE_CONTENT,
+        model=model,
+        prompt=PromptTokenUsage(
+            total=prompt_total,
+            cache_read=cached,
+            tool_use=tool_use,
+        ),
+        completion=CompletionTokenUsage(total=completion_total, reasoning=thoughts),
+        service_tier=service_tier,
+        raw_usage=snapshot_json_value(raw_usage),
+    )
+
+
+def usage_from_google_generate_content(
+    usage: GenerateContentResponseUsageMetadata,
+    *,
+    model: str,
+) -> TurnUsage:
+    return _usage_from_google(
+        prompt=usage.prompt_token_count,
+        visible=usage.candidates_token_count,
+        thoughts=usage.thoughts_token_count,
+        cached=usage.cached_content_token_count,
+        tool_use=usage.tool_use_prompt_token_count,
+        provider_total=usage.total_token_count,
+        service_tier=None,
+        model=model,
+        raw_usage=usage,
+    )
+
+
+def usage_from_google_usage_metadata(
+    usage: UsageMetadata,
+    *,
+    model: str,
+) -> TurnUsage:
+    service_tier = usage.service_tier
+    return _usage_from_google(
+        prompt=usage.prompt_token_count,
+        visible=usage.response_token_count,
+        thoughts=usage.thoughts_token_count,
+        cached=usage.cached_content_token_count,
+        tool_use=usage.tool_use_prompt_token_count,
+        provider_total=usage.total_token_count,
+        service_tier=service_tier.value if service_tier is not None else None,
+        model=model,
+        raw_usage=usage,
+    )
+
+
+def usage_from_openai_compatible(
+    usage: Mapping[str, object],
+    *,
+    provider: Provider,
+    model: str,
+    upstream_provider: str | None = None,
+) -> TurnUsage:
+    """Decode a genuinely dynamic OpenAI Chat-compatible usage payload."""
+
+    def optional_count(mapping: Mapping[str, object], key: str) -> int | None:
+        value = mapping.get(key)
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{key} must be a nonnegative integer or null")
+        return value
+
+    def details(key: str) -> Mapping[str, object]:
+        value = usage.get(key)
+        if value is None:
+            return {}
+        if not isinstance(value, Mapping):
+            raise ValueError(f"{key} must be an object or null")
+        return {str(item_key): item for item_key, item in value.items()}
+
+    prompt_total = optional_count(usage, "prompt_tokens")
+    completion_total = optional_count(usage, "completion_tokens")
+    reported_total = optional_count(usage, "total_tokens")
+    if None not in (reported_total, prompt_total, completion_total):
+        assert reported_total is not None
+        assert prompt_total is not None
+        assert completion_total is not None
+        _validated_provider_total(
+            reported_total,
+            prompt_total,
+            completion_total,
+            schema=UsageSchema.OPENAI_CHAT,
         )
+    prompt_details = details("prompt_tokens_details")
+    completion_details = details("completion_tokens_details")
+    return TurnUsage(
+        provider=provider,
+        upstream_provider=upstream_provider,
+        usage_schema=UsageSchema.OPENAI_CHAT,
+        model=model,
+        prompt=PromptTokenUsage(
+            total=prompt_total,
+            cache_read=optional_count(prompt_details, "cached_tokens"),
+            cache_write=optional_count(prompt_details, "cache_write_tokens"),
+        ),
+        completion=CompletionTokenUsage(
+            total=completion_total,
+            reasoning=optional_count(completion_details, "reasoning_tokens"),
+        ),
+        raw_usage=snapshot_json_value(usage),
+    )
 
-    @classmethod
-    def from_openai(cls, usage: OpenAIUsage, model: str) -> "TurnUsage":
-        # Extract cache tokens with proper null handling
-        cached_tokens = 0
-        prompt_tokens_details = getattr(usage, "prompt_tokens_details", None)
-        if prompt_tokens_details:
-            cached_tokens = getattr(prompt_tokens_details, "cached_tokens", 0) or 0
 
-        cache_usage = CacheUsage(
-            cache_hit_tokens=cached_tokens  # These are tokens served from cache (50% discount)
-        )
+def usage_from_bedrock(
+    usage: Mapping[str, object],
+    *,
+    model: str,
+) -> TurnUsage:
+    """Translate fast-agent's normalized Bedrock response usage."""
 
-        return cls(
-            provider=Provider.OPENAI,
-            model=model,
-            input_tokens=usage.prompt_tokens,
-            output_tokens=usage.completion_tokens,
-            total_tokens=usage.total_tokens,
-            cache_usage=cache_usage,
-            raw_usage=snapshot_json_value(usage),
-        )
-
-    @classmethod
-    def from_google(cls, usage: GoogleUsage, model: str) -> "TurnUsage":
-        # Extract token counts with proper null handling
-        prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
-        candidates_tokens = (
-            getattr(usage, "candidates_token_count", None)
-            or getattr(usage, "response_token_count", 0)
-            or 0
-        )
-        total_tokens = getattr(usage, "total_token_count", 0) or 0
-        cached_content_tokens = getattr(usage, "cached_content_token_count", 0) or 0
-
-        # Extract additional Google-specific token types
-        tool_use_tokens = getattr(usage, "tool_use_prompt_token_count", 0) or 0
-        thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
-        service_tier = getattr(usage, "service_tier", None)
-        if service_tier is not None:
-            service_tier = str(getattr(service_tier, "value", service_tier))
-
-        # Google cache tokens are read hits (75% discount on Gemini 2.5)
-        cache_usage = CacheUsage(cache_hit_tokens=cached_content_tokens)
-
-        return cls(
-            provider=Provider.GOOGLE,
-            model=model,
-            input_tokens=prompt_tokens,
-            output_tokens=candidates_tokens,
-            total_tokens=total_tokens,
-            cache_usage=cache_usage,
-            tool_use_tokens=tool_use_tokens,
-            reasoning_tokens=thinking_tokens,
-            service_tier=service_tier,
-            raw_usage=snapshot_json_value(usage),
-        )
-
-    @classmethod
-    def from_fast_agent(cls, usage: FastAgentUsage, model: str) -> "TurnUsage":
-        # For fast-agent providers, we use characters as "tokens"
-        # This provides a consistent unit of measurement across all providers
-        input_tokens = usage.input_chars
-        output_tokens = usage.output_chars
-        total_tokens = input_tokens + output_tokens
-
-        # Fast-agent providers don't have cache functionality
-        cache_usage = CacheUsage()
-
-        return cls(
-            provider=Provider.FAST_AGENT,
-            model=model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            total_tokens=total_tokens,
-            cache_usage=cache_usage,
-            raw_usage=snapshot_json_value(usage),
-        )
+    input_value = usage.get("input_tokens")
+    output_value = usage.get("output_tokens")
+    input_tokens = (
+        input_value
+        if isinstance(input_value, int) and not isinstance(input_value, bool)
+        else None
+    )
+    output_tokens = (
+        output_value
+        if isinstance(output_value, int) and not isinstance(output_value, bool)
+        else None
+    )
+    return TurnUsage(
+        provider=Provider.BEDROCK,
+        usage_schema=UsageSchema.BEDROCK,
+        model=model,
+        prompt=PromptTokenUsage(total=input_tokens),
+        completion=CompletionTokenUsage(total=output_tokens),
+        raw_usage=snapshot_json_value(usage),
+    )
 
 
 class UsageAccumulator(BaseModel):
-    """Accumulates usage data across multiple turns with cache analytics"""
+    """Accumulate canonical turns and operational context state."""
 
     turns: list[TurnUsage] = Field(default_factory=list)
     model: str | None = None
     last_cache_activity_time: float | None = None
-
-    # Provider/resolution-set effective context window size for the active model.
     _context_window_size: int | None = PrivateAttr(default=None)
-
-    # Estimated context size override (e.g. after history compaction) used until
-    # the next server-observed turn replaces it.
     _context_estimate: int | None = PrivateAttr(default=None)
 
     def set_context_window_size(self, value: int | None) -> None:
-        """Set the effective context window size for this accumulator."""
         self._context_window_size = value
 
     def set_context_estimate(self, value: int | None) -> None:
-        """Override current context size with an estimate until the next turn lands."""
         self._context_estimate = value
 
     def reset(self) -> None:
-        """Clear accumulated turn usage while preserving context-window configuration."""
         self.turns = []
         self.model = None
         self.last_cache_activity_time = None
         self._context_estimate = None
 
     def add_turn(self, turn: TurnUsage) -> None:
-        """Add a new turn to the accumulator"""
         self._context_estimate = None
         self.turns.append(turn)
         if self.model is None:
             self.model = turn.model
-        # Track when cache was last used for expiry estimation
-        if turn.cache_usage.has_cache_activity:
+        if (turn.prompt.cache_read or 0) > 0 or (turn.prompt.cache_write or 0) > 0:
             self.last_cache_activity_time = turn.timestamp
 
-    # add tool call count to the last turn (if present)
-    # not ideal way to do it, but works well enough. full history would be available through the
-    # message_history; maybe we consolidate there and put turn_usage on the turn.
     def count_tools(self, tool_calls: int) -> None:
-        if self.turns and self.turns[-1]:
+        if self.turns:
             self.turns[-1].tool_calls = tool_calls
 
-    @computed_field
     @property
-    def cumulative_input_tokens(self) -> int:
-        """Total input tokens charged across all turns (including cache tokens)"""
-        return sum(
-            turn.input_tokens
-            + turn.cache_usage.cache_read_tokens
-            + turn.cache_usage.cache_write_tokens
-            for turn in self.turns
-        )
+    def summary(self) -> UsageSummary:
+        return summarize_usage(self.turns)
 
     @computed_field
     @property
-    def cumulative_output_tokens(self) -> int:
-        """Total output tokens charged across all turns"""
-        return sum(turn.output_tokens for turn in self.turns)
-
-    @computed_field
-    @property
-    def cumulative_billing_tokens(self) -> int:
-        """Total tokens charged across all turns (including cache tokens)"""
-        return self.cumulative_input_tokens + self.cumulative_output_tokens
-
-    @computed_field
-    @property
-    def cumulative_cache_read_tokens(self) -> int:
-        """Total tokens read from cache across all turns"""
-        return sum(turn.cache_usage.cache_read_tokens for turn in self.turns)
-
-    @computed_field
-    @property
-    def cumulative_cache_write_tokens(self) -> int:
-        """Total tokens written to cache across all turns"""
-        return sum(turn.cache_usage.cache_write_tokens for turn in self.turns)
-
-    @computed_field
-    @property
-    def cumulative_tool_calls(self) -> int:
-        """Total tool calls made across all turns"""
-        return sum(turn.tool_calls for turn in self.turns)
-
-    @computed_field
-    @property
-    def cumulative_cache_hit_tokens(self) -> int:
-        """Total tokens served from cache across all turns"""
-        return sum(turn.cache_usage.cache_hit_tokens for turn in self.turns)
-
-    @computed_field
-    @property
-    def cumulative_effective_input_tokens(self) -> int:
-        """Total input tokens excluding cache reads across all turns"""
-        return sum(turn.effective_input_tokens for turn in self.turns)
-
-    @computed_field
-    @property
-    def cumulative_tool_use_tokens(self) -> int:
-        """Total tokens used for tool calling prompts across all turns"""
-        return sum(turn.tool_use_tokens for turn in self.turns)
-
-    @computed_field
-    @property
-    def cumulative_reasoning_tokens(self) -> int:
-        """Total tokens used for reasoning/thinking across all turns"""
-        return sum(turn.reasoning_tokens for turn in self.turns)
-
-    @computed_field
-    @property
-    def cache_hit_rate(self) -> float | None:
-        """Percentage of total input context served from cache"""
-        cache_tokens = self.cumulative_cache_read_tokens + self.cumulative_cache_hit_tokens
-        total_input_tokens = self.cumulative_input_tokens
-        if total_input_tokens == 0:
-            return None
-        return (cache_tokens / total_input_tokens) * 100
-
-    @computed_field
-    @property
-    def current_context_tokens(self) -> int:
-        """Current context usage (last turn's context tokens)"""
+    def current_context_tokens(self) -> int | None:
         if self._context_estimate is not None:
             return self._context_estimate
         if not self.turns:
-            return 0
-        return self.turns[-1].current_context_tokens
+            return None
+        return self.turns[-1].total
 
     @computed_field
     @property
     def context_window_size(self) -> int | None:
-        """Get context window size for current model.
-
-        Returns the explicitly set effective size when present,
-        otherwise falls back to the model database.
-        """
         if self._context_window_size is not None:
             return self._context_window_size
-        if self.model:
-            return ModelDatabase.get_context_window(self.model)
-        return None
+        return ModelDatabase.get_context_window(self.model) if self.model else None
 
     @computed_field
     @property
     def context_usage_percentage(self) -> float | None:
-        """Percentage of context window used"""
-        window_size = self.context_window_size
-        if window_size and window_size > 0:
-            return (self.current_context_tokens / window_size) * 100
-        return None
+        current = self.current_context_tokens
+        window = self.context_window_size
+        if current is None or window is None or window <= 0:
+            return None
+        return (current / window) * 100
 
-    @computed_field
-    @property
-    def turn_count(self) -> int:
-        """Number of turns accumulated"""
-        return len(self.turns)
+    def get_summary(self) -> dict[str, object]:
+        """Return the canonical summary plus operational context metadata."""
 
-    def get_cache_summary(self) -> dict[str, int | float | None]:
-        """Get cache-specific metrics summary"""
         return {
-            "cumulative_cache_read_tokens": self.cumulative_cache_read_tokens,
-            "cumulative_cache_write_tokens": self.cumulative_cache_write_tokens,
-            "cumulative_cache_hit_tokens": self.cumulative_cache_hit_tokens,
-            "cache_hit_rate_percent": self.cache_hit_rate,
-            "cumulative_effective_input_tokens": self.cumulative_effective_input_tokens,
-        }
-
-    def get_summary(self) -> dict[str, int | float | str | None]:
-        """Get comprehensive usage statistics"""
-        cache_summary = self.get_cache_summary()
-        return {
+            **self.summary.model_dump(mode="json"),
             "model": self.model,
-            "turn_count": self.turn_count,
-            "cumulative_input_tokens": self.cumulative_input_tokens,
-            "cumulative_output_tokens": self.cumulative_output_tokens,
-            "cumulative_billing_tokens": self.cumulative_billing_tokens,
-            "cumulative_tool_use_tokens": self.cumulative_tool_use_tokens,
-            "cumulative_reasoning_tokens": self.cumulative_reasoning_tokens,
-            "cumulative_tool_calls": self.cumulative_tool_calls,
             "current_context_tokens": self.current_context_tokens,
             "context_window_size": self.context_window_size,
             "context_usage_percentage": self.context_usage_percentage,
-            **cache_summary,
         }
 
 
-# Utility functions for fast-agent integration
-def create_fast_agent_usage(
+def create_character_usage(
     input_content: str,
     output_content: str,
     model_type: str,
     tool_calls: int = 0,
     delay_seconds: float = 0.0,
-) -> FastAgentUsage:
-    """
-    Create FastAgentUsage from message content.
-
-    Args:
-        input_content: Input message content
-        output_content: Output message content
-        model_type: Type of fast-agent model (passthrough/playback/slow)
-        tool_calls: Number of tool calls made
-        delay_seconds: Artificial delays added
-
-    Returns:
-        FastAgentUsage object with character counts
-    """
-    return FastAgentUsage(
-        input_chars=len(input_content),
-        output_chars=len(output_content),
+) -> CharacterUsage:
+    return CharacterUsage(
+        input_characters=len(input_content),
+        output_characters=len(output_content),
         model_type=model_type,
         tool_calls=tool_calls,
         delay_seconds=delay_seconds,
     )
-
-
-def create_turn_usage_from_messages(
-    input_content: str,
-    output_content: str,
-    model: str,
-    model_type: str,
-    tool_calls: int = 0,
-    delay_seconds: float = 0.0,
-) -> TurnUsage:
-    """
-    Create TurnUsage directly from message content for fast-agent providers.
-
-    Args:
-        input_content: Input message content
-        output_content: Output message content
-        model: Model name (e.g., "passthrough", "playback", "slow")
-        model_type: Type for internal tracking
-        tool_calls: Number of tool calls made
-        delay_seconds: Artificial delays added
-
-    Returns:
-        TurnUsage object ready for accumulation
-    """
-    usage = create_fast_agent_usage(
-        input_content=input_content,
-        output_content=output_content,
-        model_type=model_type,
-        tool_calls=tool_calls,
-        delay_seconds=delay_seconds,
-    )
-    return TurnUsage.from_fast_agent(usage, model)
 
 
 def last_turn_usage(
-    usage_accumulator: UsageAccumulator | None, start_index: int | None
+    usage_accumulator: UsageAccumulator | None,
+    start_index: int | None,
 ) -> dict[str, int] | None:
-    """Return usage for the last turn since the provided start index."""
-    if not usage_accumulator:
+    if usage_accumulator is None or not usage_accumulator.turns:
         return None
-
     turns = usage_accumulator.turns
-    if not turns:
-        return None
-
     if start_index is not None and start_index >= len(turns):
         return None
-
-    turn = turns[-1]
+    selected = turns[start_index:] if start_index is not None else [turns[-1]]
+    prompt = _complete_sum([turn.prompt.total for turn in selected])
+    completion = _complete_sum([turn.completion.total for turn in selected])
+    if prompt is None or completion is None:
+        return None
     return {
-        "input_tokens": turn.display_input_tokens,
-        "output_tokens": turn.output_tokens,
-        "tool_calls": turn.tool_calls,
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "tool_calls": sum(turn.tool_calls for turn in selected),
     }

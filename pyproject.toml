@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.9.9"
+version = "0.9.10"
 description = "Code, Build and Evaluate agents - excellent Model and Skills/MCP/ACP/A2A Support"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -16,13 +16,13 @@ requires-python = ">=3.12,<3.15"
 dependencies = [
     "fastapi==0.136.3",
     "fastmcp==3.4.4",
-    "mcp==1.27.2",
+    "mcp==1.28.1",
     "pydantic-settings==2.14.2",
     "pydantic==2.13.4",
     "pyyaml==6.0.3",
     "rich==15.0.0",
     "typer==0.25.1",
-    "anthropic[vertex]==0.112.0",
+    "anthropic[vertex]==0.116.0",
     "openai[aiohttp]==2.45.0",
     "prompt-toolkit==3.0.52",
     "aiohttp==3.14.1",

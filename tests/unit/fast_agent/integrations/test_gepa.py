@@ -73,20 +73,28 @@ def test_reflection_lm_logs_usage_metrics(monkeypatch, tmp_path):
                                     {
                                         "text": json.dumps(
                                             {
-                                                "turn": {
-                                                    "input_tokens": 10,
-                                                    "output_tokens": 2,
-                                                    "total_tokens": 12,
-                                                    "effective_input_tokens": 6,
-                                                    "cache_usage": {"cache_hit_tokens": 4},
-                                                },
-                                                "summary": {
-                                                    "cumulative_input_tokens": 10,
-                                                    "cumulative_output_tokens": 2,
-                                                    "cumulative_billing_tokens": 12,
-                                                    "cumulative_cache_hit_tokens": 4,
-                                                    "cache_hit_rate_percent": 40.0,
-                                                },
+                                                "schema": "fast-agent.usage/v2",
+                                                "provider_attempts": [
+                                                    {
+                                                        "provider": "openai",
+                                                        "usage_schema": "openai-chat",
+                                                        "model": "test",
+                                                        "prompt": {"total": 7},
+                                                        "completion": {"total": 0},
+                                                        "raw_usage": {},
+                                                    },
+                                                    {
+                                                        "provider": "openai",
+                                                        "usage_schema": "openai-chat",
+                                                        "model": "test",
+                                                        "prompt": {
+                                                            "total": 10,
+                                                            "cache_read": 4,
+                                                        },
+                                                        "completion": {"total": 2},
+                                                        "raw_usage": {},
+                                                    },
+                                                ],
                                             }
                                         )
                                     }
@@ -126,10 +134,11 @@ def test_reflection_lm_logs_usage_metrics(monkeypatch, tmp_path):
     assert logged[0]["gepa/iteration"] == 3
     assert "gepa/total_metric_calls" not in logged[0]
     assert logged[0]["fast_agent/gepa_context/proposed_components"] == 1
-    assert logged[0]["fast_agent/reflection/usage/cumulative_billing_tokens"] == 12
-    assert logged[0]["fast_agent/reflection/usage/billing_tokens_per_turn"] == 12
-    assert logged[0]["fast_agent/reflection/usage/input_tokens_per_turn"] == 10
-    assert logged[0]["fast_agent/reflection/usage/cache_hit_rate_percent"] == 40.0
+    assert logged[0]["fast_agent/reflection/usage/total"] == 19
+    assert logged[0]["fast_agent/reflection/usage/provider_attempts"] == 2
+    assert logged[0]["fast_agent/reflection/turns"] == 1
+    assert logged[0]["fast_agent/reflection/usage/prompt_tokens_per_turn"] == 17
+    assert logged[0]["fast_agent/reflection/usage/completion_tokens_per_turn"] == 2
     assert "fast_agent/reflection/call_index" not in logged[0]
     assert "fast_agent/reflection/usage/cumulative_input_tokens" not in logged[0]
 
@@ -306,9 +315,9 @@ def test_single_task_adapter_evaluates_batch_of_one_and_exposes_metrics(tmp_path
                         "ttft": {"count": 1, "mean": 100},
                     },
                     "usage": {
-                        "input_tokens": 10,
-                        "output_tokens": 5,
-                        "billing_tokens": 15,
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "total_tokens": 15,
                         "rows_with_usage": 1,
                     },
                 },
@@ -345,8 +354,8 @@ def test_single_task_adapter_evaluates_batch_of_one_and_exposes_metrics(tmp_path
     assert metrics["fast_agent/eval/duration_seconds_per_row"] == 0.5
     assert metrics["fast_agent/eval/rows_per_second"] == 2
     assert metrics["fast_agent/eval/ttft_mean_seconds"] == 0.1
-    assert metrics["fast_agent/eval/usage/input_tokens_per_row"] == 10
-    assert metrics["fast_agent/eval/usage/output_tokens_per_second"] == 5 / 0.3
+    assert metrics["fast_agent/eval/usage/prompt_tokens_per_row"] == 10
+    assert metrics["fast_agent/eval/usage/completion_tokens_per_second"] == 5 / 0.3
     assert "fast_agent/eval/usage/output_tokens_per_generation_second" not in metrics
     assert "fast_agent/eval/objective_avg/gepa_score" not in metrics
 
@@ -396,23 +405,18 @@ def test_row_wise_batch_adapter_logs_batch_usage_and_cache(monkeypatch, tmp_path
                 "ttft": {"count": 2, "mean": 100},
             },
             "usage": {
-                "input_tokens": 100,
-                "output_tokens": 20,
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
                 "total_tokens": 120,
-                "billing_tokens": 120,
                 "reasoning_tokens": 7,
-                "tool_use_tokens": 3,
+                "tool_use_prompt_tokens": 3,
                 "tool_calls": 1,
                 "rows_with_usage": 2,
                 "usage_coverage_percent": 100.0,
             },
             "cache": {
-                "served_tokens": 60,
-                "activity_tokens": 80,
-                "hit_tokens": 40,
+                "read_tokens": 60,
                 "write_tokens": 20,
-                "effective_input_tokens": 40,
-                "hit_rate_percent": 60.0,
                 "rows_with_cache_activity": 2,
                 "row_cache_activity_percent": 100.0,
             },
@@ -487,24 +491,22 @@ def test_row_wise_batch_adapter_logs_batch_usage_and_cache(monkeypatch, tmp_path
     assert payload["fast_agent/eval/ttft_mean_seconds"] == 0.1
     assert payload["fast_agent/eval/failed_rows"] == 0
     assert payload["fast_agent/eval/error_rate_percent"] == 0
-    assert payload["fast_agent/eval/usage/billing_tokens_per_row"] == 60
-    assert payload["fast_agent/eval/usage/input_tokens_per_row"] == 50
-    assert payload["fast_agent/eval/usage/output_tokens_per_second"] == 20 / 0.3
+    assert payload["fast_agent/eval/usage/total_tokens_per_row"] == 60
+    assert payload["fast_agent/eval/usage/prompt_tokens_per_row"] == 50
+    assert payload["fast_agent/eval/usage/completion_tokens_per_second"] == 20 / 0.3
     assert "fast_agent/eval/usage/output_tokens_per_generation_second" not in payload
     assert payload["fast_agent/eval/usage/reasoning_tokens_per_row"] == 3.5
-    assert payload["fast_agent/eval/usage/tool_use_tokens_per_row"] == 1.5
+    assert payload["fast_agent/eval/usage/tool_use_prompt_tokens_per_row"] == 1.5
     assert payload["fast_agent/eval/usage/tool_calls_per_row"] == 0.5
     assert payload["fast_agent/eval/cache/row_cache_activity_percent"] == 100.0
-    assert payload["fast_agent/eval/cache/hit_rate_percent"] == 60.0
     assert "fast_agent/eval/eval_index" not in payload
     assert "fast_agent/eval/num_metric_calls" not in payload
     assert "fast_agent/eval/duration_ms" not in payload
     assert "fast_agent/eval/processed_rows" not in payload
     assert "fast_agent/eval/selected_rows" not in payload
-    assert "fast_agent/eval/usage/input_tokens" not in payload
+    assert "fast_agent/eval/usage/prompt_tokens" not in payload
     assert "fast_agent/eval/usage/usage_coverage_percent" not in payload
-    assert "fast_agent/eval/usage/total_tokens_per_row" not in payload
-    assert "fast_agent/eval/cache/served_tokens" not in payload
+    assert "fast_agent/eval/cache/read_tokens" not in payload
     assert "fast_agent/eval/cache/write_rate_percent" not in payload
 
 
@@ -516,12 +518,11 @@ def test_trackio_callback_omits_score_summaries_for_single_row_batches(monkeypat
             "failed_rows": 0,
             "duration_ms": 1000,
             "usage": {
-                "billing_tokens": 120,
+                "total_tokens": 120,
                 "rows_with_usage": 2,
             },
             "cache": {
-                "served_tokens": 60,
-                "hit_rate_percent": 60.0,
+                "read_tokens": 60,
             },
         }
     )
@@ -585,8 +586,7 @@ def test_trackio_callback_omits_score_summaries_for_single_row_batches(monkeypat
     assert "fast_agent/eval/num_metric_calls" not in payload
     assert "fast_agent/eval/objective_avg/gepa_score" not in payload
     assert payload["fast_agent/eval/error_rate_percent"] == 0
-    assert payload["fast_agent/eval/usage/billing_tokens_per_row"] == 60
-    assert payload["fast_agent/eval/cache/hit_rate_percent"] == 60.0
+    assert payload["fast_agent/eval/usage/total_tokens_per_row"] == 60
 
 
 def test_eval_metrics_include_error_rate_for_failed_rows(monkeypatch, tmp_path):

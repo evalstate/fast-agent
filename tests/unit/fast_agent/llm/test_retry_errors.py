@@ -1,5 +1,6 @@
 import httpx
 from anthropic import BadRequestError as AnthropicBadRequestError
+from openai import APIError as OpenAIAPIError
 from openai import BadRequestError as OpenAIBadRequestError
 
 from fast_agent.core.exceptions import ProviderKeyError
@@ -21,6 +22,17 @@ def test_provider_key_errors_without_retryable_terms_are_fatal() -> None:
 def test_context_length_code_is_fatal() -> None:
     error = RuntimeError("request failed (code: context_length_exceeded)")
 
+    assert FastAgentLLM._is_fatal_retry_error(error) is True
+
+
+def test_openai_api_error_context_length_code_is_fatal() -> None:
+    error = OpenAIAPIError(
+        "Your input exceeds the context window.",
+        httpx.Request("POST", "https://api.openai.com/v1/responses"),
+        body={"code": "context_length_exceeded"},
+    )
+
+    assert "context_length_exceeded" not in str(error)
     assert FastAgentLLM._is_fatal_retry_error(error) is True
 
 

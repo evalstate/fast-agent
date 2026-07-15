@@ -35,6 +35,7 @@ from fast_agent.tools.filesystem_tool_args import (
     coerce_tool_arguments,
 )
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
+from fast_agent.tools.output_truncation import format_output_truncation_notice
 from fast_agent.tools.tool_sources import SHELL_TOOL_SOURCE, set_tool_source
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -495,13 +496,12 @@ class ShellRuntime:
         total_tokens = max(int(output_state.total_output_bytes / TERMINAL_BYTES_PER_TOKEN), 1)
         omitted_bytes = max(output_state.total_output_bytes - retained_bytes, 0)
         if head_bytes is not None and tail_bytes is not None:
-            return (
-                "[Output truncated: showing first "
-                f"{head_bytes} bytes and last {tail_bytes} bytes of "
-                f"{output_state.total_output_bytes} bytes "
-                f"(~{retained_tokens} of ~{total_tokens} tokens); "
-                f"omitted {omitted_bytes} middle bytes. "
-                "Increase shell_execution.output_byte_limit to retain more.]"
+            return format_output_truncation_notice(
+                label="Output",
+                total_bytes=output_state.total_output_bytes,
+                head_bytes=head_bytes,
+                tail_bytes=tail_bytes,
+                guidance="Increase shell_execution.output_byte_limit to retain more.",
             )
         return (
             "[Output truncated: retained "

@@ -99,7 +99,7 @@ async def handle_compact_preview(
         return outcome
 
     usage = agent.usage_accumulator
-    tokens_now = usage.current_context_tokens if usage else 0
+    tokens_now = usage.current_context_tokens if usage else None
     window = usage.context_window_size if usage else None
     estimated_after = (
         estimate_tokens(plan.templates + plan.retained_tail) + _PREVIEW_SUMMARY_TOKEN_ALLOWANCE
@@ -107,7 +107,9 @@ async def handle_compact_preview(
 
     lines: list[Text] = []
     context_line = Text("context ", style="dim")
-    context_line.append_text(context_bar(tokens_now if tokens_now > 0 else None, window))
+    context_line.append_text(
+        context_bar(tokens_now if tokens_now is not None and tokens_now > 0 else None, window)
+    )
     context_line.append("  →  ", style="dim")
     context_line.append_text(context_bar(estimated_after, window))
     context_line.append(" est", style="dim")

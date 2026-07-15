@@ -23,6 +23,7 @@ from anthropic import BadRequestError as AnthropicBadRequestError
 from anthropic import RequestTooLargeError as AnthropicRequestTooLargeError
 from mcp import Tool
 from mcp.types import GetPromptResult
+from openai import APIError as OpenAIAPIError
 from openai import BadRequestError as OpenAIBadRequestError
 from pydantic_core import from_json
 
@@ -43,6 +44,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     ReasoningEffortSetting,
     ReasoningEffortSpec,
+    reasoning_setting_telemetry_value,
     validate_reasoning_setting,
 )
 from fast_agent.llm.request_param_resolution import (
@@ -696,6 +698,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         ):
             return True
 
+        if isinstance(error, OpenAIAPIError):
+            code = casefold_text(error.code or "")
+            if code in _NON_RETRYABLE_CONTEXT_ERROR_CODES:
+                return True
+
         message = casefold_text(str(error))
         if any(code in message for code in _NON_RETRYABLE_CONTEXT_ERROR_CODES):
             return True
@@ -877,6 +884,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # The caller supplies the full conversation to send
         full_history = prepared_messages
 
+        usage_start_index = len(self.usage_accumulator.turns)
         timing_capture, cleanup_timing_capture = self._start_request_timing_capture()
         try:
             assistant_response = await self._execute_with_retry(
@@ -898,12 +906,17 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         )
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
-        self._append_usage_channel(assistant_response)
+        self._append_usage_channel(assistant_response, start_index=usage_start_index)
 
         return assistant_response
 
-    def _append_usage_channel(self, response: PromptMessageExtended) -> None:
-        append_usage_channel(response, self.usage_accumulator)
+    def _append_usage_channel(
+        self,
+        response: PromptMessageExtended,
+        *,
+        start_index: int | None = None,
+    ) -> None:
+        append_usage_channel(response, self.usage_accumulator, start_index=start_index)
 
     def _add_timing_channel(
         self,
@@ -978,6 +991,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         final_request_params = self.get_request_params(request_params)
         mcp_metadata_token = _mcp_metadata_var.set(final_request_params.mcp_metadata)
 
+        usage_start_index = len(self.usage_accumulator.turns)
         timing_capture, cleanup_timing_capture = self._start_request_timing_capture()
         try:
             result_or_response = await self._execute_with_retry(
@@ -1009,7 +1023,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         )
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
-        self._append_usage_channel(assistant_response)
+        self._append_usage_channel(assistant_response, start_index=usage_start_index)
 
         return result, assistant_response
 
@@ -1285,8 +1299,16 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # Many LLM implementations will allow the same type for input and output messages
         return cast("MessageParamT", message)
 
-    def _finalize_turn_usage(self, turn_usage: "TurnUsage") -> None:
+    def _finalize_turn_usage(
+        self,
+        turn_usage: "TurnUsage",
+        *,
+        requested_service_tier: Literal["fast", "flex"] | None = None,
+    ) -> None:
         """Set tool call count on TurnUsage and add to accumulator."""
+        reasoning_effort = self.reasoning_effort
+        turn_usage.reasoning_effort = reasoning_setting_telemetry_value(reasoning_effort)
+        turn_usage.requested_service_tier = requested_service_tier
         self._usage_accumulator.add_turn(turn_usage)
 
     def _log_chat_progress(self, chat_turn: int | None = None, model: str | None = None) -> None:

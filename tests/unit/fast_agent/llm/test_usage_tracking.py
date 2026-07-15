@@ -1,428 +1,438 @@
-from anthropic.types.beta import BetaUsage as AnthropicUsage
-from google.genai.types import GenerateContentResponseUsageMetadata as GoogleUsage
-from google.genai.types import ServiceTier, UsageMetadata
-from openai.types.completion_usage import (
-    CompletionTokensDetails,
-    PromptTokensDetails,
-)
-from openai.types.completion_usage import (
-    CompletionUsage as OpenAIUsage,
-)
+from __future__ import annotations
 
-from fast_agent.core.logging.json_serializer import JSONSerializer, snapshot_json_value
-from fast_agent.llm.provider.openai.responses_websocket import _AttrObjectView
+import json
+from pathlib import Path
+
+import pytest
+from anthropic.types.beta import BetaUsage
+from google.genai.types import GenerateContentResponseUsageMetadata, ServiceTier, UsageMetadata
+from openai.types.completion_usage import CompletionUsage
+from openai.types.responses.response_usage import ResponseUsage
+from pydantic import ValidationError
+
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.response_telemetry import build_usage_payload
 from fast_agent.llm.usage_tracking import (
-    CacheUsage,
+    CharacterUsage,
+    CompletionTokenUsage,
+    PromptTokenUsage,
     TurnUsage,
     UsageAccumulator,
-    create_turn_usage_from_messages,
+    UsageReport,
+    UsageSchema,
+    usage_from_anthropic,
+    usage_from_google_generate_content,
+    usage_from_google_usage_metadata,
+    usage_from_openai_chat,
+    usage_from_openai_compatible,
+    usage_from_openai_responses,
 )
 
 
-def test_anthropic_usage_calculation():
-    """Test Anthropic usage calculations with cache tokens"""
-    # Create real Anthropic usage object with cache data
-    anthropic_usage = AnthropicUsage(
-        input_tokens=1000,
-        output_tokens=500,
-        cache_creation_input_tokens=200,
-        cache_read_input_tokens=300,
-    )
+def test_usage_report_requires_provider_attempts_and_v2_schema() -> None:
+    with pytest.raises(ValidationError, match="provider_attempts"):
+        UsageReport(provider_attempts=[])
 
-    turn = TurnUsage.from_anthropic(anthropic_usage, "claude-sonnet-4-0")
-
-    # Basic token counts
-    assert turn.input_tokens == 1000
-    assert turn.output_tokens == 500
-    assert turn.total_tokens == 1500
-    # Current context includes cache tokens: input(1000) + cache_read(300) + cache_write(200) + output(500) = 2000
-    assert turn.current_context_tokens == 2000
-
-    # Cache calculations
-    assert turn.cache_usage.cache_write_tokens == 200  # creation
-    assert turn.cache_usage.cache_read_tokens == 300  # read
-    assert turn.cache_usage.cache_hit_tokens == 0  # not used for anthropic
-
-    # Effective tokens: For Anthropic, input_tokens already excludes cache
-    assert turn.effective_input_tokens == 1000  # input_tokens (cache already excluded by Anthropic)
-
-    # Provider and raw data
-    assert turn.provider == Provider.ANTHROPIC
-    assert isinstance(turn.raw_usage, dict)
-    assert turn.raw_usage["input_tokens"] == 1000
-    assert turn.raw_usage["output_tokens"] == 500
-    assert turn.raw_usage["cache_creation_input_tokens"] == 200
-    assert turn.raw_usage["cache_read_input_tokens"] == 300
+    with pytest.raises(ValidationError, match="schema"):
+        UsageReport.model_validate(
+            {"schema": "fast-agent.usage/v1", "provider_attempts": [{}]}
+        )
 
 
-def test_openai_usage_calculation():
-    """Test OpenAI usage calculations with cache tokens"""
-    # Create real OpenAI usage object with cache data
-    prompt_details = PromptTokensDetails(cached_tokens=400)
-    completion_details = CompletionTokensDetails(reasoning_tokens=100)
-
-    openai_usage = OpenAIUsage(
-        prompt_tokens=1200,
-        completion_tokens=600,
-        total_tokens=1800,
-        prompt_tokens_details=prompt_details,
-        completion_tokens_details=completion_details,
-    )
-
-    turn = TurnUsage.from_openai(openai_usage, "gpt-4o")
-
-    # Basic token counts
-    assert turn.input_tokens == 1200
-    assert turn.output_tokens == 600
-    assert turn.total_tokens == 1800
-    assert turn.current_context_tokens == 1800
-
-    # Cache calculations
-    assert turn.cache_usage.cache_write_tokens == 0  # not used for openai
-    assert turn.cache_usage.cache_read_tokens == 0  # not used for openai
-    assert turn.cache_usage.cache_hit_tokens == 400  # cached tokens
-
-    # Effective tokens (input minus cache hits)
-    assert turn.effective_input_tokens == 800  # 1200 - 400
-
-    # Provider and raw data
-    assert turn.provider == Provider.OPENAI
-    assert isinstance(turn.raw_usage, dict)
-    assert turn.raw_usage["prompt_tokens"] == 1200
-    assert turn.raw_usage["completion_tokens"] == 600
-    assert turn.raw_usage["total_tokens"] == 1800
-    prompt_details_snapshot = turn.raw_usage["prompt_tokens_details"]
-    assert isinstance(prompt_details_snapshot, dict)
-    assert prompt_details_snapshot["cached_tokens"] == 400
-    completion_details_snapshot = turn.raw_usage["completion_tokens_details"]
-    assert isinstance(completion_details_snapshot, dict)
-    assert completion_details_snapshot["reasoning_tokens"] == 100
-
-
-def test_google_usage_calculation():
-    """Test Google usage calculations with cache tokens"""
-    # Create real Google usage object with cache data
-    google_usage = GoogleUsage(
-        prompt_token_count=1500,
-        candidates_token_count=750,
-        total_token_count=2250,
-        cached_content_token_count=500,
-    )
-
-    turn = TurnUsage.from_google(google_usage, "gemini-2.0-flash")
-
-    # Basic token counts
-    assert turn.input_tokens == 1500
-    assert turn.output_tokens == 750
-    assert turn.total_tokens == 2250
-    assert turn.current_context_tokens == 2250
-
-    # Cache calculations
-    assert turn.cache_usage.cache_write_tokens == 0  # not used for google
-    assert turn.cache_usage.cache_read_tokens == 0  # not used for google
-    assert turn.cache_usage.cache_hit_tokens == 500  # cached content
-
-    # Effective tokens (input minus cache hits)
-    assert turn.effective_input_tokens == 1000  # 1500 - 500
-
-    # Provider and raw data
-    assert turn.provider == Provider.GOOGLE
-    assert isinstance(turn.raw_usage, dict)
-    assert turn.raw_usage["prompt_token_count"] == 1500
-    assert turn.raw_usage["candidates_token_count"] == 750
-    assert turn.raw_usage["total_token_count"] == 2250
-    assert turn.raw_usage["cached_content_token_count"] == 500
-
-
-def test_google_usage_captures_observed_service_tier():
-    """Google interaction usage can report service tier; preserve it on turn usage."""
-    google_usage = UsageMetadata(
-        prompt_token_count=10,
-        response_token_count=5,
-        total_token_count=15,
-        service_tier=ServiceTier.PRIORITY,
-    )
-
-    turn = TurnUsage.from_google(google_usage, "gemini-3.5-flash")
-
-    assert turn.service_tier == "priority"
-    assert isinstance(turn.raw_usage, dict)
-    assert turn.raw_usage["service_tier"] == "priority"
-
-
-def test_fast_agent_usage_calculation():
-    """Test fast-agent usage calculations based on character counts"""
-    input_content = "This is a test input message with some content"
-    output_content = "This is the response from the fast-agent"
-
-    turn = create_turn_usage_from_messages(
-        input_content=input_content,
-        output_content=output_content,
-        model="passthrough",
-        model_type="passthrough",
-        tool_calls=2,
-        delay_seconds=0.0,
-    )
-
-    # Character counts as "tokens"
-    assert turn.input_tokens == len(input_content)  # 45 chars
-    assert turn.output_tokens == len(output_content)  # 39 chars
-    assert turn.total_tokens == len(input_content) + len(output_content)  # 84 chars
-
-    # No cache for fast-agent
-    assert turn.cache_usage.cache_write_tokens == 0
-    assert turn.cache_usage.cache_read_tokens == 0
-    assert turn.cache_usage.cache_hit_tokens == 0
-
-    # Effective tokens equals input tokens (no cache)
-    assert turn.effective_input_tokens == len(input_content)
-
-    # Provider and raw data
-    assert turn.provider == Provider.FAST_AGENT
-    assert turn.raw_usage == {
-        "input_chars": len(input_content),
-        "output_chars": len(output_content),
-        "model_type": "passthrough",
-        "tool_calls": 2,
-        "delay_seconds": 0.0,
-    }
-
-
-def test_responses_websocket_raw_usage_snapshot_is_preserved_without_coercion():
-    """Websocket Responses usage should persist as a JSON-safe snapshot."""
-    websocket_usage = _AttrObjectView(
+def test_anthropic_translates_disjoint_prompt_partitions_and_thinking_subset() -> None:
+    usage = BetaUsage.model_validate(
         {
-            "input_tokens": 102,
-            "input_tokens_details": {"cached_tokens": 5},
-            "output_tokens": 108,
-            "output_tokens_details": {"reasoning_tokens": 64},
-            "total_tokens": 210,
+            "input_tokens": 114,
+            "cache_read_input_tokens": 5_251,
+            "cache_creation_input_tokens": 0,
+            "output_tokens": 56,
+            "output_tokens_details": {"thinking_tokens": 12},
         }
     )
 
-    turn = TurnUsage(
-        provider=Provider.CODEX_RESPONSES,
-        model="gpt-5.4",
-        input_tokens=102,
-        output_tokens=108,
-        total_tokens=210,
-        cache_usage=CacheUsage(cache_hit_tokens=5),
-        reasoning_tokens=64,
-        raw_usage=snapshot_json_value(websocket_usage),
+    turn = usage_from_anthropic(
+        usage,
+        provider=Provider.ANTHROPIC,
+        model="claude-sonnet-5",
     )
 
-    assert turn.raw_usage == {
-        "input_tokens": 102,
-        "input_tokens_details": {"cached_tokens": 5},
-        "output_tokens": 108,
-        "output_tokens_details": {"reasoning_tokens": 64},
-        "total_tokens": 210,
-    }
+    assert turn.prompt == PromptTokenUsage(
+        total=5_365,
+        uncached=114,
+        cache_read=5_251,
+        cache_write=0,
+    )
+    assert turn.completion == CompletionTokenUsage(total=56, reasoning=12)
+    assert turn.total == 5_421
+    assert turn.raw_usage == usage.model_dump(mode="json")
 
-    accumulator = UsageAccumulator(turns=[turn], model="gpt-5.4")
-    payload = build_usage_payload(accumulator)
+
+def test_anthropic_preserves_optional_cache_and_thinking_details_as_unknown() -> None:
+    usage = BetaUsage.model_validate({"input_tokens": 10, "output_tokens": 3})
+
+    turn = usage_from_anthropic(
+        usage,
+        provider=Provider.ANTHROPIC_VERTEX,
+        model="claude",
+    )
+
+    assert turn.provider is Provider.ANTHROPIC_VERTEX
+    assert turn.prompt.total is None
+    assert turn.prompt.cache_read is None
+    assert turn.prompt.cache_write is None
+    assert turn.completion.total == 3
+    assert turn.completion.reasoning is None
+    assert turn.total is None
+
+
+def test_openai_chat_cache_and_reasoning_are_subsets() -> None:
+    usage = CompletionUsage.model_validate(
+        {
+            "prompt_tokens": 3_000,
+            "completion_tokens": 300,
+            "total_tokens": 3_300,
+            "prompt_tokens_details": {
+                "cached_tokens": 2_048,
+                "cache_write_tokens": 512,
+            },
+            "completion_tokens_details": {"reasoning_tokens": 120},
+        }
+    )
+
+    turn = usage_from_openai_chat(
+        usage,
+        provider=Provider.HUGGINGFACE,
+        upstream_provider="fireworks-ai",
+        model="kimi",
+    )
+
+    assert turn.provider is Provider.HUGGINGFACE
+    assert turn.upstream_provider == "fireworks-ai"
+    assert turn.usage_schema is UsageSchema.OPENAI_CHAT
+    assert turn.prompt == PromptTokenUsage(
+        total=3_000,
+        cache_read=2_048,
+        cache_write=512,
+    )
+    assert turn.completion == CompletionTokenUsage(total=300, reasoning=120)
+    assert turn.total == 3_300
+
+
+def test_openai_chat_preserves_absent_details_and_explicit_zero() -> None:
+    absent = usage_from_openai_chat(
+        CompletionUsage.model_validate(
+            {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}
+        ),
+        provider=Provider.OPENAI,
+        model="gpt",
+    )
+    zero = usage_from_openai_chat(
+        CompletionUsage.model_validate(
+            {
+                "prompt_tokens": 10,
+                "completion_tokens": 2,
+                "total_tokens": 12,
+                "prompt_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 0,
+                },
+                "completion_tokens_details": {"reasoning_tokens": 0},
+            }
+        ),
+        provider=Provider.OPENAI,
+        model="gpt",
+    )
+
+    assert absent.prompt.cache_read is None
+    assert absent.prompt.cache_write is None
+    assert absent.completion.reasoning is None
+    assert zero.prompt.cache_read == 0
+    assert zero.prompt.cache_write == 0
+    assert zero.completion.reasoning == 0
+
+
+def test_openai_responses_uses_its_required_typed_details() -> None:
+    usage = ResponseUsage.model_validate(
+        {
+            "input_tokens": 3_000,
+            "input_tokens_details": {
+                "cached_tokens": 2_048,
+                "cache_write_tokens": 512,
+            },
+            "output_tokens": 300,
+            "output_tokens_details": {"reasoning_tokens": 120},
+            "total_tokens": 3_300,
+        }
+    )
+
+    turn = usage_from_openai_responses(
+        usage,
+        provider=Provider.RESPONSES,
+        model="gpt-5.6",
+    )
+
+    assert turn.usage_schema is UsageSchema.OPENAI_RESPONSES
+    assert turn.prompt == PromptTokenUsage(
+        total=3_000,
+        cache_read=2_048,
+        cache_write=512,
+    )
+    assert turn.completion == CompletionTokenUsage(total=300, reasoning=120)
+
+
+def test_provider_total_mismatch_is_a_translation_error() -> None:
+    usage = CompletionUsage.model_validate(
+        {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 99}
+    )
+
+    with pytest.raises(ValueError, match="reported total"):
+        usage_from_openai_chat(usage, provider=Provider.OPENAI, model="gpt")
+
+
+def test_google_includes_reported_tool_use_in_prompt_total() -> None:
+    usage = GenerateContentResponseUsageMetadata.model_validate(
+        {
+            "prompt_token_count": 3_425,
+            "candidates_token_count": 23,
+            "thoughts_token_count": 47,
+            "cached_content_token_count": 1_024,
+            "tool_use_prompt_token_count": 17,
+            "total_token_count": 3_512,
+        }
+    )
+
+    turn = usage_from_google_generate_content(usage, model="gemini")
+
+    assert turn.prompt == PromptTokenUsage(
+        total=3_442,
+        cache_read=1_024,
+        tool_use=17,
+    )
+    assert turn.completion == CompletionTokenUsage(total=70, reasoning=47)
+
+
+def test_google_uses_total_minus_prompt_only_as_complete_fallback() -> None:
+    fallback = usage_from_google_generate_content(
+        GenerateContentResponseUsageMetadata.model_validate(
+            {"prompt_token_count": 100, "total_token_count": 130}
+        ),
+        model="gemini",
+    )
+    partial = usage_from_google_generate_content(
+        GenerateContentResponseUsageMetadata.model_validate(
+            {"prompt_token_count": 100, "candidates_token_count": 20}
+        ),
+        model="gemini",
+    )
+
+    assert fallback.completion.total == 30
+    assert partial.completion.total is None
+
+
+def test_google_interactions_usage_preserves_service_tier() -> None:
+    usage = UsageMetadata.model_validate(
+        {
+            "prompt_token_count": 10,
+            "response_token_count": 5,
+            "thoughts_token_count": 0,
+            "total_token_count": 15,
+            "service_tier": ServiceTier.PRIORITY,
+        }
+    )
+
+    turn = usage_from_google_usage_metadata(usage, model="gemini")
+
+    assert turn.service_tier == "priority"
+    assert turn.completion == CompletionTokenUsage(total=5, reasoning=0)
+
+
+def test_dynamic_openai_compatible_decoder_preserves_attribution_and_unknowns() -> None:
+    turn = usage_from_openai_compatible(
+        {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+        provider=Provider.HUGGINGFACE,
+        upstream_provider="fireworks-ai",
+        model="kimi",
+    )
+
+    assert turn.provider is Provider.HUGGINGFACE
+    assert turn.upstream_provider == "fireworks-ai"
+    assert turn.usage_schema is UsageSchema.OPENAI_CHAT
+    assert turn.prompt.cache_read is None
+    assert turn.completion.reasoning is None
+
+
+def test_canonical_subset_invariants_are_validated() -> None:
+    with pytest.raises(ValidationError, match="cache_read"):
+        PromptTokenUsage(total=10, cache_read=11)
+    with pytest.raises(ValidationError, match="reasoning"):
+        CompletionTokenUsage(total=10, reasoning=11)
+
+
+def test_aggregation_uses_complete_data_semantics_per_metric() -> None:
+    accumulator = UsageAccumulator(
+        turns=[
+            TurnUsage(
+                provider=Provider.OPENAI,
+                usage_schema=UsageSchema.OPENAI_CHAT,
+                model="gpt",
+                prompt=PromptTokenUsage(total=10, cache_read=0),
+                completion=CompletionTokenUsage(total=2, reasoning=0),
+            ),
+            TurnUsage(
+                provider=Provider.OPENAI,
+                usage_schema=UsageSchema.OPENAI_CHAT,
+                model="gpt",
+                prompt=PromptTokenUsage(total=20, cache_read=None),
+                completion=CompletionTokenUsage(total=3, reasoning=1),
+            ),
+        ]
+    )
+
+    assert accumulator.summary.prompt.total == 30
+    assert accumulator.summary.prompt.cache_read is None
+    assert accumulator.summary.completion.total == 5
+    assert accumulator.summary.completion.reasoning == 1
+    assert accumulator.summary.total == 35
+
+
+def test_versioned_usage_payload_has_no_legacy_fields() -> None:
+    turn = TurnUsage(
+        provider=Provider.OPENAI,
+        usage_schema=UsageSchema.OPENAI_CHAT,
+        model="gpt",
+        prompt=PromptTokenUsage(total=10, cache_read=0),
+        completion=CompletionTokenUsage(total=2, reasoning=0),
+        raw_usage={"prompt_tokens": 10},
+    )
+    payload = build_usage_payload(UsageAccumulator(turns=[turn]))
+
+    assert payload == {
+        "schema": "fast-agent.usage/v2",
+        "provider_attempts": [
+            {
+                "provider": "openai",
+                "upstream_provider": None,
+                "usage_schema": "openai-chat",
+                "model": "gpt",
+                "prompt": {
+                    "total": 10,
+                    "uncached": None,
+                    "cache_read": 0,
+                    "cache_write": None,
+                    "tool_use": None,
+                },
+                "completion": {"total": 2, "reasoning": 0},
+                "tool_calls": 0,
+                "reasoning_effort": None,
+                "requested_service_tier": None,
+                "service_tier": None,
+                "cost_usd": None,
+                "timestamp": turn.timestamp,
+                "raw_usage": {"prompt_tokens": 10},
+                "total": 12,
+            },
+        ],
+    }
+    assert payload is not None
+    turn_payload = payload["provider_attempts"][0]
+    assert isinstance(turn_payload, dict)
+    assert not {
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "cache_usage",
+        "display_input_tokens",
+        "effective_input_tokens",
+    } & turn_payload.keys()
+
+
+def test_usage_payload_aggregates_provider_retries_for_one_outward_turn() -> None:
+    prior = TurnUsage(
+        provider=Provider.RESPONSES,
+        usage_schema=UsageSchema.OPENAI_RESPONSES,
+        model="gpt-5.4",
+        prompt=PromptTokenUsage(total=10, cache_read=2),
+        completion=CompletionTokenUsage(total=1, reasoning=0),
+        raw_usage={"attempt": 0},
+    )
+    first_attempt = TurnUsage(
+        provider=Provider.RESPONSES,
+        usage_schema=UsageSchema.OPENAI_RESPONSES,
+        model="gpt-5.4",
+        prompt=PromptTokenUsage(total=20, cache_read=3),
+        completion=CompletionTokenUsage(total=0, reasoning=0),
+        raw_usage={"attempt": 1},
+    )
+    retry = TurnUsage(
+        provider=Provider.RESPONSES,
+        usage_schema=UsageSchema.OPENAI_RESPONSES,
+        model="gpt-5.4",
+        prompt=PromptTokenUsage(total=25, cache_read=4),
+        completion=CompletionTokenUsage(total=5, reasoning=1),
+        raw_usage={"attempt": 2},
+    )
+
+    payload = build_usage_payload(
+        UsageAccumulator(turns=[prior, first_attempt, retry]),
+        start_index=1,
+    )
 
     assert payload is not None
-    assert payload["raw_usage"] == turn.raw_usage
+    attempts = payload["provider_attempts"]
+    assert [attempt["prompt"]["total"] for attempt in attempts] == [20, 25]
+    assert [attempt["completion"]["total"] for attempt in attempts] == [0, 5]
+    assert [attempt["total"] for attempt in attempts] == [20, 30]
+    assert [attempt["raw_usage"] for attempt in attempts] == [
+        {"attempt": 1},
+        {"attempt": 2},
+    ]
 
 
-def test_snapshot_json_value_falls_back_to_strings_for_unknown_nested_objects():
-    class UnknownLeaf:
-        def __str__(self) -> str:
-            return "unknown-leaf"
-
-    class UnknownUsage:
-        def __init__(self) -> None:
-            self.input_tokens = 11
-            self.details = UnknownLeaf()
-
-    assert snapshot_json_value(UnknownUsage()) == {
-        "input_tokens": 11,
-        "details": "unknown-leaf",
-    }
-
-
-def test_snapshot_json_value_retries_model_dump_without_json_mode():
-    class PlainModelDumpUsage:
-        def model_dump(self, *args: object, **kwargs: object) -> dict[str, int]:
-            if kwargs.get("mode") == "json":
-                raise TypeError("mode is not supported")
-            return {"input_tokens": 12}
-
-    assert snapshot_json_value(PlainModelDumpUsage()) == {"input_tokens": 12}
-
-
-def test_snapshot_json_value_uses_dict_after_model_dump_failure():
-    class DictFallbackUsage:
-        def model_dump(self, *args: object, **kwargs: object) -> dict[str, int]:
-            del args, kwargs
-            raise ValueError("broken model dump")
-
-        def dict(self) -> dict[str, int]:
-            return {"input_tokens": 13}
-
-    assert snapshot_json_value(DictFallbackUsage()) == {"input_tokens": 13}
-
-
-def test_json_serializer_sensitive_keys_use_normalized_matching():
-    payload = JSONSerializer().serialize({" API_KEY ": "abcdefghijklmnopqrstuvwxyz"})
-
-    assert payload == {" API_KEY ": "abcdefghij....."}
-
-
-def test_usage_accumulator():
-    """Test accumulation of usage across multiple turns"""
-    accumulator = UsageAccumulator()
-
-    # Add Anthropic turn
-    anthropic_usage = AnthropicUsage(input_tokens=1000, output_tokens=500)
-    anthropic_turn = TurnUsage.from_anthropic(anthropic_usage, "claude-sonnet-4-0")
-    accumulator.add_turn(anthropic_turn)
-
-    # Add OpenAI turn
-    openai_usage = OpenAIUsage(prompt_tokens=800, completion_tokens=400, total_tokens=1200)
-    openai_turn = TurnUsage.from_openai(openai_usage, "gpt-4o")
-    accumulator.add_turn(openai_turn)
-
-    # Verify accumulation
-    assert accumulator.turn_count == 2
-    assert accumulator.cumulative_input_tokens == 1800  # 1000 + 800
-    assert accumulator.cumulative_output_tokens == 900  # 500 + 400
-    assert accumulator.cumulative_billing_tokens == 2700  # 1500 + 1200
-
-    # Current context is from last turn
-    assert accumulator.current_context_tokens == 1200  # openai turn total
-
-    # Model from first turn
-    assert accumulator.model == "claude-sonnet-4-0"
-
-
-def test_cache_usage_properties():
-    """Test cache usage computed properties"""
-    cache = CacheUsage(cache_read_tokens=100, cache_write_tokens=50, cache_hit_tokens=200)
-
-    assert cache.total_cache_tokens == 350  # 100 + 50 + 200
-    assert cache.has_cache_activity is True
-
-    empty_cache = CacheUsage()
-    assert empty_cache.total_cache_tokens == 0
-    assert empty_cache.has_cache_activity is False
-
-
-def test_context_window_calculations():
-    """Test context window size and percentage calculations"""
-    # Anthropic usage with known context window
-    anthropic_usage = AnthropicUsage(input_tokens=100000, output_tokens=50000)
-    turn = TurnUsage.from_anthropic(anthropic_usage, "claude-sonnet-4-0")
-
-    accumulator = UsageAccumulator()
-    accumulator.add_turn(turn)
-
-    # Context window for claude-sonnet-4-0 is 200,000
-    assert accumulator.context_window_size == 200000
-    assert accumulator.context_usage_percentage == 75.0  # 150000/200000 * 100
-
-    # Test model without context window
-    fast_agent_turn = create_turn_usage_from_messages("test", "response", "unknown-model", "test")
-    unknown_accumulator = UsageAccumulator()
-    unknown_accumulator.add_turn(fast_agent_turn)
-
-    assert unknown_accumulator.context_window_size is None
-    assert unknown_accumulator.context_usage_percentage is None
-
-
-def test_cache_hit_rate_calculation():
-    """Test cache hit rate percentage calculation"""
-    accumulator = UsageAccumulator()
-
-    # Anthropic turn with cache reads
-    anthropic_usage = AnthropicUsage(
-        input_tokens=1000,
-        output_tokens=500,
-        cache_read_input_tokens=300,
+def test_synthetic_usage_is_character_telemetry_not_turn_usage() -> None:
+    usage = CharacterUsage(
+        input_characters=10,
+        output_characters=4,
+        model_type="passthrough",
     )
-    anthropic_turn = TurnUsage.from_anthropic(anthropic_usage, "claude-sonnet-4-0")
-    accumulator.add_turn(anthropic_turn)
 
-    # OpenAI turn with cache hits
-    prompt_details = PromptTokensDetails(cached_tokens=200)
-    openai_usage = OpenAIUsage(
-        prompt_tokens=800,
-        completion_tokens=400,
-        total_tokens=1200,
-        prompt_tokens_details=prompt_details,
+    assert usage.input_characters == 10
+    with pytest.raises(ValidationError):
+        TurnUsage.model_validate(usage.model_dump())
+
+
+def test_sanitized_live_usage_replay_matches_provider_contracts() -> None:
+    fixture_path = (
+        Path(__file__).resolve().parents[3]
+        / "fixtures"
+        / "llm_traces"
+        / "sanitized"
+        / "token_usage_live_20260715.json"
     )
-    openai_turn = TurnUsage.from_openai(openai_usage, "gpt-4o")
-    accumulator.add_turn(openai_turn)
+    fixtures = json.loads(fixture_path.read_text(encoding="utf-8"))
 
-    # Cache hit rate is the share of input context served from cache.
-    # Anthropic cumulative_input: 1000 + 300 (cache read) = 1300
-    # OpenAI cumulative_input: 800 (already includes cache)
-    # Total cumulative_input: 1300 + 800 = 2100
-    # Total cache: 300 (anthropic read) + 200 (openai hit) = 500
-    # Hit rate: 500 / 2100 * 100 = 23.81%
-    expected_hit_rate = 500 / 2100 * 100
-    assert accumulator.cache_hit_rate is not None
-    assert abs(accumulator.cache_hit_rate - expected_hit_rate) < 0.01
-
-    # Test with no input tokens
-    empty_accumulator = UsageAccumulator()
-    assert empty_accumulator.cache_hit_rate is None
-
-
-def test_provider_cache_differences():
-    """Test that Anthropic and OpenAI handle cache tokens differently"""
-    # Anthropic: separates cache creation (write) and cache read tokens
-    anthropic_usage = AnthropicUsage(
-        input_tokens=1000,
-        output_tokens=500,
-        cache_creation_input_tokens=100,  # cache write
-        cache_read_input_tokens=200,  # cache read
+    anthropic = usage_from_anthropic(
+        BetaUsage.model_validate(fixtures["anthropic"]),
+        provider=Provider.ANTHROPIC,
+        model="claude-sonnet-5",
     )
-    anthropic_turn = TurnUsage.from_anthropic(anthropic_usage, "claude-sonnet-4-0")
-
-    # OpenAI: only has cached_tokens (cache hits)
-    prompt_details = PromptTokensDetails(cached_tokens=300)
-    openai_usage = OpenAIUsage(
-        prompt_tokens=1000,
-        completion_tokens=500,
-        total_tokens=1500,
-        prompt_tokens_details=prompt_details,
+    google = usage_from_google_generate_content(
+        GenerateContentResponseUsageMetadata.model_validate(fixtures["google"]),
+        model="gemini-3.5-flash",
     )
-    openai_turn = TurnUsage.from_openai(openai_usage, "gpt-4o")
+    responses = usage_from_openai_responses(
+        ResponseUsage.model_validate(fixtures["openai_responses"]),
+        provider=Provider.CODEX_RESPONSES,
+        model="gpt-5.6-terra",
+    )
+    compatible = usage_from_openai_chat(
+        CompletionUsage.model_validate(fixtures["openai_chat_compatible"]),
+        provider=Provider.HUGGINGFACE,
+        model="moonshotai/Kimi-K2.7-Code",
+    )
 
-    # Anthropic cache structure
-    assert anthropic_turn.cache_usage.cache_write_tokens == 100  # creation
-    assert anthropic_turn.cache_usage.cache_read_tokens == 200  # read
-    assert anthropic_turn.cache_usage.cache_hit_tokens == 0  # not used
-    # For Anthropic: input_tokens already excludes cached content, so effective_input = input_tokens
-    assert anthropic_turn.effective_input_tokens == 1000  # input_tokens (already excludes cache)
-
-    # OpenAI cache structure
-    assert openai_turn.cache_usage.cache_write_tokens == 0  # not used
-    assert openai_turn.cache_usage.cache_read_tokens == 0  # not used
-    assert openai_turn.cache_usage.cache_hit_tokens == 300  # cached_tokens
-    assert openai_turn.effective_input_tokens == 700  # 1000 - 300
-
-    # Both have same total input/output but different cache accounting
-    assert anthropic_turn.input_tokens == openai_turn.input_tokens == 1000
-    assert anthropic_turn.output_tokens == openai_turn.output_tokens == 500
-
-
-def test_usage_accumulator_context_window_size_override():
-    """UsageAccumulator.context_window_size respects explicit active-model size."""
-    acc = UsageAccumulator()
-    acc.model = "claude-opus-4-6"
-
-    # Without explicit size, should return ModelDatabase value (1M)
-    assert acc.context_window_size == 1_000_000
-
-    # With explicit active-model size, should return that size
-    acc.set_context_window_size(1_000_000)
-    assert acc.context_window_size == 1_000_000
-
-    # Clear explicit size
-    acc.set_context_window_size(None)
-    assert acc.context_window_size == 1_000_000
+    assert anthropic.prompt.total == 13_223
+    assert anthropic.completion.total == 83
+    assert google.completion == CompletionTokenUsage(total=81, reasoning=59)
+    assert responses.completion == CompletionTokenUsage(total=84, reasoning=37)
+    assert compatible.provider is Provider.HUGGINGFACE
+    assert compatible.prompt.cache_read == 15

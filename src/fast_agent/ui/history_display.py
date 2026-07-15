@@ -519,7 +519,7 @@ def _render_history_chrome(
 
     history_bar = _build_history_bar(timeline_entries)
     if usage_accumulator:
-        current_tokens = usage_accumulator.current_context_tokens
+        current_tokens = usage_accumulator.current_context_tokens or 0
         window = usage_accumulator.context_window_size
     else:
         current_tokens = 0

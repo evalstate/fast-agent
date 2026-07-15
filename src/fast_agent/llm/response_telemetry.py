@@ -117,8 +117,9 @@ def add_timing_channel(
 def append_usage_channel(
     response: "PromptMessageExtended",
     usage_accumulator: "UsageAccumulator | None",
+    start_index: int | None = None,
 ) -> None:
-    usage_payload = build_usage_payload(usage_accumulator)
+    usage_payload = build_usage_payload(usage_accumulator, start_index=start_index)
     if not usage_payload:
         return
 
@@ -130,13 +131,22 @@ def append_usage_channel(
     response.channels = channels
 
 
-def build_usage_payload(usage_accumulator: "UsageAccumulator | None") -> dict[str, Any] | None:
+def build_usage_payload(
+    usage_accumulator: "UsageAccumulator | None",
+    *,
+    start_index: int | None = None,
+) -> dict[str, Any] | None:
     if not usage_accumulator or not usage_accumulator.turns:
         return None
 
-    turn_usage = usage_accumulator.turns[-1]
-    return {
-        "turn": turn_usage.model_dump(mode="json", exclude={"raw_usage"}),
-        "raw_usage": turn_usage.raw_usage,
-        "summary": usage_accumulator.get_summary(),
-    }
+    selected_turns = (
+        usage_accumulator.turns[start_index:]
+        if start_index is not None
+        else [usage_accumulator.turns[-1]]
+    )
+    if not selected_turns:
+        return None
+
+    from fast_agent.llm.usage_tracking import UsageReport
+
+    return UsageReport(provider_attempts=list(selected_turns)).to_payload()

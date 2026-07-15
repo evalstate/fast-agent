@@ -151,7 +151,7 @@ def should_auto_compact(
     if not window or window <= 0:
         return False
     current = usage.current_context_tokens
-    if current <= 0:
+    if current is None or current <= 0:
         return False
     return (current / window) >= settings.threshold
 

@@ -38,7 +38,7 @@ from fast_agent.llm.reasoning_effort import (
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 from fast_agent.llm.tool_tracking import ToolCallTracker
-from fast_agent.llm.usage_tracking import TurnUsage
+from fast_agent.llm.usage_tracking import usage_from_google_generate_content
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -988,7 +988,10 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if not usage_metadata:
             return
         try:
-            turn_usage = TurnUsage.from_google(usage_metadata, model_name)
+            turn_usage = usage_from_google_generate_content(
+                usage_metadata,
+                model=model_name,
+            )
             self._finalize_turn_usage(turn_usage)
         except Exception as e:
             self.logger.warning(f"Failed to track usage: {e}")

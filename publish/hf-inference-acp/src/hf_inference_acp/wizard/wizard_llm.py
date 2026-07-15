@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, Callable
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
 from fast_agent.mcp.prompt import Prompt
 from hf_inference_acp.hf_config import (
     CONFIG_FILE,
@@ -74,16 +73,12 @@ class WizardSetupLLM(PassthroughLLM):
 
         # Check for slash commands - passthrough for handler
         if user_input.startswith("/"):
-            result = Prompt.assistant(user_input)
-            self._track_usage(multipart_messages, result)
-            return result
+            return Prompt.assistant(user_input)
 
         # Process through wizard state machine
         response = await self._process_stage(user_input)
 
-        result = Prompt.assistant(response)
-        self._track_usage(multipart_messages, result)
-        return result
+        return Prompt.assistant(response)
 
     def _reset_wizard(self) -> None:
         """Reset wizard state so the flow can be re-run."""
@@ -98,23 +93,6 @@ class WizardSetupLLM(PassthroughLLM):
         if self._state.stage == WizardStage.COMPLETE and cmd in ("go", "setup", "start", "begin"):
             return True
         return False
-
-    def _track_usage(
-        self,
-        input_messages: list[PromptMessageExtended],
-        result: PromptMessageExtended,
-    ) -> None:
-        """Track usage for billing/analytics."""
-        tool_call_count = len(result.tool_calls) if result.tool_calls else 0
-        turn_usage = create_turn_usage_from_messages(
-            input_content=input_messages[-1].all_text(),
-            output_content=result.all_text(),
-            model="wizard-setup",
-            model_type="wizard-setup",
-            tool_calls=tool_call_count,
-            delay_seconds=0.0,
-        )
-        self.usage_accumulator.add_turn(turn_usage)
 
     async def _process_stage(self, user_input: str) -> str:
         """Process current stage and return response."""

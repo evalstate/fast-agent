@@ -474,7 +474,9 @@ class FastAgentReflectionLM:
             doc = json.loads(results_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             return {}
-        summaries: list[dict[str, Any]] = []
+        from fast_agent.llm.usage_tracking import UsageAccumulator, UsageReport
+
+        accumulator = UsageAccumulator()
         turns: list[dict[str, Any]] = []
         messages = doc.get("messages")
         if not isinstance(messages, list):
@@ -498,11 +500,21 @@ class FastAgentReflectionLM:
                     usage = json.loads(text)
                 except json.JSONDecodeError:
                     continue
-                if isinstance(usage.get("turn"), dict):
-                    turns.append(usage["turn"])
-                if isinstance(usage.get("summary"), dict):
-                    summaries.append(usage["summary"])
-        return {"turns": turns, "summary": summaries[-1] if summaries else {}}
+                if not isinstance(usage, dict):
+                    continue
+                try:
+                    report = UsageReport.model_validate(usage)
+                except ValueError:
+                    continue
+                for attempt in report.provider_attempts:
+                    accumulator.add_turn(attempt)
+                turns.append(
+                    report.final_attempt.model_dump(mode="json", exclude={"raw_usage"})
+                )
+        return {
+            "turns": turns,
+            "summary": accumulator.summary.model_dump(mode="json"),
+        }
 
 
 class FastAgentBatchEvaluator:
@@ -1106,18 +1118,18 @@ def _row_wise_eval_metrics(
             usage,
             prefix="fast_agent/eval/usage/",
             names=(
-                "billing_tokens",
+                "total_tokens",
                 "tool_calls",
             ),
         )
         rows_with_usage = usage.get("rows_with_usage")
         if _is_numeric_metric(rows_with_usage) and rows_with_usage > 0:
             for key in (
-                "input_tokens",
-                "output_tokens",
-                "billing_tokens",
+                "prompt_tokens",
+                "completion_tokens",
+                "total_tokens",
                 "reasoning_tokens",
-                "tool_use_tokens",
+                "tool_use_prompt_tokens",
                 "tool_calls",
             ):
                 value = usage.get(key)
@@ -1127,7 +1139,7 @@ def _row_wise_eval_metrics(
                 duration = timing.get("duration")
                 if isinstance(duration, Mapping):
                     duration_mean_ms = duration.get("mean")
-                    output_tokens = usage.get("output_tokens")
+                    output_tokens = usage.get("completion_tokens")
                     if (
                         _is_numeric_metric(output_tokens)
                         and output_tokens >= 0
@@ -1141,7 +1153,7 @@ def _row_wise_eval_metrics(
                             else duration_mean_ms
                         )
                         if generation_ms > 0:
-                            metrics["fast_agent/eval/usage/output_tokens_per_second"] = output_tokens / (
+                            metrics["fast_agent/eval/usage/completion_tokens_per_second"] = output_tokens / (
                                 generation_ms / 1000
                             )
     cache = batch_summary.get("cache")
@@ -1178,21 +1190,25 @@ def _reflection_usage_metrics(
             metrics,
             summary,
             prefix="fast_agent/reflection/usage/",
-            names=(
-                "cumulative_billing_tokens",
-                "cache_hit_rate_percent",
-            ),
+            names=("total", "tool_calls", "provider_attempts"),
         )
         if turn_count:
-            for key in (
-                "input_tokens",
-                "output_tokens",
-                "billing_tokens",
-                "reasoning_tokens",
-            ):
-                value = summary.get(f"cumulative_{key}")
+            prompt = summary.get("prompt")
+            completion = summary.get("completion")
+            if isinstance(prompt, Mapping):
+                value = prompt.get("total")
                 if _is_numeric_metric(value):
-                    metrics[f"fast_agent/reflection/usage/{key}_per_turn"] = value / turn_count
+                    metrics["fast_agent/reflection/usage/prompt_tokens_per_turn"] = (
+                        value / turn_count
+                    )
+            if isinstance(completion, Mapping):
+                for field in ("total", "reasoning"):
+                    value = completion.get(field)
+                    if _is_numeric_metric(value):
+                        name = "completion_tokens" if field == "total" else "reasoning_tokens"
+                        metrics[f"fast_agent/reflection/usage/{name}_per_turn"] = (
+                            value / turn_count
+                        )
     return metrics
 
 
