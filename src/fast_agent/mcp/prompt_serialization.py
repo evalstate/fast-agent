@@ -390,12 +390,7 @@ def delimited_format_to_extended_messages(
     state = _DelimitedParseState()
     legacy_format = resource_delimiter in content and '"type":' not in content
 
-    if lines and lines[0].strip() == user_delimiter:
-        state.reset_for_role("user")
-        state.collecting_text = True
-
-    remaining_lines = lines[1:] if lines else []
-    for line in remaining_lines:
+    for line in lines:
         line_stripped = line.strip()
 
         if line_stripped in (user_delimiter, assistant_delimiter):

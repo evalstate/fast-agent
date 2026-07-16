@@ -114,6 +114,39 @@ class TestPromptFormatUtils:
         assert "improved_code.py" in assistant_resource_json
         assert "def main()" in assistant_resource_json
 
+    def test_assistant_first_delimited_to_extended(self):
+        """A document opening with the assistant delimiter keeps its first message.
+
+        The parser special-cased only a leading ---USER line while skipping line 0
+        unconditionally, so a leading ---ASSISTANT never set a role and everything
+        up to the next delimiter was dropped.
+        """
+        messages = delimited_format_to_extended_messages(
+            "---ASSISTANT\nhello\n---USER\nhi back"
+        )
+
+        assert [m.role for m in messages] == ["assistant", "user"]
+        assert _text(messages[0].content[0]).text == "hello"
+        assert _text(messages[1].content[0]).text == "hi back"
+
+    def test_assistant_first_round_trip(self):
+        """Saving then reloading an assistant-first conversation preserves it."""
+        original = [
+            PromptMessageExtended(
+                role="assistant", content=[TextContent(type="text", text="hello")]
+            ),
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="hi back")]
+            ),
+        ]
+
+        reloaded = delimited_format_to_extended_messages(
+            "\n".join(multipart_messages_to_delimited_format(original))
+        )
+
+        assert [m.role for m in reloaded] == [m.role for m in original]
+        assert [_text(m.content[0]).text for m in reloaded] == ["hello", "hi back"]
+
     def test_delimited_with_resources_to_extended(self):
         """Test converting delimited format with resources to multipart messages."""
         # Create delimited content with resources in JSON format
