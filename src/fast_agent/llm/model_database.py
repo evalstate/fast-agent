@@ -320,6 +320,13 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value="low"),
     )
 
+    # Muse Spark: Responses reasoning.effort; "none" is rejected by the API.
+    MUSE_SPARK_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
     ANTHROPIC_WEB_SEARCH_LEGACY = "web_search_20250305"
     ANTHROPIC_WEB_FETCH_LEGACY = "web_fetch_20250910"
     ANTHROPIC_WEB_SEARCH_46 = "web_search_20260209"
@@ -777,6 +784,8 @@ class ModelDatabase:
         tokenizes=META_AI_MULTIMODAL,
         json_mode="schema",
         structured_tool_policy="always",
+        reasoning="openai",
+        reasoning_effort_spec=MUSE_SPARK_REASONING_EFFORT_SPEC,
         default_provider=Provider.META_AI,
         response_transports=("sse",),
     )

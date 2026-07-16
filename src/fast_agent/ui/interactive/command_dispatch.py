@@ -88,6 +88,7 @@ from fast_agent.ui.command_payloads import (
     ModelXSearchCommand,
     PinSessionCommand,
     PluginsCommand,
+    ProcessCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
     SaveHistoryCommand,
@@ -182,6 +183,7 @@ _CommandRouteKind = Literal[
     "catalog_action",
     "mcp_list",
     "mcp_server",
+    "process_view",
     "value",
 ]
 
@@ -260,6 +262,12 @@ _COMMAND_OUTCOME_ROUTES: tuple[_CommandOutcomeRoute, ...] = (
         "display",
         "agent_name",
         display_handlers.handle_environment,
+    ),
+    _CommandOutcomeRoute(
+        ProcessCommand,
+        "display",
+        "process_view",
+        display_handlers.handle_processes,
     ),
     _CommandOutcomeRoute(
         CheckCommand,
@@ -418,6 +426,14 @@ def _command_route_handler(
             manager=prompt_provider,
             agent_name=agent,
             server_name=cast("str", server_payload.server_name),
+        )
+
+    if route.kind == "process_view":
+        process_payload = cast("ProcessCommand", payload)
+        return partial(
+            route.handler,
+            agent_name=agent,
+            show_history=process_payload.show_history,
         )
 
     value_payload = cast("Any", payload)

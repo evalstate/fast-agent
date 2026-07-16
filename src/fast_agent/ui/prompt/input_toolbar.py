@@ -38,6 +38,7 @@ from fast_agent.ui.context_usage_display import (
     ContextUsageAccumulator,
     resolve_context_usage_percent,
 )
+from fast_agent.ui.managed_process_indicator import render_managed_process_indicator
 from fast_agent.ui.model_chip_display import render_model_chip
 from fast_agent.ui.prompt.alert_flags import _resolve_alert_flags_from_history
 from fast_agent.ui.prompt.toolbar import (
@@ -112,6 +113,7 @@ class ToolbarAgentState:
     service_tier_indicator: str | None = None
     web_search_indicator: str | None = None
     web_fetch_indicator: str | None = None
+    active_process_count: int = 0
 
 
 @dataclass(slots=True)
@@ -396,6 +398,7 @@ def _build_toolbar_agent_state(
         service_tier_indicator=model_visuals.service_tier_indicator,
         web_search_indicator=model_visuals.web_search_indicator,
         web_fetch_indicator=model_visuals.web_fetch_indicator,
+        active_process_count=_active_process_count_for_agent(agent),
     )
 
 
@@ -433,6 +436,7 @@ def _build_toolbar_agent_state_cache_key(
         _safe_cache_value(resolve_service_tier(llm)),
         _safe_cache_value(resolve_web_search_enabled(llm)),
         _safe_cache_value(resolve_web_fetch_enabled(llm)),
+        _active_process_count_for_agent(agent),
         _parallel_fan_out_model_cache_key(agent),
     )
 
@@ -473,6 +477,12 @@ def _resolve_current_agent(
         return cast("AgentProtocol", agent_provider._agent(agent_name))
     except Exception:
         return None
+
+
+def _active_process_count_for_agent(agent: object) -> int:
+    shell_runtime = getattr(agent, "shell_runtime", None)
+    active_count = getattr(shell_runtime, "active_process_count", 0)
+    return active_count if type(active_count) is int and active_count > 0 else 0
 
 
 def _turn_count_for_agent(agent: AgentProtocol) -> int:
@@ -673,6 +683,9 @@ def _build_middle_segment(
             model_prefix = "▼"
         model_label = f"{model_prefix}{agent_state.model_display}"
         attachment_indicator = render_attachment_indicator(attachment_summary)
+        process_indicator = render_managed_process_indicator(
+            agent_state.active_process_count
+        )
         model_chip = render_model_chip(
             model_label=model_label,
             web_search_indicator=agent_state.web_search_indicator,
@@ -684,6 +697,8 @@ def _build_middle_segment(
             prefix += agent_state.tdv_segment
         if attachment_indicator:
             prefix += attachment_indicator
+        if process_indicator:
+            prefix += process_indicator
         if agent_state.model_gauges:
             prefix += agent_state.model_gauges
         middle_segments.append(f"{prefix} {model_chip}" if prefix else model_chip)

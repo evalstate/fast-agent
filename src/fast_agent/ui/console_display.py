@@ -364,6 +364,37 @@ class ConsoleDisplay:
         for _ in range(self._style.shell_exit_spacing_after):
             console.console.print()
 
+    def show_managed_process_status(
+        self,
+        *,
+        process_id: str,
+        status: str,
+        reason: str | None,
+        elapsed_seconds: float,
+        os_process_id: int | None,
+    ) -> None:
+        """Display a compact, nonduplicating managed-process lifecycle line."""
+        detail_parts = [status]
+        if reason == "background":
+            detail_parts.append("background")
+        elif reason == "idle":
+            detail_parts.append("idle yield")
+        elif reason == "foreground":
+            detail_parts.append("foreground yield")
+        detail_parts.append(self._format_elapsed(elapsed_seconds))
+        if os_process_id is not None:
+            detail_parts.append(f"pid {os_process_id}")
+
+        line = Text("▎", style="dim")
+        line.append(" ▶ ", style="yellow")
+        line.append(process_id, style="bold")
+        line.append(" ")
+        line.append(" • ".join(detail_parts), style="dim")
+        console.console.print()
+        console.console.print(line)
+        for _ in range(self._style.shell_exit_spacing_after):
+            console.console.print()
+
     def _format_header_line(
         self,
         left_content: str,

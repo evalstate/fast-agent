@@ -351,6 +351,20 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
             examples=["/mcpstatus"],
         ),
         {
+            "name": "process",
+            "summary": "Show managed shell processes",
+            "usage": "/process [--history]",
+            "actions": [
+                {
+                    "name": "history",
+                    "summary": "show retained finished processes",
+                    "aliases": ["--history"],
+                    "usage": "/process --history",
+                }
+            ],
+            "examples": ["/process", "/process --history"],
+        },
+        {
             "name": "mcp",
             "summary": "Runtime MCP control",
             "usage": "/mcp [list|connect|disconnect|reconnect] [args]",

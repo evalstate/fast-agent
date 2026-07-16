@@ -38,6 +38,12 @@ class EnvironmentCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class ProcessCommand(CommandBase):
+    show_history: bool = False
+    kind: Literal["process"] = "process"
+
+
+@dataclass(frozen=True, slots=True)
 class A2ACommand(CommandBase):
     action: str
     argument: str | None
@@ -460,6 +466,7 @@ CommandPayload = (
     | ShowMarkdownCommand
     | ShowMcpStatusCommand
     | EnvironmentCommand
+    | ProcessCommand
     | A2ACommand
     | CheckCommand
     | CommandsCommand

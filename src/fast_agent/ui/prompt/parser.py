@@ -66,6 +66,7 @@ from fast_agent.ui.command_payloads import (
     ModelXSearchCommand,
     PinSessionCommand,
     PluginsCommand,
+    ProcessCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
     SaveHistoryCommand,
@@ -261,6 +262,17 @@ def _parse_compact_command(remainder: str) -> CommandPayload:
     if action == "prompt":
         return CompactCommand(action="prompt")
     return CompactCommand(instructions=stripped)
+
+
+def _parse_process_command(remainder: str) -> CommandPayload:
+    option = strip_casefold(remainder)
+    if not option:
+        return ProcessCommand()
+    if option in {"history", "--history"}:
+        return ProcessCommand(show_history=True)
+    return CommandError(
+        message="Usage: /process [--history]",
+    )
 
 
 def _parse_history_command(remainder: str) -> CommandPayload:
@@ -712,6 +724,8 @@ _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
     "check": lambda remainder: CheckCommand(argument=remainder or None),
     "commands": lambda remainder: CommandsCommand(argument=remainder or None),
     "tools": lambda remainder: ListToolsCommand(argument=strip_to_none(remainder)),
+    "process": _parse_process_command,
+    "processes": _parse_process_command,
 }
 
 

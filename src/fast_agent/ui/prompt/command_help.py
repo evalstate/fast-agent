@@ -47,6 +47,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /compact prompt - Show the active compaction prompt",
             "  /markdown      - Show last assistant message without markdown formatting",
             "  /environment   - List configured execution environments",
+            "  /process [--history] - Show active or retained finished shell processes",
             "  /mcpstatus     - Show MCP server status summary for the active agent",
             "  /mcp list      - List attached runtime MCP servers",
             "  /mcp connect <target> - Connect MCP server at runtime",

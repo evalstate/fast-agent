@@ -108,7 +108,10 @@ def _mcp_progress_details(
     from fast_agent.event_progress import ProgressAction
 
     details = tool_context or _optional_text(server_name)
-    if action == ProgressAction.READING_RESOURCE:
+    if action in {
+        ProgressAction.READING_RESOURCE,
+        ProgressAction.RESOURCE_READ,
+    }:
         return _append_details(details, str(raw_details or ""))
     if action == ProgressAction.TOOL_PROGRESS:
         return _append_details(details, str(raw_details or ""))

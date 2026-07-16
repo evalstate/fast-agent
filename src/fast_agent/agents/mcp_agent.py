@@ -419,6 +419,8 @@ class McpAgent(ABC, ToolAgent):
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Clean up the agent and its MCP aggregator."""
+        if self._shell_runtime is not None:
+            await self._shell_runtime.close()
         await self._aggregator.__aexit__(exc_type, exc_val, exc_tb)
 
     async def initialize(self) -> None:
@@ -441,6 +443,8 @@ class McpAgent(ABC, ToolAgent):
         if self._shutdown_complete:
             return
         await self._run_lifecycle_hook("on_shutdown")
+        if self._shell_runtime is not None:
+            await self._shell_runtime.close()
         await self._aggregator.close()
         await self._finalize_shutdown(run_hook=False)
 
@@ -1324,12 +1328,9 @@ class McpAgent(ABC, ToolAgent):
         if self._skill_reader and name == READ_SKILL_TOOL_NAME:
             return await self._skill_reader.execute(arguments)
 
-        if (
-            self._shell_runtime
-            and self._shell_runtime.tool
-            and name == self._shell_runtime.tool.name
-        ):
-            return await self._shell_runtime.execute(
+        if self._shell_runtime and self._shell_runtime.owns_tool(name):
+            return await self._shell_runtime.call_tool(
+                name,
                 arguments,
                 tool_use_id,
                 show_tool_call_id=self._show_shell_tool_call_id,
@@ -2048,8 +2049,7 @@ class McpAgent(ABC, ToolAgent):
     ) -> bool:
         is_shell_tool = bool(
             self._shell_runtime
-            and self._shell_runtime.tool
-            and tool_name == self._shell_runtime.tool.name
+            and self._shell_runtime.owns_tool(tool_name)
         )
         is_skill_reader_tool = bool(
             self._skill_reader and self._skill_reader.enabled and tool_name == READ_SKILL_TOOL_NAME
@@ -2075,13 +2075,11 @@ class McpAgent(ABC, ToolAgent):
         is_filesystem_runtime_tool: bool,
         route_to_namespaced_candidate: bool,
     ) -> dict[str, Any] | None:
-        if (
-            self._shell_runtime_enabled
-            and self._shell_runtime
-            and self._shell_runtime.tool
-            and tool_name == self._shell_runtime.tool.name
-        ):
-            return self._shell_runtime.metadata(tool_args.get("command"))
+        if self._shell_runtime_enabled and self._shell_runtime:
+            if self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name:
+                return self._shell_runtime.metadata(tool_args)
+            if self._shell_runtime.owns_tool(tool_name):
+                return self._shell_runtime.process_tool_metadata(tool_name, tool_args)
         if is_external_runtime_tool and self._external_runtime is not None:
             return self._external_runtime.metadata()
         if (
@@ -2393,9 +2391,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def _additional_runtime_tools(self) -> list[Tool]:
         tools = list((await super().list_tools()).tools)
-        terminal_tool = self._terminal_runtime_tool()
-        if terminal_tool is not None:
-            tools.append(terminal_tool)
+        tools.extend(self._terminal_runtime_tools())
         tools.extend(self._filesystem_runtime_tools())
         skill_tool = self._skill_reader_fallback_tool()
         if skill_tool is not None:
@@ -2405,10 +2401,12 @@ class McpAgent(ABC, ToolAgent):
             tools.append(human_tool)
         return tools
 
-    def _terminal_runtime_tool(self) -> Tool | None:
+    def _terminal_runtime_tools(self) -> list[Tool]:
         if self._external_runtime is not None:
-            return self._external_runtime.tool
-        return self._bash_tool
+            return [self._external_runtime.tool]
+        if self._shell_runtime is not None:
+            return self._shell_runtime.tools
+        return []
 
     def _filesystem_runtime_tools(self) -> list[Tool]:
         if not self._filesystem_runtime:
@@ -2578,7 +2576,7 @@ class McpAgent(ABC, ToolAgent):
     def _server_label_for_tool_call(self, tool_name: str) -> str | None:
         if tool_name in self.agent_backed_tools:
             return tool_name.removeprefix("agent__")
-        if tool_name == self._shell_tool_name_for_display():
+        if self._shell_runtime and self._shell_runtime.owns_tool(tool_name):
             return self._shell_server_label()
         if self._skill_reader_tool_called(tool_name):
             return self._skills_tool_label()

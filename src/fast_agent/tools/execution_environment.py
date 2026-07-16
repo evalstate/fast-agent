@@ -56,6 +56,8 @@ class ShellExecutionRequest:
     cwd: str | None = None
     env: Mapping[str, str] | None = None
     timeout: float | None = None
+    terminate_after_idle: bool = True
+    retain_output: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +95,8 @@ class ShellExecutionCallbacks(Protocol):
     callbacks; the returned ``ShellExecution`` remains the authoritative complete
     result. Callers must tolerate zero, one, or many stdout/stderr callback chunks.
     """
+
+    async def on_started(self, process_id: int | None) -> None: ...
 
     async def on_stdout(self, text: str) -> None: ...
 

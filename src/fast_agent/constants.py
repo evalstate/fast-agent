@@ -77,6 +77,9 @@ MAX_TERMINAL_OUTPUT_TOKEN_LIMIT = 10_000
 MAX_TERMINAL_OUTPUT_BYTE_LIMIT = int(MAX_TERMINAL_OUTPUT_TOKEN_LIMIT * TERMINAL_BYTES_PER_TOKEN)
 """Hard cap on default ACP terminal output (~10k tokens with TERMINAL_BYTES_PER_TOKEN=3.3)."""
 
+MAX_MANAGED_SHELL_PROCESSES = 32
+"""Maximum number of retained managed shell process records per runtime."""
+
 DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 
 {{serverInstructions}}

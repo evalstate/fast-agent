@@ -15,26 +15,30 @@ def build_attach_media_tool(
     supported_mime_types: list[str] | None = None,
     *,
     is_google: bool = False,
+    max_bytes: int | None = None,
 ) -> Tool:
     """Return the shared ``attach_media`` tool definition."""
-    supported = ""
+    capability_text = "No embedded media MIME types are advertised for the current model."
     if supported_mime_types:
-        supported = (
-            " Supported MIME types for the current model include: "
+        capability_text = (
+            "Supported MIME types for the current model: "
             + ", ".join(sorted(set(supported_mime_types)))
             + "."
         )
 
-    youtube_suffix = ", and Gemini YouTube links" if is_google else ""
+    size_text = ""
+    if max_bytes is not None:
+        size_text = f" Local embedded files must be no larger than {max_bytes} bytes."
+    youtube_text = " Gemini YouTube links are also supported." if is_google else ""
     return Tool(
         name=ATTACH_MEDIA_TOOL_NAME,
         description=(
             "Stage a file from the active filesystem, file:// URI, or provider-fetchable "
-            "media/document URL as multimodal user input for the next model call. Use this for "
-            f"images, PDFs, audio, and video{youtube_suffix}. Do not use this for internal:// "
-            "or MCP resource URIs; use get_resource for those. Use read_text_file for plain "
-            "text/code files."
-            + supported
+            "media/document URL as multimodal user input for the next model call. "
+            f"{capability_text}{size_text}{youtube_text} Convert unsupported image formats to "
+            "a supported format and unsupported video to image frames. Do not use this for "
+            "internal:// or MCP resource URIs; use get_resource for those. Use read_text_file "
+            "for plain text/code files."
         ),
         inputSchema={
             "type": "object",
