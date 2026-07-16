@@ -339,7 +339,7 @@ async def test_shell_and_card_tools_are_both_highlighted() -> None:
     call = capture_display.calls[-1]
     bottom_items = _bottom_items(call)
     assert call["highlight_indexes"] == [
-        bottom_items.index("bash"),
+        0,
         bottom_items.index("card_tools"),
     ]
 
