@@ -11,7 +11,7 @@ from typing import Any
 from rich.console import Console
 from rich.markup import escape as escape_markup
 from rich.progress import Progress, ProgressColumn, Task, TaskID, TextColumn
-from rich.spinner import Spinner
+from rich.spinner import SPINNERS, Spinner
 from rich.table import Column
 from rich.text import Text
 
@@ -21,6 +21,24 @@ from fast_agent.ui.console import console as default_console
 from fast_agent.ui.console import ensure_blocking_console
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.tool_names import EXECUTE_TOOL_NAME, matches_tool_name
+
+# 3-cell braille pulse (dense pack). Registered on first use via _ensure_spinners().
+PROGRESS_SPINNER_NAME = "braille_dense"
+_BRAILLE_DENSE = {
+    "interval": 110,
+    "frames": [
+        "⣿  ",
+        "⢸⡇ ",
+        " ⣿ ",
+        " ⢸⡇",
+        "  ⣿",
+        "⡇ ⢸",
+    ],
+}
+
+
+def _ensure_spinners() -> None:
+    SPINNERS.setdefault(PROGRESS_SPINNER_NAME, _BRAILLE_DENSE)
 
 _ACTION_DESCRIPTION_ICONS = {
     ProgressAction.SENDING: "▶",
@@ -97,7 +115,10 @@ class RichProgressDisplay:
         self._lock = RLock()
         self._taskmap: dict[str, TaskID] = {}
         self._task_kind: dict[str, str] = {}
-        self._description_spinner = SpinnerDescriptionColumn(spinner_name="dots11")
+        _ensure_spinners()
+        self._description_spinner = SpinnerDescriptionColumn(
+            spinner_name=PROGRESS_SPINNER_NAME
+        )
         self._progress = Progress(
             self._description_spinner,
             TextColumn(

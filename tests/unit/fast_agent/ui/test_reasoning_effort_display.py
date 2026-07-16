@@ -70,6 +70,7 @@ def test_effort_xhigh_renders_red_when_it_is_the_highest_allowed_effort() -> Non
 
 
 def test_effort_xhigh_uses_distinct_non_max_gauge_when_max_is_available() -> None:
+    # xhigh shares max gauge height with high/max, but stays yellow when max is available.
     spec = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["low", "medium", "high", "xhigh", "max"],
@@ -112,7 +113,7 @@ def test_effort_explicit_setting_not_blue() -> None:
     assert gauge is not None
     assert AUTO_COLOR not in gauge
     assert "ansiyellow" in gauge
-    assert "⣶" in gauge
+    assert "⣿" in gauge
 
 
 def test_effort_none_low_medium_high_scale_uses_full_dynamic_range() -> None:
@@ -188,7 +189,7 @@ def test_reasoning_gauge_can_render_paired_palette() -> None:
         glyph_palette=PAIRED_REASONING_GAUGE_GLYPHS,
     )
 
-    assert gauge == "<style bg='ansigreen'>⢠</style>"
+    assert gauge == "<style bg='ansiyellow'>⢰</style>"
 
 
 def test_gpt_56_reasoning_scale_renders_all_paired_status_bar_levels() -> None:
@@ -199,9 +200,9 @@ def test_gpt_56_reasoning_scale_renders_all_paired_status_bar_levels() -> None:
     )
     expected: dict[ReasoningEffortLevel, str] = {
         "none": "<style bg='ansibrightblack'>⢸</style>",
-        "low": "<style bg='ansigreen'>⢀</style>",
-        "medium": "<style bg='ansigreen'>⢠</style>",
-        "high": "<style bg='ansiyellow'>⢰</style>",
+        "low": "<style bg='ansigreen'>⢠</style>",
+        "medium": "<style bg='ansiyellow'>⢰</style>",
+        "high": "<style bg='ansiyellow'>⢸</style>",
         "xhigh": "<style bg='ansiyellow'>⢸</style>",
         "max": "<style bg='ansired'>⢸</style>",
     }

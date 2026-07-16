@@ -26,12 +26,15 @@ AUTO_COLOR = "ansiblue"
 MAX_LEVEL = MAX_GAUGE_LEVEL
 
 
+# Default mapping for effort scales that do not match a dedicated 4-step scale.
+# Levels are 0–4 (see MAX_GAUGE_LEVEL). high and xhigh share level 4; xhigh turns
+# red when it is the highest allowed effort (see _effort_color).
 EFFORT_LEVEL_MAPPING = {
     "none": 0,
     "minimal": 1,
-    "low": 1,
-    "medium": 2,
-    "high": 3,
+    "low": 2,
+    "medium": 3,
+    "high": 4,
     "xhigh": 4,
     "max": 4,
 }
@@ -40,7 +43,7 @@ EFFORT_COLOR_MAPPING = {
     "none": INACTIVE_COLOR,
     "minimal": "ansigreen",
     "low": "ansigreen",
-    "medium": "ansigreen",
+    "medium": "ansiyellow",
     "high": "ansiyellow",
     "xhigh": "ansiyellow",
     "max": "ansired",
