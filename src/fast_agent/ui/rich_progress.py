@@ -44,6 +44,7 @@ _ACTION_DESCRIPTION_ICONS = {
     ProgressAction.SENDING: "▶",
     ProgressAction.CALLING_TOOL: "◀",
     ProgressAction.READING_RESOURCE: "◀",
+    ProgressAction.RESOURCE_READ: "✓",
     ProgressAction.TOOL_PROGRESS: "▶",
 }
 _ACTION_STYLES = {
@@ -60,6 +61,7 @@ _ACTION_STYLES = {
     ProgressAction.READY: "dim green",
     ProgressAction.CALLING_TOOL: "magenta",
     ProgressAction.READING_RESOURCE: "magenta",
+    ProgressAction.RESOURCE_READ: "dim green",
     ProgressAction.TOOL_PROGRESS: "magenta",
     ProgressAction.FINISHED: "black on green",
     ProgressAction.SHUTDOWN: "black on red",
@@ -549,6 +551,7 @@ class RichProgressDisplay:
             ProgressAction.INITIALIZED,
             ProgressAction.READY,
             ProgressAction.LOADED,
+            ProgressAction.RESOURCE_READ,
         }:
             # Keep lifecycle transitions visible very briefly, then clear them.
             # This prevents idle/inactive agents from permanently cluttering the board.

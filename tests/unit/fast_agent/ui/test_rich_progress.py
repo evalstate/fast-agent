@@ -711,6 +711,18 @@ class TestFinishedEventHandlesNoneElapsed:
 class TestAgentLifecycleRows:
     """Startup lifecycle rows should not linger in the progress board."""
 
+    def test_resource_read_completion_clears_reading_row(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(_make_event(action=ProgressAction.READING_RESOURCE))
+        assert "test-agent" in display._taskmap
+
+        display.update(_make_event(action=ProgressAction.RESOURCE_READ))
+        assert "test-agent" not in display._taskmap
+
+        display.stop()
+
     def test_ready_event_row_is_cleared(self) -> None:
         display = _make_display()
         display.start()

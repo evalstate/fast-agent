@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 import pytest
 
 from fast_agent.core.exceptions import EnvironmentStartupError
+from fast_agent.tools import docker_shell_environment as docker_environment_module
 from fast_agent.tools.docker_shell_environment import (
     DockerManagedShellEnvironment,
     DockerMount,
@@ -15,6 +17,7 @@ from fast_agent.tools.execution_environment import (
     EnvironmentFilesystemWithBytes,
     ShellExecutionRequest,
 )
+from fast_agent.tools.shell_runtime import ShellRuntime
 
 
 class _DockerFsProcess:
@@ -82,6 +85,62 @@ def test_docker_shell_environment_builds_powershell_exec_argv() -> None:
     ]
 
 
+def test_docker_managed_exec_publishes_a_container_process_group_pid() -> None:
+    environment = DockerShellEnvironment(container="workspace", cwd="/workspace")
+
+    argv = environment._managed_exec_argv(
+        ShellExecutionRequest(
+            command="python -m http.server 8000",
+            cwd="/workspace/subdir",
+            terminate_after_idle=False,
+        ),
+        "/tmp/fast-agent-managed/process.pid",
+    )
+
+    assert argv[:6] == [
+        "docker",
+        "exec",
+        "-w",
+        "/workspace/subdir",
+        "workspace",
+        "sh",
+    ]
+    assert "setsid" in argv[7]
+    assert argv[-3:] == [
+        "/tmp/fast-agent-managed/process.pid",
+        "bash",
+        "python -m http.server 8000",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_docker_managed_termination_uses_term_then_kill_in_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = DockerShellEnvironment(container="workspace", cwd="/workspace")
+    signals: list[tuple[int, str]] = []
+    running = iter([True, False])
+
+    async def signal(process_id: int, *, signal_name: str) -> None:
+        signals.append((process_id, signal_name))
+
+    async def is_running(process_id: int) -> bool:
+        assert process_id == 4242
+        return next(running)
+
+    monkeypatch.setattr(
+        docker_environment_module,
+        "_MANAGED_PROCESS_TERM_GRACE_SECONDS",
+        0,
+    )
+    monkeypatch.setattr(environment, "_signal_container_process_group", signal)
+    monkeypatch.setattr(environment, "_container_process_is_running", is_running)
+
+    await environment._kill_container_process_group(4242)
+
+    assert signals == [(4242, "TERM"), (4242, "KILL")]
+
+
 def test_docker_shell_environment_uses_configured_container_cli() -> None:
     environment = DockerShellEnvironment(
         container="workspace",
@@ -101,6 +160,23 @@ def test_docker_shell_environment_exposes_container_filesystem_protocol() -> Non
     assert isinstance(environment, EnvironmentFilesystemWithBytes)
     assert environment.resolve_path("src/main.py") == "/workspace/project/src/main.py"
     assert environment.resolve_path("/tmp/file.txt") == "/tmp/file.txt"
+
+
+def test_shell_runtime_resolves_relative_cwd_before_docker_exec() -> None:
+    environment = DockerShellEnvironment(container="workspace", cwd="/workspace")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        shell_environment=environment,
+    )
+
+    cwd = runtime._resolve_managed_working_directory("subdir")
+    argv = environment._exec_argv(
+        ShellExecutionRequest(command="pwd", cwd=cwd)
+    )
+
+    assert cwd == "/workspace/subdir"
+    assert argv[argv.index("-w") + 1] == "/workspace/subdir"
 
 
 def test_docker_mount_formats_host_path() -> None:

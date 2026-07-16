@@ -1235,6 +1235,12 @@ class XAISettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class MetaAIWebSearchSettings(OpenAIWebSearchSettings):
+    """MetaAI Responses web_search (search grounding) settings."""
+
+    tool_type: Literal["web_search"] = "web_search"
+
+
 class MetaAISettings(BaseModel):
     """Settings for using MetaAI Muse models via the Responses API."""
 
@@ -1251,6 +1257,7 @@ class MetaAISettings(BaseModel):
         default=None,
         description="Custom headers for all API requests",
     )
+    web_search: MetaAIWebSearchSettings = Field(default_factory=MetaAIWebSearchSettings)
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 

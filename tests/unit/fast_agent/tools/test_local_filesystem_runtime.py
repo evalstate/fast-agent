@@ -366,6 +366,31 @@ async def test_attach_media_rejects_unsupported_mime_for_model(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_attach_media_rejects_local_mime_override_mismatch(tmp_path: Path) -> None:
+    image_path = tmp_path / "misleading.png"
+    image_path.write_bytes(b"P6\n1 1\n255\n\x00\x00\x00")
+    runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        enable_attach_media="on",
+        model_info=_model_info("image/png"),
+    )
+
+    result = await runtime.attach_media(
+        {
+            "source": str(image_path),
+            "mime_type": "image/png",
+        }
+    )
+
+    assert result.isError is True
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "is 'image/x-portable-pixmap', not 'image/png'" in result.content[0].text
+    assert "convert the file instead of overriding" in result.content[0].text
+    assert runtime.consume_pending_media_attachments() == []
+
+
+@pytest.mark.asyncio
 async def test_attach_media_rejects_oversized_local_file(tmp_path: Path) -> None:
     pdf_path = tmp_path / "sample.pdf"
     pdf_path.write_bytes(b"%PDF-1.4\n")
@@ -767,6 +792,9 @@ def test_attach_media_tool_description_conditional() -> None:
     google_tool = _tool_by_name(google_runtime, "attach_media")
     assert google_tool is not None
     assert "Gemini YouTube links" in google_tool.description
+    assert "Supported MIME types for the current model: image/png." in google_tool.description
+    assert "20971520 bytes" in google_tool.description
+    assert "Use this for images, PDFs, audio, and video" not in google_tool.description
 
     # OpenAI (Non-Google)
     openai_runtime = LocalFilesystemRuntime(

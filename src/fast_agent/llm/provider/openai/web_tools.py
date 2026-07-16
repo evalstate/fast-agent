@@ -72,6 +72,32 @@ def build_web_search_tool(
     return payload
 
 
+def extract_web_search_result_payload(result: object) -> dict[str, str] | None:
+    """Normalize a MetaAI/OpenAI-style web_search_call.results entry."""
+    result_map = _mapping_view(result)
+    if result_map is not None:
+        title = result_map.get("title")
+        url = result_map.get("url")
+        snippet = result_map.get("snippet")
+    else:
+        title = getattr(result, "title", None)
+        url = getattr(result, "url", None)
+        snippet = getattr(result, "snippet", None)
+
+    if not (isinstance(url, str) and url):
+        return None
+
+    payload: dict[str, str] = {
+        "type": "web_search_result_location",
+        "url": url,
+    }
+    if isinstance(title, str) and title:
+        payload["title"] = title
+    if isinstance(snippet, str) and snippet:
+        payload["snippet"] = snippet
+    return payload
+
+
 def build_xai_web_search_tool(
     resolved: ResolvedOpenAIWebSearch,
 ) -> dict[str, Any] | None:
@@ -113,7 +139,17 @@ def _as_payload(value: object) -> dict[str, Any]:
         if isinstance(payload, Mapping):
             return {str(key): item for key, item in payload.items()}
     payload: dict[str, Any] = {}
-    for field_name in ("type", "id", "name", "status", "action", "query", "queries", "sources"):
+    for field_name in (
+        "type",
+        "id",
+        "name",
+        "status",
+        "action",
+        "query",
+        "queries",
+        "sources",
+        "results",
+    ):
         field_value = getattr(value, field_name, None)
         if field_value is not None:
             payload[field_name] = field_value
@@ -233,6 +269,13 @@ def normalize_web_search_call_payload(
             source_payload = _extract_source_payload(source)
             if source_payload is not None:
                 citation_payloads.append(source_payload)
+
+    raw_results = payload.get("results")
+    if isinstance(raw_results, Sequence) and not isinstance(raw_results, str):
+        for result in raw_results:
+            result_payload = extract_web_search_result_payload(result)
+            if result_payload is not None:
+                citation_payloads.append(result_payload)
 
     return normalized, citation_payloads
 

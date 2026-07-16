@@ -61,6 +61,7 @@ class _ShellOutputCapture:
     last_output_time: float = field(default_factory=time.monotonic)
     timeout_occurred: bool = False
     exit_code: int = 0
+    retain_output: bool = True
 
     @property
     def result(self) -> ShellExecutionResult:
@@ -187,7 +188,11 @@ class LocalShellExecutor:
                 timeout=timeout,
             )
         options = ShellExecutionOptions(
-            timeout_seconds=self._timeout_seconds if request.timeout is None else request.timeout,
+            timeout_seconds=(
+                self._timeout_seconds if request.timeout is None else request.timeout
+            )
+            if request.terminate_after_idle
+            else None,
             warning_interval_seconds=self._warning_interval_seconds,
         )
         configured_working_dir = (
@@ -199,7 +204,9 @@ class LocalShellExecutor:
 
         plan = self._build_process_plan(configured_working_dir, env=request.env)
         process = await self._start_shell_process(request.command, plan)
-        output = _ShellOutputCapture()
+        if callbacks is not None:
+            await callbacks.on_started(process.pid)
+        output = _ShellOutputCapture(retain_output=request.retain_output)
 
         stdout_task = asyncio.create_task(
             self._stream_process_output(
@@ -363,11 +370,13 @@ class LocalShellExecutor:
         is_stderr: bool,
     ) -> None:
         if is_stderr:
-            output.stderr_segments.append(text)
+            if output.retain_output:
+                output.stderr_segments.append(text)
             if callbacks is not None:
                 await callbacks.on_stderr(text)
         else:
-            output.stdout_segments.append(text)
+            if output.retain_output:
+                output.stdout_segments.append(text)
             if callbacks is not None:
                 await callbacks.on_stdout(text)
         output.last_output_time = time.monotonic()

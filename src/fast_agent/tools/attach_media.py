@@ -444,7 +444,21 @@ def _local_source_info(
     if not local_path.is_file():
         raise ValueError(f"Error: local attachment is not a file: {local_path}")
 
-    inferred_mime = mime_type or normalize_mime_type(guess_mime_type(str(local_path)))
+    path_mime = normalize_mime_type(guess_mime_type(str(local_path)))
+    content_mime = _sniff_local_image_mime(local_path)
+    actual_mime = content_mime or path_mime
+    if (
+        mime_type is not None
+        and actual_mime is not None
+        and actual_mime != "application/octet-stream"
+        and mime_type != actual_mime
+    ):
+        raise ValueError(
+            f"Error: local attachment '{local_path.name}' is '{actual_mime}', not "
+            f"'{mime_type}'; convert the file instead of overriding its MIME type"
+        )
+
+    inferred_mime = mime_type or actual_mime
     if inferred_mime is None:
         inferred_mime = "application/octet-stream"
 
@@ -456,6 +470,25 @@ def _local_source_info(
         display_name=name or local_path.name,
         local_path=local_path,
     )
+
+
+def _sniff_local_image_mime(local_path: Path) -> str | None:
+    with local_path.open("rb") as stream:
+        header = stream.read(16)
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if header.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if header.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+        return "image/webp"
+    if len(header) >= 3 and header[:2] in {b"P1", b"P2", b"P3", b"P4", b"P5", b"P6"}:
+        if chr(header[2]).isspace():
+            return "image/x-portable-pixmap"
+    if header.startswith(b"BM"):
+        return "image/bmp"
+    return None
 
 
 def _infer_remote_mime(source: str) -> str:

@@ -182,6 +182,7 @@ class EnvironmentFilesystemRuntime:
             build_attach_media_tool(
                 supported_attach_media_mime_types(self._model_info),
                 is_google=self._model_uses_google_media_payloads(),
+                max_bytes=self._attach_media_max_bytes,
             ),
             SHELL_TOOL_SOURCE,
         )

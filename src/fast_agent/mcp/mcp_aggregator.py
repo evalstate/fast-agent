@@ -3165,18 +3165,53 @@ class MCPAggregator(ContextDependent):
         if extra_args:
             method_args.update(extra_args)
 
-        result = await self._execute_on_server(
-            server_name=server_name,
-            operation_type=operation_type,
-            operation_name=uri,
-            method_name=method_name,
-            method_args=method_args,
-            # Don't create ValueError, just return None on error so we can catch it.
-        )
+        try:
+            result = await self._execute_on_server(
+                server_name=server_name,
+                operation_type=operation_type,
+                operation_name=uri,
+                method_name=method_name,
+                method_args=method_args,
+                # Don't create ValueError, just return None on error so we can catch it.
+            )
+        except Exception as exc:
+            logger.error(
+                f"{noun} read failed",
+                data=build_progress_payload(
+                    action=ProgressAction.FATAL_ERROR,
+                    server_name=server_name,
+                    agent_name=self.agent_name,
+                    details=uri,
+                    extra={"resource_uri": uri, "error_message": str(exc)},
+                ),
+            )
+            raise
 
         # If result is None, the resource was not found
         if result is None:
-            raise ValueError(f"{noun} '{uri}' not found on server '{server_name}'")
+            error = ValueError(f"{noun} '{uri}' not found on server '{server_name}'")
+            logger.error(
+                f"{noun} read failed",
+                data=build_progress_payload(
+                    action=ProgressAction.FATAL_ERROR,
+                    server_name=server_name,
+                    agent_name=self.agent_name,
+                    details=uri,
+                    extra={"resource_uri": uri, "error_message": str(error)},
+                ),
+            )
+            raise error
+
+        logger.info(
+            f"{noun} read complete",
+            data=build_progress_payload(
+                action=ProgressAction.RESOURCE_READ,
+                server_name=server_name,
+                agent_name=self.agent_name,
+                details=uri,
+                extra={"resource_uri": uri, "success": True},
+            ),
+        )
 
         return result
 

@@ -317,6 +317,7 @@ class AgentCompleter(Completer):
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
             "environment": "List configured execution environments",
+            "process": "Show active shell processes (/process --history for finished)",
             "resume": "Resume the last session or specified session id",
             "session": "Manage sessions (/session list|new|resume|title|fork|delete|pin|unpin|export)",
             "card": "Load an AgentCard (add --tool to attach/remove as tool)",

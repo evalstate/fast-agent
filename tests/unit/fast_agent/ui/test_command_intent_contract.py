@@ -97,6 +97,8 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
         "check",
         "commands",
         "tools",
+        "process",
+        "processes",
     }
     assert frozenset(prompt_parser._SLASH_ACTION_FACTORIES) == {
         "skills",
@@ -396,6 +398,38 @@ def test_parse_special_input_environment_command() -> None:
     actual = parse_special_input("/environment")
 
     assert isinstance(actual, EnvironmentCommand)
+
+
+@pytest.mark.parametrize("command", ["/process", "/processes"])
+def test_parse_special_input_process_command(command: str) -> None:
+    from fast_agent.ui.command_payloads import ProcessCommand
+
+    actual = parse_special_input(command)
+
+    assert isinstance(actual, ProcessCommand)
+    assert actual.show_history is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["/process --history", "/process history", "/processes --history"],
+)
+def test_parse_special_input_process_history_command(command: str) -> None:
+    from fast_agent.ui.command_payloads import ProcessCommand
+
+    actual = parse_special_input(command)
+
+    assert isinstance(actual, ProcessCommand)
+    assert actual.show_history is True
+
+
+def test_parse_special_input_process_rejects_unknown_option() -> None:
+    from fast_agent.ui.command_payloads import CommandError
+
+    actual = parse_special_input("/process --all")
+
+    assert isinstance(actual, CommandError)
+    assert actual.message == "Usage: /process [--history]"
 
 
 def test_parse_attach_uses_windows_aware_tokenization(monkeypatch: pytest.MonkeyPatch) -> None:

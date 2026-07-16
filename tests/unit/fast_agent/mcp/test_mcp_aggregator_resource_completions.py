@@ -5,7 +5,9 @@ from types import SimpleNamespace
 import pytest
 from mcp.types import CompleteResult, Completion, ResourceTemplate
 
+import fast_agent.mcp.mcp_aggregator as aggregator_module
 from fast_agent.context import Context
+from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
 
 
@@ -118,3 +120,61 @@ async def test_complete_resource_argument_passes_through_completion_values() -> 
     )
 
     assert result.values == ["123", "456"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result", [None, RuntimeError("read failed")])
+async def test_failed_resource_read_emits_error_completion(monkeypatch, result) -> None:
+    class _ResourceAggregator(_BaseAggregator):
+        async def server_supports_feature(self, server_name: str, feature: str) -> bool:
+            del server_name
+            return feature == "resources"
+
+        async def _execute_on_server(
+            self,
+            server_name: str,
+            operation_type: str,
+            operation_name: str,
+            method_name: str,
+            method_args=None,
+            error_factory=None,
+            progress_callback=None,
+        ):
+            del (
+                server_name,
+                operation_type,
+                operation_name,
+                method_name,
+                method_args,
+                error_factory,
+                progress_callback,
+            )
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+    events: list[dict[str, object]] = []
+
+    class _Logger:
+        def info(self, message: str, *, data: dict[str, object]) -> None:
+            del message
+            events.append(data)
+
+        def error(self, message: str, *, data: dict[str, object]) -> None:
+            del message
+            events.append(data)
+
+    aggregator = _ResourceAggregator(
+        server_names=["demo"],
+        connection_persistence=False,
+        context=Context(),
+    )
+    monkeypatch.setattr(aggregator_module, "logger", _Logger())
+
+    with pytest.raises((ValueError, RuntimeError)):
+        await aggregator._get_resource_from_server("demo", "file://missing.txt")
+
+    assert [event["progress_action"] for event in events] == [
+        ProgressAction.READING_RESOURCE,
+        ProgressAction.FATAL_ERROR,
+    ]

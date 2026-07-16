@@ -18,8 +18,9 @@ from fast_agent.config import get_settings
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.usage_display import collect_agents_from_provider
 from fast_agent.utils.commandline import split_commandline
-from fast_agent.utils.markdown import markdown_code_span
+from fast_agent.utils.markdown import escape_markdown_table_cell, markdown_code_span
 from fast_agent.utils.text import strip_to_none
+from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.tools.execution_environment import ShellRuntimeInfo
+    from fast_agent.tools.shell_runtime import ManagedProcessSnapshot
     from fast_agent.types import PromptMessageExtended
 
 
@@ -40,6 +42,11 @@ class _ShellRuntimeProvider(Protocol):
 @runtime_checkable
 class _ShellRuntimeInfoProvider(Protocol):
     def runtime_info(self) -> "ShellRuntimeInfo": ...
+
+
+@runtime_checkable
+class _ManagedProcessRuntimeProvider(Protocol):
+    async def process_snapshots(self) -> tuple["ManagedProcessSnapshot", ...]: ...
 
 
 def _last_assistant_text(message_history: Sequence["PromptMessageExtended"]) -> str | None:
@@ -168,6 +175,96 @@ async def handle_environment(ctx: CommandContext, *, agent_name: str) -> Command
         lines.append(f"| `{name}` | `{environment_type}` | {marker} |")
 
     outcome.add_message("\n".join(lines), right_info="environment", render_markdown=True)
+    return outcome
+
+
+def _process_command_summary(command: str, *, limit: int = 64) -> str:
+    single_line = " ".join(command.split())
+    if len(single_line) <= limit:
+        return single_line
+    return f"{single_line[: limit - 1]}…"
+
+
+async def handle_processes(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    show_history: bool = False,
+) -> CommandOutcome:
+    """Render active processes by default, or retained finished history."""
+    outcome = CommandOutcome()
+    agent = ctx.agent_provider._agent(agent_name)
+    if not isinstance(agent, _ShellRuntimeProvider):
+        outcome.add_message(
+            "Managed shell processes are not available for this agent.",
+            channel="warning",
+            right_info="process",
+        )
+        return outcome
+
+    shell_runtime = agent.shell_runtime
+    if not isinstance(shell_runtime, _ManagedProcessRuntimeProvider):
+        outcome.add_message(
+            "Managed shell processes are not enabled for this agent.",
+            channel="warning",
+            right_info="process",
+        )
+        return outcome
+
+    snapshots = list(await shell_runtime.process_snapshots())
+    if not snapshots:
+        outcome.add_message(
+            "No managed shell processes.",
+            right_info="process",
+        )
+        return outcome
+
+    active = [snapshot for snapshot in snapshots if snapshot.status == "running"]
+    completed = [snapshot for snapshot in snapshots if snapshot.status != "running"]
+    visible = completed if show_history else active
+    if not visible:
+        message = (
+            "No finished managed shell processes."
+            if show_history
+            else "No active managed shell processes. Use `/process --history` to show finished processes."
+        )
+        outcome.add_message(
+            message,
+            right_info="process history" if show_history else "process",
+            render_markdown=not show_history,
+        )
+        return outcome
+
+    lines = [
+        "# finished managed processes" if show_history else "# active managed processes",
+        "",
+        (
+            f"**{len(completed)} finished** · {len(snapshots)} retained"
+            if show_history
+            else f"↻ **{len(active)} active**"
+        ),
+        "",
+        "| Process | Status | Elapsed | PID | Command |",
+        "| --- | --- | ---: | ---: | --- |",
+    ]
+    for snapshot in visible:
+        status = snapshot.status
+        if snapshot.exit_code is not None:
+            status = f"{status} ({snapshot.exit_code})"
+        command = markdown_code_span(
+            escape_markdown_table_cell(_process_command_summary(snapshot.command))
+        )
+        lines.append(
+            "| "
+            f"`{snapshot.process_id}` | {status} | "
+            f"{format_duration(snapshot.elapsed_seconds)} | "
+            f"{snapshot.os_process_id or '—'} | {command} |"
+        )
+    outcome.add_message(
+        "\n".join(lines),
+        right_info="process history" if show_history else "process",
+        render_markdown=True,
+    )
     return outcome
 
 

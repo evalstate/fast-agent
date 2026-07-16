@@ -44,6 +44,7 @@ class _StubAgent:
     usage_accumulator: object | None = None
     _llm: object | None = None
     context: object | None = None
+    shell_runtime: object | None = None
 
     @property
     def llm(self) -> object | None:
@@ -194,6 +195,68 @@ def test_build_middle_segment_renders_attachment_indicator() -> None:
     assert middle.index("gpt-4.1") < middle.index("FAST") < middle.index("WEB")
 
 
+def test_build_middle_segment_places_active_processes_after_attachments() -> None:
+    middle = _build_middle_segment(
+        ToolbarAgentState(
+            model_display="gpt-4.1",
+            model_name="gpt-4.1",
+            model_gauges="RG",
+            active_process_count=2,
+            turn_count=3,
+        ),
+        shortcut_text="",
+        attachment_summary=DraftAttachmentSummary(
+            count=1,
+            mime_types=("image/png",),
+            any_questionable=False,
+        ),
+    )
+
+    assert "▲1" in middle
+    assert "↻" in middle
+    assert "ansiyellow" in middle
+    assert middle.index("▲1") < middle.index("↻") < middle.index("RG")
+
+
+def test_build_middle_segment_renders_muted_process_indicator_when_idle() -> None:
+    middle = _build_middle_segment(
+        ToolbarAgentState(
+            model_display="gpt-4.1",
+            active_process_count=0,
+            turn_count=3,
+        ),
+        shortcut_text="",
+    )
+
+    assert "↻" in middle
+    assert "ansibrightblack" in middle
+
+
+def test_build_middle_segment_warns_when_process_capacity_exceeds_seventy_five_percent() -> None:
+    at_threshold = _build_middle_segment(
+        ToolbarAgentState(
+            model_display="gpt-4.1",
+            active_process_count=24,
+            turn_count=3,
+        ),
+        shortcut_text="",
+    )
+    over_threshold = _build_middle_segment(
+        ToolbarAgentState(
+            model_display="gpt-4.1",
+            active_process_count=25,
+            turn_count=3,
+        ),
+        shortcut_text="",
+    )
+
+    assert "ansiyellow" in at_threshold
+    assert "ansired" not in at_threshold
+    assert "ansired" in over_threshold
+    assert "↻24" not in at_threshold
+    assert "↻25" not in over_threshold
+
+
 def test_should_resolve_attachment_summary_only_for_attachment_tokens() -> None:
     assert not _should_resolve_attachment_summary("hello world")
     assert not _should_resolve_attachment_summary("^server:resource")
@@ -244,6 +307,32 @@ def test_toolbar_agent_state_cache_hits_until_history_changes() -> None:
 
     result = _resolve_toolbar_agent_state_cached("agent", provider, cache=cache)
     assert result.cache_hit is False
+
+
+def test_toolbar_agent_state_cache_refreshes_when_active_process_count_changes() -> None:
+    @dataclass
+    class _Runtime:
+        active_process_count: int = 0
+
+    runtime = _Runtime()
+    agent = _StubAgent(
+        config=_StubConfig(model="unknown.custom"),
+        message_history=[],
+        _llm=_MinimalToolbarLlm(),
+        shell_runtime=runtime,
+    )
+    provider = cast("AgentApp", _StubAgentProvider(agent))
+    cache = ToolbarRenderCache()
+
+    idle = _resolve_toolbar_agent_state_cached("agent", provider, cache=cache)
+    cached = _resolve_toolbar_agent_state_cached("agent", provider, cache=cache)
+    runtime.active_process_count = 1
+    active = _resolve_toolbar_agent_state_cached("agent", provider, cache=cache)
+
+    assert idle.state.active_process_count == 0
+    assert cached.cache_hit is True
+    assert active.cache_hit is False
+    assert active.state.active_process_count == 1
 
 
 def test_toolbar_agent_state_uses_protocol_default_capabilities() -> None:

@@ -565,6 +565,10 @@ class ToolDisplay:
             content=content,
             structured_content=structured_content,
         )
+        display_content = self._compact_managed_process_result(
+            display_content,
+            tool_name=tool_name,
+        )
         if not truncate_content:
             return PreparedToolResultContent(
                 display_content=display_content,
@@ -574,7 +578,10 @@ class ToolDisplay:
 
         show_bash_output = self._shell_show_bash(tool_name)
         if not show_bash_output:
-            display_content = self._limit_shell_output_content(content, 0)
+            display_content = self._compact_managed_process_result(
+                self._limit_shell_output_content(content, 0),
+                tool_name=tool_name,
+            )
             return PreparedToolResultContent(
                 display_content=display_content,
                 source_content=source_content,
@@ -583,7 +590,10 @@ class ToolDisplay:
 
         shell_line_limit = self._shell_output_line_limit(tool_name)
         if shell_line_limit is not None:
-            display_content = self._limit_shell_output_content(content, shell_line_limit)
+            display_content = self._compact_managed_process_result(
+                self._limit_shell_output_content(content, shell_line_limit),
+                tool_name=tool_name,
+            )
             return PreparedToolResultContent(
                 display_content=display_content,
                 source_content=source_content,
@@ -608,6 +618,80 @@ class ToolDisplay:
             truncate_content=False,
             read_omitted_line_count=read_omitted_line_count,
         )
+
+    @staticmethod
+    def _compact_managed_process_result(content, *, tool_name: str | None):
+        """Hide model-oriented process metadata in favor of one lifecycle line."""
+        from mcp.types import TextContent
+
+        if normalize_tool_name(tool_name) not in SHELL_EXECUTION_TOOL_NAMES:
+            return content
+        if (
+            not isinstance(content, list)
+            or len(content) != 1
+            or not isinstance(content[0], TextContent)
+        ):
+            return content
+
+        lines = content[0].text.splitlines()
+        process_line = next(
+            (line for line in lines if line.startswith("process_id: ")),
+            None,
+        )
+        if process_line is None:
+            return content
+        process_id = process_line.partition(":")[2].strip()
+
+        outcome_line = next(
+            (line for line in lines if line.startswith("outcome: ")),
+            None,
+        )
+        if outcome_line is not None:
+            outcome = outcome_line.partition(":")[2].strip().replace("_", " ")
+            return [TextContent(type="text", text=f"▶ {process_id} {outcome}")]
+
+        running_index = next(
+            (
+                index
+                for index, line in enumerate(lines)
+                if line.startswith("Process is still running")
+            ),
+            None,
+        )
+        if running_index is not None:
+            metadata = {
+                key.strip(): value.strip()
+                for line in lines[running_index + 1 :]
+                if ":" in line
+                for key, value in [line.split(":", 1)]
+            }
+            reason = lines[running_index]
+            detail_parts = ["running"]
+            if "background" in reason:
+                detail_parts.append("background")
+            elif "no-output" in reason:
+                detail_parts.append("idle yield")
+            elif "foreground" in reason:
+                detail_parts.append("foreground yield")
+            if elapsed := metadata.get("elapsed_seconds"):
+                detail_parts.append(f"{elapsed}s")
+            if pid := metadata.get("os_pid"):
+                detail_parts.append(f"pid {pid}")
+            compact_line = f"▶ {process_id} {' • '.join(detail_parts)}"
+            output_lines = lines[:running_index]
+            return [
+                TextContent(
+                    type="text",
+                    text="\n".join([*output_lines, compact_line]),
+                )
+            ]
+
+        return [
+            TextContent(
+                type="text",
+                text="\n".join(line for line in lines if line != process_line),
+            )
+        ]
 
     @staticmethod
     def _structured_tool_result_display_content(
@@ -689,6 +773,16 @@ class ToolDisplay:
     def _optional_int_attribute(result: "CallToolResult", name: str) -> int | None:
         return positive_int_or_none(getattr(result, name, None))
 
+    @staticmethod
+    def _optional_nonnegative_int_attribute(
+        result: "CallToolResult",
+        name: str,
+    ) -> int | None:
+        value = getattr(result, name, None)
+        if type(value) is not int or value < 0:
+            return None
+        return value
+
     @classmethod
     def _tool_result_display_metadata(
         cls,
@@ -699,7 +793,10 @@ class ToolDisplay:
             read_text_file_line=cls._optional_int_attribute(result, "read_text_file_line"),
             read_text_file_limit=cls._optional_int_attribute(result, "read_text_file_limit"),
             transport_channel=cls._optional_string_attribute(result, "transport_channel"),
-            output_line_count=cls._optional_int_attribute(result, "output_line_count"),
+            output_line_count=cls._optional_nonnegative_int_attribute(
+                result,
+                "output_line_count",
+            ),
         )
 
     def _tool_result_status(
@@ -1092,10 +1189,12 @@ class ToolDisplay:
         if working_dir_display:
             bottom_items.append(f"cwd: {working_dir_display}")
 
-        timeout_seconds = metadata.get("timeout_seconds")
-        warning_interval = metadata.get("warning_interval_seconds")
-        if timeout_seconds and warning_interval:
-            bottom_items.append(f"timeout: {timeout_seconds}s, warning every {warning_interval}s")
+        idle_yield_seconds = metadata.get("idle_yield_seconds")
+        foreground_yield_seconds = metadata.get("foreground_yield_seconds")
+        if idle_yield_seconds and foreground_yield_seconds:
+            bottom_items.append(
+                f"yield: {idle_yield_seconds}s idle / {foreground_yield_seconds}s total"
+            )
         return bottom_items
 
     def _shell_tool_call_right_info(
@@ -1111,9 +1210,19 @@ class ToolDisplay:
         elif shell_name:
             right_parts.append(shell_name)
 
-        timeout_seconds = metadata.get("timeout_seconds")
-        if timeout_seconds:
-            right_parts.append(f"timeout {timeout_seconds}s")
+        if metadata.get("background"):
+            right_parts.append("background")
+        else:
+            idle_yield_seconds = metadata.get("idle_yield_seconds")
+            foreground_yield_seconds = metadata.get("foreground_yield_seconds")
+            if idle_yield_seconds and foreground_yield_seconds:
+                right_parts.append(
+                    f"yield {idle_yield_seconds}s idle / {foreground_yield_seconds}s total"
+                )
+            elif idle_yield_seconds:
+                right_parts.append(f"idle yield {idle_yield_seconds}s")
+            elif timeout_seconds := metadata.get("timeout_seconds"):
+                right_parts.append(f"timeout {timeout_seconds}s")
 
         base_label = " | ".join(right_parts) if right_parts else None
         return self._build_tool_right_info(base_label, tool_call_id)
@@ -1136,6 +1245,37 @@ class ToolDisplay:
             bottom_items=self._shell_tool_call_bottom_items(metadata),
             highlight_indexes=[],
             max_item_length=50,
+            truncate_content=False,
+            render_markdown=False,
+        )
+
+    def _prepare_shell_process_tool_call_display(
+        self,
+        *,
+        metadata: dict[str, Any],
+        tool_call_id: str | None,
+    ) -> PreparedToolCallDisplay:
+        action = str(metadata.get("action") or "process")
+        process_id = str(metadata.get("process_id") or "process")
+        content = Text()
+        content.append(action, style="bold")
+        content.append(" ")
+        content.append(process_id, style="cyan")
+
+        right_label = action
+        if action == "poll":
+            wait_sec = metadata.get("wait_sec")
+            if type(wait_sec) is int and wait_sec > 0:
+                right_label = f"wait up to {wait_sec}s"
+            else:
+                right_label = "non-blocking"
+
+        return PreparedToolCallDisplay(
+            content=content,
+            right_info=self._build_tool_right_info(right_label, tool_call_id),
+            bottom_items=None,
+            highlight_indexes=[],
+            max_item_length=None,
             truncate_content=False,
             render_markdown=False,
         )
@@ -1197,6 +1337,12 @@ class ToolDisplay:
         if metadata.get("variant") == "shell":
             return self._prepare_shell_tool_call_display(
                 tool_args=tool_args,
+                metadata=metadata,
+                tool_call_id=tool_call_id,
+            )
+
+        if metadata.get("variant") == "shell_process":
+            return self._prepare_shell_process_tool_call_display(
                 metadata=metadata,
                 tool_call_id=tool_call_id,
             )

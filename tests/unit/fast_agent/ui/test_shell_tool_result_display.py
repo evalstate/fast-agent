@@ -53,6 +53,81 @@ def test_shell_tool_result_no_output_adds_no_output_detail() -> None:
     assert "(empty text)" not in rendered
 
 
+def test_poll_process_result_hides_process_metadata_and_keeps_exit_banner() -> None:
+    display = ConsoleDisplay()
+    result = CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text="finished\nprocess_id: process-1\nprocess exit code was 0",
+            )
+        ],
+        isError=False,
+    )
+    setattr(result, "output_line_count", 1)
+
+    with console.console.capture() as capture:
+        display.show_tool_result(result, name="dev", tool_name="poll_process")
+
+    rendered = capture.get()
+    assert "finished" in rendered
+    assert "process_id:" not in rendered
+    assert "exit code 0" in rendered
+    assert "1 line" in rendered
+
+
+def test_running_process_result_uses_compact_lifecycle_line() -> None:
+    display = ConsoleDisplay()
+    result = CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text="\n".join(
+                    [
+                        "building",
+                        "Process is still running because it reached the foreground yield threshold.",
+                        "process_id: process-2",
+                        "os_pid: 4321",
+                        "elapsed_seconds: 30.0",
+                        "total_output_bytes: 9",
+                        "Use poll_process to monitor it or terminate_process to stop it.",
+                    ]
+                ),
+            )
+        ],
+        isError=False,
+    )
+
+    with console.console.capture() as capture:
+        display.show_tool_result(result, name="dev", tool_name="execute")
+
+    rendered = capture.get()
+    assert "building" in rendered
+    assert "▶ process-2 running • foreground yield • 30.0s • pid 4321" in rendered
+    assert "total_output_bytes" not in rendered
+    assert "Use poll_process" not in rendered
+
+
+def test_terminate_process_result_uses_compact_lifecycle_line() -> None:
+    display = ConsoleDisplay()
+    result = CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text="process_id: process-3\noutcome: terminated",
+            )
+        ],
+        isError=False,
+    )
+
+    with console.console.capture() as capture:
+        display.show_tool_result(result, name="dev", tool_name="terminate_process")
+
+    rendered = capture.get()
+    assert "▶ process-3 terminated" in rendered
+    assert "outcome:" not in rendered
+
+
 def test_shell_tool_result_truncates_with_head_and_tail_windows() -> None:
     display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=6)))
     output_lines = [f"out-{i:02d}" for i in range(1, 11)]

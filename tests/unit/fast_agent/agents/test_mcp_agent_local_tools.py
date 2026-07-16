@@ -1559,6 +1559,10 @@ async def test_shell_call_forwards_parallel_display_flags() -> None:
                 inputSchema={"type": "object", "properties": {}},
             )
             self.calls: list[dict[str, object]] = []
+            self.tools = [self.tool]
+
+        def owns_tool(self, name: str) -> bool:
+            return name == self.tool.name
 
         def metadata(self, command: str | None) -> dict[str, object]:
             return {
@@ -1585,6 +1589,23 @@ async def test_shell_call_forwards_parallel_display_flags() -> None:
                 }
             )
             return CallToolResult(content=[TextContent(type="text", text="ok")], isError=False)
+
+        async def call_tool(
+            self,
+            name: str,
+            arguments: dict[str, object] | None = None,
+            tool_use_id: str | None = None,
+            *,
+            show_tool_call_id: bool = False,
+            defer_display_to_tool_result: bool = False,
+        ) -> CallToolResult:
+            assert name == self.tool.name
+            return await self.execute(
+                arguments,
+                tool_use_id,
+                show_tool_call_id=show_tool_call_id,
+                defer_display_to_tool_result=defer_display_to_tool_result,
+            )
 
     config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
     agent = McpAgent(config=config, context=Context())
@@ -1614,6 +1635,10 @@ async def test_parallel_shell_results_display_in_tool_call_order() -> None:
                 description="Run shell command",
                 inputSchema={"type": "object", "properties": {}},
             )
+            self.tools = [self.tool]
+
+        def owns_tool(self, name: str) -> bool:
+            return name == self.tool.name
 
         def metadata(self, command: str | None) -> dict[str, object]:
             return {
@@ -1643,6 +1668,23 @@ async def test_parallel_shell_results_display_in_tool_call_order() -> None:
             )
             setattr(result, "_suppress_display", not defer_display_to_tool_result)
             return result
+
+        async def call_tool(
+            self,
+            name: str,
+            arguments: dict[str, object] | None = None,
+            tool_use_id: str | None = None,
+            *,
+            show_tool_call_id: bool = False,
+            defer_display_to_tool_result: bool = False,
+        ) -> CallToolResult:
+            assert name == self.tool.name
+            return await self.execute(
+                arguments,
+                tool_use_id,
+                show_tool_call_id=show_tool_call_id,
+                defer_display_to_tool_result=defer_display_to_tool_result,
+            )
 
     class RecordingDisplay:
         def __init__(self) -> None:

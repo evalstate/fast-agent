@@ -250,14 +250,15 @@ openai:
 ```
 
 For OpenAI Responses API models, use the `responses` section below. The
-Responses-family `web_search` block is also supported for `openresponses` and
-`codexresponses` provider sections.
+Responses-family `web_search` block is also supported for `openresponses`,
+`codexresponses`, and `metaai` provider sections.
 
 Responses-family providers can also be toggled per run in the model string:
 
 - `responses.gpt-5?web_search=on`
 - `openresponses.openai/gpt-oss-120b:groq?web_search=on`
 - `codexresponses.gpt-5.3-codex?web_search=off`
+- `metaai.muse-spark-1.1?web_search=on`
 
 Allowed values: `on`/`off` (also accepts `true`/`false`, `1`/`0`).
 
