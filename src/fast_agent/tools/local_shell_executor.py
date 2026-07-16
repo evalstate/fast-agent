@@ -202,7 +202,11 @@ class LocalShellExecutor:
         if working_dir_error:
             raise ValueError(working_dir_error)
 
-        plan = self._build_process_plan(configured_working_dir, env=request.env)
+        plan = self._build_process_plan(
+            configured_working_dir,
+            env=request.env,
+            capture_output=request.terminate_on_cancel,
+        )
         process = await self._start_shell_process(request.command, plan)
         if callbacks is not None:
             await callbacks.on_started(process.pid)
@@ -237,7 +241,11 @@ class LocalShellExecutor:
         try:
             output.exit_code = await self._wait_for_process_exit(process)
         except asyncio.CancelledError:
-            await self._terminate_cancelled_process(process, is_windows=plan.is_windows)
+            if request.terminate_on_cancel:
+                await self._terminate_cancelled_process(
+                    process,
+                    is_windows=plan.is_windows,
+                )
             raise
         finally:
             await self._cancel_task_if_running(watchdog_task)
@@ -257,6 +265,7 @@ class LocalShellExecutor:
         configured_working_dir: Path,
         *,
         env: Mapping[str, str] | None = None,
+        capture_output: bool = True,
     ) -> _ShellProcessPlan:
         working_dir = self.resolve_working_directory(configured_working_dir)
         runtime_details = self.runtime_info()
@@ -272,8 +281,16 @@ class LocalShellExecutor:
         if env is not None:
             child_env.update(env)
         process_kwargs: dict[str, Any] = {
-            "stdout": asyncio.subprocess.PIPE,
-            "stderr": asyncio.subprocess.PIPE,
+            "stdout": (
+                asyncio.subprocess.PIPE
+                if capture_output
+                else asyncio.subprocess.DEVNULL
+            ),
+            "stderr": (
+                asyncio.subprocess.PIPE
+                if capture_output
+                else asyncio.subprocess.DEVNULL
+            ),
             "cwd": working_dir,
             "env": child_env,
         }

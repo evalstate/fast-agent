@@ -48,9 +48,13 @@ class ShellRuntimeInfo:
     environment_name: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ShellExecutionRequest:
-    """One command execution request."""
+    """One command execution request.
+
+    Owners may set ``terminate_on_cancel`` before cancelling an active request
+    to distinguish explicit termination from persistent runtime shutdown.
+    """
 
     command: str
     cwd: str | None = None
@@ -58,6 +62,7 @@ class ShellExecutionRequest:
     timeout: float | None = None
     terminate_after_idle: bool = True
     retain_output: bool = True
+    terminate_on_cancel: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,9 +147,10 @@ class ShellEnvironment(Protocol):
     ) -> ShellExecution:
         """Execute one command and return full execution metadata.
 
-        If the coroutine is cancelled, adapters that own a running process or
-        remote job must make a best effort to terminate that execution before
-        re-raising cancellation.
+        If the coroutine is cancelled and ``request.terminate_on_cancel`` is
+        true, adapters that own a running process or remote job must make a best
+        effort to terminate it before re-raising cancellation. Otherwise they
+        must leave it running in the execution environment.
         """
         ...
 

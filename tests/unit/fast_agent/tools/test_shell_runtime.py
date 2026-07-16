@@ -248,7 +248,7 @@ class _ManagedShellEnvironment:
         try:
             await self.release.wait()
         except asyncio.CancelledError:
-            self.cancelled = True
+            self.cancelled = request.terminate_on_cancel
             raise
         if callbacks is not None and self.stdout:
             await callbacks.on_stdout(self.stdout)
@@ -282,7 +282,7 @@ class _ActiveManagedShellEnvironment(_ManagedShellEnvironment):
                     await callbacks.on_stdout("still working\n")
                 await asyncio.sleep(0.01)
         except asyncio.CancelledError:
-            self.cancelled = True
+            self.cancelled = request.terminate_on_cancel
             raise
         return ShellExecution(
             result=ShellExecutionResult(stdout="", stderr="", exit_code=0),
@@ -450,14 +450,19 @@ def test_execute_tool_schema_declares_per_call_options() -> None:
     assert runtime.tool is not None
     assert runtime.tool.description is not None
     assert "keeps running and returns a process ID" in runtime.tool.description
-    assert "do not append '&'" in runtime.tool.description
+    assert "Do not append '&'" in runtime.tool.description
+    assert "lifecycle='persistent'" in runtime.tool.description
     assert set(runtime.tool.inputSchema["properties"]) == {
         "command",
         "cwd",
         "background",
+        "lifecycle",
         "yield_after_idle_sec",
         "output_byte_limit",
     }
+    lifecycle_schema = runtime.tool.inputSchema["properties"]["lifecycle"]
+    assert lifecycle_schema["enum"] == ["session", "persistent"]
+    assert lifecycle_schema["default"] == "session"
     assert runtime.tool.inputSchema["required"] == ["command"]
     assert runtime.tool.inputSchema["additionalProperties"] is False
     assert {tool.name for tool in runtime.tools} == {
@@ -489,6 +494,7 @@ def test_shell_metadata_uses_effective_per_call_options() -> None:
     assert metadata["idle_yield_seconds"] == 15
     assert metadata["foreground_yield_seconds"] == 30
     assert metadata["output_byte_limit"] == 80
+    assert metadata["lifecycle"] == "session"
 
 
 @pytest.mark.asyncio
@@ -893,6 +899,37 @@ async def test_background_command_returns_handle_and_terminate_cancels_job() -> 
 
 
 @pytest.mark.asyncio
+async def test_completed_process_snapshot_elapsed_time_stops_advancing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+    )
+
+    await runtime.execute({"command": "quick task", "background": True})
+    environment.release.set()
+    for _ in range(100):
+        if runtime.active_process_count == 0:
+            break
+        await asyncio.sleep(0)
+
+    first = (await runtime.process_snapshots())[0]
+    assert first.status == "completed"
+    monkeypatch.setattr(
+        shell_runtime_module.time,
+        "monotonic",
+        lambda: first.elapsed_seconds + 10_000,
+    )
+
+    later = (await runtime.process_snapshots())[0]
+
+    assert later.elapsed_seconds == first.elapsed_seconds
+
+
+@pytest.mark.asyncio
 async def test_background_deferred_display_exposes_ordered_result() -> None:
     environment = _ManagedShellEnvironment()
     runtime = ShellRuntime(
@@ -978,6 +1015,88 @@ async def test_runtime_close_terminates_all_managed_processes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_runtime_close_detaches_persistent_process() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+    )
+
+    await runtime.execute(
+        {
+            "command": "server",
+            "background": True,
+            "lifecycle": "persistent",
+        }
+    )
+    await runtime.close()
+
+    assert environment.cancelled is False
+    assert environment.requests[0].terminate_on_cancel is False
+
+
+@pytest.mark.asyncio
+async def test_terminate_process_overrides_persistent_lifecycle() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+    )
+
+    await runtime.execute(
+        {
+            "command": "server",
+            "background": True,
+            "lifecycle": "persistent",
+        }
+    )
+    await runtime.terminate_process({"process_id": "process-1"})
+
+    assert environment.cancelled is True
+    assert environment.requests[0].terminate_on_cancel is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(platform.system() == "Windows", reason="Unix process persistence")
+async def test_local_persistent_process_survives_runtime_close(tmp_path: Path) -> None:
+    pid_path = tmp_path / "server.pid"
+    script_path = tmp_path / "server.py"
+    script_path.write_text(
+        "import os, pathlib, time\n"
+        f"pathlib.Path({str(pid_path)!r}).write_text(str(os.getpid()))\n"
+        "time.sleep(60)\n",
+        encoding="utf-8",
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        working_directory=tmp_path,
+    )
+
+    try:
+        await runtime.execute(
+            {
+                "command": f'"{sys.executable}" "{script_path}"',
+                "background": True,
+                "lifecycle": "persistent",
+            }
+        )
+        for _ in range(100):
+            if pid_path.exists():
+                break
+            await asyncio.sleep(0.01)
+        await runtime.close()
+
+        assert pid_path.exists()
+        pid = int(pid_path.read_text(encoding="utf-8"))
+        os.kill(pid, 0)
+    finally:
+        _terminate_pid(pid_path)
+
+
+@pytest.mark.asyncio
 async def test_execute_rejects_invalid_argument_payloads() -> None:
     runtime = ShellRuntime(
         activation_reason="test",
@@ -1004,6 +1123,23 @@ async def test_execute_rejects_invalid_argument_payloads() -> None:
         "Error: 'command' argument is required and must be a string",
         "Error: 'command' argument is required and must be a string",
     ]
+
+    invalid_lifecycle = await runtime.execute(
+        {"command": "server", "background": True, "lifecycle": "forever"}
+    )
+    persistent_foreground = await runtime.execute(
+        {"command": "server", "lifecycle": "persistent"}
+    )
+    assert invalid_lifecycle.content is not None
+    assert persistent_foreground.content is not None
+    assert isinstance(invalid_lifecycle.content[0], TextContent)
+    assert isinstance(persistent_foreground.content[0], TextContent)
+    assert invalid_lifecycle.content[0].text == (
+        "Error: 'lifecycle' argument must be 'session' or 'persistent'"
+    )
+    assert persistent_foreground.content[0].text == (
+        "Error: lifecycle='persistent' requires background=true"
+    )
 
 
 @pytest.mark.asyncio

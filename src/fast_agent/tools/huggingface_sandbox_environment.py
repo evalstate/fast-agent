@@ -441,8 +441,9 @@ class HuggingFaceSandboxEnvironment:
             process = await asyncio.shield(spawn_task)
         except asyncio.CancelledError:
             process = await asyncio.shield(spawn_task)
-            await self._kill_managed_process(sandbox, process)
-            await self._delete_managed_output(sandbox, output_dir)
+            if request.terminate_on_cancel:
+                await self._kill_managed_process(sandbox, process)
+                await self._delete_managed_output(sandbox, output_dir)
             raise
 
         stdout_offset = 0
@@ -532,13 +533,15 @@ class HuggingFaceSandboxEnvironment:
                 options=ShellExecutionOptions(timeout_seconds=None),
             )
         except asyncio.CancelledError:
-            await self._kill_managed_process(sandbox, process)
+            if request.terminate_on_cancel:
+                await self._kill_managed_process(sandbox, process)
             raise
         except BaseException:
             await self._kill_managed_process(sandbox, process)
             raise
         finally:
-            await self._delete_managed_output(sandbox, output_dir)
+            if request.terminate_on_cancel or process.exit_code is not None:
+                await self._delete_managed_output(sandbox, output_dir)
 
     @staticmethod
     def _managed_process_snapshot(
