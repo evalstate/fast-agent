@@ -76,7 +76,7 @@
 | `minimax` | `hf` | Text, Vision | `json` (schema) | — | — | — |
 | `qwen35` | `hf` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen35?reasoning=off` | — | — |
 | `qwen36` | `hf` | Text | — | toggle: `on`, `off`<br>Example: `qwen36?reasoning=off` | — | — |
-| `muse` | `metaai` | Text, Vision, Document, Video | `json` (schema) | — | — | — |
+| `muse` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `muse.medium` | — | — |
 | `gpt-4.1-2025-04-14` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4.1-mini-2025-04-14` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4.1-mini` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |

@@ -195,6 +195,7 @@ class _ManagedSandbox(_Sandbox):
         self.stdout_content = stdout_content
         self.stderr_content = stderr_content
         self.output_read_requests: list[tuple[str, int, int]] = []
+        self.deleted_output_dirs: list[str] = []
 
     def run(
         self,
@@ -224,6 +225,14 @@ class _ManagedSandbox(_Sandbox):
                 ]
                 self.output_read_requests.append((path, offset, length))
                 return _CommandResult(stdout=base64.b64encode(payload).decode("ascii"))
+            if cmd[:3] == ["/bin/sh", "-c", 'rm -rf -- "$1"']:
+                output_dir = cmd[-1]
+                self.deleted_output_dirs.append(output_dir)
+                prefix = f"{output_dir.rstrip('/')}/"
+                for candidate in list(self.managed_files.contents):
+                    if candidate == output_dir or candidate.startswith(prefix):
+                        self.managed_files.contents.pop(candidate)
+                return _CommandResult()
             assert "kill -" in cmd[-1]
             self.process.kill()
             return _CommandResult()
@@ -381,8 +390,12 @@ async def test_managed_execute_uses_cancellable_remote_process_and_streams_spool
     assert execution.result.stdout == "managed stdout"
     assert execution.result.stderr == "managed stderr"
     assert execution.result.exit_code == 0
-    assert sandbox.managed_files.deleted
-    assert sandbox.managed_files.deleted[-1][1] is True
+    assert len(sandbox.deleted_output_dirs) == 1
+    assert sandbox.managed_files.deleted == []
+    deleted_dir = sandbox.deleted_output_dirs[0]
+    assert all(
+        not path.startswith(f"{deleted_dir}/") for path in sandbox.managed_files.contents
+    )
 
 
 @pytest.mark.asyncio
@@ -471,7 +484,7 @@ async def test_managed_execute_cancellation_kills_remote_process() -> None:
 
     assert sandbox.process.kill_count == 1
     assert sandbox.process.running is False
-    assert sandbox.managed_files.deleted
+    assert sandbox.deleted_output_dirs
 
 
 @pytest.mark.asyncio
@@ -497,7 +510,7 @@ async def test_managed_execute_cancellation_during_spawn_kills_process_after_spa
 
     assert sandbox.process.kill_count == 1
     assert sandbox.process.running is False
-    assert sandbox.managed_files.deleted
+    assert sandbox.deleted_output_dirs
 
 
 @pytest.mark.asyncio
@@ -516,7 +529,7 @@ async def test_managed_execute_polling_failure_kills_remote_process() -> None:
 
     assert sandbox.process.kill_count == 1
     assert sandbox.process.running is False
-    assert sandbox.managed_files.deleted
+    assert sandbox.deleted_output_dirs
 
 
 @pytest.mark.asyncio

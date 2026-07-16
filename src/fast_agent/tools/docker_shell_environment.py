@@ -189,7 +189,7 @@ class DockerShellEnvironment:
         )
         managed_pid_file = (
             f"{_MANAGED_PROCESS_ROOT}/{uuid.uuid4().hex}.pid"
-            if not request.terminate_after_idle
+            if not request.terminate_after_idle and self._shell not in {"pwsh", "powershell"}
             else None
         )
         argv = (

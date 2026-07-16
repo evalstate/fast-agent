@@ -38,6 +38,16 @@ class _DockerFsProcess:
         return self._stdout, self._stderr
 
 
+class _CompletedDockerExecProcess:
+    def __init__(self) -> None:
+        self.pid = 1234
+        self.returncode = 0
+        self.stdout = asyncio.StreamReader()
+        self.stderr = asyncio.StreamReader()
+        self.stdout.feed_eof()
+        self.stderr.feed_eof()
+
+
 def test_docker_shell_environment_builds_bash_exec_argv() -> None:
     environment = DockerShellEnvironment(container="workspace", cwd="/workspace")
 
@@ -82,6 +92,43 @@ def test_docker_shell_environment_builds_powershell_exec_argv() -> None:
         "-NoProfile",
         "-Command",
         "Get-Location",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_managed_powershell_execution_uses_powershell_argv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[object, ...]] = []
+
+    async def create_process(*args: object, **kwargs: object) -> _CompletedDockerExecProcess:
+        del kwargs
+        captured.append(args)
+        return _CompletedDockerExecProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
+    environment = DockerShellEnvironment(container="workspace", shell="pwsh", cwd="/workspace")
+
+    await environment.execute(
+        ShellExecutionRequest(
+            command="Get-Location",
+            terminate_after_idle=False,
+        )
+    )
+
+    assert captured == [
+        (
+            "docker",
+            "exec",
+            "-w",
+            "/workspace",
+            "workspace",
+            "pwsh",
+            "-NoLogo",
+            "-NoProfile",
+            "-Command",
+            "Get-Location",
+        )
     ]
 
 

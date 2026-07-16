@@ -707,10 +707,22 @@ class HuggingFaceSandboxEnvironment:
 
     @staticmethod
     async def _delete_managed_output(sandbox: _Sandbox, output_dir: str) -> None:
-        try:
-            await asyncio.shield(
-                asyncio.to_thread(sandbox.files.delete, output_dir, True)
+        def delete_output() -> None:
+            sandbox.run(
+                [
+                    "/bin/sh",
+                    "-c",
+                    'rm -rf -- "$1"',
+                    "fast-agent-managed-cleanup",
+                    output_dir,
+                ],
+                shell=False,
+                timeout=5,
+                check=False,
             )
+
+        try:
+            await asyncio.shield(asyncio.to_thread(delete_output))
         except Exception:
             return
 
