@@ -7,7 +7,7 @@ from collections import deque
 from contextlib import nullcontext, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from mcp.types import CallToolResult, TextContent, Tool
 from rich.text import Text
@@ -64,7 +64,14 @@ _DEFAULT_FOREGROUND_YIELD_SECONDS = 30
 _MAX_IDLE_YIELD_SECONDS = 30
 _MAX_PROCESS_POLL_SECONDS = 30
 _EXECUTE_ARGUMENTS = frozenset(
-    {"command", "cwd", "background", "yield_after_idle_sec", "output_byte_limit"}
+    {
+        "command",
+        "cwd",
+        "background",
+        "lifecycle",
+        "yield_after_idle_sec",
+        "output_byte_limit",
+    }
 )
 _POLL_PROCESS_ARGUMENTS = frozenset({"process_id", "wait_sec"})
 _TERMINATE_PROCESS_ARGUMENTS = frozenset({"process_id"})
@@ -168,6 +175,7 @@ class _ShellExecuteArguments:
     command: str
     cwd: str | None
     background: bool
+    lifecycle: Literal["session", "persistent"]
     yield_after_idle_sec: int | None
     output_byte_limit: int | None
 
@@ -185,10 +193,13 @@ class _ManagedShellProcess:
     working_directory: str
     started_at: float
     task: asyncio.Task[ShellExecution]
+    request: ShellExecutionRequest
+    lifecycle: Literal["session", "persistent"]
     callbacks: _ShellRuntimeCallbacks
     output_state: _ShellOutputState
     display_state: _ShellDisplayState
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    completed_at: float | None = None
     terminated: bool = False
     buffered_result_recorded: bool = False
 
@@ -276,7 +287,10 @@ class ShellRuntime:
                         "exit. If a foreground command remains active for 10 seconds without "
                         "output or 30 seconds total, it keeps running and returns a process ID; "
                         "use poll_process to monitor it or terminate_process to stop it. Set "
-                        "`background=true` for known long-running commands and do not append '&'. "
+                        "`background=true` for known long-running commands. Background commands "
+                        "default to `lifecycle='session'` and are terminated when the agent "
+                        "runtime exits; use `lifecycle='persistent'` only when a command must "
+                        "remain running afterward. Do not append '&'. "
                         "`cwd` and `output_byte_limit` apply only to this command. Pipelines report "
                         "the final command's status unless you enable `pipefail`."
                     ),
@@ -294,8 +308,21 @@ class ShellRuntime:
                             "background": {
                                 "type": "boolean",
                                 "description": (
-                                    "Start the command as a managed background process and return "
-                                    "a process ID promptly. Do not append '&' to the command."
+                                    "Return promptly while the command continues running as a "
+                                    "managed process. By default it is terminated when the agent "
+                                    "runtime exits. Set lifecycle='persistent' only when it must "
+                                    "remain running afterward. Do not append '&' to the command."
+                                ),
+                            },
+                            "lifecycle": {
+                                "type": "string",
+                                "enum": ["session", "persistent"],
+                                "default": "session",
+                                "description": (
+                                    "Lifetime of a background command. 'session' terminates it "
+                                    "when the agent runtime exits. 'persistent' leaves it running "
+                                    "in the execution environment after the agent exits. Applies "
+                                    "only when background=true."
                                 ),
                             },
                             "yield_after_idle_sec": {
@@ -421,12 +448,15 @@ class ShellRuntime:
         else:
             exit_code = process.task.result().result.exit_code
             status = "completed" if exit_code == 0 else "failed"
+        if process.task.done() and process.completed_at is None:
+            process.completed_at = now
+        elapsed_at = process.completed_at if process.completed_at is not None else now
         return ManagedProcessSnapshot(
             process_id=process.process_id,
             command=process.command,
             working_directory=process.working_directory,
             status=status,
-            elapsed_seconds=max(now - process.started_at, 0),
+            elapsed_seconds=max(elapsed_at - process.started_at, 0),
             os_process_id=process.callbacks.os_process_id,
             total_output_bytes=process.output_state.lifetime_output_bytes,
             exit_code=exit_code,
@@ -536,6 +566,7 @@ class ShellRuntime:
             "idle_yield_seconds": idle_yield_seconds,
             "foreground_yield_seconds": self._foreground_yield_seconds,
             "background": parsed.background if parsed is not None else False,
+            "lifecycle": parsed.lifecycle if parsed is not None else "session",
             "output_byte_limit": output_byte_limit,
             "streams_output": True,
             "returns_exit_code": True,
@@ -589,6 +620,15 @@ class ShellRuntime:
         background = payload.get("background", False)
         if type(background) is not bool:
             raise ValueError("Error: 'background' argument must be a boolean")
+        lifecycle = payload.get("lifecycle", "session")
+        if lifecycle not in {"session", "persistent"}:
+            raise ValueError(
+                "Error: 'lifecycle' argument must be 'session' or 'persistent'"
+            )
+        if lifecycle == "persistent" and not background:
+            raise ValueError(
+                "Error: lifecycle='persistent' requires background=true"
+            )
 
         output_byte_limit = coerce_positive_int_argument(
             payload.get("output_byte_limit"),
@@ -616,6 +656,7 @@ class ShellRuntime:
                 strip=True,
             ),
             background=background,
+            lifecycle=cast("Literal['session', 'persistent']", lifecycle),
             yield_after_idle_sec=yield_after_idle_sec,
             output_byte_limit=output_byte_limit,
         )
@@ -1091,18 +1132,17 @@ class ShellRuntime:
 
             process_id = f"process-{self._next_process_id}"
             self._next_process_id += 1
+            request = ShellExecutionRequest(
+                command=parsed.command,
+                cwd=working_directory,
+                env=None,
+                timeout=None,
+                terminate_after_idle=False,
+                retain_output=False,
+                terminate_on_cancel=parsed.lifecycle == "session",
+            )
             task = asyncio.create_task(
-                self._environment.execute(
-                    ShellExecutionRequest(
-                        command=parsed.command,
-                        cwd=working_directory,
-                        env=None,
-                        timeout=None,
-                        terminate_after_idle=False,
-                        retain_output=False,
-                    ),
-                    callbacks=callbacks,
-                ),
+                self._environment.execute(request, callbacks=callbacks),
                 name=f"fast-agent-{process_id}",
             )
             process = _ManagedShellProcess(
@@ -1111,12 +1151,29 @@ class ShellRuntime:
                 working_directory=working_directory,
                 started_at=time.monotonic(),
                 task=task,
+                request=request,
+                lifecycle=parsed.lifecycle,
                 callbacks=callbacks,
                 output_state=output_state,
                 display_state=display_state,
             )
+            task.add_done_callback(
+                lambda completed_task: self._record_managed_process_completion(
+                    process,
+                    completed_task,
+                )
+            )
             self._managed_processes[process_id] = process
             return process
+
+    @staticmethod
+    def _record_managed_process_completion(
+        process: _ManagedShellProcess,
+        completed_task: asyncio.Task[ShellExecution],
+    ) -> None:
+        del completed_task
+        if process.completed_at is None:
+            process.completed_at = time.monotonic()
 
     def _resolve_managed_working_directory(self, requested_cwd: str | None) -> str:
         base_cwd = self._working_directory or self._environment.cwd
@@ -1403,6 +1460,7 @@ class ShellRuntime:
                 result_meta.process_status = "already_exited"
                 return result
             process.terminated = True
+            process.request.terminate_on_cancel = True
             process.task.cancel()
             await asyncio.gather(process.task, return_exceptions=True)
             if not process.task.cancelled():
@@ -1497,13 +1555,13 @@ class ShellRuntime:
         return result
 
     async def close(self) -> None:
-        """Terminate all managed processes owned by this runtime."""
+        """Terminate session processes and detach persistent processes."""
         async with self._processes_lock:
             processes = list(self._managed_processes.values())
             self._managed_processes.clear()
         for process in processes:
             if not process.task.done():
-                process.terminated = True
+                process.terminated = process.lifecycle == "session"
                 process.task.cancel()
         if processes:
             await asyncio.gather(
@@ -1597,7 +1655,8 @@ class ShellRuntime:
             "Executing command with "
             f"idle_yield={idle_yield_seconds}s, "
             f"foreground_yield={self._foreground_yield_seconds}s, "
-            f"background={parsed.background}"
+            f"background={parsed.background}, "
+            f"lifecycle={parsed.lifecycle}"
         )
 
         progress_context = progress_display.paused() if display_tools_enabled() else nullcontext()

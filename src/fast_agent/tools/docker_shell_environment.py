@@ -179,6 +179,11 @@ class DockerShellEnvironment:
         *,
         callbacks: ShellExecutionCallbacks | None = None,
     ) -> ShellExecution:
+        if not request.terminate_after_idle and self._shell in {"pwsh", "powershell"}:
+            raise RuntimeError(
+                "Managed Docker execution is not supported for PowerShell because "
+                "container-side process termination is unavailable."
+            )
         options = ShellExecutionOptions(
             timeout_seconds=(
                 self._timeout_seconds if request.timeout is None else request.timeout
@@ -189,7 +194,7 @@ class DockerShellEnvironment:
         )
         managed_pid_file = (
             f"{_MANAGED_PROCESS_ROOT}/{uuid.uuid4().hex}.pid"
-            if not request.terminate_after_idle and self._shell not in {"pwsh", "powershell"}
+            if not request.terminate_after_idle
             else None
         )
         argv = (
@@ -201,8 +206,16 @@ class DockerShellEnvironment:
         try:
             process = await asyncio.create_subprocess_exec(
                 *argv,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stdout=(
+                    asyncio.subprocess.PIPE
+                    if request.terminate_on_cancel
+                    else asyncio.subprocess.DEVNULL
+                ),
+                stderr=(
+                    asyncio.subprocess.PIPE
+                    if request.terminate_on_cancel
+                    else asyncio.subprocess.DEVNULL
+                ),
                 env=process_env,
             )
         except FileNotFoundError as exc:
@@ -218,11 +231,14 @@ class DockerShellEnvironment:
                     managed_pid_file
                 )
             except asyncio.CancelledError:
-                await self._cancel_managed_execution(
-                    process,
-                    managed_pid_file=managed_pid_file,
-                    container_process_id=None,
-                )
+                if request.terminate_on_cancel:
+                    await self._cancel_managed_execution(
+                        process,
+                        managed_pid_file=managed_pid_file,
+                        container_process_id=None,
+                    )
+                else:
+                    await self._terminate_process(process)
                 raise
             except BaseException:
                 await self._terminate_process(process)
@@ -258,7 +274,7 @@ class DockerShellEnvironment:
                 callbacks=callbacks,
             )
         except asyncio.CancelledError:
-            if managed_pid_file is not None:
+            if managed_pid_file is not None and request.terminate_on_cancel:
                 await self._cancel_managed_execution(
                     process,
                     managed_pid_file=managed_pid_file,

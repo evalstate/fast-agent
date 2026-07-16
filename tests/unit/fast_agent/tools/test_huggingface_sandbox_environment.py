@@ -488,6 +488,35 @@ async def test_managed_execute_cancellation_kills_remote_process() -> None:
 
 
 @pytest.mark.asyncio
+async def test_managed_execute_persistent_cancellation_leaves_remote_process_running() -> None:
+    sandbox = _ManagedSandbox(auto_complete=False)
+    environment = HuggingFaceSandboxEnvironment(sandbox=sandbox, cwd="/workspace")
+    callbacks = _RecordingCallbacks()
+    await environment.open()
+
+    task = asyncio.create_task(
+        environment.execute(
+            ShellExecutionRequest(
+                command="sleep 60",
+                terminate_after_idle=False,
+                terminate_on_cancel=False,
+            ),
+            callbacks=callbacks,
+        )
+    )
+    while ("started", "9876") not in callbacks.events:
+        await asyncio.sleep(0)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert sandbox.process.kill_count == 0
+    assert sandbox.process.running is True
+    assert sandbox.deleted_output_dirs == []
+
+
+@pytest.mark.asyncio
 async def test_managed_execute_cancellation_during_spawn_kills_process_after_spawn() -> None:
     sandbox = _ManagedSandbox(auto_complete=False, block_spawn=True)
     environment = HuggingFaceSandboxEnvironment(sandbox=sandbox, cwd="/workspace")
