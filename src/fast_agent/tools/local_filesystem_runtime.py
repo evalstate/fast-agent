@@ -27,6 +27,7 @@ from fast_agent.tools.apply_patch_tool import (
 )
 from fast_agent.tools.attach_media import (
     DEFAULT_ATTACH_MEDIA_MAX_BYTES,
+    attach_media_staging_message,
     build_attach_media,
     model_supports_attach_media,
     normalize_attach_media_max_bytes,
@@ -396,16 +397,12 @@ class LocalFilesystemRuntime:
                 isError=True,
             )
 
-        mode = "linked" if attached.linked else "embedded"
         self._pending_media_attachments.append(attached.block)
         result = CallToolResult(
             content=[
                 TextContent(
                     type="text",
-                    text=(
-                        f"Staged {attached.display_name} as {mode} "
-                        f"{attached.mime_type} media input for the next model call."
-                    ),
+                    text=attach_media_staging_message(attached),
                 )
             ],
             isError=False,

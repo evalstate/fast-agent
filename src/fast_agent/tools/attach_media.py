@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import unquote, urlparse
@@ -15,6 +16,7 @@ from mcp.types import (
     ImageContent,
     ResourceLink,
 )
+from PIL import Image
 from pydantic import AnyUrl
 
 from fast_agent.io.path_uri import file_uri_to_path
@@ -66,6 +68,7 @@ class AttachMediaResult:
     mime_type: str
     display_name: str
     linked: bool
+    converted_from_mime_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,19 +156,12 @@ def build_attach_media(
         name=name,
     )
 
-    if is_text_mime_type(source_info.mime_type):
-        raise ValueError(
-            f"Error: '{source_info.mime_type}' is text content; use read_text_file for text/code files"
-        )
-
     resource_source = "link" if source_info.kind == "link" else "embedded"
-    if model_info is not None and not model_info.supports_mime(
-        source_info.mime_type,
-        resource_source=resource_source,
-    ):
-        raise ValueError(
-            "Error: current model does not support "
-            f"{resource_source} attachments with MIME type '{source_info.mime_type}'"
+    if source_info.kind == "link" or not is_image_mime_type(source_info.mime_type):
+        _validate_attachment(
+            mime_type=source_info.mime_type,
+            resource_source=resource_source,
+            model_info=model_info,
         )
 
     if (
@@ -297,15 +293,23 @@ def build_attach_media_from_bytes(
     resolved_mime = normalize_mime_type(mime_type) if mime_type else guess_mime_type(raw_source)
     if resolved_mime is None:
         resolved_mime = "application/octet-stream"
+    size = len(data)
+    if size > max_byte_limit:
+        _raise_attachment_too_large(size, max_byte_limit)
+
+    data, resolved_mime, converted_from_mime = _prepare_image_bytes(
+        raw_source,
+        data,
+        resolved_mime,
+        model_info,
+    )
     _validate_attachment(
         mime_type=resolved_mime,
         resource_source="embedded",
         model_info=model_info,
     )
-
-    size = len(data)
-    if size > max_byte_limit:
-        _raise_attachment_too_large(size, max_byte_limit)
+    if len(data) > max_byte_limit:
+        _raise_attachment_too_large(len(data), max_byte_limit)
 
     encoded = base64.b64encode(data).decode("ascii")
     if is_image_mime_type(resolved_mime):
@@ -326,6 +330,7 @@ def build_attach_media_from_bytes(
         mime_type=resolved_mime,
         display_name=name or _source_display_name(raw_source),
         linked=False,
+        converted_from_mime_type=converted_from_mime,
     )
 
 
@@ -445,18 +450,9 @@ def _local_source_info(
         raise ValueError(f"Error: local attachment is not a file: {local_path}")
 
     path_mime = normalize_mime_type(guess_mime_type(str(local_path)))
-    content_mime = _sniff_local_image_mime(local_path)
+    with local_path.open("rb") as stream:
+        content_mime = _sniff_image_mime(stream.read(16))
     actual_mime = content_mime or path_mime
-    if (
-        mime_type is not None
-        and actual_mime is not None
-        and actual_mime != "application/octet-stream"
-        and mime_type != actual_mime
-    ):
-        raise ValueError(
-            f"Error: local attachment '{local_path.name}' is '{actual_mime}', not "
-            f"'{mime_type}'; convert the file instead of overriding its MIME type"
-        )
 
     inferred_mime = mime_type or actual_mime
     if inferred_mime is None:
@@ -472,9 +468,76 @@ def _local_source_info(
     )
 
 
-def _sniff_local_image_mime(local_path: Path) -> str | None:
-    with local_path.open("rb") as stream:
-        header = stream.read(16)
+def _prepare_image_bytes(
+    source: str,
+    data: bytes,
+    mime_type: str,
+    model_info: ModelInfo | None,
+) -> tuple[bytes, str, str | None]:
+    if not is_image_mime_type(mime_type):
+        return data, mime_type, None
+
+    display_name = _source_display_name(source)
+    try:
+        with Image.open(BytesIO(data)) as image:
+            actual_mime = normalize_mime_type(image.get_format_mimetype())
+            if actual_mime is None:
+                raise ValueError("image format has no MIME type")
+
+            target_mime = _image_target_mime(mime_type, actual_mime, model_info)
+            if actual_mime == target_mime:
+                image.verify()
+                return data, target_mime, None
+
+            image.load()
+            output = BytesIO()
+            converted = image.convert("RGB") if target_mime == "image/jpeg" else image
+            converted.save(output, format=_PILLOW_OUTPUT_FORMATS[target_mime])
+            return output.getvalue(), target_mime, actual_mime
+    except (OSError, SyntaxError, ValueError) as exc:
+        raise ValueError(
+            f"Error: image attachment '{display_name}' does not contain valid '{mime_type}' data"
+        ) from exc
+
+
+_PILLOW_OUTPUT_FORMATS = {
+    "image/png": "PNG",
+    "image/jpeg": "JPEG",
+    "image/gif": "GIF",
+    "image/webp": "WEBP",
+}
+
+
+def _image_target_mime(
+    mime_type: str,
+    actual_mime: str,
+    model_info: ModelInfo | None,
+) -> str:
+    candidates = [mime_type, "image/png", "image/jpeg", "image/webp", "image/gif"]
+    for candidate in candidates:
+        if candidate not in _PILLOW_OUTPUT_FORMATS:
+            continue
+        if model_info is None or model_info.supports_mime(candidate, resource_source="embedded"):
+            return candidate
+    return actual_mime
+
+
+def attach_media_staging_message(attached: AttachMediaResult) -> str:
+    """Describe a staged attachment, including automatic image conversion."""
+    mode = "linked" if attached.linked else "embedded"
+    if attached.converted_from_mime_type is not None:
+        return (
+            f"Converted {attached.display_name} from {attached.converted_from_mime_type} "
+            f"to {attached.mime_type} and staged it as {mode} media input for the next model call."
+        )
+    return (
+        f"Staged {attached.display_name} as {mode} {attached.mime_type} "
+        "media input for the next model call."
+    )
+
+
+def _sniff_image_mime(data: bytes) -> str | None:
+    header = data[:16]
     if header.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
     if header.startswith(b"\xff\xd8\xff"):

@@ -22,6 +22,7 @@ from fast_agent.tools.apply_patch_tool import (
 )
 from fast_agent.tools.attach_media import (
     DEFAULT_ATTACH_MEDIA_MAX_BYTES,
+    attach_media_staging_message,
     attachment_uri,
     build_attach_media_from_bytes,
     build_attach_media_link,
@@ -346,10 +347,9 @@ class EnvironmentFilesystemRuntime:
         except Exception as exc:
             return _text_result(str(exc), is_error=True)
 
-        mode = "linked" if attached.linked else "embedded"
         self._pending_media_attachments.append(attached.block)
         result = _text_result(
-            f"Staged {attached.display_name} as {mode} {attached.mime_type} media input for the next model call.",
+            attach_media_staging_message(attached),
             is_error=False,
         )
         if is_image_mime_type(attached.mime_type):
