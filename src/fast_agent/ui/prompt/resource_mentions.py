@@ -11,8 +11,9 @@ from mcp.types import ContentBlock, EmbeddedResource, ReadResourceResult, TextCo
 from uritemplate import URITemplate
 
 from fast_agent.mcp.helpers.content_helpers import image_link, resource_link
-from fast_agent.mcp.mcp_content import MCPFile, MCPImage
+from fast_agent.mcp.mcp_content import MCPFile
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.tools.attach_media import build_attach_media
 from fast_agent.ui.prompt.attachment_tokens import (
     FILE_MENTION_SERVER,
     URL_MENTION_SERVER,
@@ -306,8 +307,10 @@ def _resolve_local_content_block(path_text: str) -> ContentBlock:
     if not path.is_file():
         raise IsADirectoryError(path)
 
-    message = MCPImage(path=path) if _is_image_path(path) else MCPFile(path=path)
-    content = message["content"]
+    if _is_image_path(path):
+        content = build_attach_media(str(path), base_directory=path.parent).block
+    else:
+        content = MCPFile(path=path)["content"]
     meta = dict(getattr(content, "meta", None) or {})
     meta["fast_agent_source_uri"] = path.as_uri()
     content.meta = meta
@@ -323,6 +326,18 @@ def _resolve_remote_content_block(url: str) -> ContentBlock:
 
 
 def _is_image_path(path: Path) -> bool:
+    from PIL import Image
+
     from fast_agent.mcp.mime_utils import guess_mime_type, is_image_mime_type
 
-    return is_image_mime_type(guess_mime_type(str(path)))
+    mime_type = guess_mime_type(str(path))
+    if is_image_mime_type(mime_type):
+        return True
+    if mime_type != "application/octet-stream":
+        return False
+    try:
+        with Image.open(path) as image:
+            image.verify()
+    except (OSError, SyntaxError, ValueError):
+        return False
+    return True

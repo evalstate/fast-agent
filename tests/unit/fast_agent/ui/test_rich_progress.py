@@ -11,7 +11,7 @@ from rich.live import Live
 from rich.text import Text
 
 from fast_agent.event_progress import ProgressAction, ProgressEvent
-from fast_agent.ui.rich_progress import RichProgressDisplay
+from fast_agent.ui.rich_progress import DynamicDetailsColumn, RichProgressDisplay
 
 
 def _make_event(
@@ -402,6 +402,43 @@ class TestAggregatorInitializedVisibility:
 
         assert "test-agent::tool-call-1" not in display._taskmap
 
+        display.stop()
+
+    def test_poll_process_uses_monitoring_label_and_braille_spinner(self) -> None:
+        display = _make_display()
+        event = _make_event(
+            action=ProgressAction.CALLING_TOOL,
+            correlation_id="tool-call-poll",
+            tool_name="poll_process",
+            details="pid 4321 · ≤30s · 1m05s · uv run worker.py",
+        )
+
+        description = display._description_for_event(event)
+
+        assert "Monitoring" in description
+        assert display._description_spinner.spinner.name == "braille_dense"
+
+    def test_process_elapsed_time_ticks_during_rendering(self) -> None:
+        display = _make_display()
+        display.start()
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-call-poll",
+                tool_name="poll_process",
+                details="pid 4321 · ≤30s",
+                process_elapsed_seconds=65,
+                process_command="uv run worker.py",
+            )
+        )
+        task_id = display._taskmap["test-agent::tool-call-poll"]
+        task = next(task for task in display._progress.tasks if task.id == task_id)
+        assert task.start_time is not None
+        task.start_time -= 5
+
+        rendered = DynamicDetailsColumn().render(task).plain
+
+        assert rendered == "pid 4321 · ≤30s · 1m10s · uv run worker.py"
         display.stop()
 
     def test_full_progress_without_terminal_state_keeps_row(self) -> None:

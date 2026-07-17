@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import base64
 import logging
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 from mcp.types import ImageContent, TextContent
+from PIL import Image
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
@@ -23,6 +26,17 @@ from fast_agent.tools.execution_environment import (
 )
 from fast_agent.tools.local_shell_executor import LocalEnvironment
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
+
+_PNG_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+    "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
+
+
+def _image_bytes(image_format: str) -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (1, 1), color="blue").save(output, format=image_format)
+    return output.getvalue()
 
 
 class FakeEnvironment:
@@ -182,7 +196,7 @@ async def test_environment_filesystem_runtime_preserves_full_file_content() -> N
 @pytest.mark.asyncio
 async def test_environment_filesystem_runtime_attaches_environment_media() -> None:
     env = FakeEnvironment()
-    env.binary_files["/workspace/image.png"] = b"\x89PNG\r\n"
+    env.binary_files["/workspace/image.png"] = _PNG_BYTES
     runtime = EnvironmentFilesystemRuntime(env, enable_attach_media="on")
 
     tool_names = {tool.name for tool in runtime.tools}
@@ -197,6 +211,75 @@ async def test_environment_filesystem_runtime_attaches_environment_media() -> No
     assert "Staged image.png as embedded image/png media input" in _text(result)
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("data", "error"),
+    [
+        (
+            b"not an image",
+            "does not contain valid 'image/png' data",
+        ),
+        (
+            b"\x89PNG\r\n\x1a\ntruncated",
+            "does not contain valid 'image/png' data",
+        ),
+    ],
+)
+async def test_environment_filesystem_runtime_rejects_invalid_image_data(
+    data: bytes,
+    error: str,
+) -> None:
+    env = FakeEnvironment()
+    env.binary_files["/workspace/image.png"] = data
+    runtime = EnvironmentFilesystemRuntime(env, enable_attach_media="on")
+
+    result = await runtime.call_tool(
+        "attach_media",
+        {"source": "image.png", "mime_type": "image/png"},
+    )
+
+    assert result.isError is True
+    assert error in _text(result)
+    assert runtime.consume_pending_media_attachments() == []
+
+
+@pytest.mark.asyncio
+async def test_environment_filesystem_runtime_converts_ppm_to_png() -> None:
+    env = FakeEnvironment()
+    env.binary_files["/workspace/screen.ppm"] = b"P6\n1 1\n255\n\x00\x00\x00"
+    runtime = EnvironmentFilesystemRuntime(env, enable_attach_media="on")
+
+    result = await runtime.call_tool(
+        "attach_media",
+        {"source": "screen.ppm", "mime_type": "image/png"},
+    )
+    pending = runtime.consume_pending_media_attachments()
+
+    assert result.isError is False
+    assert "Converted screen.ppm from image/x-portable-anymap to image/png" in _text(result)
+    assert len(pending) == 1
+    assert isinstance(pending[0], ImageContent)
+    assert pending[0].mimeType == "image/png"
+    assert base64.b64decode(pending[0].data).startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.asyncio
+async def test_environment_filesystem_runtime_detects_pillow_image_without_known_mime() -> None:
+    env = FakeEnvironment()
+    env.binary_files["/workspace/screen.tga"] = _image_bytes("TGA")
+    runtime = EnvironmentFilesystemRuntime(env, enable_attach_media="on")
+
+    result = await runtime.call_tool("attach_media", {"source": "screen.tga"})
+    pending = runtime.consume_pending_media_attachments()
+
+    assert result.isError is False
+    assert "Converted screen.tga from image/x-tga to image/png" in _text(result)
+    assert len(pending) == 1
+    assert isinstance(pending[0], ImageContent)
+    assert pending[0].mimeType == "image/png"
+    assert base64.b64decode(pending[0].data).startswith(b"\x89PNG\r\n\x1a\n")
 
 
 @pytest.mark.asyncio
@@ -335,7 +418,7 @@ async def test_mcp_agent_does_not_expose_host_file_tools_for_shell_only_environm
 @pytest.mark.asyncio
 async def test_mcp_agent_stages_media_from_injected_execution_environment() -> None:
     env = FakeEnvironment()
-    env.binary_files["/workspace/image.png"] = b"\x89PNG\r\n"
+    env.binary_files["/workspace/image.png"] = _PNG_BYTES
     config = AgentConfig(
         name="test",
         instruction="Instruction",

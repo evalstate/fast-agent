@@ -94,6 +94,28 @@ class DummyProcess:
         self.returncode = 1 if self.returncode is None else self.returncode
 
 
+class StagedTerminationProcess(DummyProcess):
+    def __init__(self) -> None:
+        super().__init__()
+        self.exited = asyncio.Event()
+        self.killed = False
+
+    async def wait(self) -> int:
+        await self.exited.wait()
+        assert self.returncode is not None
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminated = True
+        self.returncode = 0
+        self.exited.set()
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = -signal.SIGKILL
+        self.exited.set()
+
+
 class RecordingFastLogger:
     def __init__(self) -> None:
         self.info_calls: list[tuple[str, dict[str, Any]]] = []
@@ -470,6 +492,13 @@ def test_execute_tool_schema_declares_per_call_options() -> None:
         "poll_process",
         "terminate_process",
     }
+    poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
+    assert set(poll_tool.inputSchema["properties"]) == {
+        "process_id",
+        "wait_sec",
+        "wake_on_output",
+    }
+    assert poll_tool.inputSchema["properties"]["wake_on_output"]["default"] is True
 
 
 def test_shell_metadata_uses_effective_per_call_options() -> None:
@@ -561,6 +590,41 @@ async def test_shell_environment_terminates_parallel_processes_when_cancelled() 
 
     assert all(isinstance(result, asyncio.CancelledError) for result in results)
     assert executor.terminated_pids == [10_000, 10_001]
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(platform.system() == "Windows", reason="Unix process groups")
+async def test_terminate_process_returns_when_term_exits_process() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        config=Settings(shell_execution=ShellSettings(show_bash=False)),
+    )
+
+    try:
+        await runtime.execute(
+            {
+                "command": (
+                    f'exec "{sys.executable}" -c "import time; time.sleep(30)"'
+                ),
+                "background": True,
+            }
+        )
+        for _ in range(100):
+            snapshot = (await runtime.process_snapshots())[0]
+            if snapshot.os_process_id is not None:
+                break
+            await asyncio.sleep(0.01)
+        assert snapshot.os_process_id is not None
+
+        started = time.monotonic()
+        result = await runtime.terminate_process({"process_id": "process-1"})
+        elapsed = time.monotonic() - started
+
+        assert result.isError is False
+        assert elapsed < 1.5
+    finally:
+        await runtime.close()
 
 
 def _terminate_pid(pid_path: Path) -> None:
@@ -862,6 +926,109 @@ async def test_continuous_output_still_yields_at_foreground_ceiling() -> None:
 
 
 @pytest.mark.asyncio
+async def test_running_poll_with_new_output_is_not_suppressed() -> None:
+    environment = _ActiveManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+    )
+    await runtime.execute({"command": "chatty-build", "background": True})
+    await asyncio.sleep(0.03)
+
+    result = await runtime.poll_process({"process_id": "process-1"})
+
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "still working" in result.content[0].text
+    assert getattr(result, "_suppress_display", True) is False
+    await runtime.terminate_process({"process_id": "process-1"})
+
+
+@pytest.mark.asyncio
+async def test_poll_can_buffer_output_until_process_completes() -> None:
+    environment = _ActiveManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+    )
+    await runtime.execute({"command": "chatty-build", "background": True})
+    await asyncio.sleep(0.03)
+
+    poll_task = asyncio.create_task(
+        runtime.poll_process(
+            {
+                "process_id": "process-1",
+                "wait_sec": 1,
+                "wake_on_output": False,
+            }
+        )
+    )
+    await asyncio.sleep(0.05)
+    assert not poll_task.done()
+
+    environment.release.set()
+    result = await asyncio.wait_for(poll_task, timeout=1)
+
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "still working" in result.content[0].text
+    assert "process exit code was 0" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_poll_can_buffer_output_until_deadline() -> None:
+    environment = _ActiveManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+    )
+    await runtime.execute({"command": "chatty-build", "background": True})
+    await asyncio.sleep(0.03)
+
+    started = time.monotonic()
+    result = await runtime.poll_process(
+        {
+            "process_id": "process-1",
+            "wait_sec": 1,
+            "wake_on_output": False,
+        }
+    )
+    elapsed = time.monotonic() - started
+
+    assert elapsed >= 0.9
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "still working" in result.content[0].text
+    assert "Process is still running." in result.content[0].text
+    await runtime.terminate_process({"process_id": "process-1"})
+
+
+@pytest.mark.asyncio
+async def test_poll_rejects_non_boolean_wake_on_output() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+    )
+
+    result = await runtime.poll_process(
+        {
+            "process_id": "process-1",
+            "wake_on_output": "false",
+        }
+    )
+
+    assert result.isError is True
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == (
+        "Error: 'wake_on_output' argument must be a boolean"
+    )
+
+
+@pytest.mark.asyncio
 async def test_background_command_returns_handle_and_terminate_cancels_job() -> None:
     environment = _ManagedShellEnvironment()
     runtime = ShellRuntime(
@@ -994,6 +1161,10 @@ async def test_lifecycle_tool_calls_emit_correlated_progress() -> None:
         "poll_process",
     ]
     assert progress_payloads[0]["tool_event"] == "start"
+    assert progress_payloads[0]["details"] == "pid 4321"
+    assert "≤0s" not in progress_payloads[0]["details"]
+    assert progress_payloads[0]["process_elapsed_seconds"] >= 0
+    assert progress_payloads[0]["process_command"] == "server"
     assert progress_payloads[1]["tool_terminal"] is True
     assert progress_payloads[1]["details"] == "process-1: running"
     await runtime.close()
@@ -1415,7 +1586,9 @@ async def test_execute_with_file_working_directory_returns_actionable_error(
 
 
 @pytest.mark.asyncio
-async def test_timeout_sends_ctrl_break_for_pwsh(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_timeout_returns_when_ctrl_break_exits_pwsh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(platform, "system", lambda: "Windows")
     runtime, process, captured = _setup_runtime(
         monkeypatch,
@@ -1436,9 +1609,32 @@ async def test_timeout_sends_ctrl_break_for_pwsh(monkeypatch: pytest.MonkeyPatch
     ctrl_break = getattr(signal, "CTRL_BREAK_EVENT", None)
     assert ctrl_break is not None
     assert ctrl_break in process.sent_signals
-    assert process.terminated is True
+    assert process.terminated is False
     assert captured["exec_args"][0].endswith("pwsh.exe")
     assert execution.timed_out is True
+
+
+@pytest.mark.asyncio
+async def test_windows_termination_escalates_after_ctrl_break_grace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        local_shell_executor,
+        "_PROCESS_TERMINATION_GRACE_SECONDS",
+        0.01,
+    )
+    if not hasattr(signal, "CTRL_BREAK_EVENT"):
+        monkeypatch.setattr(signal, "CTRL_BREAK_EVENT", object(), raising=False)
+    executor = LocalShellExecutor(logger=logging.getLogger("shell-runtime-test"))
+    process = StagedTerminationProcess()
+
+    await executor._terminate_windows_process(
+        cast("asyncio.subprocess.Process", process)
+    )
+
+    assert getattr(signal, "CTRL_BREAK_EVENT") in process.sent_signals
+    assert process.terminated is True
+    assert process.killed is False
 
 
 @pytest.mark.asyncio

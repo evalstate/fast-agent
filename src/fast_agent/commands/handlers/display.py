@@ -19,7 +19,7 @@ from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.usage_display import collect_agents_from_provider
 from fast_agent.utils.commandline import split_commandline
 from fast_agent.utils.markdown import escape_markdown_table_cell, markdown_code_span
-from fast_agent.utils.text import strip_to_none
+from fast_agent.utils.text import strip_to_none, summarize_command
 from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
@@ -178,13 +178,6 @@ async def handle_environment(ctx: CommandContext, *, agent_name: str) -> Command
     return outcome
 
 
-def _process_command_summary(command: str, *, limit: int = 64) -> str:
-    single_line = " ".join(command.split())
-    if len(single_line) <= limit:
-        return single_line
-    return f"{single_line[: limit - 1]}…"
-
-
 async def handle_processes(
     ctx: CommandContext,
     *,
@@ -252,7 +245,7 @@ async def handle_processes(
         if snapshot.exit_code is not None:
             status = f"{status} ({snapshot.exit_code})"
         command = markdown_code_span(
-            escape_markdown_table_cell(_process_command_summary(snapshot.command))
+            escape_markdown_table_cell(summarize_command(snapshot.command))
         )
         lines.append(
             "| "

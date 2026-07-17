@@ -108,6 +108,31 @@ def test_running_process_result_uses_compact_lifecycle_line() -> None:
     assert "Use poll_process" not in rendered
 
 
+def test_quiet_running_poll_result_is_not_rendered() -> None:
+    display = ConsoleDisplay()
+    result = CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text="\n".join(
+                    [
+                        "Process is still running.",
+                        "process_id: process-2",
+                        "elapsed_seconds: 30.0",
+                        "total_output_bytes: 0",
+                    ]
+                ),
+            )
+        ],
+        isError=False,
+    )
+
+    with console.console.capture() as capture:
+        display.show_tool_result(result, name="dev", tool_name="poll_process")
+
+    assert capture.get() == ""
+
+
 def test_terminate_process_result_uses_compact_lifecycle_line() -> None:
     display = ConsoleDisplay()
     result = CallToolResult(

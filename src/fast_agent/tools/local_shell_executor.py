@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 _STREAM_READ_CHUNK_SIZE = 4096
 _MAX_PENDING_STREAM_BYTES = 65536
 _IO_DRAIN_TIMEOUT_SECONDS = 2.0
+_PROCESS_TERMINATION_GRACE_SECONDS = 2.0
 _PROCESS_EXIT_POLL_SECONDS = 0.1
 _WATCHDOG_POLL_SECONDS = 1.0
 _asyncio_sleep = asyncio.sleep
@@ -481,7 +482,8 @@ class LocalShellExecutor:
             ctrl_break = getattr(signal, "CTRL_BREAK_EVENT", None)
             if ctrl_break is not None:
                 process.send_signal(ctrl_break)
-            await asyncio.sleep(2)
+                if await self._wait_for_termination(process):
+                    return
         except AttributeError:
             self._logger.debug("Watchdog: CTRL_BREAK_EVENT unsupported, skipping")
         except ValueError:
@@ -491,15 +493,30 @@ class LocalShellExecutor:
 
         if process.returncode is None:
             process.terminate()
-            await asyncio.sleep(2)
+            if await self._wait_for_termination(process):
+                return
         if process.returncode is None:
             process.kill()
+            await process.wait()
 
     async def _terminate_unix_process(self, process: asyncio.subprocess.Process) -> None:
         os.killpg(process.pid, signal.SIGTERM)
-        await asyncio.sleep(2)
+        if await self._wait_for_termination(process):
+            return
         if process.returncode is None:
             os.killpg(process.pid, signal.SIGKILL)
+            await process.wait()
+
+    @staticmethod
+    async def _wait_for_termination(process: asyncio.subprocess.Process) -> bool:
+        try:
+            await asyncio.wait_for(
+                process.wait(),
+                timeout=_PROCESS_TERMINATION_GRACE_SECONDS,
+            )
+        except TimeoutError:
+            return False
+        return True
 
     async def _cancel_task_if_running(self, task: asyncio.Task[None] | None) -> None:
         if task is None or task.done():

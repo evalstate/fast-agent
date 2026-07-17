@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 from fast_agent.core.logging.events import Event, EventFilter, EventType
 from fast_agent.utils.text import strip_str_to_none
+from fast_agent.utils.tool_names import POLL_PROCESS_TOOL_NAME, matches_tool_name
 
 
 def _optional_text_or_none(value: object) -> str | None:
@@ -21,6 +22,12 @@ def _optional_text_or_none(value: object) -> str | None:
 
 def _optional_text(value: object) -> str:
     return _optional_text_or_none(value) or ""
+
+
+def _optional_float(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return max(float(value), 0.0)
 
 
 def _first_text(*values: object) -> str | None:
@@ -155,12 +162,18 @@ def _target_and_details(
     target = event_data.get("agent_name")
     raw_details = event_data.get("details", "")
     server_name = event_data.get("server_name")
+    tool_name = _optional_text_or_none(event_data.get("tool_name"))
 
     if action == ProgressAction.FATAL_ERROR:
         fallback_target = _optional_text(server_name)
         return str(target or fallback_target), str(
             event_data.get("error_message", "An error occurred")
         )
+    if action == ProgressAction.CALLING_TOOL and matches_tool_name(
+        tool_name,
+        POLL_PROCESS_TOOL_NAME,
+    ):
+        return str(target or ""), _optional_text(raw_details)
 
     if "mcp_aggregator" in event.namespace:
         return str(target or ""), _mcp_progress_details(
@@ -263,6 +276,10 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         tool_event=_optional_text_or_none(event_data.get("tool_event")),
         tool_state=_optional_text_or_none(event_data.get("tool_state")),
         tool_terminal=bool(event_data.get("tool_terminal", False)),
+        process_elapsed_seconds=_optional_float(
+            event_data.get("process_elapsed_seconds")
+        ),
+        process_command=_optional_text_or_none(event_data.get("process_command")),
         streaming_tokens=_streaming_tokens(action, event_data),
         progress=progress,
         total=total,

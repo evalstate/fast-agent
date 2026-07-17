@@ -15,7 +15,9 @@ from fast_agent.mcp.helpers.content_helpers import (
 from fast_agent.types import LlmStopReason
 from fast_agent.utils.tool_names import (
     EXECUTE_TOOL_NAME,
+    POLL_PROCESS_TOOL_NAME,
     SHELL_BUILTIN_TOOL_NAMES,
+    TERMINATE_PROCESS_TOOL_NAME,
     is_read_text_file_tool_name,
     matches_tool_name,
     normalize_tool_name,
@@ -156,6 +158,8 @@ def build_tool_use_additional_message(
         last_text = message.last_text()
     if last_text is not None:
         return None
+    if tool_use_requests_process_lifecycle(message):
+        return None
     if shell_access:
         message_text = "The assistant requested shell access"
     elif file_read:
@@ -273,6 +277,18 @@ def tool_use_requests_file_read_access(
     return _tool_use_requests_only(message, _is_read_tool)
 
 
+def tool_use_requests_process_lifecycle(message: "PromptMessageExtended") -> bool:
+    """Return True for turns containing only managed-process lifecycle calls."""
+
+    def _is_process_lifecycle_tool(tool_name: str) -> bool:
+        return normalize_tool_name(tool_name) in {
+            POLL_PROCESS_TOOL_NAME,
+            TERMINATE_PROCESS_TOOL_NAME,
+        }
+
+    return _tool_use_requests_only(message, _is_process_lifecycle_tool)
+
+
 __all__ = [
     "build_safety_additional_message",
     "build_tool_use_additional_message",
@@ -282,5 +298,6 @@ __all__ = [
     "extract_user_local_image_previews",
     "resolve_highlight_indexes",
     "tool_use_requests_file_read_access",
+    "tool_use_requests_process_lifecycle",
     "tool_use_requests_shell_access",
 ]
