@@ -122,7 +122,8 @@ async def test_prompt_loop_materializes_local_file_mentions(
     image_path = tmp_path / "pixel.png"
     image_path.write_bytes(
         base64.b64decode(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9s2nRwAAAABJRU5ErkJggg=="
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+            "+A8AAQUBAScY42YAAAAASUVORK5CYII="
         )
     )
     inputs = iter([f"Compare ^file:{image_path}", "STOP"])
