@@ -326,6 +326,18 @@ def _resolve_remote_content_block(url: str) -> ContentBlock:
 
 
 def _is_image_path(path: Path) -> bool:
+    from PIL import Image
+
     from fast_agent.mcp.mime_utils import guess_mime_type, is_image_mime_type
 
-    return is_image_mime_type(guess_mime_type(str(path)))
+    mime_type = guess_mime_type(str(path))
+    if is_image_mime_type(mime_type):
+        return True
+    if mime_type != "application/octet-stream":
+        return False
+    try:
+        with Image.open(path) as image:
+            image.verify()
+    except (OSError, SyntaxError, ValueError):
+        return False
+    return True

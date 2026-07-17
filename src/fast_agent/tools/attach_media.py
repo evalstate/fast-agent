@@ -157,7 +157,10 @@ def build_attach_media(
     )
 
     resource_source = "link" if source_info.kind == "link" else "embedded"
-    if source_info.kind == "link" or not is_image_mime_type(source_info.mime_type):
+    if source_info.kind == "link" or (
+        not is_image_mime_type(source_info.mime_type)
+        and source_info.mime_type != "application/octet-stream"
+    ):
         _validate_attachment(
             mime_type=source_info.mime_type,
             resource_source=resource_source,
@@ -474,16 +477,23 @@ def _prepare_image_bytes(
     mime_type: str,
     model_info: ModelInfo | None,
 ) -> tuple[bytes, str, str | None]:
-    if not is_image_mime_type(mime_type):
+    declared_image = is_image_mime_type(mime_type)
+    if not declared_image and mime_type != "application/octet-stream":
         return data, mime_type, None
 
     display_name = _source_display_name(source)
     try:
-        with Image.open(BytesIO(data)) as image:
-            actual_mime = normalize_mime_type(image.get_format_mimetype())
-            if actual_mime is None:
-                raise ValueError("image format has no MIME type")
+        image = Image.open(BytesIO(data))
+    except (OSError, SyntaxError, ValueError) as exc:
+        if not declared_image:
+            return data, mime_type, None
+        raise ValueError(
+            f"Error: image attachment '{display_name}' does not contain valid '{mime_type}' data"
+        ) from exc
 
+    try:
+        with image:
+            actual_mime = _pillow_image_mime(image)
             target_mime = _image_target_mime(mime_type, actual_mime, model_info)
             if actual_mime == target_mime:
                 image.verify()
@@ -498,6 +508,15 @@ def _prepare_image_bytes(
         raise ValueError(
             f"Error: image attachment '{display_name}' does not contain valid '{mime_type}' data"
         ) from exc
+
+
+def _pillow_image_mime(image: Image.Image) -> str:
+    if image.format is None:
+        raise ValueError("image format is unknown")
+    mime_type = normalize_mime_type(Image.MIME.get(image.format))
+    if mime_type is not None:
+        return mime_type
+    return f"image/x-{image.format.casefold()}"
 
 
 _PILLOW_OUTPUT_FORMATS = {

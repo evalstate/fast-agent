@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from io import BytesIO
 
 import pytest
 from mcp.types import (
@@ -10,6 +11,7 @@ from mcp.types import (
     ResourceLink,
     TextResourceContents,
 )
+from PIL import Image
 from pydantic import AnyUrl
 
 from fast_agent.ui.prompt.resource_mentions import (
@@ -177,7 +179,8 @@ async def test_resolve_mentions_builds_local_image_content(tmp_path) -> None:
     image_path = tmp_path / "pixel.png"
     image_path.write_bytes(
         base64.b64decode(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9s2nRwAAAABJRU5ErkJggg=="
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+            "+A8AAQUBAScY42YAAAAASUVORK5CYII="
         )
     )
     parsed = parse_mentions(f"^file:{image_path}")
@@ -187,6 +190,40 @@ async def test_resolve_mentions_builds_local_image_content(tmp_path) -> None:
 
     assert len(prompt.content) == 2
     assert isinstance(prompt.content[1], ImageContent)
+
+
+@pytest.mark.asyncio
+async def test_resolve_mentions_converts_local_ppm_to_png(tmp_path) -> None:
+    image_path = tmp_path / "screen.ppm"
+    image_path.write_bytes(b"P6\n1 1\n255\n\x00\x00\x00")
+    parsed = parse_mentions(f"^file:{image_path}")
+
+    resolved = await resolve_mentions(object(), parsed)
+    prompt = build_prompt_with_resources(parsed.text, resolved)
+
+    assert len(prompt.content) == 2
+    image = prompt.content[1]
+    assert isinstance(image, ImageContent)
+    assert image.mimeType == "image/png"
+    assert base64.b64decode(image.data).startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@pytest.mark.asyncio
+async def test_resolve_mentions_detects_pillow_image_without_known_mime(tmp_path) -> None:
+    image_path = tmp_path / "screen.tga"
+    output = BytesIO()
+    Image.new("RGB", (1, 1), color="blue").save(output, format="TGA")
+    image_path.write_bytes(output.getvalue())
+    parsed = parse_mentions(f"^file:{image_path}")
+
+    resolved = await resolve_mentions(object(), parsed)
+    prompt = build_prompt_with_resources(parsed.text, resolved)
+
+    assert len(prompt.content) == 2
+    image = prompt.content[1]
+    assert isinstance(image, ImageContent)
+    assert image.mimeType == "image/png"
+    assert base64.b64decode(image.data).startswith(b"\x89PNG\r\n\x1a\n")
 
 
 @pytest.mark.asyncio
