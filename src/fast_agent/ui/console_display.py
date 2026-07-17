@@ -395,6 +395,36 @@ class ConsoleDisplay:
         for _ in range(self._style.shell_exit_spacing_after):
             console.console.print()
 
+    def show_managed_process_poll(
+        self,
+        *,
+        name: str | None,
+        process_id: str,
+        command: str | None,
+        elapsed_seconds: float | None,
+        os_process_id: int | None,
+        wait_sec: int | None,
+    ) -> None:
+        """Display a one-line poll heartbeat when live progress is disabled."""
+        line = Text("▎", style="magenta")
+        line.append("◀ ", style="dim magenta")
+        if name:
+            line.append(name, style="magenta")
+            line.append(" ")
+        line.append("monitoring", style="bold magenta")
+        line.append(" · ", style="dim")
+        if os_process_id is not None:
+            line.append(f"pid {os_process_id}", style="bold")
+        else:
+            line.append(process_id, style="bold")
+        if wait_sec is not None and wait_sec > 0:
+            line.append(f" · ≤{wait_sec}s", style="dim")
+        if elapsed_seconds is not None:
+            line.append(f" · {self._format_elapsed(elapsed_seconds)}", style="dim")
+        if command:
+            line.append(f" · {command}", style="dim")
+        console.console.print(line)
+
     def _format_header_line(
         self,
         left_content: str,

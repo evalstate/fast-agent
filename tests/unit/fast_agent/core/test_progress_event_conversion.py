@@ -33,6 +33,34 @@ def test_convert_log_event_extracts_tool_correlation_id() -> None:
     assert progress_event.details == "search - step 1"
 
 
+def test_convert_poll_start_uses_process_details_without_tool_prefix() -> None:
+    event = Event(
+        type="info",
+        namespace="fast_agent.custom.runtime",
+        message="Shell tool lifecycle",
+        data={
+            "data": {
+                "progress_action": ProgressAction.CALLING_TOOL,
+                "agent_name": "assistant",
+                "tool_name": "poll_process",
+                "server_name": "local",
+                "tool_use_id": "call-poll",
+                "tool_event": "start",
+                "details": "pid 4321 · ≤30s",
+                "process_elapsed_seconds": 65,
+                "process_command": "uv run worker.py",
+            }
+        },
+    )
+
+    progress_event = convert_log_event(event)
+
+    assert progress_event is not None
+    assert progress_event.details == "pid 4321 · ≤30s"
+    assert progress_event.process_elapsed_seconds == 65
+    assert progress_event.process_command == "uv run worker.py"
+
+
 def test_convert_log_event_uses_tool_use_id_when_call_id_missing() -> None:
     event = Event(
         type="info",

@@ -52,6 +52,7 @@ from fast_agent.ui.shell_output_truncation import (
     split_shell_output_line_limit,
 )
 from fast_agent.utils.path_display import format_relative_path
+from fast_agent.utils.text import summarize_command
 from fast_agent.utils.tool_names import (
     EXECUTE_TOOL_NAME,
     POLL_PROCESS_TOOL_NAME,
@@ -73,7 +74,7 @@ _EXECUTE_ARGUMENTS = frozenset(
         "output_byte_limit",
     }
 )
-_POLL_PROCESS_ARGUMENTS = frozenset({"process_id", "wait_sec"})
+_POLL_PROCESS_ARGUMENTS = frozenset({"process_id", "wait_sec", "wake_on_output"})
 _TERMINATE_PROCESS_ARGUMENTS = frozenset({"process_id"})
 
 
@@ -184,6 +185,7 @@ class _ShellExecuteArguments:
 class _PollProcessArguments:
     process_id: str
     wait_sec: int
+    wake_on_output: bool
 
 
 @dataclass(slots=True)
@@ -356,7 +358,9 @@ class ShellRuntime:
                     description=(
                         "Get new output and status from a managed shell process. Omit `wait_sec` "
                         "or use 0 for a non-blocking poll; a positive value waits for completion "
-                        "or new output. Repeated polls return only output not returned previously."
+                        "or new output. Set `wake_on_output=false` to buffer output and wait only "
+                        "for completion or the deadline. Repeated polls return only output not "
+                        "returned previously."
                     ),
                     inputSchema={
                         "type": "object",
@@ -370,6 +374,14 @@ class ShellRuntime:
                                 "description": "Optional wait in seconds, from 0 through 30.",
                                 "minimum": 0,
                                 "maximum": _MAX_PROCESS_POLL_SECONDS,
+                            },
+                            "wake_on_output": {
+                                "type": "boolean",
+                                "default": True,
+                                "description": (
+                                    "Wake when new output arrives. Set to false to buffer output "
+                                    "until the process completes or wait_sec elapses."
+                                ),
                             },
                         },
                         "required": ["process_id"],
@@ -578,7 +590,7 @@ class ShellRuntime:
         arguments: dict[str, Any],
     ) -> dict[str, Any]:
         """Build compact display metadata for process lifecycle tools."""
-        return {
+        metadata: dict[str, Any] = {
             "variant": "shell_process",
             "action": "poll"
             if tool_name == POLL_PROCESS_TOOL_NAME
@@ -586,6 +598,46 @@ class ShellRuntime:
             "process_id": arguments.get("process_id"),
             "wait_sec": arguments.get("wait_sec", 0),
         }
+        process_id = arguments.get("process_id")
+        process = (
+            self._managed_processes.get(process_id)
+            if isinstance(process_id, str)
+            else None
+        )
+        if process is None:
+            return metadata
+
+        snapshot = self._process_snapshot(process, now=time.monotonic())
+        metadata.update(
+            {
+                "command": snapshot.command,
+                "command_summary": summarize_command(snapshot.command),
+                "elapsed_seconds": snapshot.elapsed_seconds,
+                "os_process_id": snapshot.os_process_id,
+                "total_output_bytes": snapshot.total_output_bytes,
+                "process_status": snapshot.status,
+            }
+        )
+        return metadata
+
+    def _process_progress_details(
+        self,
+        tool_name: str,
+        metadata: dict[str, Any],
+    ) -> str:
+        process_id = str(metadata.get("process_id") or "process")
+        parts: list[str] = []
+
+        os_process_id = metadata.get("os_process_id")
+        if isinstance(os_process_id, int) and not isinstance(os_process_id, bool):
+            parts.append(f"pid {os_process_id}")
+        else:
+            parts.append(process_id)
+
+        wait_sec = metadata.get("wait_sec")
+        if tool_name == POLL_PROCESS_TOOL_NAME and type(wait_sec) is int and wait_sec > 0:
+            parts.append(f"≤{wait_sec}s")
+        return " · ".join(parts)
 
     def _invalid_execute_result(self, message: str) -> CallToolResult:
         return _text_result(message, is_error=True)
@@ -677,6 +729,9 @@ class ShellRuntime:
             raise ValueError(
                 f"Error: 'wait_sec' argument must be at most {_MAX_PROCESS_POLL_SECONDS}"
             )
+        wake_on_output = payload.get("wake_on_output", True)
+        if type(wake_on_output) is not bool:
+            raise ValueError("Error: 'wake_on_output' argument must be a boolean")
         return _PollProcessArguments(
             process_id=coerce_required_string_argument(
                 payload.get("process_id"),
@@ -684,6 +739,7 @@ class ShellRuntime:
                 strip=True,
             ),
             wait_sec=wait_sec,
+            wake_on_output=wake_on_output,
         )
 
     @staticmethod
@@ -1330,7 +1386,7 @@ class ShellRuntime:
             result_meta.process_elapsed_seconds = elapsed
             result_meta.os_process_id = process.callbacks.os_process_id
             result_meta.output_line_count = unread_output_line_count
-            result_meta._suppress_display = True
+            result_meta._suppress_display = yielded_reason is not None or not output
             return result
 
         if process.task.cancelled():
@@ -1409,24 +1465,37 @@ class ShellRuntime:
             if (
                 parsed.wait_sec > 0
                 and not process.task.done()
-                and process.output_state.total_output_bytes == 0
+                and (
+                    not parsed.wake_on_output
+                    or process.output_state.total_output_bytes == 0
+                )
             ):
-                process.callbacks.activity_event.clear()
-                if (
-                    not process.task.done()
-                    and process.output_state.total_output_bytes == 0
-                ):
-                    activity_task = asyncio.create_task(
-                        process.callbacks.activity_event.wait()
+                if parsed.wake_on_output:
+                    process.callbacks.activity_event.clear()
+                    should_wait = (
+                        not process.task.done()
+                        and process.output_state.total_output_bytes == 0
                     )
+                else:
+                    should_wait = not process.task.done()
+                if should_wait:
+                    wait_tasks: tuple[asyncio.Future[Any] | asyncio.Task[Any], ...]
+                    activity_task: asyncio.Task[bool] | None = None
+                    if parsed.wake_on_output:
+                        activity_task = asyncio.create_task(
+                            process.callbacks.activity_event.wait()
+                        )
+                        wait_tasks = (process.task, activity_task)
+                    else:
+                        wait_tasks = (process.task,)
                     try:
                         await asyncio.wait(
-                            (process.task, activity_task),
+                            wait_tasks,
                             timeout=parsed.wait_sec,
                             return_when=asyncio.FIRST_COMPLETED,
                         )
                     finally:
-                        if not activity_task.done():
+                        if activity_task is not None and not activity_task.done():
                             activity_task.cancel()
                             with suppress(asyncio.CancelledError):
                                 await activity_task
@@ -1524,22 +1593,30 @@ class ShellRuntime:
         tool_use_id: str | None,
     ) -> CallToolResult:
         process_id = (arguments or {}).get("process_id")
+        payload = arguments or {}
+        process_metadata = self.process_tool_metadata(name, payload)
         if name == POLL_PROCESS_TOOL_NAME:
-            wait_sec = (arguments or {}).get("wait_sec", 0)
-            start_details = f"polling {process_id or 'process'}"
-            if type(wait_sec) is int and wait_sec > 0:
-                start_details += f" (up to {wait_sec}s)"
+            start_details = self._process_progress_details(name, process_metadata)
             operation = self.poll_process(arguments)
         else:
-            start_details = f"terminating {process_id or 'process'}"
+            start_details = self._process_progress_details(name, process_metadata)
             operation = self.terminate_process(arguments)
 
+        elapsed = process_metadata.get("elapsed_seconds")
+        process_elapsed_seconds = (
+            float(elapsed)
+            if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool)
+            else None
+        )
+        command = process_metadata.get("command_summary")
         self._emit_progress_event(
             action=ProgressAction.CALLING_TOOL,
             tool_use_id=tool_use_id,
             tool_name=name,
             tool_event="start",
             details=start_details,
+            process_elapsed_seconds=process_elapsed_seconds,
+            process_command=command if isinstance(command, str) else None,
         )
         result = await operation
         status = getattr(result, "process_status", None)
@@ -1776,6 +1853,8 @@ class ShellRuntime:
         details: str | None = None,
         tool_state: str | None = None,
         tool_terminal: bool | None = None,
+        process_elapsed_seconds: float | None = None,
+        process_command: str | None = None,
     ) -> None:
         """Emit shell tool lifecycle events for progress display when supported."""
         info = getattr(self._logger, "info", None)
@@ -1795,6 +1874,14 @@ class ShellRuntime:
             progress=progress,
             total=total,
             details=details,
+            extra={
+                key: value
+                for key, value in {
+                    "process_elapsed_seconds": process_elapsed_seconds,
+                    "process_command": process_command,
+                }.items()
+                if value is not None
+            },
         )
 
         try:

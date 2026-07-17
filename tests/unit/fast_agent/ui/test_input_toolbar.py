@@ -195,7 +195,7 @@ def test_build_middle_segment_renders_attachment_indicator() -> None:
     assert middle.index("gpt-4.1") < middle.index("FAST") < middle.index("WEB")
 
 
-def test_build_middle_segment_places_active_processes_after_attachments() -> None:
+def test_build_middle_segment_places_active_processes_before_attachments() -> None:
     middle = _build_middle_segment(
         ToolbarAgentState(
             model_display="gpt-4.1",
@@ -215,7 +215,7 @@ def test_build_middle_segment_places_active_processes_after_attachments() -> Non
     assert "▲1" in middle
     assert "↻" in middle
     assert "ansiyellow" in middle
-    assert middle.index("▲1") < middle.index("↻") < middle.index("RG")
+    assert middle.index("↻") < middle.index("▲1") < middle.index("RG")
 
 
 def test_build_middle_segment_renders_muted_process_indicator_when_idle() -> None:

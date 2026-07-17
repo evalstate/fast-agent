@@ -129,7 +129,9 @@ def test_background_shell_tool_call_header_shows_background() -> None:
 
 
 def test_process_lifecycle_tool_calls_use_compact_display() -> None:
-    display = ConsoleDisplay()
+    display = ConsoleDisplay(
+        config=Settings(logger=LoggerSettings(progress_display=False))
+    )
 
     with console.console.capture() as capture:
         display.show_tool_call(
@@ -140,6 +142,9 @@ def test_process_lifecycle_tool_calls_use_compact_display() -> None:
                 "action": "poll",
                 "process_id": "process-3",
                 "wait_sec": 5,
+                "command_summary": "uv run worker.py",
+                "elapsed_seconds": 65,
+                "os_process_id": 4321,
             },
             name="dev",
         )
@@ -155,10 +160,29 @@ def test_process_lifecycle_tool_calls_use_compact_display() -> None:
         )
 
     rendered = capture.get()
-    assert "poll process-3" in rendered
-    assert "wait up to 5s" in rendered
+    assert "dev monitoring · pid 4321 · ≤5s · 1m 05s · uv run worker.py" in rendered
+    assert "process-3" not in rendered
     assert "terminate process-4" in rendered
     assert "'process_id'" not in rendered
+
+
+def test_process_poll_tool_call_uses_live_progress_instead_of_transcript() -> None:
+    display = ConsoleDisplay()
+
+    with console.console.capture() as capture:
+        display.show_tool_call(
+            tool_name="poll_process",
+            tool_args={"process_id": "process-3", "wait_sec": 30},
+            metadata={
+                "variant": "shell_process",
+                "action": "poll",
+                "process_id": "process-3",
+                "wait_sec": 30,
+            },
+            name="dev",
+        )
+
+    assert capture.get() == ""
 
 
 def test_apply_patch_tool_call_renders_preview() -> None:

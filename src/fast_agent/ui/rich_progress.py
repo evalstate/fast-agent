@@ -20,7 +20,12 @@ from fast_agent.tools.tool_sources import ACP_TERMINAL_TOOL_SOURCE
 from fast_agent.ui.console import console as default_console
 from fast_agent.ui.console import ensure_blocking_console
 from fast_agent.ui.tool_call_ids import format_tool_call_id
-from fast_agent.utils.tool_names import EXECUTE_TOOL_NAME, matches_tool_name
+from fast_agent.utils.time import format_compact_duration
+from fast_agent.utils.tool_names import (
+    EXECUTE_TOOL_NAME,
+    POLL_PROCESS_TOOL_NAME,
+    matches_tool_name,
+)
 
 # 3-cell braille pulse (dense pack). Registered on first use via _ensure_spinners().
 PROGRESS_SPINNER_NAME = "braille_dense"
@@ -108,6 +113,35 @@ class SpinnerDescriptionColumn(ProgressColumn):
         return Text.assemble(description_text, spinner_text)
 
 
+class DynamicDetailsColumn(ProgressColumn):
+    """Render optional process elapsed time without emitting timer events."""
+
+    def __init__(
+        self,
+        *,
+        style: str = "dim white",
+        table_column: Column | None = None,
+    ) -> None:
+        self.style = style
+        super().__init__(table_column=table_column)
+
+    def render(self, task: "Task") -> Text:
+        parts = [str(task.fields.get("details") or "").strip()]
+        elapsed_base = task.fields.get("process_elapsed_seconds")
+        if (
+            isinstance(elapsed_base, (int, float))
+            and not isinstance(elapsed_base, bool)
+        ):
+            elapsed = float(elapsed_base) + (task.elapsed or 0.0)
+            formatted_elapsed = format_compact_duration(elapsed)
+            if formatted_elapsed:
+                parts.append(formatted_elapsed)
+        command = task.fields.get("process_command")
+        if isinstance(command, str) and command:
+            parts.append(command)
+        return Text(" · ".join(part for part in parts if part), style=self.style)
+
+
 class RichProgressDisplay:
     """Rich-based display for progress events."""
 
@@ -133,8 +167,7 @@ class RichProgressDisplay:
                     no_wrap=True,
                 ),
             ),
-            TextColumn(
-                text_format="{task.fields[details]}",
+            DynamicDetailsColumn(
                 style="dim white",
                 table_column=Column(
                     ratio=1,
@@ -474,10 +507,19 @@ class RichProgressDisplay:
         label = (
             self._tool_progress_label(event)
             if event.action == ProgressAction.TOOL_PROGRESS
-            else event.action.value.strip()
+            else self._action_label(event)
         )
         formatted_text = f"▎[dim]{icon}[/dim] {label}".ljust(17 + 11)
         return f"[{action_style}]{formatted_text}"
+
+    @staticmethod
+    def _action_label(event: ProgressEvent) -> str:
+        if event.action == ProgressAction.CALLING_TOOL and matches_tool_name(
+            event.tool_name,
+            POLL_PROCESS_TOOL_NAME,
+        ):
+            return "Monitoring"
+        return event.action.value.strip()
 
     @staticmethod
     def _tool_progress_label(event: ProgressEvent) -> str:
@@ -520,6 +562,10 @@ class RichProgressDisplay:
             ),
             "task_name": task_name,
         }
+        if event.process_elapsed_seconds is not None:
+            update_kwargs["process_elapsed_seconds"] = event.process_elapsed_seconds
+        if event.process_command is not None:
+            update_kwargs["process_command"] = event.process_command
         if event.action == ProgressAction.TOOL_PROGRESS and event.progress is not None:
             self._add_tool_progress_update_kwargs(event, update_kwargs)
         return update_kwargs

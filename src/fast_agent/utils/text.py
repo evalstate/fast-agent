@@ -12,6 +12,14 @@ def collapse_whitespace(value: str | None) -> str:
     return "" if not value else " ".join(value.split())
 
 
+def summarize_command(command: str, *, limit: int = 64) -> str:
+    """Collapse and truncate a shell command for dense status displays."""
+    single_line = collapse_whitespace(command)
+    if len(single_line) <= limit:
+        return single_line
+    return f"{single_line[: limit - 1]}…"
+
+
 def strip_to_none(value: str | None) -> str | None:
     if value is None:
         return None

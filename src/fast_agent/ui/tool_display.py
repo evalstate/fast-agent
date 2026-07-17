@@ -35,6 +35,7 @@ from fast_agent.utils.numeric import positive_int_or_none
 from fast_agent.utils.path_display import fit_path_for_display
 from fast_agent.utils.text import strip_casefold, strip_str_to_none
 from fast_agent.utils.tool_names import (
+    POLL_PROCESS_TOOL_NAME,
     SHELL_EXECUTION_TOOL_NAMES,
     is_read_text_file_tool_name,
     normalize_tool_name,
@@ -694,6 +695,27 @@ class ToolDisplay:
         ]
 
     @staticmethod
+    def _is_quiet_running_process_result(
+        result: "CallToolResult",
+        *,
+        tool_name: str | None,
+    ) -> bool:
+        """Return whether a poll result contains liveness metadata but no new output."""
+        from mcp.types import TextContent
+
+        if normalize_tool_name(tool_name) != POLL_PROCESS_TOOL_NAME:
+            return False
+        content = result.content
+        if (
+            not isinstance(content, list)
+            or len(content) != 1
+            or not isinstance(content[0], TextContent)
+        ):
+            return False
+        lines = content[0].text.splitlines()
+        return bool(lines) and lines[0].startswith("Process is still running")
+
+    @staticmethod
     def _structured_tool_result_display_content(
         *,
         content,
@@ -1029,6 +1051,8 @@ class ToolDisplay:
         """Display a tool result in the console."""
         logger = get_logger(__name__)
         if not self._display.show_tools_enabled:
+            return
+        if self._is_quiet_running_process_result(result, tool_name=tool_name):
             return
 
         try:
@@ -1409,6 +1433,41 @@ class ToolDisplay:
         try:
             tool_args = tool_args or {}
             metadata = metadata or {}
+            if (
+                metadata.get("variant") == "shell_process"
+                and metadata.get("action") == "poll"
+            ):
+                if self._display.logger_settings.progress_display:
+                    return
+                elapsed = metadata.get("elapsed_seconds")
+                os_process_id = metadata.get("os_process_id")
+                wait_sec = metadata.get("wait_sec")
+                self._display.show_managed_process_poll(
+                    name=name,
+                    process_id=str(metadata.get("process_id") or "process"),
+                    command=(
+                        command
+                        if isinstance(
+                            command := metadata.get("command_summary"),
+                            str,
+                        )
+                        else None
+                    ),
+                    elapsed_seconds=(
+                        float(elapsed)
+                        if isinstance(elapsed, (int, float))
+                        and not isinstance(elapsed, bool)
+                        else None
+                    ),
+                    os_process_id=(
+                        os_process_id
+                        if isinstance(os_process_id, int)
+                        and not isinstance(os_process_id, bool)
+                        else None
+                    ),
+                    wait_sec=wait_sec if type(wait_sec) is int else None,
+                )
+                return
             pre_content: Text | None = None
             prepared = self._prepare_tool_call_display(
                 tool_name=tool_name,

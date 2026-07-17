@@ -14,6 +14,7 @@ from fast_agent.ui.message_display_helpers import (
     extract_user_local_image_previews,
     resolve_highlight_indexes,
     tool_use_requests_file_read_access,
+    tool_use_requests_process_lifecycle,
     tool_use_requests_shell_access,
 )
 
@@ -110,6 +111,22 @@ def test_build_tool_use_additional_message_uses_file_read_copy() -> None:
     additional = build_tool_use_additional_message(message, file_read=True)
 
     assert additional is None
+
+
+def test_process_lifecycle_tool_use_omits_generic_additional_message() -> None:
+    message = _tool_use_message_with_names("poll_process")
+
+    assert tool_use_requests_process_lifecycle(message)
+    assert build_tool_use_additional_message(message) is None
+
+
+def test_mixed_process_and_other_tool_use_keeps_generic_additional_message() -> None:
+    message = _tool_use_message_with_names("poll_process", "read_text_file")
+
+    assert not tool_use_requests_process_lifecycle(message)
+    additional = build_tool_use_additional_message(message)
+    assert additional is not None
+    assert additional.plain == "The assistant requested tool calls"
 
 
 def test_build_tool_use_additional_message_pluralizes_file_reads() -> None:

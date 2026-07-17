@@ -695,10 +695,10 @@ def _build_middle_segment(
         prefix = ""
         if agent_state.tdv_segment:
             prefix += agent_state.tdv_segment
-        if attachment_indicator:
-            prefix += attachment_indicator
         if process_indicator:
             prefix += process_indicator
+        if attachment_indicator:
+            prefix += attachment_indicator
         if agent_state.model_gauges:
             prefix += agent_state.model_gauges
         middle_segments.append(f"{prefix} {model_chip}" if prefix else model_chip)
