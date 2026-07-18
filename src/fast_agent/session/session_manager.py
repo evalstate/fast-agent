@@ -328,7 +328,8 @@ class Session:
             filename = current_filename
         else:
             filepath = self.directory / filename
-            result = await HistoryExporter.save(agent, str(filepath), compact=checkpoint)
+            async with self._history_save_lock:
+                result = await HistoryExporter.save(agent, str(filepath), compact=checkpoint)
 
         # Update session info
         if rotating and current_filename:

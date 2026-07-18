@@ -445,6 +445,17 @@ def test_shell_output_byte_limit_coerces_invalid_values() -> None:
     assert runtime.output_byte_limit == 1024
 
 
+def test_truncation_notice_style_reflects_per_call_limit() -> None:
+    configured_limit = shell_runtime_module._ShellOutputState(output_byte_limit=1024)
+    per_call_limit = shell_runtime_module._ShellOutputState(
+        output_byte_limit=1024,
+        output_byte_limit_requested=True,
+    )
+
+    assert ShellRuntime._truncation_notice_style(configured_limit) == "black on red"
+    assert ShellRuntime._truncation_notice_style(per_call_limit) == "black on blue"
+
+
 def test_shell_runtime_reads_typed_shell_settings() -> None:
     settings = Settings(
         shell_execution=ShellSettings(

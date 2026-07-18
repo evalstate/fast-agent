@@ -11,7 +11,7 @@ def format_process_output_activity(
     if has_observed_output is None or seconds_since_last_output is None:
         return None
     if not has_observed_output:
-        return "no output"
+        return None
 
     duration = format_compact_duration(max(seconds_since_last_output, 0.0)) or "<1s"
     if seconds_since_last_output <= 5:

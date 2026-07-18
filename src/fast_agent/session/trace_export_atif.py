@@ -343,27 +343,43 @@ def _reconstruct_process_poll_audit_items(
         *audit.removed_exchanges,
         *audit.retained_exchanges,
     ]
-    for exchange in exchanges:
-        for archived in (exchange.request, exchange.result):
-            archived_timestamp = archived.timestamp or fallback_timestamp
+    for index, exchange in enumerate(exchanges):
+        next_request_timestamp = (
+            exchanges[index + 1].request.timestamp
+            if index + 1 < len(exchanges)
+            else None
+        )
+        request_timestamp = exchange.request.timestamp or fallback_timestamp
+        result_timestamp = (
+            exchange.result.timestamp
+            or next_request_timestamp
+            or fallback_timestamp
+            or request_timestamp
+        )
+        items.append(
+            _AuditMessage(
+                message=exchange.request,
+                timestamp=request_timestamp,
+            )
+        )
+        items.append(
+            _AuditMessage(
+                message=exchange.result,
+                timestamp=result_timestamp,
+            )
+        )
+        if (
+            rewrite_index < len(audit.context_rewrites)
+            and audit.context_rewrites[rewrite_index].after_call_id
+            in (exchange.result.tool_results or {})
+        ):
             items.append(
-                _AuditMessage(
-                    message=archived,
-                    timestamp=archived_timestamp,
+                _context_rewrite(
+                    audit.context_rewrites[rewrite_index],
+                    timestamp=result_timestamp,
                 )
             )
-            if (
-                rewrite_index < len(audit.context_rewrites)
-                and audit.context_rewrites[rewrite_index].after_call_id
-                in (archived.tool_results or {})
-            ):
-                items.append(
-                    _context_rewrite(
-                        audit.context_rewrites[rewrite_index],
-                        timestamp=archived_timestamp,
-                    )
-                )
-                rewrite_index += 1
+            rewrite_index += 1
     if rewrite_index != len(audit.context_rewrites):
         raise ValueError(
             "Managed-process poll fold context rewrite placement is inconsistent"

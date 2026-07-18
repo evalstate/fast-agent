@@ -7,7 +7,7 @@ def test_process_output_activity_distinguishes_recent_quiet_and_missing_output()
             has_observed_output=False,
             seconds_since_last_output=90,
         )
-        == "no output"
+        is None
     )
     assert (
         format_process_output_activity(

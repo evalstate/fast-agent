@@ -140,6 +140,7 @@ def _process_result(
 @dataclass(slots=True)
 class _ShellOutputState:
     output_byte_limit: int
+    output_byte_limit_requested: bool = False
     output_segments: list[str] = field(default_factory=list)
     output_tail_bytes: bytearray = field(default_factory=bytearray)
     output_bytes: int = 0
@@ -915,9 +916,17 @@ class ShellRuntime:
                         "additional output omitted from tool result.",
                     ]
                 ),
-                style="black on red",
+                style=self._truncation_notice_style(output_state),
             )
         output_state.truncation_notice_printed = True
+
+    @staticmethod
+    def _truncation_notice_style(output_state: _ShellOutputState) -> str:
+        return (
+            "black on blue"
+            if output_state.output_byte_limit_requested
+            else "black on red"
+        )
 
     def _print_timeout_notice(
         self,
@@ -1193,7 +1202,8 @@ class ShellRuntime:
                 self._output_byte_limit
                 if output_byte_limit is None
                 else output_byte_limit
-            )
+            ),
+            output_byte_limit_requested=output_byte_limit is not None,
         )
         display_state = self._build_display_state(
             defer_display_to_tool_result=defer_display_to_tool_result,
@@ -1229,7 +1239,8 @@ class ShellRuntime:
                 self._output_byte_limit
                 if parsed.output_byte_limit is None
                 else parsed.output_byte_limit
-            )
+            ),
+            output_byte_limit_requested=parsed.output_byte_limit is not None,
         )
         display_state = self._build_display_state(
             defer_display_to_tool_result=defer_display_to_tool_result,

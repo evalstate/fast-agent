@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from mcp.types import (
@@ -284,14 +285,23 @@ def test_folds_successful_poll_suffix_and_retains_terminal_pair() -> None:
     # (poll counts and per-turn wait/yield data) and reports token fields as None.
     folded_usage = folded.metadata["folded_usage"]
     assert isinstance(folded_usage, dict)
-    assert folded_usage["llm_calls"] == 4
-    assert folded_usage["provider_attempts"] is None
-    assert folded_usage["prompt_tokens"] is None
-    turns = folded_usage["turns"]
+    folded_usage_mapping = {
+        str(key): value for key, value in folded_usage.items()
+    }
+    assert folded_usage_mapping["llm_calls"] == 4
+    assert folded_usage_mapping["provider_attempts"] is None
+    assert folded_usage_mapping["prompt_tokens"] is None
+    turns = folded_usage_mapping["turns"]
     assert isinstance(turns, list)
     assert len(turns) == 4
-    assert all(turn["wait_sec"] == 30 for turn in turns)
-    assert all(turn["prompt_tokens"] is None for turn in turns)
+    turn_mappings: list[dict[str, object]] = []
+    for turn in turns:
+        assert isinstance(turn, dict)
+        turn_mappings.append(
+            {str(key): value for key, value in turn.items()}
+        )
+    assert all(turn["wait_sec"] == 30 for turn in turn_mappings)
+    assert all(turn["prompt_tokens"] is None for turn in turn_mappings)
     summary_result = _summary_result(folded)
     first = summary_result.content[0]
     assert isinstance(first, TextContent)
@@ -843,10 +853,16 @@ def test_fold_keeps_partial_usage_when_one_poll_is_missing_usage() -> None:
     assert archived_mapping["tool_duration_ms"] == pytest.approx(90006.0)
     turns = archived_mapping["turns"]
     assert isinstance(turns, list)
-    assert [turn["prompt_tokens"] for turn in turns] == [101, None, 103]
-    assert [turn["cost_usd"] for turn in turns] == [0.01, None, 0.03]
-    assert [turn["provider_attempts"] for turn in turns] == [1, None, 1]
-    assert [turn["yield_reason"] for turn in turns] == ["deadline"] * 3
+    turn_mappings: list[dict[str, object]] = []
+    for turn in turns:
+        assert isinstance(turn, dict)
+        turn_mappings.append(
+            {str(key): value for key, value in turn.items()}
+        )
+    assert [turn["prompt_tokens"] for turn in turn_mappings] == [101, None, 103]
+    assert [turn["cost_usd"] for turn in turn_mappings] == [0.01, None, 0.03]
+    assert [turn["provider_attempts"] for turn in turn_mappings] == [1, None, 1]
+    assert [turn["yield_reason"] for turn in turn_mappings] == ["deadline"] * 3
 
 
 def test_atif_rejects_fold_without_audit_archive() -> None:
@@ -1050,6 +1066,54 @@ def test_repeated_folds_preserve_cumulative_narration_and_boundary_history() -> 
     assert narrations[4] not in second_summary
 
 
+def test_reconstructed_context_rewrite_timestamps_remain_monotonic() -> None:
+    started = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    history = _history_before_terminal(3)
+    for index in range(1, 4):
+        history[index * 2 - 1].timestamp = started + timedelta(minutes=index)
+    running_three = _poll_result(3, output_line_count=0)
+    first_fold = fold_completed_process_poll_history(history, running_three)
+    assert first_fold is not None
+
+    request_four = _poll_request(4)
+    request_four.timestamp = started + timedelta(minutes=4)
+    result_four = _poll_result(4, output_line_count=0)
+    request_five = _poll_request(5)
+    request_five.timestamp = started + timedelta(minutes=5)
+    running_five = _poll_result(5, output_line_count=0)
+    running_five.timestamp = started + timedelta(minutes=6)
+    second_fold = fold_completed_process_poll_history(
+        [
+            *first_fold.history,
+            first_fold.tool_message,
+            request_four,
+            result_four,
+            request_five,
+        ],
+        running_five,
+    )
+    assert second_fold is not None
+
+    exported_history = [*second_fold.history, second_fold.tool_message]
+    trajectory = build_atif_trajectory(
+        AtifRunSource(
+            session_id="session",
+            agent_name="agent",
+            model_name="model",
+            provider="provider",
+            history=exported_history,
+            message_timestamps=(None,) * len(exported_history),
+        )
+    )
+
+    timestamps = [
+        datetime.fromisoformat(step.timestamp.replace("Z", "+00:00"))
+        for step in trajectory.steps
+        if step.timestamp is not None
+    ]
+    assert timestamps == sorted(timestamps)
+
+
 def test_repeated_running_folds_preserve_exact_cumulative_usage() -> None:
     history = _history_before_terminal(3)
     for index in range(1, 4):
@@ -1194,21 +1258,31 @@ def test_runner_style_repeated_folds_keep_audit_linear_and_lossless() -> None:
 
     audit = final_fold.metadata["audit"]
     assert isinstance(audit, dict)
-    rewrites = audit["context_rewrites"]
+    audit_mapping = {str(key): value for key, value in audit.items()}
+    rewrites = audit_mapping["context_rewrites"]
     assert isinstance(rewrites, list)
     assert len(rewrites) == fold_count
     per_rewrite_turns: list[int] = []
     removed_total = 0
     for rewrite in rewrites:
         assert isinstance(rewrite, dict)
-        removed_ids = rewrite["removed_call_ids"]
+        rewrite_mapping = {
+            str(key): value for key, value in rewrite.items()
+        }
+        removed_ids = rewrite_mapping["removed_call_ids"]
         assert isinstance(removed_ids, list)
         removed_total += len(removed_ids)
-        fold_record = rewrite["fold"]
+        fold_record = rewrite_mapping["fold"]
         assert isinstance(fold_record, dict)
-        folded_usage = fold_record["folded_usage"]
+        fold_mapping = {
+            str(key): value for key, value in fold_record.items()
+        }
+        folded_usage = fold_mapping["folded_usage"]
         assert isinstance(folded_usage, dict)
-        turns = folded_usage["turns"]
+        folded_usage_mapping = {
+            str(key): value for key, value in folded_usage.items()
+        }
+        turns = folded_usage_mapping["turns"]
         assert isinstance(turns, list)
         per_rewrite_turns.append(len(turns))
     # Every folded poll is archived in exactly one rewrite delta, and each
