@@ -675,11 +675,27 @@ def _fold_metadata(
     retained_call_ids = [
         exchange.call_id for exchange in retained_archive
     ]
+    # Each rewrite records only what this fold changed (its own usage and
+    # narrations); the live channel keeps the cumulative view. Snapshotting
+    # cumulative state per rewrite would make the audit quadratic in polls.
+    rewrite_fold = {
+        key: value
+        for key, value in metadata.items()
+        if key not in {"folded_usage", "assistant_updates"}
+    }
+    rewrite_fold["folded_usage"] = current_usage
+    current_assistant_updates = [
+        update
+        for exchange in exchanges[:folded_polls]
+        if (update := _assistant_update(exchange))
+    ]
+    if current_assistant_updates:
+        rewrite_fold["assistant_updates"] = current_assistant_updates
     context_rewrites.append(
         ArchivedContextRewrite(
             after_call_id=retained_archive[-1].call_id,
             summary=_summary_text(metadata),
-            fold=dict(metadata),
+            fold=rewrite_fold,
             removed_call_ids=current_removed_call_ids,
             retained_call_ids=retained_call_ids,
         )
@@ -807,7 +823,14 @@ def fold_managed_process_poll_history(
     prior_fold_exchange, prior_fold = (
         prior_folds[0] if prior_folds else (None, None)
     )
-    minimum_folded_polls = 1 if prior_fold is not None else _MIN_FOLDED_POLLS
+    # A running process refolds only once another full fold's worth of quiet
+    # polls has accumulated, amortizing the refold cost instead of paying it on
+    # every poll; a terminal status compacts whatever remains.
+    minimum_folded_polls = (
+        1
+        if prior_fold is not None and process_status != "running"
+        else _MIN_FOLDED_POLLS
+    )
     if folded_polls < minimum_folded_polls:
         return None
     if any(_output_line_count(exchange) != 0 for exchange in removed_exchanges):

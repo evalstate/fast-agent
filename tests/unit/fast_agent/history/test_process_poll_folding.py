@@ -1132,3 +1132,78 @@ def test_repeated_running_folds_preserve_exact_cumulative_usage() -> None:
         item["strategy"] == "managed_process_poll_fold"
         for item in context_management
     )
+
+
+def test_runner_style_repeated_folds_keep_audit_linear_and_lossless() -> None:
+    polls = 12
+    history: list[PromptMessageExtended] = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="build the project")],
+        )
+    ]
+    final_fold = None
+    fold_count = 0
+    for index in range(1, polls + 1):
+        request = _poll_request(index)
+        status = "completed" if index == polls else "running"
+        result = _poll_result(index, status=status, output_line_count=0)
+        folded = fold_completed_process_poll_history([*history, request], result)
+        if folded is None:
+            history = [*history, request, result]
+            continue
+        fold_count += 1
+        final_fold = folded
+        history = [*folded.history, folded.tool_message]
+
+    assert final_fold is not None
+    assert final_fold.metadata["polls"] == polls
+    assert final_fold.metadata["polls_folded"] == polls - 1
+    # Running refolds wait for another full fold's worth of quiet polls, so the
+    # fold machinery does not run on every poll.
+    assert fold_count < polls - 1
+
+    audit = final_fold.metadata["audit"]
+    assert isinstance(audit, dict)
+    rewrites = audit["context_rewrites"]
+    assert isinstance(rewrites, list)
+    assert len(rewrites) == fold_count
+    per_rewrite_turns: list[int] = []
+    removed_total = 0
+    for rewrite in rewrites:
+        assert isinstance(rewrite, dict)
+        removed_ids = rewrite["removed_call_ids"]
+        assert isinstance(removed_ids, list)
+        removed_total += len(removed_ids)
+        fold_record = rewrite["fold"]
+        assert isinstance(fold_record, dict)
+        folded_usage = fold_record["folded_usage"]
+        assert isinstance(folded_usage, dict)
+        turns = folded_usage["turns"]
+        assert isinstance(turns, list)
+        per_rewrite_turns.append(len(turns))
+    # Every folded poll is archived in exactly one rewrite delta, and each
+    # rewrite stays bounded, so the audit grows linearly with poll count.
+    assert sum(per_rewrite_turns) == polls - 1
+    assert removed_total == polls - 1
+    assert max(per_rewrite_turns) <= 2
+
+    exported_history = [*final_fold.history, final_fold.tool_message]
+    trajectory = build_atif_trajectory(
+        AtifRunSource(
+            session_id="session",
+            agent_name="agent",
+            model_name="model",
+            provider="provider",
+            history=exported_history,
+            message_timestamps=(None,) * len(exported_history),
+        )
+    )
+    poll_steps = [
+        step
+        for step in trajectory.steps
+        if step.tool_calls and step.tool_calls[0].function_name == "poll_process"
+    ]
+    assert [
+        step.tool_calls[0].tool_call_id for step in poll_steps if step.tool_calls
+    ] == [f"call-{index}" for index in range(1, polls + 1)]

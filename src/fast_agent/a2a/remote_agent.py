@@ -2,29 +2,19 @@
 
 from __future__ import annotations
 
-import base64
 import json
 import uuid
 from dataclasses import dataclass
-from pathlib import PurePosixPath
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
-from urllib.parse import unquote
 
 import httpx
 from a2a.client import A2ACardResolver, ClientConfig, create_client
 from a2a.types import Message, Part, Role, SendMessageRequest, TaskState
-from google.protobuf.json_format import MessageToDict, ParseDict
-from mcp.types import (
-    AudioContent,
-    BlobResourceContents,
-    EmbeddedResource,
-    ImageContent,
-    ResourceLink,
-    TextContent,
-    TextResourceContents,
-)
+from google.protobuf.json_format import MessageToDict
+from mcp.types import TextContent
 
+from fast_agent.a2a.content import part_from_content
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_decorator import LlmDecorator
 from fast_agent.core.logging.logger import get_logger
@@ -536,56 +526,12 @@ def _parts_from_messages(messages: Sequence[PromptMessageExtended]) -> list[Part
         if message.role != "user":
             continue
         for content in message.content:
-            if isinstance(content, TextContent):
-                if content.text:
-                    parts.append(Part(text=content.text))
+            if isinstance(content, TextContent) and not content.text:
                 continue
-            if isinstance(content, ImageContent | AudioContent):
-                parts.append(
-                    Part(
-                        raw=base64.b64decode(content.data),
-                        media_type=content.mimeType,
-                    )
-                )
-                continue
-            if isinstance(content, ResourceLink):
-                parts.append(
-                    Part(
-                        url=str(content.uri),
-                        media_type=content.mimeType or "",
-                        filename=content.name,
-                    )
-                )
-                continue
-            if isinstance(content, EmbeddedResource):
-                resource = content.resource
-                if isinstance(resource, BlobResourceContents):
-                    parts.append(
-                        Part(
-                            raw=base64.b64decode(resource.blob),
-                            media_type=resource.mimeType or "",
-                            filename=_filename_from_uri(str(resource.uri)),
-                        )
-                    )
-                    continue
-                if isinstance(resource, TextResourceContents):
-                    data_part = _json_data_part(resource.text, media_type=resource.mimeType)
-                    if data_part is not None:
-                        parts.append(data_part)
-                        continue
-                    parts.append(
-                        Part(
-                            text=resource.text,
-                            media_type=resource.mimeType or "text/plain",
-                            filename=_filename_from_uri(str(resource.uri)),
-                        )
-                    )
+            part = part_from_content(content)
+            if part is not None:
+                parts.append(part)
     return parts
-
-
-def _filename_from_uri(uri: str) -> str:
-    path = PurePosixPath(unquote(uri.split("?", 1)[0]))
-    return path.name or "attachment"
 
 
 def _parts_text(parts: Sequence[Part]) -> str:
@@ -739,15 +685,3 @@ def _state_message(state: str | None) -> str:
     if state == "TASK_STATE_COMPLETED":
         return "A2A task completed without text output."
     return "A2A task ended without text output."
-
-
-def _json_data_part(text: str, *, media_type: str | None) -> Part | None:
-    if media_type != "application/json":
-        return None
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return None
-    part = Part(media_type=media_type)
-    ParseDict(data, part.data)
-    return part

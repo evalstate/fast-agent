@@ -22,7 +22,13 @@ class ArchivedPollExchange(BaseModel):
 
 
 class ArchivedContextRewrite(BaseModel):
-    """A historical rewrite of the model-visible prompt context."""
+    """A historical rewrite of the model-visible prompt context.
+
+    `summary` is the exact text prepended to the retained observation. `fold`
+    records this rewrite's own contribution (the usage and assistant updates of
+    the polls it removed) alongside cumulative counters; per-poll data appears
+    in exactly one rewrite so the audit stays linear in poll count.
+    """
 
     after_call_id: str
     summary: str
