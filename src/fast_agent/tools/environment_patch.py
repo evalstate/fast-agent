@@ -38,6 +38,9 @@ async def apply_patch_to_environment_filesystem(
             affected.deleted,
             path_map,
         )
+        for hunk in hunks:
+            if hunk.kind == "update" and hunk.move_path is not None:
+                await filesystem.remove(str(hunk.path))
 
     stdout = io.StringIO()
     print_summary(path_map.restore_affected(affected), stdout)
