@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import pathlib
 from datetime import datetime, timedelta
@@ -193,6 +194,91 @@ async def test_save_history_preview_skips_empty_first_user_message(tmp_path) -> 
     await session.save_history(cast("AgentProtocol", agent))
 
     assert session.info.metadata["first_user_preview"] == "actual prompt"
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_save_writes_compact_history_that_round_trips(tmp_path) -> None:
+    from fast_agent.mcp.prompt_serialization import load_messages
+
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    agent = _Agent(
+        name="main",
+        instruction="Stored prompt",
+        history=[
+            _message("user", "hello"),
+            _message("assistant", "done"),
+        ],
+    )
+    history_path = session.directory / "history_main.json"
+
+    await session.save_history(cast("AgentProtocol", agent), checkpoint=True)
+
+    compact_raw = history_path.read_text(encoding="utf-8")
+    assert "\n" not in compact_raw.strip()
+    compact_loaded = load_messages(str(history_path))
+    assert [message.role for message in compact_loaded] == ["user", "assistant"]
+    assert _message_texts(agent) == ["hello", "done"]
+
+    await session.save_history(cast("AgentProtocol", agent))
+
+    pretty_raw = history_path.read_text(encoding="utf-8")
+    assert pretty_raw.startswith("{\n")
+    pretty_loaded = load_messages(str(history_path))
+    assert [message.role for message in pretty_loaded] == ["user", "assistant"]
+    # The checkpoint write rotated into the previous-file slot.
+    assert (session.directory / "history_main_previous.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_explicit_history_saves_are_serialized(tmp_path, monkeypatch) -> None:
+    from fast_agent.history.history_exporter import HistoryExporter
+
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    agent = _Agent(name="main", instruction="Stored prompt")
+    first_save_entered = asyncio.Event()
+    release_first_save = asyncio.Event()
+    save_calls = 0
+
+    async def save_history(
+        _agent: AgentProtocol,
+        filename: str | None = None,
+        *,
+        compact: bool = False,
+    ) -> str:
+        nonlocal save_calls
+        del compact
+        save_calls += 1
+        if save_calls == 1:
+            first_save_entered.set()
+            await release_first_save.wait()
+        return filename or str(session.directory / "shared.json")
+
+    monkeypatch.setattr(HistoryExporter, "save", save_history)
+
+    first = asyncio.create_task(
+        session.save_history(cast("AgentProtocol", agent), filename="shared.json")
+    )
+    await first_save_entered.wait()
+    second = asyncio.create_task(
+        session.save_history(cast("AgentProtocol", agent), filename="shared.json")
+    )
+    await asyncio.sleep(0)
+
+    assert save_calls == 1
+
+    release_first_save.set()
+    await asyncio.gather(first, second)
+    assert save_calls == 2
 
 
 def test_apply_session_window_appends_pinned_overflow(tmp_path) -> None:

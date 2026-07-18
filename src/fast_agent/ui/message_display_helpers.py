@@ -289,6 +289,15 @@ def tool_use_requests_process_lifecycle(message: "PromptMessageExtended") -> boo
     return _tool_use_requests_only(message, _is_process_lifecycle_tool)
 
 
+def tool_use_requests_process_poll(message: "PromptMessageExtended") -> bool:
+    """Return True for turns containing only managed-process poll calls."""
+
+    def _is_process_poll_tool(tool_name: str) -> bool:
+        return normalize_tool_name(tool_name) == POLL_PROCESS_TOOL_NAME
+
+    return _tool_use_requests_only(message, _is_process_poll_tool)
+
+
 __all__ = [
     "build_safety_additional_message",
     "build_tool_use_additional_message",
@@ -299,5 +308,6 @@ __all__ = [
     "resolve_highlight_indexes",
     "tool_use_requests_file_read_access",
     "tool_use_requests_process_lifecycle",
+    "tool_use_requests_process_poll",
     "tool_use_requests_shell_access",
 ]

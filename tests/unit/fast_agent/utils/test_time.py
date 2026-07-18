@@ -2,7 +2,12 @@
 
 import pytest
 
-from fast_agent.utils.time import format_compact_duration, format_duration, format_two_unit_duration
+from fast_agent.utils.time import (
+    format_compact_duration,
+    format_duration,
+    format_process_elapsed,
+    format_two_unit_duration,
+)
 
 
 def test_format_duration_does_not_crash_and_returns_strings() -> None:
@@ -32,6 +37,13 @@ def test_format_duration_treats_non_finite_values_as_zero() -> None:
 def test_format_duration_treats_boolean_values_as_zero() -> None:
     assert format_duration(True) == "0.00s"
     assert format_duration(False) == "0.00s"
+
+
+def test_format_process_elapsed_is_aligned_and_compact() -> None:
+    assert format_process_elapsed(49) == "0m49s"
+    assert format_process_elapsed(600) == "10m00s"
+    assert format_process_elapsed(7_200) == "2h"
+    assert format_process_elapsed(90_000) == "1d1h"
 
 
 def test_format_compact_duration_omits_missing_and_non_finite_values() -> None:

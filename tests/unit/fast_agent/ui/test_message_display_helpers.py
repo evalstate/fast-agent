@@ -15,6 +15,7 @@ from fast_agent.ui.message_display_helpers import (
     resolve_highlight_indexes,
     tool_use_requests_file_read_access,
     tool_use_requests_process_lifecycle,
+    tool_use_requests_process_poll,
     tool_use_requests_shell_access,
 )
 
@@ -117,7 +118,15 @@ def test_process_lifecycle_tool_use_omits_generic_additional_message() -> None:
     message = _tool_use_message_with_names("poll_process")
 
     assert tool_use_requests_process_lifecycle(message)
+    assert tool_use_requests_process_poll(message)
     assert build_tool_use_additional_message(message) is None
+
+
+def test_process_poll_rejects_terminate_process() -> None:
+    message = _tool_use_message_with_names("terminate_process")
+
+    assert tool_use_requests_process_lifecycle(message)
+    assert not tool_use_requests_process_poll(message)
 
 
 def test_mixed_process_and_other_tool_use_keeps_generic_additional_message() -> None:

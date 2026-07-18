@@ -9,9 +9,8 @@ import copy
 import json
 import os
 from importlib.metadata import version as get_version
-from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import quote
 
 import uvicorn
 from a2a.server.agent_execution.agent_executor import AgentExecutor
@@ -35,18 +34,18 @@ from a2a.types import (
     StringList,
 )
 from fastapi import FastAPI
-from google.protobuf.json_format import MessageToDict, ParseDict
+from google.protobuf.json_format import MessageToDict
 from mcp.types import (
     BlobResourceContents,
     EmbeddedResource,
     ImageContent,
     ResourceLink,
     TextContent,
-    TextResourceContents,
 )
 from pydantic import AnyUrl
 from starlette.responses import JSONResponse
 
+from fast_agent.a2a.content import part_from_content
 from fast_agent.a2a.task_api import (
     _current_task_returned_message,
     _current_task_started,
@@ -883,58 +882,9 @@ def _content_from_part(part: Part) -> list[Any]:
 
 
 def _parts_from_prompt_message(message: PromptMessageExtended) -> list[Part]:
-    parts: list[Part] = []
-    for content in message.content:
-        if isinstance(content, TextContent):
-            parts.append(Part(text=content.text))
-            continue
-        if isinstance(content, ImageContent):
-            parts.append(Part(raw=base64.b64decode(content.data), media_type=content.mimeType))
-            continue
-        if isinstance(content, EmbeddedResource):
-            resource = content.resource
-            if isinstance(resource, BlobResourceContents):
-                parts.append(
-                    Part(
-                        raw=base64.b64decode(resource.blob),
-                        media_type=resource.mimeType or "",
-                        filename=_filename_from_uri(str(resource.uri)),
-                    )
-                )
-                continue
-            if isinstance(resource, TextResourceContents):
-                data_part = _json_data_part(resource.text, media_type=resource.mimeType)
-                if data_part is not None:
-                    parts.append(data_part)
-                    continue
-                parts.append(Part(text=resource.text))
-            continue
-        if isinstance(content, ResourceLink):
-            parts.append(
-                Part(
-                    url=str(content.uri),
-                    media_type=content.mimeType or "",
-                    filename=content.name,
-                )
-            )
+    parts = [
+        part for content in message.content if (part := part_from_content(content)) is not None
+    ]
     if not parts:
         parts.append(Part(text=message.all_text()))
     return parts
-
-
-def _filename_from_uri(uri: str) -> str:
-    parsed = urlparse(uri)
-    name = PurePosixPath(unquote(parsed.path)).name
-    return name or parsed.netloc or "attachment"
-
-
-def _json_data_part(text: str, *, media_type: str | None) -> Part | None:
-    if media_type != "application/json":
-        return None
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return None
-    part = Part(media_type=media_type)
-    ParseDict(data, part.data)
-    return part

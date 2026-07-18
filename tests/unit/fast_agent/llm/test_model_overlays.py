@@ -88,6 +88,12 @@ def test_export_preserves_explicit_provider_for_namespaced_model() -> None:
     assert manifest.model == "moonshotai/kimi-k2"
 
 
+def test_export_preserves_managed_process_poll_folding_policy() -> None:
+    manifest = build_model_overlay_manifest_from_database("xai.grok-4.5")
+
+    assert manifest.metadata.managed_process_poll_folding is True
+
+
 def test_export_preserves_explicit_provider_over_catalog_default() -> None:
     manifest = build_model_overlay_manifest_from_database("openrouter.gpt-4o")
 
@@ -132,6 +138,32 @@ def test_export_preserves_bare_hf_namespace_that_matches_provider() -> None:
 
     assert manifest.provider == Provider.HUGGINGFACE
     assert manifest.model == "openai/gpt-oss-120b"
+
+
+def test_overlay_configures_process_poll_default_wait(tmp_path: Path) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "poll-wait.yaml",
+        """
+name: poll-wait
+provider: openresponses
+model: overlay-tests/Poll-Wait
+connection:
+  base_url: http://localhost:8080/v1
+  auth: none
+metadata:
+  context_window: 65536
+  max_output_tokens: 4096
+  process_poll_default_wait_seconds: 30
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        resolved = ModelFactory.resolve_model_spec("poll-wait")
+
+    assert resolved.model_params is not None
+    assert resolved.model_params.process_poll_default_wait_seconds == 30
 
 
 def test_same_provider_overlays_create_distinct_openresponses_clients(tmp_path: Path) -> None:

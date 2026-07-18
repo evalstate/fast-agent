@@ -434,6 +434,58 @@ async def test_show_assistant_message_suppresses_bottom_metadata_for_shell_tool_
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_show_assistant_message_skips_empty_process_poll_turn() -> None:
+    agent = LlmAgent(AgentConfig("process-poll"))
+    capture_display = _CaptureDisplay()
+    agent.display = capture_display
+
+    tool_call = CallToolRequest(
+        method="tools/call",
+        params=CallToolRequestParams(
+            name="poll_process",
+            arguments={"process_id": "process-1", "wait_sec": 30},
+        ),
+    )
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        tool_calls={"call_1": tool_call},
+        stop_reason=LlmStopReason.TOOL_USE,
+    )
+
+    await agent.show_assistant_message(message, bottom_items=["bash", "skill"])
+
+    assert capture_display.calls == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_show_assistant_message_keeps_process_poll_turn_text() -> None:
+    agent = LlmAgent(AgentConfig("process-poll-text"))
+    capture_display = _CaptureDisplay()
+    agent.display = capture_display
+
+    tool_call = CallToolRequest(
+        method="tools/call",
+        params=CallToolRequestParams(
+            name="poll_process",
+            arguments={"process_id": "process-1", "wait_sec": 30},
+        ),
+    )
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="I’ll check again.")],
+        tool_calls={"call_1": tool_call},
+        stop_reason=LlmStopReason.TOOL_USE,
+    )
+
+    await agent.show_assistant_message(message)
+
+    assert len(capture_display.calls) == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_show_assistant_message_render_message_false_shows_status_and_mermaid() -> None:
     agent = _UrlCaptureAgent("web-debug")
     capture_display = _CaptureDisplay()

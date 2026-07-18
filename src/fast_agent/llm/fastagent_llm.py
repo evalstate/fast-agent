@@ -358,6 +358,21 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     ) -> Literal["always", "defer", "no_tools"]:
         return self._resolve_structured_tool_policy(request_params)
 
+    def resolve_managed_process_poll_folding(
+        self,
+        request_params: RequestParams,
+    ) -> bool:
+        model_name = (
+            request_params.model
+            or self.default_request_params.model
+            or self._model_name
+        )
+        params = self._get_model_params(model_name)
+        return (
+            params is not None
+            and params.managed_process_poll_folding is True
+        )
+
     def _should_defer_structured_schema_for_tools(
         self,
         messages: list[PromptMessageExtended],
@@ -1573,6 +1588,14 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self._usage_accumulator.reset()
 
     def _api_key(self):
+        if self.provider is not None:
+            from fast_agent.llm.provider_key_manager import ProviderKeyManager
+
+            if ProviderKeyManager.serve_oauth_requires_request_token(
+                self.provider.config_name
+            ):
+                return self._provider_api_key()
+
         if self._init_api_key is not None:
             return self._init_api_key
 
@@ -1580,6 +1603,16 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     def validate_provider_credentials(self) -> None:
         """Validate that this provider has a locally configured credential source."""
+        if self.provider is not None:
+            from fast_agent.llm.provider_key_manager import ProviderKeyManager
+
+            if ProviderKeyManager.serve_oauth_requires_request_token(
+                self.provider.config_name
+            ):
+                # Credentials are supplied per-request via the caller's forwarded
+                # OAuth token; there is no local credential source to validate and
+                # a request-time call would (correctly) fail closed here.
+                return
         self._api_key()
 
     def _provider_api_key(self):

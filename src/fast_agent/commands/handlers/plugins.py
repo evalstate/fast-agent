@@ -120,6 +120,28 @@ def _format_plugin_keys(entry: LocalPlugin) -> str:
     return ", ".join(labels) if labels else "-"
 
 
+def _append_plugin_summary(content: Text, entry: LocalPlugin) -> None:
+    content.append("     ", style="dim")
+    content.append(f"source: {format_display_path(entry.plugin_dir)}", style="dim green")
+    content.append("\n")
+
+    if entry.manifest is None:
+        content.append("     ", style="dim")
+        content.append(f"manifest: invalid: {entry.manifest_error}", style="yellow")
+        content.append("\n")
+        return
+
+    commands = ", ".join(entry.manifest.commands) or "-"
+    content.append("     ", style="dim")
+    content.append(f"commands: {commands}", style="dim")
+    content.append("\n")
+    keys = _format_plugin_keys(entry)
+    if keys != "-":
+        content.append("     ", style="dim")
+        content.append(f"keys: {keys}", style="dim")
+        content.append("\n")
+
+
 def _version_of(entry: LocalPlugin) -> str | None:
     return strip_to_none(entry.manifest.version) if entry.manifest is not None else None
 
@@ -170,25 +192,7 @@ def _format_local_plugins(*, plugins_dir: Path, plugins: Sequence[LocalPlugin]) 
 
     for entry in plugins:
         append_indexed_name_line(content, entry.index, entry.name)
-
-        content.append("     ", style="dim")
-        content.append(f"source: {format_display_path(entry.plugin_dir)}", style="dim green")
-        content.append("\n")
-
-        if entry.manifest is None:
-            content.append("     ", style="dim")
-            content.append(f"manifest: invalid: {entry.manifest_error}", style="yellow")
-            content.append("\n")
-        else:
-            commands = ", ".join(entry.manifest.commands) or "-"
-            content.append("     ", style="dim")
-            content.append(f"commands: {commands}", style="dim")
-            content.append("\n")
-            keys = _format_plugin_keys(entry)
-            if keys != "-":
-                content.append("     ", style="dim")
-                content.append(f"keys: {keys}", style="dim")
-                content.append("\n")
+        _append_plugin_summary(content, entry)
 
         if entry.source is None:
             provenance = (
@@ -277,25 +281,8 @@ def _format_installed_plugins(
             row.append(marker, style="green" if is_active else "dim")
         content.append_text(row)
         content.append("\n")
-
-        content.append("     ", style="dim")
-        content.append(f"source: {format_display_path(entry.plugin_dir)}", style="dim green")
-        content.append("\n")
-
-        if entry.manifest is None:
-            content.append("     ", style="dim")
-            content.append(f"manifest: invalid: {entry.manifest_error}", style="yellow")
-            content.append("\n")
-        else:
-            commands = ", ".join(entry.manifest.commands) or "-"
-            content.append("     ", style="dim")
-            content.append(f"commands: {commands}", style="dim")
-            content.append("\n")
-            keys = _format_plugin_keys(entry)
-            if keys != "-":
-                content.append("     ", style="dim")
-                content.append(f"keys: {keys}", style="dim")
-                content.append("\n")
+        _append_plugin_summary(content, entry)
+        if entry.manifest is not None:
             active_commands = _active_commands_for_plugin(
                 entry,
                 active_plugin_commands=active_plugin_commands,

@@ -130,6 +130,11 @@ class FastAgentLLMProtocol(Protocol):
         request_params: RequestParams,
     ) -> Literal["always", "defer", "no_tools"]: ...
 
+    def resolve_managed_process_poll_folding(
+        self,
+        request_params: RequestParams,
+    ) -> bool: ...
+
     default_request_params: RequestParams
     instruction: str | None
     verb: str | ProgressAction | None

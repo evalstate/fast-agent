@@ -36,6 +36,7 @@ from fast_agent.commands.model_capabilities import (
 )
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.types import McpAgentProtocol
+from fast_agent.ui.agent_identity import is_default_agent_name
 from fast_agent.ui.mcp_display import render_mcp_status
 from fast_agent.ui.model_binary_toggles import (
     WEB_FETCH_TOGGLE,
@@ -47,6 +48,7 @@ from fast_agent.ui.model_shortcuts import (
     cycle_reasoning_setting,
     cycle_text_verbosity,
 )
+from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.prompt import input_startup
 from fast_agent.ui.prompt.agent_info import collect_tool_children
 from fast_agent.ui.prompt.agent_info import (
@@ -59,7 +61,6 @@ from fast_agent.ui.prompt.input_runtime import (
     build_prompt_style,
     cleanup_prompt_session,
     create_prompt_session,
-    is_default_agent_name,
     run_prompt_once,
     start_toolbar_switch_task,
 )
@@ -836,6 +837,7 @@ async def get_enhanced_input(
     _show_a2a_prompt_status(agent_name=agent_name, agent_provider=agent_provider)
     buffer_default = pre_populate_buffer if pre_populate_buffer else default
     default_agent_name = _resolve_default_agent_name(agent_provider)
+    progress_display.set_default_agent_name(default_agent_name)
     resolve_prompt_text = _build_prompt_text_resolver(
         session_factory=session_factory,
         agent_name=agent_name,

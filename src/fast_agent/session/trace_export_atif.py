@@ -15,11 +15,17 @@ from urllib.parse import parse_qs, urlparse
 from mcp.types import CallToolResult, ImageContent, TextContent
 
 from fast_agent.constants import (
+    FAST_AGENT_PROCESS_POLL_FOLD,
+    FAST_AGENT_SHELL_PROCESS_METADATA,
     FAST_AGENT_TIMING,
     FAST_AGENT_TOOL_METADATA,
     FAST_AGENT_TOOL_TIMING,
     FAST_AGENT_USAGE,
     REASONING,
+)
+from fast_agent.history.process_poll_fold_audit import (
+    ArchivedContextRewrite,
+    ProcessPollFoldAudit,
 )
 from fast_agent.llm.usage_tracking import UsageReport, UsageSummary
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -65,6 +71,24 @@ class AtifRunSource:
     notes: str | None = None
     system_prompt: str | None = None
     reasoning_effort: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _AuditMessage:
+    message: PromptMessageExtended
+    timestamp: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ContextRewrite:
+    timestamp: datetime | None
+    summary: str
+    fold: dict[str, object]
+    removed_call_ids: tuple[str, ...]
+    retained_call_ids: tuple[str, ...]
+
+
+type _AuditHistoryItem = _AuditMessage | _ContextRewrite
 
 
 @cache
@@ -251,6 +275,14 @@ def _tool_result_extra(
     metadata = (_json_channel_mapping(message, FAST_AGENT_TOOL_METADATA) or {}).get(call_id)
     if isinstance(metadata, dict):
         extra["tool_metadata"] = metadata
+    process_metadata = (
+        _json_channel_mapping(message, FAST_AGENT_SHELL_PROCESS_METADATA) or {}
+    ).get(call_id)
+    if isinstance(process_metadata, dict):
+        extra["process_metadata"] = process_metadata
+    fold_metadata = _json_channel_mapping(message, FAST_AGENT_PROCESS_POLL_FOLD)
+    if fold_metadata:
+        extra["process_poll_fold"] = fold_metadata
     return extra
 
 
@@ -263,9 +295,179 @@ def _step_timing_extra(message: PromptMessageExtended) -> dict[str, object]:
     }
 
 
+def _process_poll_folds(
+    history: list[PromptMessageExtended],
+) -> list[dict[str, object]]:
+    return [
+        metadata
+        for message in history
+        if (metadata := _json_channel_mapping(message, FAST_AGENT_PROCESS_POLL_FOLD))
+    ]
+
+
+def _parse_process_poll_fold_audit(
+    fold: dict[str, object],
+) -> ProcessPollFoldAudit:
+    if "audit" not in fold:
+        raise ValueError("Managed-process poll fold is missing its audit archive")
+    try:
+        return ProcessPollFoldAudit.model_validate(fold.get("audit"))
+    except ValueError as exc:
+        raise ValueError(
+            "Managed-process poll fold audit archive is invalid"
+        ) from exc
+
+
+def _context_rewrite(
+    rewrite: ArchivedContextRewrite,
+    *,
+    timestamp: datetime | None,
+) -> _ContextRewrite:
+    return _ContextRewrite(
+        timestamp=timestamp,
+        summary=rewrite.summary,
+        fold=rewrite.fold,
+        removed_call_ids=tuple(rewrite.removed_call_ids),
+        retained_call_ids=tuple(rewrite.retained_call_ids),
+    )
+
+
+def _reconstruct_process_poll_audit_items(
+    audit: ProcessPollFoldAudit,
+    *,
+    fallback_timestamp: datetime | None,
+) -> list[_AuditHistoryItem]:
+    items: list[_AuditHistoryItem] = []
+    rewrite_index = 0
+    exchanges = [
+        *audit.removed_exchanges,
+        *audit.retained_exchanges,
+    ]
+    for index, exchange in enumerate(exchanges):
+        next_request_timestamp = (
+            exchanges[index + 1].request.timestamp
+            if index + 1 < len(exchanges)
+            else None
+        )
+        request_timestamp = exchange.request.timestamp or fallback_timestamp
+        result_timestamp = (
+            exchange.result.timestamp
+            or next_request_timestamp
+            or fallback_timestamp
+            or request_timestamp
+        )
+        items.append(
+            _AuditMessage(
+                message=exchange.request,
+                timestamp=request_timestamp,
+            )
+        )
+        items.append(
+            _AuditMessage(
+                message=exchange.result,
+                timestamp=result_timestamp,
+            )
+        )
+        if (
+            rewrite_index < len(audit.context_rewrites)
+            and audit.context_rewrites[rewrite_index].after_call_id
+            in (exchange.result.tool_results or {})
+        ):
+            items.append(
+                _context_rewrite(
+                    audit.context_rewrites[rewrite_index],
+                    timestamp=result_timestamp,
+                )
+            )
+            rewrite_index += 1
+    if rewrite_index != len(audit.context_rewrites):
+        raise ValueError(
+            "Managed-process poll fold context rewrite placement is inconsistent"
+        )
+    return items
+
+
+def _expand_process_poll_folds(
+    source: AtifRunSource,
+) -> list[_AuditHistoryItem]:
+    items: list[_AuditHistoryItem] = []
+    history = source.history
+    index = 0
+
+    while index < len(history):
+        message = history[index]
+        timestamp = source.message_timestamps[index]
+        if index + 1 >= len(history):
+            items.append(_AuditMessage(message=message, timestamp=timestamp))
+            index += 1
+            continue
+
+        result_message = history[index + 1]
+        fold = _json_channel_mapping(result_message, FAST_AGENT_PROCESS_POLL_FOLD)
+        if fold is None:
+            items.append(_AuditMessage(message=message, timestamp=timestamp))
+            index += 1
+            continue
+        audit = _parse_process_poll_fold_audit(fold)
+        retained_call_ids = [
+            exchange.call_id for exchange in audit.retained_exchanges
+        ]
+        retained_call_id = retained_call_ids[-1]
+        if (
+            retained_call_id not in (message.tool_calls or {})
+            or retained_call_id not in (result_message.tool_results or {})
+        ):
+            raise ValueError("Managed-process poll fold retained exchange is invalid")
+
+        earlier_retained_call_ids = retained_call_ids[:-1]
+        retained_suffix_items = len(earlier_retained_call_ids) * 2
+        if retained_suffix_items > len(items):
+            raise ValueError("Managed-process poll fold retained-step archive is inconsistent")
+        if earlier_retained_call_ids:
+            suffix = items[-retained_suffix_items:]
+            suffix_call_ids = [
+                call_id
+                for archived_item in suffix
+                if isinstance(archived_item, _AuditMessage)
+                for call_id in (archived_item.message.tool_calls or {})
+            ]
+            if suffix_call_ids != earlier_retained_call_ids:
+                raise ValueError(
+                    "Managed-process poll fold retained call IDs are inconsistent"
+                )
+            del items[-retained_suffix_items:]
+
+        fallback_timestamp = result_message.timestamp or source.message_timestamps[index + 1]
+        items.extend(
+            _reconstruct_process_poll_audit_items(
+                audit,
+                fallback_timestamp=fallback_timestamp,
+            )
+        )
+        index += 2
+
+    return items
+
+
+def _resolve_call_step_ids(
+    call_ids: tuple[str, ...],
+    call_step_ids: dict[str, int],
+) -> list[int]:
+    missing = [call_id for call_id in call_ids if call_id not in call_step_ids]
+    if missing:
+        raise ValueError(
+            "Managed-process context rewrite references unknown tool calls: "
+            + ", ".join(missing)
+        )
+    return [call_step_ids[call_id] for call_id in call_ids]
+
+
 def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
     model_name = source.model_name
     steps: list[AtifStep] = []
+    call_step_ids: dict[str, int] = {}
+    audit_items = _expand_process_poll_folds(source)
+    context_boundary_count = 0
     if source.system_prompt:
         steps.append(
             AtifStep(
@@ -274,8 +476,56 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 message=source.system_prompt,
             )
         )
-    for index, message in enumerate(source.history):
-        timestamp = source.message_timestamps[index]
+    for item in audit_items:
+        if isinstance(item, _ContextRewrite):
+            removed_step_ids = _resolve_call_step_ids(
+                item.removed_call_ids,
+                call_step_ids,
+            )
+            retained_step_ids = _resolve_call_step_ids(
+                item.retained_call_ids,
+                call_step_ids,
+            )
+            context_management: dict[str, object] = {
+                "type": "compaction",
+                "boundary": "truncate",
+                "scope": "step_ids",
+                "removed_step_ids": removed_step_ids,
+                "replacement_source": "observation",
+                "replacement_position": "prepend_to_retained_observation",
+                "strategy": "managed_process_poll_fold",
+            }
+            if retained_step_ids:
+                context_management["retained_step_ids"] = retained_step_ids
+            timestamp_text = (
+                item.timestamp.isoformat().replace("+00:00", "Z")
+                if item.timestamp
+                else None
+            )
+            context_boundary_count += 1
+            steps.append(
+                AtifStep(
+                    step_id=len(steps) + 1,
+                    timestamp=timestamp_text,
+                    source="system",
+                    message="Managed process polling context rewritten",
+                    observation=AtifObservation(
+                        results=[
+                            AtifObservationResult(
+                                content=item.summary,
+                            )
+                        ]
+                    ),
+                    extra={
+                        "context_management": context_management,
+                        "process_poll_fold": item.fold,
+                    },
+                )
+            )
+            continue
+
+        message = item.message
+        timestamp = item.timestamp
         timestamp_text = timestamp.isoformat().replace("+00:00", "Z") if timestamp else None
         if message.tool_results:
             for call_id, result in message.tool_results.items():
@@ -314,26 +564,54 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 extra=step_extra if step_source == "agent" and step_extra else None,
             )
         )
+        if calls:
+            for call in calls:
+                call_step_ids[call.tool_call_id] = steps[-1].step_id
     if not steps:
         raise ValueError("ATIF trajectories require at least one interaction step")
-    metrics = [step.metrics for step in steps if step.metrics is not None]
+    metrics = [
+        step.metrics
+        for step in steps
+        if step.source == "agent" and step.llm_call_count != 0
+    ]
     total_reasoning_tokens = _sum_optional_int(
-        _metric_extra_int(item, "reasoning_tokens") for item in metrics
+        _metric_extra_int(item, "reasoning_tokens") if item is not None else None
+        for item in metrics
     )
     total_tool_use_tokens = _sum_optional_int(
-        _metric_extra_int(item, "tool_use_prompt_tokens") for item in metrics
+        _metric_extra_int(item, "tool_use_prompt_tokens") if item is not None else None
+        for item in metrics
+    )
+    folds = _process_poll_folds(source.history)
+    folded_polls = sum(
+        value
+        for fold in folds
+        if (value := fold.get("polls_folded")) is not None and type(value) is int
+    )
+    total_prompt_tokens = _sum_optional_int(
+        item.prompt_tokens if item is not None else None for item in metrics
+    )
+    total_completion_tokens = _sum_optional_int(
+        item.completion_tokens if item is not None else None for item in metrics
+    )
+    total_cached_tokens = _sum_optional_int(
+        item.cached_tokens if item is not None else None for item in metrics
     )
     total = AtifFinalMetrics(
-        total_prompt_tokens=_sum_optional_int(item.prompt_tokens for item in metrics),
-        total_completion_tokens=_sum_optional_int(item.completion_tokens for item in metrics),
-        total_cached_tokens=_sum_optional_int(item.cached_tokens for item in metrics),
-        total_cost_usd=_sum_optional_float(item.cost_usd for item in metrics),
+        total_prompt_tokens=total_prompt_tokens,
+        total_completion_tokens=total_completion_tokens,
+        total_cached_tokens=total_cached_tokens,
+        total_cost_usd=_sum_optional_float(
+            item.cost_usd if item is not None else None for item in metrics
+        ),
         total_steps=len(steps),
         extra={
             key: value
             for key, value in {
                 "total_reasoning_tokens": total_reasoning_tokens,
                 "total_tool_use_tokens": total_tool_use_tokens,
+                "folded_process_poll_steps": folded_polls or None,
+                "process_poll_context_rewrites": context_boundary_count or None,
             }.items()
             if value is not None
         }
@@ -359,10 +637,32 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
         steps=steps,
         final_metrics=total,
         extra=source.extra,
-        notes=source.notes,
+        notes=_atif_notes(
+            source.notes,
+            context_boundary_count=context_boundary_count,
+        ),
     )
     _embed_subagent_trajectories(trajectory, source)
     return AtifTrajectory.model_validate(trajectory.model_dump())
+
+
+def _atif_notes(
+    notes: str | None,
+    *,
+    context_boundary_count: int,
+) -> str | None:
+    additions: list[str] = []
+    if context_boundary_count:
+        additions.append(
+            "Managed-process polling folds preserve every original LLM/tool step for "
+            "auditability. System context-management steps identify the exact prior "
+            "step IDs removed from subsequent model context; their observation summary "
+            "is prepended to the retained poll observation."
+        )
+    if not additions:
+        return notes
+    addition = "\n\n".join(additions)
+    return f"{notes}\n\n{addition}" if notes else addition
 
 
 def _sum_optional_int(values: Iterable[int | None]) -> int | None:
@@ -444,7 +744,17 @@ def build_atif_fanout_trajectory(
                 extra={"dispatch": "multi_model"},
             ),
         ],
-        final_metrics=AtifFinalMetrics(total_steps=2),
+        final_metrics=AtifFinalMetrics(
+            total_prompt_tokens=0,
+            total_completion_tokens=0,
+            total_cached_tokens=0,
+            total_cost_usd=0.0,
+            total_steps=2,
+            extra={
+                "total_reasoning_tokens": 0,
+                "total_tool_use_tokens": 0,
+            },
+        ),
         subagent_trajectories=children,
     )
     _include_subagent_metrics(root, children)
@@ -525,8 +835,8 @@ def _final_metrics_from_usage_summary(
         extra={
             key: value
             for key, value in {
-                "reasoning_tokens": usage.completion.reasoning,
-                "tool_use_prompt_tokens": usage.prompt.tool_use,
+                "total_reasoning_tokens": usage.completion.reasoning,
+                "total_tool_use_tokens": usage.prompt.tool_use,
             }.items()
             if value is not None
         }
@@ -542,6 +852,15 @@ def _include_subagent_metrics(
     root_prompt_tokens = root_metrics.total_prompt_tokens
     root_completion_tokens = root_metrics.total_completion_tokens
     root_cached_tokens = root_metrics.total_cached_tokens
+    root_cost_usd = root_metrics.total_cost_usd
+    root_reasoning_tokens = _final_metric_extra_int(
+        root_metrics,
+        "total_reasoning_tokens",
+    )
+    root_tool_use_tokens = _final_metric_extra_int(
+        root_metrics,
+        "total_tool_use_tokens",
+    )
     subagent_prompt_tokens = _sum_optional_int(
         item.total_prompt_tokens for item in child_metrics
     )
@@ -550,6 +869,17 @@ def _include_subagent_metrics(
     )
     subagent_cached_tokens = _sum_optional_int(
         item.total_cached_tokens for item in child_metrics
+    )
+    subagent_cost_usd = _sum_optional_float(
+        item.total_cost_usd for item in child_metrics
+    )
+    subagent_reasoning_tokens = _sum_optional_int(
+        _final_metric_extra_int(item, "total_reasoning_tokens")
+        for item in child_metrics
+    )
+    subagent_tool_use_tokens = _sum_optional_int(
+        _final_metric_extra_int(item, "total_tool_use_tokens")
+        for item in child_metrics
     )
     root_metrics.total_prompt_tokens = _sum_optional_int(
         (root_prompt_tokens, subagent_prompt_tokens)
@@ -560,10 +890,21 @@ def _include_subagent_metrics(
     root_metrics.total_cached_tokens = _sum_optional_int(
         (root_cached_tokens, subagent_cached_tokens)
     )
+    root_metrics.total_cost_usd = _sum_optional_float(
+        (root_cost_usd, subagent_cost_usd)
+    )
+    total_reasoning_tokens = _sum_optional_int(
+        (root_reasoning_tokens, subagent_reasoning_tokens)
+    )
+    total_tool_use_tokens = _sum_optional_int(
+        (root_tool_use_tokens, subagent_tool_use_tokens)
+    )
     root_metrics.extra = {
         key: value
         for key, value in {
             **(root_metrics.extra or {}),
+            "total_reasoning_tokens": total_reasoning_tokens,
+            "total_tool_use_tokens": total_tool_use_tokens,
             "root_prompt_tokens": root_prompt_tokens,
             "root_completion_tokens": root_completion_tokens,
             "subagent_prompt_tokens": subagent_prompt_tokens,
@@ -572,6 +913,11 @@ def _include_subagent_metrics(
         if value is not None
     }
     root.final_metrics = root_metrics
+
+
+def _final_metric_extra_int(metrics: AtifFinalMetrics, key: str) -> int | None:
+    value = (metrics.extra or {}).get(key)
+    return value if type(value) is int else None
 
 
 def _attach_subagent_ref(

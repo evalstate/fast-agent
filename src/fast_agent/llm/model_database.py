@@ -7,7 +7,7 @@ context windows, max output tokens, and supported tokenization types.
 
 from typing import ClassVar, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from fast_agent.llm.model_mime_support import ResourceSource, tokenizes_support_mime
 from fast_agent.llm.provider_types import Provider
@@ -38,6 +38,12 @@ class ModelParameters(BaseModel):
 
     structured_tool_policy: Literal["always", "defer", "no_tools"] | None = None
     """Default structured-output/regular-tool coexistence policy for this model."""
+
+    managed_process_poll_folding: bool | None = None
+    """Whether managed-process poll folding has been validated for this model."""
+
+    process_poll_default_wait_seconds: int = Field(default=0, ge=0, le=600)
+    """Default poll_process wait when the model omits wait_sec."""
 
     reasoning: None | str = None
     """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
@@ -427,6 +433,7 @@ class ModelDatabase:
         text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
         response_service_tiers=("fast", "flex"),
         default_provider=Provider.RESPONSES,
+        managed_process_poll_folding=True,
     )
 
     OPENAI_GPT_5_2 = ModelParameters(
@@ -438,6 +445,7 @@ class ModelDatabase:
         text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
         response_service_tiers=("fast", "flex"),
         default_provider=Provider.RESPONSES,
+        managed_process_poll_folding=True,
     )
 
     OPENAI_GPT_CODEX = ModelParameters(
@@ -451,6 +459,7 @@ class ModelDatabase:
         response_websocket_providers=(Provider.RESPONSES, Provider.CODEX_RESPONSES),
         response_service_tiers=("fast", "flex"),
         default_provider=Provider.RESPONSES,
+        managed_process_poll_folding=True,
     )
 
     OPENAI_GPT_54_SMALL = ModelParameters(
@@ -464,6 +473,7 @@ class ModelDatabase:
         response_websocket_providers=(Provider.RESPONSES, Provider.CODEX_RESPONSES),
         response_service_tiers=("fast", "flex"),
         default_provider=Provider.RESPONSES,
+        managed_process_poll_folding=True,
     )
 
     OPENAI_GPT_56 = ModelParameters(
@@ -478,6 +488,7 @@ class ModelDatabase:
         response_service_tiers=("fast", "flex"),
         default_provider=Provider.RESPONSES,
         model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
+        managed_process_poll_folding=True,
     )
 
     OPENAI_GPT_56_LUNA = OPENAI_GPT_56.model_copy(
@@ -493,6 +504,7 @@ class ModelDatabase:
         response_websocket_providers=(Provider.CODEX_RESPONSES,),
         response_service_tiers=("fast",),
         default_provider=Provider.CODEX_RESPONSES,
+        managed_process_poll_folding=True,
     )
 
     OPENAI_CHAT53_INSTANT = ModelParameters(
@@ -505,6 +517,7 @@ class ModelDatabase:
         default_provider=Provider.RESPONSES,
         reasoning="openai",
         model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
+        managed_process_poll_folding=True,
     )
 
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
@@ -776,6 +789,7 @@ class ModelDatabase:
         default_provider=Provider.XAI,
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.XAI,),
+        managed_process_poll_folding=True,
     )
 
     MUSE_SPARK_11 = ModelParameters(

@@ -54,6 +54,7 @@ metadata:
     Use terse responses for this local model.
   json_mode: object
   structured_tool_policy: defer
+  managed_process_poll_folding: true
 picker:
   label: Qwen local
   description: Imported from llama.cpp
@@ -153,6 +154,8 @@ Common fields:
 - `tokenizes`
 - `json_mode`: `schema`, `object`, `none`, or `null`
 - `structured_tool_policy`: `auto`, `always`, `defer`, or `no_tools`
+- `managed_process_poll_folding`: whether automatic managed-process poll folding
+  has been validated for this model
 - `model_specific`: text made available to system prompts as `{{model_specific}}`
 - `fast`
 

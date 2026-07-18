@@ -56,6 +56,15 @@ def format_compact_duration(seconds: float | None) -> str | None:
     return format_two_unit_duration(total)
 
 
+def format_process_elapsed(seconds: float) -> str:
+    """Return elapsed time formatted consistently for managed-process displays."""
+    total_seconds = max(0, int(seconds))
+    if total_seconds < SECONDS_PER_HOUR:
+        minutes, remainder = divmod(total_seconds, SECONDS_PER_MINUTE)
+        return f"{minutes}m{remainder:02d}s"
+    return format_compact_duration(total_seconds) or "0m00s"
+
+
 def format_two_unit_duration(total_seconds: int) -> str:
     """Return a compact label using the largest one or two time units."""
     total = max(0, int(total_seconds))

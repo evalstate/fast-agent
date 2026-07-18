@@ -555,6 +555,25 @@ def test_continuation_planner_non_prefix_forces_create() -> None:
     assert "previous_response_id" not in planned.arguments
 
 
+def test_continuation_planner_resumes_after_non_prefix_create() -> None:
+    planner = StatefulContinuationResponsesWsPlanner()
+    first_arguments = _build_ws_arguments([_build_input_message("one")])
+    planner.commit(first_arguments, planner.plan(first_arguments), {"id": "resp_1"})
+
+    folded_arguments = _build_ws_arguments([_build_input_message("folded")])
+    folded = planner.plan(folded_arguments)
+    assert "previous_response_id" not in folded.arguments
+    planner.commit(folded_arguments, folded, {"id": "resp_2"})
+
+    extended_arguments = _build_ws_arguments(
+        [_build_input_message("folded"), _build_input_message("next")]
+    )
+    resumed = planner.plan(extended_arguments)
+
+    assert resumed.arguments["previous_response_id"] == "resp_2"
+    assert resumed.arguments["input"] == [_build_input_message("next")]
+
+
 def test_continuation_planner_equal_or_shorter_input_forces_create() -> None:
     planner = StatefulContinuationResponsesWsPlanner()
     baseline = _build_ws_arguments([_build_input_message("one"), _build_input_message("two")])

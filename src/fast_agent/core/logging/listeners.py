@@ -30,6 +30,14 @@ def _optional_float(value: object) -> float | None:
     return max(float(value), 0.0)
 
 
+def _optional_nonnegative_int(value: object) -> int | None:
+    return value if type(value) is int and value >= 0 else None
+
+
+def _optional_bool(value: object) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
 def _first_text(*values: object) -> str | None:
     return next(
         (normalized for value in values if (normalized := _optional_text_or_none(value))),
@@ -280,6 +288,16 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
             event_data.get("process_elapsed_seconds")
         ),
         process_command=_optional_text_or_none(event_data.get("process_command")),
+        process_id=_optional_text_or_none(event_data.get("process_id")),
+        process_wait_seconds=_optional_nonnegative_int(
+            event_data.get("process_wait_seconds")
+        ),
+        process_has_observed_output=_optional_bool(
+            event_data.get("process_has_observed_output")
+        ),
+        process_seconds_since_last_output=_optional_float(
+            event_data.get("process_seconds_since_last_output")
+        ),
         streaming_tokens=_streaming_tokens(action, event_data),
         progress=progress,
         total=total,

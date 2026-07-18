@@ -11,7 +11,11 @@ from rich.live import Live
 from rich.text import Text
 
 from fast_agent.event_progress import ProgressAction, ProgressEvent
-from fast_agent.ui.rich_progress import DynamicDetailsColumn, RichProgressDisplay
+from fast_agent.ui.rich_progress import (
+    DynamicDetailsColumn,
+    RichProgressDisplay,
+)
+from fast_agent.utils.time import format_process_elapsed
 
 
 def _make_event(
@@ -404,42 +408,78 @@ class TestAggregatorInitializedVisibility:
 
         display.stop()
 
-    def test_poll_process_uses_monitoring_label_and_braille_spinner(self) -> None:
+    def test_poll_process_uses_dense_braille_spinner(self) -> None:
         display = _make_display()
         event = _make_event(
             action=ProgressAction.CALLING_TOOL,
             correlation_id="tool-call-poll",
             tool_name="poll_process",
-            details="pid 4321 · ≤30s · 1m05s · uv run worker.py",
+            details="pid 4321 · ≤30s",
         )
 
         description = display._description_for_event(event)
 
         assert "Monitoring" in description
-        assert display._description_spinner.spinner.name == "braille_dense"
+        spinner = display._description_spinner.spinner
+        assert spinner.name == "braille_dense"
+        assert "⢸⡇ " in spinner.frames
 
     def test_process_elapsed_time_ticks_during_rendering(self) -> None:
-        display = _make_display()
+        display = RichProgressDisplay(
+            console=Console(file=open("/dev/null", "w"), force_terminal=True, width=120),
+            default_agent_name="test-agent",
+        )
         display.start()
         display.update(
             _make_event(
                 action=ProgressAction.CALLING_TOOL,
-                correlation_id="tool-call-poll",
+                correlation_id="call_abcdef0123456789",
                 tool_name="poll_process",
-                details="pid 4321 · ≤30s",
+                details="process-4",
                 process_elapsed_seconds=65,
                 process_command="uv run worker.py",
+                process_wait_seconds=30,
+                process_has_observed_output=True,
+                process_seconds_since_last_output=4,
             )
         )
-        task_id = display._taskmap["test-agent::tool-call-poll"]
+        task_id = display._taskmap["test-agent::call_abcdef0123456789"]
         task = next(task for task in display._progress.tasks if task.id == task_id)
+        assert task.fields["target"] == ""
         assert task.start_time is not None
         task.start_time -= 5
 
         rendered = DynamicDetailsColumn().render(task).plain
 
-        assert rendered == "pid 4321 · ≤30s · 1m10s · uv run worker.py"
+        assert rendered == (
+            "process-4 · 1m10s elapsed · wait ≤30s · output 9s ago · "
+            "uv run worker.py · id: call_…456789"
+        )
         display.stop()
+
+    def test_poll_process_keeps_non_default_agent_name(self) -> None:
+        display = RichProgressDisplay(default_agent_name="default-agent")
+        event = _make_event(
+            action=ProgressAction.CALLING_TOOL,
+            agent_name="reviewer",
+            target="reviewer",
+            correlation_id="tool-call-poll",
+            tool_name="poll_process",
+            details="process-4",
+        )
+
+        update = display._update_kwargs_for_event(
+            event,
+            task_name="reviewer::tool-call-poll",
+            is_correlated_tool_event=True,
+        )
+
+        assert update["target"] == "reviewer"
+
+    def test_process_elapsed_uses_aligned_minutes_and_seconds(self) -> None:
+        assert format_process_elapsed(49) == "0m49s"
+        assert format_process_elapsed(600) == "10m00s"
+        assert format_process_elapsed(3700) == "1h01m"
 
     def test_full_progress_without_terminal_state_keeps_row(self) -> None:
         display = _make_display()

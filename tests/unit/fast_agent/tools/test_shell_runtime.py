@@ -19,6 +19,7 @@ import fast_agent.tools.shell_runtime as shell_runtime_module
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+    FAST_AGENT_SHELL_PROCESS_METADATA,
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
 from fast_agent.event_progress import ProgressAction
@@ -444,12 +445,25 @@ def test_shell_output_byte_limit_coerces_invalid_values() -> None:
     assert runtime.output_byte_limit == 1024
 
 
+def test_truncation_notice_style_reflects_per_call_limit() -> None:
+    configured_limit = shell_runtime_module._ShellOutputState(output_byte_limit=1024)
+    per_call_limit = shell_runtime_module._ShellOutputState(
+        output_byte_limit=1024,
+        output_byte_limit_requested=True,
+    )
+
+    assert ShellRuntime._truncation_notice_style(configured_limit) == "black on red"
+    assert ShellRuntime._truncation_notice_style(per_call_limit) == "black on blue"
+
+
 def test_shell_runtime_reads_typed_shell_settings() -> None:
     settings = Settings(
         shell_execution=ShellSettings(
             output_display_lines=7,
             show_bash=False,
             prefer_local_shell=True,
+            process_poll_max_wait_seconds=240,
+            managed_process_poll_history_folding="on",
         )
     )
     runtime = ShellRuntime(
@@ -461,6 +475,7 @@ def test_shell_runtime_reads_typed_shell_settings() -> None:
     assert runtime._output_display_lines == 7
     assert runtime._show_bash_output is False
     assert runtime.prefer_local_shell is True
+    assert runtime._max_process_poll_seconds == 240
 
 
 def test_execute_tool_schema_declares_per_call_options() -> None:
@@ -498,7 +513,98 @@ def test_execute_tool_schema_declares_per_call_options() -> None:
         "wait_sec",
         "wake_on_output",
     }
+    assert poll_tool.inputSchema["properties"]["wait_sec"]["maximum"] == 50
     assert poll_tool.inputSchema["properties"]["wake_on_output"]["default"] is True
+
+
+def test_poll_process_schema_uses_configured_maximum_wait() -> None:
+    settings = Settings(
+        shell_execution=ShellSettings(process_poll_max_wait_seconds=240)
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        config=settings,
+    )
+
+    poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
+    wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
+    assert wait_schema["maximum"] == 240
+    assert "through 240" in wait_schema["description"]
+    assert "prefer quiet waits near the maximum" in (poll_tool.description or "")
+
+
+def test_poll_process_uses_model_default_wait() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        process_poll_default_wait_seconds=30,
+    )
+
+    poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
+    wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
+    assert wait_schema["default"] == 30
+    assert runtime._parse_poll_process_arguments(
+        {"process_id": "process-1"}
+    ).wait_sec == 30
+    metadata = runtime.process_tool_metadata(
+        "poll_process", {"process_id": "process-1"}
+    )
+    assert metadata["wait_sec"] == 30
+
+
+def test_poll_process_clamps_model_default_to_configured_maximum() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        process_poll_default_wait_seconds=120,
+        config=Settings(
+            shell_execution=ShellSettings(process_poll_max_wait_seconds=50)
+        ),
+    )
+
+    poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
+    wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
+    assert wait_schema["default"] == 50
+    assert runtime._parse_poll_process_arguments(
+        {"process_id": "process-1"}
+    ).wait_sec == 50
+
+
+def test_poll_process_updates_default_for_model_switch() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+    )
+
+    runtime.set_process_poll_default_wait_seconds(25)
+
+    poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
+    wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
+    assert wait_schema["default"] == 25
+    assert runtime._parse_poll_process_arguments(
+        {"process_id": "process-1"}
+    ).wait_sec == 25
+
+
+@pytest.mark.asyncio
+async def test_poll_process_rejects_wait_above_configured_maximum() -> None:
+    settings = Settings(
+        shell_execution=ShellSettings(process_poll_max_wait_seconds=240)
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        config=settings,
+    )
+
+    result = await runtime.poll_process(
+        {"process_id": "process-1", "wait_sec": 241}
+    )
+
+    assert result.isError is True
+    assert isinstance(result.content[0], TextContent)
+    assert "'wait_sec' argument must be at most 240" in result.content[0].text
 
 
 def test_shell_metadata_uses_effective_per_call_options() -> None:
@@ -885,6 +991,16 @@ async def test_silent_command_yields_alive_then_poll_reports_completion() -> Non
     assert isinstance(running_poll.content[0], TextContent)
     assert "Process is still running." in running_poll.content[0].text
     assert "because it is still running" not in running_poll.content[0].text
+    assert "output_activity: 0 lines / 0 bytes since last poll" in (
+        running_poll.content[0].text
+    )
+    assert "no output observed for" in running_poll.content[0].text
+    running_metadata = (running_poll.meta or {})[
+        FAST_AGENT_SHELL_PROCESS_METADATA
+    ]
+    assert running_metadata["output_bytes_since_last_poll"] == 0
+    assert running_metadata["seconds_since_last_output"] >= 0
+    assert running_metadata["has_observed_output"] is False
 
     environment.release.set()
     poll_result = await runtime.poll_process(
@@ -946,6 +1062,74 @@ async def test_running_poll_with_new_output_is_not_suppressed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_poll_with_pending_output_reports_output_yield() -> None:
+    environment = _ActiveManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+    )
+    await runtime.execute({"command": "chatty-build", "background": True})
+    await asyncio.sleep(0.03)
+
+    result = await runtime.poll_process(
+        {
+            "process_id": "process-1",
+            "wait_sec": 1,
+            "wake_on_output": True,
+        }
+    )
+
+    process_metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
+    assert process_metadata["process_yield_reason"] == "output"
+    assert process_metadata["poll_elapsed_seconds"] < 0.5
+    assert process_metadata["output_bytes_since_last_poll"] > 0
+    assert process_metadata["seconds_since_last_output"] >= 0
+    assert process_metadata["has_observed_output"] is True
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "output_activity:" in result.content[0].text
+    assert "since last output" in result.content[0].text
+    await runtime.terminate_process({"process_id": "process-1"})
+
+
+@pytest.mark.asyncio
+async def test_terminate_process_is_not_blocked_by_quiet_poll_wait() -> None:
+    environment = _ManagedShellEnvironment()
+    settings = Settings(
+        shell_execution=ShellSettings(process_poll_max_wait_seconds=600)
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        config=settings,
+    )
+    await runtime.execute({"command": "slow-build", "background": True})
+    poll_task = asyncio.create_task(
+        runtime.poll_process(
+            {
+                "process_id": "process-1",
+                "wait_sec": 600,
+                "wake_on_output": False,
+            }
+        )
+    )
+    await asyncio.sleep(0.03)
+
+    terminate_result = await asyncio.wait_for(
+        runtime.terminate_process({"process_id": "process-1"}),
+        timeout=0.5,
+    )
+    poll_result = await asyncio.wait_for(poll_task, timeout=0.5)
+
+    assert terminate_result.isError is False
+    assert environment.cancelled is True
+    process_metadata = (poll_result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
+    assert process_metadata["process_status"] == "terminated"
+
+
+@pytest.mark.asyncio
 async def test_poll_can_buffer_output_until_process_completes() -> None:
     environment = _ActiveManagedShellEnvironment()
     runtime = ShellRuntime(
@@ -975,6 +1159,14 @@ async def test_poll_can_buffer_output_until_process_completes() -> None:
     assert isinstance(result.content[0], TextContent)
     assert "still working" in result.content[0].text
     assert "process exit code was 0" in result.content[0].text
+    process_metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
+    assert process_metadata["process_status"] == "completed"
+    assert process_metadata["process_yield_reason"] == "completion"
+    assert process_metadata["poll_wait_sec"] == 1
+    assert process_metadata["poll_wake_on_output"] is False
+    assert process_metadata["poll_elapsed_seconds"] < 1
+    assert process_metadata["output_bytes_since_last_poll"] > 0
+    assert process_metadata["has_observed_output"] is True
 
 
 @pytest.mark.asyncio
@@ -1003,6 +1195,9 @@ async def test_poll_can_buffer_output_until_deadline() -> None:
     assert isinstance(result.content[0], TextContent)
     assert "still working" in result.content[0].text
     assert "Process is still running." in result.content[0].text
+    process_metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
+    assert process_metadata["poll_elapsed_seconds"] >= 0.9
+    assert process_metadata["poll_deadline_overshoot_seconds"] >= 0
     await runtime.terminate_process({"process_id": "process-1"})
 
 
@@ -1055,7 +1250,16 @@ async def test_background_command_returns_handle_and_terminate_cancels_job() -> 
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "os_pid: 4321" in result.content[0].text
+    result_metadata = shell_runtime_module.process_result_metadata(result)
+    assert result_metadata is not None
+    assert result_metadata["os_process_id"] == 4321
+    assert result_metadata["process_status"] == "running"
     assert terminate_result.isError is False
+    terminate_metadata = shell_runtime_module.process_result_metadata(terminate_result)
+    assert terminate_metadata == {
+        "process_id": "process-1",
+        "process_status": "terminated",
+    }
     assert environment.cancelled is True
     assert terminate_result.content is not None
     assert isinstance(terminate_result.content[0], TextContent)
@@ -1131,7 +1335,9 @@ async def test_terminate_process_reports_environment_cancellation_failure() -> N
     assert isinstance(result.content[0], TextContent)
     assert "outcome: termination_failed" in result.content[0].text
     assert "remote termination failed" in result.content[0].text
-    assert getattr(result, "process_status", None) == "termination_failed"
+    metadata = shell_runtime_module.process_result_metadata(result)
+    assert metadata is not None
+    assert metadata["process_status"] == "termination_failed"
     await runtime.close()
 
 
@@ -1161,7 +1367,11 @@ async def test_lifecycle_tool_calls_emit_correlated_progress() -> None:
         "poll_process",
     ]
     assert progress_payloads[0]["tool_event"] == "start"
-    assert progress_payloads[0]["details"] == "pid 4321"
+    assert progress_payloads[0]["details"] == "process-1"
+    assert progress_payloads[0]["process_id"] == "process-1"
+    assert progress_payloads[0]["process_wait_seconds"] == 0
+    assert progress_payloads[0]["process_has_observed_output"] is False
+    assert progress_payloads[0]["process_seconds_since_last_output"] >= 0
     assert "≤0s" not in progress_payloads[0]["details"]
     assert progress_payloads[0]["process_elapsed_seconds"] >= 0
     assert progress_payloads[0]["process_command"] == "server"
@@ -1381,6 +1591,31 @@ async def test_execute_honors_per_call_output_byte_limit() -> None:
     text = result.content[0].text
     assert "[Output truncated:" in text
     assert "showing first 40 bytes and last 40 bytes" in text
+    assert "process exit code was 0" in text
+
+
+@pytest.mark.asyncio
+async def test_execute_clamps_oversized_per_call_output_byte_limit() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        timeout_seconds=10,
+        config=Settings(shell_execution=ShellSettings(show_bash=False)),
+    )
+
+    result = await runtime.execute(
+        {
+            "command": f"{sys.executable} -c \"print('x' * 40000)\"",
+            "output_byte_limit": 50_000,
+        }
+    )
+
+    assert result.isError is False
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    text = result.content[0].text
+    assert "[Output truncated:" in text
+    assert "showing first 16500 bytes and last 16500 bytes" in text
     assert "process exit code was 0" in text
 
 

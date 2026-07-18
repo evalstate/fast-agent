@@ -46,9 +46,13 @@ def test_convert_poll_start_uses_process_details_without_tool_prefix() -> None:
                 "server_name": "local",
                 "tool_use_id": "call-poll",
                 "tool_event": "start",
-                "details": "pid 4321 · ≤30s",
+                "details": "process-4",
                 "process_elapsed_seconds": 65,
                 "process_command": "uv run worker.py",
+                "process_id": "process-4",
+                "process_wait_seconds": 30,
+                "process_has_observed_output": True,
+                "process_seconds_since_last_output": 4,
             }
         },
     )
@@ -56,9 +60,13 @@ def test_convert_poll_start_uses_process_details_without_tool_prefix() -> None:
     progress_event = convert_log_event(event)
 
     assert progress_event is not None
-    assert progress_event.details == "pid 4321 · ≤30s"
+    assert progress_event.details == "process-4"
     assert progress_event.process_elapsed_seconds == 65
     assert progress_event.process_command == "uv run worker.py"
+    assert progress_event.process_id == "process-4"
+    assert progress_event.process_wait_seconds == 30
+    assert progress_event.process_has_observed_output is True
+    assert progress_event.process_seconds_since_last_output == 4
 
 
 def test_convert_log_event_uses_tool_use_id_when_call_id_missing() -> None:

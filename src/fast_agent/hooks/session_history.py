@@ -149,12 +149,17 @@ async def save_session_history(ctx: "HookContext") -> None:
 
     previous_title = extract_session_title(session.info.metadata) if session else None
 
+    # Mid-turn tool-loop checkpoints happen after every tool call; keep them
+    # cheap (compact JSON, reused git state). Turn boundaries, cancellations,
+    # and errors do full-fidelity saves.
+    checkpoint = ctx.hook_type == "after_tool_loop_iteration"
     try:
         await manager.save_current_session(
             cast("AgentProtocol", history_agent),
             agent_registry=ctx.agent_registry,
             identity=identity,
             resolved_prompts=session_context.resolved_prompts,
+            checkpoint=checkpoint,
         )
     except Exception as exc:
         logger.warning(
