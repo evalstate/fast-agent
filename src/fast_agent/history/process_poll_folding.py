@@ -58,7 +58,7 @@ class ProcessPollFold:
 
 def _single_poll_call(
     message: PromptMessageExtended,
-) -> tuple[str, str, int, bool] | None:
+) -> tuple[str, str, int | None, bool] | None:
     calls = message.tool_calls or {}
     if message.role != "assistant" or len(calls) != 1:
         return None
@@ -67,11 +67,11 @@ def _single_poll_call(
         return None
     arguments = request.params.arguments or {}
     process_id = arguments.get("process_id")
-    wait_sec = arguments.get("wait_sec", 0)
+    wait_sec = arguments.get("wait_sec")
     wake_on_output = arguments.get("wake_on_output", True)
     if (
         not isinstance(process_id, str)
-        or type(wait_sec) is not int
+        or ("wait_sec" in arguments and type(wait_sec) is not int)
         or type(wake_on_output) is not bool
     ):
         return None
@@ -144,6 +144,10 @@ def _exchange(
     result_process_id = metadata.get("process_id")
     if result_process_id != process_id:
         return None
+    if wait_sec is None:
+        wait_sec = _non_negative_int(metadata.get("poll_wait_sec"))
+        if wait_sec is None:
+            return None
     return PollExchange(
         request_index=request_index,
         call_id=call_id,

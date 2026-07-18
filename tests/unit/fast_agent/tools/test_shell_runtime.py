@@ -536,6 +536,10 @@ def test_poll_process_uses_model_default_wait() -> None:
     assert runtime._parse_poll_process_arguments(
         {"process_id": "process-1"}
     ).wait_sec == 30
+    metadata = runtime.process_tool_metadata(
+        "poll_process", {"process_id": "process-1"}
+    )
+    assert metadata["wait_sec"] == 30
 
 
 def test_poll_process_clamps_model_default_to_configured_maximum() -> None:

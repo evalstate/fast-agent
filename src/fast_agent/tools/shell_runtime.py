@@ -665,7 +665,9 @@ class ShellRuntime:
             if tool_name == POLL_PROCESS_TOOL_NAME
             else "terminate",
             "process_id": arguments.get("process_id"),
-            "wait_sec": arguments.get("wait_sec", 0),
+            "wait_sec": arguments.get(
+                "wait_sec", self._process_poll_default_wait_seconds
+            ),
         }
         process_id = arguments.get("process_id")
         process = (

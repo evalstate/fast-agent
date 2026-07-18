@@ -302,6 +302,35 @@ def test_folds_successful_poll_suffix_and_retains_terminal_pair() -> None:
     assert summary_result.content[1].text == "poll output 5"
 
 
+def test_folding_uses_effective_wait_when_poll_request_omits_wait() -> None:
+    history = _history_before_terminal(3)
+    for message in history:
+        for request in (message.tool_calls or {}).values():
+            assert request.params.arguments is not None
+            request.params.arguments.pop("wait_sec")
+        if message.tool_results:
+            _update_result_metadata(message, poll_wait_sec=45)
+
+    terminal = _poll_result(3, status="completed")
+    _update_result_metadata(terminal, poll_wait_sec=45)
+
+    folded = fold_completed_process_poll_history(history, terminal)
+
+    assert folded is not None
+    assert folded.metadata["requested_waits"] == {45: 3}
+    folded_usage = folded.metadata["folded_usage"]
+    assert isinstance(folded_usage, dict)
+    folded_usage_mapping = {
+        str(key): value for key, value in folded_usage.items()
+    }
+    turns = folded_usage_mapping["turns"]
+    assert isinstance(turns, list)
+    for turn in turns:
+        assert isinstance(turn, dict)
+        turn_mapping = {str(key): value for key, value in turn.items()}
+        assert turn_mapping["wait_sec"] == 45
+
+
 def test_failed_process_retains_last_two_poll_pairs() -> None:
     history = _history_before_terminal(6)
 
