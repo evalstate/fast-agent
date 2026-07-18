@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import posixpath
 import time
 from collections import deque
@@ -83,6 +84,7 @@ _EXECUTE_ARGUMENTS = frozenset(
 _POLL_PROCESS_ARGUMENTS = frozenset({"process_id", "wait_sec", "wake_on_output"})
 _TERMINATE_PROCESS_ARGUMENTS = frozenset({"process_id"})
 _PROCESS_OUTPUT_DEBOUNCE_SECONDS = 2.0
+_PROCESS_PROGRESS_EMIT_INTERVAL_SECONDS = 1.0
 
 
 def _text_result(message: str, *, is_error: bool) -> CallToolResult:
@@ -179,6 +181,7 @@ class _ShellRuntimeCallbacks:
     started_event: asyncio.Event = field(default_factory=asyncio.Event)
     os_process_id: int | None = None
     last_output_time: float = field(default_factory=time.monotonic)
+    process: _ManagedShellProcess | None = None
 
     async def on_started(self, process_id: int | None) -> None:
         self.os_process_id = process_id
@@ -194,6 +197,8 @@ class _ShellRuntimeCallbacks:
         )
         self.last_output_time = time.monotonic()
         self.activity_event.set()
+        if self.process is not None:
+            self.runtime._emit_managed_process_output_progress(self.process)
 
     async def on_stderr(self, text: str) -> None:
         self.runtime._record_stream_output(
@@ -205,6 +210,8 @@ class _ShellRuntimeCallbacks:
         )
         self.last_output_time = time.monotonic()
         self.activity_event.set()
+        if self.process is not None:
+            self.runtime._emit_managed_process_output_progress(self.process)
 
     async def on_idle_warning(self, elapsed: float, remaining: float) -> None:
         if self.display_state.use_live_shell_display:
@@ -243,6 +250,14 @@ class _PollProcessArguments:
 
 
 @dataclass(slots=True)
+class _ActiveProcessPoll:
+    tool_use_id: str
+    deadline_at: float
+    last_progress_emitted_at: float = 0.0
+    pending_progress_task: asyncio.Task[None] | None = None
+
+
+@dataclass(slots=True)
 class _ManagedShellProcess:
     process_id: str
     command: str
@@ -259,6 +274,7 @@ class _ManagedShellProcess:
     completed_at: float | None = None
     terminated: bool = False
     buffered_result_recorded: bool = False
+    active_poll: _ActiveProcessPoll | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -708,6 +724,74 @@ class ShellRuntime:
         metadata: dict[str, Any],
     ) -> str:
         return str(metadata.get("process_id") or "process")
+
+    def _emit_managed_process_output_progress(
+        self,
+        process: _ManagedShellProcess,
+    ) -> None:
+        """Refresh an active poll row, coalescing chatty output bursts."""
+        active_poll = process.active_poll
+        if active_poll is None:
+            return
+
+        now = time.monotonic()
+        remaining = (
+            _PROCESS_PROGRESS_EMIT_INTERVAL_SECONDS
+            - (now - active_poll.last_progress_emitted_at)
+        )
+        if remaining > 0:
+            pending = active_poll.pending_progress_task
+            if pending is None or pending.done():
+                active_poll.pending_progress_task = asyncio.create_task(
+                    self._emit_deferred_managed_process_output_progress(
+                        process,
+                        active_poll,
+                        delay=remaining,
+                    ),
+                    name=f"fast-agent-{process.process_id}-progress",
+                )
+            return
+        self._emit_managed_process_output_progress_now(process, active_poll)
+
+    async def _emit_deferred_managed_process_output_progress(
+        self,
+        process: _ManagedShellProcess,
+        active_poll: _ActiveProcessPoll,
+        *,
+        delay: float,
+    ) -> None:
+        await asyncio.sleep(delay)
+        active_poll.pending_progress_task = None
+        self._emit_managed_process_output_progress_now(process, active_poll)
+
+    def _emit_managed_process_output_progress_now(
+        self,
+        process: _ManagedShellProcess,
+        active_poll: _ActiveProcessPoll,
+    ) -> None:
+        if process.active_poll is not active_poll:
+            return
+
+        now = time.monotonic()
+        active_poll.last_progress_emitted_at = now
+        self._emit_progress_event(
+            action=ProgressAction.CALLING_TOOL,
+            tool_use_id=active_poll.tool_use_id,
+            tool_name=POLL_PROCESS_TOOL_NAME,
+            tool_event="progress",
+            details=process.process_id,
+            process_elapsed_seconds=max(now - process.started_at, 0.0),
+            process_command=summarize_command(process.command),
+            process_id=process.process_id,
+            process_wait_seconds=max(
+                math.ceil(active_poll.deadline_at - now),
+                0,
+            ),
+            process_has_observed_output=True,
+            process_seconds_since_last_output=0.0,
+            process_total_output_bytes=process.output_state.lifetime_output_bytes,
+            log_message="Process output progress",
+        )
 
     def _invalid_execute_result(self, message: str) -> CallToolResult:
         return _text_result(message, is_error=True)
@@ -1302,6 +1386,7 @@ class ShellRuntime:
                 output_state=output_state,
                 display_state=display_state,
             )
+            callbacks.process = process
             task.add_done_callback(
                 lambda completed_task: self._record_managed_process_completion(
                     process,
@@ -1584,6 +1669,8 @@ class ShellRuntime:
     async def poll_process(
         self,
         arguments: dict[str, Any] | None = None,
+        *,
+        progress_tool_use_id: str | None = None,
     ) -> CallToolResult:
         """Return incremental output and status for a managed process."""
         poll_started_at = time.monotonic()
@@ -1608,13 +1695,31 @@ class ShellRuntime:
 
             waited = False
             output_wake = False
-            if should_wait:
-                waited = True
-                output_wake = await self._wait_for_managed_process_poll(
-                    process,
-                    wait_sec=parsed.wait_sec,
-                    wake_on_output=parsed.wake_on_output,
+            active_poll = (
+                _ActiveProcessPoll(
+                    tool_use_id=progress_tool_use_id,
+                    deadline_at=time.monotonic() + parsed.wait_sec,
                 )
+                if should_wait and progress_tool_use_id is not None
+                else None
+            )
+            process.active_poll = active_poll
+            try:
+                if should_wait:
+                    waited = True
+                    output_wake = await self._wait_for_managed_process_poll(
+                        process,
+                        wait_sec=parsed.wait_sec,
+                        wake_on_output=parsed.wake_on_output,
+                    )
+            finally:
+                if process.active_poll is active_poll:
+                    process.active_poll = None
+                if (
+                    active_poll is not None
+                    and active_poll.pending_progress_task is not None
+                ):
+                    active_poll.pending_progress_task.cancel()
 
             async with process.lock:
                 if process.task.done():
@@ -1820,7 +1925,10 @@ class ShellRuntime:
         process_metadata = self.process_tool_metadata(name, payload)
         if name == POLL_PROCESS_TOOL_NAME:
             start_details = self._process_progress_details(process_metadata)
-            operation = self.poll_process(arguments)
+            operation = self.poll_process(
+                arguments,
+                progress_tool_use_id=tool_use_id,
+            )
         else:
             start_details = self._process_progress_details(process_metadata)
             operation = self.terminate_process(arguments)
@@ -1835,6 +1943,7 @@ class ShellRuntime:
         wait_sec = process_metadata.get("wait_sec")
         seconds_since_last_output = process_metadata.get("seconds_since_last_output")
         has_observed_output = process_metadata.get("has_observed_output")
+        total_output_bytes = process_metadata.get("total_output_bytes")
         self._emit_progress_event(
             action=ProgressAction.CALLING_TOOL,
             tool_use_id=tool_use_id,
@@ -1856,6 +1965,11 @@ class ShellRuntime:
                 float(seconds_since_last_output)
                 if isinstance(seconds_since_last_output, (int, float))
                 and not isinstance(seconds_since_last_output, bool)
+                else None
+            ),
+            process_total_output_bytes=(
+                total_output_bytes
+                if type(total_output_bytes) is int and total_output_bytes >= 0
                 else None
             ),
         )
@@ -2104,6 +2218,8 @@ class ShellRuntime:
         process_wait_seconds: int | None = None,
         process_has_observed_output: bool | None = None,
         process_seconds_since_last_output: float | None = None,
+        process_total_output_bytes: int | None = None,
+        log_message: str = "Shell tool lifecycle",
     ) -> None:
         """Emit shell tool lifecycle events for progress display when supported."""
         info = getattr(self._logger, "info", None)
@@ -2132,13 +2248,14 @@ class ShellRuntime:
                     "process_wait_seconds": process_wait_seconds,
                     "process_has_observed_output": process_has_observed_output,
                     "process_seconds_since_last_output": process_seconds_since_last_output,
+                    "process_total_output_bytes": process_total_output_bytes,
                 }.items()
                 if value is not None
             },
         )
 
         try:
-            info("Shell tool lifecycle", data=payload)
+            info(log_message, data=payload)
         except TypeError:
             # Standard library loggers reject custom keyword arguments.
             return

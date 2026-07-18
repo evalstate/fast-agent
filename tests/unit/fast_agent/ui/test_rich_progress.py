@@ -436,24 +436,93 @@ class TestAggregatorInitializedVisibility:
                 correlation_id="call_abcdef0123456789",
                 tool_name="poll_process",
                 details="process-4",
+                process_id="process-4",
                 process_elapsed_seconds=65,
                 process_command="uv run worker.py",
                 process_wait_seconds=30,
                 process_has_observed_output=True,
                 process_seconds_since_last_output=4,
+                process_total_output_bytes=12_500,
             )
         )
         task_id = display._taskmap["test-agent::call_abcdef0123456789"]
         task = next(task for task in display._progress.tasks if task.id == task_id)
-        assert task.fields["target"] == ""
+        assert task.fields["target"] == "process-4"
         assert task.start_time is not None
         task.start_time -= 5
 
         rendered = DynamicDetailsColumn().render(task).plain
 
         assert rendered == (
-            "process-4 · 1m10s elapsed · wait ≤30s · output 9s ago · "
-            "uv run worker.py · id: call_…456789"
+            "running · 1m10s · last output 9s ago · poll 25s · "
+            "12.5KB · uv run worker.py"
+        )
+        display.stop()
+
+    def test_process_poll_countdown_reports_finishing_at_deadline(self) -> None:
+        display = RichProgressDisplay(
+            console=Console(file=open("/dev/null", "w"), force_terminal=True),
+            default_agent_name="test-agent",
+        )
+        display.start()
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="call-poll",
+                tool_name="poll_process",
+                details="process-4",
+                process_id="process-4",
+                process_elapsed_seconds=65,
+                process_wait_seconds=5,
+            )
+        )
+        task_id = display._taskmap["test-agent::call-poll"]
+        task = next(task for task in display._progress.tasks if task.id == task_id)
+        assert task.start_time is not None
+        task.start_time -= 5
+
+        assert DynamicDetailsColumn().render(task).plain == (
+            "running · 1m10s · poll finishing…"
+        )
+        display.stop()
+
+    def test_process_output_progress_refreshes_live_poll_baselines(self) -> None:
+        display = RichProgressDisplay(
+            console=Console(file=open("/dev/null", "w"), force_terminal=True),
+            default_agent_name="test-agent",
+        )
+        display.start()
+        initial = _make_event(
+            action=ProgressAction.CALLING_TOOL,
+            correlation_id="call-poll",
+            tool_name="poll_process",
+            details="process-4",
+            process_id="process-4",
+            process_elapsed_seconds=65,
+            process_command="uv run worker.py",
+            process_wait_seconds=30,
+            process_has_observed_output=False,
+            process_seconds_since_last_output=65,
+            process_total_output_bytes=0,
+        )
+        display.update(initial)
+        display.update(
+            initial.model_copy(
+                update={
+                    "tool_event": "progress",
+                    "process_elapsed_seconds": 70,
+                    "process_wait_seconds": 25,
+                    "process_has_observed_output": True,
+                    "process_seconds_since_last_output": 0,
+                    "process_total_output_bytes": 25_000,
+                }
+            )
+        )
+        task_id = display._taskmap["test-agent::call-poll"]
+        task = next(task for task in display._progress.tasks if task.id == task_id)
+
+        assert DynamicDetailsColumn().render(task).plain == (
+            "running · 1m10s · output now · poll 25s · 25.0KB · uv run worker.py"
         )
         display.stop()
 

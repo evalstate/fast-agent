@@ -148,6 +148,7 @@ def test_managed_process_poll_uses_shared_elapsed_format() -> None:
                 wait_sec=50,
                 has_observed_output=True,
                 seconds_since_last_output=9,
+                total_output_bytes=12_500,
                 tool_call_id="call_abcdef0123456789",
             )
     finally:
@@ -156,8 +157,8 @@ def test_managed_process_poll_uses_shared_elapsed_format() -> None:
     rendered = " ".join(capture.get().split())
     assert "dev" not in rendered
     assert (
-        "process-2 · 2h elapsed · wait ≤50s · output 9s ago · "
-        "uv run worker.py · id: call_…456789"
+        "process-2 · running · 2h · last output 9s ago · poll ≤50s · "
+        "12.5KB · uv run worker.py · id: call_…456789"
     ) in rendered
 
 

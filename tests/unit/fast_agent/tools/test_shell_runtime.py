@@ -1322,6 +1322,8 @@ async def test_background_command_returns_handle_and_terminate_cancels_job() -> 
         result = await runtime.execute({"command": "server", "background": True})
     rendered = capture.get()
     assert "process-1" in rendered
+    assert "▎▶ process-1" in rendered
+    assert "▎ ▶" not in rendered
     assert "running • background" in rendered
     assert "pid 4321" in rendered
     assert runtime.active_process_count == 1
@@ -1458,11 +1460,108 @@ async def test_lifecycle_tool_calls_emit_correlated_progress() -> None:
     assert progress_payloads[0]["process_wait_seconds"] == 0
     assert progress_payloads[0]["process_has_observed_output"] is False
     assert progress_payloads[0]["process_seconds_since_last_output"] >= 0
+    assert progress_payloads[0]["process_total_output_bytes"] == 0
     assert "≤0s" not in progress_payloads[0]["details"]
     assert progress_payloads[0]["process_elapsed_seconds"] >= 0
     assert progress_payloads[0]["process_command"] == "server"
     assert progress_payloads[1]["tool_terminal"] is True
     assert progress_payloads[1]["details"] == "process-1: running"
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_active_poll_emits_throttled_output_progress() -> None:
+    environment = _BurstThenQuietShellEnvironment()
+    logger = RecordingFastLogger()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        shell_environment=environment,
+        agent_name="assistant",
+    )
+    await runtime.execute({"command": "server", "background": True})
+    logger.info_calls.clear()
+
+    poll_task = asyncio.create_task(
+        runtime.call_tool(
+            "poll_process",
+            {
+                "process_id": "process-1",
+                "wait_sec": 1,
+                "wake_on_output": False,
+            },
+            tool_use_id="call-poll",
+        )
+    )
+    await asyncio.sleep(0.01)
+    environment.emit.set()
+    await asyncio.sleep(0.01)
+    environment.release.set()
+    await poll_task
+
+    progress_calls = [
+        (message, kwargs["data"])
+        for message, kwargs in logger.info_calls
+        if isinstance(kwargs.get("data"), dict)
+    ]
+    output_updates = [
+        payload
+        for message, payload in progress_calls
+        if message == "Process output progress"
+    ]
+    assert len(output_updates) == 1
+    update = output_updates[0]
+    assert update["tool_name"] == "poll_process"
+    assert update["tool_use_id"] == "call-poll"
+    assert update["tool_event"] == "progress"
+    assert update["details"] == "process-1"
+    assert update["process_id"] == "process-1"
+    assert update["process_wait_seconds"] in {0, 1}
+    assert update["process_has_observed_output"] is True
+    assert update["process_seconds_since_last_output"] == 0
+    assert update["process_total_output_bytes"] == len("burst output\n")
+    assert update["process_elapsed_seconds"] >= 0
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_chatty_poll_coalesces_output_progress_and_refreshes_totals() -> None:
+    environment = _ActiveManagedShellEnvironment()
+    logger = RecordingFastLogger()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        shell_environment=environment,
+        agent_name="assistant",
+    )
+    await runtime.execute({"command": "server", "background": True})
+    logger.info_calls.clear()
+
+    poll_task = asyncio.create_task(
+        runtime.call_tool(
+            "poll_process",
+            {
+                "process_id": "process-1",
+                "wait_sec": 2,
+                "wake_on_output": False,
+            },
+            tool_use_id="call-poll",
+        )
+    )
+    await asyncio.sleep(1.05)
+    environment.release.set()
+    await poll_task
+
+    output_updates = [
+        kwargs["data"]
+        for message, kwargs in logger.info_calls
+        if message == "Process output progress"
+        and isinstance(kwargs.get("data"), dict)
+    ]
+    assert 2 <= len(output_updates) <= 3
+    assert output_updates[-1]["process_total_output_bytes"] > (
+        output_updates[0]["process_total_output_bytes"]
+    )
     await runtime.close()
 
 

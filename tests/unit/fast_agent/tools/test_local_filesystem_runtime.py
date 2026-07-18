@@ -428,7 +428,9 @@ async def test_attach_media_rejects_oversized_local_file(tmp_path: Path) -> None
     assert result.isError is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
-    assert "maximum inline attachment size" in result.content[0].text
+    assert result.content[0].text == (
+        "Error: attachment is 9 B; maximum inline attachment size is 4 B"
+    )
 
 
 def test_attach_media_rejects_boolean_size_limits(tmp_path: Path) -> None:

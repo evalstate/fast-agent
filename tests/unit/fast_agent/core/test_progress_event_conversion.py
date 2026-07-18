@@ -1,8 +1,18 @@
 """Tests for converting logger events into progress display events."""
 
-from fast_agent.core.logging.events import Event
+from fast_agent.core.logging.events import Event, StreamingExclusionFilter
 from fast_agent.core.logging.listeners import convert_log_event
 from fast_agent.event_progress import ProgressAction
+
+
+def test_process_output_progress_refresh_is_excluded_from_persisted_logs() -> None:
+    event = Event(
+        type="info",
+        namespace="fast_agent.tools.shell_runtime",
+        message="Process output progress",
+    )
+
+    assert not StreamingExclusionFilter(min_level="info").matches(event)
 
 
 def test_convert_log_event_extracts_tool_correlation_id() -> None:
@@ -53,6 +63,7 @@ def test_convert_poll_start_uses_process_details_without_tool_prefix() -> None:
                 "process_wait_seconds": 30,
                 "process_has_observed_output": True,
                 "process_seconds_since_last_output": 4,
+                "process_total_output_bytes": 12_500,
             }
         },
     )
@@ -67,6 +78,7 @@ def test_convert_poll_start_uses_process_details_without_tool_prefix() -> None:
     assert progress_event.process_wait_seconds == 30
     assert progress_event.process_has_observed_output is True
     assert progress_event.process_seconds_since_last_output == 4
+    assert progress_event.process_total_output_bytes == 12_500
 
 
 def test_convert_log_event_uses_tool_use_id_when_call_id_missing() -> None:
