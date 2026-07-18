@@ -190,8 +190,8 @@ class EnvironmentFilesystemRuntime(FilesystemRuntimeBase):
                         local_path.read_text(encoding="utf-8"),
                     )
                 except Exception as exc:
-                    return _text_result(f"Error writing file: {exc}", is_error=True)
-            return _text_result(
+                    return text_result(f"Error writing file: {exc}", is_error=True)
+            return text_result(
                 _format_jsonish(serialize_edit_file_result(result)),
                 is_error=result["success"] is False,
             )
