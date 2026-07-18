@@ -426,7 +426,8 @@ class TestAggregatorInitializedVisibility:
 
     def test_process_elapsed_time_ticks_during_rendering(self) -> None:
         display = RichProgressDisplay(
-            console=Console(file=open("/dev/null", "w"), force_terminal=True, width=120)
+            console=Console(file=open("/dev/null", "w"), force_terminal=True, width=120),
+            default_agent_name="test-agent",
         )
         display.start()
         display.update(
@@ -434,20 +435,46 @@ class TestAggregatorInitializedVisibility:
                 action=ProgressAction.CALLING_TOOL,
                 correlation_id="call_abcdef0123456789",
                 tool_name="poll_process",
-                details="pid 4321 · ≤30s",
+                details="process-4",
                 process_elapsed_seconds=65,
                 process_command="uv run worker.py",
+                process_wait_seconds=30,
+                process_has_observed_output=True,
+                process_seconds_since_last_output=4,
             )
         )
         task_id = display._taskmap["test-agent::call_abcdef0123456789"]
         task = next(task for task in display._progress.tasks if task.id == task_id)
+        assert task.fields["target"] == ""
         assert task.start_time is not None
         task.start_time -= 5
 
         rendered = DynamicDetailsColumn().render(task).plain
 
-        assert rendered == "pid 4321 · 1m10s • id: call_…456789 · ≤30s · uv run worker.py"
+        assert rendered == (
+            "process-4 · 1m10s elapsed · wait ≤30s · output 9s ago · "
+            "uv run worker.py · id: call_…456789"
+        )
         display.stop()
+
+    def test_poll_process_keeps_non_default_agent_name(self) -> None:
+        display = RichProgressDisplay(default_agent_name="default-agent")
+        event = _make_event(
+            action=ProgressAction.CALLING_TOOL,
+            agent_name="reviewer",
+            target="reviewer",
+            correlation_id="tool-call-poll",
+            tool_name="poll_process",
+            details="process-4",
+        )
+
+        update = display._update_kwargs_for_event(
+            event,
+            task_name="reviewer::tool-call-poll",
+            is_correlated_tool_event=True,
+        )
+
+        assert update["target"] == "reviewer"
 
     def test_process_elapsed_uses_aligned_minutes_and_seconds(self) -> None:
         assert format_process_elapsed(49) == "0m49s"

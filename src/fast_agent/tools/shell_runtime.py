@@ -673,28 +673,20 @@ class ShellRuntime:
                 "os_process_id": snapshot.os_process_id,
                 "total_output_bytes": snapshot.total_output_bytes,
                 "process_status": snapshot.status,
+                "seconds_since_last_output": max(
+                    time.monotonic() - process.callbacks.last_output_time,
+                    0.0,
+                ),
+                "has_observed_output": process.output_state.had_stream_output,
             }
         )
         return metadata
 
     def _process_progress_details(
         self,
-        tool_name: str,
         metadata: dict[str, Any],
     ) -> str:
-        process_id = str(metadata.get("process_id") or "process")
-        parts: list[str] = []
-
-        os_process_id = metadata.get("os_process_id")
-        if isinstance(os_process_id, int) and not isinstance(os_process_id, bool):
-            parts.append(f"pid {os_process_id}")
-        else:
-            parts.append(process_id)
-
-        wait_sec = metadata.get("wait_sec")
-        if tool_name == POLL_PROCESS_TOOL_NAME and type(wait_sec) is int and wait_sec > 0:
-            parts.append(f"≤{wait_sec}s")
-        return " · ".join(parts)
+        return str(metadata.get("process_id") or "process")
 
     def _invalid_execute_result(self, message: str) -> CallToolResult:
         return _text_result(message, is_error=True)
@@ -1751,10 +1743,10 @@ class ShellRuntime:
         payload = arguments or {}
         process_metadata = self.process_tool_metadata(name, payload)
         if name == POLL_PROCESS_TOOL_NAME:
-            start_details = self._process_progress_details(name, process_metadata)
+            start_details = self._process_progress_details(process_metadata)
             operation = self.poll_process(arguments)
         else:
-            start_details = self._process_progress_details(name, process_metadata)
+            start_details = self._process_progress_details(process_metadata)
             operation = self.terminate_process(arguments)
 
         elapsed = process_metadata.get("elapsed_seconds")
@@ -1764,6 +1756,9 @@ class ShellRuntime:
             else None
         )
         command = process_metadata.get("command_summary")
+        wait_sec = process_metadata.get("wait_sec")
+        seconds_since_last_output = process_metadata.get("seconds_since_last_output")
+        has_observed_output = process_metadata.get("has_observed_output")
         self._emit_progress_event(
             action=ProgressAction.CALLING_TOOL,
             tool_use_id=tool_use_id,
@@ -1772,6 +1767,21 @@ class ShellRuntime:
             details=start_details,
             process_elapsed_seconds=process_elapsed_seconds,
             process_command=command if isinstance(command, str) else None,
+            process_id=str(process_metadata.get("process_id") or "process"),
+            process_wait_seconds=(
+                wait_sec
+                if name == POLL_PROCESS_TOOL_NAME and type(wait_sec) is int
+                else None
+            ),
+            process_has_observed_output=(
+                has_observed_output if isinstance(has_observed_output, bool) else None
+            ),
+            process_seconds_since_last_output=(
+                float(seconds_since_last_output)
+                if isinstance(seconds_since_last_output, (int, float))
+                and not isinstance(seconds_since_last_output, bool)
+                else None
+            ),
         )
         result = await operation
         metadata = process_result_metadata(result)
@@ -2014,6 +2024,10 @@ class ShellRuntime:
         tool_terminal: bool | None = None,
         process_elapsed_seconds: float | None = None,
         process_command: str | None = None,
+        process_id: str | None = None,
+        process_wait_seconds: int | None = None,
+        process_has_observed_output: bool | None = None,
+        process_seconds_since_last_output: float | None = None,
     ) -> None:
         """Emit shell tool lifecycle events for progress display when supported."""
         info = getattr(self._logger, "info", None)
@@ -2038,6 +2052,10 @@ class ShellRuntime:
                 for key, value in {
                     "process_elapsed_seconds": process_elapsed_seconds,
                     "process_command": process_command,
+                    "process_id": process_id,
+                    "process_wait_seconds": process_wait_seconds,
+                    "process_has_observed_output": process_has_observed_output,
+                    "process_seconds_since_last_output": process_seconds_since_last_output,
                 }.items()
                 if value is not None
             },

@@ -1303,7 +1303,11 @@ async def test_lifecycle_tool_calls_emit_correlated_progress() -> None:
         "poll_process",
     ]
     assert progress_payloads[0]["tool_event"] == "start"
-    assert progress_payloads[0]["details"] == "pid 4321"
+    assert progress_payloads[0]["details"] == "process-1"
+    assert progress_payloads[0]["process_id"] == "process-1"
+    assert progress_payloads[0]["process_wait_seconds"] == 0
+    assert progress_payloads[0]["process_has_observed_output"] is False
+    assert progress_payloads[0]["process_seconds_since_last_output"] >= 0
     assert "≤0s" not in progress_payloads[0]["details"]
     assert progress_payloads[0]["process_elapsed_seconds"] >= 0
     assert progress_payloads[0]["process_command"] == "server"

@@ -1440,10 +1440,11 @@ class ToolDisplay:
                 if self._display.logger_settings.progress_display:
                     return
                 elapsed = metadata.get("elapsed_seconds")
-                os_process_id = metadata.get("os_process_id")
                 wait_sec = metadata.get("wait_sec")
+                from fast_agent.ui.progress_display import progress_display
+
                 self._display.show_managed_process_poll(
-                    name=name,
+                    name=None if progress_display.is_default_agent_name(name) else name,
                     process_id=str(metadata.get("process_id") or "process"),
                     command=(
                         command
@@ -1459,13 +1460,23 @@ class ToolDisplay:
                         and not isinstance(elapsed, bool)
                         else None
                     ),
-                    os_process_id=(
-                        os_process_id
-                        if isinstance(os_process_id, int)
-                        and not isinstance(os_process_id, bool)
+                    wait_sec=wait_sec if type(wait_sec) is int else None,
+                    has_observed_output=(
+                        observed if isinstance(
+                            observed := metadata.get("has_observed_output"), bool
+                        )
                         else None
                     ),
-                    wait_sec=wait_sec if type(wait_sec) is int else None,
+                    seconds_since_last_output=(
+                        float(since_output)
+                        if isinstance(
+                            since_output := metadata.get("seconds_since_last_output"),
+                            (int, float),
+                        )
+                        and not isinstance(since_output, bool)
+                        else None
+                    ),
+                    tool_call_id=tool_call_id,
                 )
                 return
             pre_content: Text | None = None

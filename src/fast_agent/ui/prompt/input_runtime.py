@@ -15,6 +15,7 @@ from prompt_toolkit.styles import Style
 from rich import print as rich_print
 from rich.markup import escape as escape_markup
 
+from fast_agent.ui.agent_identity import is_default_agent_name
 from fast_agent.ui.command_payloads import CommandPayload, EOFCommand, InterruptCommand
 from fast_agent.ui.prompt.keybindings import PromptInputInterrupt
 from fast_agent.ui.prompt_marks import emit_prompt_mark, prompt_mark_sequence
@@ -27,10 +28,6 @@ if TYPE_CHECKING:
 
 
 _ERASE_PREVIOUS_LINE_SEQ = "\x1b[1A\x1b[2K\r"
-
-
-def is_default_agent_name(agent_name: str, *, default_agent_name: str | None = None) -> bool:
-    return default_agent_name is not None and agent_name == default_agent_name
 
 
 def _format_prompt_prefix(agent_name: str, *, default_agent_name: str | None = None) -> str:

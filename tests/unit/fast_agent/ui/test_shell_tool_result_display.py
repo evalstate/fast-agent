@@ -3,6 +3,7 @@ from mcp.types import CallToolResult, TextContent
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
+from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.shell_output_truncation import SHELL_OUTPUT_TRUNCATION_MARKER
 
 
@@ -22,7 +23,7 @@ def test_shell_tool_result_uses_styled_exit_line() -> None:
             tool_call_id="call_abcdef0123456789",
         )
 
-    rendered = capture.get()
+    rendered = " ".join(capture.get().split())
     assert "hello" in rendered
     assert "exit code 0" in rendered
     assert "1 line" in rendered
@@ -135,19 +136,29 @@ def test_quiet_running_poll_result_is_not_rendered() -> None:
 
 def test_managed_process_poll_uses_shared_elapsed_format() -> None:
     display = ConsoleDisplay()
+    progress_display.set_default_agent_name("dev")
 
-    with console.console.capture() as capture:
-        display.show_managed_process_poll(
-            name="dev",
-            process_id="process-2",
-            command=None,
-            elapsed_seconds=7_200,
-            os_process_id=4321,
-            wait_sec=50,
-        )
+    try:
+        with console.console.capture() as capture:
+            display.show_managed_process_poll(
+                name=None,
+                process_id="process-2",
+                command="uv run worker.py",
+                elapsed_seconds=7_200,
+                wait_sec=50,
+                has_observed_output=True,
+                seconds_since_last_output=9,
+                tool_call_id="call_abcdef0123456789",
+            )
+    finally:
+        progress_display.set_default_agent_name(None)
 
-    assert "2h" in capture.get()
-    assert "2h00m" not in capture.get()
+    rendered = " ".join(capture.get().split())
+    assert "dev" not in rendered
+    assert (
+        "process-2 · 2h elapsed · wait ≤50s · output 9s ago · "
+        "uv run worker.py · id: call_…456789"
+    ) in rendered
 
 
 def test_terminate_process_result_uses_compact_lifecycle_line() -> None:

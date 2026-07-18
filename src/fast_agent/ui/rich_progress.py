@@ -17,8 +17,10 @@ from rich.text import Text
 
 from fast_agent.event_progress import ProgressAction, ProgressEvent
 from fast_agent.tools.tool_sources import ACP_TERMINAL_TOOL_SOURCE
+from fast_agent.ui.agent_identity import is_default_agent_name
 from fast_agent.ui.console import console as default_console
 from fast_agent.ui.console import ensure_blocking_console
+from fast_agent.ui.process_poll_display import format_process_output_activity
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.time import format_process_elapsed
 from fast_agent.utils.tool_names import (
@@ -136,26 +138,51 @@ class DynamicDetailsColumn(ProgressColumn):
         detail_parts = [part.strip() for part in details_without_id.split(" · ") if part.strip()]
         wait_parts = [part for part in detail_parts if part.startswith("≤")]
         parts = [part for part in detail_parts if not part.startswith("≤")]
+        is_process_poll = bool(task.fields.get("is_process_poll"))
         elapsed_base = task.fields.get("process_elapsed_seconds")
         if isinstance(elapsed_base, (int, float)) and not isinstance(elapsed_base, bool):
             elapsed = float(elapsed_base) + (task.elapsed or 0.0)
-            parts.append(format_process_elapsed(elapsed))
+            elapsed_text = format_process_elapsed(elapsed)
+            parts.append(f"{elapsed_text} elapsed" if is_process_poll else elapsed_text)
+        wait_seconds = task.fields.get("process_wait_seconds")
+        if is_process_poll and type(wait_seconds) is int and wait_seconds > 0:
+            parts.append(f"wait ≤{wait_seconds}s")
+        if is_process_poll:
+            output_age = task.fields.get("process_seconds_since_last_output")
+            if isinstance(output_age, (int, float)) and not isinstance(output_age, bool):
+                output_age = float(output_age) + (task.elapsed or 0.0)
+            else:
+                output_age = None
+            output_activity = format_process_output_activity(
+                has_observed_output=task.fields.get("process_has_observed_output"),
+                seconds_since_last_output=output_age,
+            )
+            if output_activity:
+                parts.append(output_activity)
         rendered_details = " · ".join(parts)
-        if id_separator:
+        if id_separator and not is_process_poll:
             rendered_details = f"{rendered_details} • {correlation_id}"
         rendered_parts = [rendered_details, *wait_parts]
         command = task.fields.get("process_command")
         if isinstance(command, str) and command:
             rendered_parts.append(command)
+        if id_separator and is_process_poll:
+            rendered_parts.append(f"id: {correlation_id.removeprefix('id: ')}")
         return Text(" · ".join(part for part in rendered_parts if part), style=self.style)
 
 
 class RichProgressDisplay:
     """Rich-based display for progress events."""
 
-    def __init__(self, console: Console | None = None) -> None:
+    def __init__(
+        self,
+        console: Console | None = None,
+        *,
+        default_agent_name: str | None = None,
+    ) -> None:
         """Initialize the progress display."""
         self.console = console or default_console
+        self.default_agent_name = default_agent_name
         self._lock = RLock()
         self._taskmap: dict[str, TaskID] = {}
         self._task_kind: dict[str, str] = {}
@@ -167,7 +194,7 @@ class RichProgressDisplay:
                 text_format="{task.fields[target]}",
                 style="Blue",
                 table_column=Column(
-                    min_width=10,
+                    min_width=0,
                     max_width=16,
                     overflow="ellipsis",
                     no_wrap=True,
@@ -191,6 +218,15 @@ class RichProgressDisplay:
         trace_path_raw = os.getenv("FAST_AGENT_PROGRESS_DEBUG_TRACE", "").strip()
         self._trace_path: Path | None = (
             Path(trace_path_raw).expanduser() if trace_path_raw else None
+        )
+
+    def set_default_agent_name(self, default_agent_name: str | None) -> None:
+        self.default_agent_name = default_agent_name
+
+    def is_default_agent_name(self, agent_name: str | None) -> bool:
+        return is_default_agent_name(
+            agent_name,
+            default_agent_name=self.default_agent_name,
         )
 
     def _live_started(self) -> bool:
@@ -546,10 +582,14 @@ class RichProgressDisplay:
             return details_value
 
         active_correlated = self._count_correlated_tool_rows(event.agent_name or "default")
+        is_process_poll = (
+            event.action == ProgressAction.CALLING_TOOL
+            and matches_tool_name(event.tool_name, POLL_PROCESS_TOOL_NAME)
+        )
         return self._format_correlated_details(
             details=details_value.strip(),
             correlation_id=event.correlation_id,
-            force_show_id=active_correlated > 1,
+            force_show_id=is_process_poll or active_correlated > 1,
         )
 
     def _update_kwargs_for_event(
@@ -559,19 +599,37 @@ class RichProgressDisplay:
         task_name: str,
         is_correlated_tool_event: bool,
     ) -> dict[str, Any]:
+        is_process_poll = (
+            event.action == ProgressAction.CALLING_TOOL
+            and matches_tool_name(event.tool_name, POLL_PROCESS_TOOL_NAME)
+        )
+        target = event.target or task_name
+        if is_process_poll and self.is_default_agent_name(event.agent_name):
+            target = ""
         update_kwargs: dict[str, Any] = {
             "description": self._description_for_event(event),
-            "target": event.target or task_name,
+            "target": target,
             "details": self._details_for_event(
                 event,
                 is_correlated_tool_event=is_correlated_tool_event,
             ),
             "task_name": task_name,
+            "is_process_poll": is_process_poll,
         }
         if event.process_elapsed_seconds is not None:
             update_kwargs["process_elapsed_seconds"] = event.process_elapsed_seconds
         if event.process_command is not None:
             update_kwargs["process_command"] = event.process_command
+        if event.process_wait_seconds is not None:
+            update_kwargs["process_wait_seconds"] = event.process_wait_seconds
+        if event.process_has_observed_output is not None:
+            update_kwargs["process_has_observed_output"] = (
+                event.process_has_observed_output
+            )
+        if event.process_seconds_since_last_output is not None:
+            update_kwargs["process_seconds_since_last_output"] = (
+                event.process_seconds_since_last_output
+            )
         if event.action == ProgressAction.TOOL_PROGRESS and event.progress is not None:
             self._add_tool_progress_update_kwargs(event, update_kwargs)
         return update_kwargs

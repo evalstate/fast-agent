@@ -37,6 +37,7 @@ from fast_agent.ui.mermaid_utils import (
 )
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 from fast_agent.ui.message_styles import A3MessageStyle
+from fast_agent.ui.process_poll_display import format_process_output_activity
 from fast_agent.ui.shell_output_truncation import format_shell_output_line_count
 from fast_agent.ui.streaming import (
     NullStreamingHandle as _NullStreamingHandle,
@@ -402,8 +403,10 @@ class ConsoleDisplay:
         process_id: str,
         command: str | None,
         elapsed_seconds: float | None,
-        os_process_id: int | None,
         wait_sec: int | None,
+        has_observed_output: bool | None,
+        seconds_since_last_output: float | None,
+        tool_call_id: str | None,
     ) -> None:
         """Display a one-line poll heartbeat when live progress is disabled."""
         line = Text("▎", style="magenta")
@@ -413,16 +416,24 @@ class ConsoleDisplay:
             line.append(" ")
         line.append("monitoring", style="bold magenta")
         line.append(" · ", style="dim")
-        if os_process_id is not None:
-            line.append(f"pid {os_process_id}", style="bold")
-        else:
-            line.append(process_id, style="bold")
+        line.append(process_id, style="bold")
         if elapsed_seconds is not None:
-            line.append(f" · {format_process_elapsed(elapsed_seconds)}", style="dim")
+            line.append(
+                f" · {format_process_elapsed(elapsed_seconds)} elapsed",
+                style="dim",
+            )
         if wait_sec is not None and wait_sec > 0:
-            line.append(f" · ≤{wait_sec}s", style="dim")
+            line.append(f" · wait ≤{wait_sec}s", style="dim")
+        output_activity = format_process_output_activity(
+            has_observed_output=has_observed_output,
+            seconds_since_last_output=seconds_since_last_output,
+        )
+        if output_activity:
+            line.append(f" · {output_activity}", style="dim")
         if command:
             line.append(f" · {command}", style="dim")
+        if formatted_id := format_tool_call_id(tool_call_id):
+            line.append(f" · id: {formatted_id}", style="dim")
         console.console.print(line)
 
     def _format_header_line(
