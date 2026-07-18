@@ -1,8 +1,13 @@
+from typing import cast
+
 import pytest
 from mcp.types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.tool_runner import ToolRunner, _ToolLoopAgent
+from fast_agent.config import Settings
+from fast_agent.context import Context
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
@@ -38,6 +43,29 @@ class FakeLLM(FastAgentLLM[PromptMessageExtended, PromptMessageExtended]):
         self, messages: list[PromptMessageExtended]
     ) -> list[PromptMessageExtended]:
         return messages
+
+
+class _UnavailableContextAgent(LlmAgent):
+    @property
+    def context(self):
+        raise RuntimeError("context unavailable")
+
+    async def _tool_runner_llm_step(self, messages, request_params=None, tools=None):
+        raise AssertionError("not called")
+
+
+@pytest.mark.asyncio
+async def test_process_poll_folding_context_failure_does_not_abort_tool_loop() -> None:
+    agent = _UnavailableContextAgent(
+        AgentConfig("test-agent"),
+        context=Context(config=Settings()),
+    )
+    message = PromptMessageExtended(role="user")
+    runner = ToolRunner(agent=cast("_ToolLoopAgent", agent), messages=[message])
+
+    runner._maybe_fold_completed_process_poll_history()
+
+    assert runner._delta_messages == [message]
 
 
 @pytest.mark.asyncio

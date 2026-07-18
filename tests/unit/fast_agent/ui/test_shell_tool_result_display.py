@@ -133,6 +133,23 @@ def test_quiet_running_poll_result_is_not_rendered() -> None:
     assert capture.get() == ""
 
 
+def test_managed_process_poll_uses_shared_elapsed_format() -> None:
+    display = ConsoleDisplay()
+
+    with console.console.capture() as capture:
+        display.show_managed_process_poll(
+            name="dev",
+            process_id="process-2",
+            command=None,
+            elapsed_seconds=7_200,
+            os_process_id=4321,
+            wait_sec=50,
+        )
+
+    assert "2h" in capture.get()
+    assert "2h00m" not in capture.get()
+
+
 def test_terminate_process_result_uses_compact_lifecycle_line() -> None:
     display = ConsoleDisplay()
     result = CallToolResult(

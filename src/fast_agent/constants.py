@@ -35,6 +35,10 @@ FAST_AGENT_URL_ELICITATION_CHANNEL = "fast-agent-url-elicitation"
 FAST_AGENT_TIMING = "fast-agent-timing"
 FAST_AGENT_TOOL_METADATA = "fast-agent-tool-metadata"
 FAST_AGENT_TOOL_TIMING = "fast-agent-tool-timing"
+FAST_AGENT_SHELL_PROCESS_METADATA = "fast-agent-shell-process-metadata"
+FAST_AGENT_PROCESS_POLL_FOLD = "fast-agent-process-poll-fold"
+# Version 2 requires the fold audit archive to carry explicit context boundaries.
+PROCESS_POLL_FOLD_AUDIT_VERSION = 2
 FAST_AGENT_USAGE = "fast-agent-usage"
 FAST_AGENT_SYNTHETIC_FINAL_CHANNEL = "fast-agent-synthetic-final"
 FAST_AGENT_PENDING_MEDIA_ATTACHMENTS = "fast-agent-pending-media-attachments"

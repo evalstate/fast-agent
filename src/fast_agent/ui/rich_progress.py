@@ -20,30 +20,35 @@ from fast_agent.tools.tool_sources import ACP_TERMINAL_TOOL_SOURCE
 from fast_agent.ui.console import console as default_console
 from fast_agent.ui.console import ensure_blocking_console
 from fast_agent.ui.tool_call_ids import format_tool_call_id
-from fast_agent.utils.time import format_compact_duration
+from fast_agent.utils.time import format_process_elapsed
 from fast_agent.utils.tool_names import (
     EXECUTE_TOOL_NAME,
     POLL_PROCESS_TOOL_NAME,
     matches_tool_name,
 )
 
-# 3-cell braille pulse (dense pack). Registered on first use via _ensure_spinners().
+# Braille pulses moving through a 3-cell track. Registered on first use via
+# _ensure_spinners().
 PROGRESS_SPINNER_NAME = "braille_dense"
 _BRAILLE_DENSE = {
     "interval": 110,
     "frames": [
+        "   ",
+        "⡇  ",
         "⣿  ",
         "⢸⡇ ",
         " ⣿ ",
         " ⢸⡇",
         "  ⣿",
-        "⡇ ⢸",
+        "  ⢸",
+        "   ",
     ],
 }
 
 
 def _ensure_spinners() -> None:
     SPINNERS.setdefault(PROGRESS_SPINNER_NAME, _BRAILLE_DENSE)
+
 
 _ACTION_DESCRIPTION_ICONS = {
     ProgressAction.SENDING: "▶",
@@ -126,20 +131,23 @@ class DynamicDetailsColumn(ProgressColumn):
         super().__init__(table_column=table_column)
 
     def render(self, task: "Task") -> Text:
-        parts = [str(task.fields.get("details") or "").strip()]
+        details = str(task.fields.get("details") or "").strip()
+        details_without_id, id_separator, correlation_id = details.partition(" • ")
+        detail_parts = [part.strip() for part in details_without_id.split(" · ") if part.strip()]
+        wait_parts = [part for part in detail_parts if part.startswith("≤")]
+        parts = [part for part in detail_parts if not part.startswith("≤")]
         elapsed_base = task.fields.get("process_elapsed_seconds")
-        if (
-            isinstance(elapsed_base, (int, float))
-            and not isinstance(elapsed_base, bool)
-        ):
+        if isinstance(elapsed_base, (int, float)) and not isinstance(elapsed_base, bool):
             elapsed = float(elapsed_base) + (task.elapsed or 0.0)
-            formatted_elapsed = format_compact_duration(elapsed)
-            if formatted_elapsed:
-                parts.append(formatted_elapsed)
+            parts.append(format_process_elapsed(elapsed))
+        rendered_details = " · ".join(parts)
+        if id_separator:
+            rendered_details = f"{rendered_details} • {correlation_id}"
+        rendered_parts = [rendered_details, *wait_parts]
         command = task.fields.get("process_command")
         if isinstance(command, str) and command:
-            parts.append(command)
-        return Text(" · ".join(part for part in parts if part), style=self.style)
+            rendered_parts.append(command)
+        return Text(" · ".join(part for part in rendered_parts if part), style=self.style)
 
 
 class RichProgressDisplay:
@@ -152,9 +160,7 @@ class RichProgressDisplay:
         self._taskmap: dict[str, TaskID] = {}
         self._task_kind: dict[str, str] = {}
         _ensure_spinners()
-        self._description_spinner = SpinnerDescriptionColumn(
-            spinner_name=PROGRESS_SPINNER_NAME
-        )
+        self._description_spinner = SpinnerDescriptionColumn(spinner_name=PROGRESS_SPINNER_NAME)
         self._progress = Progress(
             self._description_spinner,
             TextColumn(

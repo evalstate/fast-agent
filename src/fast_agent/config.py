@@ -298,6 +298,22 @@ class ShellSettings(BaseModel):
         default=None,
         description="Override model-based output byte limit (None = auto)",
     )
+    # Keep routine polling inside the observed warm-cache window. At a 10:1
+    # uncached/cached input ratio, more frequent warm polls are cheaper than
+    # fewer cold polls for the long-context workloads this setting targets.
+    process_poll_max_wait_seconds: int = Field(
+        default=50,
+        ge=1,
+        le=600,
+        description="Maximum wait accepted by poll_process",
+    )
+    fold_completed_process_poll_history: bool = Field(
+        default=False,
+        description=(
+            "Fold repetitive quiet poll_process exchanges while a managed process "
+            "runs and after it reaches a terminal state"
+        ),
+    )
     missing_cwd_policy: Literal["ask", "create", "warn", "error"] = Field(
         default="warn",
         description="Policy when an agent shell cwd is missing or invalid",
@@ -382,6 +398,12 @@ class ShellSettings(BaseModel):
         if isinstance(value, str):
             return int(value.strip())
         return int(value)
+
+    @field_validator("process_poll_max_wait_seconds", mode="before")
+    @classmethod
+    def _coerce_process_poll_max_wait_seconds(cls, value: Any) -> int:
+        _reject_bool_integer_field(value, field_name="process_poll_max_wait_seconds")
+        return int(value.strip()) if isinstance(value, str) else int(value)
 
     @field_validator("write_text_file_mode", mode="before")
     @classmethod

@@ -180,6 +180,31 @@ def test_openai_responses_uses_its_required_typed_details() -> None:
     assert turn.completion == CompletionTokenUsage(total=300, reasoning=120)
 
 
+def test_openai_responses_preserves_overlapping_cache_subsets() -> None:
+    usage = ResponseUsage.model_validate(
+        {
+            "input_tokens": 100,
+            "input_tokens_details": {
+                "cached_tokens": 80,
+                "cache_write_tokens": 70,
+            },
+            "output_tokens": 5,
+            "output_tokens_details": {"reasoning_tokens": 0},
+            "total_tokens": 105,
+        }
+    )
+
+    turn = usage_from_openai_responses(
+        usage,
+        provider=Provider.RESPONSES,
+        model="gpt",
+    )
+
+    assert turn.prompt.uncached is None
+    assert turn.prompt.cache_read == 80
+    assert turn.prompt.cache_write == 70
+
+
 def test_provider_total_mismatch_is_a_translation_error() -> None:
     usage = CompletionUsage.model_validate(
         {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 99}

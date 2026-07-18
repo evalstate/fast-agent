@@ -11,6 +11,7 @@ from mcp.types import CallToolResult, ContentBlock, TextContent
 from fast_agent.constants import (
     FAST_AGENT_ERROR_CHANNEL,
     FAST_AGENT_PENDING_MEDIA_ATTACHMENTS,
+    FAST_AGENT_SHELL_PROCESS_METADATA,
     FAST_AGENT_TOOL_METADATA,
     FAST_AGENT_TOOL_TIMING,
     FAST_AGENT_URL_ELICITATION_CHANNEL,
@@ -52,6 +53,19 @@ def tool_result_channels(
         channels[FAST_AGENT_TOOL_METADATA] = [
             TextContent(type="text", text=json.dumps(tool_metadata))
         ]
+    if tool_results:
+        process_metadata = {
+            call_id: payload
+            for call_id, result in tool_results.items()
+            if isinstance(
+                payload := (result.meta or {}).get(FAST_AGENT_SHELL_PROCESS_METADATA),
+                dict,
+            )
+        }
+        if process_metadata:
+            channels[FAST_AGENT_SHELL_PROCESS_METADATA] = [
+                TextContent(type="text", text=json.dumps(process_metadata))
+            ]
     return channels or None, content
 
 

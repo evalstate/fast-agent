@@ -54,7 +54,7 @@ from fast_agent.ui.streaming_preferences import (
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.ui.tool_display import ToolDisplay
 from fast_agent.utils.count_display import format_count
-from fast_agent.utils.time import format_duration
+from fast_agent.utils.time import format_duration, format_process_elapsed
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -417,10 +417,10 @@ class ConsoleDisplay:
             line.append(f"pid {os_process_id}", style="bold")
         else:
             line.append(process_id, style="bold")
+        if elapsed_seconds is not None:
+            line.append(f" · {format_process_elapsed(elapsed_seconds)}", style="dim")
         if wait_sec is not None and wait_sec > 0:
             line.append(f" · ≤{wait_sec}s", style="dim")
-        if elapsed_seconds is not None:
-            line.append(f" · {self._format_elapsed(elapsed_seconds)}", style="dim")
         if command:
             line.append(f" · {command}", style="dim")
         console.console.print(line)

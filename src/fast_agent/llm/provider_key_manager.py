@@ -5,7 +5,8 @@ Centralizes API key handling logic to make provider implementations more generic
 
 import os
 from collections.abc import Mapping
-from typing import Any, NoReturn, Protocol, cast, runtime_checkable
+from dataclasses import dataclass
+from typing import Any, Final, NoReturn, Protocol, cast, runtime_checkable
 
 from pydantic import BaseModel
 
@@ -33,6 +34,22 @@ PROVIDER_CONFIG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
 }
 API_KEY_HINT_TEXT = "<your-api-key-here>"
 API_KEYLESS_PROVIDERS: frozenset[str] = frozenset({"anthropic-vertex"})
+
+
+@dataclass(frozen=True)
+class _ServeOAuthProviderPolicy:
+    model_provider_names: frozenset[str]
+    display_name: str
+    operator_credential: str
+
+
+_SERVE_OAUTH_PROVIDER_POLICIES: Final[Mapping[str, _ServeOAuthProviderPolicy]] = {
+    "huggingface": _ServeOAuthProviderPolicy(
+        model_provider_names=frozenset({"hf", "huggingface"}),
+        display_name="Hugging Face",
+        operator_credential="HF_TOKEN",
+    ),
+}
 
 
 @runtime_checkable
@@ -119,14 +136,62 @@ class ProviderKeyManager:
 
     @staticmethod
     def _request_scoped_api_key(provider_name: str) -> str | None:
-        if provider_name not in {"hf", "huggingface"}:
+        if ProviderKeyManager._serve_oauth_policy(provider_name) is None:
             return None
 
-        # Check for request-scoped token first (token passthrough from MCP server)
-        # This allows clients to pass their own HF token via Authorization header.
+        # Check for request-scoped token first (token passthrough from MCP server).
         from fast_agent.mcp.auth.context import request_bearer_token
 
         return request_bearer_token.get()
+
+    @staticmethod
+    def _serve_oauth_policy(
+        provider_name: str,
+    ) -> tuple[str, _ServeOAuthProviderPolicy] | None:
+        normalized_provider = strip_casefold(provider_name)
+        return next(
+            (
+                (oauth_provider, policy)
+                for oauth_provider, policy in _SERVE_OAUTH_PROVIDER_POLICIES.items()
+                if normalized_provider in policy.model_provider_names
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _active_serve_oauth_policy(
+        provider_name: str,
+    ) -> tuple[str, _ServeOAuthProviderPolicy] | None:
+        resolved = ProviderKeyManager._serve_oauth_policy(provider_name)
+        if resolved is None:
+            return None
+
+        oauth_provider, _ = resolved
+        from fast_agent.mcp.server.common import normalize_serve_oauth_provider
+
+        configured_provider = normalize_serve_oauth_provider(
+            os.getenv("FAST_AGENT_SERVE_OAUTH")
+        )
+        return resolved if configured_provider == oauth_provider else None
+
+    @staticmethod
+    def serve_oauth_requires_request_token(provider_name: str) -> bool:
+        """Return whether calls for this provider require a caller OAuth token."""
+        return ProviderKeyManager._active_serve_oauth_policy(provider_name) is not None
+
+    @staticmethod
+    def _raise_missing_request_token(
+        oauth_provider: str,
+        policy: _ServeOAuthProviderPolicy,
+    ) -> NoReturn:
+        raise ProviderKeyError(
+            f"{policy.display_name} caller token missing",
+            f"This server is configured with FAST_AGENT_SERVE_OAUTH={oauth_provider}, "
+            f"so {policy.display_name} model calls must use the caller's forwarded "
+            "bearer token. "
+            "No request-scoped token was present for this call; refusing to fall "
+            f"back to the server's {policy.operator_credential}.",
+        )
 
     @staticmethod
     def _configured_or_environment_key(provider_name: str, config: Any) -> str | None:
@@ -219,8 +284,16 @@ class ProviderKeyManager:
         if ProviderKeyManager._uses_no_api_key(provider_name, config):
             return ""
 
-        return (
-            ProviderKeyManager._request_scoped_api_key(provider_name)
-            or ProviderKeyManager._configured_or_environment_key(provider_name, config)
-            or ProviderKeyManager._provider_specific_fallback_key(provider_name)
-        )
+        request_scoped = ProviderKeyManager._request_scoped_api_key(provider_name)
+        if request_scoped:
+            return request_scoped
+
+        # Fail closed rather than fall back to the server's own credentials when
+        # serve OAuth requires the caller's token.
+        serve_oauth = ProviderKeyManager._active_serve_oauth_policy(provider_name)
+        if serve_oauth:
+            ProviderKeyManager._raise_missing_request_token(*serve_oauth)
+
+        return ProviderKeyManager._configured_or_environment_key(
+            provider_name, config
+        ) or ProviderKeyManager._provider_specific_fallback_key(provider_name)

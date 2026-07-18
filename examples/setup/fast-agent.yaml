@@ -93,6 +93,10 @@ anthropic:
 #  output_display_lines: 5  # default
 # show shell command output in console (false to suppress bash output)
 #  show_bash: true
+# maximum wait accepted by poll_process (50 by default, chosen to preserve warm polling)
+#  process_poll_max_wait_seconds: 50
+# fold repetitive quiet poll_process exchanges while running and after completion
+#  fold_completed_process_poll_history: false
 
 # Logging and Console Configuration:
 logger:

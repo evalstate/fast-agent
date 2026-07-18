@@ -44,6 +44,7 @@ from fast_agent.session.session_manager import SessionManager
 from fast_agent.session.trace_export_atif import (
     AtifRunSource,
     _package_version,
+    build_atif_fanout_trajectory,
     build_atif_trajectory,
 )
 from fast_agent.session.trace_export_errors import (
@@ -360,6 +361,38 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
         PromptMessageExtended(
             role="assistant",
             content=[TextContent(type="text", text="The directory is /workspace.")],
+            channels={
+                FAST_AGENT_USAGE: [
+                    TextContent(
+                        type="text",
+                        text=json.dumps(
+                            {
+                                "schema": "fast-agent.usage/v2",
+                                "provider_attempts": [
+                                    {
+                                        "provider": "codexresponses",
+                                        "usage_schema": "openai-responses",
+                                        "model": "gpt-5.4",
+                                        "prompt": {
+                                            "total": 0,
+                                            "cache_read": 0,
+                                            "cache_write": 0,
+                                            "tool_use": 0,
+                                        },
+                                        "completion": {
+                                            "total": 0,
+                                            "reasoning": 0,
+                                        },
+                                        "tool_calls": 0,
+                                        "cost_usd": 0.0,
+                                        "raw_usage": {},
+                                    }
+                                ],
+                            }
+                        ),
+                    )
+                ]
+            },
         ),
     ]
     save_json(messages, str(session_dir / "history_dev.json"))
@@ -475,6 +508,10 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
     ]
     assert payload["subagent_trajectories"][0]["trajectory_id"] == "traj_child_1"
     assert payload["subagent_trajectories"][0]["agent"]["name"] == "worker"
+    assert payload["subagent_trajectories"][0]["final_metrics"]["extra"] == {
+        "total_reasoning_tokens": 2,
+        "total_tool_use_tokens": 1,
+    }
     assert child_reads == 1
     assert tool_step["metrics"]["cached_tokens"] == 7
     assert tool_step["metrics"]["extra"] == {
@@ -491,11 +528,10 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
         "total_prompt_tokens": 46,
         "total_completion_tokens": 12,
         "total_cached_tokens": 10,
-        "total_cost_usd": 0.01,
         "total_steps": 4,
         "extra": {
-            "total_reasoning_tokens": 3,
-            "total_tool_use_tokens": 2,
+            "total_reasoning_tokens": 5,
+            "total_tool_use_tokens": 3,
             "root_prompt_tokens": 35,
             "root_completion_tokens": 8,
             "subagent_prompt_tokens": 11,
@@ -599,6 +635,107 @@ def test_atif_omits_unknown_tool_use_tokens() -> None:
     reported_zero = trajectory(0)
     assert reported_zero["steps"][0]["metrics"]["extra"]["tool_use_prompt_tokens"] == 0
     assert reported_zero["final_metrics"]["extra"]["total_tool_use_tokens"] == 0
+
+
+def test_atif_final_metrics_require_complete_llm_step_usage() -> None:
+    usage = {
+        "schema": "fast-agent.usage/v2",
+        "provider_attempts": [
+            {
+                "provider": "openai",
+                "usage_schema": "openai-chat",
+                "model": "model",
+                "prompt": {"total": 10, "cache_read": 0},
+                "completion": {"total": 2},
+                "tool_calls": 0,
+                "cost_usd": 0.01,
+            }
+        ],
+    }
+    known = PromptMessageExtended(
+        role="assistant",
+        channels={
+            FAST_AGENT_USAGE: [TextContent(type="text", text=json.dumps(usage))]
+        },
+    )
+    unknown = PromptMessageExtended(role="assistant")
+
+    trajectory = build_atif_trajectory(
+        AtifRunSource(
+            session_id="session",
+            agent_name="agent",
+            model_name="model",
+            provider="openai",
+            history=[known, unknown],
+            message_timestamps=(None, None),
+        )
+    )
+
+    assert trajectory.final_metrics is not None
+    assert trajectory.final_metrics.total_prompt_tokens is None
+    assert trajectory.final_metrics.total_completion_tokens is None
+    assert trajectory.final_metrics.total_cached_tokens is None
+    assert trajectory.final_metrics.total_cost_usd is None
+
+
+def test_atif_fanout_totals_include_all_model_routes() -> None:
+    def source(index: int) -> AtifRunSource:
+        usage = {
+            "schema": "fast-agent.usage/v2",
+            "provider_attempts": [
+                {
+                    "provider": "openai",
+                    "usage_schema": "openai-chat",
+                    "model": f"model-{index}",
+                    "prompt": {
+                        "total": 10 * index,
+                        "cache_read": index,
+                        "tool_use": index,
+                    },
+                    "completion": {"total": 2 * index, "reasoning": index},
+                    "tool_calls": 0,
+                    "cost_usd": index / 100,
+                }
+            ],
+        }
+        messages = [
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="run")],
+            ),
+            PromptMessageExtended(
+                role="assistant",
+                content=[TextContent(type="text", text=f"done {index}")],
+                channels={
+                    FAST_AGENT_USAGE: [
+                        TextContent(type="text", text=json.dumps(usage))
+                    ]
+                },
+            ),
+        ]
+        return AtifRunSource(
+            session_id="session",
+            agent_name=f"agent-{index}",
+            model_name=f"model-{index}",
+            provider="openai",
+            history=messages,
+            message_timestamps=(None, None),
+        )
+
+    trajectory = build_atif_fanout_trajectory(
+        session_id="session",
+        sources=[source(1), source(2)],
+    )
+
+    assert trajectory.final_metrics is not None
+    assert trajectory.final_metrics.total_prompt_tokens == 30
+    assert trajectory.final_metrics.total_completion_tokens == 6
+    assert trajectory.final_metrics.total_cached_tokens == 3
+    assert trajectory.final_metrics.total_cost_usd == pytest.approx(0.03)
+    assert trajectory.final_metrics.total_steps == len(trajectory.steps)
+    assert trajectory.final_metrics.extra is not None
+    assert trajectory.final_metrics.extra["total_reasoning_tokens"] == 3
+    assert trajectory.final_metrics.extra["total_tool_use_tokens"] == 3
 
 
 def test_session_trace_exporter_treats_latest_target_case_insensitively(tmp_path: Path) -> None:
