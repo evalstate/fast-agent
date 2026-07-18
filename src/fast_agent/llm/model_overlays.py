@@ -165,6 +165,7 @@ class ModelOverlayMetadata(BaseModel):
     tokenizes: list[str] | None = None
     json_mode: Literal["schema", "object"] | None = None
     structured_tool_policy: Literal["always", "defer", "no_tools"] | None = None
+    managed_process_poll_folding: bool | None = None
     model_specific: str | None = None
     # Legacy fallback retained for older overlay files. New overlays should use
     # defaults.temperature instead.
@@ -349,6 +350,9 @@ class LoadedModelOverlay:
             tokenizes=self.manifest.metadata.tokenizes or list(ModelDatabase.TEXT_ONLY),
             json_mode=self._new_model_json_mode(),
             structured_tool_policy=self.manifest.metadata.structured_tool_policy,
+            managed_process_poll_folding=(
+                self.manifest.metadata.managed_process_poll_folding
+            ),
             model_specific=self.manifest.metadata.model_specific,
             default_provider=self.provider,
             default_temperature=self._default_temperature(),
@@ -394,6 +398,10 @@ class LoadedModelOverlay:
             update_payload["json_mode"] = metadata.json_mode
         if metadata.structured_tool_policy is not None:
             update_payload["structured_tool_policy"] = metadata.structured_tool_policy
+        if metadata.managed_process_poll_folding is not None:
+            update_payload["managed_process_poll_folding"] = (
+                metadata.managed_process_poll_folding
+            )
         if metadata.model_specific is not None:
             update_payload["model_specific"] = metadata.model_specific
         if self._default_temperature() is not None:
@@ -649,6 +657,7 @@ def build_model_overlay_manifest_from_database(
         model_specific=existing.model_specific,
         json_mode=json_mode,
         structured_tool_policy=existing.structured_tool_policy,
+        managed_process_poll_folding=existing.managed_process_poll_folding,
         fast=existing.fast,
         default_temperature=existing.default_temperature,
     )

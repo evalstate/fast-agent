@@ -63,9 +63,20 @@ async def test_process_poll_folding_context_failure_does_not_abort_tool_loop() -
     message = PromptMessageExtended(role="user")
     runner = ToolRunner(agent=cast("_ToolLoopAgent", agent), messages=[message])
 
-    runner._maybe_fold_completed_process_poll_history()
+    runner._maybe_fold_managed_process_poll_history()
 
     assert runner._delta_messages == [message]
+
+
+def test_llm_resolves_managed_process_poll_folding_from_model_metadata() -> None:
+    llm = FakeLLM()
+
+    assert llm.resolve_managed_process_poll_folding(
+        RequestParams(model="grok-4.5")
+    )
+    assert not llm.resolve_managed_process_poll_folding(
+        RequestParams(model="unknown-model")
+    )
 
 
 @pytest.mark.asyncio

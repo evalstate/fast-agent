@@ -17,7 +17,7 @@ from fast_agent.constants import (
     FAST_AGENT_USAGE,
 )
 from fast_agent.history.process_poll_folding import (
-    fold_completed_process_poll_history,
+    fold_managed_process_poll_history as fold_completed_process_poll_history,
 )
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session.trace_export_atif import AtifRunSource, build_atif_trajectory
@@ -237,17 +237,30 @@ def test_folds_successful_poll_suffix_and_retains_terminal_pair() -> None:
     audit = folded.metadata["audit"]
     assert isinstance(audit, dict)
     audit_mapping = {str(key): value for key, value in audit.items()}
-    assert audit_mapping["version"] == 2
-    assert audit_mapping["removed_call_ids"] == [
+    removed_exchanges = audit_mapping["removed_exchanges"]
+    assert isinstance(removed_exchanges, list)
+    removed_call_ids: list[object] = []
+    for exchange in removed_exchanges:
+        assert isinstance(exchange, dict)
+        exchange_mapping = {
+            str(key): value for key, value in exchange.items()
+        }
+        removed_call_ids.append(exchange_mapping["call_id"])
+    assert removed_call_ids == [
         "call-1",
         "call-2",
         "call-3",
         "call-4",
     ]
-    assert audit_mapping["retained_call_id"] == "call-5"
-    removed_messages = audit_mapping["removed_messages"]
-    assert isinstance(removed_messages, list)
-    assert len(removed_messages) == 8
+    retained_exchanges = audit_mapping["retained_exchanges"]
+    assert isinstance(retained_exchanges, list)
+    assert len(retained_exchanges) == 1
+    retained_exchange = retained_exchanges[0]
+    assert isinstance(retained_exchange, dict)
+    retained_exchange_mapping = {
+        str(key): value for key, value in retained_exchange.items()
+    }
+    assert retained_exchange_mapping["call_id"] == "call-5"
     metadata_without_audit = {
         key: value for key, value in folded.metadata.items() if key != "audit"
     }
@@ -422,15 +435,20 @@ def test_narrated_poll_suffix_folds_and_preserves_removed_updates_exactly() -> N
     audit = folded.metadata["audit"]
     assert isinstance(audit, dict)
     audit_mapping = {str(key): value for key, value in audit.items()}
-    removed_messages = audit_mapping["removed_messages"]
-    assert isinstance(removed_messages, list)
+    removed_exchanges = audit_mapping["removed_exchanges"]
+    assert isinstance(removed_exchanges, list)
     removed_narrations: list[str] = []
-    for message in removed_messages:
-        assert isinstance(message, dict)
-        message_mapping = {str(key): value for key, value in message.items()}
-        if message_mapping["role"] != "assistant":
-            continue
-        content = message_mapping["content"]
+    for exchange in removed_exchanges:
+        assert isinstance(exchange, dict)
+        exchange_mapping = {
+            str(key): value for key, value in exchange.items()
+        }
+        request = exchange_mapping["request"]
+        assert isinstance(request, dict)
+        request_mapping = {
+            str(key): value for key, value in request.items()
+        }
+        content = request_mapping["content"]
         assert isinstance(content, list)
         block = content[0]
         assert isinstance(block, dict)
@@ -789,6 +807,38 @@ def test_atif_rejects_fold_without_audit_archive() -> None:
         )
 
 
+def test_atif_rejects_context_rewrite_with_unknown_call_id() -> None:
+    folded = fold_completed_process_poll_history(
+        _history_before_terminal(4),
+        _poll_result(4, status="completed"),
+    )
+    assert folded is not None
+    invalid_metadata = json.loads(json.dumps(folded.metadata))
+    invalid_metadata["audit"]["context_rewrites"][0][
+        "removed_call_ids"
+    ].append("unknown-call")
+    channels = dict(folded.tool_message.channels or {})
+    channels[FAST_AGENT_PROCESS_POLL_FOLD] = [
+        TextContent(type="text", text=json.dumps(invalid_metadata, sort_keys=True))
+    ]
+    folded.tool_message.channels = channels
+
+    with pytest.raises(
+        ValueError,
+        match="audit archive is invalid",
+    ):
+        build_atif_trajectory(
+            AtifRunSource(
+                session_id="session",
+                agent_name="agent",
+                model_name="model",
+                provider="provider",
+                history=[*folded.history, folded.tool_message],
+                message_timestamps=(None,) * (len(folded.history) + 1),
+            )
+        )
+
+
 def test_repeated_fold_requires_prior_audit_archive() -> None:
     history = _history_before_terminal(3)
     for index in range(1, 4):
@@ -900,7 +950,7 @@ def test_repeated_folds_preserve_cumulative_narration_and_boundary_history() -> 
     audit = second_fold.metadata["audit"]
     assert isinstance(audit, dict)
     audit_mapping = {str(key): value for key, value in audit.items()}
-    boundaries = audit_mapping["context_boundaries"]
+    boundaries = audit_mapping["context_rewrites"]
     assert isinstance(boundaries, list)
     assert len(boundaries) == 2
     first_boundary = boundaries[0]

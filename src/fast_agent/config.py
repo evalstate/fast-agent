@@ -307,11 +307,11 @@ class ShellSettings(BaseModel):
         le=600,
         description="Maximum wait accepted by poll_process",
     )
-    fold_completed_process_poll_history: bool = Field(
-        default=False,
+    managed_process_poll_history_folding: Literal["auto", "on", "off"] = Field(
+        default="auto",
         description=(
-            "Fold repetitive quiet poll_process exchanges while a managed process "
-            "runs and after it reaches a terminal state"
+            "Control repetitive quiet poll_process history folding: 'auto' uses "
+            "validated model metadata, 'on' forces folding, and 'off' disables it"
         ),
     )
     missing_cwd_policy: Literal["ask", "create", "warn", "error"] = Field(

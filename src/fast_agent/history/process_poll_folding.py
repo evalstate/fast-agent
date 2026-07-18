@@ -15,7 +15,11 @@ from fast_agent.constants import (
     FAST_AGENT_TIMING,
     FAST_AGENT_TOOL_TIMING,
     FAST_AGENT_USAGE,
-    PROCESS_POLL_FOLD_AUDIT_VERSION,
+)
+from fast_agent.history.process_poll_fold_audit import (
+    ArchivedContextRewrite,
+    ArchivedPollExchange,
+    ProcessPollFoldAudit,
 )
 from fast_agent.tools.shell_runtime import POLL_PROCESS_TOOL_NAME
 
@@ -474,10 +478,11 @@ def _counter_from_metadata(
     return counter
 
 
-def _serialize_message(message: PromptMessageExtended) -> dict[str, object]:
-    return cast(
-        "dict[str, object]",
-        message.model_dump(mode="json", exclude_none=True),
+def _archive_exchange(exchange: PollExchange) -> ArchivedPollExchange:
+    return ArchivedPollExchange(
+        call_id=exchange.call_id,
+        request=exchange.request,
+        result=exchange.result_message,
     )
 
 
@@ -523,79 +528,42 @@ def _fold_audit(
     folded_polls: int,
     prior_fold: dict[str, object] | None,
     prior_fold_exchange: PollExchange | None,
-) -> tuple[dict[str, object], list[str]] | None:
-    removed_messages: list[dict[str, object]] = []
-    removed_call_ids: list[str] = []
+) -> tuple[
+    list[ArchivedPollExchange],
+    list[ArchivedPollExchange],
+    list[str],
+    ProcessPollFoldAudit | None,
+] | None:
+    removed_exchanges: list[ArchivedPollExchange] = []
     current_removed_call_ids = [
         exchange.call_id for exchange in exchanges[:folded_polls]
     ]
-    prior_audit = (
-        _string_mapping(prior_fold.get("audit"))
-        if prior_fold is not None
-        else None
-    )
+    prior_audit: ProcessPollFoldAudit | None = None
+    if prior_fold is not None:
+        try:
+            prior_audit = ProcessPollFoldAudit.model_validate(
+                prior_fold.get("audit")
+            )
+        except ValueError:
+            return None
 
     for exchange in exchanges[:folded_polls]:
         if exchange is prior_fold_exchange:
-            if prior_audit is None or prior_audit.get("version") != PROCESS_POLL_FOLD_AUDIT_VERSION:
+            if prior_audit is None:
                 return None
-            archived_messages = prior_audit.get("removed_messages")
-            archived_call_ids = prior_audit.get("removed_call_ids")
-            retained_request = prior_audit.get("retained_request")
-            retained_result = prior_audit.get("retained_result")
-            retained_call_id = prior_audit.get("retained_call_id")
-            if (
-                not isinstance(archived_messages, list)
-                or not isinstance(archived_call_ids, list)
-                or not isinstance(retained_request, dict)
-                or not isinstance(retained_result, dict)
-                or not isinstance(retained_call_id, str)
-                or not all(isinstance(item, dict) for item in archived_messages)
-                or not all(isinstance(item, str) for item in archived_call_ids)
-            ):
-                return None
-            removed_messages.extend(
-                cast("list[dict[str, object]]", archived_messages)
-            )
-            removed_messages.extend(
-                [
-                    cast("dict[str, object]", retained_request),
-                    cast("dict[str, object]", retained_result),
-                ]
-            )
-            removed_call_ids.extend(cast("list[str]", archived_call_ids))
-            removed_call_ids.append(retained_call_id)
+            removed_exchanges.extend(prior_audit.removed_exchanges)
+            removed_exchanges.extend(prior_audit.retained_exchanges)
             continue
 
-        removed_messages.extend(
-            [
-                _serialize_message(exchange.request),
-                _serialize_message(exchange.result_message),
-            ]
-        )
-        removed_call_ids.append(exchange.call_id)
+        removed_exchanges.append(_archive_exchange(exchange))
 
     retained_exchanges = exchanges[folded_polls:]
-    retained = retained_exchanges[-1]
-    return {
-        "version": PROCESS_POLL_FOLD_AUDIT_VERSION,
-        "removed_messages": removed_messages,
-        "removed_call_ids": removed_call_ids,
-        "retained_messages": [
-            serialized
-            for exchange in retained_exchanges
-            for serialized in (
-                _serialize_message(exchange.request),
-                _serialize_message(exchange.result_message),
-            )
-        ],
-        "retained_call_ids": [
-            exchange.call_id for exchange in retained_exchanges
-        ],
-        "retained_request": _serialize_message(retained.request),
-        "retained_result": _serialize_message(retained.result_message),
-        "retained_call_id": retained.call_id,
-    }, current_removed_call_ids
+    return (
+        removed_exchanges,
+        [_archive_exchange(exchange) for exchange in retained_exchanges],
+        current_removed_call_ids,
+        prior_audit,
+    )
 
 
 def _fold_metadata(
@@ -615,7 +583,12 @@ def _fold_metadata(
     )
     if audit_result is None:
         return None
-    audit, current_removed_call_ids = audit_result
+    (
+        removed_archive,
+        retained_archive,
+        current_removed_call_ids,
+        prior_audit,
+    ) = audit_result
 
     terminal_extra = exchanges[-1].metadata
     prior_folded_polls = 0
@@ -699,36 +672,32 @@ def _fold_metadata(
         return None
     if assistant_updates:
         metadata["assistant_updates"] = assistant_updates
-    context_boundaries: list[dict[str, object]] = []
-    if prior_fold is not None and prior_fold_exchange is not None:
-        prior_audit = _string_mapping(prior_fold.get("audit"))
-        if prior_audit is None:
-            return None
-        raw_boundaries = prior_audit.get("context_boundaries")
-        if not isinstance(raw_boundaries, list) or not all(
-            isinstance(boundary, dict) for boundary in raw_boundaries
-        ):
-            return None
-        context_boundaries.extend(
-            cast("list[dict[str, object]]", raw_boundaries)
-        )
-
-    retained_call_ids = audit["retained_call_ids"]
-    retained_call_id = audit["retained_call_id"]
-    assert isinstance(retained_call_ids, list)
-    assert isinstance(retained_call_id, str)
-    context_boundaries.append(
-        {
-            "version": 1,
-            "after_call_id": retained_call_id,
-            "summary": _summary_text(metadata),
-            "fold": dict(metadata),
-            "removed_call_ids": current_removed_call_ids,
-            "retained_call_ids": retained_call_ids,
-        }
+    context_rewrites = (
+        list(prior_audit.context_rewrites)
+        if prior_audit is not None and prior_fold_exchange is not None
+        else []
     )
-    audit["context_boundaries"] = context_boundaries
-    metadata["audit"] = audit
+    retained_call_ids = [
+        exchange.call_id for exchange in retained_archive
+    ]
+    context_rewrites.append(
+        ArchivedContextRewrite(
+            after_call_id=retained_archive[-1].call_id,
+            summary=_summary_text(metadata),
+            fold=dict(metadata),
+            removed_call_ids=current_removed_call_ids,
+            retained_call_ids=retained_call_ids,
+        )
+    )
+    audit = ProcessPollFoldAudit(
+        removed_exchanges=removed_archive,
+        retained_exchanges=retained_archive,
+        context_rewrites=context_rewrites,
+    )
+    metadata["audit"] = cast(
+        "dict[str, object]",
+        audit.model_dump(mode="json", exclude_none=True),
+    )
     return metadata
 
 
@@ -800,7 +769,7 @@ def _summary_text(metadata: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def fold_completed_process_poll_history(
+def fold_managed_process_poll_history(
     history: list[PromptMessageExtended],
     tool_message: PromptMessageExtended,
 ) -> ProcessPollFold | None:

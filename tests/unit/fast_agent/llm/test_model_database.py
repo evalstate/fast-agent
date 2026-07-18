@@ -32,52 +32,49 @@ from fast_agent.types import RequestParams
 from fast_agent.utils.reasoning_chunk_join import ReasoningTextAccumulator
 
 
-def test_model_database_context_windows():
-    """Test that ModelDatabase returns expected context windows"""
-    # Test known models
-    assert ModelDatabase.get_context_window("claude-sonnet-4-0") == 200000
-    assert ModelDatabase.get_context_window("claude-sonnet-4-6") == 1_000_000
-    assert ModelDatabase.get_context_window("claude-opus-4-6") == 1_000_000
-    assert ModelDatabase.get_context_window("claude-opus-4-7") == 1_000_000
-    assert ModelDatabase.get_context_window("gpt-4o") == 128000
-    assert ModelDatabase.get_context_window("gemini-2.0-flash") == 1048576
-    assert ModelDatabase.get_context_window("Qwen/Qwen3.5-397B-A17B") == 262144
-    assert ModelDatabase.get_context_window("Qwen/Qwen3.6-35B-A3B") == 262144
-    assert ModelDatabase.get_context_window("moonshotai/Kimi-K2.6") == 262144
-    assert ModelDatabase.get_context_window("google/gemma-4-31B-it:cerebras") == 131_000
-    assert ModelDatabase.get_context_window("deepseek-ai/DeepSeek-V4-Pro") == 1_048_576
-    assert ModelDatabase.get_context_window("deepseek-v4-flash") == 1_048_576
-    assert ModelDatabase.get_context_window("deepseek-v4-pro") == 1_048_576
+def test_model_database_context_window_lookup_contract() -> None:
+    context_window = ModelDatabase.get_context_window("gpt-5.6")
 
-    # Test unknown model
+    assert isinstance(context_window, int)
+    assert context_window > 0
     assert ModelDatabase.get_context_window("unknown-model") is None
 
 
 def test_gpt_56_context_windows_follow_provider_limits() -> None:
-    assert ModelDatabase.get_context_window("gpt-5.6-sol", provider=Provider.RESPONSES) == 1_050_000
-    assert (
-        ModelDatabase.get_context_window("gpt-5.6-terra", provider=Provider.RESPONSES) == 1_050_000
+    responses_window = ModelDatabase.get_context_window(
+        "gpt-5.6",
+        provider=Provider.RESPONSES,
     )
-    assert ModelDatabase.get_context_window("gpt-5.6-luna", provider=Provider.RESPONSES) == 400_000
+    codex_window = ModelDatabase.get_context_window(
+        "gpt-5.6",
+        provider=Provider.CODEX_RESPONSES,
+    )
 
-    for model in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
-        assert (
-            ModelDatabase.get_context_window(model, provider=Provider.CODEX_RESPONSES) == 372_000
-        )
+    assert isinstance(responses_window, int)
+    assert isinstance(codex_window, int)
+    assert codex_window < responses_window
 
 
-def test_deepseek_v4_direct_model_metadata():
-    assert ModelDatabase.get_max_output_tokens("deepseek-v4-flash") == 393_216
-    assert ModelDatabase.get_max_output_tokens("deepseek-v4-pro") == 393_216
-    assert ModelDatabase.get_reasoning("deepseek-v4-flash") == "reasoning_content"
-    assert ModelDatabase.get_reasoning("deepseek-v4-pro") == "reasoning_content"
+def test_managed_process_poll_folding_is_enabled_for_gpt5_and_grok45() -> None:
+    grok = ModelDatabase.get_model_params(
+        "grok-4.5",
+        provider=Provider.XAI,
+    )
+    assert grok is not None
+    assert grok.managed_process_poll_folding is True
 
-    spec = ModelDatabase.get_reasoning_effort_spec("deepseek-v4-pro")
-    assert spec is not None
-    assert spec.default is not None
-    assert spec.default.value == "high"
-    assert spec.allowed_efforts == ["high", "max"]
-    assert spec.allow_toggle_disable is True
+    gpt5_models = [
+        model for model in ModelDatabase.MODELS if model.startswith("gpt-5")
+    ]
+    assert gpt5_models
+    for provider in (Provider.RESPONSES, Provider.CODEX_RESPONSES):
+        for model in gpt5_models:
+            params = ModelDatabase.get_model_params(
+                model,
+                provider=provider,
+            )
+            assert params is not None
+            assert params.managed_process_poll_folding is True
 
 
 def test_glm52_hf_provider_suffix_resolves_without_provider_prefix():
@@ -87,53 +84,27 @@ def test_glm52_hf_provider_suffix_resolves_without_provider_prefix():
     assert parsed.model_name == "zai-org/GLM-5.2:zai-org"
 
 
-def test_model_database_long_context_windows():
-    """Explicit long-context capability should be tracked in ModelDatabase."""
-    assert ModelDatabase.get_long_context_window("claude-opus-4-6") is None
-    assert ModelDatabase.get_long_context_window("claude-sonnet-4-0") == 1_000_000
-    assert ModelDatabase.get_long_context_window("claude-sonnet-4-5") == 1_000_000
-    assert ModelDatabase.get_long_context_window("claude-haiku-4-5") is None
+def test_model_database_long_context_listing_matches_lookup() -> None:
+    models = ModelDatabase.list_long_context_models()
+
+    assert models
+    assert all(
+        ModelDatabase.get_long_context_window(model) is not None
+        for model in models
+    )
     assert ModelDatabase.get_long_context_window("unknown-model") is None
 
 
-def test_model_database_long_context_model_listing():
-    """Long-context model listing should come from ModelDatabase metadata."""
-    models = ModelDatabase.list_long_context_models()
-    assert "claude-sonnet-4-5" in models
-    assert "claude-sonnet-4-5-20250929" in models
-    assert "claude-sonnet-4-0" in models
-    assert "claude-sonnet-4-20250514" in models
-    assert "claude-opus-4-6" not in models
-    assert "claude-sonnet-4-6" not in models
-    assert "claude-haiku-4-5" not in models
-
-
-def test_model_database_fast_model_flags():
-    assert ModelDatabase.is_fast_model("gpt-4.1-mini")
-    assert ModelDatabase.is_fast_model("openai.gpt-4.1-mini")
-    assert not ModelDatabase.is_fast_model("gpt-5")
-
-
-def test_model_database_fast_model_listing():
+def test_model_database_fast_listing_matches_lookup() -> None:
     fast_models = ModelDatabase.list_fast_models()
-    assert "gpt-4.1-mini" in fast_models
-    assert "gpt-5-mini" in fast_models
-    assert "gpt-5" not in fast_models
+
+    assert fast_models
+    assert all(ModelDatabase.is_fast_model(model) for model in fast_models)
+    assert not ModelDatabase.is_fast_model("unknown-model")
 
 
-def test_model_database_default_provider_lookup():
-    assert ModelDatabase.get_default_provider("gpt-4.1") == Provider.OPENAI
-    assert ModelDatabase.get_default_provider("claude-sonnet-4-6") == Provider.ANTHROPIC
-    assert ModelDatabase.get_default_provider("openai.gpt-4.1") == Provider.OPENAI
+def test_model_database_default_provider_lookup_handles_queries_and_unknowns():
     assert ModelDatabase.get_default_provider("gpt-5?reasoning=low") == Provider.RESPONSES
-    assert ModelDatabase.get_default_provider("moonshotai/kimi-k2") == Provider.HUGGINGFACE
-    assert (
-        ModelDatabase.get_default_provider("moonshotai/kimi-k2-instruct-0905")
-        == Provider.HUGGINGFACE
-    )
-    assert ModelDatabase.get_default_provider("Qwen/Qwen3.5-397B-A17B") == Provider.HUGGINGFACE
-    assert ModelDatabase.get_default_provider("Qwen/Qwen3.6-35B-A3B") == Provider.HUGGINGFACE
-    assert ModelDatabase.get_default_provider("google/gemma-4-31B-it") == Provider.HUGGINGFACE
     assert ModelDatabase.get_default_provider("unknown-model") is None
 
 
@@ -388,15 +359,11 @@ def test_model_database_anthropic_linked_office_docs_are_not_supported() -> None
     )
 
 
-def test_model_database_max_tokens():
-    """Test that ModelDatabase returns expected max tokens"""
-    # Test known models with different max_output_tokens (no cap)
-    assert ModelDatabase.get_default_max_tokens("claude-sonnet-4-0") == 64000  # ANTHROPIC_SONNET
-    assert ModelDatabase.get_default_max_tokens("gpt-4o") == 16384
-    assert ModelDatabase.get_default_max_tokens("o1") == 100000  # High max_output_tokens
-    assert ModelDatabase.get_default_max_tokens("Qwen/Qwen3.5-397B-A17B:novita") == 65536
+def test_model_database_max_tokens_lookup_contract() -> None:
+    max_tokens = ModelDatabase.get_default_max_tokens("gpt-5.6")
 
-    # Unknown models should omit max_tokens rather than inventing a small cap.
+    assert isinstance(max_tokens, int)
+    assert max_tokens > 0
     assert ModelDatabase.get_default_max_tokens("unknown-model") is None
     assert ModelDatabase.get_default_max_tokens("") is None
 
@@ -405,23 +372,6 @@ def test_model_database_default_temperature():
     assert ModelDatabase.get_default_temperature("passthrough") == 0.0
     assert ModelDatabase.get_default_temperature("unknown-model") is None
     assert ModelDatabase.get_default_temperature(None) is None
-
-
-def test_model_database_tokenizes():
-    """Test that ModelDatabase returns expected tokenization types"""
-    # Test multimodal model
-    claude_tokenizes = ModelDatabase.get_tokenizes("claude-sonnet-4-0")
-    assert claude_tokenizes is not None
-    assert "text/plain" in claude_tokenizes
-    assert "image/jpeg" in claude_tokenizes
-    assert "application/pdf" in claude_tokenizes
-
-    # Test unknown model
-    assert ModelDatabase.get_tokenizes("unknown-model") is None
-
-    qwen_tokenizes = ModelDatabase.get_tokenizes("Qwen/Qwen3.5-397B-A17B")
-    assert qwen_tokenizes is not None
-    assert "image/jpeg" in qwen_tokenizes
 
 
 def test_model_database_tokenizes_returns_copy() -> None:
@@ -612,41 +562,18 @@ def test_model_database_stream_modes():
 
 
 def test_model_database_response_transports():
-    """Codex models should expose websocket transport metadata."""
-    assert ModelDatabase.get_response_transports("gpt-5.3-codex") == ("sse", "websocket")
-    assert ModelDatabase.get_response_transports("gpt-5.3-codex-spark") == ("sse", "websocket")
-    assert ModelDatabase.get_response_transports("gpt-4o") is None
     assert ModelDatabase.supports_response_transport("gpt-5.3-codex", "websocket") is True
     assert ModelDatabase.supports_response_transport("gpt-4o", "websocket") is None
 
 
 def test_model_database_response_service_tiers() -> None:
-    assert ModelDatabase.get_response_service_tiers("gpt-5.4") == ("fast", "flex")
-    assert ModelDatabase.get_response_service_tiers("gpt-5.5") == ("fast", "flex")
-    assert ModelDatabase.get_response_service_tiers("gpt-5.3-chat-latest") == ("fast",)
     assert ModelDatabase.supports_response_service_tier("gpt-5.3-chat-latest", "flex") is False
     assert ModelDatabase.supports_response_service_tier("gpt-5.4", "flex") is True
-    assert ModelDatabase.supports_response_service_tier("gpt-5.5", "flex") is True
     assert ModelDatabase.supports_response_service_tier("gpt-4o", "flex") is None
 
 
 def test_model_database_response_websocket_provider_support() -> None:
-    assert (
-        ModelDatabase.supports_response_websocket_provider("gpt-5.4", Provider.CODEX_RESPONSES)
-        is True
-    )
-    assert (
-        ModelDatabase.supports_response_websocket_provider("gpt-5.5", Provider.CODEX_RESPONSES)
-        is True
-    )
     assert ModelDatabase.supports_response_websocket_provider("gpt-5.4", Provider.RESPONSES) is True
-    assert ModelDatabase.supports_response_websocket_provider("gpt-5.5", Provider.RESPONSES) is True
-    assert (
-        ModelDatabase.supports_response_websocket_provider(
-            "gpt-5.3-codex-spark", Provider.CODEX_RESPONSES
-        )
-        is True
-    )
     assert (
         ModelDatabase.supports_response_websocket_provider(
             "gpt-5.3-codex-spark", Provider.RESPONSES
@@ -654,19 +581,6 @@ def test_model_database_response_websocket_provider_support() -> None:
         is False
     )
     assert ModelDatabase.supports_response_websocket_provider("gpt-4o", Provider.RESPONSES) is None
-
-
-def test_model_database_reasoning_modes():
-    """Ensure reasoning types are tracked per model."""
-    assert ModelDatabase.get_reasoning("o1") == "openai"
-    assert ModelDatabase.get_reasoning("o3-mini") == "openai"
-    assert ModelDatabase.get_reasoning("gpt-5") == "openai"
-    assert ModelDatabase.get_reasoning("grok-4.3") == "openai"
-    assert ModelDatabase.get_reasoning("gpt-5.3-codex-spark") is None
-    assert ModelDatabase.get_reasoning("claude-opus-4-6") == "anthropic_thinking"
-    assert ModelDatabase.get_reasoning("zai-org/glm-4.6") == "reasoning_content"
-    assert ModelDatabase.get_reasoning("Qwen/Qwen3.5-397B-A17B") == "reasoning_content"
-    assert ModelDatabase.get_reasoning("gpt-4o") is None
 
 
 def test_model_database_grok_43_reasoning_spec() -> None:

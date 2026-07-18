@@ -88,6 +88,12 @@ def test_export_preserves_explicit_provider_for_namespaced_model() -> None:
     assert manifest.model == "moonshotai/kimi-k2"
 
 
+def test_export_preserves_managed_process_poll_folding_policy() -> None:
+    manifest = build_model_overlay_manifest_from_database("xai.grok-4.5")
+
+    assert manifest.metadata.managed_process_poll_folding is True
+
+
 def test_export_preserves_explicit_provider_over_catalog_default() -> None:
     manifest = build_model_overlay_manifest_from_database("openrouter.gpt-4o")
 

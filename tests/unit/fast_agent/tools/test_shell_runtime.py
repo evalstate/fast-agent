@@ -452,7 +452,7 @@ def test_shell_runtime_reads_typed_shell_settings() -> None:
             show_bash=False,
             prefer_local_shell=True,
             process_poll_max_wait_seconds=240,
-            fold_completed_process_poll_history=True,
+            managed_process_poll_history_folding="on",
         )
     )
     runtime = ShellRuntime(

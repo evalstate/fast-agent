@@ -191,7 +191,7 @@ class ToolRunner:
         if staged is not None:
             return staged
 
-        self._maybe_fold_completed_process_poll_history()
+        self._maybe_fold_managed_process_poll_history()
         await self._maybe_auto_compact_before_followup_llm()
         await self._ensure_tools_ready()
         await self._run_before_llm_hook()
@@ -360,7 +360,7 @@ class ToolRunner:
             # Mid-turn compaction is opportunistic; never break a tool loop.
             _logger.exception("Auto-compaction failed during tool loop; history unchanged")
 
-    def _maybe_fold_completed_process_poll_history(self) -> None:
+    def _maybe_fold_managed_process_poll_history(self) -> None:
         from fast_agent.agents.llm_agent import LlmAgent
 
         if not isinstance(self._agent, LlmAgent) or len(self._delta_messages) != 1:
@@ -368,17 +368,26 @@ class ToolRunner:
         try:
             context = self._agent.context
             config = context.config if context is not None else None
-            if (
-                config is None
-                or not config.shell_execution.fold_completed_process_poll_history
-            ):
+            if config is None:
                 return
+            policy = (
+                config.shell_execution.managed_process_poll_history_folding
+            )
+            if policy == "off":
+                return
+            if policy == "auto":
+                llm = self._agent.llm
+                if llm is None:
+                    return
+                request_params = llm.get_request_params(self._request_params)
+                if not llm.resolve_managed_process_poll_folding(request_params):
+                    return
 
             from fast_agent.history.process_poll_folding import (
-                fold_completed_process_poll_history,
+                fold_managed_process_poll_history,
             )
 
-            folded = fold_completed_process_poll_history(
+            folded = fold_managed_process_poll_history(
                 list(self._agent.message_history),
                 self._delta_messages[0],
             )

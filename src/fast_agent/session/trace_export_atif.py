@@ -21,8 +21,11 @@ from fast_agent.constants import (
     FAST_AGENT_TOOL_METADATA,
     FAST_AGENT_TOOL_TIMING,
     FAST_AGENT_USAGE,
-    PROCESS_POLL_FOLD_AUDIT_VERSION,
     REASONING,
+)
+from fast_agent.history.process_poll_fold_audit import (
+    ArchivedContextRewrite,
+    ProcessPollFoldAudit,
 )
 from fast_agent.llm.usage_tracking import UsageReport, UsageSummary
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -77,7 +80,7 @@ class _AuditMessage:
 
 
 @dataclass(frozen=True, slots=True)
-class _ContextBoundary:
+class _ContextRewrite:
     timestamp: datetime | None
     summary: str
     fold: dict[str, object]
@@ -85,16 +88,7 @@ class _ContextBoundary:
     retained_call_ids: tuple[str, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class _ArchivedContextBoundary:
-    after_call_id: str
-    summary: str
-    fold: dict[str, object]
-    removed_call_ids: tuple[str, ...]
-    retained_call_ids: tuple[str, ...]
-
-
-type _AuditHistoryItem = _AuditMessage | _ContextBoundary
+type _AuditHistoryItem = _AuditMessage | _ContextRewrite
 
 
 @cache
@@ -311,43 +305,70 @@ def _process_poll_folds(
     ]
 
 
-def _archive_message(value: object) -> PromptMessageExtended | None:
-    if not isinstance(value, dict):
-        return None
+def _parse_process_poll_fold_audit(
+    fold: dict[str, object],
+) -> ProcessPollFoldAudit:
+    if "audit" not in fold:
+        raise ValueError("Managed-process poll fold is missing its audit archive")
     try:
-        return PromptMessageExtended.model_validate(value)
-    except ValueError:
-        return None
+        return ProcessPollFoldAudit.model_validate(fold.get("audit"))
+    except ValueError as exc:
+        raise ValueError(
+            "Managed-process poll fold audit archive is invalid"
+        ) from exc
 
 
-def _archived_context_boundary(
-    value: object,
-) -> _ArchivedContextBoundary | None:
-    if not isinstance(value, dict):
-        return None
-    boundary = {str(key): item for key, item in value.items()}
-    after_call_id = boundary.get("after_call_id")
-    summary = boundary.get("summary")
-    fold = boundary.get("fold")
-    removed_call_ids = boundary.get("removed_call_ids")
-    retained_call_ids = boundary.get("retained_call_ids")
-    if (
-        not isinstance(after_call_id, str)
-        or not isinstance(summary, str)
-        or not isinstance(fold, dict)
-        or not isinstance(removed_call_ids, list)
-        or not all(isinstance(call_id, str) for call_id in removed_call_ids)
-        or not isinstance(retained_call_ids, list)
-        or not all(isinstance(call_id, str) for call_id in retained_call_ids)
-    ):
-        return None
-    return _ArchivedContextBoundary(
-        after_call_id=after_call_id,
-        summary=summary,
-        fold={str(key): item for key, item in fold.items()},
-        removed_call_ids=tuple(cast("list[str]", removed_call_ids)),
-        retained_call_ids=tuple(cast("list[str]", retained_call_ids)),
+def _context_rewrite(
+    rewrite: ArchivedContextRewrite,
+    *,
+    timestamp: datetime | None,
+) -> _ContextRewrite:
+    return _ContextRewrite(
+        timestamp=timestamp,
+        summary=rewrite.summary,
+        fold=rewrite.fold,
+        removed_call_ids=tuple(rewrite.removed_call_ids),
+        retained_call_ids=tuple(rewrite.retained_call_ids),
     )
+
+
+def _reconstruct_process_poll_audit_items(
+    audit: ProcessPollFoldAudit,
+    *,
+    fallback_timestamp: datetime | None,
+) -> list[_AuditHistoryItem]:
+    items: list[_AuditHistoryItem] = []
+    rewrite_index = 0
+    exchanges = [
+        *audit.removed_exchanges,
+        *audit.retained_exchanges,
+    ]
+    for exchange in exchanges:
+        for archived in (exchange.request, exchange.result):
+            archived_timestamp = archived.timestamp or fallback_timestamp
+            items.append(
+                _AuditMessage(
+                    message=archived,
+                    timestamp=archived_timestamp,
+                )
+            )
+            if (
+                rewrite_index < len(audit.context_rewrites)
+                and audit.context_rewrites[rewrite_index].after_call_id
+                in (archived.tool_results or {})
+            ):
+                items.append(
+                    _context_rewrite(
+                        audit.context_rewrites[rewrite_index],
+                        timestamp=archived_timestamp,
+                    )
+                )
+                rewrite_index += 1
+    if rewrite_index != len(audit.context_rewrites):
+        raise ValueError(
+            "Managed-process poll fold context rewrite placement is inconsistent"
+        )
+    return items
 
 
 def _expand_process_poll_folds(
@@ -367,70 +388,22 @@ def _expand_process_poll_folds(
 
         result_message = history[index + 1]
         fold = _json_channel_mapping(result_message, FAST_AGENT_PROCESS_POLL_FOLD)
-        audit = (
-            {
-                str(key): item
-                for key, item in raw_audit.items()
-            }
-            if fold is not None
-            and isinstance((raw_audit := fold.get("audit")), dict)
-            else None
-        )
         if fold is None:
             items.append(_AuditMessage(message=message, timestamp=timestamp))
             index += 1
             continue
-        if audit is None:
-            raise ValueError("Managed-process poll fold is missing its audit archive")
-
-        if audit.get("version") != PROCESS_POLL_FOLD_AUDIT_VERSION:
-            raise ValueError("Managed-process poll fold audit version is unsupported")
-
-        removed_values = audit.get("removed_messages")
-        removed_call_ids = audit.get("removed_call_ids")
-        retained_values = audit.get("retained_messages")
-        retained_call_ids = audit.get("retained_call_ids")
-        retained_call_id = audit.get("retained_call_id")
+        audit = _parse_process_poll_fold_audit(fold)
+        retained_call_ids = [
+            exchange.call_id for exchange in audit.retained_exchanges
+        ]
+        retained_call_id = retained_call_ids[-1]
         if (
-            not isinstance(removed_values, list)
-            or len(removed_values) % 2 != 0
-            or not isinstance(removed_call_ids, list)
-            or not all(isinstance(call_id, str) for call_id in removed_call_ids)
-            or len(removed_values) != len(removed_call_ids) * 2
-            or not isinstance(retained_values, list)
-            or len(retained_values) % 2 != 0
-            or not isinstance(retained_call_ids, list)
-            or not all(isinstance(call_id, str) for call_id in retained_call_ids)
-            or len(retained_values) != len(retained_call_ids) * 2
-            or not isinstance(retained_call_id, str)
-            or not retained_call_ids
-            or retained_call_ids[-1] != retained_call_id
-            or retained_call_id not in (message.tool_calls or {})
+            retained_call_id not in (message.tool_calls or {})
             or retained_call_id not in (result_message.tool_results or {})
         ):
-            raise ValueError("Managed-process poll fold audit archive is invalid")
+            raise ValueError("Managed-process poll fold retained exchange is invalid")
 
-        raw_boundaries = audit.get("context_boundaries")
-        if not isinstance(raw_boundaries, list):
-            raise ValueError("Managed-process poll fold boundaries are invalid")
-        parsed_boundaries = [
-            _archived_context_boundary(value) for value in raw_boundaries
-        ]
-        if any(boundary is None for boundary in parsed_boundaries):
-            raise ValueError("Managed-process poll fold boundaries are invalid")
-        archived_boundaries = cast(
-            "list[_ArchivedContextBoundary]", parsed_boundaries
-        )
-
-        removed_messages = [_archive_message(value) for value in removed_values]
-        retained_messages = [_archive_message(value) for value in retained_values]
-        if any(
-            archived is None
-            for archived in [*removed_messages, *retained_messages]
-        ):
-            raise ValueError("Managed-process poll fold contains invalid archived messages")
-
-        earlier_retained_call_ids = cast("list[str]", retained_call_ids)[:-1]
+        earlier_retained_call_ids = retained_call_ids[:-1]
         retained_suffix_items = len(earlier_retained_call_ids) * 2
         if retained_suffix_items > len(items):
             raise ValueError("Managed-process poll fold retained-step archive is inconsistent")
@@ -449,40 +422,28 @@ def _expand_process_poll_folds(
             del items[-retained_suffix_items:]
 
         fallback_timestamp = result_message.timestamp or source.message_timestamps[index + 1]
-        boundary_index = 0
-        for archived in [*removed_messages, *retained_messages]:
-            if archived is None:
-                continue
-            archived_timestamp = archived.timestamp or fallback_timestamp
-            items.append(
-                _AuditMessage(
-                    message=archived,
-                    timestamp=archived_timestamp,
-                )
+        items.extend(
+            _reconstruct_process_poll_audit_items(
+                audit,
+                fallback_timestamp=fallback_timestamp,
             )
-            if (
-                boundary_index < len(archived_boundaries)
-                and archived_boundaries[boundary_index].after_call_id
-                in (archived.tool_results or {})
-            ):
-                boundary = archived_boundaries[boundary_index]
-                items.append(
-                    _ContextBoundary(
-                        timestamp=archived_timestamp,
-                        summary=boundary.summary,
-                        fold=boundary.fold,
-                        removed_call_ids=boundary.removed_call_ids,
-                        retained_call_ids=boundary.retained_call_ids,
-                    )
-                )
-                boundary_index += 1
-        if boundary_index != len(archived_boundaries):
-            raise ValueError(
-                "Managed-process poll fold boundary placement is inconsistent"
-            )
+        )
         index += 2
 
     return items
+
+
+def _resolve_call_step_ids(
+    call_ids: tuple[str, ...],
+    call_step_ids: dict[str, int],
+) -> list[int]:
+    missing = [call_id for call_id in call_ids if call_id not in call_step_ids]
+    if missing:
+        raise ValueError(
+            "Managed-process context rewrite references unknown tool calls: "
+            + ", ".join(missing)
+        )
+    return [call_step_ids[call_id] for call_id in call_ids]
 
 
 def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
@@ -500,17 +461,15 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
             )
         )
     for item in audit_items:
-        if isinstance(item, _ContextBoundary):
-            removed_step_ids = [
-                call_step_ids[call_id]
-                for call_id in item.removed_call_ids
-                if call_id in call_step_ids
-            ]
-            retained_step_ids = [
-                call_step_ids[call_id]
-                for call_id in item.retained_call_ids
-                if call_id in call_step_ids
-            ]
+        if isinstance(item, _ContextRewrite):
+            removed_step_ids = _resolve_call_step_ids(
+                item.removed_call_ids,
+                call_step_ids,
+            )
+            retained_step_ids = _resolve_call_step_ids(
+                item.retained_call_ids,
+                call_step_ids,
+            )
             context_management: dict[str, object] = {
                 "type": "compaction",
                 "boundary": "truncate",
