@@ -6,11 +6,9 @@ class AnthropicCachePlanner:
 
     def __init__(
         self,
-        walk_distance: int = 6,
         max_conversation_blocks: int = 2,
         max_total_blocks: int = 4,
     ) -> None:
-        self.walk_distance = walk_distance
         self.max_conversation_blocks = max_conversation_blocks
         self.max_total_blocks = max_total_blocks
 
@@ -46,25 +44,28 @@ class AnthropicCachePlanner:
             process_indices = [process_poll_boundary]
             budget -= 1
 
+        conversation_candidates = [
+            index
+            for index in range(template_prefix, len(messages))
+            if messages[index].role == "assistant"
+        ]
+        conversation_reserve = int(
+            cache_mode == "auto" and not process_indices and bool(conversation_candidates)
+        )
+
         if cache_mode in ("prompt", "auto") and template_prefix:
             template_indices = [
                 index
                 for index in range(template_prefix)
                 if index != process_poll_boundary
-            ][:budget]
+            ][: max(0, budget - conversation_reserve)]
             budget -= len(template_indices)
 
         conversation_indices: list[int] = []
         if cache_mode == "auto" and budget > 0 and not process_indices:
-            conv_count = max(0, len(messages) - template_prefix)
-            if conv_count >= self.walk_distance:
-                positions = [
-                    template_prefix + i
-                    for i in range(self.walk_distance - 1, conv_count, self.walk_distance)
-                ]
-
-                # Respect Anthropic limits and remaining budget
-                positions = positions[-self.max_conversation_blocks :]
-                conversation_indices = positions[:budget]
+            # Reapply the prior checkpoint and advance it to the newest assistant turn.
+            conversation_indices = conversation_candidates[
+                -min(budget, self.max_conversation_blocks) :
+            ]
 
         return sorted(template_indices + process_indices + conversation_indices)

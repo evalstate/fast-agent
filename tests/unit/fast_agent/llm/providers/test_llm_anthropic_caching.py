@@ -263,6 +263,42 @@ class TestAnthropicCaching:
 
         assert prepared[-1] == message_param
 
+    def test_auto_cache_checkpoints_latest_assistant_on_next_request(self):
+        """Cache a completed assistant turn on the immediately following request."""
+        llm = self._create_llm(cache_mode="auto")
+        history = [
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="solve the task")],
+            ),
+            PromptMessageExtended(
+                role="assistant",
+                content=[TextContent(type="text", text="large reasoning-backed response")],
+            ),
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="tool result")],
+            ),
+        ]
+        converted = [AnthropicConverter.convert_to_anthropic(message) for message in history]
+
+        llm._apply_anthropic_cache_plan(
+            arguments={},
+            messages=converted,
+            params=llm.get_request_params(RequestParams(use_history=True)),
+            cache_mode="auto",
+            history=history,
+            current_extended=history[-1],
+        )
+
+        assistant_blocks = _content_dicts(converted[1])
+        current_user_blocks = _content_dicts(converted[2])
+        assert _cache_control(assistant_blocks[-1]) == {
+            "type": "ephemeral",
+            "ttl": "5m",
+        }
+        assert all(_cache_control(block) is None for block in current_user_blocks)
+
     def test_build_request_messages_without_history(self):
         """When history is disabled, always send the current message."""
         llm = self._create_llm()

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from anthropic.types.beta import BetaMessageParam
 from mcp.types import TextContent
 
@@ -7,9 +9,14 @@ from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import Anth
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
-def make_message(text: str, *, is_template: bool = False) -> PromptMessageExtended:
+def make_message(
+    text: str,
+    *,
+    role: Literal["user", "assistant"] = "user",
+    is_template: bool = False,
+) -> PromptMessageExtended:
     return PromptMessageExtended(
-        role="user", content=[TextContent(type="text", text=text)], is_template=is_template
+        role=role, content=[TextContent(type="text", text=text)], is_template=is_template
     )
 
 
@@ -52,7 +59,16 @@ def test_conversation_cache_respects_four_block_limit():
         make_message("template 1", is_template=True),
         make_message("template 2", is_template=True),
     ]
-    extended.extend(make_message(f"turn {i}") for i in range(6))
+    extended.extend(
+        [
+            make_message("user 1"),
+            make_message("assistant 1", role="assistant"),
+            make_message("user 2"),
+            make_message("assistant 2", role="assistant"),
+            make_message("user 3"),
+            make_message("assistant 3", role="assistant"),
+        ]
+    )
 
     plan_indices = planner.plan_indices(
         extended, cache_mode="auto", system_cache_blocks=system_cache_blocks
@@ -64,29 +80,65 @@ def test_conversation_cache_respects_four_block_limit():
     total_cache_blocks = system_cache_blocks + count_cache_controls(provider_msgs)
 
     assert total_cache_blocks <= 4
-    assert len([i for i in plan_indices if i >= 2]) <= 1  # system + templates leave one slot
+    assert plan_indices == [0, 1, 7]
 
 
-def test_conversation_cache_waits_for_walk_distance():
+def test_conversation_cache_checkpoints_latest_assistant_on_next_request():
     planner = AnthropicCachePlanner(max_total_blocks=4)
     extended = [
         make_message("template", is_template=True),
         make_message("user 1"),
-        make_message("assistant 1"),
+        make_message("assistant 1", role="assistant"),
+        make_message("tool result"),
     ]
 
     plan_indices = planner.plan_indices(extended, cache_mode="auto", system_cache_blocks=0)
     provider_msgs = [AnthropicConverter.convert_to_anthropic(msg) for msg in extended]
 
-    assert plan_indices == [0]
+    assert plan_indices == [0, 2]
     for idx in plan_indices:
         AnthropicLLM._apply_cache_control_to_message(provider_msgs[idx])
 
-    assert count_cache_controls(provider_msgs) == 1
+    assert count_cache_controls(provider_msgs) == 2
+
+
+def test_conversation_cache_reapplies_previous_assistant_checkpoint():
+    planner = AnthropicCachePlanner(max_total_blocks=4)
+    extended = [
+        make_message("user 1"),
+        make_message("assistant 1", role="assistant"),
+        make_message("tool result 1"),
+        make_message("assistant 2", role="assistant"),
+        make_message("tool result 2"),
+    ]
+
+    assert planner.plan_indices(
+        extended,
+        cache_mode="auto",
+        system_cache_blocks=1,
+    ) == [1, 3]
+
+
+def test_conversation_cache_reserves_marker_after_large_template_prefix():
+    planner = AnthropicCachePlanner(max_total_blocks=4)
+    extended = [
+        make_message("template 1", is_template=True),
+        make_message("template 2", is_template=True),
+        make_message("template 3", is_template=True),
+        make_message("user 1"),
+        make_message("assistant 1", role="assistant"),
+        make_message("tool result"),
+    ]
+
+    assert planner.plan_indices(
+        extended,
+        cache_mode="auto",
+        system_cache_blocks=1,
+    ) == [0, 1, 4]
 
 
 def test_process_poll_boundary_replaces_periodic_conversation_markers():
-    planner = AnthropicCachePlanner(walk_distance=2, max_total_blocks=4)
+    planner = AnthropicCachePlanner(max_total_blocks=4)
     extended = [make_message(f"turn {i}") for i in range(8)]
 
     plan_indices = planner.plan_indices(

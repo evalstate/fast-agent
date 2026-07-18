@@ -82,6 +82,7 @@ _EXECUTE_ARGUMENTS = frozenset(
 )
 _POLL_PROCESS_ARGUMENTS = frozenset({"process_id", "wait_sec", "wake_on_output"})
 _TERMINATE_PROCESS_ARGUMENTS = frozenset({"process_id"})
+_PROCESS_OUTPUT_DEBOUNCE_SECONDS = 2.0
 
 
 def _text_result(message: str, *, is_error: bool) -> CallToolResult:
@@ -419,14 +420,16 @@ class ShellRuntime:
                 Tool(
                     name=POLL_PROCESS_TOOL_NAME,
                     description=(
-                        "Get new output and status from a managed shell process. Omit `wait_sec` "
-                        "to use the model default declared in the schema, "
-                        "or use 0 for a non-blocking poll; a positive value waits for completion "
-                        "or new output. Set `wake_on_output=false` to buffer output and wait only "
-                        "for completion or the deadline. For long-running processes that do not "
-                        "need line-by-line inspection, prefer quiet waits near the maximum; "
-                        "completion still returns promptly. Repeated polls return only output "
-                        "not returned previously."
+                        "Wait for a managed shell process to exit or for the polling deadline. "
+                        "Completion always returns promptly. Routine stdout/stderr is buffered "
+                        "and included when the call returns, but does not end the wait by default. "
+                        "Omit `wait_sec` to use the model default declared in the schema, or use "
+                        "0 for a non-blocking status check. Set `wake_on_output=true` only when "
+                        "new output must affect the next action immediately; output-triggered "
+                        f"returns are debounced until output has been quiet for "
+                        f"{_PROCESS_OUTPUT_DEBOUNCE_SECONDS:g} seconds, while continuous output "
+                        "remains buffered until completion or the deadline. Repeated polls return "
+                        "only output not returned previously."
                     ),
                     inputSchema={
                         "type": "object",
@@ -447,10 +450,13 @@ class ShellRuntime:
                             },
                             "wake_on_output": {
                                 "type": "boolean",
-                                "default": True,
+                                "default": False,
                                 "description": (
-                                    "Wake when new output arrives. Set to false to buffer output "
-                                    "until the process completes or wait_sec elapses."
+                                    "Return after new output has been quiet for "
+                                    f"{_PROCESS_OUTPUT_DEBOUNCE_SECONDS:g} seconds. Defaults to "
+                                    "false so routine output remains buffered until the process "
+                                    "completes or wait_sec elapses. Continuous output does not "
+                                    "return early."
                                 ),
                             },
                         },
@@ -791,7 +797,7 @@ class ShellRuntime:
                 "Error: 'wait_sec' argument must be at most "
                 f"{self._max_process_poll_seconds}"
             )
-        wake_on_output = payload.get("wake_on_output", True)
+        wake_on_output = payload.get("wake_on_output", False)
         if type(wake_on_output) is not bool:
             raise ValueError("Error: 'wake_on_output' argument must be a boolean")
         return _PollProcessArguments(
@@ -1594,49 +1600,26 @@ class ShellRuntime:
             )
 
         async with process.poll_lock:
-            activity_task: asyncio.Task[bool] | None = None
-            wait_tasks: tuple[asyncio.Future[Any] | asyncio.Task[Any], ...] = ()
             async with process.lock:
-                waited = False
-                output_wake = False
-                pending_output = (
-                    parsed.wake_on_output
-                    and process.output_state.total_output_bytes > 0
-                )
                 should_wait = (
                     parsed.wait_sec > 0
                     and not process.task.done()
-                    and not pending_output
                 )
-                if should_wait:
-                    waited = True
-                    if parsed.wake_on_output:
-                        process.callbacks.activity_event.clear()
-                        activity_task = asyncio.create_task(
-                            process.callbacks.activity_event.wait()
-                        )
-                        wait_tasks = (process.task, activity_task)
-                    else:
-                        wait_tasks = (process.task,)
 
-            if waited:
-                try:
-                    await asyncio.wait(
-                        wait_tasks,
-                        timeout=parsed.wait_sec,
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    output_wake = activity_task is not None and activity_task.done()
-                finally:
-                    if activity_task is not None and not activity_task.done():
-                        activity_task.cancel()
-                        with suppress(asyncio.CancelledError):
-                            await activity_task
+            waited = False
+            output_wake = False
+            if should_wait:
+                waited = True
+                output_wake = await self._wait_for_managed_process_poll(
+                    process,
+                    wait_sec=parsed.wait_sec,
+                    wake_on_output=parsed.wake_on_output,
+                )
 
             async with process.lock:
                 if process.task.done():
                     poll_yield_reason = "completion"
-                elif pending_output or output_wake:
+                elif output_wake:
                     poll_yield_reason = "output"
                 elif waited:
                     poll_yield_reason = "deadline"
@@ -1683,6 +1666,63 @@ class ShellRuntime:
                     output_observed=output_observed,
                 )
                 return result
+
+    @staticmethod
+    async def _wait_for_managed_process_poll(
+        process: _ManagedShellProcess,
+        *,
+        wait_sec: int,
+        wake_on_output: bool,
+    ) -> bool:
+        """Wait for completion/deadline, optionally returning after output settles."""
+        if not wake_on_output:
+            await asyncio.wait(
+                (process.task,),
+                timeout=wait_sec,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            return False
+
+        deadline = time.monotonic() + wait_sec
+        while not process.task.done():
+            now = time.monotonic()
+            remaining = deadline - now
+            if remaining <= 0:
+                return False
+
+            process.callbacks.activity_event.clear()
+            pending_output = process.output_state.total_output_bytes > 0
+            seconds_since_last_output = max(
+                now - process.callbacks.last_output_time,
+                0.0,
+            )
+            if (
+                pending_output
+                and seconds_since_last_output >= _PROCESS_OUTPUT_DEBOUNCE_SECONDS
+            ):
+                return True
+
+            quiet_wait = (
+                _PROCESS_OUTPUT_DEBOUNCE_SECONDS - seconds_since_last_output
+                if pending_output
+                else remaining
+            )
+            activity_task = asyncio.create_task(
+                process.callbacks.activity_event.wait()
+            )
+            try:
+                await asyncio.wait(
+                    (process.task, activity_task),
+                    timeout=min(remaining, quiet_wait),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            finally:
+                if not activity_task.done():
+                    activity_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await activity_task
+
+        return False
 
     async def terminate_process(
         self,

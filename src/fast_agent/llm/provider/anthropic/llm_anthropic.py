@@ -461,7 +461,6 @@ def _transform_anthropic_schema(schema: type[BaseModel] | dict[str, Any]) -> dic
 
 
 class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
-    CONVERSATION_CACHE_WALK_DISTANCE = 6
     MAX_CONVERSATION_CACHE_BLOCKS = 2
     # Anthropic-specific parameter exclusions
     ANTHROPIC_EXCLUDE_FIELDS: ClassVar[set[str]] = {
@@ -2109,7 +2108,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         system_cache_applied = self._apply_system_cache(arguments, cache_mode)
 
         planner = AnthropicCachePlanner(
-            self.CONVERSATION_CACHE_WALK_DISTANCE, self.MAX_CONVERSATION_CACHE_BLOCKS
+            max_conversation_blocks=self.MAX_CONVERSATION_CACHE_BLOCKS
         )
         plan_messages: list[PromptMessageExtended] = []
         include_current = not params.use_history or not history
