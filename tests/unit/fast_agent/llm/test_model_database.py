@@ -95,6 +95,27 @@ def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
             assert params.process_poll_default_wait_seconds == 240
 
 
+def test_anthropic_catalog_uses_posix_file_creation_guidance() -> None:
+    anthropic_models = [
+        model for model in ModelDatabase.MODELS if model.startswith("claude-")
+    ]
+
+    assert anthropic_models
+    for model in anthropic_models:
+        assert (
+            ModelDatabase.get_model_specific(model, provider=Provider.ANTHROPIC)
+            == ModelDatabase.ANTHROPIC_MODEL_SPECIFIC
+        )
+
+    assert (
+        ModelDatabase.get_model_specific(
+            "claude-sonnet-4-6",
+            provider=Provider.ANTHROPIC_VERTEX,
+        )
+        == ModelDatabase.ANTHROPIC_MODEL_SPECIFIC
+    )
+
+
 def test_glm52_hf_provider_suffix_resolves_without_provider_prefix():
     parsed = ModelFactory.parse_model_spec("zai-org/GLM-5.2:zai-org")
 

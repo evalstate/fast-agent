@@ -702,6 +702,11 @@ def test_tool_result_message_preserves_shell_process_metadata_in_channel() -> No
 
 def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
     history = _history_before_terminal(4)
+    first_request = history[1]
+    assert first_request.tool_calls is not None
+    first_arguments = first_request.tool_calls["call-1"].params.arguments
+    assert first_arguments is not None
+    del first_arguments["wake_on_output"]
     for index in range(1, 5):
         _add_usage(history[index * 2 - 1], index, cost_usd=index / 100)
         if index < 4:
@@ -753,6 +758,7 @@ def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
     first_turn_mapping = {str(key): value for key, value in first_turn.items()}
     assert first_turn_mapping["prompt_tokens"] == 101
     assert first_turn_mapping["request_mode"] == "continuation"
+    assert first_turn_mapping["wake_on_output"] is False
     assert first_turn_mapping["output_bytes_since_last_poll"] == 0
     assert first_turn_mapping["seconds_since_last_output"] == 30.0
     assert first_turn_mapping["has_observed_output"] is False

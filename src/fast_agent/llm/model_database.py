@@ -197,6 +197,12 @@ class ModelDatabase:
         "Before making tool calls, send a brief preamble to the user "
         "explaining what you’re about to do."
     )
+    ANTHROPIC_MODEL_SPECIFIC = (
+        "When `execute` runs a POSIX shell, create text files with single-quoted heredocs "
+        "(`<<'EOF'`), combining related files in one `execute` call. Use `edit_file` for "
+        "targeted changes to existing files. Do not serialize independent file creation "
+        "across turns."
+    )
 
     OPENAI_O_CLASS_REASONING = ReasoningEffortSpec(
         kind="effort",
@@ -362,6 +368,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
+        model_specific=ANTHROPIC_MODEL_SPECIFIC,
     )
 
     QWEN_STANDARD = ModelParameters(
@@ -535,6 +542,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
+        model_specific=ANTHROPIC_MODEL_SPECIFIC,
     )
     ANTHROPIC_OPUS_46 = ModelParameters(
         context_window=ANTHROPIC_LONG_CONTEXT_WINDOW,
@@ -549,6 +557,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
+        model_specific=ANTHROPIC_MODEL_SPECIFIC,
     )
     ANTHROPIC_OPUS_47 = ANTHROPIC_OPUS_46.model_copy(
         update={
@@ -582,6 +591,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
+        model_specific=ANTHROPIC_MODEL_SPECIFIC,
     )
     ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
         context_window=200000,
@@ -595,6 +605,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
+        model_specific=ANTHROPIC_MODEL_SPECIFIC,
     )
     ANTHROPIC_SONNET_46 = ModelParameters(
         context_window=ANTHROPIC_LONG_CONTEXT_WINDOW,
@@ -609,6 +620,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
+        model_specific=ANTHROPIC_MODEL_SPECIFIC,
     )
     ANTHROPIC_SONNET_5 = ANTHROPIC_SONNET_46.model_copy(
         update={
@@ -633,6 +645,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
+        model_specific=ANTHROPIC_MODEL_SPECIFIC,
     )
     DEEPSEEK_V4_FLASH = ModelParameters(
         context_window=1_048_576,

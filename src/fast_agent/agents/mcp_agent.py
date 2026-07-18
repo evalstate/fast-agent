@@ -86,6 +86,7 @@ from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME
 from fast_agent.tools.composite_filesystem_runtime import CompositeFilesystemRuntime
+from fast_agent.tools.edit_file_tool import EDIT_FILE_TOOL_NAME
 from fast_agent.tools.elicitation import (
     get_elicitation_tool,
     run_elicitation_form,
@@ -129,6 +130,7 @@ TOOL_DISPLAY_NAMES: dict[str, str] = {
 
 class ShellEditToolMode(StrEnum):
     WRITE_TEXT_FILE = WRITE_TEXT_FILE_TOOL_NAME
+    EDIT_FILE = EDIT_FILE_TOOL_NAME
     APPLY_PATCH = APPLY_PATCH_TOOL_NAME
     OFF = "off"
 
@@ -145,7 +147,7 @@ class ShellEditToolFlags:
         return cls(
             write_text_file=write_text_file,
             apply_patch=mode is ShellEditToolMode.APPLY_PATCH,
-            edit_file=write_text_file,
+            edit_file=write_text_file or mode is ShellEditToolMode.EDIT_FILE,
         )
 
 
@@ -823,8 +825,11 @@ class McpAgent(ABC, ToolAgent):
 
     def _resolve_shell_edit_tool_mode(self) -> ShellEditToolMode:
         """Return which shell edit tool should be exposed for the current model/config."""
-        if self._prefers_apply_patch_model(self._resolve_shell_tool_model_name()):
+        model_name = self._resolve_shell_tool_model_name()
+        if self._prefers_apply_patch_model(model_name):
             default_mode = ShellEditToolMode.APPLY_PATCH
+        elif self._prefers_anthropic_edit_file_model(model_name):
+            default_mode = ShellEditToolMode.EDIT_FILE
         else:
             default_mode = ShellEditToolMode.WRITE_TEXT_FILE
 
@@ -874,6 +879,21 @@ class McpAgent(ABC, ToolAgent):
         if minor is None:
             return False
         return int(minor) >= 2
+
+    @staticmethod
+    def _prefers_anthropic_edit_file_model(model_name: str | None) -> bool:
+        """Return True for Anthropic-series models."""
+        if not model_name:
+            return False
+
+        normalized = ModelDatabase.normalize_model_name(model_name)
+        params = ModelDatabase.get_model_params(normalized)
+        if params is not None and params.default_provider in {
+            Provider.ANTHROPIC,
+            Provider.ANTHROPIC_VERTEX,
+        }:
+            return True
+        return re.search(r"(?:^|[./:])claude-", normalized) is not None
 
     def _maybe_enable_local_filesystem_runtime(self, working_directory: Path | None = None) -> None:
         """Enable local filesystem runtime when shell mode is active and configured."""

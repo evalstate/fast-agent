@@ -145,7 +145,7 @@ def test_xai_responses_uses_stateless_websocket_planner() -> None:
     assert isinstance(llm._new_ws_request_planner(), StatelessResponsesWsPlanner)
 
 
-def test_xai_responses_builds_conservative_response_payload_with_default_reasoning() -> None:
+def test_xai_responses_builds_parallel_response_payload_with_default_reasoning() -> None:
     llm = XAIResponsesLLM(
         context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
         model="grok-4.3",

@@ -298,6 +298,7 @@ class ShellSettings(BaseModel):
         default=None,
         description="Override model-based output byte limit (None = auto)",
     )
+    # Stay below Anthropic's 5-minute cache TTL; pinned boundaries make warm polling unnecessary.
     process_poll_max_wait_seconds: int = Field(
         default=250,
         ge=1,
@@ -341,10 +342,10 @@ class ShellSettings(BaseModel):
         default=None,
         description=(
             "Control which local file edit tool is exposed when shell runtime is enabled "
-            "('auto' uses apply_patch for Codex and GPT-5.2+ models, and exposes "
-            "write_text_file plus edit_file otherwise; 'on' always exposes write_text_file "
-            "plus edit_file; 'apply_patch' always exposes apply_patch; 'off' disables "
-            "local file edit tools)"
+            "('auto' uses apply_patch for Codex and GPT-5.2+ models, edit_file for "
+            "Anthropic-series models, and write_text_file plus edit_file otherwise; "
+            "'on' always exposes write_text_file plus edit_file; 'apply_patch' always "
+            "exposes apply_patch; 'off' disables local file edit tools)"
         ),
     )
     model_config = ConfigDict(extra="ignore")

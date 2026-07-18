@@ -68,7 +68,7 @@ def _single_poll_call(
     arguments = request.params.arguments or {}
     process_id = arguments.get("process_id")
     wait_sec = arguments.get("wait_sec")
-    wake_on_output = arguments.get("wake_on_output", True)
+    wake_on_output = arguments.get("wake_on_output", False)
     if (
         not isinstance(process_id, str)
         or ("wait_sec" in arguments and type(wait_sec) is not int)

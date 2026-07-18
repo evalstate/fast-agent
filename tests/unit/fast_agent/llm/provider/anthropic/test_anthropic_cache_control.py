@@ -1,6 +1,11 @@
 from typing import Literal
 
-from anthropic.types.beta import BetaMessageParam
+from anthropic.types.beta import (
+    BetaMessageParam,
+    BetaRedactedThinkingBlockParam,
+    BetaTextBlockParam,
+    BetaThinkingBlockParam,
+)
 from mcp.types import TextContent
 
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
@@ -149,3 +154,70 @@ def test_process_poll_boundary_replaces_periodic_conversation_markers():
     )
 
     assert plan_indices == [3]
+
+
+def test_process_poll_boundary_shares_budget_with_template_prefix():
+    planner = AnthropicCachePlanner(max_total_blocks=4)
+    extended = [
+        make_message("template 1", is_template=True),
+        make_message("template 2", is_template=True),
+        make_message("user"),
+        make_message("assistant", role="assistant"),
+        make_message("execute result"),
+        make_message("poll request", role="assistant"),
+        make_message("poll result"),
+    ]
+
+    assert planner.plan_indices(
+        extended,
+        cache_mode="auto",
+        system_cache_blocks=1,
+        process_poll_boundary=4,
+    ) == [0, 1, 4]
+
+
+def test_cache_control_skips_thinking_blocks():
+    message = BetaMessageParam(
+        role="assistant",
+        content=[
+            BetaThinkingBlockParam(
+                type="thinking",
+                thinking="reasoning",
+                signature="signature",
+            ),
+            BetaTextBlockParam(type="text", text="answer"),
+        ],
+    )
+
+    assert AnthropicLLM._apply_cache_control_to_message(message)
+    thinking, text = [
+        {str(key): value for key, value in block.items()}
+        for block in message["content"]
+        if isinstance(block, dict)
+    ]
+    assert "cache_control" not in thinking
+    assert text["cache_control"] == {"type": "ephemeral", "ttl": "5m"}
+
+
+def test_cache_control_rejects_thinking_only_message():
+    message = BetaMessageParam(
+        role="assistant",
+        content=[
+            BetaThinkingBlockParam(
+                type="thinking",
+                thinking="reasoning",
+                signature="signature",
+            ),
+            BetaRedactedThinkingBlockParam(
+                type="redacted_thinking",
+                data="redacted",
+            ),
+        ],
+    )
+
+    assert not AnthropicLLM._apply_cache_control_to_message(message)
+    assert all(
+        "cache_control" not in block
+        for block in message["content"]
+        if isinstance(block, dict)
+    )

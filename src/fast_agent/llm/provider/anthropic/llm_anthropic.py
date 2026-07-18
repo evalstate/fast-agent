@@ -1263,9 +1263,12 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             return False
 
         for content_block in reversed(content_list):
-            if is_str_object_dict(content_block):
-                content_block["cache_control"] = {"type": "ephemeral", "ttl": ttl}
-                return True
+            if not is_str_object_dict(content_block):
+                continue
+            if content_block.get("type") in {"thinking", "redacted_thinking"}:
+                continue
+            content_block["cache_control"] = {"type": "ephemeral", "ttl": ttl}
+            return True
 
         return False
 
@@ -2117,6 +2120,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if include_current and current_extended:
             plan_messages.append(current_extended)
 
+        # Deferred to avoid importing the history-folding layer during provider initialization.
         from fast_agent.history.process_poll_folding import (
             managed_process_poll_cache_boundary,
         )

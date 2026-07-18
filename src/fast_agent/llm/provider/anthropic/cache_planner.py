@@ -37,7 +37,6 @@ class AnthropicCachePlanner:
         process_indices: list[int] = []
         if (
             cache_mode == "auto"
-            and budget > 0
             and process_poll_boundary is not None
             and 0 <= process_poll_boundary < len(messages)
         ):

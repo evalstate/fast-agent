@@ -1094,6 +1094,8 @@ async def test_running_poll_with_new_output_is_not_suppressed() -> None:
     assert isinstance(result.content[0], TextContent)
     assert "still working" in result.content[0].text
     assert getattr(result, "_suppress_display", True) is False
+    process_metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
+    assert process_metadata["process_yield_reason"] == "nonblocking"
     await runtime.terminate_process({"process_id": "process-1"})
 
 

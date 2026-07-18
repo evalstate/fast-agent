@@ -89,6 +89,11 @@ def test_shell_edit_tool_flags_follow_mode_contract() -> None:
         apply_patch=False,
         edit_file=True,
     )
+    assert ShellEditToolFlags.from_mode(ShellEditToolMode.EDIT_FILE) == ShellEditToolFlags(
+        write_text_file=False,
+        apply_patch=False,
+        edit_file=True,
+    )
     assert ShellEditToolFlags.from_mode(ShellEditToolMode.APPLY_PATCH) == ShellEditToolFlags(
         write_text_file=False,
         apply_patch=True,
@@ -404,6 +409,30 @@ async def test_shell_output_limit_refreshes_after_llm_attach() -> None:
     assert shell_runtime.output_byte_limit == calculate_terminal_output_limit_for_model(
         "claude-opus-4-6"
     )
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_attach_media_auto_enables_after_anthropic_llm_attach() -> None:
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="sonnet",
+    )
+    agent = McpAgent(config=config, context=Context())
+
+    initial_tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "attach_media" not in initial_tool_names
+
+    await agent.attach_llm(_stub_llm_factory("claude-sonnet-5"), model="sonnet")
+
+    attached_tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "attach_media" in attached_tool_names
+    assert "write_text_file" not in attached_tool_names
+    assert "edit_file" in attached_tool_names
 
     await agent._aggregator.close()
 
@@ -765,6 +794,41 @@ async def test_write_text_file_auto_mode_keeps_write_and_edit_for_pre_52_gpt5_mo
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "sonnet",
+        "claude-3-5-haiku",
+        "claude-haiku-4-5",
+        "claude-sonnet-5",
+        "claude-opus-4-8",
+        "claude-fable-5",
+        "anthropic-vertex.claude-sonnet-4-6",
+        "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    ],
+)
+async def test_write_text_file_auto_mode_uses_edit_only_for_anthropic_series_models(
+    model_name: str,
+) -> None:
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model=model_name,
+    )
+    agent = McpAgent(config=config, context=Context())
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "read_text_file" in tool_names
+    assert "write_text_file" not in tool_names
+    assert "edit_file" in tool_names
+    assert "apply_patch" not in tool_names
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
 async def test_write_text_file_auto_mode_remains_enabled_for_qwen35() -> None:
     config = AgentConfig(
         name="test",
@@ -828,6 +892,26 @@ async def test_write_text_file_mode_on_enables_tool_for_codex_models() -> None:
         servers=[],
         shell=True,
         model="codexplan",
+    )
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "write_text_file" in tool_names
+    assert "edit_file" in tool_names
+    assert "apply_patch" not in tool_names
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_write_text_file_mode_on_restores_tool_for_anthropic_models() -> None:
+    settings = Settings(shell_execution=ShellSettings(write_text_file_mode="on"))
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="sonnet",
     )
     agent = McpAgent(config=config, context=Context(config=settings))
 
