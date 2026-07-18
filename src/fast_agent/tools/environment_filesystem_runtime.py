@@ -382,10 +382,13 @@ class EnvironmentFilesystemRuntime:
                 replace_all=edit_input.replace_all,
             )
             if result["success"] is True:
-                await self._filesystem.write_text(
-                    edit_input.path,
-                    local_path.read_text(encoding="utf-8"),
-                )
+                try:
+                    await self._filesystem.write_text(
+                        edit_input.path,
+                        local_path.read_text(encoding="utf-8"),
+                    )
+                except Exception as exc:
+                    return _text_result(f"Error writing file: {exc}", is_error=True)
             return _text_result(
                 _format_jsonish(serialize_edit_file_result(result)),
                 is_error=result["success"] is False,

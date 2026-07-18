@@ -363,6 +363,26 @@ async def test_environment_filesystem_runtime_applies_patch_to_remote_files() ->
 
 
 @pytest.mark.asyncio
+async def test_environment_filesystem_runtime_reports_edit_write_failure() -> None:
+    class FailingWriteEnvironment(FakeEnvironment):
+        async def write_text(self, path: str, content: str) -> None:
+            del path, content
+            raise OSError("disk full")
+
+    env = FailingWriteEnvironment()
+    env.files["/workspace/notes.txt"] = "hello world\n"
+    runtime = EnvironmentFilesystemRuntime(env, enable_edit_file=True)
+
+    result = await runtime.call_tool(
+        "edit_file",
+        {"path": "notes.txt", "old_string": "world", "new_string": "there"},
+    )
+
+    assert result.isError is True
+    assert _text(result) == "Error writing file: disk full"
+
+
+@pytest.mark.asyncio
 async def test_mcp_agent_routes_file_tools_to_injected_execution_environment() -> None:
     env = FakeEnvironment()
     env.files["/workspace/remote.txt"] = "remote file\n"
