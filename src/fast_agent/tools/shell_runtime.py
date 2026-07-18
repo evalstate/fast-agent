@@ -64,7 +64,12 @@ _IO_DRAIN_TIMEOUT_SECONDS = 2.0
 _DEFAULT_IDLE_YIELD_SECONDS = 10
 _DEFAULT_FOREGROUND_YIELD_SECONDS = 30
 _MAX_IDLE_YIELD_SECONDS = 30
-_DEFAULT_MAX_PROCESS_POLL_SECONDS = 50
+
+
+def _default_max_process_poll_seconds() -> int:
+    from fast_agent.config import ShellSettings
+
+    return ShellSettings().process_poll_max_wait_seconds
 _EXECUTE_ARGUMENTS = frozenset(
     {
         "command",
@@ -285,6 +290,7 @@ class ShellRuntime:
         warning_interval_seconds: int = 30,
         working_directory: Path | None = None,
         output_byte_limit: int | None = None,
+        process_poll_default_wait_seconds: int = 0,
         config: Settings | None = None,
         agent_name: str | None = None,
         shell_environment: ShellEnvironment | None = None,
@@ -318,13 +324,17 @@ class ShellRuntime:
         self._output_display_lines: int | None = None
         self._show_bash_output = True
         self._prefer_local_shell = False
-        self._max_process_poll_seconds = _DEFAULT_MAX_PROCESS_POLL_SECONDS
+        self._max_process_poll_seconds = _default_max_process_poll_seconds()
         if config is not None:
             shell_config = config.shell_execution
             self._output_display_lines = shell_config.output_display_lines
             self._show_bash_output = shell_config.show_bash
             self._prefer_local_shell = shell_config.prefer_local_shell
             self._max_process_poll_seconds = shell_config.process_poll_max_wait_seconds
+        self._process_poll_default_wait_seconds = min(
+            process_poll_default_wait_seconds,
+            self._max_process_poll_seconds,
+        )
 
         if self.enabled:
             # Detect the shell early so we can include it in the tool description
@@ -409,6 +419,7 @@ class ShellRuntime:
                     name=POLL_PROCESS_TOOL_NAME,
                     description=(
                         "Get new output and status from a managed shell process. Omit `wait_sec` "
+                        "to use the model default declared in the schema, "
                         "or use 0 for a non-blocking poll; a positive value waits for completion "
                         "or new output. Set `wake_on_output=false` to buffer output and wait only "
                         "for completion or the deadline. For long-running processes that do not "
@@ -425,6 +436,7 @@ class ShellRuntime:
                             },
                             "wait_sec": {
                                 "type": "integer",
+                                "default": self._process_poll_default_wait_seconds,
                                 "description": (
                                     "Optional wait in seconds, from 0 through "
                                     f"{self._max_process_poll_seconds}."
@@ -768,7 +780,7 @@ class ShellRuntime:
         if unknown:
             rendered = ", ".join(repr(name) for name in unknown)
             raise ValueError(f"Error: unknown poll_process argument(s): {rendered}")
-        wait_sec = payload.get("wait_sec", 0)
+        wait_sec = payload.get("wait_sec", self._process_poll_default_wait_seconds)
         if type(wait_sec) is not int or wait_sec < 0:
             raise ValueError("Error: 'wait_sec' argument must be a non-negative integer")
         if wait_sec > self._max_process_poll_seconds:
@@ -788,6 +800,17 @@ class ShellRuntime:
             wait_sec=wait_sec,
             wake_on_output=wake_on_output,
         )
+
+    def set_process_poll_default_wait_seconds(self, value: int) -> None:
+        """Update the model-specific default used when wait_sec is omitted."""
+        default_wait = value if type(value) is int and value >= 0 else 0
+        self._process_poll_default_wait_seconds = min(
+            default_wait,
+            self._max_process_poll_seconds,
+        )
+        if self._poll_process_tool is not None:
+            wait_schema = self._poll_process_tool.inputSchema["properties"]["wait_sec"]
+            wait_schema["default"] = self._process_poll_default_wait_seconds
 
     @staticmethod
     def _parse_terminate_process_arguments(

@@ -41,7 +41,11 @@ from pydantic import BaseModel
 from fast_agent.agents.agent_card import build_fast_agent_card
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.tool_agent import ToolAgent
-from fast_agent.commands.model_capabilities import resolve_model_name, resolve_resolved_model
+from fast_agent.commands.model_capabilities import (
+    resolve_model_name,
+    resolve_model_params,
+    resolve_resolved_model,
+)
 from fast_agent.config import MCPServerSettings
 from fast_agent.constants import (
     HUMAN_INPUT_TOOL_NAME,
@@ -150,6 +154,7 @@ class _ShellRuntimeSettings:
     timeout_seconds: int
     warning_interval_seconds: int
     output_byte_limit: int
+    process_poll_default_wait_seconds: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -783,7 +788,26 @@ class McpAgent(ABC, ToolAgent):
             timeout_seconds=timeout_seconds,
             warning_interval_seconds=warning_interval_seconds,
             output_byte_limit=output_byte_limit,
+            process_poll_default_wait_seconds=(
+                self._model_process_poll_default_wait_seconds()
+            ),
         )
+
+    def _model_process_poll_default_wait_seconds(
+        self,
+        llm: FastAgentLLMProtocol | None = None,
+    ) -> int:
+        active_llm = llm or self._llm
+        model_params = resolve_model_params(active_llm)
+        if model_params is not None:
+            return model_params.process_poll_default_wait_seconds
+        model_name = (
+            resolve_model_name(active_llm)
+            if active_llm is not None
+            else self._resolve_shell_tool_model_name()
+        )
+        params = ModelDatabase.get_model_params(model_name) if model_name else None
+        return params.process_poll_default_wait_seconds if params is not None else 0
 
     def _shell_read_text_file_enabled(self) -> bool:
         """Return whether shell-enabled agents should expose local read_text_file."""
@@ -1002,6 +1026,9 @@ class McpAgent(ABC, ToolAgent):
 
         if self._shell_runtime is None:
             return
+        self._shell_runtime.set_process_poll_default_wait_seconds(
+            self._model_process_poll_default_wait_seconds(llm)
+        )
         if self._shell_output_limit_overridden():
             return
 
@@ -1045,6 +1072,9 @@ class McpAgent(ABC, ToolAgent):
             warning_interval_seconds=shell_settings.warning_interval_seconds,
             working_directory=working_directory,
             output_byte_limit=shell_settings.output_byte_limit,
+            process_poll_default_wait_seconds=(
+                shell_settings.process_poll_default_wait_seconds
+            ),
             config=self._context.config if self._context else None,
             agent_name=self._name,
             shell_environment=self._shell_environment,

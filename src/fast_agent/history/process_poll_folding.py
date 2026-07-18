@@ -202,71 +202,112 @@ def _string_mapping(value: object) -> dict[str, object] | None:
     return {str(key): item for key, item in value.items()}
 
 
-def _folded_usage(exchanges: list[PollExchange]) -> dict[str, object] | None:
+_FOLDED_TOKEN_FIELDS = (
+    "prompt_tokens",
+    "uncached_tokens",
+    "cached_tokens",
+    "cache_write_tokens",
+    "tool_use_prompt_tokens",
+    "completion_tokens",
+    "reasoning_tokens",
+)
+
+
+def _attempt_token_fields(
+    attempt_mapping: dict[str, object],
+) -> dict[str, int | None] | None:
+    prompt = _string_mapping(attempt_mapping.get("prompt"))
+    completion = _string_mapping(attempt_mapping.get("completion"))
+    if prompt is None or completion is None:
+        return None
+    raw = {
+        "prompt_tokens": prompt.get("total"),
+        "uncached_tokens": prompt.get("uncached"),
+        "cached_tokens": prompt.get("cache_read"),
+        "cache_write_tokens": prompt.get("cache_write"),
+        "tool_use_prompt_tokens": prompt.get("tool_use"),
+        "completion_tokens": completion.get("total"),
+        "reasoning_tokens": completion.get("reasoning"),
+    }
+    return {field: value if type(value) is int else None for field, value in raw.items()}
+
+
+def _folded_usage(exchanges: list[PollExchange]) -> dict[str, object]:
+    """Summarize per-poll usage; unknown or malformed values degrade to None.
+
+    Folds feed benchmarking exports, so a poll with missing usage must not
+    discard what the other polls reported: each field is complete-or-None.
+    """
     totals = Counter[str]()
     request_modes = Counter[str]()
     turns: list[dict[str, object]] = []
     unknown_fields: set[str] = set()
+    provider_attempts_unknown = False
+    model_duration_unknown = False
+    tool_duration_unknown = False
     total_cost_usd = 0.0
     cost_unknown = False
     for exchange in exchanges:
         turn_totals = Counter[str]()
         turn_unknown_fields: set[str] = set()
+        turn_provider_attempts: int | None = 0
         turn_cost_usd = 0.0
         turn_cost_unknown = False
         usage = _string_mapping(_json_channel(exchange.request, FAST_AGENT_USAGE))
-        if usage is None:
-            return None
-        attempts = usage.get("provider_attempts")
-        if not isinstance(attempts, list) or not attempts:
-            return None
-        for attempt in attempts:
-            attempt_mapping = _string_mapping(attempt)
-            if attempt_mapping is None:
-                return None
-            prompt = _string_mapping(attempt_mapping.get("prompt"))
-            completion = _string_mapping(attempt_mapping.get("completion"))
-            if prompt is None or completion is None:
-                return None
-            fields = {
-                "prompt_tokens": prompt.get("total"),
-                "uncached_tokens": prompt.get("uncached"),
-                "cached_tokens": prompt.get("cache_read"),
-                "cache_write_tokens": prompt.get("cache_write"),
-                "tool_use_prompt_tokens": prompt.get("tool_use"),
-                "completion_tokens": completion.get("total"),
-                "reasoning_tokens": completion.get("reasoning"),
-            }
-            for field, value in fields.items():
-                if value is None and field not in {
-                    "prompt_tokens",
-                    "completion_tokens",
-                }:
-                    unknown_fields.add(field)
-                    turn_unknown_fields.add(field)
-                    continue
-                if type(value) is not int:
-                    return None
-                totals[field] += value
-                turn_totals[field] += value
-            totals["provider_attempts"] += 1
-            turn_totals["provider_attempts"] += 1
-            cost_usd = attempt_mapping.get("cost_usd")
-            if cost_usd is None:
-                cost_unknown = True
-                turn_cost_unknown = True
-            else:
-                cost = _non_negative_float(cost_usd)
+        attempts = usage.get("provider_attempts") if usage is not None else None
+        attempt_mappings = (
+            [_string_mapping(attempt) for attempt in attempts]
+            if isinstance(attempts, list) and attempts
+            else None
+        )
+        if attempt_mappings is None or any(
+            attempt_mapping is None for attempt_mapping in attempt_mappings
+        ):
+            turn_unknown_fields.update(_FOLDED_TOKEN_FIELDS)
+            turn_provider_attempts = None
+            turn_cost_unknown = True
+        else:
+            for attempt_mapping in attempt_mappings:
+                assert attempt_mapping is not None
+                fields = _attempt_token_fields(attempt_mapping) or dict.fromkeys(
+                    _FOLDED_TOKEN_FIELDS
+                )
+                for field, value in fields.items():
+                    if value is None:
+                        turn_unknown_fields.add(field)
+                    else:
+                        turn_totals[field] += value
+                turn_provider_attempts += 1
+                cost = _non_negative_float(attempt_mapping.get("cost_usd"))
                 if cost is None:
-                    return None
-                total_cost_usd += cost
-                turn_cost_usd += cost
+                    turn_cost_unknown = True
+                else:
+                    turn_cost_usd += cost
+
+        unknown_fields |= turn_unknown_fields
+        for field in _FOLDED_TOKEN_FIELDS:
+            totals[field] += turn_totals[field]
+        if turn_provider_attempts is None:
+            provider_attempts_unknown = True
+        else:
+            totals["provider_attempts"] += turn_provider_attempts
+        if turn_cost_unknown:
+            cost_unknown = True
+        else:
+            total_cost_usd += turn_cost_usd
 
         timing = _string_mapping(_json_channel(exchange.request, FAST_AGENT_TIMING))
-        duration_ms = timing.get("duration_ms") if timing is not None else None
-        if isinstance(duration_ms, bool) or not isinstance(duration_ms, (int, float)):
-            return None
-        totals["model_duration_micros"] += round(float(duration_ms) * 1000)
+        raw_duration = timing.get("duration_ms") if timing is not None else None
+        duration_ms = (
+            float(raw_duration)
+            if isinstance(raw_duration, (int, float))
+            and not isinstance(raw_duration, bool)
+            else None
+        )
+        if duration_ms is None:
+            model_duration_unknown = True
+        else:
+            totals["model_duration_micros"] += round(duration_ms * 1000)
 
         tool_timings = _string_mapping(
             _json_channel(exchange.result_message, FAST_AGENT_TOOL_TIMING)
@@ -277,16 +318,21 @@ def _folded_usage(exchanges: list[PollExchange]) -> dict[str, object] | None:
             else None
         )
         call_timing_mapping = _string_mapping(call_timing)
-        tool_duration_ms = (
+        raw_tool_duration = (
             call_timing_mapping.get("timing_ms")
             if call_timing_mapping is not None
             else None
         )
-        if isinstance(tool_duration_ms, bool) or not isinstance(
-            tool_duration_ms, (int, float)
-        ):
-            return None
-        totals["tool_duration_micros"] += round(float(tool_duration_ms) * 1000)
+        tool_duration_ms = (
+            float(raw_tool_duration)
+            if isinstance(raw_tool_duration, (int, float))
+            and not isinstance(raw_tool_duration, bool)
+            else None
+        )
+        if tool_duration_ms is None:
+            tool_duration_unknown = True
+        else:
+            totals["tool_duration_micros"] += round(tool_duration_ms * 1000)
 
         diagnostics = _string_mapping(
             _json_channel(exchange.request, _RESPONSES_DIAGNOSTICS_CHANNEL)
@@ -321,66 +367,36 @@ def _folded_usage(exchanges: list[PollExchange]) -> dict[str, object] | None:
                 ),
                 "request_mode": mode,
                 "request_outcome": outcome,
-                "provider_attempts": turn_totals["provider_attempts"],
-                "prompt_tokens": turn_totals["prompt_tokens"],
-                "uncached_tokens": (
-                    None
-                    if "uncached_tokens" in turn_unknown_fields
-                    else turn_totals["uncached_tokens"]
-                ),
-                "cached_tokens": (
-                    None
-                    if "cached_tokens" in turn_unknown_fields
-                    else turn_totals["cached_tokens"]
-                ),
-                "cache_write_tokens": (
-                    None
-                    if "cache_write_tokens" in turn_unknown_fields
-                    else turn_totals["cache_write_tokens"]
-                ),
-                "tool_use_prompt_tokens": (
-                    None
-                    if "tool_use_prompt_tokens" in turn_unknown_fields
-                    else turn_totals["tool_use_prompt_tokens"]
-                ),
-                "completion_tokens": turn_totals["completion_tokens"],
-                "reasoning_tokens": (
-                    None
-                    if "reasoning_tokens" in turn_unknown_fields
-                    else turn_totals["reasoning_tokens"]
-                ),
+                "provider_attempts": turn_provider_attempts,
+                **{
+                    field: (
+                        None
+                        if field in turn_unknown_fields
+                        else turn_totals[field]
+                    )
+                    for field in _FOLDED_TOKEN_FIELDS
+                },
                 "cost_usd": None if turn_cost_unknown else turn_cost_usd,
-                "model_duration_ms": float(duration_ms),
-                "tool_duration_ms": float(tool_duration_ms),
+                "model_duration_ms": duration_ms,
+                "tool_duration_ms": tool_duration_ms,
             }
         )
 
     folded_usage: dict[str, object] = {
         "llm_calls": len(exchanges),
-        "provider_attempts": totals["provider_attempts"],
-        "prompt_tokens": totals["prompt_tokens"],
-        "uncached_tokens": (
-            None if "uncached_tokens" in unknown_fields else totals["uncached_tokens"]
+        "provider_attempts": (
+            None if provider_attempts_unknown else totals["provider_attempts"]
         ),
-        "cached_tokens": (
-            None if "cached_tokens" in unknown_fields else totals["cached_tokens"]
+        **{
+            field: None if field in unknown_fields else totals[field]
+            for field in _FOLDED_TOKEN_FIELDS
+        },
+        "model_duration_ms": (
+            None if model_duration_unknown else totals["model_duration_micros"] / 1000
         ),
-        "cache_write_tokens": (
-            None
-            if "cache_write_tokens" in unknown_fields
-            else totals["cache_write_tokens"]
+        "tool_duration_ms": (
+            None if tool_duration_unknown else totals["tool_duration_micros"] / 1000
         ),
-        "tool_use_prompt_tokens": (
-            None
-            if "tool_use_prompt_tokens" in unknown_fields
-            else totals["tool_use_prompt_tokens"]
-        ),
-        "completion_tokens": totals["completion_tokens"],
-        "reasoning_tokens": (
-            None if "reasoning_tokens" in unknown_fields else totals["reasoning_tokens"]
-        ),
-        "model_duration_ms": totals["model_duration_micros"] / 1000,
-        "tool_duration_ms": totals["tool_duration_micros"] / 1000,
         "request_modes": dict(sorted(request_modes.items())),
         "turns": turns,
     }
@@ -391,72 +407,52 @@ def _folded_usage(exchanges: list[PollExchange]) -> dict[str, object] | None:
 
 def _merge_folded_usage(
     prior: dict[str, object] | None,
-    current: dict[str, object] | None,
-) -> dict[str, object] | None:
+    current: dict[str, object],
+) -> dict[str, object]:
+    """Accumulate a prior fold's usage; unmergeable fields degrade to None."""
     if prior is None:
         return current
-    if current is None:
-        return None
 
-    integer_fields = (
-        "llm_calls",
-        "provider_attempts",
-        "prompt_tokens",
-        "completion_tokens",
-    )
     merged: dict[str, object] = {}
-    for field in integer_fields:
+    for field in ("llm_calls", "provider_attempts", *_FOLDED_TOKEN_FIELDS):
         prior_value = prior.get(field)
         current_value = current.get(field)
-        if type(prior_value) is not int or type(current_value) is not int:
-            return None
-        merged[field] = prior_value + current_value
-
-    for field in (
-        "uncached_tokens",
-        "cached_tokens",
-        "cache_write_tokens",
-        "tool_use_prompt_tokens",
-        "reasoning_tokens",
-    ):
-        prior_value = prior.get(field)
-        current_value = current.get(field)
-        if prior_value is None or current_value is None:
-            merged[field] = None
-        elif type(prior_value) is int and type(current_value) is int:
-            merged[field] = prior_value + current_value
-        else:
-            return None
+        merged[field] = (
+            prior_value + current_value
+            if type(prior_value) is int and type(current_value) is int
+            else None
+        )
 
     for field in ("model_duration_ms", "tool_duration_ms"):
         prior_value = _non_negative_float(prior.get(field))
         current_value = _non_negative_float(current.get(field))
-        if prior_value is None or current_value is None:
-            return None
-        merged[field] = prior_value + current_value
+        merged[field] = (
+            prior_value + current_value
+            if prior_value is not None and current_value is not None
+            else None
+        )
 
     prior_cost = _non_negative_float(prior.get("cost_usd"))
     current_cost = _non_negative_float(current.get("cost_usd"))
     if prior_cost is not None and current_cost is not None:
         merged["cost_usd"] = prior_cost + current_cost
 
-    prior_modes = _string_mapping(prior.get("request_modes"))
-    current_modes = _string_mapping(current.get("request_modes"))
-    if prior_modes is None or current_modes is None:
-        return None
     request_modes = Counter[str]()
-    for modes in (prior_modes, current_modes):
-        for mode, count in modes.items():
-            if type(count) is not int:
-                return None
-            request_modes[mode] += count
+    for modes in (
+        _string_mapping(prior.get("request_modes")),
+        _string_mapping(current.get("request_modes")),
+    ):
+        for mode, count in (modes or {}).items():
+            if type(count) is int:
+                request_modes[mode] += count
     merged["request_modes"] = dict(sorted(request_modes.items()))
 
     prior_turns = prior.get("turns")
     current_turns = current.get("turns")
-    if not isinstance(prior_turns, list) or not isinstance(current_turns, list):
-        return None
-    merged["turns"] = [*prior_turns, *current_turns]
+    merged["turns"] = [
+        *(prior_turns if isinstance(prior_turns, list) else []),
+        *(current_turns if isinstance(current_turns, list) else []),
+    ]
     return merged
 
 
@@ -661,8 +657,7 @@ def _fold_metadata(
         if prior_fold is not None
         else None
     )
-    if folded_usage := _merge_folded_usage(prior_usage, current_usage):
-        metadata["folded_usage"] = folded_usage
+    metadata["folded_usage"] = _merge_folded_usage(prior_usage, current_usage)
     assistant_updates = _assistant_updates(
         exchanges[:folded_polls],
         prior_fold=prior_fold,

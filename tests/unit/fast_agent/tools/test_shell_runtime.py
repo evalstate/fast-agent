@@ -523,6 +523,55 @@ def test_poll_process_schema_uses_configured_maximum_wait() -> None:
     assert "prefer quiet waits near the maximum" in (poll_tool.description or "")
 
 
+def test_poll_process_uses_model_default_wait() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        process_poll_default_wait_seconds=30,
+    )
+
+    poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
+    wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
+    assert wait_schema["default"] == 30
+    assert runtime._parse_poll_process_arguments(
+        {"process_id": "process-1"}
+    ).wait_sec == 30
+
+
+def test_poll_process_clamps_model_default_to_configured_maximum() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        process_poll_default_wait_seconds=120,
+        config=Settings(
+            shell_execution=ShellSettings(process_poll_max_wait_seconds=50)
+        ),
+    )
+
+    poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
+    wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
+    assert wait_schema["default"] == 50
+    assert runtime._parse_poll_process_arguments(
+        {"process_id": "process-1"}
+    ).wait_sec == 50
+
+
+def test_poll_process_updates_default_for_model_switch() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+    )
+
+    runtime.set_process_poll_default_wait_seconds(25)
+
+    poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
+    wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
+    assert wait_schema["default"] == 25
+    assert runtime._parse_poll_process_arguments(
+        {"process_id": "process-1"}
+    ).wait_sec == 25
+
+
 @pytest.mark.asyncio
 async def test_poll_process_rejects_wait_above_configured_maximum() -> None:
     settings = Settings(

@@ -166,6 +166,7 @@ class ModelOverlayMetadata(BaseModel):
     json_mode: Literal["schema", "object"] | None = None
     structured_tool_policy: Literal["always", "defer", "no_tools"] | None = None
     managed_process_poll_folding: bool | None = None
+    process_poll_default_wait_seconds: int | None = Field(default=None, ge=0, le=600)
     model_specific: str | None = None
     # Legacy fallback retained for older overlay files. New overlays should use
     # defaults.temperature instead.
@@ -175,6 +176,7 @@ class ModelOverlayMetadata(BaseModel):
     @field_validator(
         "context_window",
         "max_output_tokens",
+        "process_poll_default_wait_seconds",
         "default_temperature",
         mode="before",
     )
@@ -353,6 +355,9 @@ class LoadedModelOverlay:
             managed_process_poll_folding=(
                 self.manifest.metadata.managed_process_poll_folding
             ),
+            process_poll_default_wait_seconds=(
+                self.manifest.metadata.process_poll_default_wait_seconds or 0
+            ),
             model_specific=self.manifest.metadata.model_specific,
             default_provider=self.provider,
             default_temperature=self._default_temperature(),
@@ -401,6 +406,10 @@ class LoadedModelOverlay:
         if metadata.managed_process_poll_folding is not None:
             update_payload["managed_process_poll_folding"] = (
                 metadata.managed_process_poll_folding
+            )
+        if metadata.process_poll_default_wait_seconds is not None:
+            update_payload["process_poll_default_wait_seconds"] = (
+                metadata.process_poll_default_wait_seconds
             )
         if metadata.model_specific is not None:
             update_payload["model_specific"] = metadata.model_specific
@@ -658,6 +667,7 @@ def build_model_overlay_manifest_from_database(
         json_mode=json_mode,
         structured_tool_policy=existing.structured_tool_policy,
         managed_process_poll_folding=existing.managed_process_poll_folding,
+        process_poll_default_wait_seconds=existing.process_poll_default_wait_seconds,
         fast=existing.fast,
         default_temperature=existing.default_temperature,
     )

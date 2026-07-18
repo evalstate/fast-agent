@@ -134,11 +134,8 @@ class DynamicDetailsColumn(ProgressColumn):
 
     def render(self, task: "Task") -> Text:
         details = str(task.fields.get("details") or "").strip()
-        details_without_id, id_separator, correlation_id = details.partition(" • ")
-        detail_parts = [part.strip() for part in details_without_id.split(" · ") if part.strip()]
-        wait_parts = [part for part in detail_parts if part.startswith("≤")]
-        parts = [part for part in detail_parts if not part.startswith("≤")]
         is_process_poll = bool(task.fields.get("is_process_poll"))
+        parts = [details]
         elapsed_base = task.fields.get("process_elapsed_seconds")
         if isinstance(elapsed_base, (int, float)) and not isinstance(elapsed_base, bool):
             elapsed = float(elapsed_base) + (task.elapsed or 0.0)
@@ -159,16 +156,15 @@ class DynamicDetailsColumn(ProgressColumn):
             )
             if output_activity:
                 parts.append(output_activity)
-        rendered_details = " · ".join(parts)
-        if id_separator and not is_process_poll:
-            rendered_details = f"{rendered_details} • {correlation_id}"
-        rendered_parts = [rendered_details, *wait_parts]
         command = task.fields.get("process_command")
         if isinstance(command, str) and command:
-            rendered_parts.append(command)
-        if id_separator and is_process_poll:
-            rendered_parts.append(f"id: {correlation_id.removeprefix('id: ')}")
-        return Text(" · ".join(part for part in rendered_parts if part), style=self.style)
+            parts.append(command)
+        # Poll rows carry the correlation id as a structured field so it can render
+        # last; other tool rows keep it embedded in the details text.
+        correlation_marker = task.fields.get("process_correlation_marker")
+        if is_process_poll and isinstance(correlation_marker, str) and correlation_marker:
+            parts.append(f"id: {correlation_marker}")
+        return Text(" · ".join(part for part in parts if part), style=self.style)
 
 
 class RichProgressDisplay:
@@ -555,11 +551,15 @@ class RichProgressDisplay:
         return f"[{action_style}]{formatted_text}"
 
     @staticmethod
-    def _action_label(event: ProgressEvent) -> str:
-        if event.action == ProgressAction.CALLING_TOOL and matches_tool_name(
+    def _is_process_poll_event(event: ProgressEvent) -> bool:
+        return event.action == ProgressAction.CALLING_TOOL and matches_tool_name(
             event.tool_name,
             POLL_PROCESS_TOOL_NAME,
-        ):
+        )
+
+    @classmethod
+    def _action_label(cls, event: ProgressEvent) -> str:
+        if cls._is_process_poll_event(event):
             return "Monitoring"
         return event.action.value.strip()
 
@@ -580,16 +580,16 @@ class RichProgressDisplay:
         details_value = event.details or ""
         if not is_correlated_tool_event:
             return details_value
+        if self._is_process_poll_event(event):
+            # Poll rows always render their correlation id, passed to the details
+            # column as a structured task field rather than embedded here.
+            return details_value.strip()
 
         active_correlated = self._count_correlated_tool_rows(event.agent_name or "default")
-        is_process_poll = (
-            event.action == ProgressAction.CALLING_TOOL
-            and matches_tool_name(event.tool_name, POLL_PROCESS_TOOL_NAME)
-        )
         return self._format_correlated_details(
             details=details_value.strip(),
             correlation_id=event.correlation_id,
-            force_show_id=is_process_poll or active_correlated > 1,
+            force_show_id=active_correlated > 1,
         )
 
     def _update_kwargs_for_event(
@@ -599,10 +599,7 @@ class RichProgressDisplay:
         task_name: str,
         is_correlated_tool_event: bool,
     ) -> dict[str, Any]:
-        is_process_poll = (
-            event.action == ProgressAction.CALLING_TOOL
-            and matches_tool_name(event.tool_name, POLL_PROCESS_TOOL_NAME)
-        )
+        is_process_poll = self._is_process_poll_event(event)
         target = event.target or task_name
         if is_process_poll and self.is_default_agent_name(event.agent_name):
             target = ""
@@ -616,6 +613,10 @@ class RichProgressDisplay:
             "task_name": task_name,
             "is_process_poll": is_process_poll,
         }
+        if is_process_poll and event.correlation_id:
+            update_kwargs["process_correlation_marker"] = self._short_correlation_id(
+                event.correlation_id
+            )
         if event.process_elapsed_seconds is not None:
             update_kwargs["process_elapsed_seconds"] = event.process_elapsed_seconds
         if event.process_command is not None:

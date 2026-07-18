@@ -8,6 +8,7 @@ from fast_agent.utils.collections import unique_preserve_order
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import FastAgentLLMProtocol
+    from fast_agent.llm.model_database import ModelParameters
     from fast_agent.llm.model_info import ModelInfo
     from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
     from fast_agent.llm.resolved_model import ResolvedModelSpec
@@ -57,6 +58,16 @@ def resolve_resolved_model(
     llm: "FastAgentLLMProtocol | None",
 ) -> "ResolvedModelSpec | None":
     return cast("ResolvedModelSpec | None", _llm_attr(llm, "resolved_model"))
+
+
+def resolve_model_params(
+    llm: "FastAgentLLMProtocol | None",
+) -> "ModelParameters | None":
+    resolved_model = resolve_resolved_model(llm)
+    return cast(
+        "ModelParameters | None",
+        _llm_attr(resolved_model, "model_params"),
+    )
 
 
 def resolve_model_name(llm: "FastAgentLLMProtocol | None") -> str | None:

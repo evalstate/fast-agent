@@ -7,7 +7,7 @@ context windows, max output tokens, and supported tokenization types.
 
 from typing import ClassVar, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from fast_agent.llm.model_mime_support import ResourceSource, tokenizes_support_mime
 from fast_agent.llm.provider_types import Provider
@@ -41,6 +41,9 @@ class ModelParameters(BaseModel):
 
     managed_process_poll_folding: bool | None = None
     """Whether managed-process poll folding has been validated for this model."""
+
+    process_poll_default_wait_seconds: int = Field(default=0, ge=0, le=600)
+    """Default poll_process wait when the model omits wait_sec."""
 
     reasoning: None | str = None
     """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""

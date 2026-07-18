@@ -262,7 +262,9 @@ def test_folds_successful_poll_suffix_and_retains_terminal_pair() -> None:
     }
     assert retained_exchange_mapping["call_id"] == "call-5"
     metadata_without_audit = {
-        key: value for key, value in folded.metadata.items() if key != "audit"
+        key: value
+        for key, value in folded.metadata.items()
+        if key not in {"audit", "folded_usage"}
     }
     assert metadata_without_audit == {
         "process_id": "process-1",
@@ -278,6 +280,18 @@ def test_folds_successful_poll_suffix_and_retains_terminal_pair() -> None:
         "output_bytes": 500,
         "exit_code": 0,
     }
+    # No usage channels were recorded, so the summary keeps what it does know
+    # (poll counts and per-turn wait/yield data) and reports token fields as None.
+    folded_usage = folded.metadata["folded_usage"]
+    assert isinstance(folded_usage, dict)
+    assert folded_usage["llm_calls"] == 4
+    assert folded_usage["provider_attempts"] is None
+    assert folded_usage["prompt_tokens"] is None
+    turns = folded_usage["turns"]
+    assert isinstance(turns, list)
+    assert len(turns) == 4
+    assert all(turn["wait_sec"] == 30 for turn in turns)
+    assert all(turn["prompt_tokens"] is None for turn in turns)
     summary_result = _summary_result(folded)
     first = summary_result.content[0]
     assert isinstance(first, TextContent)
@@ -772,6 +786,38 @@ def test_fold_archives_usage_when_optional_token_fields_are_absent() -> None:
     assert trajectory.final_metrics.total_prompt_tokens == 515
     assert trajectory.final_metrics.total_completion_tokens == 65
     assert trajectory.final_metrics.total_cached_tokens == 400
+
+
+def test_fold_keeps_partial_usage_when_one_poll_is_missing_usage() -> None:
+    history = _history_before_terminal(4)
+    for index in range(1, 5):
+        if index != 2:
+            _add_usage(history[index * 2 - 1], index, cost_usd=index / 100)
+        if index < 4:
+            _add_tool_timing(history[index * 2], index)
+    terminal = _poll_result(4, status="completed")
+    _add_tool_timing(terminal, 4)
+
+    folded = fold_completed_process_poll_history(history, terminal)
+
+    assert folded is not None
+    archived = folded.metadata["folded_usage"]
+    assert isinstance(archived, dict)
+    archived_mapping = {str(key): value for key, value in archived.items()}
+    assert archived_mapping["llm_calls"] == 3
+    # Aggregates stay complete-or-None: the poll without usage poisons totals,
+    # but fields observed for every poll are preserved.
+    assert archived_mapping["provider_attempts"] is None
+    assert archived_mapping["prompt_tokens"] is None
+    assert "cost_usd" not in archived_mapping
+    assert archived_mapping["model_duration_ms"] is None
+    assert archived_mapping["tool_duration_ms"] == pytest.approx(90006.0)
+    turns = archived_mapping["turns"]
+    assert isinstance(turns, list)
+    assert [turn["prompt_tokens"] for turn in turns] == [101, None, 103]
+    assert [turn["cost_usd"] for turn in turns] == [0.01, None, 0.03]
+    assert [turn["provider_attempts"] for turn in turns] == [1, None, 1]
+    assert [turn["yield_reason"] for turn in turns] == ["deadline"] * 3
 
 
 def test_atif_rejects_fold_without_audit_archive() -> None:
