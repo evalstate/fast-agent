@@ -75,7 +75,7 @@ class XAIResponsesLLM(ResponsesLLM):
             kwargs,
             DEFAULT_XAI_MODEL,
         )
-        params.parallel_tool_calls = False
+        params.parallel_tool_calls = True
         return params
 
     def _provider_config_fallback_sections(self) -> tuple[str, ...]:

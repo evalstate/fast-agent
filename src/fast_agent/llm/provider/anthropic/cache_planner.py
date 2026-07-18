@@ -22,6 +22,7 @@ class AnthropicCachePlanner:
         messages: list[PromptMessageExtended],
         cache_mode: str,
         system_cache_blocks: int = 0,
+        process_poll_boundary: int | None = None,
     ) -> list[int]:
         """Return message indices that should receive cache_control."""
 
@@ -35,12 +36,26 @@ class AnthropicCachePlanner:
         template_prefix = self._template_prefix_count(messages)
         template_indices: list[int] = []
 
+        process_indices: list[int] = []
+        if (
+            cache_mode == "auto"
+            and budget > 0
+            and process_poll_boundary is not None
+            and 0 <= process_poll_boundary < len(messages)
+        ):
+            process_indices = [process_poll_boundary]
+            budget -= 1
+
         if cache_mode in ("prompt", "auto") and template_prefix:
-            template_indices = list(range(min(template_prefix, budget)))
+            template_indices = [
+                index
+                for index in range(template_prefix)
+                if index != process_poll_boundary
+            ][:budget]
             budget -= len(template_indices)
 
         conversation_indices: list[int] = []
-        if cache_mode == "auto" and budget > 0:
+        if cache_mode == "auto" and budget > 0 and not process_indices:
             conv_count = max(0, len(messages) - template_prefix)
             if conv_count >= self.walk_distance:
                 positions = [
@@ -52,4 +67,4 @@ class AnthropicCachePlanner:
                 positions = positions[-self.max_conversation_blocks :]
                 conversation_indices = positions[:budget]
 
-        return template_indices + conversation_indices
+        return sorted(template_indices + process_indices + conversation_indices)

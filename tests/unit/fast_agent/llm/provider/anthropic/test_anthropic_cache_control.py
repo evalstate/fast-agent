@@ -83,3 +83,17 @@ def test_conversation_cache_waits_for_walk_distance():
         AnthropicLLM._apply_cache_control_to_message(provider_msgs[idx])
 
     assert count_cache_controls(provider_msgs) == 1
+
+
+def test_process_poll_boundary_replaces_periodic_conversation_markers():
+    planner = AnthropicCachePlanner(walk_distance=2, max_total_blocks=4)
+    extended = [make_message(f"turn {i}") for i in range(8)]
+
+    plan_indices = planner.plan_indices(
+        extended,
+        cache_mode="auto",
+        system_cache_blocks=1,
+        process_poll_boundary=3,
+    )
+
+    assert plan_indices == [3]

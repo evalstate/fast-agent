@@ -163,7 +163,7 @@ def test_xai_responses_builds_conservative_response_payload_with_default_reasoni
     assert args["model"] == "grok-4.3"
     assert args["store"] is False
     assert args["input"] == input_items
-    assert args["parallel_tool_calls"] is False
+    assert args["parallel_tool_calls"] is True
     assert "include" not in args
     assert args["reasoning"] == {"effort": "low"}
     assert "service_tier" not in args

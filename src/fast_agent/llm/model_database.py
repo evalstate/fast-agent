@@ -359,6 +359,8 @@ class ModelDatabase:
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
+        managed_process_poll_folding=True,
+        process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
     )
 
@@ -489,6 +491,7 @@ class ModelDatabase:
         default_provider=Provider.RESPONSES,
         model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
         managed_process_poll_folding=True,
+        process_poll_default_wait_seconds=240,
     )
 
     OPENAI_GPT_56_LUNA = OPENAI_GPT_56.model_copy(
@@ -529,6 +532,8 @@ class ModelDatabase:
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
+        managed_process_poll_folding=True,
+        process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
     )
     ANTHROPIC_OPUS_46 = ModelParameters(
@@ -541,6 +546,8 @@ class ModelDatabase:
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_46,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_46,
         anthropic_required_betas=(ANTHROPIC_WEB_TOOLS_BETA_46,),
+        managed_process_poll_folding=True,
+        process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
     )
     ANTHROPIC_OPUS_47 = ANTHROPIC_OPUS_46.model_copy(
@@ -572,6 +579,8 @@ class ModelDatabase:
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
+        managed_process_poll_folding=True,
+        process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
     )
     ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
@@ -583,6 +592,8 @@ class ModelDatabase:
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
+        managed_process_poll_folding=True,
+        process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
     )
     ANTHROPIC_SONNET_46 = ModelParameters(
@@ -595,6 +606,8 @@ class ModelDatabase:
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_46,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_46,
         anthropic_required_betas=(ANTHROPIC_WEB_TOOLS_BETA_46,),
+        managed_process_poll_folding=True,
+        process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
     )
     ANTHROPIC_SONNET_5 = ANTHROPIC_SONNET_46.model_copy(
@@ -617,6 +630,8 @@ class ModelDatabase:
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
+        managed_process_poll_folding=True,
+        process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
     )
     DEEPSEEK_V4_FLASH = ModelParameters(
@@ -776,6 +791,7 @@ class ModelDatabase:
         default_provider=Provider.XAI,
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.XAI,),
+        process_poll_default_wait_seconds=240,
     )
 
     GROK_45 = ModelParameters(
@@ -790,6 +806,7 @@ class ModelDatabase:
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.XAI,),
         managed_process_poll_folding=True,
+        process_poll_default_wait_seconds=240,
     )
 
     MUSE_SPARK_11 = ModelParameters(
@@ -1035,6 +1052,7 @@ class ModelDatabase:
             update={
                 "reasoning_effort_spec": OPENAI_GPT_51_CLASS_REASONING,
                 "model_specific": GPT_53_PLUS_MODEL_SPECIFIC,
+                "process_poll_default_wait_seconds": 240,
             }
         ),
         "gpt-5.6": OPENAI_GPT_56,

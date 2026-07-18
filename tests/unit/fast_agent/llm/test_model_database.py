@@ -55,18 +55,35 @@ def test_gpt_56_context_windows_follow_provider_limits() -> None:
     assert codex_window < responses_window
 
 
-def test_managed_process_poll_folding_is_enabled_for_gpt5_and_grok45() -> None:
-    grok = ModelDatabase.get_model_params(
+def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
+    for model in ("grok-4.3", "grok-4.5"):
+        grok = ModelDatabase.get_model_params(
+            model,
+            provider=Provider.XAI,
+        )
+        assert grok is not None
+        assert grok.process_poll_default_wait_seconds == 240
+    grok_45 = ModelDatabase.get_model_params(
         "grok-4.5",
         provider=Provider.XAI,
     )
-    assert grok is not None
-    assert grok.managed_process_poll_folding is True
+    assert grok_45 is not None
+    assert grok_45.managed_process_poll_folding is True
 
-    gpt5_models = [
-        model for model in ModelDatabase.MODELS if model.startswith("gpt-5")
+    anthropic_models = [
+        model for model in ModelDatabase.MODELS if model.startswith("claude-")
     ]
-    assert gpt5_models
+    assert anthropic_models
+    for model in anthropic_models:
+        params = ModelDatabase.get_model_params(
+            model,
+            provider=Provider.ANTHROPIC,
+        )
+        assert params is not None
+        assert params.managed_process_poll_folding is True
+        assert params.process_poll_default_wait_seconds == 250
+
+    gpt5_models = ("gpt-5.5", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
     for provider in (Provider.RESPONSES, Provider.CODEX_RESPONSES):
         for model in gpt5_models:
             params = ModelDatabase.get_model_params(
@@ -75,6 +92,7 @@ def test_managed_process_poll_folding_is_enabled_for_gpt5_and_grok45() -> None:
             )
             assert params is not None
             assert params.managed_process_poll_folding is True
+            assert params.process_poll_default_wait_seconds == 240
 
 
 def test_glm52_hf_provider_suffix_resolves_without_provider_prefix():

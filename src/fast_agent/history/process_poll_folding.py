@@ -21,7 +21,7 @@ from fast_agent.history.process_poll_fold_audit import (
     ArchivedPollExchange,
     ProcessPollFoldAudit,
 )
-from fast_agent.tools.shell_runtime import POLL_PROCESS_TOOL_NAME
+from fast_agent.tools.shell_runtime import EXECUTE_TOOL_NAME, POLL_PROCESS_TOOL_NAME
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -86,6 +86,27 @@ def _single_poll_result(
     if message.role != "user" or len(results) != 1:
         return None
     return results.get(call_id)
+
+
+def _managed_process_start_id(
+    request: PromptMessageExtended,
+    result: PromptMessageExtended,
+) -> str | None:
+    if request.role != "assistant" or result.role != "user":
+        return None
+    calls = request.tool_calls or {}
+    results = result.tool_results or {}
+    for call_id, call in calls.items():
+        if call.params.name != EXECUTE_TOOL_NAME:
+            continue
+        tool_result = results.get(call_id)
+        if tool_result is None:
+            continue
+        metadata = _result_extra(tool_result, message=result, call_id=call_id)
+        process_id = metadata.get("process_id")
+        if metadata.get("process_status") == "running" and isinstance(process_id, str):
+            return process_id
+    return None
 
 
 def _channel_process_metadata(
@@ -159,6 +180,32 @@ def _exchange(
         result=tool_result,
         metadata=metadata,
     )
+
+
+def managed_process_poll_cache_boundary(
+    messages: list[PromptMessageExtended],
+) -> int | None:
+    """Return the stable execute-result boundary for a contiguous polling suffix."""
+    for result_index in range(len(messages) - 1, 0, -1):
+        process_id = _managed_process_start_id(
+            messages[result_index - 1], messages[result_index]
+        )
+        if process_id is None:
+            continue
+
+        cursor = result_index + 1
+        while cursor + 1 < len(messages):
+            exchange = _exchange(
+                messages[cursor],
+                messages[cursor + 1],
+                request_index=cursor,
+            )
+            if exchange is None or exchange.process_id != process_id:
+                break
+            cursor += 2
+        if cursor == len(messages):
+            return result_index
+    return None
 
 
 def _non_negative_int(value: object) -> int | None:

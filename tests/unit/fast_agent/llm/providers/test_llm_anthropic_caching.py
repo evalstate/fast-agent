@@ -9,15 +9,23 @@ from typing import Literal
 
 import pytest
 from anthropic.types.beta import BetaMessageParam
-from mcp.types import CallToolResult, TextContent
+from mcp.types import (
+    CallToolRequest,
+    CallToolRequestParams,
+    CallToolResult,
+    TextContent,
+)
 
 from fast_agent.config import AnthropicSettings, Settings
+from fast_agent.constants import FAST_AGENT_SHELL_PROCESS_METADATA
 from fast_agent.context import Context
+from fast_agent.history.process_poll_folding import managed_process_poll_cache_boundary
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import AnthropicConverter
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types import RequestParams
+from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
 def _content_dicts(message: BetaMessageParam) -> list[dict[str, object]]:
@@ -265,6 +273,97 @@ class TestAnthropicCaching:
         prepared = llm._build_request_messages(params, message_param, history=[])
 
         assert prepared == [message_param]
+
+    def test_auto_mode_pins_cache_to_managed_process_start(self):
+        llm = self._create_llm(cache_mode="auto")
+        execute_call_id = "execute-1"
+        poll_call_id = "poll-1"
+        execute_result = CallToolResult(
+            content=[TextContent(type="text", text="process-1 running")],
+        )
+        execute_result.meta = {
+            FAST_AGENT_SHELL_PROCESS_METADATA: {
+                "process_id": "process-1",
+                "process_status": "running",
+                "process_yield_reason": "background",
+            }
+        }
+        poll_result = CallToolResult(
+            content=[TextContent(type="text", text="still running")],
+        )
+        poll_result.meta = {
+            FAST_AGENT_SHELL_PROCESS_METADATA: {
+                "process_id": "process-1",
+                "process_status": "running",
+                "process_yield_reason": "deadline",
+                "poll_wait_sec": 240,
+                "output_line_count": 0,
+            }
+        }
+        history = [
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="build the project")],
+            ),
+            PromptMessageExtended(
+                role="assistant",
+                tool_calls={
+                    execute_call_id: CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(
+                            name="execute",
+                            arguments={"command": "sleep 500", "background": True},
+                        ),
+                    )
+                },
+                stop_reason=LlmStopReason.TOOL_USE,
+            ),
+            PromptMessageExtended(
+                role="user",
+                tool_results={execute_call_id: execute_result},
+            ),
+            PromptMessageExtended(
+                role="assistant",
+                tool_calls={
+                    poll_call_id: CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(
+                            name="poll_process",
+                            arguments={
+                                "process_id": "process-1",
+                                "wait_sec": 240,
+                                "wake_on_output": False,
+                            },
+                        ),
+                    )
+                },
+                stop_reason=LlmStopReason.TOOL_USE,
+            ),
+            PromptMessageExtended(
+                role="user",
+                tool_results={poll_call_id: poll_result},
+            ),
+        ]
+        assert managed_process_poll_cache_boundary(history) == 2
+        converted = [AnthropicConverter.convert_to_anthropic(message) for message in history]
+        arguments: dict[str, object] = {}
+
+        llm._apply_anthropic_cache_plan(
+            arguments=arguments,
+            messages=converted,
+            params=llm.get_request_params(RequestParams(use_history=True)),
+            cache_mode="auto",
+            history=history,
+            current_extended=history[-1],
+        )
+
+        execute_blocks = _content_dicts(converted[2])
+        poll_blocks = _content_dicts(converted[4])
+        assert _cache_control(execute_blocks[-1]) == {
+            "type": "ephemeral",
+            "ttl": "5m",
+        }
+        assert all(_cache_control(block) is None for block in poll_blocks)
 
     def test_conversion_empty_messages(self):
         """Test conversion of empty message list."""

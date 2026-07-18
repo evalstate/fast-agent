@@ -298,11 +298,8 @@ class ShellSettings(BaseModel):
         default=None,
         description="Override model-based output byte limit (None = auto)",
     )
-    # Keep routine polling inside the observed warm-cache window. At a 10:1
-    # uncached/cached input ratio, more frequent warm polls are cheaper than
-    # fewer cold polls for the long-context workloads this setting targets.
     process_poll_max_wait_seconds: int = Field(
-        default=50,
+        default=250,
         ge=1,
         le=600,
         description="Maximum wait accepted by poll_process",

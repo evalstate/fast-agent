@@ -20,6 +20,9 @@ from fast_agent.constants import (
 from fast_agent.history.process_poll_folding import (
     fold_managed_process_poll_history as fold_completed_process_poll_history,
 )
+from fast_agent.history.process_poll_folding import (
+    managed_process_poll_cache_boundary,
+)
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session.trace_export_atif import AtifRunSource, build_atif_trajectory
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -105,6 +108,59 @@ def _history_before_terminal(polls: int) -> list[PromptMessageExtended]:
         )
     history.append(_poll_request(polls))
     return history
+
+
+def _managed_process_start() -> list[PromptMessageExtended]:
+    call_id = "execute-1"
+    result = CallToolResult(
+        content=[TextContent(type="text", text="process-1 running")],
+    )
+    result.meta = {
+        FAST_AGENT_SHELL_PROCESS_METADATA: {
+            "process_id": "process-1",
+            "process_status": "running",
+            "process_yield_reason": "background",
+        }
+    }
+    return [
+        PromptMessageExtended(
+            role="assistant",
+            tool_calls={
+                call_id: CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="execute",
+                        arguments={"command": "sleep 500", "background": True},
+                    ),
+                )
+            },
+            stop_reason=LlmStopReason.TOOL_USE,
+        ),
+        PromptMessageExtended(role="user", tool_results={call_id: result}),
+    ]
+
+
+def test_process_cache_boundary_survives_poll_folding():
+    history = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="build the project")],
+        ),
+        *_managed_process_start(),
+        _poll_request(1),
+        _poll_result(1, output_line_count=0),
+        _poll_request(2),
+        _poll_result(2, output_line_count=0),
+        _poll_request(3),
+    ]
+    folded = fold_completed_process_poll_history(
+        history,
+        _poll_result(3, output_line_count=0),
+    )
+
+    assert folded is not None
+    effective_history = [*folded.history, folded.tool_message]
+    assert managed_process_poll_cache_boundary(effective_history) == 2
 
 
 def _summary_result(folded) -> CallToolResult:

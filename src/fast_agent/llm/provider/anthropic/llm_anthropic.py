@@ -2118,8 +2118,16 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if include_current and current_extended:
             plan_messages.append(current_extended)
 
+        from fast_agent.history.process_poll_folding import (
+            managed_process_poll_cache_boundary,
+        )
+
+        process_poll_boundary = managed_process_poll_cache_boundary(plan_messages)
         cache_indices = planner.plan_indices(
-            plan_messages, cache_mode=cache_mode, system_cache_blocks=system_cache_applied
+            plan_messages,
+            cache_mode=cache_mode,
+            system_cache_blocks=system_cache_applied,
+            process_poll_boundary=process_poll_boundary,
         )
         cache_ttl = self._get_cache_ttl()
         for idx in cache_indices:

@@ -513,7 +513,7 @@ def test_execute_tool_schema_declares_per_call_options() -> None:
         "wait_sec",
         "wake_on_output",
     }
-    assert poll_tool.inputSchema["properties"]["wait_sec"]["maximum"] == 50
+    assert poll_tool.inputSchema["properties"]["wait_sec"]["maximum"] == 250
     assert poll_tool.inputSchema["properties"]["wake_on_output"]["default"] is True
 
 
