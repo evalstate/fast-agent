@@ -368,8 +368,14 @@ def capture_session_snapshot(
     agent_registry: Mapping[str, "AgentProtocol"] | None,
     identity: "SessionSaveIdentity",
     resolved_prompts: Mapping[str, str] | None = None,
+    refresh_git: bool = True,
 ) -> SessionSnapshot:
-    """Capture the authoritative persisted snapshot for the current runtime state."""
+    """Capture the authoritative persisted snapshot for the current runtime state.
+
+    Set ``refresh_git=False`` on frequent mid-turn checkpoints to reuse the
+    previously captured git state instead of shelling out to git on every save;
+    turn boundaries refresh it.
+    """
     snapshot = snapshot_from_session_info(session.info)
     existing_snapshot = _load_existing_session_snapshot(session)
 
@@ -383,6 +389,7 @@ def capture_session_snapshot(
         snapshot=snapshot,
         existing_snapshot=existing_snapshot,
         identity=identity,
+        refresh=refresh_git,
     )
     snapshot.continuation.lineage = _capture_lineage_snapshot(
         compatibility_snapshot=snapshot,
@@ -733,8 +740,15 @@ def _capture_git_state_snapshot(
     snapshot: SessionSnapshot,
     existing_snapshot: SessionSnapshot | None,
     identity: "SessionSaveIdentity",
+    refresh: bool = True,
 ) -> SessionGitStateSnapshot | None:
     existing_git = existing_snapshot.continuation.git if existing_snapshot is not None else None
+    if not refresh and (snapshot.continuation.git or existing_git):
+        # Checkpoint saves reuse the captured state; a session's very first
+        # save still captures so provenance survives a mid-turn crash. Prefer
+        # session.json because SessionInfo may retain older compatibility data
+        # after a full save refreshes the persisted snapshot.
+        return existing_git or snapshot.continuation.git
     if not _git_aware_enabled():
         return snapshot.continuation.git or existing_git
 

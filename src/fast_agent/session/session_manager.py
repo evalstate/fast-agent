@@ -280,6 +280,9 @@ class Session:
         self.info = info
         self.directory = directory
         self._manager = manager
+        # History file writes leave the event loop; serialize them per session
+        # so temp-file/rotation steps from overlapping saves cannot interleave.
+        self._history_save_lock = asyncio.Lock()
 
     @property
     def manager(self) -> SessionManager | None:
@@ -294,8 +297,14 @@ class Session:
         agent_registry: Mapping[str, AgentProtocol] | None = None,
         identity: "SessionSaveIdentity | None" = None,
         resolved_prompts: Mapping[str, str] | None = None,
+        checkpoint: bool = False,
     ) -> str:
-        """Save agent history to this session."""
+        """Save agent history to this session.
+
+        ``checkpoint`` marks frequent mid-turn saves: history is written as
+        compact JSON and previously captured git state is reused instead of
+        re-queried. Turn-boundary saves keep the full-fidelity behaviour.
+        """
         from fast_agent.history.history_exporter import HistoryExporter
 
         self.info.last_activity = datetime.now()
@@ -314,11 +323,12 @@ class Session:
                 agent,
                 current_filename=current_filename,
                 previous_filename=previous_filename,
+                compact=checkpoint,
             )
             filename = current_filename
         else:
             filepath = self.directory / filename
-            result = await HistoryExporter.save(agent, str(filepath))
+            result = await HistoryExporter.save(agent, str(filepath), compact=checkpoint)
 
         # Update session info
         if rotating and current_filename:
@@ -355,6 +365,7 @@ class Session:
             agent_registry=agent_registry,
             identity=identity or self._default_save_identity(),
             resolved_prompts=resolved_prompts,
+            refresh_git=not checkpoint,
         )
         self._save_snapshot(snapshot)
         return result
@@ -365,6 +376,7 @@ class Session:
         *,
         current_filename: str,
         previous_filename: str,
+        compact: bool = False,
     ) -> str:
         """Save history using a current/previous rotation scheme."""
         from fast_agent.history.history_exporter import HistoryExporter
@@ -385,11 +397,12 @@ class Session:
             ) as handle:
                 temp_path = pathlib.Path(handle.name)
 
-            await HistoryExporter.save(agent, str(temp_path))
+            async with self._history_save_lock:
+                await HistoryExporter.save(agent, str(temp_path), compact=compact)
 
-            if current_path.exists():
-                current_path.replace(previous_path)
-            temp_path.replace(current_path)
+                if current_path.exists():
+                    current_path.replace(previous_path)
+                temp_path.replace(current_path)
         finally:
             if temp_path and temp_path.exists():
                 try:
@@ -812,6 +825,7 @@ class SessionManager:
         agent_registry: Mapping[str, AgentProtocol] | None = None,
         identity: "SessionSaveIdentity | None" = None,
         resolved_prompts: Mapping[str, str] | None = None,
+        checkpoint: bool = False,
     ) -> str | None:
         """Save history to the current session."""
         if identity is not None:
@@ -847,6 +861,7 @@ class SessionManager:
             agent_registry=agent_registry,
             identity=identity,
             resolved_prompts=resolved_prompts,
+            checkpoint=checkpoint,
         )
 
     def load_latest_session(self, *, require_content: bool = False) -> Session | None:

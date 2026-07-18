@@ -653,6 +653,100 @@ def test_capture_session_snapshot_tracks_started_and_current_git_commits(
     assert second_snapshot.continuation.git.current.commit == second_commit
 
 
+def test_capture_session_snapshot_checkpoint_reuses_captured_git_state(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    first_commit = _init_git_repo(workspace)
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text("git_aware: true\n", encoding="utf-8")
+    get_settings(config_path=str(config_path))
+
+    manager = SessionManager(
+        cwd=workspace,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session(metadata={"last_history_by_agent": {"foo": "history_foo.json"}})
+    session.info.history_files = ["history_foo.json"]
+    agent = _Agent(
+        name="foo",
+        instruction="resolved foo prompt",
+        config=AgentConfig("foo", instruction="template foo", model=None),
+    )
+    identity = SessionSaveIdentity(
+        manager=manager,
+        session=session,
+        created=False,
+        acp_session_id=None,
+        session_cwd=workspace,
+        session_store_scope="workspace",
+        session_store_cwd=workspace,
+    )
+
+    # A session's first save captures provenance even as a checkpoint.
+    first_snapshot = capture_session_snapshot(
+        session=session,
+        active_agent=cast("AgentProtocol", agent),
+        agent_registry=None,
+        identity=identity,
+        refresh_git=False,
+    )
+    assert first_snapshot.continuation.git is not None
+    assert first_snapshot.continuation.git.current is not None
+    assert first_snapshot.continuation.git.current.commit == first_commit
+
+    (session.directory / "session.json").write_text(
+        json.dumps(first_snapshot.model_dump(mode="json"), indent=2),
+        encoding="utf-8",
+    )
+    second_commit = _commit_change(workspace)
+
+    # Checkpoints reuse the captured state instead of shelling out to git.
+    checkpoint_snapshot = capture_session_snapshot(
+        session=session,
+        active_agent=cast("AgentProtocol", agent),
+        agent_registry=None,
+        identity=identity,
+        refresh_git=False,
+    )
+    assert checkpoint_snapshot.continuation.git is not None
+    assert checkpoint_snapshot.continuation.git.current is not None
+    assert checkpoint_snapshot.continuation.git.current.commit == first_commit
+
+    # Turn boundaries refresh to the live repository state.
+    refreshed_snapshot = capture_session_snapshot(
+        session=session,
+        active_agent=cast("AgentProtocol", agent),
+        agent_registry=None,
+        identity=identity,
+    )
+    assert refreshed_snapshot.continuation.git is not None
+    assert refreshed_snapshot.continuation.git.current is not None
+    assert refreshed_snapshot.continuation.git.current.commit == second_commit
+
+    # A resumed session can retain the original git state in its compatibility
+    # SessionInfo even after a full save persists a refreshed state.
+    session.info.metadata["git"] = first_snapshot.continuation.git.model_dump(
+        mode="json", exclude_none=True
+    )
+    (session.directory / "session.json").write_text(
+        json.dumps(refreshed_snapshot.model_dump(mode="json"), indent=2),
+        encoding="utf-8",
+    )
+
+    resumed_checkpoint = capture_session_snapshot(
+        session=session,
+        active_agent=cast("AgentProtocol", agent),
+        agent_registry=None,
+        identity=identity,
+        refresh_git=False,
+    )
+    assert resumed_checkpoint.continuation.git is not None
+    assert resumed_checkpoint.continuation.git.current is not None
+    assert resumed_checkpoint.continuation.git.current.commit == second_commit
+
+
 def test_capture_session_snapshot_omits_git_when_config_disabled(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     _init_git_repo(workspace)

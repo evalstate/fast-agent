@@ -64,7 +64,7 @@ def serialize_to_dict(obj, exclude_none: bool = True):
 # -------------------------------------------------------------------------
 
 
-def to_json(messages: list[PromptMessageExtended]) -> str:
+def to_json(messages: list[PromptMessageExtended], *, indent: int | None = 2) -> str:
     """
     Convert PromptMessageExtended objects directly to JSON, preserving all extended fields.
 
@@ -72,6 +72,7 @@ def to_json(messages: list[PromptMessageExtended]) -> str:
 
     Args:
         messages: List of PromptMessageExtended objects
+        indent: JSON indentation; None writes compact output for hot paths
 
     Returns:
         JSON string representation preserving all PromptMessageExtended data
@@ -83,7 +84,7 @@ def to_json(messages: list[PromptMessageExtended]) -> str:
     result_dict = {"messages": messages_dicts}
 
     # Convert to JSON string
-    return json.dumps(result_dict, indent=2)
+    return json.dumps(result_dict, indent=indent)
 
 
 def from_json(json_str: str) -> list[PromptMessageExtended]:
@@ -140,7 +141,12 @@ def from_json(json_str: str) -> list[PromptMessageExtended]:
     return extended_messages
 
 
-def save_json(messages: list[PromptMessageExtended], file_path: str) -> None:
+def save_json(
+    messages: list[PromptMessageExtended],
+    file_path: str,
+    *,
+    compact: bool = False,
+) -> None:
     """
     Save PromptMessageExtended objects to a JSON file using enhanced format.
 
@@ -150,8 +156,9 @@ def save_json(messages: list[PromptMessageExtended], file_path: str) -> None:
     Args:
         messages: List of PromptMessageExtended objects
         file_path: Path to save the JSON file
+        compact: Write without indentation (for frequent checkpoint saves)
     """
-    json_str = to_json(messages)
+    json_str = to_json(messages, indent=None if compact else 2)
 
     with Path(file_path).open("w", encoding="utf-8") as f:
         f.write(json_str)
@@ -181,7 +188,12 @@ def load_json(file_path: str) -> list[PromptMessageExtended]:
         ) from exc
 
 
-def save_messages(messages: list[PromptMessageExtended], file_path: str) -> None:
+def save_messages(
+    messages: list[PromptMessageExtended],
+    file_path: str,
+    *,
+    compact: bool = False,
+) -> None:
     """
     Save PromptMessageExtended objects to a file, with format determined by file extension.
 
@@ -191,9 +203,10 @@ def save_messages(messages: list[PromptMessageExtended], file_path: str) -> None
     Args:
         messages: List of PromptMessageExtended objects
         file_path: Path to save the file
+        compact: Write JSON without indentation (for frequent checkpoint saves)
     """
     if strip_casefold(Path(file_path).suffix) == ".json":
-        save_json(messages, file_path)
+        save_json(messages, file_path, compact=compact)
         return
     save_delimited(messages, file_path)
 

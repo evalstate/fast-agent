@@ -195,6 +195,44 @@ async def test_save_history_preview_skips_empty_first_user_message(tmp_path) -> 
     assert session.info.metadata["first_user_preview"] == "actual prompt"
 
 
+@pytest.mark.asyncio
+async def test_checkpoint_save_writes_compact_history_that_round_trips(tmp_path) -> None:
+    from fast_agent.mcp.prompt_serialization import load_messages
+
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    agent = _Agent(
+        name="main",
+        instruction="Stored prompt",
+        history=[
+            _message("user", "hello"),
+            _message("assistant", "done"),
+        ],
+    )
+    history_path = session.directory / "history_main.json"
+
+    await session.save_history(cast("AgentProtocol", agent), checkpoint=True)
+
+    compact_raw = history_path.read_text(encoding="utf-8")
+    assert "\n" not in compact_raw.strip()
+    compact_loaded = load_messages(str(history_path))
+    assert [message.role for message in compact_loaded] == ["user", "assistant"]
+    assert _message_texts(cast("_Agent", agent)) == ["hello", "done"]
+
+    await session.save_history(cast("AgentProtocol", agent))
+
+    pretty_raw = history_path.read_text(encoding="utf-8")
+    assert pretty_raw.startswith("{\n")
+    pretty_loaded = load_messages(str(history_path))
+    assert [message.role for message in pretty_loaded] == ["user", "assistant"]
+    # The checkpoint write rotated into the previous-file slot.
+    assert (session.directory / "history_main_previous.json").exists()
+
+
 def test_apply_session_window_appends_pinned_overflow(tmp_path) -> None:
     old_settings = get_settings()
     home = tmp_path / "env"

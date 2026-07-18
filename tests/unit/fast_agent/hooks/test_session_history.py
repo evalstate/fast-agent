@@ -36,6 +36,7 @@ class _Manager:
         self.saved_agents: list[object] = []
         self.saved_identities: list[SessionSaveIdentity | None] = []
         self.saved_resolved_prompts: list[dict[str, str] | None] = []
+        self.saved_checkpoints: list[bool] = []
 
     def get_session(self, name: str) -> object | None:
         del name
@@ -59,11 +60,13 @@ class _Manager:
         agent_registry=None,
         identity: SessionSaveIdentity | None = None,
         resolved_prompts: dict[str, str] | None = None,
+        checkpoint: bool = False,
     ) -> str:
         del filename, agent_registry
         self.saved_agents.append(agent)
         self.saved_identities.append(identity)
         self.saved_resolved_prompts.append(resolved_prompts)
+        self.saved_checkpoints.append(checkpoint)
         return "history.json"
 
 
@@ -167,6 +170,19 @@ async def test_save_session_history_uses_app_store_for_app_scoped_acp_session(
     with pytest.raises(AttributeError):
         object.__getattribute__(saved_agent, "unknown_session_history_proxy_attribute")
     assert session_info_updates == [{"updated_at": "2024-01-01T00:00:00"}]
+    # Turn boundaries save at full fidelity; tool-loop iterations checkpoint.
+    assert app_manager.saved_checkpoints == [False]
+
+    await save_session_history(
+        HookContext(
+            runner=SimpleNamespace(iteration=2, request_params=None),
+            agent=agent,
+            message=agent.message_history[-1],
+            hook_type="after_tool_loop_iteration",
+        )
+    )
+
+    assert app_manager.saved_checkpoints == [False, True]
 
 
 @pytest.mark.asyncio
