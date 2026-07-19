@@ -16,6 +16,7 @@ from mcp.types import (
 from fast_agent.config import CompactionSettings, Settings, get_settings
 from fast_agent.context import Context
 from fast_agent.history.compaction import (
+    _CHARS_PER_TOKEN,
     DEFAULT_COMPACTION_PROMPT,
     FAST_AGENT_COMPACTION_CHANNEL,
     CompactionSkipped,
@@ -358,6 +359,12 @@ class TestEstimateTokens:
         msg.channels = {"diagnostics": [TextContent(type="text", text="y" * 20_000)]}
 
         assert estimate_tokens([msg]) > plain + 5_000
+
+    def test_does_not_double_count_text(self):
+        # Text is counted once via all_text(); the per-content loop must skip it
+        # (docstring: "Count text plus serialized non-text payloads").
+        text = "x" * 1200
+        assert estimate_tokens([_user(text)]) == len(text) // _CHARS_PER_TOKEN
 
 
 class _FakeLLM:

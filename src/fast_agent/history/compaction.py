@@ -23,6 +23,7 @@ from mcp.types import TextContent
 from fast_agent.constants import FAST_AGENT_COMPACTION_CHANNEL
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
+from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -185,6 +186,10 @@ def estimate_tokens(messages: list[PromptMessageExtended]) -> int:
     for message in messages:
         chars += len(message.all_text())
         for content in message.content:
+            if get_text(content) is not None:
+                # Text is already counted via all_text() above; only serialize
+                # non-text payloads here (matches the "non-text" docstring).
+                continue
             try:
                 chars += len(content.model_dump_json())
             except Exception:
