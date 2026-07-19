@@ -292,6 +292,9 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         process_wait_seconds=_optional_nonnegative_int(
             event_data.get("process_wait_seconds")
         ),
+        process_yield_reason=_optional_text_or_none(
+            event_data.get("process_yield_reason")
+        ),
         process_has_observed_output=_optional_bool(
             event_data.get("process_has_observed_output")
         ),

@@ -253,8 +253,10 @@ class _PollProcessArguments:
 class _ActiveProcessPoll:
     tool_use_id: str
     deadline_at: float
+    started_at: float
     last_progress_emitted_at: float = 0.0
     pending_progress_task: asyncio.Task[None] | None = None
+    heartbeat_task: asyncio.Task[None] | None = None
 
 
 @dataclass(slots=True)
@@ -769,11 +771,27 @@ class ShellRuntime:
         process: _ManagedShellProcess,
         active_poll: _ActiveProcessPoll,
     ) -> None:
+        self._emit_managed_process_poll_progress_now(
+            process,
+            active_poll,
+            has_fresh_output=True,
+            log_message="Process output progress",
+        )
+
+    def _emit_managed_process_poll_progress_now(
+        self,
+        process: _ManagedShellProcess,
+        active_poll: _ActiveProcessPoll,
+        *,
+        has_fresh_output: bool,
+        log_message: str,
+    ) -> None:
         if process.active_poll is not active_poll:
             return
 
         now = time.monotonic()
         active_poll.last_progress_emitted_at = now
+        seconds_since_last_output = max(now - process.callbacks.last_output_time, 0.0)
         self._emit_progress_event(
             action=ProgressAction.CALLING_TOOL,
             tool_use_id=active_poll.tool_use_id,
@@ -783,15 +801,43 @@ class ShellRuntime:
             process_elapsed_seconds=max(now - process.started_at, 0.0),
             process_command=summarize_command(process.command),
             process_id=process.process_id,
+            # Keep the original poll budget stable so the UI countdown track can
+            # drain against task elapsed time instead of a shrinking remainder.
             process_wait_seconds=max(
-                math.ceil(active_poll.deadline_at - now),
+                math.ceil(active_poll.deadline_at - active_poll.started_at),
                 0,
             ),
-            process_has_observed_output=True,
-            process_seconds_since_last_output=0.0,
+            process_has_observed_output=(
+                True
+                if has_fresh_output
+                else process.output_state.had_stream_output
+            ),
+            process_seconds_since_last_output=(
+                0.0 if has_fresh_output else seconds_since_last_output
+            ),
             process_total_output_bytes=process.output_state.lifetime_output_bytes,
-            log_message="Process output progress",
+            log_message=log_message,
         )
+
+    async def _poll_progress_heartbeat(
+        self,
+        process: _ManagedShellProcess,
+        active_poll: _ActiveProcessPoll,
+    ) -> None:
+        """Keep the monitoring row alive during quiet waits (e.g. sleep)."""
+        try:
+            while process.active_poll is active_poll and not process.task.done():
+                await asyncio.sleep(_PROCESS_PROGRESS_EMIT_INTERVAL_SECONDS)
+                if process.active_poll is not active_poll:
+                    return
+                self._emit_managed_process_poll_progress_now(
+                    process,
+                    active_poll,
+                    has_fresh_output=False,
+                    log_message="Process poll heartbeat",
+                )
+        except asyncio.CancelledError:
+            return
 
     def _invalid_execute_result(self, message: str) -> CallToolResult:
         return _text_result(message, is_error=True)
@@ -1695,15 +1741,24 @@ class ShellRuntime:
 
             waited = False
             output_wake = False
+            poll_started_at_monotonic = time.monotonic()
             active_poll = (
                 _ActiveProcessPoll(
                     tool_use_id=progress_tool_use_id,
-                    deadline_at=time.monotonic() + parsed.wait_sec,
+                    deadline_at=poll_started_at_monotonic + parsed.wait_sec,
+                    started_at=poll_started_at_monotonic,
                 )
                 if should_wait and progress_tool_use_id is not None
                 else None
             )
             process.active_poll = active_poll
+            if active_poll is not None:
+                # Quiet processes (sleep) never stream output; heartbeat keeps
+                # the live countdown bar visible for the whole wait.
+                active_poll.heartbeat_task = asyncio.create_task(
+                    self._poll_progress_heartbeat(process, active_poll),
+                    name=f"fast-agent-{process.process_id}-poll-heartbeat",
+                )
             try:
                 if should_wait:
                     waited = True
@@ -1715,11 +1770,13 @@ class ShellRuntime:
             finally:
                 if process.active_poll is active_poll:
                     process.active_poll = None
-                if (
-                    active_poll is not None
-                    and active_poll.pending_progress_task is not None
-                ):
-                    active_poll.pending_progress_task.cancel()
+                if active_poll is not None:
+                    if active_poll.pending_progress_task is not None:
+                        active_poll.pending_progress_task.cancel()
+                    if active_poll.heartbeat_task is not None:
+                        active_poll.heartbeat_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await active_poll.heartbeat_task
 
             async with process.lock:
                 if process.task.done():
@@ -1976,6 +2033,9 @@ class ShellRuntime:
         result = await operation
         metadata = process_result_metadata(result)
         status = metadata.get("process_status") if metadata is not None else None
+        yield_reason = (
+            metadata.get("process_yield_reason") if metadata is not None else None
+        )
         details = f"{process_id}: {status}" if process_id and status else status
         self._emit_progress_event(
             action=ProgressAction.TOOL_PROGRESS,
@@ -1984,6 +2044,7 @@ class ShellRuntime:
             details=details or ("failed" if result.isError else "completed"),
             tool_state="failed" if result.isError else "completed",
             tool_terminal=True,
+            process_yield_reason=yield_reason,
         )
         return result
 
@@ -2216,6 +2277,7 @@ class ShellRuntime:
         process_command: str | None = None,
         process_id: str | None = None,
         process_wait_seconds: int | None = None,
+        process_yield_reason: str | None = None,
         process_has_observed_output: bool | None = None,
         process_seconds_since_last_output: float | None = None,
         process_total_output_bytes: int | None = None,
@@ -2246,6 +2308,7 @@ class ShellRuntime:
                     "process_command": process_command,
                     "process_id": process_id,
                     "process_wait_seconds": process_wait_seconds,
+                    "process_yield_reason": process_yield_reason,
                     "process_has_observed_output": process_has_observed_output,
                     "process_seconds_since_last_output": process_seconds_since_last_output,
                     "process_total_output_bytes": process_total_output_bytes,
