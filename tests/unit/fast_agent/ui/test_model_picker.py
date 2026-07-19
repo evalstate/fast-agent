@@ -243,7 +243,7 @@ def test_codex_inactive_provider_uses_activation_option() -> None:
     assert options[0].activation_action == activation
 
 
-def test_codex_inactive_provider_is_shown_as_sign_in_required() -> None:
+def test_codex_inactive_provider_is_shown_as_auth_on_select() -> None:
     picker = _SplitListPicker(config_path=None, initial_provider="codexresponses")
     picker.snapshot = _snapshot_with_single_provider(
         provider=Provider.CODEX_RESPONSES,
@@ -254,9 +254,9 @@ def test_codex_inactive_provider_is_shown_as_sign_in_required() -> None:
     picker.state.model_index = 0
 
     provider = picker.current_provider
-    assert picker._provider_availability_label(provider) == "sign in required"
+    assert picker._provider_availability_label(provider) == "auth on select"
     status_line = picker._render_status_bar()[0][1]
-    assert "press Enter to log in" in status_line
+    assert "press Enter to authenticate" in status_line
 
 
 def test_codex_inactive_picker_current_models_uses_activation_option() -> None:
@@ -311,7 +311,7 @@ def test_model_availability_and_marker_capture_provider_state() -> None:
     inactive = _model_availability_display(normal_model, provider_available=False)
 
     assert (active.availability, active.marker) == ("active", "✓")
-    assert (attention.availability, attention.marker) == ("attention", "!")
+    assert (attention.availability, attention.marker) == ("attention", "○")
     assert (inactive.availability, inactive.marker) == ("inactive", "✗")
 
 

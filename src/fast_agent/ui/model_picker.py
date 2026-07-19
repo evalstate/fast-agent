@@ -84,7 +84,7 @@ PROVIDER_DISPLAY_NAME_OVERRIDES = {
 
 _MODEL_AVAILABILITY_MARKERS: dict[ModelAvailability, str] = {
     "active": "✓",
-    "attention": "!",
+    "attention": "○",
     "inactive": "✗",
 }
 
@@ -367,7 +367,7 @@ class _SplitListPicker:
         if option.disabled_reason is not None:
             return ProviderAvailability("disabled", "attention", False)
         if self._provider_activation_action(option) is not None:
-            return ProviderAvailability("sign in required", "attention", False)
+            return ProviderAvailability("auth on select", "attention", False)
         return ProviderAvailability("not configured", "inactive", False)
 
     @staticmethod
@@ -476,7 +476,7 @@ class _SplitListPicker:
         elif provider.disabled_reason is not None:
             warning = f" · {provider.disabled_reason}"
         elif self._provider_activation_action(provider) is not None:
-            warning = " · press Enter to log in"
+            warning = " · press Enter to authenticate"
 
         models = self.current_models
         model_count = len(models)
@@ -493,7 +493,8 @@ class _SplitListPicker:
             ),
             (
                 "class:muted",
-                "Keys: ←/→ focus · ↑/↓ move · Tab swap · c scope · Enter select/log in · q quit",
+                "Keys: ←/→ focus · ↑/↓ move · Tab swap · c scope · "
+                "Enter select/authenticate · q quit",
             ),
         ]
 
