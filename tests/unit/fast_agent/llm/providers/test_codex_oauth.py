@@ -30,6 +30,7 @@ def test_explicit_auth_json_path_overrides_keyring(monkeypatch, tmp_path: Path) 
             }
         )
     )
+    monkeypatch.delenv("FAST_AGENT_AUTH_FILE", raising=False)
     monkeypatch.setenv("CODEX_AUTH_JSON_PATH", str(auth_path))
     monkeypatch.delenv("CODEX_HOME", raising=False)
     monkeypatch.setattr(codex_oauth, "load_oauth_credential", lambda provider: None)
@@ -58,6 +59,7 @@ def test_default_auth_json_path_is_used_when_fast_agent_store_is_empty(
             }
         )
     )
+    monkeypatch.delenv("FAST_AGENT_AUTH_FILE", raising=False)
     monkeypatch.delenv("CODEX_AUTH_JSON_PATH", raising=False)
     monkeypatch.delenv("CODEX_HOME", raising=False)
     monkeypatch.setattr(codex_oauth.Path, "home", lambda: tmp_path)

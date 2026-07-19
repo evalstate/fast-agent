@@ -152,6 +152,7 @@ def test_codex_export_refuses_to_overwrite_cli_auth_file(monkeypatch, tmp_path: 
     cli_auth_path.parent.mkdir()
     original = json.dumps({"tokens": {"access_token": "cli-token"}})
     cli_auth_path.write_text(original)
+    monkeypatch.delenv("FAST_AGENT_AUTH_FILE", raising=False)
     monkeypatch.setenv("CODEX_HOME", str(cli_auth_path.parent))
 
     result = CliRunner().invoke(
