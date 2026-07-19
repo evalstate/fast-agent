@@ -14,8 +14,9 @@ def test_enrich_with_environment_context_populates_env_block():
     env_text = context["env"]
     assert "Environment:" in env_text
     assert "Workspace root: /workspace/app" in env_text
-    assert "Client: Zed 1.2.3" in env_text
+    assert f"Client: Zed 1.2.3 (pid {os.getpid()})" in env_text
     assert "Host platform:" in env_text
+    assert context["modelReferences"].startswith("$system.default=")
     assert "agentInternalResources" in context
     assert "internal://fast-agent/smart-agent-cards" in context["agentInternalResources"]
     assert "internal://fast-agent/model-overlays" in context["agentInternalResources"]
@@ -54,7 +55,37 @@ def test_enrich_with_environment_context_formats_acp_client_handoff():
 
     enrich_with_environment_context(context, "/workspace/app", client_info)
 
-    assert "Client: fast-agent 0.7.1 via Zed 1.2.3" in context["env"]
+    assert f"Client: fast-agent 0.7.1 via Zed 1.2.3 (pid {os.getpid()})" in context["env"]
+
+
+def test_enrich_with_environment_context_formats_model_references():
+    from fast_agent.config import Settings, get_settings, update_global_settings
+
+    context: dict[str, str] = {}
+    previous_settings = get_settings()
+    settings = Settings(
+        default_model="$system.fast",
+        model_references={
+            "system": {
+                "default": "configured-default",
+                "last_used": "temporary",
+                "fast": "codexspark",
+            },
+            "research": {"preferred": "GLM5.2"},
+        }
+    )
+
+    try:
+        update_global_settings(settings)
+        enrich_with_environment_context(context, None, None)
+    finally:
+        update_global_settings(previous_settings)
+
+    assert context["modelReferences"] == (
+        "$research.preferred=GLM5.2\n"
+        "$system.default=codexspark\n"
+        "$system.fast=codexspark"
+    )
 
 
 def test_enrich_with_environment_context_loads_skills(tmp_path):

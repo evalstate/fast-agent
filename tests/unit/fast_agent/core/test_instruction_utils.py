@@ -191,7 +191,7 @@ def test_refresh_execution_environment_context_preserves_client_summary() -> Non
 
     refresh_execution_environment_context(context, _PromptEnvironment())
 
-    assert "Client: fast-agent" in context["env"]
+    assert f"Client: fast-agent (pid {os.getpid()})" in context["env"]
     assert "Execution environment: hf-gpu remote huggingface" in context["env"]
     assert "Workspace root: /workspace" in context["env"]
     assert "/host/project" not in context["env"]

@@ -28,7 +28,7 @@ Encrypted reasoning blocks are used to maintain model intelligence between tool 
 
 | Feature | `responses` | `codexresponses` | `openai` Chat Completions |
 | --- | --- | --- | --- |
-| Auth | `OPENAI_API_KEY` | `fast-agent auth codexplan` or `CODEX_API_KEY` | `OPENAI_API_KEY` |
+| Auth | `OPENAI_API_KEY` | `fast-agent auth login codex` or `CODEX_API_KEY` | `OPENAI_API_KEY` |
 | API surface | OpenAI Responses API | Codex Responses backend | Chat Completions API |
 | Curated aliases | `gpt55`, `gpt54`, `gpt52`, `codex`, `chatgpt` | `codexplan`, `codexplan54`, `codexspark` | `openai.gpt-4.1`, `openai.gpt-4o` |
 | Structured outputs | Yes, JSON schema where model supports it | Yes, JSON schema where model supports it | Yes, model-dependent Chat Completions structured outputs |
@@ -77,7 +77,7 @@ Examples:
 ### Codex Responses models
 
 Use `codexresponses` for Codex subscription-backed models. Authenticate with
-`fast-agent auth codexplan` or provide `CODEX_API_KEY`.
+`fast-agent auth login codex` or provide `CODEX_API_KEY`.
 
 The `codexresponses` provider is similar to `responses`, with these main differences:
 
@@ -208,7 +208,7 @@ for card-scoped runtime targets.
 
 ## Codex (OAuth Responses)
 
-**`fast-agent`** supports using your OpenAI Codex subscription. Run `fast-agent auth codexplan`
+**`fast-agent`** supports using your OpenAI Codex subscription. Run `fast-agent auth login codex`
 once, then use a Codex OAuth model alias such as `codexplan` (GPT-5.5 planning),
 `codexplan54` (GPT-5.4 planning), `codexplan53` (GPT-5.3 Codex planning), or
 `codexspark` (GPT-5.3 Codex Spark).
@@ -217,7 +217,7 @@ once, then use a Codex OAuth model alias such as `codexplan` (GPT-5.5 planning),
 
 ```bash
 # Start OAuth login (stores tokens in your OS keyring)
-fast-agent auth codexplan
+fast-agent auth login codex
 
 # Use the Codex planning model
 fast-agent --model codexplan
@@ -245,7 +245,7 @@ codexresponses:
 
 **Notes:**
 
-- Tokens are stored in your OS keyring via `fast-agent auth codexplan`.
+- Tokens are stored in your OS keyring, with a secure file fallback, via `fast-agent auth login codex`.
 - `codexplan` maps to `codexresponses.gpt-5.5?reasoning=medium`.
 - `codexplan54` maps to `codexresponses.gpt-5.4?reasoning=high`.
 - `codexplan53` maps to `codexresponses.gpt-5.3-codex?reasoning=medium`.
@@ -254,5 +254,6 @@ codexresponses:
 - Provider-managed MCP is **not** supported with `codexresponses`, including
   Codex OAuth aliases such as `codexplan`, `codexplan54`, and `codexspark`.
   Use `responses` instead when you need `management: provider`.
-- To remove tokens, use: `fast-agent auth codex-clear`.
+- To remove fast-agent-owned tokens, use: `fast-agent auth logout codex`. Codex
+  CLI auth files are treated as read-only and are never modified or deleted.
 - `fast-agent check` and `fast-agent auth` show Codex OAuth status.

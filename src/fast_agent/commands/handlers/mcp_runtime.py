@@ -521,7 +521,7 @@ def _add_oauth_recovery_guidance(outcome: CommandOutcome, *, agent_name: str) ->
     outcome.add_message(
         (
             "OAuth could not be completed in this connection mode. "
-            "Run `fast-agent auth login <server-name-or-mcp-name>` on the fast-agent host, "
+            "Run `fast-agent auth mcp login <server-name-or-mcp-name>` on the fast-agent host, "
             "then retry `/mcp connect ...`."
         ),
         channel="warning",

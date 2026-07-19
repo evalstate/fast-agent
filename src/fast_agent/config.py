@@ -298,11 +298,9 @@ class ShellSettings(BaseModel):
         default=None,
         description="Override model-based output byte limit (None = auto)",
     )
-    # Keep routine polling inside the observed warm-cache window. At a 10:1
-    # uncached/cached input ratio, more frequent warm polls are cheaper than
-    # fewer cold polls for the long-context workloads this setting targets.
+    # Stay below Anthropic's 5-minute cache TTL; pinned boundaries make warm polling unnecessary.
     process_poll_max_wait_seconds: int = Field(
-        default=50,
+        default=250,
         ge=1,
         le=600,
         description="Maximum wait accepted by poll_process",
@@ -344,10 +342,10 @@ class ShellSettings(BaseModel):
         default=None,
         description=(
             "Control which local file edit tool is exposed when shell runtime is enabled "
-            "('auto' uses apply_patch for Codex and GPT-5.2+ models, and exposes "
-            "write_text_file plus edit_file otherwise; 'on' always exposes write_text_file "
-            "plus edit_file; 'apply_patch' always exposes apply_patch; 'off' disables "
-            "local file edit tools)"
+            "('auto' uses apply_patch for Codex and GPT-5.2+ models, edit_file for "
+            "Anthropic-series models, and write_text_file plus edit_file otherwise; "
+            "'on' always exposes write_text_file plus edit_file; 'apply_patch' always "
+            "exposes apply_patch; 'off' disables local file edit tools)"
         ),
     )
     model_config = ConfigDict(extra="ignore")
@@ -1389,6 +1387,8 @@ class OpenTelemetrySettings(BaseModel):
     console_debug: bool = Field(default=False, description="Log spans to console")
     sample_rate: float = Field(
         default=1.0,
+        ge=0.0,
+        le=1.0,
         description="Sample rate for tracing (1.0 = sample everything)",
     )
 

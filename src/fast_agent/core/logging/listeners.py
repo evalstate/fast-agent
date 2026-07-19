@@ -298,6 +298,9 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         process_seconds_since_last_output=_optional_float(
             event_data.get("process_seconds_since_last_output")
         ),
+        process_total_output_bytes=_optional_nonnegative_int(
+            event_data.get("process_total_output_bytes")
+        ),
         streaming_tokens=_streaming_tokens(action, event_data),
         progress=progress,
         total=total,

@@ -12,6 +12,7 @@ from fast_agent.cli.commands import (
     model,
     quickstart,
     serve,
+    session,
     setup,
 )
 
@@ -31,6 +32,7 @@ def test_command_help_hides_typer_completion_options():
         setup.app,
         check_config.app,
         quickstart.app,
+        session.app,
     ]
 
     for app in command_apps:

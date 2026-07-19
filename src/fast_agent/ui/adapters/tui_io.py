@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from fast_agent.llm.model_reference_diagnostics import ModelReferenceSetupItem
     from fast_agent.llm.usage_tracking import UsageAccumulator
     from fast_agent.types import PromptMessageExtended
+    from fast_agent.ui.model_picker_common import ProviderActivation
 
 
 _CHANNEL_STYLES: dict[CommandChannel, str] = {
@@ -272,28 +273,23 @@ class TuiCommandIO(CommandIO):
             )
         )
 
-    async def _handle_model_activation(self, activation_action: str) -> bool:
+    async def _handle_model_activation(self, activation: ProviderActivation) -> bool:
+        from fast_agent.auth.providers import get_oauth_provider
         from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
-        from fast_agent.llm.provider.openai.codex_oauth import login_codex_oauth
         from fast_agent.ui import console
 
-        if activation_action != "codex-login":
-            await self._emit_model_selection_warning(
-                "Selected provider requires an activation flow that is not "
-                "supported in this prompt yet."
-            )
-            return False
+        handler = get_oauth_provider(activation.provider.config_name)
 
         await self.emit(
             CommandMessage(
-                text="Starting Codex OAuth login…",
+                text=f"Starting {handler.display_name} OAuth login…",
                 channel="info",
                 agent_name=self.agent_name,
             )
         )
         try:
             console.ensure_blocking_console()
-            login_codex_oauth()
+            handler.login()
         except ProviderKeyError as exc:
             await self.emit(
                 CommandMessage(
@@ -304,12 +300,14 @@ class TuiCommandIO(CommandIO):
             )
             return False
         except (EOFError, KeyboardInterrupt):
-            await self._emit_model_selection_warning("Codex OAuth login cancelled.")
+            await self._emit_model_selection_warning(
+                f"{handler.display_name} OAuth login cancelled."
+            )
             return False
         else:
             await self.emit(
                 CommandMessage(
-                    text="Codex OAuth login complete. Choose a Codex model to continue.",
+                    text=f"{handler.display_name} OAuth login complete.",
                     channel="info",
                     agent_name=self.agent_name,
                 )
@@ -359,6 +357,8 @@ class TuiCommandIO(CommandIO):
             if picker_result.activation_action is not None:
                 if not await self._handle_model_activation(picker_result.activation_action):
                     return None
+                if picker_result.selected_model:
+                    return picker_result.selected_model
                 continue
 
             if (

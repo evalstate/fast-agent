@@ -98,8 +98,10 @@ class EventFilter(BaseModel):
 
 class StreamingExclusionFilter(EventFilter):
     """
-    Event filter that excludes streaming progress events from logs.
-    This prevents token count updates from flooding the logs when info level is enabled.
+    Event filter that excludes high-frequency UI progress events from logs.
+
+    These events still reach the unfiltered progress listener, but token and
+    process-output refreshes do not flood configured log transports.
     """
 
     def matches(self, event: Event) -> bool:
@@ -107,8 +109,8 @@ class StreamingExclusionFilter(EventFilter):
         if not super().matches(event):
             return False
 
-        # Exclude events with "Streaming progress" message
-        if event.message == "Streaming progress":
+        # Exclude event-driven display refreshes by their stable message.
+        if event.message in {"Streaming progress", "Process output progress"}:
             return False
 
         # Also check for events with progress_action = STREAMING in data

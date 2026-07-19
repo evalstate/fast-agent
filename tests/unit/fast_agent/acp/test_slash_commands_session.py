@@ -25,7 +25,8 @@ if TYPE_CHECKING:
 class _DefaultSessionManager:
     current_session = None
 
-    def list_sessions(self) -> list[object]:
+    def list_sessions(self, *, include_empty: bool = True) -> list[object]:
+        del include_empty
         return []
 
 
@@ -72,13 +73,13 @@ async def test_render_session_list_uses_acp_session_cwd(
     )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    list_calls: list[str] = []
+    list_calls: list[bool] = []
 
     class _Manager:
         current_session = None
 
-        def list_sessions(self) -> list[object]:
-            list_calls.append("list")
+        def list_sessions(self, *, include_empty: bool = True) -> list[object]:
+            list_calls.append(include_empty)
             return []
 
     cast("Any", instance.agents["main"]).context.session_manager = _Manager()
@@ -100,7 +101,7 @@ async def test_render_session_list_uses_acp_session_cwd(
     output = session_slash_handlers.render_session_list(handler)
 
     assert "# sessions" in output
-    assert list_calls == ["list"]
+    assert list_calls == [False]
 
 
 @pytest.mark.asyncio
@@ -115,13 +116,13 @@ async def test_render_session_list_uses_app_session_store_when_configured(
     )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    list_calls: list[str] = []
+    list_calls: list[bool] = []
 
     class _Manager:
         current_session = None
 
-        def list_sessions(self) -> list[object]:
-            list_calls.append("list")
+        def list_sessions(self, *, include_empty: bool = True) -> list[object]:
+            list_calls.append(include_empty)
             return []
 
     cast("Any", instance.agents["main"]).context.session_manager = _Manager()
@@ -143,7 +144,7 @@ async def test_render_session_list_uses_app_session_store_when_configured(
     output = session_slash_handlers.render_session_list(handler)
 
     assert "# sessions" in output
-    assert list_calls == ["list"]
+    assert list_calls == [False]
 
 
 @pytest.mark.asyncio

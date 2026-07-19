@@ -17,7 +17,7 @@ from mcp.types import (
     ResourceLink,
 )
 from PIL import Image
-from pydantic import AnyUrl
+from pydantic import AnyUrl, ByteSize
 
 from fast_agent.io.path_uri import file_uri_to_path
 from fast_agent.llm.provider_types import Provider
@@ -409,10 +409,10 @@ def _validate_attachment(
 
 
 def _raise_attachment_too_large(size: int, max_byte_limit: int) -> None:
-    limit_mb = max_byte_limit / (1024 * 1024)
-    actual_mb = size / (1024 * 1024)
+    actual_size = ByteSize(size).human_readable(separator=" ")
+    limit_size = ByteSize(max_byte_limit).human_readable(separator=" ")
     raise ValueError(
-        f"Error: attachment is {actual_mb:.1f} MB; maximum inline attachment size is {limit_mb:.1f} MB"
+        f"Error: attachment is {actual_size}; maximum inline attachment size is {limit_size}"
     )
 
 

@@ -117,3 +117,16 @@ def test_compaction_snippets_use_compaction_settings_defaults() -> None:
 
     for field_name in CompactionSettings.model_fields:
         assert f"`compaction.{field_name}`" in table
+
+
+def test_tui_reference_includes_managed_process_settings() -> None:
+    from fast_agent.config import ShellSettings
+
+    generator = _load_generator()
+    defaults = ShellSettings()
+    table = generator.generate_tui_runtime_reference()
+
+    assert "`shell_execution.process_poll_max_wait_seconds`" in table
+    assert f"`{defaults.process_poll_max_wait_seconds}`" in table
+    assert "`shell_execution.managed_process_poll_history_folding`" in table
+    assert f"`{defaults.managed_process_poll_history_folding}`" in table

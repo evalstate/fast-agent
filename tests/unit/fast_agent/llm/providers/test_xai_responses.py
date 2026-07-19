@@ -9,7 +9,9 @@ from openai.types.responses.response_usage import InputTokensDetails, OutputToke
 
 from fast_agent.config import Settings, XAISettings, XAIWebSearchSettings
 from fast_agent.context import Context
+from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
+    ResponsesWebSocketError,
     StatelessResponsesWsPlanner,
     resolve_responses_ws_url,
 )
@@ -136,6 +138,42 @@ def test_xai_responses_websocket_headers_are_not_openai_beta_headers() -> None:
     assert "OpenAI-Beta" not in headers
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("api_key_source", ["config", "environment", "init"])
+async def test_xai_api_key_401_does_not_enter_oauth_refresh(
+    monkeypatch, api_key_source: str
+) -> None:
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    settings = Settings(xai=XAISettings())
+    init_api_key: str | None = None
+    if api_key_source == "config":
+        settings = Settings(xai=XAISettings(api_key="configured-key"))
+    elif api_key_source == "environment":
+        monkeypatch.setenv("XAI_API_KEY", "environment-key")
+    else:
+        init_api_key = "init-key"
+
+    rejected = ResponsesWebSocketError("rejected API key", status=401)
+
+    async def reject_connection(
+        self, url: str, headers: dict[str, str], timeout_seconds: float | None
+    ):
+        del self, url, headers, timeout_seconds
+        raise rejected
+
+    monkeypatch.setattr(ResponsesLLM, "_create_websocket_connection", reject_connection)
+    llm = XAIResponsesLLM(
+        context=Context(config=settings),
+        model="grok-4.3",
+        api_key=init_api_key,
+    )
+
+    with pytest.raises(ResponsesWebSocketError) as exc_info:
+        await llm._create_websocket_connection("wss://api.x.ai/v1/responses", {}, None)
+
+    assert exc_info.value is rejected
+
+
 def test_xai_responses_uses_stateless_websocket_planner() -> None:
     llm = XAIResponsesLLM(
         context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
@@ -145,7 +183,7 @@ def test_xai_responses_uses_stateless_websocket_planner() -> None:
     assert isinstance(llm._new_ws_request_planner(), StatelessResponsesWsPlanner)
 
 
-def test_xai_responses_builds_conservative_response_payload_with_default_reasoning() -> None:
+def test_xai_responses_builds_parallel_response_payload_with_default_reasoning() -> None:
     llm = XAIResponsesLLM(
         context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
         model="grok-4.3",
@@ -163,7 +201,7 @@ def test_xai_responses_builds_conservative_response_payload_with_default_reasoni
     assert args["model"] == "grok-4.3"
     assert args["store"] is False
     assert args["input"] == input_items
-    assert args["parallel_tool_calls"] is False
+    assert args["parallel_tool_calls"] is True
     assert "include" not in args
     assert args["reasoning"] == {"effort": "low"}
     assert "service_tier" not in args

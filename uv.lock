@@ -863,7 +863,7 @@ requires-dist = [{ name = "fast-agent-mcp", editable = "." }]
 
 [[package]]
 name = "fast-agent-mcp"
-version = "0.9.15"
+version = "0.9.16"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
@@ -874,6 +874,7 @@ dependencies = [
     { name = "email-validator" },
     { name = "fastapi" },
     { name = "fastmcp" },
+    { name = "filelock" },
     { name = "google-genai" },
     { name = "huggingface-hub" },
     { name = "jsonschema" },
@@ -979,6 +980,7 @@ requires-dist = [
     { name = "email-validator", specifier = "==2.3.0" },
     { name = "fastapi", specifier = "==0.136.3" },
     { name = "fastmcp", specifier = "==3.4.4" },
+    { name = "filelock", specifier = "==3.29.1" },
     { name = "gepa", marker = "extra == 'gepa'", specifier = ">=0.1.1" },
     { name = "google-genai", specifier = "==2.10.0" },
     { name = "huggingface-hub", specifier = "==1.24.0" },

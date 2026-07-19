@@ -5,19 +5,14 @@ Shows keyring backend, per-server OAuth token status, and provides a way to clea
 
 from __future__ import annotations
 
-from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
 import typer
 from rich.table import Table
 
-from fast_agent.cli.codex_oauth_display import (
-    codex_oauth_expiry_display,
-    codex_oauth_source_display,
-)
 from fast_agent.cli.command_support import get_settings_or_exit
-from fast_agent.cli.display import print_detail_line, print_section_header
+from fast_agent.cli.display import print_detail_line
 from fast_agent.core.keyring_utils import get_keyring_status
 from fast_agent.mcp.oauth_client import (
     _derive_base_server_url,
@@ -37,12 +32,11 @@ if TYPE_CHECKING:
     from fast_agent.mcp.oauth_client import OAuthClientProvider
 
 app = typer.Typer(
-    help=(
-        "Manage OAuth tokens stored in the OS keyring for MCP HTTP/SSE servers "
-        "(identity = base URL)."
-    ),
+    help="Manage provider and MCP authentication.",
     add_completion=False,
 )
+mcp_app = typer.Typer(help="Manage OAuth for MCP HTTP/SSE servers.", add_completion=False)
+app.add_typer(mcp_app, name="mcp")
 
 
 @dataclass(slots=True, frozen=True)
@@ -150,8 +144,9 @@ def _print_target_status(
     _print_keyring_backend_status(backend=backend, usable=backend_usable)
     console.print(table)
     console.print(
-        "\n[dim]Run 'fast-agent auth clear --identity "
-        f"{identity}[/dim][dim]' to remove this token, or 'fast-agent auth clear --all' to remove all.[/dim]"
+        "\n[dim]Run 'fast-agent auth mcp logout --identity "
+        f"{identity}[/dim][dim]' to remove this token, or "
+        "'fast-agent auth mcp logout --all' to remove all.[/dim]"
     )
 
 
@@ -207,47 +202,13 @@ def _print_configured_servers_status(rows: list[AuthServerRow], *, backend_usabl
     console.print(map_table)
 
 
-def _codex_token_status() -> dict[str, object] | None:
-    with suppress(Exception):
-        from fast_agent.llm.provider.openai.codex_oauth import get_codex_token_status
-
-        return get_codex_token_status()
-    return None
-
-
-def _print_codex_oauth_status() -> None:
-    from datetime import datetime
-
-    codex_status = _codex_token_status()
-    if codex_status is None:
-        return
-
-    codex_table = Table(show_header=True, box=None)
-    codex_table.add_column("Codex OAuth", style="white", header_style="bold")
-    codex_table.add_column("Token", header_style="bold")
-    codex_table.add_column("Source", header_style="bold")
-    codex_table.add_column("Expires", header_style="bold")
-
-    if not codex_status.get("present"):
-        token_display = "[dim]Not configured[/dim]"
-        source_display = "[dim]-[/dim]"
-        expires_display = "[dim]-[/dim]"
-    else:
-        token_display = "[bold green]Present[/bold green]"
-        source_display = codex_oauth_source_display(codex_status)
-        expires_display = codex_oauth_expiry_display(codex_status, datetime_type=datetime)
-
-    codex_table.add_row("Token", token_display, source_display, expires_display)
-    print_section_header(console, "Codex OAuth", color="blue")
-    console.print(codex_table)
-
-
 def _echo_missing_login_target() -> None:
     typer.echo("Provide a server name or identity URL to log in.")
     typer.echo(
-        "Example: `fast-agent auth login my-server` or `fast-agent auth login https://example.com`."
+        "Example: `fast-agent auth mcp login my-server` or "
+        "`fast-agent auth mcp login https://example.com`."
     )
-    typer.echo("Run `fast-agent auth login --help` for more details.")
+    typer.echo("Run `fast-agent auth mcp login --help` for more details.")
 
 
 def _validated_identity_transport(transport: str | None) -> Literal["http", "sse"]:
@@ -346,8 +307,8 @@ async def _run_login_session(
         return False
 
 
-@app.command()
-def status(
+@mcp_app.command("status")
+def mcp_status(
     target: str | None = typer.Argument(None, help="Identity (base URL) or server name"),
     config_path: str | None = typer.Option(
         None,
@@ -379,15 +340,14 @@ def status(
     _print_configured_servers_status(
         _server_rows_from_settings(settings), backend_usable=backend_usable
     )
-    _print_codex_oauth_status()
-
     console.print(
-        "\n[dim]Run 'fast-agent auth clear --identity <identity>' to remove a token, or 'fast-agent auth clear --all' to remove all.\nCodex OAuth: 'fast-agent auth codexplan' (login) or 'fast-agent auth codex-clear' (remove).[/dim]"
+        "\n[dim]Run 'fast-agent auth mcp logout --identity <identity>' to remove "
+        "a token, or 'fast-agent auth mcp logout --all' to remove all.[/dim]"
     )
 
 
-@app.command()
-def clear(
+@mcp_app.command("logout")
+def mcp_logout(
     server: str | None = typer.Argument(None, help="Server name to clear (from config)"),
     identity: str | None = typer.Option(
         None, "--identity", help="Token identity (base URL) to clear"
@@ -436,99 +396,148 @@ def clear(
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    config_path: str | None = typer.Option(
-        None,
-        "--config-path",
-        "-c",
-        metavar="<path-or-uri>",
-        help="Path, HTTP(S) URL, file:// URI, or hf:// URI to config file",
-    ),
 ) -> None:
     """Default to showing status if no subcommand is provided."""
     if ctx.invoked_subcommand is None:
         try:
-            status(target=None, config_path=config_path)
+            provider_status(provider=None)
+            mcp_status(target=None, config_path=None)
         except typer.Exit:
             raise
         except Exception as e:
             typer.echo(f"Error showing auth status: {e}")
 
 
-@app.command("codex-login")
-def codex_login() -> None:
-    """Start OAuth flow for Codex and store tokens in the keyring."""
+@app.command("login")
+def provider_login(
+    provider: str = typer.Argument(..., help="OAuth provider: xai or codex"),
+) -> None:
+    """Authenticate with a model provider."""
+    from fast_agent.auth.providers import get_oauth_provider
     from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
-    from fast_agent.llm.provider.openai.codex_oauth import login_codex_oauth
 
     try:
-        login_codex_oauth()
-        typer.echo("Codex OAuth login complete. Tokens stored in keyring.")
+        handler = get_oauth_provider(provider)
+        handler.login()
+        typer.echo(f"{handler.display_name} OAuth login complete.")
     except ProviderKeyError as exc:
         typer.echo(format_fast_agent_error(exc))
         raise typer.Exit(1) from exc
 
 
-@app.command("codexplan")
-def codexplan() -> None:
-    """Ensure Codex OAuth tokens are present; optionally start login."""
+@app.command("logout")
+def provider_logout(
+    provider: str = typer.Argument(..., help="OAuth provider: xai or codex"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Do not prompt for confirmation"),
+) -> None:
+    """Remove a stored provider credential."""
+    from fast_agent.auth.providers import get_oauth_provider
     from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
-    from fast_agent.core.keyring_utils import get_keyring_status
-    from fast_agent.llm.provider.openai.codex_oauth import (
-        get_codex_token_status,
-        login_codex_oauth,
+
+    try:
+        handler = get_oauth_provider(provider)
+    except ProviderKeyError as exc:
+        typer.echo(format_fast_agent_error(exc))
+        raise typer.Exit(1) from exc
+    if not yes and not typer.confirm(
+        f"Remove the stored {handler.display_name} OAuth credential?",
+        default=False,
+    ):
+        raise typer.Exit()
+    typer.echo(
+        f"{handler.display_name} OAuth credential removed."
+        if handler.logout()
+        else f"No {handler.display_name} OAuth credential found."
     )
 
-    keyring_status = get_keyring_status()
-    if not keyring_status.writable:
-        if not keyring_status.available:
-            detail = "No usable keyring backend was detected."
-        else:
-            detail = f"Keyring backend '{keyring_status.name}' is not writable."
-        typer.echo(f"Keyring backend not writable; cannot store Codex OAuth tokens. {detail}")
-        raise typer.Exit(1)
 
-    status = get_codex_token_status()
-    if status.get("present"):
-        typer.echo("Codex OAuth token already present in keyring.")
-        return
-
-    if not typer.confirm("No Codex OAuth token found. Start OAuth login flow now?", default=True):
-        raise typer.Exit(1)
+@app.command("token")
+def provider_token(
+    provider: str = typer.Argument(..., help="OAuth provider: xai or codex"),
+) -> None:
+    """Print a current provider access token."""
+    from fast_agent.auth.providers import get_oauth_provider
+    from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
 
     try:
-        login_codex_oauth()
-        typer.echo("Codex OAuth login complete. Tokens stored in keyring.")
+        handler = get_oauth_provider(provider)
+        token = handler.access_token()
+        if token is None:
+            raise ProviderKeyError(
+                f"{handler.display_name} OAuth token not configured",
+                f"Run `fast-agent auth login {handler.id}` first.",
+            )
+        typer.echo(token)
     except ProviderKeyError as exc:
-        typer.echo(format_fast_agent_error(exc))
+        typer.echo(format_fast_agent_error(exc), err=True)
         raise typer.Exit(1) from exc
 
 
-@app.command("codex-clear")
-def codex_clear() -> None:
-    """Remove Codex OAuth tokens from the keyring."""
-    from fast_agent.core.keyring_utils import get_keyring_status
-    from fast_agent.llm.provider.openai.codex_oauth import clear_codex_tokens
+@app.command("export")
+def provider_export(
+    provider: str = typer.Argument(..., help="OAuth provider: xai or codex"),
+    output: str = typer.Argument(..., help="Destination provider auth JSON file"),
+    force: bool = typer.Option(False, "--force", help="Replace an existing file"),
+) -> None:
+    """Export one refreshable provider credential."""
+    from pathlib import Path
 
-    status = get_keyring_status()
-    if not status.available:
-        typer.echo("Keyring backend not available; nothing to clear.")
+    from fast_agent.auth.providers import export_provider_credential
+    from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
+
+    path = Path(output).expanduser()
+    if path.exists() and not force:
+        typer.echo(f"Refusing to replace existing file: {path}", err=True)
         raise typer.Exit(1)
-    if not status.writable:
-        typer.echo(
-            f"Keyring backend not writable; deletion may fail. Detected backend '{status.name}'."
-        )
-
-    if not typer.confirm("Remove Codex OAuth tokens from keyring?", default=False):
-        raise typer.Exit()
-
-    if clear_codex_tokens():
-        typer.echo("Codex OAuth tokens removed.")
-    else:
-        typer.echo("No Codex OAuth tokens found.")
+    try:
+        export_provider_credential(provider, path)
+    except ProviderKeyError as exc:
+        typer.echo(format_fast_agent_error(exc), err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(f"Exported {provider.strip().casefold()} credential to {path}")
 
 
-@app.command()
-def login(
+@app.command("status")
+def provider_status(
+    provider: str | None = typer.Argument(None, help="OAuth provider: xai or codex"),
+) -> None:
+    """Show model-provider OAuth status."""
+    from datetime import datetime
+
+    from fast_agent.auth.providers import provider_ids
+    from fast_agent.auth.providers import provider_status as get_status
+    from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
+
+    targets = (provider,) if provider else provider_ids()
+    table = Table(show_header=True, box=None)
+    table.add_column("Provider", header_style="bold")
+    table.add_column("Status", header_style="bold")
+    table.add_column("Source", header_style="bold")
+    table.add_column("Expires", header_style="bold")
+    try:
+        for target in targets:
+            status = get_status(target)
+            state = (
+                "[red]expired[/red]"
+                if status.expired
+                else "[green]ready[/green]"
+                if status.present
+                else "[dim]not configured[/dim]"
+            )
+            expires = (
+                datetime.fromtimestamp(status.expires_at).astimezone().isoformat(timespec="minutes")
+                if status.expires_at is not None
+                else "-"
+            )
+            table.add_row(status.display_name, state, status.source or "-", expires)
+    except ProviderKeyError as exc:
+        typer.echo(format_fast_agent_error(exc), err=True)
+        raise typer.Exit(1) from exc
+    console.print(table)
+
+
+@mcp_app.command("login")
+def mcp_login(
     target: str | None = typer.Argument(
         None, help="Server name (from config) or identity (base URL)"
     ),

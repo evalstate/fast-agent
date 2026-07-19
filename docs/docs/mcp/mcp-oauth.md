@@ -65,22 +65,22 @@ Notes:
 
 - Show auth status (keyring backend, stored identities, configured servers → identities)
   - `fast-agent auth`
-  - `fast-agent auth status`
+  - `fast-agent auth mcp status`
   - Single target:
-    - `fast-agent auth status https://example-server.modelcontextprotocol.io`
-    - `fast-agent auth status myserver`
+    - `fast-agent auth mcp status https://example-server.modelcontextprotocol.io`
+    - `fast-agent auth mcp status myserver`
 
 - Proactive login (perform OAuth and store tokens)
   - By server name in config:
-    - `fast-agent auth login myserver`
+    - `fast-agent auth mcp login myserver`
   - By identity (ad hoc, no config):
-    - HTTP (default): `fast-agent auth login https://example-server.modelcontextprotocol.io`
-    - SSE: `fast-agent auth login https://example-server.modelcontextprotocol.io --transport sse`
+    - HTTP (default): `fast-agent auth mcp login https://example-server.modelcontextprotocol.io`
+    - SSE: `fast-agent auth mcp login https://example-server.modelcontextprotocol.io --transport sse`
 
 - Clear tokens
-  - By identity (base URL): `fast-agent auth clear --identity https://example-server.modelcontextprotocol.io`
-  - By server name (from config): `fast-agent auth clear myserver`
-  - All identities: `fast-agent auth clear --all`
+  - By identity (base URL): `fast-agent auth mcp logout --identity https://example-server.modelcontextprotocol.io`
+  - By server name (from config): `fast-agent auth mcp logout myserver`
+  - All identities: `fast-agent auth mcp logout --all`
 
 - Check full app config (includes server OAuth flags and token presence):
   - `fast-agent check`
@@ -98,12 +98,12 @@ to an empty value to disable the built-in default.
   - A local callback server (`http://localhost:3030/callback`) captures the code; if the port is blocked, you’ll be prompted to paste the callback URL.
 
 - Proactive login (no agent session needed)
-  - `fast-agent auth login https://example-server.modelcontextprotocol.io`
+  - `fast-agent auth mcp login https://example-server.modelcontextprotocol.io`
   - Complete the link flow once; tokens will be reused next time.
 
 - Inspect and clear a specific identity
-  - `fast-agent auth status https://example-server.modelcontextprotocol.io`
-  - `fast-agent auth clear --identity https://example-server.modelcontextprotocol.io`
+  - `fast-agent auth mcp status https://example-server.modelcontextprotocol.io`
+  - `fast-agent auth mcp logout --identity https://example-server.modelcontextprotocol.io`
 
 ## Troubleshooting
 

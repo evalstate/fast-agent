@@ -360,6 +360,26 @@ xai:
   base_url: "https://api.x.ai/v1"  # Optional, defaults to this value
 ```
 
+### MetaAI
+
+```yaml
+metaai:
+  api_key: "${META_AI_API_KEY}"
+  base_url: "https://api.meta.ai/v1"  # Optional, defaults to this value
+  default_model: "muse-spark-1.1"
+  web_search:
+    enabled: false
+    search_context_size: medium  # Optional: low | medium | high
+    user_location:  # Optional approximate locale bias
+      type: approximate
+      country: "GB"
+```
+
+MetaAI search grounding can also be toggled per run with
+`metaai.muse-spark-1.1?web_search=on`. See the
+[MetaAI provider guide](../models/providers/metaai/) for supported media,
+interactive toggles, and search-result behavior.
+
 ### Groq
 
 ```yaml
@@ -759,7 +779,21 @@ shell_execution:
   timeout_seconds: 90
   warning_interval_seconds: 30
   interactive_use_pty: true  # Use PTY for interactive prompt shell commands
+  process_poll_max_wait_seconds: 250  # Accepted range: 1–600
+  managed_process_poll_history_folding: auto  # auto | on | off
 ```
+
+`process_poll_max_wait_seconds` caps a single `poll_process` wait. The default
+stays below Anthropic's five-minute prompt-cache TTL and applies even when a
+model or model overlay declares a longer default poll wait.
+
+`managed_process_poll_history_folding` controls whether repetitive quiet
+`poll_process` exchanges are collapsed before the next model call:
+
+- `auto` enables folding only for models whose metadata marks the behavior as
+  validated.
+- `on` forces folding for every model.
+- `off` preserves every poll exchange in model history.
 
 ## LLM Retries
 

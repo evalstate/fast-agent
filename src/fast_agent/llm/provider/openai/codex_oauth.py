@@ -17,29 +17,27 @@ from contextlib import suppress
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 from pydantic import BaseModel
 
-from fast_agent.core.exceptions import ProviderKeyError
-from fast_agent.core.keyring_utils import (
-    get_keyring_status,
-    maybe_print_keyring_access_notice,
+from fast_agent.auth.credentials import (
+    OAuthCredential,
+    configured_auth_path,
+    credential_refresh_lock,
+    delete_oauth_credential,
+    load_oauth_credential,
+    save_oauth_credential,
 )
+from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.core.keyring_utils import maybe_print_keyring_access_notice
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.oauth_client import add_identity_to_index, remove_identity_from_index
 from fast_agent.ui import console
 from fast_agent.utils.numeric import positive_int_or_none
 
 logger = get_logger(__name__)
-
-
-class _KeyringProtocol(Protocol):
-    def get_password(self, service: str, username: str) -> str | None: ...
-    def set_password(self, service: str, username: str, password: str) -> None: ...
-    def delete_password(self, service: str, username: str) -> None: ...
 
 
 CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -51,12 +49,18 @@ CODEX_REDIRECT_PATH = "/auth/callback"
 CODEX_REDIRECT_URI = f"http://{CODEX_REDIRECT_HOST}:{CODEX_REDIRECT_PORT}{CODEX_REDIRECT_PATH}"
 CODEX_SCOPE = "openid profile email offline_access"
 CODEX_AUTH_CLAIM = "https://api.openai.com/auth"
-CODEX_KEYRING_SERVICE = "fast-agent-codex"
-CODEX_KEYRING_IDENTITY = "openai-codex"
-CODEX_TOKEN_KEY = f"oauth:tokens:{CODEX_KEYRING_IDENTITY}"
-CODEX_TOKEN_META_KEY = f"{CODEX_TOKEN_KEY}:meta"
-CODEX_TOKEN_CHUNK_PREFIX = f"{CODEX_TOKEN_KEY}:chunk"
-CODEX_KEYRING_MAX_PAYLOAD_BYTES = 512
+LEGACY_CODEX_KEYRING_SERVICE = "fast-agent-codex"
+LEGACY_CODEX_TOKEN_KEY = "oauth:tokens:openai-codex"
+LEGACY_CODEX_TOKEN_META_KEY = f"{LEGACY_CODEX_TOKEN_KEY}:meta"
+CODEX_CREDENTIAL_CONTAINER_KEYS = (
+    "auth",
+    "token",
+    "tokens",
+    "session",
+    "credential",
+    "credentials",
+    "data",
+)
 
 
 class CodexOAuthTokens(BaseModel):
@@ -211,18 +215,6 @@ def _token_request(payload: dict[str, Any]) -> CodexOAuthTokens:
     return _tokens_from_response(data)
 
 
-def _payload_byte_length(payload: str) -> int:
-    return len(payload.encode("utf-8"))
-
-
-def _chunk_payload(payload: str, chunk_size: int) -> list[str]:
-    return [payload[i : i + chunk_size] for i in range(0, len(payload), chunk_size)]
-
-
-def _chunk_key(index: int) -> str:
-    return f"{CODEX_TOKEN_CHUNK_PREFIX}:{index}"
-
-
 def _default_codex_cli_auth_path() -> Path:
     return Path.home() / ".codex" / "auth.json"
 
@@ -235,138 +227,6 @@ def _resolve_codex_cli_auth_path() -> Path:
     if codex_home:
         return Path(codex_home).expanduser() / "auth.json"
     return _default_codex_cli_auth_path()
-
-
-def _prefer_codex_cli_auth_path() -> bool:
-    return _resolve_codex_cli_auth_path() != _default_codex_cli_auth_path()
-
-
-def _safe_delete(keyring_module: _KeyringProtocol, username: str) -> None:
-    try:
-        keyring_module.delete_password(CODEX_KEYRING_SERVICE, username)
-    except Exception:
-        return
-
-
-def _load_chunked_payload(keyring_module: _KeyringProtocol) -> str | None:
-    meta = keyring_module.get_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_META_KEY)
-    if not meta:
-        return None
-    try:
-        payload = json.loads(meta)
-    except Exception:
-        return None
-    parts = positive_int_or_none(payload.get("parts")) if isinstance(payload, dict) else None
-    if parts is None:
-        return None
-    chunks: list[str] = []
-    for index in range(parts):
-        chunk = keyring_module.get_password(CODEX_KEYRING_SERVICE, _chunk_key(index))
-        if chunk is None:
-            return None
-        chunks.append(chunk)
-    return "".join(chunks)
-
-
-def _store_chunked_payload(keyring_module: _KeyringProtocol, payload: str) -> None:
-    chunks = _chunk_payload(payload, CODEX_KEYRING_MAX_PAYLOAD_BYTES)
-    for index, chunk in enumerate(chunks):
-        keyring_module.set_password(CODEX_KEYRING_SERVICE, _chunk_key(index), chunk)
-    meta_payload = json.dumps(
-        {
-            "version": 1,
-            "parts": len(chunks),
-            "size": _payload_byte_length(payload),
-        }
-    )
-    keyring_module.set_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_META_KEY, meta_payload)
-
-
-def _delete_chunked_payload(keyring_module: _KeyringProtocol) -> None:
-    meta = keyring_module.get_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_META_KEY)
-    parts: int | None = None
-    if meta:
-        try:
-            payload = json.loads(meta)
-            if isinstance(payload, dict):
-                parts = positive_int_or_none(payload.get("parts"))
-        except Exception:
-            parts = None
-    if parts is not None:
-        for index in range(parts):
-            _safe_delete(keyring_module, _chunk_key(index))
-    else:
-        for index in range(10):
-            _safe_delete(keyring_module, _chunk_key(index))
-    _safe_delete(keyring_module, CODEX_TOKEN_META_KEY)
-
-
-def _keyring_payload_present() -> bool:
-    try:
-        maybe_print_keyring_access_notice(purpose="checking Codex OAuth tokens")
-        import keyring
-
-        keyring_module = cast("_KeyringProtocol", keyring)
-        if keyring_module.get_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY) is not None:
-            return True
-        return keyring_module.get_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_META_KEY) is not None
-    except Exception:
-        return False
-
-
-def _get_keyring_password() -> str | None:
-    try:
-        maybe_print_keyring_access_notice(purpose="loading Codex OAuth tokens")
-        import keyring
-
-        keyring_module = cast("_KeyringProtocol", keyring)
-        payload = keyring_module.get_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY)
-        if payload:
-            return payload
-        return _load_chunked_payload(keyring_module)
-    except Exception:
-        return None
-
-
-def _set_keyring_password(payload: str) -> None:
-    maybe_print_keyring_access_notice(purpose="saving Codex OAuth tokens")
-    import keyring
-
-    keyring_module = cast("_KeyringProtocol", keyring)
-    try:
-        _safe_delete(keyring_module, CODEX_TOKEN_KEY)
-        _delete_chunked_payload(keyring_module)
-        if _payload_byte_length(payload) <= CODEX_KEYRING_MAX_PAYLOAD_BYTES:
-            keyring_module.set_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY, payload)
-        else:
-            _store_chunked_payload(keyring_module, payload)
-        add_identity_to_index(CODEX_KEYRING_SERVICE, CODEX_KEYRING_IDENTITY)
-    except Exception as exc:
-        status = get_keyring_status()
-        if not status.available:
-            backend_note = "No usable keyring backend was detected."
-        elif not status.writable:
-            backend_note = f"Keyring backend '{status.name}' is present but not writable."
-        else:
-            backend_note = f"Keyring backend '{status.name}' failed to store tokens."
-        raise ProviderKeyError(
-            "Keyring unavailable",
-            "Codex OAuth tokens could not be saved to the keyring. "
-            f"{backend_note} "
-            "On Windows, ensure Credential Manager is available in the current session. "
-            "You can also set PYTHON_KEYRING_BACKEND to a file-based backend "
-            "(e.g., keyrings.alt.file.PlaintextKeyring).",
-        ) from exc
-
-
-def _delete_keyring_password() -> None:
-    maybe_print_keyring_access_notice(purpose="clearing Codex OAuth tokens")
-    import keyring
-
-    keyring_module = cast("_KeyringProtocol", keyring)
-    _safe_delete(keyring_module, CODEX_TOKEN_KEY)
-    _delete_chunked_payload(keyring_module)
-    remove_identity_from_index(CODEX_KEYRING_SERVICE, CODEX_KEYRING_IDENTITY)
 
 
 def _normalize_codex_cli_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -406,7 +266,7 @@ def _load_codex_cli_tokens() -> CodexOAuthTokens | None:
     if not isinstance(payload, dict):
         return None
     candidates: list[dict[str, Any]] = [payload]
-    for key in ("auth", "token", "tokens", "session", "credential", "credentials", "data"):
+    for key in CODEX_CREDENTIAL_CONTAINER_KEYS:
         value = payload.get(key)
         if isinstance(value, dict):
             candidates.append(value)
@@ -421,44 +281,68 @@ def _load_codex_cli_tokens() -> CodexOAuthTokens | None:
     return None
 
 
-def _save_codex_cli_tokens(tokens: CodexOAuthTokens) -> None:
-    auth_path = _resolve_codex_cli_auth_path()
-    payload: dict[str, Any] = {}
+def _tokens_from_credential(credential: OAuthCredential) -> CodexOAuthTokens:
+    return CodexOAuthTokens(
+        access_token=credential.access_token,
+        refresh_token=credential.refresh_token,
+        expires_at=credential.expires_at,
+        scope=credential.scope,
+        token_type=credential.token_type,
+    )
+
+
+def _credential_from_tokens(tokens: CodexOAuthTokens) -> OAuthCredential:
+    return OAuthCredential(
+        access_token=tokens.access_token,
+        refresh_token=tokens.refresh_token,
+        expires_at=tokens.expires_at,
+        scope=tokens.scope,
+        token_type=tokens.token_type,
+    )
+
+
+def _legacy_codex_keyring_credentials_present() -> bool:
     try:
-        if auth_path.exists():
-            existing = json.loads(auth_path.read_text())
-            if isinstance(existing, dict):
-                payload = existing
+        maybe_print_keyring_access_notice(purpose="checking for legacy Codex OAuth tokens")
+        import keyring
+
+        return any(
+            keyring.get_password(LEGACY_CODEX_KEYRING_SERVICE, key) is not None
+            for key in (LEGACY_CODEX_TOKEN_KEY, LEGACY_CODEX_TOKEN_META_KEY)
+        )
     except Exception:
-        payload = {}
+        return False
 
-    payload["auth_mode"] = payload.get("auth_mode") or "oauth"
-    payload["tokens"] = {
-        "access_token": tokens.access_token,
-        "refresh_token": tokens.refresh_token,
-        "expires_at": tokens.expires_at,
-        "scope": tokens.scope,
-        "token_type": tokens.token_type,
-    }
-    payload["last_refresh"] = int(time.time() * 1000)
 
-    auth_path.parent.mkdir(parents=True, exist_ok=True)
-    auth_path.write_text(json.dumps(payload, indent=2) + "\n")
-    with suppress(Exception):
-        auth_path.chmod(0o600)
+def _warn_about_legacy_codex_keyring_credentials() -> None:
+    if not _legacy_codex_keyring_credentials_present():
+        return
+    console.ensure_blocking_console()
+    console.error_console.print(
+        "Legacy Codex credentials were found in the OS keyring but are no longer loaded. "
+        "Run `fast-agent auth login codex` to authenticate again.",
+        style="bold yellow",
+    )
 
 
 def _load_codex_tokens_with_source() -> tuple[CodexOAuthTokens | None, str | None]:
+    # FAST_AGENT_AUTH_FILE is an explicit, authoritative credential source. Do not
+    # silently fall back to a developer's local Codex CLI account when it is set.
+    if configured_auth_path() is not None:
+        stored = load_oauth_credential("codex")
+        return (_tokens_from_credential(stored.credential), stored.source) if stored else (None, None)
+
+    stored = load_oauth_credential("codex")
+    if stored:
+        return _tokens_from_credential(stored.credential), stored.source
+
+    # Codex CLI credentials are an external, read-only fallback. Fast-agent-owned
+    # credentials take precedence so refreshed tokens can persist without modifying
+    # the CLI's auth.json.
     tokens = _load_codex_cli_tokens()
     if tokens:
         return tokens, "auth.json"
-
-    payload = _get_keyring_password()
-    if payload:
-        try:
-            return CodexOAuthTokens.model_validate_json(payload), "keyring"
-        except Exception:
-            return None, None
+    _warn_about_legacy_codex_keyring_credentials()
     return None, None
 
 
@@ -474,20 +358,21 @@ def load_codex_tokens() -> CodexOAuthTokens | None:
 
 
 def save_codex_tokens(tokens: CodexOAuthTokens) -> None:
-    if _prefer_codex_cli_auth_path() or _resolve_codex_cli_auth_path().exists():
-        _save_codex_cli_tokens(tokens)
+    # Codex CLI auth files are read-only external sources. Persist login and refresh
+    # results only in fast-agent's credential store.
+    if configured_auth_path() is not None:
+        save_oauth_credential("codex", _credential_from_tokens(tokens))
         return
-    _set_keyring_password(tokens.model_dump_json())
+    stored = load_oauth_credential("codex")
+    save_oauth_credential(
+        "codex",
+        _credential_from_tokens(tokens),
+        source=stored.source if stored else None,
+    )
 
 
 def clear_codex_tokens() -> bool:
-    if not _keyring_payload_present():
-        return False
-    try:
-        _delete_keyring_password()
-        return True
-    except Exception:
-        return False
+    return delete_oauth_credential("codex")
 
 
 def build_authorization_url(code_challenge: str, state: str) -> str:
@@ -526,22 +411,27 @@ def refresh_codex_tokens(refresh_token: str) -> CodexOAuthTokens:
     return _token_request(payload)
 
 
-def get_codex_access_token() -> str | None:
+def get_codex_access_token(*, force_refresh: bool = False) -> str | None:
     tokens = load_codex_tokens()
     if not tokens:
         return None
-    if tokens.is_expired():
-        if not tokens.refresh_token:
-            raise ProviderKeyError(
-                "Codex OAuth token expired",
-                "The stored Codex OAuth token is expired and has no refresh token. "
-                "Run `fast-agent auth codex-login` to reauthenticate.",
-            )
-        refreshed = refresh_codex_tokens(tokens.refresh_token)
-        if not refreshed.refresh_token:
-            refreshed.refresh_token = tokens.refresh_token
-        save_codex_tokens(refreshed)
-        tokens = refreshed
+    if force_refresh or tokens.is_expired():
+        with credential_refresh_lock("codex"):
+            tokens = load_codex_tokens()
+            if not tokens:
+                return None
+            if force_refresh or tokens.is_expired():
+                if not tokens.refresh_token:
+                    raise ProviderKeyError(
+                        "Codex OAuth token expired",
+                        "The stored Codex OAuth token is expired and has no refresh token. "
+                        "Run `fast-agent auth login codex` to reauthenticate.",
+                    )
+                refreshed = refresh_codex_tokens(tokens.refresh_token)
+                if not refreshed.refresh_token:
+                    refreshed.refresh_token = tokens.refresh_token
+                save_codex_tokens(refreshed)
+                tokens = refreshed
     return tokens.access_token
 
 
@@ -574,21 +464,6 @@ def parse_chatgpt_account_id(access_token: str) -> str | None:
 
 
 def login_codex_oauth(timeout_seconds: int = 300) -> CodexOAuthTokens:
-    status = get_keyring_status()
-    if not status.writable:
-        if not status.available:
-            backend_note = "No usable keyring backend was detected."
-        else:
-            backend_note = f"Keyring backend '{status.name}' is not writable."
-        raise ProviderKeyError(
-            "Keyring unavailable",
-            "Codex OAuth requires a writable keyring backend. "
-            f"{backend_note} "
-            "On Windows, ensure Credential Manager is available in the current session. "
-            "You can also set PYTHON_KEYRING_BACKEND to a file-based backend "
-            "(e.g., keyrings.alt.file.PlaintextKeyring).",
-        )
-
     verifier = _pkce_verifier()
     challenge = _pkce_challenge(verifier)
     state = secrets.token_urlsafe(16)

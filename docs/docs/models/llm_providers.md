@@ -34,7 +34,7 @@ The `default_headers` option is available for OpenAI-compatible providers (inclu
 | --- | --- | --- | --- |
 | OpenAI Responses | `responses` | `OPENAI_API_KEY` | Native Responses API, reasoning, web search, connectors, remote MCP |
 | OpenAI Chat Completions | `openai` | `OPENAI_API_KEY` | OpenAI-compatible Chat Completions models |
-| Codex Responses | `codexresponses` | `fast-agent auth codexplan` or `CODEX_API_KEY` | Codex subscription-backed Responses models; no provider-managed MCP/connectors |
+| Codex Responses | `codexresponses` | `fast-agent auth login codex` or `CODEX_API_KEY` | Codex subscription-backed Responses models; no provider-managed MCP/connectors |
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` or Anthropic SDK credentials | Claude Messages API, prompt caching, web tools |
 | Google | `google` | `GOOGLE_API_KEY` | Native Gemini API |
 | Azure OpenAI | `azure` | `AZURE_OPENAI_API_KEY` | Azure deployments and optional DefaultAzureCredential |

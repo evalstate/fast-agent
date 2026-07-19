@@ -723,7 +723,7 @@ async def test_handle_mcp_connect_oauth_failure_adds_noninteractive_recovery_gui
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
     assert "Failed to connect MCP server" in message_text
-    assert "fast-agent auth login" in message_text
+    assert "fast-agent auth mcp login" in message_text
     assert "Stop/Cancel" in message_text
     assert any("Failed to connect MCP server" in item for item in progress_updates)
 
@@ -774,7 +774,7 @@ async def test_handle_mcp_connect_non_oauth_timeout_does_not_add_oauth_guidance(
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
     assert "Failed to connect MCP server" in message_text
-    assert "fast-agent auth login" not in message_text
+    assert "fast-agent auth mcp login" not in message_text
     assert "OAuth could not be completed in this connection mode" not in message_text
 
 

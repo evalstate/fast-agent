@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
-from fast_agent.session.session_manager import display_session_name, is_session_pinned
+from fast_agent.session.session_manager import (
+    display_session_name,
+    is_session_pinned,
+    session_metadata_title,
+)
 from fast_agent.utils.count_display import format_count
 
 if TYPE_CHECKING:
@@ -30,13 +34,7 @@ def _metadata_text(value: object) -> str | None:
 
 def extract_session_title(metadata: Mapping[str, object] | None) -> str | None:
     """Extract a display-friendly session title from metadata."""
-    if not isinstance(metadata, Mapping):
-        return None
-    for key in ("title", "label", "first_user_preview"):
-        title_text = _metadata_text(metadata.get(key))
-        if title_text:
-            return title_text
-    return None
+    return session_metadata_title(metadata)
 
 
 def _history_agent_names(metadata: Mapping[str, object]) -> list[str]:

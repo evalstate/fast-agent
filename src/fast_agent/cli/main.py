@@ -34,6 +34,7 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
     "config": "fast_agent.cli.commands.config:app",
     "model": "fast_agent.cli.commands.model:app",
     "auth": "fast_agent.cli.commands.auth:app",
+    "session": "fast_agent.cli.commands.session:app",
     "batch": "fast_agent.cli.commands.batch:app",
     "quickstart": "fast_agent.cli.commands.quickstart:app",
     "bootstrap": "fast_agent.cli.commands.quickstart:app",
@@ -134,6 +135,7 @@ def show_welcome(update_notice: str | None = None) -> None:
         "[bold]acp[/bold]", "Start fast-agent as an ACP stdio server (for Zed, Toad, etc.)"
     )
     table.add_row("[bold]export[/bold]", "Export a persisted session trace")
+    table.add_row("session", "Maintain persisted sessions")
     table.add_row("check", "Show current configuration")
     table.add_row("cards", "Manage card packs (list/add/remove/update/publish)")
     table.add_row("plugins", "Manage command plugins (list/add/remove/update)")

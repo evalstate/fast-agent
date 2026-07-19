@@ -11,6 +11,33 @@ social:
 
 Use the `xai` provider for xAI Grok models. xAI supports both `web_search` and `x_search`; fast-agent sends `x_search` as xAI's provider-managed X Search tool.
 
+## Sign in with a Grok/X subscription
+
+```bash
+fast-agent auth login xai
+```
+
+The device login opens an xAI verification URL and displays a code. Provider
+credentials use the OS keyring when it is writable and otherwise fall back to
+`~/.fast-agent/auth.json`. Access tokens refresh automatically before expiry.
+
+The model selector also offers this login when an xAI model is selected without
+a configured credential.
+
+Useful credential commands:
+
+```bash
+fast-agent auth status xai
+fast-agent auth token xai
+fast-agent auth export xai ./xai.auth.json
+fast-agent auth logout xai
+```
+
+An exported file contains only the selected provider and includes its refresh
+token. Set `FAST_AGENT_AUTH_FILE` to use that portable file. This is the
+recommended form for long-running Harbor jobs because refreshed credentials are
+written back to the staged file.
+
 ## Configure
 
 ```yaml
@@ -23,6 +50,9 @@ Environment variables:
 
 - `XAI_API_KEY`: Your xAI API key
 - `XAI_BASE_URL`: Override the API endpoint
+- `FAST_AGENT_AUTH_FILE`: Explicit portable provider credential file
+
+An explicit `xai.api_key` or `XAI_API_KEY` takes precedence over stored OAuth.
 
 ## Use a model
 

@@ -313,6 +313,35 @@ class _ActiveManagedShellEnvironment(_ManagedShellEnvironment):
         )
 
 
+class _BurstThenQuietShellEnvironment(_ManagedShellEnvironment):
+    def __init__(self) -> None:
+        super().__init__()
+        self.emit = asyncio.Event()
+
+    async def execute(
+        self,
+        request: ShellExecutionRequest,
+        *,
+        callbacks: ShellExecutionCallbacks | None = None,
+    ) -> ShellExecution:
+        self.requests.append(request)
+        if callbacks is not None:
+            await callbacks.on_started(4321)
+        self.started.set()
+        try:
+            await self.emit.wait()
+            if callbacks is not None:
+                await callbacks.on_stdout("burst output\n")
+            await self.release.wait()
+        except asyncio.CancelledError:
+            self.cancelled = request.terminate_on_cancel
+            raise
+        return ShellExecution(
+            result=ShellExecutionResult(stdout="", stderr="", exit_code=0),
+            options=ShellExecutionOptions(timeout_seconds=request.timeout),
+        )
+
+
 class _FailedCancellationShellEnvironment(_ManagedShellEnvironment):
     async def execute(
         self,
@@ -513,8 +542,12 @@ def test_execute_tool_schema_declares_per_call_options() -> None:
         "wait_sec",
         "wake_on_output",
     }
-    assert poll_tool.inputSchema["properties"]["wait_sec"]["maximum"] == 50
-    assert poll_tool.inputSchema["properties"]["wake_on_output"]["default"] is True
+    assert poll_tool.inputSchema["properties"]["wait_sec"]["maximum"] == 250
+    wake_schema = poll_tool.inputSchema["properties"]["wake_on_output"]
+    assert wake_schema["default"] is False
+    assert "quiet for 2 seconds" in wake_schema["description"]
+    assert "does not end the wait by default" in (poll_tool.description or "")
+    assert "continuous output remains buffered" in (poll_tool.description or "")
 
 
 def test_poll_process_schema_uses_configured_maximum_wait() -> None:
@@ -531,10 +564,10 @@ def test_poll_process_schema_uses_configured_maximum_wait() -> None:
     wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
     assert wait_schema["maximum"] == 240
     assert "through 240" in wait_schema["description"]
-    assert "prefer quiet waits near the maximum" in (poll_tool.description or "")
+    assert "Routine stdout/stderr is buffered" in (poll_tool.description or "")
 
 
-def test_poll_process_uses_model_default_wait() -> None:
+def test_poll_process_uses_model_default_wait_and_buffers_output() -> None:
     runtime = ShellRuntime(
         activation_reason="test",
         logger=logging.getLogger("shell-runtime-test"),
@@ -547,6 +580,9 @@ def test_poll_process_uses_model_default_wait() -> None:
     assert runtime._parse_poll_process_arguments(
         {"process_id": "process-1"}
     ).wait_sec == 30
+    assert runtime._parse_poll_process_arguments(
+        {"process_id": "process-1"}
+    ).wake_on_output is False
     metadata = runtime.process_tool_metadata(
         "poll_process", {"process_id": "process-1"}
     )
@@ -1058,30 +1094,46 @@ async def test_running_poll_with_new_output_is_not_suppressed() -> None:
     assert isinstance(result.content[0], TextContent)
     assert "still working" in result.content[0].text
     assert getattr(result, "_suppress_display", True) is False
+    process_metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
+    assert process_metadata["process_yield_reason"] == "nonblocking"
     await runtime.terminate_process({"process_id": "process-1"})
 
 
 @pytest.mark.asyncio
-async def test_poll_with_pending_output_reports_output_yield() -> None:
-    environment = _ActiveManagedShellEnvironment()
+async def test_poll_with_pending_output_reports_output_after_debounce(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        shell_runtime_module,
+        "_PROCESS_OUTPUT_DEBOUNCE_SECONDS",
+        0.05,
+    )
+    environment = _BurstThenQuietShellEnvironment()
     runtime = ShellRuntime(
         activation_reason="test",
         logger=logging.getLogger("shell-runtime-test"),
         shell_environment=environment,
     )
     await runtime.execute({"command": "chatty-build", "background": True})
-    await asyncio.sleep(0.03)
 
-    result = await runtime.poll_process(
-        {
-            "process_id": "process-1",
-            "wait_sec": 1,
-            "wake_on_output": True,
-        }
+    started = time.monotonic()
+    poll_task = asyncio.create_task(
+        runtime.poll_process(
+            {
+                "process_id": "process-1",
+                "wait_sec": 1,
+                "wake_on_output": True,
+            }
+        )
     )
+    await asyncio.sleep(0.01)
+    environment.emit.set()
+    result = await poll_task
+    elapsed = time.monotonic() - started
 
     process_metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
     assert process_metadata["process_yield_reason"] == "output"
+    assert elapsed >= 0.04
     assert process_metadata["poll_elapsed_seconds"] < 0.5
     assert process_metadata["output_bytes_since_last_poll"] > 0
     assert process_metadata["seconds_since_last_output"] >= 0
@@ -1090,6 +1142,40 @@ async def test_poll_with_pending_output_reports_output_yield() -> None:
     assert isinstance(result.content[0], TextContent)
     assert "output_activity:" in result.content[0].text
     assert "since last output" in result.content[0].text
+    await runtime.terminate_process({"process_id": "process-1"})
+
+
+@pytest.mark.asyncio
+async def test_continuous_output_waits_until_poll_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        shell_runtime_module,
+        "_PROCESS_OUTPUT_DEBOUNCE_SECONDS",
+        0.02,
+    )
+    environment = _ActiveManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+    )
+    await runtime.execute({"command": "chatty-build", "background": True})
+
+    started = time.monotonic()
+    result = await runtime.poll_process(
+        {
+            "process_id": "process-1",
+            "wait_sec": 1,
+            "wake_on_output": True,
+        }
+    )
+    elapsed = time.monotonic() - started
+
+    process_metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
+    assert elapsed >= 0.9
+    assert process_metadata["process_yield_reason"] == "deadline"
+    assert process_metadata["output_bytes_since_last_poll"] > 0
     await runtime.terminate_process({"process_id": "process-1"})
 
 
@@ -1236,6 +1322,8 @@ async def test_background_command_returns_handle_and_terminate_cancels_job() -> 
         result = await runtime.execute({"command": "server", "background": True})
     rendered = capture.get()
     assert "process-1" in rendered
+    assert "▎▶ process-1" in rendered
+    assert "▎ ▶" not in rendered
     assert "running • background" in rendered
     assert "pid 4321" in rendered
     assert runtime.active_process_count == 1
@@ -1372,11 +1460,108 @@ async def test_lifecycle_tool_calls_emit_correlated_progress() -> None:
     assert progress_payloads[0]["process_wait_seconds"] == 0
     assert progress_payloads[0]["process_has_observed_output"] is False
     assert progress_payloads[0]["process_seconds_since_last_output"] >= 0
+    assert progress_payloads[0]["process_total_output_bytes"] == 0
     assert "≤0s" not in progress_payloads[0]["details"]
     assert progress_payloads[0]["process_elapsed_seconds"] >= 0
     assert progress_payloads[0]["process_command"] == "server"
     assert progress_payloads[1]["tool_terminal"] is True
     assert progress_payloads[1]["details"] == "process-1: running"
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_active_poll_emits_throttled_output_progress() -> None:
+    environment = _BurstThenQuietShellEnvironment()
+    logger = RecordingFastLogger()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        shell_environment=environment,
+        agent_name="assistant",
+    )
+    await runtime.execute({"command": "server", "background": True})
+    logger.info_calls.clear()
+
+    poll_task = asyncio.create_task(
+        runtime.call_tool(
+            "poll_process",
+            {
+                "process_id": "process-1",
+                "wait_sec": 1,
+                "wake_on_output": False,
+            },
+            tool_use_id="call-poll",
+        )
+    )
+    await asyncio.sleep(0.01)
+    environment.emit.set()
+    await asyncio.sleep(0.01)
+    environment.release.set()
+    await poll_task
+
+    progress_calls = [
+        (message, kwargs["data"])
+        for message, kwargs in logger.info_calls
+        if isinstance(kwargs.get("data"), dict)
+    ]
+    output_updates = [
+        payload
+        for message, payload in progress_calls
+        if message == "Process output progress"
+    ]
+    assert len(output_updates) == 1
+    update = output_updates[0]
+    assert update["tool_name"] == "poll_process"
+    assert update["tool_use_id"] == "call-poll"
+    assert update["tool_event"] == "progress"
+    assert update["details"] == "process-1"
+    assert update["process_id"] == "process-1"
+    assert update["process_wait_seconds"] in {0, 1}
+    assert update["process_has_observed_output"] is True
+    assert update["process_seconds_since_last_output"] == 0
+    assert update["process_total_output_bytes"] == len("burst output\n")
+    assert update["process_elapsed_seconds"] >= 0
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_chatty_poll_coalesces_output_progress_and_refreshes_totals() -> None:
+    environment = _ActiveManagedShellEnvironment()
+    logger = RecordingFastLogger()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        shell_environment=environment,
+        agent_name="assistant",
+    )
+    await runtime.execute({"command": "server", "background": True})
+    logger.info_calls.clear()
+
+    poll_task = asyncio.create_task(
+        runtime.call_tool(
+            "poll_process",
+            {
+                "process_id": "process-1",
+                "wait_sec": 2,
+                "wake_on_output": False,
+            },
+            tool_use_id="call-poll",
+        )
+    )
+    await asyncio.sleep(1.05)
+    environment.release.set()
+    await poll_task
+
+    output_updates = [
+        kwargs["data"]
+        for message, kwargs in logger.info_calls
+        if message == "Process output progress"
+        and isinstance(kwargs.get("data"), dict)
+    ]
+    assert 2 <= len(output_updates) <= 3
+    assert output_updates[-1]["process_total_output_bytes"] > (
+        output_updates[0]["process_total_output_bytes"]
+    )
     await runtime.close()
 
 

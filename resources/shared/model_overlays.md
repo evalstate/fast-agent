@@ -55,6 +55,7 @@ metadata:
   json_mode: object
   structured_tool_policy: defer
   managed_process_poll_folding: true
+  process_poll_default_wait_seconds: 30
 picker:
   label: Qwen local
   description: Imported from llama.cpp
@@ -156,6 +157,9 @@ Common fields:
 - `structured_tool_policy`: `auto`, `always`, `defer`, or `no_tools`
 - `managed_process_poll_folding`: whether automatic managed-process poll folding
   has been validated for this model
+- `process_poll_default_wait_seconds`: default `poll_process` wait when omitted;
+  `0` keeps polls non-blocking, and `shell_execution.process_poll_max_wait_seconds`
+  caps the effective value
 - `model_specific`: text made available to system prompts as `{{model_specific}}`
 - `fast`
 

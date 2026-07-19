@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 import fast_agent.config as config_module
+from fast_agent.auth.credentials import OAuthCredential, save_oauth_credential
 from fast_agent.cli.commands import auth as auth_command
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.core.keyring_utils import KeyringStatus
@@ -32,7 +34,7 @@ def test_auth_status_reports_invalid_settings_yaml_without_traceback(tmp_path: P
         config_module._settings = None
 
         runner = CliRunner()
-        result = runner.invoke(auth_command.app, ["status"])
+        result = runner.invoke(auth_command.app, ["mcp", "status"])
         output = strip_ansi(result.output)
 
         assert result.exit_code == 1, output
@@ -77,44 +79,90 @@ def test_auth_status_shows_codex_source(monkeypatch) -> None:
 
     assert result.exit_code == 0, result.output
     output = strip_ansi(result.output)
-    assert "Codex OAuth" in output
+    assert "Codex" in output
     assert "Source" in output
-    assert "Codex auth.json" in output
+    assert "auth.json" in output
 
 
-def test_codex_token_status_returns_none_when_provider_status_fails(monkeypatch) -> None:
-    def _raise_status_error() -> dict[str, object]:
-        raise RuntimeError("status unavailable")
-
+def test_default_auth_view_includes_provider_and_mcp_status(monkeypatch) -> None:
+    calls: list[str] = []
     monkeypatch.setattr(
-        "fast_agent.llm.provider.openai.codex_oauth.get_codex_token_status",
-        _raise_status_error,
-    )
-
-    assert auth_command._codex_token_status() is None
-
-
-def test_auth_status_skips_codex_section_when_status_unavailable(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "fast_agent.cli.commands.auth.get_settings_or_exit",
-        lambda _config_path=None: get_settings(),
+        auth_command,
+        "provider_status",
+        lambda provider=None: calls.append("provider"),
     )
     monkeypatch.setattr(
-        "fast_agent.cli.commands.auth.get_keyring_status",
-        lambda: KeyringStatus(name="SecretService Keyring", available=True, writable=True),
+        auth_command,
+        "mcp_status",
+        lambda target=None, config_path=None: calls.append("mcp"),
     )
-    monkeypatch.setattr(
-        "fast_agent.cli.commands.auth.list_keyring_tokens",
-        lambda: [],
-    )
-    monkeypatch.setattr("fast_agent.cli.commands.auth._codex_token_status", lambda: None)
 
-    result = CliRunner().invoke(auth_command.app, ["status"])
+    result = CliRunner().invoke(auth_command.app)
 
     assert result.exit_code == 0, result.output
+    assert calls == ["provider", "mcp"]
+
+
+def test_auth_status_rejects_unknown_provider_without_traceback() -> None:
+    result = CliRunner().invoke(auth_command.app, ["status", "unknown"])
+
+    assert result.exit_code == 1
     output = strip_ansi(result.output)
-    assert "Source" not in output
-    assert "Not configured" not in output
+    assert "Unsupported OAuth provider" in output
+    assert "Traceback" not in output
+
+
+def test_xai_token_export_and_logout_workflow(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    auth_path = tmp_path / "auth.json"
+    export_path = tmp_path / "xai.auth.json"
+    monkeypatch.setenv("FAST_AGENT_AUTH_FILE", str(auth_path))
+    save_oauth_credential(
+        "xai",
+        OAuthCredential(
+            access_token="xai-access",
+            refresh_token="xai-refresh",
+        ),
+    )
+    runner = CliRunner()
+
+    token_result = runner.invoke(auth_command.app, ["token", "xai"])
+    export_result = runner.invoke(
+        auth_command.app,
+        ["export", "xai", str(export_path)],
+    )
+    logout_result = runner.invoke(auth_command.app, ["logout", "xai", "--yes"])
+    status_result = runner.invoke(auth_command.app, ["status", "xai"])
+
+    assert token_result.exit_code == 0
+    assert token_result.output.strip() == "xai-access"
+    assert export_result.exit_code == 0
+    exported = json.loads(export_path.read_text())
+    assert set(exported["providers"]) == {"xai"}
+    assert exported["providers"]["xai"]["refresh_token"] == "xai-refresh"
+    assert logout_result.exit_code == 0
+    assert "removed" in logout_result.output
+    assert "not configured" in strip_ansi(status_result.output)
+
+
+def test_codex_export_refuses_to_overwrite_cli_auth_file(monkeypatch, tmp_path: Path) -> None:
+    cli_auth_path = tmp_path / "codex-profile" / "auth.json"
+    cli_auth_path.parent.mkdir()
+    original = json.dumps({"tokens": {"access_token": "cli-token"}})
+    cli_auth_path.write_text(original)
+    monkeypatch.delenv("FAST_AGENT_AUTH_FILE", raising=False)
+    monkeypatch.setenv("CODEX_HOME", str(cli_auth_path.parent))
+
+    result = CliRunner().invoke(
+        auth_command.app,
+        ["export", "codex", str(cli_auth_path), "--force"],
+    )
+
+    assert result.exit_code == 1
+    assert "Codex CLI auth file is read-only" in strip_ansi(result.output)
+    assert cli_auth_path.read_text() == original
 
 
 def test_validated_identity_transport_normalizes_values() -> None:

@@ -1476,6 +1476,15 @@ class ToolDisplay:
                         and not isinstance(since_output, bool)
                         else None
                     ),
+                    total_output_bytes=(
+                        total_output_bytes
+                        if type(
+                            total_output_bytes := metadata.get("total_output_bytes")
+                        )
+                        is int
+                        and total_output_bytes >= 0
+                        else None
+                    ),
                     tool_call_id=tool_call_id,
                 )
                 return
