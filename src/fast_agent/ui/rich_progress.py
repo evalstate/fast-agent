@@ -591,6 +591,8 @@ class RichProgressDisplay:
             if event.action == ProgressAction.TOOL_PROGRESS
             else self._action_label(event)
         )
+        if self._is_process_poll_event(event):
+            return f"[{action_style}]▎[dim]{icon}[/dim] {label} "
         formatted_text = f"▎[dim]{icon}[/dim] {label}".ljust(17 + 11)
         return f"[{action_style}]{formatted_text}"
 

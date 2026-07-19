@@ -450,8 +450,10 @@ class TestAggregatorInitializedVisibility:
         column = SpinnerDescriptionColumn(spinner_name="braille_dense")
         rendered = column.render(task)
         assert "Monitoring" in rendered.plain
-        # Description (with ▎◀) comes first; countdown track trails it.
-        assert rendered.plain.index("Monitoring") < rendered.plain.rfind("⣿")
+        # The countdown immediately follows the compact monitoring label.
+        prefix = "▎◀ Monitoring "
+        assert rendered.plain.startswith(prefix)
+        assert len(rendered.plain) == len(prefix) + 3
         # ~2/3 of a 30s wait remaining → at least one full cell still lit.
         assert "⣿" in rendered.plain
         display.stop()
