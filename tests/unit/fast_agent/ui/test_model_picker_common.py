@@ -23,6 +23,7 @@ from fast_agent.ui.model_picker_common import (
     LLAMACPP_PROVIDER_KEY,
     ModelOption,
     ModelPickerSnapshot,
+    ProviderActivation,
     ProviderOption,
     _provider_is_active,
     build_snapshot,
@@ -32,6 +33,7 @@ from fast_agent.ui.model_picker_common import (
     model_capabilities,
     model_options_for_option,
     model_options_for_provider,
+    provider_activation_action,
     provider_option_count_label,
 )
 
@@ -425,6 +427,31 @@ def test_build_snapshot_uses_xai_brand_casing() -> None:
     assert option.provider is Provider.XAI
     assert option.display_name is None
     assert Provider.XAI.display_name == "xAI"
+
+
+def test_build_snapshot_defers_oauth_credential_lookup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.auth.credentials import OAuthCredential, export_oauth_credential
+
+    auth_path = tmp_path / "auth.json"
+    export_oauth_credential(
+        "xai",
+        OAuthCredential(access_token="stored-xai-token"),
+        auth_path,
+    )
+    monkeypatch.setenv("FAST_AGENT_AUTH_FILE", str(auth_path))
+
+    snapshot = build_snapshot(config_payload={})
+    option = next(
+        provider
+        for provider in snapshot.providers
+        if provider.option_key == Provider.XAI.config_name
+    )
+
+    assert option.active is False
+    assert provider_activation_action(snapshot, Provider.XAI) == ProviderActivation(Provider.XAI)
 
 
 def test_has_explicit_provider_prefix_handles_supported_delimiters() -> None:

@@ -134,6 +134,18 @@ fast-agent export latest --hf-url hf://buckets/your-name/fast-agent-traces/
 
 See the full reference [here](export_command/).
 
+## fast-agent session Command
+
+Remove empty session placeholders left by interrupted startups:
+
+```bash
+fast-agent session prune --empty
+```
+
+This preserves sessions with history, titles, previews, or pins. Run it when no
+other fast-agent process is starting or waiting for its first turn, because
+those live sessions are also empty until they persist content.
+
 ## fast-agent check Command
 
 Use `fast-agent check` to diagnose your configuration:

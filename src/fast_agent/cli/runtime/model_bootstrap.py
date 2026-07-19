@@ -19,6 +19,7 @@ from fast_agent.utils.text import strip_to_none
 if TYPE_CHECKING:
     from fast_agent.config import Settings
     from fast_agent.core.model_resolution import ResolvedModelSpec
+    from fast_agent.ui.model_picker_common import ProviderActivation
 
     from .run_request import AgentRunRequest
 
@@ -416,10 +417,14 @@ async def import_llamacpp_overlay_from_picker(
     from fast_agent.paths import resolve_home_dir
 
     settings = load_request_settings(request)
-    home = None if request.no_home else resolve_home_dir(
-        settings=settings,
-        cwd=Path.cwd(),
-        override=request.home or settings.home,
+    home = (
+        None
+        if request.no_home
+        else resolve_home_dir(
+            settings=settings,
+            cwd=Path.cwd(),
+            override=request.home or settings.home,
+        )
     )
 
     try:
@@ -434,27 +439,27 @@ async def import_llamacpp_overlay_from_picker(
         return None
 
 
-def activate_model_picker_provider(action: str) -> bool:
-    if action != "codex-login":
-        typer.echo(f"Unsupported provider activation action: {action}", err=True)
-        return False
-
+def activate_model_picker_provider(action: ProviderActivation) -> bool:
+    from fast_agent.auth.providers import get_oauth_provider
     from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
-    from fast_agent.llm.provider.openai.codex_oauth import login_codex_oauth
     from fast_agent.ui import console
 
-    typer.echo("Starting Codex OAuth login...", err=True)
+    handler = get_oauth_provider(action.provider.config_name)
+    if handler.status().get("present"):
+        return True
+
+    typer.echo(f"Starting {handler.display_name} OAuth login...", err=True)
     try:
         console.ensure_blocking_console()
-        login_codex_oauth()
+        handler.login()
     except ProviderKeyError as exc:
         typer.echo(format_fast_agent_error(exc), err=True)
         return False
     except (EOFError, KeyboardInterrupt):
-        typer.echo("Codex OAuth login cancelled.", err=True)
+        typer.echo(f"{handler.display_name} OAuth login cancelled.", err=True)
         return False
 
-    typer.echo("Codex OAuth login complete. Choose a Codex model to continue.", err=True)
+    typer.echo(f"{handler.display_name} OAuth login complete.", err=True)
     return True
 
 
@@ -492,7 +497,9 @@ async def select_model_from_picker(
         initial_provider = picker_result.provider
 
         if picker_result.activation_action is not None:
-            activate_model_picker_provider(picker_result.activation_action)
+            if activate_model_picker_provider(picker_result.activation_action):
+                if picker_result.selected_model:
+                    return picker_result.selected_model
             continue
 
         if picker_result.provider == LLAMACPP_PROVIDER_KEY:

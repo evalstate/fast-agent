@@ -362,7 +362,7 @@ async def test_slash_command_mcp_connect_sends_acp_progress_updates() -> None:
         for update in acp_context.updates
     )
     assert any("Stop/Cancel" in str(update) for update in acp_context.updates)
-    assert any("fast-agent auth login" in str(update) for update in acp_context.updates)
+    assert any("fast-agent auth mcp login" in str(update) for update in acp_context.updates)
     assert any(
         isinstance(update, ToolCallProgress) and getattr(update, "status", None) == "completed"
         for update in acp_context.updates

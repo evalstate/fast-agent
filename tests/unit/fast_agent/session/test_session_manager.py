@@ -529,6 +529,27 @@ async def test_resume_session_agents_without_id_skips_latest_empty_session(tmp_p
     assert result is not None
     assert result.session.info.name == previous.info.name
     assert _message_texts(runtime) == ["hello", "done"]
+    assert not empty.directory.exists()
+
+
+def test_empty_sessions_are_hidden_and_pruned_but_titled_sessions_remain(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    abandoned = manager.create_session()
+    titled = manager.create_session()
+    titled.info.metadata["title"] = "Keep me"
+    titled._save_metadata()
+    manager.set_current_session(titled)
+
+    assert [info.name for info in manager.list_sessions(include_empty=False)] == [
+        titled.info.name
+    ]
+    assert manager.prune_empty_sessions() == 1
+    assert not abandoned.directory.exists()
+    assert titled.directory.exists()
 
 
 def test_resume_session_includes_hydrator_warnings_in_notices(tmp_path) -> None:

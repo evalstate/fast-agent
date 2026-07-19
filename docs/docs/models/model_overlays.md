@@ -127,6 +127,7 @@ metadata:
     - image/jpeg
     - image/png
   default_temperature: 0.8
+  managed_process_poll_folding: true
   process_poll_default_wait_seconds: 30
   fast: true
 
@@ -183,6 +184,10 @@ Common fields:
 - `context_window`
 - `max_output_tokens`
 - `tokenizes`
+- `managed_process_poll_folding`: whether automatic folding of repetitive
+  quiet `poll_process` exchanges has been validated for this model. This is
+  consulted when `shell_execution.managed_process_poll_history_folding` is
+  `auto`.
 - `process_poll_default_wait_seconds`: default `poll_process` wait when the model
   omits `wait_sec` (`0` keeps polling non-blocking). The value is capped by
   `shell_execution.process_poll_max_wait_seconds`.

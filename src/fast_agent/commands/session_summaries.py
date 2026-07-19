@@ -39,7 +39,7 @@ def build_session_list_summary(
     show_help: bool = False,
 ) -> SessionListSummary:
     manager = manager or get_session_manager()
-    sessions = apply_session_window(manager.list_sessions())
+    sessions = apply_session_window(manager.list_sessions(include_empty=False))
 
     current = manager.current_session
     current_name = current.info.name if current else None

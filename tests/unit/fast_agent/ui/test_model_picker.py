@@ -29,12 +29,12 @@ from fast_agent.ui.model_picker import (
     _SplitListPicker,
 )
 from fast_agent.ui.model_picker_common import (
-    CODEX_LOGIN_SENTINEL,
     GENERIC_CUSTOM_MODEL_SENTINEL,
     LLAMACPP_IMPORT_SENTINEL,
     LLAMACPP_PROVIDER_KEY,
     ModelOption,
     ModelPickerSnapshot,
+    ProviderActivation,
     ProviderOption,
     build_snapshot,
     model_options_for_provider,
@@ -228,7 +228,8 @@ def test_codex_inactive_provider_uses_activation_option() -> None:
         curated_entries=(CatalogModelEntry(alias="codexplan", model="codexresponses.o4-mini"),),
     )
 
-    assert provider_activation_action(snapshot, Provider.CODEX_RESPONSES) == "codex-login"
+    activation = ProviderActivation(Provider.CODEX_RESPONSES)
+    assert provider_activation_action(snapshot, Provider.CODEX_RESPONSES) == activation
 
     options = model_options_for_provider(
         snapshot,
@@ -236,13 +237,10 @@ def test_codex_inactive_provider_uses_activation_option() -> None:
         source="curated",
     )
 
-    assert options == [
-        ModelOption(
-            spec=CODEX_LOGIN_SENTINEL,
-            label="Log in to enable Codex (Plan)",
-            activation_action="codex-login",
-        )
-    ]
+    assert len(options) == 1
+    assert options[0].spec == "codexresponses.o4-mini"
+    assert options[0].preset_token == "codexplan"
+    assert options[0].activation_action == activation
 
 
 def test_codex_inactive_provider_is_shown_as_sign_in_required() -> None:
@@ -274,24 +272,35 @@ def test_codex_inactive_picker_current_models_uses_activation_option() -> None:
     models = picker.current_models
     result = picker._selected_result()
 
-    assert models == [
-        ModelOption(
-            spec=CODEX_LOGIN_SENTINEL,
-            label="Log in to enable Codex (Plan)",
-            activation_action="codex-login",
-        )
-    ]
+    assert len(models) == 1
+    assert models[0].spec == "codexresponses.o4-mini"
+    assert models[0].activation_action == ProviderActivation(Provider.CODEX_RESPONSES)
     assert result is not None
-    assert result.activation_action == "codex-login"
-    assert result.selected_model == CODEX_LOGIN_SENTINEL
+    assert result.activation_action == ProviderActivation(Provider.CODEX_RESPONSES)
+    assert result.selected_model == "codexresponses.o4-mini"
+
+
+def test_xai_inactive_provider_keeps_models_selectable_for_login() -> None:
+    snapshot = _snapshot_with_single_provider(
+        provider=Provider.XAI,
+        active=False,
+        curated_entries=(CatalogModelEntry(alias="grok", model="xai.grok-4.5"),),
+    )
+
+    options = model_options_for_provider(snapshot, Provider.XAI, source="curated")
+
+    assert len(options) == 1
+    assert options[0].spec == "xai.grok-4.5"
+    assert options[0].preset_token == "grok"
+    assert options[0].activation_action == ProviderActivation(Provider.XAI)
 
 
 def test_model_availability_and_marker_capture_provider_state() -> None:
     normal_model = ModelOption(spec="generic.llama3", label="llama3")
     activation_model = ModelOption(
-        spec=CODEX_LOGIN_SENTINEL,
+        spec="codexresponses.o4-mini",
         label="Log in to enable Codex (Plan)",
-        activation_action="codex-login",
+        activation_action=ProviderActivation(Provider.CODEX_RESPONSES),
     )
 
     active = _model_availability_display(normal_model, provider_available=True)

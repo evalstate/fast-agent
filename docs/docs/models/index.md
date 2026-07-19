@@ -9,7 +9,7 @@ social:
 
 **`fast-agent`** has native support for **OpenAI Responses** and **Chat Completions**, **Anthropic Messages**, **Google GenAI** and **Amazon Bedrock** APIs. 
 
-OpenAI Codex users can use their subscription with **`fast-agent`**, using their existing installation or logging in with `fast-agent auth codexplan`. 
+OpenAI Codex users can use their subscription with **`fast-agent`**, using their existing installation or logging in with `fast-agent auth login codex`.
 
 Chat Completions models are also available via **Microsoft Azure**, and supported Anthropic models are available on **Google Vertex**.
 

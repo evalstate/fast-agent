@@ -121,6 +121,9 @@ FAST_AGENT_SHELL_CHILD_ENV = "FAST_AGENT_SHELL_CHILD"
 FAST_AGENT_RUNTIME_HOME = "FAST_AGENT_RUNTIME_HOME"
 """Resolved active fast-agent home exported to shell commands and automation."""
 
+FAST_AGENT_AUTH_FILE = "FAST_AGENT_AUTH_FILE"
+"""Explicit portable provider credential file."""
+
 
 @dataclass(frozen=True)
 class DocumentedEnvVar:
@@ -138,6 +141,12 @@ DOCUMENTED_ENV_VARS = (
         value=FAST_AGENT_SHELL_CHILD_ENV,
         purpose="Set to `1` in child shells opened from the TUI with `!`.",
         surface="tui",
+    ),
+    DocumentedEnvVar(
+        symbol="FAST_AGENT_AUTH_FILE",
+        value=FAST_AGENT_AUTH_FILE,
+        purpose="Explicit portable provider OAuth credential file.",
+        surface="auth",
     ),
     DocumentedEnvVar(
         symbol="FAST_AGENT_RUNTIME_HOME",

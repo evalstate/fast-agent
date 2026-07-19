@@ -781,7 +781,7 @@ class AgentCompleter(Completer):
         manager = self.session_manager or get_session_manager()
         current_session = manager.current_session
         current_session_id = current_session.info.name if current_session is not None else None
-        sessions = apply_session_window(manager.list_sessions())
+        sessions = apply_session_window(manager.list_sessions(include_empty=False))
         for session_info in sessions:
             session_id = session_info.name
             if not include_current and session_id == current_session_id:

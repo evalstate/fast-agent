@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 from fast_agent.config import get_settings
@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 ModelSource = Literal["curated", "all"]
-ProviderActivationAction = Literal["codex-login"]
 ModelAvailability = Literal["active", "attention", "inactive"]
 
 
@@ -57,12 +56,16 @@ REFER_TO_DOCS_PROVIDERS: tuple[Provider, ...] = (
 )
 
 GENERIC_CUSTOM_MODEL_SENTINEL = "generic.__custom__"
-CODEX_LOGIN_SENTINEL = "codexresponses.__login__"
 LLAMACPP_PROVIDER_KEY = "llamacpp"
 LLAMACPP_IMPORT_SENTINEL = "llamacpp.__import__"
 PROVIDER_PREFIX_DELIMITERS = ("/", ".")
 ProviderActiveCheck = Callable[[dict[str, Any]], bool]
 ModelSpecTransform = Callable[[str], str]
+
+
+@dataclass(frozen=True)
+class ProviderActivation:
+    provider: Provider
 
 
 @dataclass(frozen=True)
@@ -90,7 +93,7 @@ class ModelOption:
     label: str
     preset_token: str | None = None
     fast: bool = False
-    activation_action: ProviderActivationAction | None = None
+    activation_action: ProviderActivation | None = None
 
 
 SyntheticProviderOptionFactory = Callable[[Provider], list[ModelOption] | None]
@@ -150,16 +153,6 @@ def _azure_default_credential_is_active(config_payload: dict[str, Any]) -> bool:
     return use_default and normalized_base_url is not None
 
 
-def _codex_oauth_is_active(_config_payload: dict[str, Any]) -> bool:
-    try:
-        from fast_agent.llm.provider.openai.codex_oauth import get_codex_token_status
-
-        status = get_codex_token_status()
-        return bool(status.get("present"))
-    except Exception:
-        return False
-
-
 def _huggingface_hub_is_active(_config_payload: dict[str, Any]) -> bool:
     return is_huggingface_hub_logged_in()
 
@@ -167,7 +160,6 @@ def _huggingface_hub_is_active(_config_payload: dict[str, Any]) -> bool:
 _PROVIDER_ACTIVE_CHECKS: dict[Provider, ProviderActiveCheck] = {
     Provider.GOOGLE: _google_vertex_is_active,
     Provider.AZURE: _azure_default_credential_is_active,
-    Provider.CODEX_RESPONSES: _codex_oauth_is_active,
     Provider.HUGGINGFACE: _huggingface_hub_is_active,
 }
 
@@ -594,10 +586,10 @@ def infer_initial_picker_provider(model_spec: str | None) -> str | None:
 def provider_activation_action(
     snapshot: ModelPickerSnapshot,
     provider: Provider,
-) -> ProviderActivationAction | None:
+) -> ProviderActivation | None:
     option = find_provider(snapshot, provider.config_name)
-    if provider == Provider.CODEX_RESPONSES and not option.active:
-        return "codex-login"
+    if provider in {Provider.CODEX_RESPONSES, Provider.XAI} and not option.active:
+        return ProviderActivation(provider)
     return None
 
 
@@ -640,10 +632,11 @@ def model_options_for_provider(
     activation_action = provider_activation_action(snapshot, provider)
     if activation_action is not None:
         return [
-            ModelOption(
-                spec=CODEX_LOGIN_SENTINEL,
-                label="Log in to enable Codex (Plan)",
-                activation_action=activation_action,
+            replace(option, activation_action=activation_action)
+            for option in _catalog_options_from_entries(
+                provider_option.curated_entries,
+                provider=provider,
+                source=source,
             )
         ]
     return _catalog_options_from_entries(

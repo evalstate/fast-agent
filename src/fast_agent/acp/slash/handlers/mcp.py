@@ -196,11 +196,11 @@ def _rewrite_connect_progress_message(
     if handler._acp_context is not None and "Waiting for OAuth callback" in message:
         if "Stop/Cancel" not in message:
             message = f"{message}\nTo cancel, use your ACP client's Stop/Cancel action."
-        if "fast-agent auth login" not in message:
+        if "fast-agent auth mcp login" not in message:
             message = (
                 f"{message}\n"
                 "If the browser cannot reach the callback host, run "
-                "`fast-agent auth login <server-name-or-mcp-name>` on the "
+                "`fast-agent auth mcp login <server-name-or-mcp-name>` on the "
                 "fast-agent host, then retry `/mcp connect ...`."
             )
 

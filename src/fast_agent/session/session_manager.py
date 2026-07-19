@@ -61,6 +61,17 @@ HISTORY_SUFFIX = ".json"
 HISTORY_PREVIOUS_SUFFIX = "_previous.json"
 
 
+def session_metadata_title(metadata: Mapping[str, object] | None) -> str | None:
+    """Extract the first displayable title or preview from session metadata."""
+    if metadata is None:
+        return None
+    for key in ("title", "label", "first_user_preview"):
+        value = metadata.get(key)
+        if isinstance(value, str) and (normalized := " ".join(value.split())):
+            return normalized
+    return None
+
+
 def _normalized_home_override(cwd: pathlib.Path) -> str | None:
     """Return the active fast-agent home override as an absolute path string when set."""
     from fast_agent.home import resolve_fast_agent_home
@@ -475,15 +486,15 @@ class Session:
             return True
         return any(self.directory.glob(f"{HISTORY_PREFIX}*{HISTORY_SUFFIX}"))
 
+    def is_user_visible(self) -> bool:
+        """Return whether this session should appear in interactive session surfaces."""
+        if self.has_persisted_content() or is_session_pinned(self.info):
+            return True
+        return session_metadata_title(self.info.metadata) is not None
+
     def delete_if_empty(self) -> bool:
         """Delete this session when it only contains startup metadata."""
-        if self.has_persisted_content() or is_session_pinned(self.info):
-            return False
-        title = self.info.metadata.get("title")
-        label = self.info.metadata.get("label")
-        if (isinstance(title, str) and strip_to_none(title)) or (
-            isinstance(label, str) and strip_to_none(label)
-        ):
+        if self.is_user_visible():
             return False
         self.delete()
         return True
@@ -747,7 +758,7 @@ class SessionManager:
         logger.info(f"Created new session: {requested_id}")
         return session
 
-    def list_sessions(self) -> list[SessionInfo]:
+    def list_sessions(self, *, include_empty: bool = True) -> list[SessionInfo]:
         """List all available sessions."""
         sessions = []
         if not self.base_dir.exists():
@@ -763,12 +774,28 @@ class SessionManager:
                     with metadata_file.open(encoding="utf-8") as f:
                         data = json.load(f)
                         info = SessionInfo.from_dict(data)
+                        if not include_empty:
+                            session = Session(info, session_dir, manager=self)
+                            if not session.is_user_visible():
+                                continue
                         sessions.append(info)
                 except Exception as e:
                     logger.warning(f"Failed to load session metadata from {metadata_file}: {e}")
 
         sessions.sort(key=lambda info: info.last_activity, reverse=True)
         return sessions
+
+    def prune_empty_sessions(self) -> int:
+        """Remove abandoned unpinned sessions that contain only startup metadata."""
+        current_name = self._current_session.info.name if self._current_session else None
+        removed = 0
+        for info in self.list_sessions():
+            if info.name == current_name:
+                continue
+            session = self.get_session(info.name)
+            if session is not None and session.delete_if_empty():
+                removed += 1
+        return removed
 
     def load_session(self, name: str) -> Session | None:
         """Load an existing session."""
@@ -925,6 +952,7 @@ class SessionManager:
         fallback_agent_name: str | None = None,
     ) -> ResumeSessionAgentsResult | None:
         """Resume a session and adapt hydrator output for local callers."""
+        displaced_session = self._current_session
         hydration = await self._hydrate_session_agents_async(
             agents,
             name,
@@ -932,6 +960,8 @@ class SessionManager:
         )
         if hydration is None:
             return None
+        if displaced_session is not None and displaced_session is not hydration.session:
+            displaced_session.delete_if_empty()
 
         missing_agents = list(hydration.skipped_agents)
         if missing_agents:

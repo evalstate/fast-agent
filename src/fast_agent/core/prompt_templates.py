@@ -4,6 +4,7 @@ Helpers for applying template variables to system prompts after initial bootstra
 
 from __future__ import annotations
 
+import os
 import platform
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -61,6 +62,20 @@ def _format_client_info(client_info: Mapping[str, str]) -> str | None:
     if via:
         return f"{display} via {via}"
     return display
+
+
+def _format_model_references(
+    model_references: Mapping[str, Mapping[str, str]],
+    default_model: str,
+) -> str:
+    references = {
+        f"${namespace}.{key}": model
+        for namespace, entries in sorted(model_references.items())
+        for key, model in sorted(entries.items())
+        if not (namespace == "system" and key in {"default", "last_used"})
+    }
+    references["$system.default"] = default_model
+    return "\n".join(f"{token}={model}" for token, model in sorted(references.items()))
 
 
 def _format_execution_environment(
@@ -140,7 +155,7 @@ def _refresh_env_summary(context: MutableMapping[str, str]) -> None:
         env_lines.append(f"Execution environment: {execution_environment}")
     client = context.get("clientDisplay")
     if client:
-        env_lines.append(f"Client: {client}")
+        env_lines.append(f"Client: {client} (pid {os.getpid()})")
     host_platform = context.get("hostPlatform")
     environment_kind = context.get("executionEnvironmentKind")
     if host_platform and (environment_kind is None or environment_kind == "local"):
@@ -248,6 +263,23 @@ def enrich_with_environment_context(
     if server_platform:
         context["hostPlatform"] = server_platform
     context["pythonVer"] = python_version
+
+    from fast_agent.config import get_settings
+    from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
+
+    settings = get_settings(no_home=no_home)
+    default_model = resolve_model_spec(
+        context=None,
+        default_model=settings.default_model,
+        cli_model=settings.cli_model_override,
+        hardcoded_default=HARDCODED_DEFAULT_MODEL,
+        model_references=settings.model_references,
+    ).model
+    assert default_model is not None
+    context["modelReferences"] = _format_model_references(
+        settings.model_references,
+        default_model,
+    )
 
     # Load and format agent skills
     # In ACP context, use read_text_file as the tool for reading skills

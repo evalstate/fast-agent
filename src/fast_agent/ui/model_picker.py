@@ -26,7 +26,7 @@ from fast_agent.ui.model_picker_common import (
     ModelAvailability,
     ModelOption,
     ModelSource,
-    ProviderActivationAction,
+    ProviderActivation,
     ProviderOption,
     build_snapshot,
     find_provider,
@@ -50,7 +50,7 @@ class ModelPickerResult:
     resolved_model: str | None
     source: ModelSource
     refer_to_docs: bool
-    activation_action: ProviderActivationAction | None = None
+    activation_action: ProviderActivation | None = None
 
 
 @dataclass(frozen=True)
@@ -212,7 +212,7 @@ class _SplitListPicker:
     def _provider_activation_action(
         self,
         option: ProviderOption | None = None,
-    ) -> ProviderActivationAction | None:
+    ) -> ProviderActivation | None:
         provider_option = option or self.current_provider
         if provider_option.provider is None:
             return None
@@ -633,7 +633,7 @@ class _SplitListPicker:
         selected_model: str | None,
         resolved_model: str | None,
         refer_to_docs: bool,
-        activation_action: ProviderActivationAction | None = None,
+        activation_action: ProviderActivation | None = None,
     ) -> ModelPickerResult:
         return ModelPickerResult(
             provider=provider.option_key,

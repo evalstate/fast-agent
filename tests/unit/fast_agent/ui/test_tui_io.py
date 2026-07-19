@@ -9,10 +9,14 @@ from fast_agent.commands.results import CommandChannel, CommandMessage
 from fast_agent.config import Settings
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.llm.model_reference_diagnostics import ModelReferenceSetupItem
+from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.adapters.tui_io import TuiCommandIO
 from fast_agent.ui.message_primitives import MessageType
 from fast_agent.ui.model_picker import ModelPickerResult
-from fast_agent.ui.model_picker_common import GENERIC_CUSTOM_MODEL_SENTINEL
+from fast_agent.ui.model_picker_common import (
+    GENERIC_CUSTOM_MODEL_SENTINEL,
+    ProviderActivation,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -165,7 +169,7 @@ async def test_handle_model_activation_returns_false_on_provider_key_error(monke
         fail_login,
     )
 
-    activated = await io._handle_model_activation("codex-login")
+    activated = await io._handle_model_activation(ProviderActivation(Provider.CODEX_RESPONSES))
 
     assert activated is False
     assert display.status_messages[-1].plain == "Codex OAuth failed: no token"

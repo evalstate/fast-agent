@@ -885,6 +885,8 @@ def generate_tui_runtime_reference() -> str:
         "shell_execution.interactive_use_pty",
         "shell_execution.timeout_seconds",
         "shell_execution.warning_interval_seconds",
+        "shell_execution.process_poll_max_wait_seconds",
+        "shell_execution.managed_process_poll_history_folding",
         "tui.completion_menu_reserved_lines",
     ]
     descriptions = {
@@ -908,6 +910,8 @@ def generate_tui_runtime_reference() -> str:
         "shell_execution.interactive_use_pty": "Use a PTY for interactive prompt shell commands.",
         "shell_execution.timeout_seconds": "Maximum seconds without command output before termination.",
         "shell_execution.warning_interval_seconds": "Show timeout warnings every N seconds.",
+        "shell_execution.process_poll_max_wait_seconds": "Maximum wait accepted by poll_process.",
+        "shell_execution.managed_process_poll_history_folding": "Fold repetitive quiet poll_process exchanges.",
         "tui.completion_menu_reserved_lines": "Prompt-toolkit lines reserved below the input for completion menus.",
     }
 

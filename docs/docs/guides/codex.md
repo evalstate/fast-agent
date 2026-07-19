@@ -46,7 +46,7 @@ connect to MCP Servers.
 If you want to use the Codex OAuth models directly, authenticate once first:
 
 ```bash
-fast-agent auth codexplan
+fast-agent auth login codex
 ```
 
 This stores the token in your OS keyring. After that you can use Codex OAuth

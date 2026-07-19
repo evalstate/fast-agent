@@ -1120,6 +1120,7 @@ def test_get_completions_for_session_export(tmp_path: Path) -> None:
     try:
         manager = SessionManager(home_override=home)
         session = manager.create_session()
+        (session.directory / "history_agent.json").write_text("[]", encoding="utf-8")
 
         completer = AgentCompleter(agents=["agent1"], session_manager=manager)
         doc = Document("/session export ", cursor_position=len("/session export "))

@@ -22,6 +22,7 @@ Context placeholders (set by caller):
     {{agentType}} - Current agent type
     {{agentCardPath}} - Source AgentCard path (if available)
     {{agentCardDir}} - Source AgentCard directory (if available)
+    {{modelReferences}} - Model references and effective default
     {{serverInstructions}} - MCP server instructions
     {{agentSkills}} - Agent skill descriptions
     {{agentInternalResources}} - Internal resource index

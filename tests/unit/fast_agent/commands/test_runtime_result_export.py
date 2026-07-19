@@ -600,6 +600,21 @@ def test_initial_harness_session_id_uses_explicit_resume_session(tmp_path: Path)
     assert initial_harness_session_id(request) == "2607032031-AiS7lt"
 
 
+def test_initial_harness_session_id_preserves_concurrent_empty_session(tmp_path: Path) -> None:
+    from fast_agent.session import SessionManager
+
+    manager = SessionManager(home_override=tmp_path)
+    concurrent = manager.create_session_with_id("2607032031-Empty1")
+    request = _make_request(result_file=None, message=None)
+    request.home = tmp_path
+
+    session_id = initial_harness_session_id(request)
+
+    assert session_id != concurrent.info.name
+    assert concurrent.directory.exists()
+    assert not (tmp_path / "sessions" / session_id).exists()
+
+
 @pytest.mark.parametrize("resume", [RESUME_LATEST_SENTINEL, "latest"])
 def test_initial_harness_session_id_uses_latest_resume_alias(
     tmp_path: Path,
