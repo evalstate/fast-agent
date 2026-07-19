@@ -111,6 +111,12 @@ def test_opentelemetry_sample_rate_rejects_boolean_values() -> None:
         OpenTelemetrySettings.model_validate({"sample_rate": True})
 
 
+@pytest.mark.parametrize("sample_rate", [-0.1, 1.1])
+def test_opentelemetry_sample_rate_must_be_a_ratio(sample_rate: float) -> None:
+    with pytest.raises(ValueError):
+        OpenTelemetrySettings(sample_rate=sample_rate)
+
+
 @pytest.mark.parametrize("field_name", ["batch_size", "max_queue_size"])
 def test_logger_integer_controls_reject_boolean_values(field_name: str) -> None:
     assert LoggerSettings.model_validate({field_name: "12"}).model_dump()[field_name] == 12

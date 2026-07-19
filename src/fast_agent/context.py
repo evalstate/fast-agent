@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import logging
 import uuid
+import warnings
+from importlib.metadata import PackageNotFoundError, version
 from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.mcp import McpInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from pydantic import BaseModel, ConfigDict
 
@@ -38,6 +40,8 @@ else:
     SessionManager = Any
 
 logger = get_logger(__name__)
+
+_otel_tracer_provider: TracerProvider | None = None
 
 """
 A central context object to store global state that is shared across the application.
@@ -80,15 +84,17 @@ async def configure_otel(config: "Settings") -> None:
     if not config.otel or not config.otel.enabled:
         return
 
+    global _otel_tracer_provider
+    if _otel_tracer_provider is not None:
+        return
+
     # Set up global textmap propagator first
     set_global_textmap(TraceContextTextMapPropagator())
 
     service_name = config.otel.service_name
-    from importlib.metadata import version
-
     try:
         app_version = version("fast-agent-mcp")
-    except Exception:
+    except PackageNotFoundError:
         app_version = "unknown"
 
     resource = Resource.create(
@@ -104,7 +110,10 @@ async def configure_otel(config: "Settings") -> None:
     )
 
     # Create provider with resource
-    tracer_provider = TracerProvider(resource=resource)
+    tracer_provider = TracerProvider(
+        resource=resource,
+        sampler=ParentBased(TraceIdRatioBased(config.otel.sample_rate)),
+    )
 
     # Add exporters based on config
     otlp_endpoint = config.otel.otlp_endpoint
@@ -120,30 +129,33 @@ async def configure_otel(config: "Settings") -> None:
 
     # Set as global tracer provider
     trace.set_tracer_provider(tracer_provider)
+    _otel_tracer_provider = tracer_provider
 
-    # Attempt to instrument optional SDKs if available; continue silently if missing
-    try:
+    # OpenLLMetry through 0.62.1 still uses asyncio.iscoroutinefunction while
+    # importing its instrumentations. Keep that Python 3.14 deprecation local to
+    # the third-party import; importing fast-agent with telemetry disabled stays clean.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="'asyncio.iscoroutinefunction' is deprecated.*",
+            category=DeprecationWarning,
+            module=r"opentelemetry\.instrumentation\..*\.utils",
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message="Support for class-based `config` is deprecated.*",
+            category=DeprecationWarning,
+            module=r"opentelemetry\.instrumentation\.openai\..*",
+        )
+        from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
+        from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
+        from opentelemetry.instrumentation.mcp import McpInstrumentor
         from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 
-        OpenAIInstrumentor().instrument()
-    except Exception:  # pragma: no cover - optional instrumentation
-        pass
-
-    try:
-        from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
-
-        GoogleGenAiSdkInstrumentor().instrument()
-    except Exception:  # pragma: no cover - optional instrumentation
-        pass
-
-    try:
-        from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
-
-        AnthropicInstrumentor().instrument()
-    except Exception:  # pragma: no cover - optional instrumentation
-        pass
-
-    McpInstrumentor().instrument()
+        OpenAIInstrumentor().instrument(tracer_provider=tracer_provider)
+        GoogleGenAiSdkInstrumentor().instrument(tracer_provider=tracer_provider)
+        AnthropicInstrumentor().instrument(tracer_provider=tracer_provider)
+        McpInstrumentor().instrument(tracer_provider=tracer_provider)
 
 
 async def configure_logger(config: "Settings") -> None:
@@ -248,6 +260,8 @@ async def cleanup_context() -> None:
 
     # Shutdown logging and telemetry
     await LoggingConfig.shutdown()
+    if _otel_tracer_provider is not None:
+        _otel_tracer_provider.force_flush()
 
 
 _global_context: Context | None = None

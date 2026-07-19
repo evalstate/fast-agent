@@ -1387,6 +1387,8 @@ class OpenTelemetrySettings(BaseModel):
     console_debug: bool = Field(default=False, description="Log spans to console")
     sample_rate: float = Field(
         default=1.0,
+        ge=0.0,
+        le=1.0,
         description="Sample rate for tracing (1.0 = sample everything)",
     )
 
