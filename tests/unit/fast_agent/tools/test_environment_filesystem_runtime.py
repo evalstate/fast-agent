@@ -363,6 +363,32 @@ async def test_environment_filesystem_runtime_applies_patch_to_remote_files() ->
 
 
 @pytest.mark.asyncio
+async def test_environment_filesystem_runtime_move_removes_source_file() -> None:
+    env = FakeEnvironment()
+    env.files["/workspace/a.py"] = "print('hi')\n"
+    runtime = EnvironmentFilesystemRuntime(env, enable_read=True, enable_apply_patch=True)
+
+    result = await runtime.call_tool(
+        "apply_patch",
+        {
+            "input": (
+                "*** Begin Patch\n"
+                "*** Update File: a.py\n"
+                "*** Move to: b.py\n"
+                "@@\n"
+                "-print('hi')\n"
+                "+print('hello')\n"
+                "*** End Patch\n"
+            )
+        },
+    )
+
+    assert result.isError is False
+    assert env.files["/workspace/b.py"] == "print('hello')\n"
+    assert "/workspace/a.py" not in env.files
+
+
+@pytest.mark.asyncio
 async def test_environment_filesystem_runtime_reports_edit_write_failure() -> None:
     class FailingWriteEnvironment(FakeEnvironment):
         async def write_text(self, path: str, content: str) -> None:
