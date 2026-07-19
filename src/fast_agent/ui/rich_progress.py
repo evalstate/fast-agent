@@ -1,7 +1,6 @@
 """Rich-based progress display for MCP Agent."""
 
 import json
-import math
 import os
 import time
 from contextlib import contextmanager
@@ -121,7 +120,8 @@ class SpinnerDescriptionColumn(ProgressColumn):
             rendered = self.spinner.render(task.get_time())
             spinner_text = rendered if isinstance(rendered, Text) else Text(str(rendered))
 
-        return Text.assemble(description_text, spinner_text)
+        # Spinner leads so the pulse stays visible before padded labels/details.
+        return Text.assemble(spinner_text, description_text)
 
 
 class DynamicDetailsColumn(ProgressColumn):
@@ -139,15 +139,14 @@ class DynamicDetailsColumn(ProgressColumn):
     def render(self, task: "Task") -> Text:
         details = str(task.fields.get("details") or "").strip()
         is_process_poll = bool(task.fields.get("is_process_poll"))
-        parts = [details]
+        parts: list[str | Text] = []
+        if details:
+            parts.append(details)
         task_elapsed = task.elapsed or 0.0
-        if is_process_poll:
-            parts.append("running")
         elapsed_base = task.fields.get("process_elapsed_seconds")
         if isinstance(elapsed_base, (int, float)) and not isinstance(elapsed_base, bool):
             elapsed = float(elapsed_base) + task_elapsed
-            elapsed_text = format_process_elapsed(elapsed)
-            parts.append(elapsed_text)
+            parts.append(format_process_elapsed(elapsed))
         if is_process_poll:
             output_age = task.fields.get("process_seconds_since_last_output")
             if isinstance(output_age, (int, float)) and not isinstance(output_age, bool):
@@ -158,12 +157,11 @@ class DynamicDetailsColumn(ProgressColumn):
                 has_observed_output=task.fields.get("process_has_observed_output"),
                 seconds_since_last_output=output_age,
             )
-            if output_activity:
-                parts.append(output_activity)
-            wait_seconds = task.fields.get("process_wait_seconds")
-            if type(wait_seconds) is int and wait_seconds > 0:
-                remaining = math.ceil(max(wait_seconds - task_elapsed, 0.0))
-                parts.append(f"poll {remaining}s" if remaining else "poll finishing…")
+            if output_activity is not None:
+                if output_activity.style:
+                    parts.append(Text(output_activity.text, style=output_activity.style))
+                else:
+                    parts.append(output_activity.text)
             output_size = format_process_output_size(
                 task.fields.get("process_total_output_bytes")
             )
@@ -172,7 +170,22 @@ class DynamicDetailsColumn(ProgressColumn):
         command = task.fields.get("process_command")
         if isinstance(command, str) and command:
             parts.append(command)
-        return Text(" · ".join(part for part in parts if part), style=self.style)
+        return self._join_detail_parts(parts)
+
+    def _join_detail_parts(self, parts: list[str | Text]) -> Text:
+        line = Text(style=self.style)
+        first = True
+        for part in parts:
+            if not part:
+                continue
+            if not first:
+                line.append(" · ", style=self.style)
+            first = False
+            if isinstance(part, Text):
+                line.append_text(part)
+            else:
+                line.append(part, style=self.style)
+        return line
 
 
 class RichProgressDisplay:

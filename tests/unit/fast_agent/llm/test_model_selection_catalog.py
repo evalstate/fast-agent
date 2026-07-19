@@ -234,6 +234,20 @@ def test_configured_providers_reads_environment_keys() -> None:
     assert Provider.RESPONSES in providers
 
 
+def test_configured_providers_reads_codex_auth_json_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEX_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.openai.codex_oauth.get_codex_access_token",
+        lambda: "codex-token-from-auth-json",
+    )
+
+    providers = ModelSelectionCatalog.configured_providers({})
+
+    assert Provider.CODEX_RESPONSES in providers
+
+
 def test_configured_providers_does_not_treat_overlay_only_provider_as_ready(
     monkeypatch,
     tmp_path: Path,

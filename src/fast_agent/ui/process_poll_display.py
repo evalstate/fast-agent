@@ -1,26 +1,39 @@
 """Compact managed-process polling display helpers."""
 
+from dataclasses import dataclass
+
 from pydantic import ByteSize
 
-from fast_agent.utils.time import format_compact_duration
+
+@dataclass(frozen=True, slots=True)
+class ProcessOutputActivity:
+    """Compact output-activity chip for process monitoring displays."""
+
+    text: str
+    style: str | None = None
 
 
 def format_process_output_activity(
     *,
     has_observed_output: bool | None,
     seconds_since_last_output: float | None,
-) -> str | None:
+) -> ProcessOutputActivity | None:
+    """Return a short activity chip that highlights recent output, then goes quiet.
+
+    Recent output is emphasized for a short window, then fades, then collapses to
+    an untimed ``quiet`` marker. Missing/never-seen output stays silent.
+    """
     if has_observed_output is None or seconds_since_last_output is None:
         return None
     if not has_observed_output:
         return None
 
-    duration = format_compact_duration(max(seconds_since_last_output, 0.0)) or "<1s"
-    if seconds_since_last_output <= 5:
-        return "output now"
-    if seconds_since_last_output < 30:
-        return f"last output {duration} ago"
-    return f"quiet {duration}"
+    age = max(seconds_since_last_output, 0.0)
+    if age <= 5:
+        return ProcessOutputActivity("output", "bold bright_green")
+    if age < 30:
+        return ProcessOutputActivity("output", "green")
+    return ProcessOutputActivity("quiet")
 
 
 def format_process_output_size(total_bytes: int | None) -> str | None:

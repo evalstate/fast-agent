@@ -4,7 +4,7 @@ from fast_agent.ui.process_poll_display import (
 )
 
 
-def test_process_output_activity_distinguishes_recent_quiet_and_missing_output() -> None:
+def test_process_output_activity_highlights_recent_then_goes_quiet() -> None:
     assert (
         format_process_output_activity(
             has_observed_output=False,
@@ -12,27 +12,30 @@ def test_process_output_activity_distinguishes_recent_quiet_and_missing_output()
         )
         is None
     )
-    assert (
-        format_process_output_activity(
-            has_observed_output=True,
-            seconds_since_last_output=4,
-        )
-        == "output now"
+
+    hot = format_process_output_activity(
+        has_observed_output=True,
+        seconds_since_last_output=4,
     )
-    assert (
-        format_process_output_activity(
-            has_observed_output=True,
-            seconds_since_last_output=12,
-        )
-        == "last output 12s ago"
+    assert hot is not None
+    assert hot.text == "output"
+    assert hot.style == "bold bright_green"
+
+    warm = format_process_output_activity(
+        has_observed_output=True,
+        seconds_since_last_output=12,
     )
-    assert (
-        format_process_output_activity(
-            has_observed_output=True,
-            seconds_since_last_output=90,
-        )
-        == "quiet 1m30s"
+    assert warm is not None
+    assert warm.text == "output"
+    assert warm.style == "green"
+
+    quiet = format_process_output_activity(
+        has_observed_output=True,
+        seconds_since_last_output=90,
     )
+    assert quiet is not None
+    assert quiet.text == "quiet"
+    assert quiet.style is None
 
 
 def test_process_output_size_uses_compact_decimal_units() -> None:

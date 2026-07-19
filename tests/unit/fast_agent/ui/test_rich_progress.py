@@ -451,39 +451,10 @@ class TestAggregatorInitializedVisibility:
         assert task.start_time is not None
         task.start_time -= 5
 
-        rendered = DynamicDetailsColumn().render(task).plain
-
-        assert rendered == (
-            "running · 1m10s · last output 9s ago · poll 25s · "
-            "12.5KB · uv run worker.py"
-        )
-        display.stop()
-
-    def test_process_poll_countdown_reports_finishing_at_deadline(self) -> None:
-        display = RichProgressDisplay(
-            console=Console(file=open("/dev/null", "w"), force_terminal=True),
-            default_agent_name="test-agent",
-        )
-        display.start()
-        display.update(
-            _make_event(
-                action=ProgressAction.CALLING_TOOL,
-                correlation_id="call-poll",
-                tool_name="poll_process",
-                details="process-4",
-                process_id="process-4",
-                process_elapsed_seconds=65,
-                process_wait_seconds=5,
-            )
-        )
-        task_id = display._taskmap["test-agent::call-poll"]
-        task = next(task for task in display._progress.tasks if task.id == task_id)
-        assert task.start_time is not None
-        task.start_time -= 5
-
-        assert DynamicDetailsColumn().render(task).plain == (
-            "running · 1m10s · poll finishing…"
-        )
+        rendered = DynamicDetailsColumn().render(task)
+        # start_time was rewound by 5s, so the 4s-old output ages into the warm window.
+        assert rendered.plain == "1m10s · output · 12.5KB · uv run worker.py"
+        assert any(str(span.style) == "green" for span in rendered.spans)
         display.stop()
 
     def test_process_output_progress_refreshes_live_poll_baselines(self) -> None:
@@ -521,9 +492,40 @@ class TestAggregatorInitializedVisibility:
         task_id = display._taskmap["test-agent::call-poll"]
         task = next(task for task in display._progress.tasks if task.id == task_id)
 
-        assert DynamicDetailsColumn().render(task).plain == (
-            "running · 1m10s · output now · poll 25s · 25.0KB · uv run worker.py"
+        rendered = DynamicDetailsColumn().render(task)
+        assert rendered.plain == "1m10s · output · 25.0KB · uv run worker.py"
+        assert any(str(span.style) == "bold bright_green" for span in rendered.spans)
+        display.stop()
+
+    def test_process_output_activity_fades_then_goes_quiet(self) -> None:
+        display = RichProgressDisplay(
+            console=Console(file=open("/dev/null", "w"), force_terminal=True),
+            default_agent_name="test-agent",
         )
+        display.start()
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="call-poll-quiet",
+                tool_name="poll_process",
+                details="process-4",
+                process_id="process-4",
+                process_elapsed_seconds=90,
+                process_has_observed_output=True,
+                process_seconds_since_last_output=12,
+                process_total_output_bytes=12_500,
+            )
+        )
+        task_id = display._taskmap["test-agent::call-poll-quiet"]
+        task = next(task for task in display._progress.tasks if task.id == task_id)
+
+        warm = DynamicDetailsColumn().render(task)
+        assert warm.plain == "1m30s · output · 12.5KB"
+        assert any(str(span.style) == "green" for span in warm.spans)
+
+        task.fields["process_seconds_since_last_output"] = 90
+        quiet = DynamicDetailsColumn().render(task)
+        assert quiet.plain == "1m30s · quiet · 12.5KB"
         display.stop()
 
     def test_poll_process_keeps_non_default_agent_name(self) -> None:
