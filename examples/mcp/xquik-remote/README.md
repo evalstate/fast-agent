@@ -3,8 +3,8 @@
 This example connects fast-agent to Xquik's remote MCP endpoint for read-only
 public X/Twitter research.
 
-The API key stays in your local environment and is passed as a bearer header in
-`fast-agent.yaml`.
+The API key stays in your local environment and is passed through the
+`x-api-key` header in `fast-agent.yaml`.
 
 ## Setup
 
