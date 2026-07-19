@@ -413,6 +413,7 @@ class ConsoleDisplay:
         tool_call_id: str | None,
     ) -> None:
         """Display a one-line poll heartbeat when live progress is disabled."""
+        del wait_sec  # retained for call-site compatibility; poll countdown is live-only
         line = Text("▎", style="magenta")
         line.append("◀ ", style="dim magenta")
         if name:
@@ -421,7 +422,6 @@ class ConsoleDisplay:
         line.append("monitoring", style="bold magenta")
         line.append(" · ", style="dim")
         line.append(process_id, style="bold")
-        line.append(" · running", style="dim")
         if elapsed_seconds is not None:
             line.append(
                 f" · {format_process_elapsed(elapsed_seconds)}",
@@ -431,10 +431,11 @@ class ConsoleDisplay:
             has_observed_output=has_observed_output,
             seconds_since_last_output=seconds_since_last_output,
         )
-        if output_activity:
-            line.append(f" · {output_activity}", style="dim")
-        if wait_sec is not None and wait_sec > 0:
-            line.append(f" · poll ≤{wait_sec}s", style="dim")
+        if output_activity is not None:
+            line.append(
+                f" · {output_activity.text}",
+                style=output_activity.style or "dim",
+            )
         if output_size := format_process_output_size(total_output_bytes):
             line.append(f" · {output_size}", style="dim")
         if command:

@@ -46,4 +46,13 @@ otel:
 
 Then, run your agent as normal - telemetry is transmitted by default to `http://localhost:4318/v1/traces`. From the Jaeger UI use the "Services" drop down to select **fast-agent** and click "Find Traces" to view the output.
 
+!!! note "OpenAI Responses WebSocket instrumentation"
+    With the currently pinned OpenLLMetry OpenAI instrumentation
+    (`opentelemetry-instrumentation-openai==0.62.1`), Responses API calls using the
+    WebSocket transport produce fast-agent's agent and root spans, but not the detailed
+    `openai.response` provider span. To capture provider metadata such as model and
+    response IDs, token usage, and finish reasons, use the SDK-backed SSE transport by
+    adding `transport=sse` to the model string, for example
+    `responses.gpt-5.6-terra?transport=sse`.
+
 For full configuration settings, check the [configuration file reference](config_file/#opentelemetry-settings)

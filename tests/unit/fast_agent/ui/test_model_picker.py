@@ -259,6 +259,28 @@ def test_codex_inactive_provider_is_shown_as_auth_on_select() -> None:
     assert "press Enter to authenticate" in status_line
 
 
+def test_codex_active_provider_shows_credential_source_label() -> None:
+    picker = _SplitListPicker(config_path=None, initial_provider="codexresponses")
+    picker.snapshot = ModelPickerSnapshot(
+        providers=(
+            ProviderOption(
+                provider=Provider.CODEX_RESPONSES,
+                active=True,
+                curated_entries=(
+                    CatalogModelEntry(alias="codexplan", model="codexresponses.o4-mini"),
+                ),
+                credential_label="Codex auth.json",
+            ),
+        ),
+        config_payload={},
+    )
+    picker.state.provider_index = 0
+
+    provider = picker.current_provider
+    assert picker._provider_availability_label(provider) == "Codex auth.json"
+    assert picker._provider_availability(provider).available is True
+
+
 def test_codex_inactive_picker_current_models_uses_activation_option() -> None:
     picker = _SplitListPicker(config_path=None, initial_provider="codexresponses")
     picker.snapshot = _snapshot_with_single_provider(

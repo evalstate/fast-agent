@@ -626,6 +626,15 @@ class ModelSelectionCatalog:
             env_key = ProviderKeyManager.get_env_var(provider_name)
             if config_key or env_key:
                 providers.append(provider)
+                continue
+
+            # OAuth / external credential stores are valid runtime sources for
+            # providers that intentionally support them. Keep this narrow so
+            # fallbacks like generic/ollama or optional HF hub tokens do not
+            # mark every local provider "configured".
+            if provider in {Provider.CODEX_RESPONSES, Provider.XAI}:
+                if ProviderKeyManager._provider_specific_fallback_key(provider_name):
+                    providers.append(provider)
 
         return providers
 

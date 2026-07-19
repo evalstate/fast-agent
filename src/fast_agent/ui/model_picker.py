@@ -363,7 +363,8 @@ class _SplitListPicker:
         if option.overlay_group and not option.curated_entries:
             return ProviderAvailability("none yet", "inactive", False)
         if option.active:
-            return ProviderAvailability("available", "active", True)
+            label = option.credential_label or "available"
+            return ProviderAvailability(label, "active", True)
         if option.disabled_reason is not None:
             return ProviderAvailability("disabled", "attention", False)
         if self._provider_activation_action(option) is not None:
