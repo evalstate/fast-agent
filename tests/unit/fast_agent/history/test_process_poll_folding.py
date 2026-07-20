@@ -509,6 +509,48 @@ def test_quiet_running_process_folds_earlier_polls() -> None:
     assert "Current status: running." in first.text
 
 
+def test_resource_observation_poll_is_not_folded() -> None:
+    history = _history_before_terminal(4)
+    warning = _poll_result(4, output_line_count=0)
+    _update_result_metadata(
+        warning,
+        resource_observation="disk free 1.0 GiB/10.0 GiB (10%)",
+    )
+
+    assert fold_completed_process_poll_history(history, warning) is None
+
+
+def test_quiet_polls_after_resource_observation_fold_without_removing_warning() -> None:
+    warning = _poll_result(1, output_line_count=0)
+    _update_result_metadata(
+        warning,
+        resource_observation="disk free 1.0 GiB/10.0 GiB (10%)",
+    )
+    history = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="build the project")],
+        ),
+        _poll_request(1),
+        warning,
+    ]
+    for index in range(2, 5):
+        history.extend(
+            [_poll_request(index), _poll_result(index, output_line_count=0)]
+        )
+    history.append(_poll_request(5))
+
+    folded = fold_completed_process_poll_history(
+        history,
+        _poll_result(5, output_line_count=0),
+    )
+
+    assert folded is not None
+    assert warning in folded.history
+    assert len(folded.history) == 4
+    assert folded.metadata["polls_folded"] == 3
+
+
 def test_narrated_poll_suffix_folds_and_preserves_removed_updates_exactly() -> None:
     history = _history_before_terminal(4)
     narrations = [
