@@ -41,6 +41,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker import ModelPickerResult
 from fast_agent.ui.model_picker_common import (
     LLAMACPP_PROVIDER_KEY,
+    ProviderActivation,
     normalize_generic_model_spec,
 )
 
@@ -493,6 +494,49 @@ async def test_select_model_from_picker_preserves_overlay_token_when_resolved_mo
     selected = await _select_model_from_picker(request, config_payload={})
 
     assert selected == "haikutiny"
+
+
+@pytest.mark.asyncio
+async def test_select_model_from_picker_reauthenticates_expired_oauth_provider(
+    monkeypatch,
+) -> None:
+    request = _make_request()
+    logins = 0
+
+    async def fake_run_model_picker_async(**kwargs):
+        del kwargs
+        return ModelPickerResult(
+            provider=Provider.XAI.config_name,
+            provider_available=False,
+            selected_model="xai.grok-4",
+            resolved_model="xai.grok-4",
+            source="curated",
+            refer_to_docs=False,
+            activation_action=ProviderActivation(Provider.XAI),
+        )
+
+    def login() -> None:
+        nonlocal logins
+        logins += 1
+
+    handler = SimpleNamespace(
+        display_name="xAI",
+        status=lambda: {"present": True, "expired": True},
+        login=login,
+    )
+    monkeypatch.setattr(
+        "fast_agent.ui.model_picker.run_model_picker_async",
+        fake_run_model_picker_async,
+    )
+    monkeypatch.setattr(
+        "fast_agent.auth.providers.get_oauth_provider",
+        lambda provider: handler,
+    )
+
+    selected = await _select_model_from_picker(request, config_payload={})
+
+    assert selected == "xai.grok-4"
+    assert logins == 1
 
 
 @pytest.mark.asyncio

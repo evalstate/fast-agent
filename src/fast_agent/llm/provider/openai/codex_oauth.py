@@ -332,16 +332,16 @@ def _load_codex_tokens_with_source() -> tuple[CodexOAuthTokens | None, str | Non
         stored = load_oauth_credential("codex")
         return (_tokens_from_credential(stored.credential), stored.source) if stored else (None, None)
 
+    # Codex CLI credentials are external and read-only. Prefer them before touching
+    # the OS keyring so an existing auth.json is sufficient on its own.
+    tokens = _load_codex_cli_tokens()
+    if tokens:
+        return tokens, "auth.json"
+
     stored = load_oauth_credential("codex")
     if stored:
         return _tokens_from_credential(stored.credential), stored.source
 
-    # Codex CLI credentials are an external, read-only fallback. Fast-agent-owned
-    # credentials take precedence so refreshed tokens can persist without modifying
-    # the CLI's auth.json.
-    tokens = _load_codex_cli_tokens()
-    if tokens:
-        return tokens, "auth.json"
     _warn_about_legacy_codex_keyring_credentials()
     return None, None
 

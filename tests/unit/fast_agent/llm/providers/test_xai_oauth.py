@@ -109,3 +109,34 @@ def test_expired_xai_credential_refreshes_and_preserves_refresh_token(
     assert access_token == "refreshed-access"
     assert simulator.refreshes == 1
     assert document["providers"]["xai"]["refresh_token"] == "keep-refresh"
+
+
+def test_revoked_xai_refresh_token_is_cleared(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    auth_path = tmp_path / "xai.auth.json"
+    monkeypatch.setenv("FAST_AGENT_AUTH_FILE", str(auth_path))
+    save_oauth_credential(
+        "xai",
+        OAuthCredential(
+            access_token="expired",
+            refresh_token="revoked",
+            expires_at=time.time() - 1,
+        ),
+    )
+
+    def revoked_refresh(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "error": "invalid_grant",
+                "error_description": "Refresh token has been revoked.",
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(revoked_refresh)) as client:
+        assert get_xai_access_token(client=client) is None
+
+    document = json.loads(auth_path.read_text())
+    assert "xai" not in document["providers"]

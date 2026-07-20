@@ -39,6 +39,10 @@ class XaiDeviceCode:
     interval: float
 
 
+class _InvalidGrantError(ProviderKeyError):
+    pass
+
+
 def _oauth_error(action: str, response: httpx.Response) -> ProviderKeyError:
     try:
         payload = response.json()
@@ -52,6 +56,15 @@ def _oauth_error(action: str, response: httpx.Response) -> ProviderKeyError:
         f"xAI OAuth {action} failed",
         f"The xAI OAuth server returned HTTP {response.status_code}{suffix}.",
     )
+
+
+def _oauth_error_code(response: httpx.Response) -> str | None:
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    error = payload.get("error") if isinstance(payload, dict) else None
+    return error if isinstance(error, str) else None
 
 
 def _required_string(payload: dict[str, Any], field: str) -> str:
@@ -190,7 +203,10 @@ def refresh_xai_credential(
             },
         )
         if not response.is_success:
-            raise _oauth_error("token refresh", response)
+            error = _oauth_error("token refresh", response)
+            if _oauth_error_code(response) == "invalid_grant":
+                raise _InvalidGrantError(error.message, error.details)
+            raise error
         payload = response.json()
         if not isinstance(payload, dict):
             raise ProviderKeyError("Invalid xAI OAuth response", "Expected a JSON object.")
@@ -243,7 +259,11 @@ def get_xai_access_token(
             credential = current.credential
             expired = credential.expires_at is not None and time.time() >= credential.expires_at
             if force_refresh or expired:
-                credential = refresh_xai_credential(credential, client=client)
+                try:
+                    credential = refresh_xai_credential(credential, client=client)
+                except _InvalidGrantError:
+                    delete_oauth_credential(XAI_PROVIDER_ID)
+                    return None
                 save_oauth_credential(
                     XAI_PROVIDER_ID,
                     credential,
