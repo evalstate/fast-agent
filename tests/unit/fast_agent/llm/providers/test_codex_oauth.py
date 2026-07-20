@@ -16,7 +16,7 @@ def test_resolve_codex_cli_auth_path_defaults_to_user_home(monkeypatch, tmp_path
     assert codex_oauth._resolve_codex_cli_auth_path() == tmp_path / ".codex" / "auth.json"
 
 
-def test_explicit_auth_json_path_is_fallback_when_fast_agent_store_is_empty(
+def test_explicit_auth_json_path_overrides_fast_agent_store(
     monkeypatch, tmp_path: Path
 ) -> None:
     auth_path = tmp_path / "local-auth.json"
@@ -35,7 +35,11 @@ def test_explicit_auth_json_path_is_fallback_when_fast_agent_store_is_empty(
     monkeypatch.delenv("FAST_AGENT_AUTH_FILE", raising=False)
     monkeypatch.setenv("CODEX_AUTH_JSON_PATH", str(auth_path))
     monkeypatch.delenv("CODEX_HOME", raising=False)
-    monkeypatch.setattr(codex_oauth, "load_oauth_credential", lambda provider: None)
+    monkeypatch.setattr(
+        codex_oauth,
+        "load_oauth_credential",
+        lambda provider: pytest.fail("auth.json must not access the fast-agent credential store"),
+    )
 
     tokens, source = codex_oauth._load_codex_tokens_with_source()
 
@@ -65,7 +69,11 @@ def test_default_auth_json_path_is_used_when_fast_agent_store_is_empty(
     monkeypatch.delenv("CODEX_AUTH_JSON_PATH", raising=False)
     monkeypatch.delenv("CODEX_HOME", raising=False)
     monkeypatch.setattr(codex_oauth.Path, "home", lambda: tmp_path)
-    monkeypatch.setattr(codex_oauth, "load_oauth_credential", lambda provider: None)
+    monkeypatch.setattr(
+        codex_oauth,
+        "load_oauth_credential",
+        lambda provider: pytest.fail("auth.json must not access the fast-agent credential store"),
+    )
 
     tokens, source = codex_oauth._load_codex_tokens_with_source()
 
@@ -74,7 +82,7 @@ def test_default_auth_json_path_is_used_when_fast_agent_store_is_empty(
     assert tokens.access_token == "cli-token"
 
 
-def test_fast_agent_owned_credential_precedes_codex_cli_credential(monkeypatch) -> None:
+def test_codex_cli_credential_precedes_fast_agent_owned_credential(monkeypatch) -> None:
     monkeypatch.delenv("FAST_AGENT_AUTH_FILE", raising=False)
     monkeypatch.setattr(
         codex_oauth,
@@ -91,9 +99,9 @@ def test_fast_agent_owned_credential_precedes_codex_cli_credential(monkeypatch) 
 
     tokens, source = codex_oauth._load_codex_tokens_with_source()
 
-    assert source == "keyring"
+    assert source == "auth.json"
     assert tokens is not None
-    assert tokens.access_token == "fast-agent-token"
+    assert tokens.access_token == "cli-token"
 
 
 def test_fast_agent_auth_file_is_authoritative_over_codex_cli(
