@@ -448,6 +448,12 @@ def activate_model_picker_provider(action: ProviderActivation) -> bool:
     status = handler.status()
     if status.get("present") and not status.get("expired"):
         return True
+    if status.get("present"):
+        try:
+            if handler.access_token():
+                return True
+        except ProviderKeyError:
+            pass
 
     typer.echo(f"Starting {handler.display_name} OAuth login...", err=True)
     try:
