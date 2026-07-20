@@ -32,6 +32,7 @@ from fast_agent.tools.execution_environment import (
     ShellRuntimeInfo,
 )
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
+from fast_agent.tools.process_resources import ProcessResourceSnapshot
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.ui import console
 from fast_agent.ui.display_suppression import suppress_interactive_display
@@ -286,6 +287,11 @@ class _ManagedShellEnvironment:
 
     async def close(self) -> None:
         return None
+
+
+class _LocalManagedShellEnvironment(_ManagedShellEnvironment):
+    def runtime_info(self) -> ShellRuntimeInfo:
+        return ShellRuntimeInfo(name="bash", kind="local", provider="managed-test")
 
 
 class _ActiveManagedShellEnvironment(_ManagedShellEnvironment):
@@ -1049,6 +1055,82 @@ async def test_silent_command_yields_alive_then_poll_reports_completion() -> Non
     assert "managed complete" in poll_result.content[0].text
     assert "process exit code was 0" in poll_result.content[0].text
     assert getattr(poll_result, "output_line_count", None) == 1
+
+
+@pytest.mark.asyncio
+async def test_poll_resource_warning_is_anchored_to_same_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshots = iter(
+        [
+            ProcessResourceSnapshot(
+                sampled_at=1.0,
+                disk_total_bytes=10 * 1024**3,
+                disk_free_bytes=8 * 1024**3,
+            ),
+            ProcessResourceSnapshot(
+                sampled_at=2.0,
+                disk_total_bytes=10 * 1024**3,
+                disk_free_bytes=1024**3,
+            ),
+        ]
+    )
+
+    async def sample(working_directory: str, pid: int | None):
+        del working_directory, pid
+        return next(snapshots)
+
+    monkeypatch.setattr(shell_runtime_module, "sample_process_resources", sample)
+    environment = _LocalManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+    )
+    await runtime.execute({"command": "large install", "background": True})
+
+    result = await runtime.poll_process({"process_id": "process-1"})
+
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "resource_observation: disk free 1.0 GiB/10.0 GiB" in result.content[0].text
+    metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
+    assert metadata["resource_observation"].startswith("disk free 1.0 GiB")
+    assert metadata["resource_snapshot"]["disk_free_bytes"] == 1024**3
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_resource_sampler_timeout_and_error_do_not_delay_poll(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    async def sample(working_directory: str, pid: int | None):
+        nonlocal calls
+        del working_directory, pid
+        calls += 1
+        if calls == 1:
+            raise OSError("sampling unavailable")
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(shell_runtime_module, "sample_process_resources", sample)
+    environment = _LocalManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+    )
+    await runtime.execute({"command": "large install", "background": True})
+    started = time.monotonic()
+
+    result = await runtime.poll_process({"process_id": "process-1"})
+
+    assert result.isError is False
+    assert time.monotonic() - started < 0.2
+    metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
+    assert "resource_snapshot" not in metadata
+    await runtime.close()
 
 
 @pytest.mark.asyncio

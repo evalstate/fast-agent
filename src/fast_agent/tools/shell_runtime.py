@@ -44,6 +44,13 @@ from fast_agent.tools.filesystem_tool_args import (
 )
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
 from fast_agent.tools.output_truncation import format_output_truncation_notice
+from fast_agent.tools.process_resources import (
+    ProcessResourceObservationState,
+    ProcessResourceSnapshot,
+    ProcessResourceSnapshotMetadata,
+    observe_resource_changes,
+    sample_process_resources,
+)
 from fast_agent.tools.tool_sources import SHELL_TOOL_SOURCE, set_tool_source
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -85,6 +92,7 @@ _POLL_PROCESS_ARGUMENTS = frozenset({"process_id", "wait_sec", "wake_on_output"}
 _TERMINATE_PROCESS_ARGUMENTS = frozenset({"process_id"})
 _PROCESS_OUTPUT_DEBOUNCE_SECONDS = 2.0
 _PROCESS_PROGRESS_EMIT_INTERVAL_SECONDS = 1.0
+_RESOURCE_OBSERVATION_TIMEOUT_SECONDS = 0.075
 
 
 def _text_result(message: str, *, is_error: bool) -> CallToolResult:
@@ -112,6 +120,8 @@ class ProcessResultMetadata(TypedDict, total=False):
     poll_wake_on_output: bool
     poll_elapsed_seconds: float
     poll_deadline_overshoot_seconds: float
+    resource_snapshot: ProcessResourceSnapshotMetadata
+    resource_observation: str
 
 
 def process_result_metadata(result: CallToolResult) -> ProcessResultMetadata | None:
@@ -185,7 +195,11 @@ class _ShellRuntimeCallbacks:
 
     async def on_started(self, process_id: int | None) -> None:
         self.os_process_id = process_id
-        self.started_event.set()
+        try:
+            if self.process is not None:
+                await self.runtime._capture_process_resource_baseline(self.process)
+        finally:
+            self.started_event.set()
 
     async def on_stdout(self, text: str) -> None:
         self.runtime._record_stream_output(
@@ -277,6 +291,9 @@ class _ManagedShellProcess:
     terminated: bool = False
     buffered_result_recorded: bool = False
     active_poll: _ActiveProcessPoll | None = None
+    resource_observations: ProcessResourceObservationState = field(
+        default_factory=ProcessResourceObservationState
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,6 +372,7 @@ class ShellRuntime:
             process_poll_default_wait_seconds,
             self._max_process_poll_seconds,
         )
+        self._resource_observations_enabled = self.runtime_info().kind == "local"
 
         if self.enabled:
             # Detect the shell early so we can include it in the tool description
@@ -1493,6 +1511,27 @@ class ShellRuntime:
         async with self._processes_lock:
             return self._managed_processes.get(process_id)
 
+    async def _sample_managed_process_resources(
+        self,
+        process: _ManagedShellProcess,
+    ) -> ProcessResourceSnapshot | None:
+        if not self._resource_observations_enabled:
+            return None
+        pid = process.callbacks.os_process_id if not process.task.done() else None
+        try:
+            async with asyncio.timeout(_RESOURCE_OBSERVATION_TIMEOUT_SECONDS):
+                return await sample_process_resources(process.working_directory, pid)
+        except Exception:
+            return None
+
+    async def _capture_process_resource_baseline(
+        self,
+        process: _ManagedShellProcess,
+    ) -> None:
+        snapshot = await self._sample_managed_process_resources(process)
+        if snapshot is not None:
+            observe_resource_changes(process.resource_observations, snapshot)
+
     async def _wait_for_initial_process_result(
         self,
         process: _ManagedShellProcess,
@@ -1582,6 +1621,16 @@ class ShellRuntime:
         for block in result.content:
             if isinstance(block, TextContent):
                 block.text = f"{block.text}\n{line}"
+                return
+
+    @staticmethod
+    def _append_resource_observation(
+        result: CallToolResult,
+        observation: str,
+    ) -> None:
+        for block in result.content:
+            if isinstance(block, TextContent):
+                block.text = f"{block.text}\nresource_observation: {observation}"
                 return
 
     def _managed_process_result(
@@ -1778,6 +1827,9 @@ class ShellRuntime:
                         with suppress(asyncio.CancelledError):
                             await active_poll.heartbeat_task
 
+            poll_elapsed_seconds = time.monotonic() - poll_started_at
+            resource_snapshot = await self._sample_managed_process_resources(process)
+
             async with process.lock:
                 if process.task.done():
                     poll_yield_reason = "completion"
@@ -1813,13 +1865,21 @@ class ShellRuntime:
                 metadata["has_observed_output"] = output_observed
                 metadata["poll_wait_sec"] = parsed.wait_sec
                 metadata["poll_wake_on_output"] = parsed.wake_on_output
-                poll_elapsed_seconds = time.monotonic() - poll_started_at
                 metadata["poll_elapsed_seconds"] = poll_elapsed_seconds
                 if poll_yield_reason == "deadline":
                     metadata["poll_deadline_overshoot_seconds"] = max(
                         poll_elapsed_seconds - parsed.wait_sec,
                         0.0,
                     )
+                if resource_snapshot is not None:
+                    metadata["resource_snapshot"] = resource_snapshot.metadata()
+                    observation = observe_resource_changes(
+                        process.resource_observations,
+                        resource_snapshot,
+                    )
+                    if observation is not None:
+                        metadata["resource_observation"] = observation
+                        self._append_resource_observation(result, observation)
                 self._append_poll_output_activity(
                     result,
                     output_bytes=output_bytes_since_last_poll,

@@ -144,6 +144,10 @@ def _process_status(exchange: PollExchange) -> str | None:
     return status if isinstance(status, str) else None
 
 
+def _has_resource_observation(exchange: PollExchange) -> bool:
+    return isinstance(exchange.metadata.get("resource_observation"), str)
+
+
 def _output_line_count(exchange: PollExchange) -> int | None:
     return _non_negative_int(exchange.metadata.get("output_line_count"))
 
@@ -845,6 +849,8 @@ def fold_managed_process_poll_history(
     process_status = _process_status(current)
     if process_status not in _FOLDABLE_PROCESS_STATUSES:
         return None
+    if _has_resource_observation(current):
+        return None
 
     reverse_exchanges = [current]
     cursor = len(history) - 2
@@ -853,6 +859,8 @@ def fold_managed_process_poll_history(
         result = history[cursor]
         exchange = _exchange(request, result, request_index=cursor - 1)
         if exchange is None or exchange.process_id != current.process_id:
+            break
+        if _has_resource_observation(exchange):
             break
         reverse_exchanges.append(exchange)
         cursor -= 2
