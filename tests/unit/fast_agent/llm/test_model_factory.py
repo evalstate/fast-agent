@@ -442,6 +442,26 @@ def test_invalid_service_tier_query():
         ModelFactory.parse_model_string("responses.gpt-5-mini?service_tier=%20TURBO%20")
 
 
+def test_model_query_streaming_timeout() -> None:
+    config = ModelFactory.parse_model_string("responses.gpt-5-mini?streaming_timeout=45.5")
+
+    assert config.streaming_timeout == 45.5
+    assert config.streaming_timeout_configured is True
+
+
+def test_model_query_streaming_timeout_none_disables_enforcement() -> None:
+    config = ModelFactory.parse_model_string("responses.gpt-5-mini?streaming_timeout=%20NONE%20")
+
+    assert config.streaming_timeout is None
+    assert config.streaming_timeout_configured is True
+
+
+@pytest.mark.parametrize("value", ["", "0", "-1", "nan", "inf", "true", "soon"])
+def test_invalid_streaming_timeout_query(value: str) -> None:
+    with pytest.raises(ModelConfigError, match="Invalid streaming_timeout query value"):
+        ModelFactory.parse_model_string(f"responses.gpt-5-mini?streaming_timeout={value}")
+
+
 def test_codexresponses_fast_service_tier_query() -> None:
     config = ModelFactory.parse_model_string("codexresponses.gpt-5.4?service_tier=fast")
 
@@ -643,6 +663,43 @@ def test_factory_service_tier_query_respects_explicit_none_request_params() -> N
     )
 
     assert llm.default_request_params.service_tier is None
+
+
+def test_factory_applies_model_streaming_timeout_default() -> None:
+    factory = ModelFactory.create_factory("responses.gpt-5?streaming_timeout=45.5")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+
+    assert llm.default_request_params.streaming_timeout == 45.5
+
+
+def test_factory_model_streaming_timeout_none_disables_enforcement() -> None:
+    factory = ModelFactory.create_factory("responses.gpt-5?streaming_timeout=none")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+
+    assert llm.default_request_params.streaming_timeout is None
+
+
+@pytest.mark.parametrize("request_timeout", [10.0, None])
+def test_factory_request_streaming_timeout_overrides_model_default(
+    request_timeout: float | None,
+) -> None:
+    factory = ModelFactory.create_factory("responses.gpt-5?streaming_timeout=45.5")
+    llm = factory(
+        LlmAgent(AgentConfig(name="Test Agent")),
+        request_params=RequestParams(streaming_timeout=request_timeout),
+    )
+
+    assert llm.default_request_params.streaming_timeout == request_timeout
+
+
+def test_model_streaming_timeout_query_overrides_preset_default() -> None:
+    config = ModelFactory.parse_model_string(
+        "timed?streaming_timeout=none",
+        presets={"timed": "responses.gpt-5?streaming_timeout=45.5"},
+    )
+
+    assert config.streaming_timeout is None
+    assert config.streaming_timeout_configured is True
 
 
 def test_factory_codexresponses_explicit_flex_request_params_rejected() -> None:

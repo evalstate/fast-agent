@@ -4,7 +4,6 @@ Helpers for applying template variables to system prompts after initial bootstra
 
 from __future__ import annotations
 
-import os
 import platform
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -155,7 +154,7 @@ def _refresh_env_summary(context: MutableMapping[str, str]) -> None:
         env_lines.append(f"Execution environment: {execution_environment}")
     client = context.get("clientDisplay")
     if client:
-        env_lines.append(f"Client: {client} (pid {os.getpid()})")
+        env_lines.append(f"Client: {client}")
     python_version = context.get("pythonVer")
     if python_version:
         env_lines.append(f"Fast-agent runtime: {platform.python_implementation()} {python_version}")

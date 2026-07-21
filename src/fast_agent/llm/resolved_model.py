@@ -164,6 +164,13 @@ class ResolvedModelSpec:
             target = effective_request_params or RequestParams()
             effective_request_params = target.model_copy(update=sampling_updates)
 
+        if config.streaming_timeout_configured:
+            target = effective_request_params or RequestParams()
+            if "streaming_timeout" not in target.model_fields_set:
+                effective_request_params = target.model_copy(
+                    update={"streaming_timeout": config.streaming_timeout}
+                )
+
         return _apply_unset_request_defaults(
             effective_request_params,
             {

@@ -209,11 +209,12 @@ provider.model_name[?reasoning=value][&query=value...]
 - **model_name**: the model or deployment name
 - **query parameters**: provider/model-specific overrides such as `reasoning`, `structured`,
   `context`, `transport`, `service_tier`, `temperature` (`temp` alias), `web_search`,
-  `web_fetch`, `x_search`, and `task_budget`
+  `web_fetch`, `x_search`, `task_budget`, and `streaming_timeout`
 
 Examples:
 
 - `responses.gpt-5.5?reasoning=medium`
+- `responses.gpt-5.5?streaming_timeout=300`
 - `responses.gpt-5.5?web_search=on`
 - `sonnet?reasoning=4096`
 - `opus?web_search=on&web_fetch=on`
@@ -248,6 +249,17 @@ You can also set reasoning directly in the model string query. This is especiall
 - `xai.grok-4.3?reasoning=none`
 
 Reasoning, Verbosity and Task Budget settings are also available from the `/model` command, or by using ++f6++ or ++f7++ keys.
+
+### Stream idle timeout
+
+Set the maximum time between provider stream events with `streaming_timeout`:
+
+- `responses.gpt-5.5?streaming_timeout=300` waits up to 300 seconds between events.
+- `responses.gpt-5.5?streaming_timeout=none` disables stream-idle enforcement.
+
+The value must be a positive, finite number of seconds or `none`. An explicit
+request-level `RequestParams(streaming_timeout=...)` value takes precedence over the model-string
+default.
 
 ### Temperature and sampling
 
