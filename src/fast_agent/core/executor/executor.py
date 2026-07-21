@@ -167,7 +167,7 @@ class Executor(ABC, ContextDependent):
         sig: Signal[Any] = Signal(
             name=signal_name, description=signal_description, workflow_id=workflow_id
         )
-        return await self.signal_bus.wait_for_signal(sig)
+        return await self.signal_bus.wait_for_signal(sig, timeout_seconds=timeout_seconds)
 
 
 class AsyncioExecutor(Executor):
