@@ -104,6 +104,14 @@ async def test_execute_timeout_returns_timeout_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_wait_for_signal_uses_timeout() -> None:
+    executor = AsyncioExecutor()
+
+    with pytest.raises(TimeoutError):
+        await executor.wait_for_signal("never-fired", timeout_seconds=1)
+
+
+@pytest.mark.asyncio
 async def test_execute_limits_concurrent_activities() -> None:
     executor = AsyncioExecutor(ExecutorConfig(max_concurrent_activities=1))
     active = 0
