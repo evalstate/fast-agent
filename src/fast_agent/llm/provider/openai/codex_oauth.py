@@ -508,7 +508,7 @@ def login_codex_oauth(timeout_seconds: int = 300) -> CodexOAuthTokens:
             "Authorization code missing from callback URL.",
         )
 
-    if returned_state and returned_state != state:
+    if returned_state != state:
         raise ProviderKeyError(
             "Codex OAuth login failed",
             "State parameter mismatch. Please retry login.",

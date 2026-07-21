@@ -106,6 +106,7 @@ class ProcessResultMetadata(TypedDict, total=False):
     """Durable metadata emitted by managed-process lifecycle tools."""
 
     process_id: str
+    lifecycle: Literal["session", "persistent"]
     process_status: str
     process_yield_reason: str | None
     process_elapsed_seconds: float
@@ -387,10 +388,11 @@ class ShellRuntime:
                         "exit. If a foreground command remains active for 10 seconds without "
                         "output or 30 seconds total, it keeps running and returns a process ID; "
                         "use poll_process to monitor it or terminate_process to stop it. Set "
-                        "`background=true` for known long-running commands. Background commands "
-                        "default to `lifecycle='session'` and are terminated when the agent "
-                        "runtime exits; use `lifecycle='persistent'` only when a command must "
-                        "remain running afterward. Do not append '&'. "
+                        "`background=true` for known long-running commands. Explicit background "
+                        "commands default to `lifecycle='persistent'` and remain running after "
+                        "the agent runtime exits; set `lifecycle='session'` for temporary "
+                        "concurrent jobs that should be terminated at shutdown. Automatically "
+                        "yielded foreground commands remain session-scoped. Do not append '&'. "
                         "`cwd` and `output_byte_limit` apply only to this command. Pipelines report "
                         "the final command's status unless you enable `pipefail`."
                     ),
@@ -409,20 +411,23 @@ class ShellRuntime:
                                 "type": "boolean",
                                 "description": (
                                     "Return promptly while the command continues running as a "
-                                    "managed process. By default it is terminated when the agent "
-                                    "runtime exits. Set lifecycle='persistent' only when it must "
-                                    "remain running afterward. Do not append '&' to the command."
+                                    "managed process. By default it remains running after the "
+                                    "agent runtime exits. Set lifecycle='session' for temporary "
+                                    "concurrent work that should be terminated at shutdown. Do "
+                                    "not append '&' to the command."
                                 ),
                             },
                             "lifecycle": {
                                 "type": "string",
                                 "enum": ["session", "persistent"],
-                                "default": "session",
+                                "default": "persistent",
                                 "description": (
-                                    "Lifetime of a background command. 'session' terminates it "
-                                    "when the agent runtime exits. 'persistent' leaves it running "
-                                    "in the execution environment after the agent exits. Applies "
-                                    "only when background=true."
+                                    "Lifetime of a background command. Omitted lifecycle defaults "
+                                    "to 'persistent' when background=true. 'session' terminates "
+                                    "the process when the agent runtime exits. 'persistent' leaves "
+                                    "it running in the execution environment after the agent "
+                                    "exits. Automatically yielded foreground commands are always "
+                                    "session-scoped."
                                 ),
                             },
                             "yield_after_idle_sec": {
@@ -890,7 +895,10 @@ class ShellRuntime:
         background = payload.get("background", False)
         if type(background) is not bool:
             raise ValueError("Error: 'background' argument must be a boolean")
-        lifecycle = payload.get("lifecycle", "session")
+        lifecycle = payload.get(
+            "lifecycle",
+            "persistent" if background else "session",
+        )
         if lifecycle not in {"session", "persistent"}:
             raise ValueError(
                 "Error: 'lifecycle' argument must be 'session' or 'persistent'"
@@ -1647,6 +1655,8 @@ class ShellRuntime:
             sections.append(output.rstrip("\n"))
 
         elapsed = time.monotonic() - process.started_at
+        if yielded_reason == "background":
+            sections.append(f"effective_lifecycle: {process.lifecycle}")
         if not process.task.done():
             if yielded_reason == "background":
                 reason = "started in the background"
@@ -1680,6 +1690,7 @@ class ShellRuntime:
                 is_error=False,
                 metadata={
                     "process_id": process.process_id,
+                    "lifecycle": process.lifecycle,
                     "process_status": "running",
                     "process_yield_reason": yielded_reason,
                     "process_elapsed_seconds": elapsed,
@@ -1704,6 +1715,7 @@ class ShellRuntime:
                 is_error=False,
                 metadata={
                     "process_id": process.process_id,
+                    "lifecycle": process.lifecycle,
                     "process_status": status,
                     "process_elapsed_seconds": elapsed,
                     "os_process_id": process.callbacks.os_process_id,
@@ -1725,6 +1737,7 @@ class ShellRuntime:
                 is_error=True,
                 metadata={
                     "process_id": process.process_id,
+                    "lifecycle": process.lifecycle,
                     "process_status": "failed",
                     "process_elapsed_seconds": elapsed,
                     "os_process_id": process.callbacks.os_process_id,
@@ -1750,6 +1763,7 @@ class ShellRuntime:
             is_error=execution.result.exit_code != 0,
             metadata={
                 "process_id": process.process_id,
+                "lifecycle": process.lifecycle,
                 "process_status": (
                     "completed" if execution.result.exit_code == 0 else "failed"
                 ),
@@ -2113,6 +2127,24 @@ class ShellRuntime:
         async with self._processes_lock:
             processes = list(self._managed_processes.values())
             self._managed_processes.clear()
+        running = [process for process in processes if not process.task.done()]
+        if running:
+            console.console.print(
+                f"Warning: {len(running)} background process"
+                f"{'es are' if len(running) != 1 else ' is'} still running "
+                "at fast-agent shutdown:",
+                style="yellow",
+            )
+            for process in running:
+                os_pid = process.callbacks.os_process_id
+                pid_details = (
+                    f", os_pid={os_pid}" if os_pid is not None else ""
+                )
+                console.console.print(
+                    f"  {process.process_id}{pid_details}, "
+                    f"lifecycle={process.lifecycle}",
+                    style="yellow",
+                )
         for process in processes:
             if not process.task.done():
                 process.terminated = process.lifecycle == "session"
@@ -2241,7 +2273,7 @@ class ShellRuntime:
                             started_task.cancel()
                             with suppress(asyncio.CancelledError):
                                 await started_task
-                    yielded_reason = "background" if not process.task.done() else None
+                    yielded_reason = "background"
                 else:
                     yielded_reason = await self._wait_for_initial_process_result(
                         process,

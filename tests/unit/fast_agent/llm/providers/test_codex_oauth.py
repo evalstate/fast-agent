@@ -264,3 +264,36 @@ def test_tokens_from_response_rejects_bool_expires_in(monkeypatch) -> None:
 
     assert bool_expiry.expires_at is None
     assert valid_expiry.expires_at == 1060.0
+
+
+def test_login_rejects_callback_without_oauth_state(monkeypatch) -> None:
+    class CallbackWithoutState:
+        def __init__(self, port: int) -> None:
+            del port
+
+        def start(self) -> None:
+            pass
+
+        def serve_once(self, timeout_seconds: int) -> tuple[str, None]:
+            del timeout_seconds
+            return "authorization-code", None
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(codex_oauth, "_CallbackServer", CallbackWithoutState)
+    monkeypatch.setattr(codex_oauth.console, "ensure_blocking_console", lambda: None)
+    monkeypatch.setattr(codex_oauth.console.console, "print", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        codex_oauth,
+        "exchange_code_for_tokens",
+        lambda code, verifier: pytest.fail("token exchange must not run without OAuth state"),
+    )
+    monkeypatch.setattr(
+        codex_oauth,
+        "save_codex_tokens",
+        lambda tokens: pytest.fail("tokens must not be saved without OAuth state"),
+    )
+
+    with pytest.raises(codex_oauth.ProviderKeyError, match="State parameter mismatch"):
+        codex_oauth.login_codex_oauth()
