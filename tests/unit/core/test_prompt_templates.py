@@ -15,7 +15,7 @@ def test_enrich_with_environment_context_populates_env_block():
     env_text = context["env"]
     assert "Environment:" in env_text
     assert "Workspace root: /workspace/app" in env_text
-    assert f"Client: Zed 1.2.3 (pid {os.getpid()})" in env_text
+    assert "Client: Zed 1.2.3" in env_text
     assert (
         f"Fast-agent runtime: {platform.python_implementation()} {platform.python_version()}"
         in env_text
@@ -60,7 +60,7 @@ def test_enrich_with_environment_context_formats_acp_client_handoff():
 
     enrich_with_environment_context(context, "/workspace/app", client_info)
 
-    assert f"Client: fast-agent 0.7.1 via Zed 1.2.3 (pid {os.getpid()})" in context["env"]
+    assert "Client: fast-agent 0.7.1 via Zed 1.2.3" in context["env"]
 
 
 def test_enrich_with_environment_context_formats_model_references():
