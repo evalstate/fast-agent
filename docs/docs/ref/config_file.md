@@ -730,7 +730,7 @@ logger:
   type: "file"  # "none", "console", "file", or "http"
   level: "warning"  # "debug", "info", "warning", or "error"
   progress_display: true  # Enable/disable progress display
-  path: "fast-agent-log.jsonl"  # Path to log file (for "file" type)
+  path: "fast-agent-log.jsonl"  # Explicit path to log file (for "file" type)
   batch_size: 100  # Events to accumulate before processing
   flush_interval: 2.0  # Flush interval in seconds
   max_queue_size: 2048  # Maximum queue size for events
@@ -749,6 +749,11 @@ logger:
   enable_prompt_marks: true # Emit OSC 133 prompt marks in supported terminals
   streaming: "markdown"  # "markdown", "plain", or "none"
 ```
+
+When `logger.path` is omitted, file logging writes to
+`<fast-agent-home>/fast-agent-log.jsonl`. Under `--no-home`, it falls back to
+`<current-working-directory>/fast-agent-log.jsonl`. Explicit relative paths continue to resolve
+from the process current working directory.
 
 ## MCP UI Settings
 

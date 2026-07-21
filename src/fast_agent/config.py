@@ -1545,7 +1545,7 @@ class LoggerSettings(BaseModel):
     """Enable or disable the progress display"""
 
     path: str = "fast-agent-log.jsonl"
-    """Path to log file, if logger 'type' is 'file'."""
+    """Explicit log path. When omitted, file logs are written under the active fast-agent home."""
 
     batch_size: int = 100
     """Number of events to accumulate before processing"""

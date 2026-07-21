@@ -24,6 +24,7 @@ from fast_agent.core.logging.events import EventFilter, StreamingExclusionFilter
 from fast_agent.core.logging.logger import LoggingConfig, get_logger
 from fast_agent.core.logging.transport import create_transport
 from fast_agent.mcp_server_registry import ServerRegistry
+from fast_agent.paths import resolve_log_file_path
 from fast_agent.skills import SkillRegistry
 from fast_agent.utils.async_utils import run_sync
 
@@ -163,6 +164,8 @@ async def configure_logger(config: "Settings") -> None:
     Configure logging and tracing based on the application config.
     """
     settings = config.logger
+    if settings.type == "file":
+        settings = settings.model_copy(update={"path": str(resolve_log_file_path(config))})
 
     # Configure the standard Python logger used by LoggingListener so it respects settings.
     python_logger = logging.getLogger("fast_agent")

@@ -115,6 +115,14 @@ def resolve_home_paths(
     )
 
 
+def resolve_log_file_path(settings: "Settings") -> Path:
+    """Resolve the configured log path, defaulting to the active fast-agent home."""
+    path = Path(settings.logger.path)
+    if "path" in settings.logger.model_fields_set or settings._fast_agent_no_home:
+        return path
+    return resolve_home_dir(settings) / path
+
+
 def default_skill_paths(
     settings: "Settings | None" = None,
     *,
