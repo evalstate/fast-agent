@@ -40,6 +40,7 @@ The following variables are available in System Prompt templates:
 Environment:
 - Workspace root: /home/user/project
 - Client: fast-agent (pid 12345)
+- Fast-agent runtime: CPython 3.13.5
 - Host platform: Linux-6.6.87.2-microsoft-standard-WSL2
 ```
 

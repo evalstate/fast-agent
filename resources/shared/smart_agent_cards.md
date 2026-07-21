@@ -67,7 +67,7 @@ You can insert these in the **body** or `instruction:`.
 | `\{{executionEnvironmentProvider}}` | Active environment provider (`docker`, `huggingface`, `wslc`, etc.) |
 | `\{{executionEnvironmentShell}}` | Shell used by the active environment |
 | `\{{executionEnvironmentCwd}}` | Working directory inside the active environment, if known |
-| `\{{env}}` | Environment summary (host workspace, active execution environment, client and process ID, client host platform) |
+| `\{{env}}` | Environment summary (host workspace, active execution environment, client and process ID, fast-agent Python runtime, client host platform) |
 | `\{{agentName}}` | Current agent name |
 | `\{{agentType}}` | Current agent type |
 | `\{{agentCardPath}}` | Source AgentCard path (if loaded from card) |

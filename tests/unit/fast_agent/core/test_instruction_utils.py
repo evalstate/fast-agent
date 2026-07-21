@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import platform
 from typing import TYPE_CHECKING
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
@@ -181,6 +182,10 @@ def test_enrich_environment_context_describes_active_execution_environment() -> 
     assert "Workspace root: /workspace" in context["env"]
     assert "/host/project" not in context["env"]
     assert "Execution environment: hf-gpu remote huggingface (shell: sh, cwd: /workspace)" in context["env"]
+    assert (
+        f"Fast-agent runtime: {platform.python_implementation()} {platform.python_version()}"
+        in context["env"]
+    )
     assert "Client host platform:" not in context["env"]
     assert "Host platform:" not in context["env"]
 

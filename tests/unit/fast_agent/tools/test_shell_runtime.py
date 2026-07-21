@@ -534,7 +534,7 @@ def test_execute_tool_schema_declares_per_call_options() -> None:
     }
     lifecycle_schema = runtime.tool.inputSchema["properties"]["lifecycle"]
     assert lifecycle_schema["enum"] == ["session", "persistent"]
-    assert lifecycle_schema["default"] == "session"
+    assert lifecycle_schema["default"] == "persistent"
     assert runtime.tool.inputSchema["required"] == ["command"]
     assert runtime.tool.inputSchema["additionalProperties"] is False
     assert {tool.name for tool in runtime.tools} == {
@@ -1648,7 +1648,7 @@ async def test_chatty_poll_coalesces_output_progress_and_refreshes_totals() -> N
 
 
 @pytest.mark.asyncio
-async def test_runtime_close_terminates_all_managed_processes() -> None:
+async def test_runtime_close_detaches_default_background_process() -> None:
     environment = _ManagedShellEnvironment()
     runtime = ShellRuntime(
         activation_reason="test",
@@ -1657,6 +1657,28 @@ async def test_runtime_close_terminates_all_managed_processes() -> None:
     )
 
     await runtime.execute({"command": "server", "background": True})
+    await runtime.close()
+
+    assert environment.cancelled is False
+    assert environment.requests[0].terminate_on_cancel is False
+
+
+@pytest.mark.asyncio
+async def test_runtime_close_terminates_explicit_session_process() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+    )
+
+    await runtime.execute(
+        {
+            "command": "server",
+            "background": True,
+            "lifecycle": "session",
+        }
+    )
     await runtime.close()
 
     assert environment.cancelled is True
@@ -1682,6 +1704,93 @@ async def test_runtime_close_detaches_persistent_process() -> None:
 
     assert environment.cancelled is False
     assert environment.requests[0].terminate_on_cancel is False
+
+
+@pytest.mark.asyncio
+async def test_background_result_reports_effective_persistent_lifecycle() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+    )
+
+    result = await runtime.execute({"command": "server", "background": True})
+
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "effective_lifecycle: persistent" in result.content[0].text
+    metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
+    assert metadata["lifecycle"] == "persistent"
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_completed_background_result_reports_effective_lifecycle() -> None:
+    environment = _RecordingShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+    )
+
+    result = await runtime.execute({"command": "quick", "background": True})
+
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "effective_lifecycle: persistent" in result.content[0].text
+    metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
+    assert metadata["lifecycle"] == "persistent"
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_automatically_yielded_foreground_process_remains_session_scoped() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        idle_yield_seconds=0.05,
+        foreground_yield_seconds=0.5,
+    )
+
+    result = await runtime.execute({"command": "slow-build"})
+
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "effective_lifecycle" not in result.content[0].text
+    metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
+    assert metadata["lifecycle"] == "session"
+    await runtime.close()
+    assert environment.cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_close_prints_running_process_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+    )
+    print_calls: list[str] = []
+
+    def record_print(*messages: object, **kwargs: object) -> None:
+        del kwargs
+        print_calls.append(" ".join(str(message) for message in messages))
+
+    monkeypatch.setattr(console.console, "print", record_print)
+    await runtime.execute({"command": "server", "background": True})
+
+    await runtime.close()
+
+    rendered = "\n".join(print_calls)
+    assert "background process is still running" in rendered
+    assert "process-1" in rendered
+    assert "lifecycle=persistent" in rendered
 
 
 @pytest.mark.asyncio
