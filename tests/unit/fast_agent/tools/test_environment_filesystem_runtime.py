@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import logging
+import struct
+import zlib
 from io import BytesIO
 from pathlib import Path
 
@@ -24,6 +26,7 @@ from fast_agent.tools.execution_environment import (
     ShellExecutionResult,
     ShellRuntimeInfo,
 )
+from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
 from fast_agent.tools.local_shell_executor import LocalEnvironment
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
 
@@ -37,6 +40,23 @@ def _image_bytes(image_format: str) -> bytes:
     output = BytesIO()
     Image.new("RGB", (1, 1), color="blue").save(output, format=image_format)
     return output.getvalue()
+
+
+def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
+    checksum = zlib.crc32(chunk_type + data)
+    return struct.pack(">I", len(data)) + chunk_type + data + struct.pack(">I", checksum)
+
+
+def _png_with_excess_raster_data() -> bytes:
+    width, height = 262, 250
+    raster = b"".join(b"\0" + b"\0\0\0" * 263 for _ in range(height))
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", header)
+        + _png_chunk(b"IDAT", zlib.compress(raster))
+        + _png_chunk(b"IEND", b"")
+    )
 
 
 class FakeEnvironment:
@@ -211,6 +231,48 @@ async def test_environment_filesystem_runtime_attaches_environment_media() -> No
     assert "Staged image.png as embedded image/png media input" in _text(result)
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("runtime_kind", ["local", "environment"])
+async def test_filesystem_runtimes_normalize_png_with_excess_raster_data(
+    runtime_kind: str,
+    tmp_path: Path,
+) -> None:
+    malformed_png = _png_with_excess_raster_data()
+    with Image.open(BytesIO(malformed_png)) as image:
+        image.verify()
+    with Image.open(BytesIO(malformed_png)) as image:
+        image.load()
+
+    if runtime_kind == "local":
+        image_path = tmp_path / "crop.png"
+        image_path.write_bytes(malformed_png)
+        runtime = LocalFilesystemRuntime(
+            logging.getLogger("local-filesystem-runtime-test"),
+            enable_attach_media="on",
+            working_directory=tmp_path,
+        )
+        result = await runtime.attach_media({"source": "crop.png", "mime_type": "image/png"})
+    else:
+        env = FakeEnvironment()
+        env.binary_files["/workspace/crop.png"] = malformed_png
+        runtime = EnvironmentFilesystemRuntime(env, enable_attach_media="on")
+        result = await runtime.call_tool(
+            "attach_media",
+            {"source": "crop.png", "mime_type": "image/png"},
+        )
+
+    assert result.isError is False
+    pending = runtime.consume_pending_media_attachments()
+    assert len(pending) == 1
+    assert isinstance(pending[0], ImageContent)
+    normalized_png = base64.b64decode(pending[0].data)
+    assert normalized_png != malformed_png
+    with Image.open(BytesIO(normalized_png)) as image:
+        image.load()
+        assert image.size == (262, 250)
+        assert image.getpixel((261, 249)) == (0, 0, 0)
 
 
 @pytest.mark.asyncio
