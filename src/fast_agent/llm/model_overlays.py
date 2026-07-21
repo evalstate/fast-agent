@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -108,6 +109,7 @@ class ModelOverlayDefaults(BaseModel):
     repetition_penalty: float | None = None
     transport: Literal["sse", "websocket", "auto"] | None = None
     service_tier: Literal["fast", "flex"] | None = None
+    streaming_timeout: float | None = None
     web_search: bool | None = None
     web_fetch: bool | None = None
     max_tokens: int | None = Field(
@@ -129,6 +131,30 @@ class ModelOverlayDefaults(BaseModel):
     def _reject_bool_numeric_values(cls, value: object) -> object:
         return _reject_bool_numeric_overlay_value(value)
 
+    @field_validator("streaming_timeout", mode="before")
+    @classmethod
+    def _validate_streaming_timeout(cls, value: object) -> object:
+        value = _reject_bool_numeric_overlay_value(value)
+        if isinstance(value, str) and strip_casefold(value) == "none":
+            return None
+        if value is None:
+            return None
+        if not isinstance(value, int | float | str):
+            raise ValueError(
+                "streaming_timeout must be a positive number of seconds or 'none'."
+            )
+        try:
+            timeout = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "streaming_timeout must be a positive number of seconds or 'none'."
+            ) from exc
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError(
+                "streaming_timeout must be a positive number of seconds or 'none'."
+            )
+        return timeout
+
     def to_query_pairs(self) -> list[tuple[str, str]]:
         pairs: list[tuple[str, str]] = []
         reasoning = _normalize_reasoning_value(self.reasoning)
@@ -146,6 +172,13 @@ class ModelOverlayDefaults(BaseModel):
             ("service_tier", self.service_tier),
         )
         pairs.extend((name, str(value)) for name, value in scalar_values if value is not None)
+        if "streaming_timeout" in self.model_fields_set:
+            pairs.append(
+                (
+                    "streaming_timeout",
+                    "none" if self.streaming_timeout is None else str(self.streaming_timeout),
+                )
+            )
 
         toggle_values = (
             ("web_search", _normalize_toggle_value(self.web_search)),

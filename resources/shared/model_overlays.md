@@ -47,6 +47,7 @@ defaults:
   temperature: 0.8
   top_p: 0.95
   max_tokens: 2048
+  streaming_timeout: 300
 metadata:
   context_window: 75264
   max_output_tokens: 2048
@@ -135,6 +136,7 @@ Common fields:
 - `top_k`
 - `min_p`
 - `max_tokens`
+- `streaming_timeout`: positive seconds between provider stream events, or `none` to disable
 - `transport`
 - `service_tier`
 - `web_search`

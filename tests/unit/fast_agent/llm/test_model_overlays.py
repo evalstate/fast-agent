@@ -29,12 +29,14 @@ from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import (
+    ModelOverlayDefaults,
     build_model_overlay_manifest_from_database,
     load_model_overlay_registry,
 )
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 from fast_agent.llm.provider_types import Provider
+from fast_agent.types import RequestParams
 from fast_agent.ui.model_picker_common import build_snapshot
 
 
@@ -294,6 +296,72 @@ metadata:
         )
         assert picker_entry.local is True
         assert picker_entry.description == "Local picker entry"
+
+
+def test_overlay_streaming_timeout_is_a_request_default(tmp_path: Path) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "stream-timeout.yaml",
+        """
+name: stream-timeout
+provider: openresponses
+model: overlay-tests/Stream-Timeout
+connection:
+  base_url: http://localhost:8080/v1
+  auth: none
+defaults:
+  streaming_timeout: 45.5
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        presets = ModelFactory.get_runtime_presets()
+        assert presets["stream-timeout"] == (
+            "openresponses.overlay-tests/Stream-Timeout?streaming_timeout=45.5"
+        )
+
+        default_llm = ModelFactory.create_factory("stream-timeout")(
+            LlmAgent(AgentConfig(name="default"))
+        )
+        overridden_llm = ModelFactory.create_factory("stream-timeout")(
+            LlmAgent(AgentConfig(name="override")),
+            request_params=RequestParams(streaming_timeout=None),
+        )
+
+    assert default_llm.default_request_params.streaming_timeout == 45.5
+    assert overridden_llm.default_request_params.streaming_timeout is None
+
+
+def test_overlay_streaming_timeout_none_disables_enforcement(tmp_path: Path) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "no-stream-timeout.yaml",
+        """
+name: no-stream-timeout
+provider: openresponses
+model: overlay-tests/No-Stream-Timeout
+connection:
+  base_url: http://localhost:8080/v1
+  auth: none
+defaults:
+  streaming_timeout: none
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        llm = ModelFactory.create_factory("no-stream-timeout")(
+            LlmAgent(AgentConfig(name="disabled"))
+        )
+
+    assert llm.default_request_params.streaming_timeout is None
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), True, "soon"])
+def test_overlay_rejects_invalid_streaming_timeout(value: object) -> None:
+    with pytest.raises(ValueError, match="streaming_timeout"):
+        ModelOverlayDefaults.model_validate({"streaming_timeout": value})
 
 
 def test_same_wire_model_overlays_keep_distinct_resolved_metadata(tmp_path: Path) -> None:

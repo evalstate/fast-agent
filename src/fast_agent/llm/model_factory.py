@@ -69,6 +69,7 @@ _SINGLE_VALUE_MODEL_QUERY_KEYS = (
     "context",
     "transport",
     "service_tier",
+    "streaming_timeout",
 )
 _STRUCTURED_TOOL_QUERY_KEYS = (
     "structured_tools",
@@ -164,6 +165,8 @@ class ModelConfig(BaseModel):
     min_p: float | None = None
     presence_penalty: float | None = None
     repetition_penalty: float | None = None
+    streaming_timeout: float | None = None
+    streaming_timeout_configured: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +192,8 @@ class ModelQueryOverrides:
     min_p: float | None = None
     presence_penalty: float | None = None
     repetition_penalty: float | None = None
+    streaming_timeout: float | None = None
+    streaming_timeout_configured: bool = False
 
     def with_defaults(self, defaults: Self) -> "ModelQueryOverrides":
         """Return a copy with unset values filled from defaults."""
@@ -224,6 +229,14 @@ class ModelQueryOverrides:
             min_p=coalesce(self.min_p, defaults.min_p),
             presence_penalty=coalesce(self.presence_penalty, defaults.presence_penalty),
             repetition_penalty=coalesce(self.repetition_penalty, defaults.repetition_penalty),
+            streaming_timeout=(
+                self.streaming_timeout
+                if self.streaming_timeout_configured
+                else defaults.streaming_timeout
+            ),
+            streaming_timeout_configured=(
+                self.streaming_timeout_configured or defaults.streaming_timeout_configured
+            ),
         )
 
 
@@ -261,6 +274,8 @@ class ParsedModelSpec:
             min_p=self.query_overrides.min_p,
             presence_penalty=self.query_overrides.presence_penalty,
             repetition_penalty=self.query_overrides.repetition_penalty,
+            streaming_timeout=self.query_overrides.streaming_timeout,
+            streaming_timeout_configured=self.query_overrides.streaming_timeout_configured,
         )
 
 
@@ -493,6 +508,31 @@ def _parse_service_tier_query(
     return None
 
 
+def _parse_streaming_timeout_query(
+    query_params: ModelQueryPairs,
+    model_spec: str,
+) -> tuple[float | None, bool]:
+    if not _has_query_key(query_params, "streaming_timeout"):
+        return None, False
+
+    raw_value = _collect_query_values(query_params, ("streaming_timeout",))[-1]
+    if strip_casefold(raw_value) == "none":
+        return None, True
+
+    timeout = _parse_float_query(
+        query_params,
+        model_spec,
+        keys=("streaming_timeout",),
+        label="streaming_timeout",
+    )
+    if timeout is None or timeout <= 0:
+        raise ModelConfigError(
+            f"Invalid streaming_timeout query value: '{raw_value}' in '{model_spec}'. "
+            "Use a positive number of seconds or 'none'."
+        )
+    return timeout, True
+
+
 def _parse_task_budget_query(
     query_params: ModelQueryPairs, model_spec: str
 ) -> tuple[int | None, bool]:
@@ -513,6 +553,10 @@ def _parse_query_overrides(
 ) -> ModelQueryOverrides:
     _raise_for_unsupported_query_keys(query_params, model_spec)
     task_budget_tokens, task_budget_configured = _parse_task_budget_query(query_params, model_spec)
+    streaming_timeout, streaming_timeout_configured = _parse_streaming_timeout_query(
+        query_params,
+        model_spec,
+    )
     web_tool_overrides = _parse_web_tool_queries(query_params, model_spec)
 
     return ModelQueryOverrides(
@@ -565,6 +609,8 @@ def _parse_query_overrides(
             keys=_SAMPLING_QUERY_KEYS["repetition_penalty"],
             label="repetition_penalty",
         ),
+        streaming_timeout=streaming_timeout,
+        streaming_timeout_configured=streaming_timeout_configured,
     )
 
 
