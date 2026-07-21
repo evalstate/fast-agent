@@ -36,6 +36,22 @@ def test_explicit_relative_log_path_keeps_existing_semantics() -> None:
     assert resolve_log_file_path(settings) == Path("logs/events.jsonl")
 
 
+def test_nested_logger_model_omitting_path_uses_configured_home(tmp_path: Path) -> None:
+    home = tmp_path / "configured-home"
+    settings = Settings(home=str(home), logger=LoggerSettings(level="debug"))
+
+    assert resolve_log_file_path(settings) == home / "fast-agent-log.jsonl"
+
+
+def test_nested_logger_model_explicit_default_path_keeps_existing_semantics() -> None:
+    settings = Settings(
+        home="/custom",
+        logger=LoggerSettings(path="fast-agent-log.jsonl"),
+    )
+
+    assert resolve_log_file_path(settings) == Path("fast-agent-log.jsonl")
+
+
 @pytest.mark.asyncio
 async def test_logger_writes_default_log_to_active_home(tmp_path: Path) -> None:
     home = tmp_path / "active-home"

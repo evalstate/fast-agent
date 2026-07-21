@@ -2091,6 +2091,21 @@ class Settings(BaseSettings):
     _fast_agent_global_plugin_home: str | None = PrivateAttr(default=None)
     _fast_agent_no_home: bool = PrivateAttr(default=False)
     _fast_agent_settings_source: Literal["manual", "discovered"] = PrivateAttr(default="manual")
+    _logger_path_explicit: bool = PrivateAttr(default=False)
+
+    def __init__(self, **values: Any) -> None:
+        raw_logger = values.get("logger")
+        nested_model_path_explicit = (
+            "path" in raw_logger.model_fields_set
+            if isinstance(raw_logger, LoggerSettings)
+            else None
+        )
+        super().__init__(**values)
+        self._logger_path_explicit = (
+            nested_model_path_explicit
+            if nested_model_path_explicit is not None
+            else "path" in self.logger.model_fields_set
+        )
 
     @field_validator("commands", mode="before")
     @classmethod
