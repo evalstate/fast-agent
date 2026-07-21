@@ -495,7 +495,7 @@ def _prepare_image_bytes(
         with image:
             actual_mime = _pillow_image_mime(image)
             target_mime = _image_target_mime(mime_type, actual_mime, model_info)
-            if actual_mime == target_mime:
+            if actual_mime == target_mime and target_mime != "image/png":
                 image.verify()
                 return data, target_mime, None
 
@@ -503,7 +503,8 @@ def _prepare_image_bytes(
             output = BytesIO()
             converted = image.convert("RGB") if target_mime == "image/jpeg" else image
             converted.save(output, format=_PILLOW_OUTPUT_FORMATS[target_mime])
-            return output.getvalue(), target_mime, actual_mime
+            converted_from_mime = actual_mime if actual_mime != target_mime else None
+            return output.getvalue(), target_mime, converted_from_mime
     except (OSError, SyntaxError, ValueError) as exc:
         raise ValueError(
             f"Error: image attachment '{display_name}' does not contain valid '{mime_type}' data"
