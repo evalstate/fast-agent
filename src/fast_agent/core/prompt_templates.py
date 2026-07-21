@@ -156,6 +156,9 @@ def _refresh_env_summary(context: MutableMapping[str, str]) -> None:
     client = context.get("clientDisplay")
     if client:
         env_lines.append(f"Client: {client} (pid {os.getpid()})")
+    python_version = context.get("pythonVer")
+    if python_version:
+        env_lines.append(f"Fast-agent runtime: {platform.python_implementation()} {python_version}")
     host_platform = context.get("hostPlatform")
     environment_kind = context.get("executionEnvironmentKind")
     if host_platform and (environment_kind is None or environment_kind == "local"):

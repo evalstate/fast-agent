@@ -1,4 +1,5 @@
 import os
+import platform
 
 from fast_agent.core.prompt_templates import enrich_with_environment_context
 
@@ -15,6 +16,10 @@ def test_enrich_with_environment_context_populates_env_block():
     assert "Environment:" in env_text
     assert "Workspace root: /workspace/app" in env_text
     assert f"Client: Zed 1.2.3 (pid {os.getpid()})" in env_text
+    assert (
+        f"Fast-agent runtime: {platform.python_implementation()} {platform.python_version()}"
+        in env_text
+    )
     assert "Host platform:" in env_text
     assert context["modelReferences"].startswith("$system.default=")
     assert "agentInternalResources" in context
