@@ -22,6 +22,7 @@ if TYPE_CHECKING:
         ShellExecutionRequest,
     )
     from fast_agent.tools.shell_output import ShellOutputBuffer
+    from fast_agent.tools.shell_progress import ShellProgressReporter
     from fast_agent.tools.shell_runtime import ShellRuntime
 
 
@@ -93,6 +94,7 @@ class ShellDisplayState:
 @dataclass(slots=True)
 class ShellRuntimeCallbacks:
     runtime: ShellRuntime
+    progress: ShellProgressReporter
     output_state: ShellOutputBuffer
     display_state: ShellDisplayState
     activity_event: asyncio.Event = field(default_factory=asyncio.Event)
@@ -120,7 +122,7 @@ class ShellRuntimeCallbacks:
         self.last_output_time = time.monotonic()
         self.activity_event.set()
         if self.process is not None:
-            self.runtime._emit_managed_process_output_progress(self.process)
+            self.progress.emit_process_output(self.process)
 
     async def on_stderr(self, text: str) -> None:
         self.runtime._record_stream_output(
@@ -133,7 +135,7 @@ class ShellRuntimeCallbacks:
         self.last_output_time = time.monotonic()
         self.activity_event.set()
         if self.process is not None:
-            self.runtime._emit_managed_process_output_progress(self.process)
+            self.progress.emit_process_output(self.process)
 
     async def on_idle_warning(self, elapsed: float, remaining: float) -> None:
         if self.display_state.use_live_shell_display:
