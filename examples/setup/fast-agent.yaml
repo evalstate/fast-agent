@@ -81,7 +81,11 @@ anthropic:
   thinking_budget_tokens: 1024
 #  cache_mode: "auto" # Options: off, prompt, auto (default: auto)
 #  cache_ttl: "5m" # Options: 5m, 1h (default: 5m)
+#  cache_diagnostics: false # First-party Anthropic cache-miss diagnosis (debug only)
 #shell_execution:
+# model-facing shell tools: minimal_process (Bash/Process, default) or native
+# (legacy execute/poll_process/terminate_process compatibility)
+#  tool_profile: minimal_process
 # length of time before terminating subprocess
 #  timeout_seconds: 20
 # warning interval if no output seen
@@ -93,9 +97,9 @@ anthropic:
 #  output_display_lines: 5  # default
 # show shell command output in console (false to suppress bash output)
 #  show_bash: true
-# maximum wait accepted by poll_process; 250s stays below the 5m cache TTL
+# maximum managed-process wait; 250s stays below the 5m cache TTL
 #  process_poll_max_wait_seconds: 250
-# fold repetitive quiet poll_process exchanges: auto, on, or off
+# fold repetitive quiet managed-process polling: auto, on, or off
 # auto enables folding for models with validated support
 #  managed_process_poll_history_folding: auto
 
@@ -103,6 +107,8 @@ anthropic:
 logger:
   # level: "debug" | "info" | "warning" | "error"
   # type: "none" | "console" | "file" | "http"
+  # Defaults to "<fast-agent-home>/fast-agent-log.jsonl".
+  # Explicit relative paths resolve from the process working directory.
   # path: "/path/to/logfile.jsonl"
 
   # Switch the progress display on or off

@@ -781,6 +781,7 @@ skills:
 
 ```yaml
 shell_execution:
+  tool_profile: minimal_process  # Bash + Process (default); native retains legacy tools
   timeout_seconds: 90
   warning_interval_seconds: 30
   interactive_use_pty: true  # Use PTY for interactive prompt shell commands
@@ -788,12 +789,18 @@ shell_execution:
   managed_process_poll_history_folding: auto  # auto | on | off
 ```
 
-`process_poll_max_wait_seconds` caps a single `poll_process` wait. The default
+`tool_profile` controls the model-facing contract only. The default
+`minimal_process` profile exposes `Bash(command, run_in_background?)` and
+`Process(process_id, action)`. The `native` profile remains available as a
+compatibility escape hatch for the legacy `execute`, `poll_process`, and
+`terminate_process` schemas; both profiles use the same managed-process runtime.
+
+`process_poll_max_wait_seconds` caps a single managed-process wait. The default
 stays below Anthropic's five-minute prompt-cache TTL and applies even when a
 model or model overlay declares a longer default poll wait.
 
 `managed_process_poll_history_folding` controls whether repetitive quiet
-`poll_process` exchanges are collapsed before the next model call:
+managed-process polling exchanges are collapsed before the next model call:
 
 - `auto` enables folding only for models whose metadata marks the behavior as
   validated.

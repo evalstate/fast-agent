@@ -28,11 +28,12 @@
 | `logger.terminal_images.backend` | `LOGGER__TERMINAL_IMAGES__BACKEND` | `Literal['auto', 'textual-image', 'kitty', 'sixel', 'halfcell', 'unicode', 'none']` | `auto` | Terminal image backend to use. |
 | `logger.terminal_images.width` | `LOGGER__TERMINAL_IMAGES__WIDTH` | `TerminalImageSize` | `80%` | Image render width. |
 | `logger.terminal_images.height` | `LOGGER__TERMINAL_IMAGES__HEIGHT` | `TerminalImageSize` | `auto` | Image render height. |
+| `shell_execution.tool_profile` | `SHELL_EXECUTION__TOOL_PROFILE` | `ShellToolProfile` | `minimal_process` | Model-facing Bash/Process contract. |
 | `shell_execution.output_display_lines` | `SHELL_EXECUTION__OUTPUT_DISPLAY_LINES` | `int \| None` | `5` | Maximum shell/read_text_file lines to display. |
 | `shell_execution.show_bash` | `SHELL_EXECUTION__SHOW_BASH` | `bool` | `True` | Show shell command output on the console. |
 | `shell_execution.interactive_use_pty` | `SHELL_EXECUTION__INTERACTIVE_USE_PTY` | `bool` | `True` | Use a PTY for interactive prompt shell commands. |
 | `shell_execution.timeout_seconds` | `SHELL_EXECUTION__TIMEOUT_SECONDS` | `int` | `90` | Maximum seconds without command output before termination. |
 | `shell_execution.warning_interval_seconds` | `SHELL_EXECUTION__WARNING_INTERVAL_SECONDS` | `int` | `30` | Show timeout warnings every N seconds. |
-| `shell_execution.process_poll_max_wait_seconds` | `SHELL_EXECUTION__PROCESS_POLL_MAX_WAIT_SECONDS` | `int` | `250` | Maximum wait accepted by poll_process. |
-| `shell_execution.managed_process_poll_history_folding` | `SHELL_EXECUTION__MANAGED_PROCESS_POLL_HISTORY_FOLDING` | `Literal['auto', 'on', 'off']` | `auto` | Fold repetitive quiet poll_process exchanges. |
+| `shell_execution.process_poll_max_wait_seconds` | `SHELL_EXECUTION__PROCESS_POLL_MAX_WAIT_SECONDS` | `int` | `250` | Maximum managed-process wait. |
+| `shell_execution.managed_process_poll_history_folding` | `SHELL_EXECUTION__MANAGED_PROCESS_POLL_HISTORY_FOLDING` | `Literal['auto', 'on', 'off']` | `auto` | Fold repetitive quiet managed-process polling. |
 | `tui.completion_menu_reserved_lines` | `TUI__COMPLETION_MENU_RESERVED_LINES` | `int` | `6` | Prompt-toolkit lines reserved below the input for completion menus. |

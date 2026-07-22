@@ -14,6 +14,7 @@
             }
           ],
           "default": null,
+          "description": "Anthropic API key",
           "title": "Api Key"
         },
         "base_url": {
@@ -26,17 +27,144 @@
             }
           ],
           "default": null,
+          "description": "Override API endpoint",
           "title": "Base Url"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default model when Anthropic provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers to pass with every request",
+          "title": "Default Headers"
+        },
+        "cache_mode": {
+          "default": "auto",
+          "description": "Caching mode: off (disabled), prompt (cache tools+system), auto (also advance through recent conversation turns)",
+          "enum": [
+            "off",
+            "prompt",
+            "auto"
+          ],
+          "title": "Cache Mode",
+          "type": "string"
+        },
+        "cache_ttl": {
+          "default": "5m",
+          "description": "Cache TTL: 5m (standard) or 1h (extended, additional cost)",
+          "enum": [
+            "5m",
+            "1h"
+          ],
+          "title": "Cache Ttl",
+          "type": "string"
+        },
+        "cache_diagnostics": {
+          "default": false,
+          "description": "Enable first-party Anthropic cache-miss diagnosis for debugging. Adds a beta request field and provider diagnostics to responses.",
+          "title": "Cache Diagnostics",
+          "type": "boolean"
+        },
+        "reasoning": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReasoningEffortSetting"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reasoning setting. Supports effort strings (for adaptive models), budget tokens (int), or toggle (bool). Use 0 or false to disable.",
+          "title": "Reasoning"
+        },
+        "task_budget": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Anthropic task budget for agentic loops. Supports raw token counts or shorthand like 20k/128k. Use off/default to disable.",
+          "title": "Task Budget"
+        },
+        "structured_output_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "json",
+                "tool_use"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "auto",
+              "type": "string"
+            }
+          ],
+          "default": "auto",
+          "description": "Structured output mode: auto, json, or tool_use",
+          "title": "Structured Output Mode"
+        },
+        "vertex_ai": {
+          "$ref": "#/$defs/AnthropicVertexSettings"
+        },
+        "web_search": {
+          "$ref": "#/$defs/AnthropicWebSearchSettings"
+        },
+        "web_fetch": {
+          "$ref": "#/$defs/AnthropicWebFetchSettings"
         }
       },
       "title": "AnthropicSettings",
       "type": "object"
     },
-    "DeepSeekSettings": {
-      "additionalProperties": true,
-      "description": "Settings for using OpenAI models in the fast-agent application.",
+    "AnthropicUserLocationSettings": {
+      "description": "Approximate user location for Anthropic web search tool requests.",
       "properties": {
-        "api_key": {
+        "type": {
+          "const": "approximate",
+          "default": "approximate",
+          "title": "Type",
+          "type": "string"
+        },
+        "city": {
           "anyOf": [
             {
               "type": "string"
@@ -46,7 +174,79 @@
             }
           ],
           "default": null,
-          "title": "Api Key"
+          "title": "City"
+        },
+        "country": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Country"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Region"
+        },
+        "timezone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timezone"
+        }
+      },
+      "title": "AnthropicUserLocationSettings",
+      "type": "object"
+    },
+    "AnthropicVertexSettings": {
+      "description": "Anthropic-on-Vertex configuration.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location"
         },
         "base_url": {
           "anyOf": [
@@ -61,12 +261,148 @@
           "title": "Base Url"
         }
       },
-      "title": "DeepSeekSettings",
+      "title": "AnthropicVertexSettings",
       "type": "object"
     },
-    "GenericSettings": {
+    "AnthropicWebFetchSettings": {
+      "description": "Anthropic built-in web_fetch server tool settings.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_uses": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Uses"
+        },
+        "allowed_domains": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed Domains"
+        },
+        "blocked_domains": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blocked Domains"
+        },
+        "citations_enabled": {
+          "default": false,
+          "title": "Citations Enabled",
+          "type": "boolean"
+        },
+        "max_content_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Content Tokens"
+        }
+      },
+      "title": "AnthropicWebFetchSettings",
+      "type": "object"
+    },
+    "AnthropicWebSearchSettings": {
+      "description": "Anthropic built-in web_search server tool settings.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_uses": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Uses"
+        },
+        "allowed_domains": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed Domains"
+        },
+        "blocked_domains": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blocked Domains"
+        },
+        "user_location": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnthropicUserLocationSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "AnthropicWebSearchSettings",
+      "type": "object"
+    },
+    "AzureSettings": {
       "additionalProperties": true,
-      "description": "Settings for using OpenAI models in the fast-agent application.",
+      "description": "Settings for using Azure OpenAI Service in the fast-agent application.",
       "properties": {
         "api_key": {
           "anyOf": [
@@ -78,6 +414,299 @@
             }
           ],
           "default": null,
+          "description": "Azure OpenAI API key",
+          "title": "Api Key"
+        },
+        "resource_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Azure resource name (do not use with base_url)",
+          "title": "Resource Name"
+        },
+        "azure_deployment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Azure deployment name (required)",
+          "title": "Azure Deployment"
+        },
+        "api_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "API version (e.g., 2023-05-15)",
+          "title": "Api Version"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Full endpoint URL (do not use with resource_name)",
+          "title": "Base Url"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default deployment/model when Azure provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers for all API requests",
+          "title": "Default Headers"
+        }
+      },
+      "title": "AzureSettings",
+      "type": "object"
+    },
+    "BedrockSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using AWS Bedrock models in the fast-agent application.",
+      "properties": {
+        "region": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "AWS region for Bedrock (e.g., us-east-1)",
+          "title": "Region"
+        },
+        "profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "AWS profile for authentication (default: 'default')",
+          "title": "Profile"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default model when Bedrock provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "reasoning": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReasoningEffortSetting"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unified reasoning setting (effort level or budget)",
+          "title": "Reasoning"
+        },
+        "reasoning_effort": {
+          "default": "minimal",
+          "description": "Default reasoning effort: minimal, low, medium, high",
+          "enum": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Reasoning Effort",
+          "type": "string"
+        }
+      },
+      "title": "BedrockSettings",
+      "type": "object"
+    },
+    "CardsSettings": {
+      "description": "Configuration for card pack registry selection.",
+      "properties": {
+        "marketplace_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Marketplace Url"
+        },
+        "marketplace_urls": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Marketplace Urls"
+        }
+      },
+      "title": "CardsSettings",
+      "type": "object"
+    },
+    "CodexResponsesSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using Codex Responses via ChatGPT OAuth tokens.",
+      "properties": {
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default model when the provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "text_verbosity": {
+          "default": "medium",
+          "description": "Text verbosity level: low, medium, high",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Text Verbosity",
+          "type": "string"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers for all API requests",
+          "title": "Default Headers"
+        },
+        "transport": {
+          "anyOf": [
+            {
+              "enum": [
+                "sse",
+                "websocket",
+                "auto"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Responses transport mode override: sse, websocket, or auto. When unset, OpenAI Responses and Codex Responses prefer websocket with automatic SSE fallback.",
+          "title": "Transport"
+        },
+        "service_tier": {
+          "anyOf": [
+            {
+              "const": "fast",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Codex Responses service tier: fast (priority) or unset (standard).",
+          "title": "Service Tier"
+        },
+        "web_search": {
+          "$ref": "#/$defs/OpenAIWebSearchSettings"
+        },
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Codex Responses API key",
           "title": "Api Key"
         },
         "base_url": {
@@ -90,7 +719,353 @@
             }
           ],
           "default": null,
+          "description": "Override API endpoint",
           "title": "Base Url"
+        }
+      },
+      "title": "CodexResponsesSettings",
+      "type": "object"
+    },
+    "CompactionSettings": {
+      "description": "Configuration for conversation history compaction.",
+      "properties": {
+        "auto": {
+          "default": true,
+          "description": "Automatically compact history when context usage crosses the threshold",
+          "title": "Auto",
+          "type": "boolean"
+        },
+        "threshold": {
+          "default": 0.85,
+          "description": "Fraction of the model context window that triggers auto-compaction",
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "Threshold",
+          "type": "number"
+        },
+        "keep_turns": {
+          "default": 2,
+          "description": "Number of recent complete turns kept verbatim after compaction",
+          "minimum": 0,
+          "title": "Keep Turns",
+          "type": "integer"
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom summarization prompt for compaction. Inline text, or a path to a text/markdown file. None uses the built-in prompt (see /compact prompt).",
+          "title": "Prompt"
+        }
+      },
+      "title": "CompactionSettings",
+      "type": "object"
+    },
+    "CustomEnvironmentSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "custom",
+          "description": "Load a custom ShellEnvironment class.",
+          "title": "Type",
+          "type": "string"
+        },
+        "class": {
+          "description": "Import path in `module.path:ClassName` format.",
+          "examples": [
+            "mycompany.envs:KubernetesEnvironment"
+          ],
+          "title": "Class",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": true,
+          "description": "Keyword arguments passed to the custom environment class.",
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "class"
+      ],
+      "title": "CustomEnvironmentSpec",
+      "type": "object"
+    },
+    "DeepSeekSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using DeepSeek models in the fast-agent application.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "DeepSeek API key",
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Override API endpoint",
+          "title": "Base Url"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default model when DeepSeek provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers for all API requests",
+          "title": "Default Headers"
+        }
+      },
+      "title": "DeepSeekSettings",
+      "type": "object"
+    },
+    "DockerEnvironmentSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "docker",
+          "description": "Run shell commands in Docker or a Docker-compatible CLI.",
+          "title": "Type",
+          "type": "string"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Container image to start. Provide exactly one of `image` or `container`.",
+          "examples": [
+            "ubuntu:24.04"
+          ],
+          "title": "Image"
+        },
+        "container": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Existing container name or ID to execute in. Provide exactly one of `image` or `container`.",
+          "examples": [
+            "fast-agent-ci"
+          ],
+          "title": "Container"
+        },
+        "container_cli": {
+          "default": "docker",
+          "description": "Executable used for container operations, for example `docker` or `wslc`.",
+          "examples": [
+            "docker",
+            "wslc"
+          ],
+          "title": "Container Cli",
+          "type": "string"
+        },
+        "shell": {
+          "default": "bash",
+          "description": "Shell executable used inside the container.",
+          "examples": [
+            "bash",
+            "sh",
+            "pwsh"
+          ],
+          "title": "Shell",
+          "type": "string"
+        },
+        "cwd": {
+          "default": "/workspace",
+          "description": "Working directory inside the container.",
+          "examples": [
+            "/workspace"
+          ],
+          "title": "Cwd",
+          "type": "string"
+        },
+        "mounts": {
+          "description": "Docker bind mounts. Use this instead of volume flags in `docker_args`.",
+          "items": {
+            "$ref": "#/$defs/EnvironmentMountSpec"
+          },
+          "title": "Mounts",
+          "type": "array"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Environment variables applied to shell execution.",
+          "title": "Env",
+          "type": "object"
+        },
+        "docker_args": {
+          "description": "Extra container creation arguments. Volume and lifecycle flags are rejected; use `mounts` for bind mounts.",
+          "examples": [
+            [
+              "--network=none"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Docker Args",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "DockerEnvironmentSpec",
+      "type": "object"
+    },
+    "EnvironmentMountSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "description": "Host workspace path to bind mount. Relative paths resolve against the workspace root.",
+          "examples": [
+            "."
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "description": "Absolute path inside the Docker container.",
+          "examples": [
+            "/workspace"
+          ],
+          "title": "Target",
+          "type": "string"
+        },
+        "mode": {
+          "default": "rw",
+          "description": "Docker bind mount access mode: read-only (`ro`) or read-write (`rw`).",
+          "enum": [
+            "ro",
+            "rw"
+          ],
+          "examples": [
+            "rw"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "title": "EnvironmentMountSpec",
+      "type": "object"
+    },
+    "GenericSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using generic OpenAI-compatible models (e.g., Ollama).",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "API key (default: 'ollama' for Ollama)",
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "API endpoint (default: http://localhost:11434/v1 for Ollama)",
+          "title": "Base Url"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default model when generic provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers for all API requests",
+          "title": "Default Headers"
         }
       },
       "title": "GenericSettings",
@@ -98,7 +1073,7 @@
     },
     "GoogleSettings": {
       "additionalProperties": true,
-      "description": "Settings for using OpenAI models in the fast-agent application.",
+      "description": "Settings for using Google models in the fast-agent application.",
       "properties": {
         "api_key": {
           "anyOf": [
@@ -110,6 +1085,7 @@
             }
           ],
           "default": null,
+          "description": "Google API key",
           "title": "Api Key"
         },
         "base_url": {
@@ -122,15 +1098,63 @@
             }
           ],
           "default": null,
+          "description": "Override API endpoint",
           "title": "Base Url"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default model when Google provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers for all API requests",
+          "title": "Default Headers"
+        },
+        "transport": {
+          "anyOf": [
+            {
+              "enum": [
+                "sse",
+                "websocket",
+                "auto"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Responses transport mode override: sse, websocket, or auto fallback.",
+          "title": "Transport"
         }
       },
       "title": "GoogleSettings",
       "type": "object"
     },
-    "XAISettings": {
+    "GroqSettings": {
       "additionalProperties": true,
-      "description": "Settings for using xAI models in the fast-agent application.",
+      "description": "Settings for using Groq models in the fast-agent application.",
       "properties": {
         "api_key": {
           "anyOf": [
@@ -142,6 +1166,225 @@
             }
           ],
           "default": null,
+          "description": "Groq API key",
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "https://api.groq.com/openai/v1",
+          "description": "Groq API endpoint",
+          "title": "Base Url"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default model when Groq provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers for all API requests",
+          "title": "Default Headers"
+        }
+      },
+      "title": "GroqSettings",
+      "type": "object"
+    },
+    "HarnessAppSettings": {
+      "description": "Configuration for the harness application boundary.",
+      "properties": {
+        "entrypoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entrypoint",
+          "description": "Import path for a custom harness app factory, as module:function."
+        }
+      },
+      "title": "HarnessAppSettings",
+      "type": "object"
+    },
+    "HuggingFaceBucketMountSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "description": "Hugging Face bucket identifier in `namespace/name` form.",
+          "examples": [
+            "username/my-bucket"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "mount_path": {
+          "description": "Absolute path where the bucket is mounted inside the sandbox.",
+          "examples": [
+            "/workspace"
+          ],
+          "title": "Mount Path",
+          "type": "string"
+        },
+        "read_only": {
+          "default": false,
+          "description": "Whether the bucket mount is read-only.",
+          "examples": [
+            false
+          ],
+          "title": "Read Only",
+          "type": "boolean"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional subfolder prefix inside the bucket to mount.",
+          "examples": [
+            "subdir"
+          ],
+          "title": "Path"
+        }
+      },
+      "required": [
+        "source",
+        "mount_path"
+      ],
+      "title": "HuggingFaceBucketMountSpec",
+      "type": "object"
+    },
+    "HuggingFaceEnvironmentSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "huggingface",
+          "description": "Run shell commands in a Hugging Face Sandbox.",
+          "title": "Type",
+          "type": "string"
+        },
+        "image": {
+          "default": "python:3.12",
+          "description": "Sandbox container image.",
+          "examples": [
+            "python:3.12"
+          ],
+          "title": "Image",
+          "type": "string"
+        },
+        "flavor": {
+          "default": "cpu-basic",
+          "description": "Hugging Face Sandbox hardware flavor.",
+          "examples": [
+            "cpu-basic"
+          ],
+          "title": "Flavor",
+          "type": "string"
+        },
+        "cwd": {
+          "default": "/workspace",
+          "description": "Working directory inside the sandbox.",
+          "examples": [
+            "/workspace"
+          ],
+          "title": "Cwd",
+          "type": "string"
+        },
+        "bucket_mounts": {
+          "description": "Legacy bucket-only mount shorthand. Prefer `volume_mounts` for new config.",
+          "items": {
+            "$ref": "#/$defs/HuggingFaceBucketMountSpec"
+          },
+          "title": "Bucket Mounts",
+          "type": "array"
+        },
+        "volume_mounts": {
+          "description": "Hugging Face Sandbox volume mounts using `hf://...:/mount/path[:ro|:rw]` syntax.",
+          "items": {
+            "$ref": "#/$defs/HuggingFaceVolumeMountSpec"
+          },
+          "title": "Volume Mounts",
+          "type": "array"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Environment variables applied to shell execution.",
+          "title": "Env",
+          "type": "object"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hugging Face token. Prefer `fast-agent.secrets.yaml` or `${HF_TOKEN}`.",
+          "examples": [
+            "${HF_TOKEN}"
+          ],
+          "title": "Token"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "HuggingFaceEnvironmentSpec",
+      "type": "object"
+    },
+    "HuggingFaceSettings": {
+      "additionalProperties": true,
+      "description": "Settings for HuggingFace Inference Providers.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "HuggingFace token (HF_TOKEN)",
           "title": "Api Key"
         },
         "base_url": {
@@ -154,22 +1397,139 @@
             }
           ],
           "default": null,
+          "description": "Override router endpoint (default: https://router.huggingface.co/v1)",
           "title": "Base Url"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default model when HuggingFace provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "default_provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default inference provider (e.g., groq, fireworks-ai, cerebras)",
+          "title": "Default Provider"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers for all API requests",
+          "title": "Default Headers"
         }
-      }
+      },
+      "title": "HuggingFaceSettings",
+      "type": "object"
+    },
+    "HuggingFaceVolumeMountSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "uri": {
+          "description": "Hugging Face mount URI: `hf://[models|datasets|spaces|buckets]/namespace/name[/path]:/mount/path[:ro|:rw]`. The type defaults to models.",
+          "examples": [
+            "hf://buckets/username/my-bucket:/workspace:rw",
+            "hf://datasets/username/reference-data:/data:ro"
+          ],
+          "title": "Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uri"
+      ],
+      "title": "HuggingFaceVolumeMountSpec",
+      "type": "object"
+    },
+    "LocalEnvironmentSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "local",
+          "default": "local",
+          "description": "Use the host local shell.",
+          "title": "Type",
+          "type": "string"
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Working directory for local shell and file tools. Relative paths resolve against the workspace root.",
+          "examples": [
+            "."
+          ],
+          "title": "Cwd"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Environment variables applied to shell execution.",
+          "examples": [
+            {
+              "PYTHONUNBUFFERED": "1"
+            }
+          ],
+          "title": "Env",
+          "type": "object"
+        }
+      },
+      "title": "LocalEnvironmentSpec",
+      "type": "object"
     },
     "LoggerSettings": {
       "description": "Logger settings for the fast-agent application.",
       "properties": {
         "type": {
           "default": "file",
-          "enum": ["none", "console", "file", "http"],
+          "enum": [
+            "none",
+            "console",
+            "file",
+            "http"
+          ],
           "title": "Type",
           "type": "string"
         },
         "level": {
           "default": "warning",
-          "enum": ["debug", "info", "warning", "error"],
+          "enum": [
+            "debug",
+            "info",
+            "warning",
+            "error"
+          ],
           "title": "Level",
           "type": "string",
           "description": "Minimum logging level"
@@ -184,7 +1544,7 @@
           "default": "fast-agent-log.jsonl",
           "title": "Path",
           "type": "string",
-          "description": "Path to log file, if logger 'type' is 'file'."
+          "description": "Explicit log path. When omitted, file logs are written under the active fast-agent home."
         },
         "batch_size": {
           "default": 100,
@@ -245,6 +1605,12 @@
           "type": "boolean",
           "description": "Show chat User/Assistant on the console"
         },
+        "stream_reprint_banner": {
+          "default": true,
+          "title": "Stream Reprint Banner",
+          "type": "boolean",
+          "description": "Show a bright banner before reprinted final streamed assistant responses"
+        },
         "show_tools": {
           "default": true,
           "title": "Show Tools",
@@ -262,10 +1628,94 @@
           "title": "Enable Markup",
           "type": "boolean",
           "description": "Enable markup in console output. Disable for outputs that may conflict with rich console formatting"
+        },
+        "enable_prompt_marks": {
+          "default": true,
+          "title": "Enable Prompt Marks",
+          "type": "boolean",
+          "description": "Emit OSC 133 prompt marks for terminals that support scrollbar markers."
+        },
+        "streaming": {
+          "default": "markdown",
+          "enum": [
+            "markdown",
+            "plain",
+            "none"
+          ],
+          "title": "Streaming",
+          "type": "string",
+          "description": "Streaming renderer for assistant responses"
+        },
+        "theme_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Theme File",
+          "description": "Optional Rich theme file for console styles. Relative paths resolve from fast-agent.yaml."
+        },
+        "code_theme": {
+          "default": "native",
+          "title": "Code Theme",
+          "type": "string",
+          "description": "Pygments / Rich syntax theme for fenced code blocks and markdown code rendering."
+        },
+        "render_fences_with_syntax": {
+          "default": true,
+          "title": "Render Fences With Syntax",
+          "type": "boolean",
+          "description": "Render assistant markdown code fences with Rich Syntax instead of markdown fence blocks"
+        },
+        "code_word_wrap": {
+          "default": true,
+          "title": "Code Word Wrap",
+          "type": "boolean",
+          "description": "Wrap Syntax-rendered code blocks instead of cropping at the viewport edge"
+        },
+        "terminal_images": {
+          "$ref": "#/$defs/TerminalImageSettings",
+          "description": "Render image content in capable terminals."
+        },
+        "apply_patch_preview_max_lines": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 120,
+          "description": "Maximum lines to show in apply_patch previews before appending '(+N more lines)' (0/None = no limit)",
+          "title": "Apply Patch Preview Max Lines"
         }
       },
       "title": "LoggerSettings",
       "type": "object"
+    },
+    "MCPElicitationSettings": {
+      "additionalProperties": true,
+      "properties": {
+        "mode": {
+          "default": "none",
+          "enum": [
+            "forms",
+            "auto-cancel",
+            "none"
+          ],
+          "title": "Mode",
+          "type": "string",
+          "description": "Elicitation mode: 'forms' (default UI), 'auto-cancel', 'none' (no capability)"
+        }
+      },
+      "title": "MCPElicitationSettings",
+      "type": "object",
+      "description": "Elicitation mode: 'forms' (default UI), 'auto-cancel', 'none' (no capability)"
     },
     "MCPRootSettings": {
       "additionalProperties": true,
@@ -303,7 +1753,9 @@
           "description": "Optional URI alias for presentation to the server"
         }
       },
-      "required": ["uri"],
+      "required": [
+        "uri"
+      ],
       "title": "MCPRootSettings",
       "type": "object"
     },
@@ -311,7 +1763,7 @@
       "additionalProperties": true,
       "properties": {
         "model": {
-          "default": "haiku",
+          "default": "gpt-5-mini?reasoning=low",
           "title": "Model",
           "type": "string"
         }
@@ -321,9 +1773,64 @@
     },
     "MCPServerAuthSettings": {
       "additionalProperties": true,
-      "description": "Represents authentication configuration for a server.",
+      "description": "Represents authentication configuration for a server.\n\nMinimal OAuth v2.1 support with sensible defaults.",
       "properties": {
-        "api_key": {
+        "oauth": {
+          "default": true,
+          "title": "Oauth",
+          "type": "boolean"
+        },
+        "forward": {
+          "anyOf": [
+            {
+              "const": "huggingface",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forward"
+        },
+        "redirect_port": {
+          "default": 3030,
+          "title": "Redirect Port",
+          "type": "integer"
+        },
+        "redirect_path": {
+          "default": "/callback",
+          "title": "Redirect Path",
+          "type": "string"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scope"
+        },
+        "persist": {
+          "default": "keyring",
+          "enum": [
+            "keyring",
+            "memory"
+          ],
+          "title": "Persist",
+          "type": "string"
+        },
+        "client_metadata_url": {
           "anyOf": [
             {
               "type": "string"
@@ -333,7 +1840,7 @@
             }
           ],
           "default": null,
-          "title": "Api Key"
+          "title": "Client Metadata Url"
         }
       },
       "title": "MCPServerAuthSettings",
@@ -368,9 +1875,23 @@
           "title": "Description",
           "description": "The description of the server."
         },
+        "management": {
+          "default": "client",
+          "enum": [
+            "client",
+            "provider"
+          ],
+          "title": "Management",
+          "type": "string",
+          "description": "Whether fast-agent connects locally or delegates MCP execution to the provider."
+        },
         "transport": {
           "default": "stdio",
-          "enum": ["stdio", "sse", "http"],
+          "enum": [
+            "stdio",
+            "sse",
+            "http"
+          ],
           "title": "Transport",
           "type": "string",
           "description": "The transport mechanism."
@@ -417,6 +1938,44 @@
           "title": "Read Timeout Seconds",
           "description": "The timeout in seconds for the session."
         },
+        "ping_interval_seconds": {
+          "default": 30,
+          "title": "Ping Interval Seconds",
+          "type": "integer",
+          "description": "Interval for MCP ping requests. Set <=0 to disable pinging."
+        },
+        "max_missed_pings": {
+          "default": 3,
+          "title": "Max Missed Pings",
+          "type": "integer",
+          "description": "Number of consecutive missed ping responses before treating the connection as failed."
+        },
+        "http_timeout_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Http Timeout Seconds",
+          "description": "Overall HTTP timeout (seconds) for StreamableHTTP transport. Defaults to MCP SDK."
+        },
+        "http_read_timeout_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Http Read Timeout Seconds",
+          "description": "HTTP read timeout (seconds) for StreamableHTTP transport. Defaults to MCP SDK."
+        },
         "read_transport_sse_timeout_seconds": {
           "default": 300,
           "title": "Read Transport Sse Timeout Seconds",
@@ -434,7 +1993,20 @@
           ],
           "default": null,
           "title": "Url",
-          "description": "The URL for the server (e.g. for SSE transport)."
+          "description": "The URL for the server (e.g. for SSE/SHTTP transport)."
+        },
+        "connector_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Connector Id",
+          "description": "OpenAI Responses provider-managed connector identifier."
         },
         "headers": {
           "anyOf": [
@@ -450,7 +2022,20 @@
           ],
           "default": null,
           "title": "Headers",
-          "description": "Headers dictionary for SSE connections"
+          "description": "Headers dictionary for HTTP connections"
+        },
+        "access_token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Access Token",
+          "description": "Provider-neutral bearer token for local URL servers or provider-managed MCP."
         },
         "auth": {
           "anyOf": [
@@ -508,6 +2093,18 @@
           "default": null,
           "description": "Sampling settings for this Client/Server pair"
         },
+        "elicitation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MCPElicitationSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Elicitation settings for this Client/Server pair"
+        },
         "cwd": {
           "anyOf": [
             {
@@ -520,6 +2117,39 @@
           "default": null,
           "title": "Cwd",
           "description": "Working directory for the executed server command."
+        },
+        "load_on_start": {
+          "default": true,
+          "title": "Load On Start",
+          "type": "boolean",
+          "description": "Whether to connect to this server automatically when the agent starts."
+        },
+        "include_instructions": {
+          "default": true,
+          "title": "Include Instructions",
+          "type": "boolean",
+          "description": "Whether to include this server's instructions in the system prompt (default: True)."
+        },
+        "reconnect_on_disconnect": {
+          "default": true,
+          "title": "Reconnect On Disconnect",
+          "type": "boolean"
+        },
+        "implementation": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Implementation"
+        },
+        "defer_loading": {
+          "default": false,
+          "title": "Defer Loading",
+          "type": "boolean",
+          "description": "Provider-managed OpenAI Responses hint to defer remote tool loading."
         }
       },
       "title": "MCPServerSettings",
@@ -533,7 +2163,6 @@
           "additionalProperties": {
             "$ref": "#/$defs/MCPServerSettings"
           },
-          "default": {},
           "title": "Servers",
           "type": "object"
         }
@@ -541,9 +2170,37 @@
       "title": "MCPSettings",
       "type": "object"
     },
-    "OpenAISettings": {
+    "MCPTimelineSettings": {
       "additionalProperties": true,
-      "description": "Settings for using OpenAI models in the fast-agent application.",
+      "description": "Configuration for MCP activity timeline display.",
+      "properties": {
+        "steps": {
+          "default": 20,
+          "title": "Steps",
+          "type": "integer",
+          "description": "Number of timeline buckets to render."
+        },
+        "step_seconds": {
+          "default": 30,
+          "title": "Step Seconds",
+          "type": "integer",
+          "description": "Duration of each timeline bucket in seconds."
+        }
+      },
+      "title": "MCPTimelineSettings",
+      "type": "object"
+    },
+    "McpUIMode": {
+      "enum": [
+        "disabled",
+        "enabled",
+        "auto"
+      ],
+      "type": "string"
+    },
+    "MetaAISettings": {
+      "additionalProperties": true,
+      "description": "Settings for using MetaAI Muse models via the Responses API.",
       "properties": {
         "api_key": {
           "anyOf": [
@@ -555,13 +2212,225 @@
             }
           ],
           "default": null,
+          "description": "MetaAI API key",
           "title": "Api Key"
         },
-        "reasoning_effort": {
-          "default": "medium",
-          "enum": ["low", "medium", "high"],
-          "title": "Reasoning Effort",
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "https://api.meta.ai/v1",
+          "description": "MetaAI API endpoint (default: https://api.meta.ai/v1)",
+          "title": "Base Url"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default model when MetaAI provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers for all API requests",
+          "title": "Default Headers"
+        },
+        "web_search": {
+          "$ref": "#/$defs/MetaAIWebSearchSettings"
+        }
+      },
+      "title": "MetaAISettings",
+      "type": "object"
+    },
+    "MetaAIWebSearchSettings": {
+      "description": "MetaAI Responses web_search (search grounding) settings.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "tool_type": {
+          "const": "web_search",
+          "default": "web_search",
+          "title": "Tool Type",
           "type": "string"
+        },
+        "search_context_size": {
+          "anyOf": [
+            {
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Search Context Size"
+        },
+        "allowed_domains": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed Domains"
+        },
+        "user_location": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OpenAIUserLocationSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "external_web_access": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "External Web Access"
+        }
+      },
+      "title": "MetaAIWebSearchSettings",
+      "type": "object"
+    },
+    "OpenAISettings": {
+      "additionalProperties": true,
+      "description": "Settings for using OpenAI models in the fast-agent application.",
+      "properties": {
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default model when the provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "text_verbosity": {
+          "default": "medium",
+          "description": "Text verbosity level: low, medium, high",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Text Verbosity",
+          "type": "string"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers for all API requests",
+          "title": "Default Headers"
+        },
+        "transport": {
+          "anyOf": [
+            {
+              "enum": [
+                "sse",
+                "websocket",
+                "auto"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Responses transport mode override: sse, websocket, or auto. When unset, OpenAI Responses and Codex Responses prefer websocket with automatic SSE fallback.",
+          "title": "Transport"
+        },
+        "service_tier": {
+          "anyOf": [
+            {
+              "enum": [
+                "fast",
+                "flex"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Responses service tier: fast (priority) or flex.",
+          "title": "Service Tier"
+        },
+        "web_search": {
+          "$ref": "#/$defs/OpenAIWebSearchSettings"
+        },
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "OpenAI API key",
+          "title": "Api Key"
         },
         "base_url": {
           "anyOf": [
@@ -573,10 +2442,310 @@
             }
           ],
           "default": null,
+          "description": "Override API endpoint",
           "title": "Base Url"
+        },
+        "reasoning": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReasoningEffortSetting"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unified reasoning setting (effort level or budget)",
+          "title": "Reasoning"
+        },
+        "reasoning_effort": {
+          "default": "medium",
+          "description": "Default reasoning effort: minimal, low, medium, high",
+          "enum": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Reasoning Effort",
+          "type": "string"
         }
       },
       "title": "OpenAISettings",
+      "type": "object"
+    },
+    "OpenAIUserLocationSettings": {
+      "description": "Approximate user location for OpenAI web search tool requests.",
+      "properties": {
+        "type": {
+          "const": "approximate",
+          "default": "approximate",
+          "title": "Type",
+          "type": "string"
+        },
+        "city": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "City"
+        },
+        "country": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Country"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Region"
+        },
+        "timezone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timezone"
+        }
+      },
+      "title": "OpenAIUserLocationSettings",
+      "type": "object"
+    },
+    "OpenAIWebSearchSettings": {
+      "description": "OpenAI Responses web_search tool settings.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "tool_type": {
+          "default": "web_search",
+          "enum": [
+            "web_search",
+            "web_search_preview"
+          ],
+          "title": "Tool Type",
+          "type": "string"
+        },
+        "search_context_size": {
+          "anyOf": [
+            {
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Search Context Size"
+        },
+        "allowed_domains": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed Domains"
+        },
+        "user_location": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OpenAIUserLocationSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "external_web_access": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "External Web Access"
+        }
+      },
+      "title": "OpenAIWebSearchSettings",
+      "type": "object"
+    },
+    "OpenResponsesSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using Open Responses models in the fast-agent application.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Open Responses API key",
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Open Responses endpoint URL",
+          "title": "Base Url"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default model when Open Responses provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "reasoning": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReasoningEffortSetting"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unified reasoning setting (effort level or budget)",
+          "title": "Reasoning"
+        },
+        "reasoning_effort": {
+          "default": "medium",
+          "description": "Default reasoning effort: minimal, low, medium, high",
+          "enum": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Reasoning Effort",
+          "type": "string"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers for all API requests",
+          "title": "Default Headers"
+        },
+        "transport": {
+          "default": "sse",
+          "description": "Responses transport mode: sse (default), websocket, or auto fallback.",
+          "enum": [
+            "sse",
+            "websocket",
+            "auto"
+          ],
+          "title": "Transport",
+          "type": "string"
+        },
+        "service_tier": {
+          "anyOf": [
+            {
+              "enum": [
+                "fast",
+                "flex"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Responses service tier: fast (priority) or flex.",
+          "title": "Service Tier"
+        },
+        "web_search": {
+          "$ref": "#/$defs/OpenAIWebSearchSettings"
+        }
+      },
+      "title": "OpenResponsesSettings",
       "type": "object"
     },
     "OpenRouterSettings": {
@@ -593,6 +2762,7 @@
             }
           ],
           "default": null,
+          "description": "OpenRouter API key",
           "title": "Api Key"
         },
         "base_url": {
@@ -605,50 +2775,444 @@
             }
           ],
           "default": null,
+          "description": "Override API endpoint (default: https://openrouter.ai/api/v1)",
           "title": "Base Url"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default model when OpenRouter provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers for all API requests",
+          "title": "Default Headers"
         }
       },
       "title": "OpenRouterSettings",
       "type": "object"
     },
     "OpenTelemetrySettings": {
-      "description": "OTEL settings for the fast-agent application.",
+      "description": "OpenTelemetry settings for the fast-agent application.",
       "properties": {
         "enabled": {
           "default": false,
+          "description": "Enable OpenTelemetry tracing",
           "title": "Enabled",
           "type": "boolean"
         },
         "service_name": {
           "default": "fast-agent",
+          "description": "OTEL service name",
           "title": "Service Name",
           "type": "string"
         },
         "otlp_endpoint": {
           "default": "http://localhost:4318/v1/traces",
+          "description": "OTLP endpoint for tracing",
           "title": "Otlp Endpoint",
-          "type": "string",
-          "description": "OTLP endpoint for OpenTelemetry tracing"
+          "type": "string"
         },
         "console_debug": {
           "default": false,
+          "description": "Log spans to console",
           "title": "Console Debug",
-          "type": "boolean",
-          "description": "Log spans to console"
+          "type": "boolean"
         },
         "sample_rate": {
           "default": 1.0,
+          "description": "Sample rate for tracing (1.0 = sample everything)",
+          "maximum": 1.0,
+          "minimum": 0.0,
           "title": "Sample Rate",
-          "type": "number",
-          "description": "Sample rate for tracing (1.0 = sample everything)"
+          "type": "number"
         }
       },
       "title": "OpenTelemetrySettings",
       "type": "object"
     },
+    "PluginCommandActionSpec": {
+      "description": "Configured plugin slash-command metadata.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "handler": {
+          "title": "Handler",
+          "type": "string"
+        },
+        "input_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Hint"
+        },
+        "key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Key"
+        },
+        "completer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completer"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "handler"
+      ],
+      "title": "PluginCommandActionSpec",
+      "type": "object"
+    },
+    "PluginsSettings": {
+      "description": "Configuration for command plugin discovery and marketplace selection.",
+      "properties": {
+        "enabled": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Enabled",
+          "type": "array"
+        },
+        "marketplace_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Marketplace Url"
+        },
+        "marketplace_urls": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Marketplace Urls"
+        },
+        "config": {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Config",
+          "type": "object"
+        }
+      },
+      "title": "PluginsSettings",
+      "type": "object"
+    },
+    "ReasoningEffortSetting": {
+      "description": "User-configurable reasoning effort selection.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "effort",
+            "toggle",
+            "budget"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "enum": [
+                "auto",
+                "none",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "ReasoningEffortSetting",
+      "type": "object"
+    },
+    "ShellSettings": {
+      "description": "Configuration for shell execution behavior.",
+      "properties": {
+        "tool_profile": {
+          "$ref": "#/$defs/ShellToolProfile",
+          "default": "minimal_process",
+          "description": "Model-facing shell contract: 'minimal_process' exposes Bash and Process; 'native' retains the legacy execute/poll_process/terminate_process tools"
+        },
+        "timeout_seconds": {
+          "default": 90,
+          "description": "Maximum seconds without command output before terminating",
+          "title": "Timeout Seconds",
+          "type": "integer"
+        },
+        "warning_interval_seconds": {
+          "default": 30,
+          "description": "Show timeout warnings every N seconds",
+          "title": "Warning Interval Seconds",
+          "type": "integer"
+        },
+        "interactive_use_pty": {
+          "default": true,
+          "description": "Use a PTY for interactive prompt shell commands",
+          "title": "Interactive Use Pty",
+          "type": "boolean"
+        },
+        "output_display_lines": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 5,
+          "description": "Maximum shell output lines to display (head/tail with an ellipsis when truncated; None = no limit)",
+          "title": "Output Display Lines"
+        },
+        "show_bash": {
+          "default": true,
+          "description": "Show shell command output on the console",
+          "title": "Show Bash",
+          "type": "boolean"
+        },
+        "output_byte_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Override model-based output byte limit (None = auto)",
+          "title": "Output Byte Limit"
+        },
+        "process_poll_max_wait_seconds": {
+          "default": 250,
+          "description": "Maximum wait accepted by poll_process",
+          "maximum": 600,
+          "minimum": 1,
+          "title": "Process Poll Max Wait Seconds",
+          "type": "integer"
+        },
+        "managed_process_poll_history_folding": {
+          "default": "auto",
+          "description": "Control repetitive quiet poll_process history folding: 'auto' uses validated model metadata, 'on' forces folding, and 'off' disables it",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Managed Process Poll History Folding",
+          "type": "string"
+        },
+        "missing_cwd_policy": {
+          "default": "warn",
+          "description": "Policy when an agent shell cwd is missing or invalid",
+          "enum": [
+            "ask",
+            "create",
+            "warn",
+            "error"
+          ],
+          "title": "Missing Cwd Policy",
+          "type": "string"
+        },
+        "prefer_local_shell": {
+          "default": false,
+          "description": "In ACP mode, keep the local fast-agent shell runtime instead of replacing it with the ACP client's terminal runtime when the client advertises terminal support",
+          "title": "Prefer Local Shell",
+          "type": "boolean"
+        },
+        "enable_read_text_file": {
+          "default": true,
+          "description": "Expose a local read_text_file tool (ACP-compatible signature) when shell runtime is enabled",
+          "title": "Enable Read Text File",
+          "type": "boolean"
+        },
+        "enable_attach_media": {
+          "default": "auto",
+          "description": "Expose attach_media when shell runtime is enabled. 'auto' exposes it only for models with non-text attachment support; 'on' exposes it with call-time validation; 'off' disables it.",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "title": "Enable Attach Media",
+          "type": "string"
+        },
+        "write_text_file_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ShellWriteTextFileMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Control which local file edit tool is exposed when shell runtime is enabled ('auto' uses apply_patch for Codex and GPT-5.2+ models, edit_file for Anthropic-series models, and write_text_file plus edit_file otherwise; 'on' always exposes write_text_file plus edit_file; 'apply_patch' always exposes apply_patch; 'off' disables local file edit tools)"
+        }
+      },
+      "title": "ShellSettings",
+      "type": "object"
+    },
+    "ShellToolProfile": {
+      "enum": [
+        "native",
+        "minimal_process"
+      ],
+      "type": "string"
+    },
+    "ShellWriteTextFileMode": {
+      "enum": [
+        "auto",
+        "on",
+        "off",
+        "apply_patch"
+      ],
+      "type": "string"
+    },
+    "SkillsSettings": {
+      "description": "Configuration for the skills directory override.",
+      "properties": {
+        "directories": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Directories"
+        },
+        "marketplace_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Marketplace Url"
+        },
+        "marketplace_urls": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Marketplace Urls"
+        }
+      },
+      "title": "SkillsSettings",
+      "type": "object"
+    },
+    "TUISettings": {
+      "description": "Interactive TUI settings.",
+      "properties": {
+        "completion_menu_reserved_lines": {
+          "default": 6,
+          "description": "Prompt-toolkit lines reserved below the input for completion menus.",
+          "minimum": 0,
+          "title": "Completion Menu Reserved Lines",
+          "type": "integer"
+        }
+      },
+      "title": "TUISettings",
+      "type": "object"
+    },
     "TensorZeroSettings": {
       "additionalProperties": true,
-      "description": "Settings for using TensorZero via its OpenAI-compatible API.",
+      "description": "Settings for using TensorZero LLM gateway.",
       "properties": {
         "base_url": {
           "anyOf": [
@@ -660,7 +3224,21 @@
             }
           ],
           "default": null,
+          "description": "TensorZero endpoint (default: http://localhost:3000)",
           "title": "Base Url"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default function name when TensorZero provider is selected without an explicit model",
+          "title": "Default Model"
         },
         "api_key": {
           "anyOf": [
@@ -672,10 +3250,261 @@
             }
           ],
           "default": null,
+          "description": "TensorZero API key (if required)",
           "title": "Api Key"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers for all API requests",
+          "title": "Default Headers"
         }
       },
       "title": "TensorZeroSettings",
+      "type": "object"
+    },
+    "TerminalImageSettings": {
+      "description": "Terminal image rendering settings for chat/tool output.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean",
+          "description": "Render image content in the terminal when supported."
+        },
+        "backend": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "textual-image",
+            "kitty",
+            "sixel",
+            "halfcell",
+            "unicode",
+            "none"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "width": {
+          "$ref": "#/$defs/TerminalImageSize",
+          "default": "80%",
+          "description": "Image render width: cells, percentage (e.g. '80%'), 'auto', or null."
+        },
+        "height": {
+          "$ref": "#/$defs/TerminalImageSize",
+          "default": "auto",
+          "description": "Image render height: cells, percentage (e.g. '40%'), 'auto', or null."
+        },
+        "render_assistant": {
+          "default": true,
+          "title": "Render Assistant",
+          "type": "boolean",
+          "description": "Render images in final assistant messages."
+        }
+      },
+      "title": "TerminalImageSettings",
+      "type": "object"
+    },
+    "TerminalImageSize": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "const": "auto",
+          "type": "string"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "XAISettings": {
+      "additionalProperties": true,
+      "description": "Settings for using xAI Grok models via the Responses API.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "xAI API key",
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "https://api.x.ai/v1",
+          "description": "xAI API endpoint (default: https://api.x.ai/v1)",
+          "title": "Base Url"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default model when xAI provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers for all API requests",
+          "title": "Default Headers"
+        },
+        "web_search": {
+          "$ref": "#/$defs/XAIWebSearchSettings"
+        },
+        "x_search": {
+          "default": false,
+          "description": "Enable xAI X Search remote tool.",
+          "title": "X Search",
+          "type": "boolean"
+        }
+      },
+      "title": "XAISettings",
+      "type": "object"
+    },
+    "XAIWebSearchSettings": {
+      "description": "xAI Responses web_search tool settings.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "tool_type": {
+          "const": "web_search",
+          "default": "web_search",
+          "title": "Tool Type",
+          "type": "string"
+        },
+        "search_context_size": {
+          "anyOf": [
+            {
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Search Context Size"
+        },
+        "allowed_domains": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed Domains"
+        },
+        "user_location": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OpenAIUserLocationSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "external_web_access": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "External Web Access"
+        },
+        "excluded_domains": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Domains to exclude from xAI web search results (maximum 5).",
+          "title": "Excluded Domains"
+        },
+        "enable_image_understanding": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Enable xAI image understanding for images encountered during web search.",
+          "title": "Enable Image Understanding"
+        }
+      },
+      "title": "XAIWebSearchSettings",
       "type": "object"
     }
   },
@@ -691,10 +3520,11 @@
           "type": "null"
         }
       ],
-      "default": {
-        "servers": {}
-      },
       "description": "MCP config, such as MCP servers"
+    },
+    "harness_app": {
+      "$ref": "#/$defs/HarnessAppSettings",
+      "description": "Harness application boundary configuration."
     },
     "execution_engine": {
       "const": "asyncio",
@@ -702,6 +3532,19 @@
       "title": "Execution Engine",
       "type": "string",
       "description": "Execution engine for the fast-agent application"
+    },
+    "home": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Home",
+      "description": "Base directory for fast-agent runtime data (defaults to .fast-agent)."
     },
     "default_model": {
       "anyOf": [
@@ -712,8 +3555,109 @@
           "type": "null"
         }
       ],
-      "default": "haiku",
+      "default": null,
       "title": "Default Model"
+    },
+    "model_references": {
+      "additionalProperties": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Model References",
+      "type": "object",
+      "description": "Model references grouped by namespace (e.g. $system.default)."
+    },
+    "environments": {
+      "additionalProperties": {
+        "discriminator": {
+          "mapping": {
+            "custom": "#/$defs/CustomEnvironmentSpec",
+            "docker": "#/$defs/DockerEnvironmentSpec",
+            "huggingface": "#/$defs/HuggingFaceEnvironmentSpec",
+            "local": "#/$defs/LocalEnvironmentSpec"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/LocalEnvironmentSpec"
+          },
+          {
+            "$ref": "#/$defs/DockerEnvironmentSpec"
+          },
+          {
+            "$ref": "#/$defs/HuggingFaceEnvironmentSpec"
+          },
+          {
+            "$ref": "#/$defs/CustomEnvironmentSpec"
+          }
+        ]
+      },
+      "title": "Environments",
+      "type": "object",
+      "description": "Named execution environment definitions."
+    },
+    "default_environment": {
+      "default": "local",
+      "title": "Default Environment",
+      "type": "string",
+      "description": "Default named execution environment. The implicit default is local."
+    },
+    "model_source": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Source",
+      "description": "Where the default model was resolved from for the current run, if noteworthy."
+    },
+    "cli_model_override": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cli Model Override",
+      "description": "Model override supplied by the CLI for the current run, if any."
+    },
+    "auto_sampling": {
+      "default": true,
+      "title": "Auto Sampling",
+      "type": "boolean",
+      "description": "Enable automatic sampling model selection if not explicitly configured"
+    },
+    "session_history": {
+      "default": true,
+      "title": "Session History",
+      "type": "boolean",
+      "description": "Persist session history in the environment sessions folder (default: True)."
+    },
+    "session_history_window": {
+      "default": 20,
+      "title": "Session History Window",
+      "type": "integer",
+      "description": "Maximum number of sessions to keep in the rolling window (default: 20)."
+    },
+    "git_aware": {
+      "default": false,
+      "title": "Git Aware",
+      "type": "boolean",
+      "description": "Persist git repository provenance in session snapshots and trace exports."
+    },
+    "compaction": {
+      "$ref": "#/$defs/CompactionSettings",
+      "description": "History compaction settings (auto trigger threshold, retained turns, prompt)."
     },
     "anthropic": {
       "anyOf": [
@@ -757,6 +3701,42 @@
       "default": null,
       "description": "Settings for using OpenAI models in the fast-agent application"
     },
+    "responses": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpenAISettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using OpenAI Responses models in the fast-agent application"
+    },
+    "openresponses": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpenResponsesSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using Open Responses models in the fast-agent application"
+    },
+    "codexresponses": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CodexResponsesSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using Codex Responses models in the fast-agent application"
+    },
     "deepseek": {
       "anyOf": [
         {
@@ -791,7 +3771,19 @@
         }
       ],
       "default": null,
-      "description": "Settings for using xAI models in the fast-agent application"
+      "description": "Settings for using xAI Grok models in the fast-agent application"
+    },
+    "metaai": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MetaAISettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using MetaAI Muse models in the fast-agent application"
     },
     "openrouter": {
       "anyOf": [
@@ -829,32 +3821,124 @@
       "default": null,
       "description": "Settings for using TensorZero inference gateway"
     },
-    "logger": {
+    "azure": {
       "anyOf": [
         {
-          "$ref": "#/$defs/LoggerSettings"
+          "$ref": "#/$defs/AzureSettings"
         },
         {
           "type": "null"
         }
       ],
-      "default": {
-        "type": "file",
-        "level": "warning",
-        "progress_display": true,
-        "path": "fast-agent-log.jsonl",
-        "batch_size": 100,
-        "flush_interval": 2.0,
-        "max_queue_size": 2048,
-        "http_endpoint": null,
-        "http_headers": null,
-        "http_timeout": 5.0,
-        "show_chat": true,
-        "show_tools": true,
-        "truncate_tools": true,
-        "enable_markup": true
-      },
+      "default": null,
+      "description": "Settings for using Azure OpenAI Service in the fast-agent application"
+    },
+    "aliyun": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpenAISettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using Aliyun OpenAI Service in the fast-agent application"
+    },
+    "bedrock": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BedrockSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using AWS Bedrock models in the fast-agent application"
+    },
+    "hf": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HuggingFaceSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for HuggingFace authentication (used for MCP connections)"
+    },
+    "groq": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GroqSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using the Groq provider in the fast-agent application"
+    },
+    "logger": {
+      "$ref": "#/$defs/LoggerSettings",
       "description": "Logger settings for the fast-agent application"
+    },
+    "mcp_ui_mode": {
+      "$ref": "#/$defs/McpUIMode",
+      "default": "enabled"
+    },
+    "mcp_ui_output_dir": {
+      "default": ".fast-agent/ui",
+      "title": "Mcp Ui Output Dir",
+      "type": "string",
+      "description": "Directory where MCP-UI HTML files are written. Relative paths are resolved from CWD."
+    },
+    "mcp_timeline": {
+      "$ref": "#/$defs/MCPTimelineSettings",
+      "description": "Display settings for MCP activity timelines."
+    },
+    "skills": {
+      "$ref": "#/$defs/SkillsSettings",
+      "description": "Local skills discovery and selection settings."
+    },
+    "cards": {
+      "$ref": "#/$defs/CardsSettings",
+      "description": "Card pack registry selection settings."
+    },
+    "plugins": {
+      "$ref": "#/$defs/PluginsSettings",
+      "description": "Command plugin selection and marketplace settings."
+    },
+    "tui": {
+      "$ref": "#/$defs/TUISettings",
+      "description": "Interactive TUI settings."
+    },
+    "commands": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/PluginCommandActionSpec"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Commands",
+      "description": "Global plugin command actions loaded from fast-agent.yaml."
+    },
+    "shell_execution": {
+      "$ref": "#/$defs/ShellSettings",
+      "description": "Shell execution timeout and warning settings."
+    },
+    "llm_retries": {
+      "default": 2,
+      "title": "Llm Retries",
+      "type": "integer"
     }
   },
   "title": "MCP Agent Configuration Schema",
