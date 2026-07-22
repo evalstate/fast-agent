@@ -33,7 +33,7 @@ from fast_agent.tools.execution_environment import (
 )
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
 from fast_agent.tools.process_resources import ProcessResourceSnapshot
-from fast_agent.tools.shell_runtime import ShellRuntime, classify_shell_detachment
+from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.ui import console
 from fast_agent.ui.display_suppression import suppress_interactive_display
 from fast_agent.ui.progress_display import progress_display
@@ -577,45 +577,6 @@ def test_minimal_process_profile_exposes_only_bash_and_process() -> None:
         "wait",
         "stop",
     ]
-
-
-@pytest.mark.parametrize(
-    ("command", "run_in_background", "expected"),
-    [
-        ("nohup server >server.log 2>&1 &", False, "service_detach"),
-        ("/usr/bin/nohup server >server.log 2>&1 &", False, "service_detach"),
-        ("command nohup server &", False, "service_detach"),
-        ("FOO=bar /usr/bin/nohup server &", False, "service_detach"),
-        ("env FOO=bar nohup server &", False, "service_detach"),
-        ("env -u OLD FOO=bar nohup server &", False, "service_detach"),
-        ("exec -a service /usr/bin/nohup server &", False, "service_detach"),
-        (
-            "env -i PATH=/usr/bin /usr/bin/nohup server &",
-            False,
-            "service_detach",
-        ),
-        ("server & disown", False, "service_detach"),
-        ("server &", True, "service_detach"),
-        ("server &", False, "ambiguous"),
-        ("echo one && echo two", True, "none"),
-        ("echo 'A&B' 2>&1", True, "none"),
-        ("curl 'https://example.test/?a=1&b=2'", True, "none"),
-        ("echo ok # nohup server &", True, "none"),
-        ("cat <<'EOF'\nnohup server &\nEOF\n", True, "none"),
-    ],
-)
-def test_shell_detachment_classifier(
-    command: str,
-    run_in_background: bool,
-    expected: str,
-) -> None:
-    assert (
-        classify_shell_detachment(
-            command,
-            run_in_background=run_in_background,
-        )
-        == expected
-    )
 
 
 @pytest.mark.asyncio
