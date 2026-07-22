@@ -214,4 +214,3 @@ def classify_shell_detachment(
     if top_level_background:
         return "ambiguous"
     return "none"
-

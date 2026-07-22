@@ -40,4 +40,3 @@ def test_shell_detachment_classifier(
         )
         == expected
     )
-
