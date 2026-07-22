@@ -95,6 +95,7 @@ from fast_agent.utils.tool_names import (
 _IO_DRAIN_TIMEOUT_SECONDS = 2.0
 _DEFAULT_IDLE_YIELD_SECONDS = 10
 _DEFAULT_FOREGROUND_YIELD_SECONDS = 30
+_DEFAULT_MINIMAL_PROCESS_WAIT_SECONDS = 30
 _PROCESS_OUTPUT_DEBOUNCE_SECONDS = PROCESS_OUTPUT_DEBOUNCE_SECONDS
 
 
@@ -468,7 +469,7 @@ class ShellRuntime:
                     if parsed.action == "stop"
                     else 0
                     if parsed.action == "status"
-                    else self._process_poll_default_wait_seconds
+                    else self._minimal_process_wait_seconds()
                 ),
             )
 
@@ -485,6 +486,14 @@ class ShellRuntime:
 
     def _invalid_execute_result(self, message: str) -> CallToolResult:
         return _text_result(message, is_error=True)
+
+    def _minimal_process_wait_seconds(self) -> int:
+        if self._process_poll_default_wait_seconds > 0:
+            return self._process_poll_default_wait_seconds
+        return min(
+            _DEFAULT_MINIMAL_PROCESS_WAIT_SECONDS,
+            self._max_process_poll_seconds,
+        )
 
     def set_process_poll_default_wait_seconds(self, value: int) -> None:
         """Update the model-specific default used when wait_sec is omitted."""
@@ -1283,7 +1292,7 @@ class ShellRuntime:
             wait_sec = (
                 0
                 if parsed_process.action == "status"
-                else self._process_poll_default_wait_seconds
+                else self._minimal_process_wait_seconds()
             )
             return await self._call_process_lifecycle_tool(
                 POLL_PROCESS_TOOL_NAME,

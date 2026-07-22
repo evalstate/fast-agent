@@ -675,6 +675,36 @@ async def test_minimal_process_actions_map_to_managed_runtime() -> None:
     assert waited_metadata["poll_wait_sec"] == 7
 
 
+@pytest.mark.asyncio
+async def test_minimal_process_wait_uses_nonzero_fallback() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+
+    await runtime.call_tool(
+        "Bash",
+        {"command": "service", "run_in_background": True},
+    )
+    environment.release.set()
+    waited = await runtime.call_tool(
+        "Process",
+        {"process_id": "process-1", "action": "wait"},
+    )
+
+    metadata = shell_runtime_module.process_result_metadata(waited)
+    assert metadata is not None
+    assert metadata["poll_wait_sec"] == 30
+    facade_metadata = runtime.process_tool_metadata(
+        "Process",
+        {"process_id": "process-1", "action": "wait"},
+    )
+    assert facade_metadata["wait_sec"] == 30
+
+
 def test_minimal_process_metadata_matches_facade_operations() -> None:
     runtime = ShellRuntime(
         activation_reason="test",

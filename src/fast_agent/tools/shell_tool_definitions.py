@@ -256,7 +256,8 @@ def build_minimal_process_tool() -> Tool:
         description=(
             "Inspect, wait for, or stop a managed process returned by Bash. "
             "`status` returns immediately, `wait` waits for the model-specific "
-            "polling interval, and `stop` terminates the process group."
+            "polling interval (with a nonzero fallback when the model has none), "
+            "and `stop` terminates the process group."
         ),
         inputSchema={
             "type": "object",
