@@ -610,6 +610,15 @@ def test_minimal_process_profile_exposes_only_bash_and_process() -> None:
     )
 
 
+def test_shell_output_retention_product_defaults() -> None:
+    settings = ShellSettings()
+
+    assert settings.output_byte_limit == 8192
+    assert settings.retain_truncated_output is True
+    assert settings.retained_output_max_bytes == 2 * 1024 * 1024
+    assert settings.retained_output_temp_directory is None
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "command",
@@ -2205,6 +2214,111 @@ async def test_execute_reports_informative_truncation_summary() -> None:
     assert "[Output truncated: showing first" in text
     assert "Increase shell_execution.output_byte_limit to retain more." in text
     assert "omitted" in text
+
+
+@pytest.mark.asyncio
+async def test_execute_retains_truncated_output_until_runtime_close(
+    tmp_path: Path,
+) -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        timeout_seconds=10,
+        output_byte_limit=80,
+        config=Settings(
+            shell_execution=ShellSettings(
+                show_bash=False,
+                retain_truncated_output=True,
+                retained_output_max_bytes=4096,
+                retained_output_temp_directory=tmp_path,
+            )
+        ),
+    )
+
+    result = await runtime.execute(
+        {"command": f"{sys.executable} -c \"print('x' * 2000)\""}
+    )
+
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    text = result.content[0].text
+    assert "Use read_text_file for selected line ranges" in text
+    retained_directory = runtime._retained_output_directory
+    assert retained_directory is not None
+    retained_files = list(retained_directory.glob("*.log"))
+    assert len(retained_files) == 1
+    assert retained_files[0].read_text().strip() == "x" * 2000
+
+    await runtime.close()
+    assert not retained_directory.exists()
+
+
+@pytest.mark.asyncio
+async def test_execute_retained_output_reports_quota(
+    tmp_path: Path,
+) -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        timeout_seconds=10,
+        output_byte_limit=80,
+        config=Settings(
+            shell_execution=ShellSettings(
+                show_bash=False,
+                retain_truncated_output=True,
+                retained_output_max_bytes=128,
+                retained_output_temp_directory=tmp_path,
+            )
+        ),
+    )
+
+    result = await runtime.execute(
+        {"command": f"{sys.executable} -c \"print('x' * 2000)\""}
+    )
+
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    text = result.content[0].text
+    assert "temporary-file quota was reached" in text
+    retained_directory = runtime._retained_output_directory
+    assert retained_directory is not None
+    retained_files = list(retained_directory.glob("*.log"))
+    assert len(retained_files) == 1
+    assert retained_files[0].stat().st_size == 128
+    await runtime.close()
+
+
+def test_shell_output_retention_continues_after_result_consumption(
+    tmp_path: Path,
+) -> None:
+    retained_path = tmp_path / "output.log"
+    output = ShellOutputBuffer(
+        output_byte_limit=8,
+        retained_output_path=retained_path,
+        retained_output_max_bytes=1024,
+    )
+
+    output.append("first-window\n")
+    assert output.output_truncated is True
+    output.consume()
+    output.append("later-output\n")
+
+    assert retained_path.read_text() == "first-window\nlater-output\n"
+
+
+def test_shell_output_does_not_create_file_without_truncation(
+    tmp_path: Path,
+) -> None:
+    retained_path = tmp_path / "output.log"
+    output = ShellOutputBuffer(
+        output_byte_limit=80,
+        retained_output_path=retained_path,
+        retained_output_max_bytes=1024,
+    )
+
+    output.append("short output\n")
+
+    assert retained_path.exists() is False
 
 
 @pytest.mark.asyncio

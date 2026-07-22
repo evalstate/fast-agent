@@ -785,6 +785,10 @@ shell_execution:
   timeout_seconds: 90
   warning_interval_seconds: 30
   interactive_use_pty: true  # Use PTY for interactive prompt shell commands
+  output_byte_limit: 8192  # Set null for model-specific automatic sizing
+  retain_truncated_output: true
+  retained_output_max_bytes: 2097152  # Per shell process
+  retained_output_temp_directory: null  # Optional parent directory
   process_poll_max_wait_seconds: 250  # Accepted range: 1–600
   managed_process_poll_history_folding: auto  # auto | on | off
 ```
@@ -794,6 +798,13 @@ shell_execution:
 `Process(process_id, action)`. The `native` profile remains available as a
 compatibility escape hatch for the legacy `execute`, `poll_process`, and
 `terminate_process` schemas; both profiles use the same managed-process runtime.
+
+When `retain_truncated_output` is enabled, fast-agent creates a private
+session-scoped directory and lazily writes a `0600` file only when a shell
+result exceeds its model-facing preview. The truncation notice includes the
+temporary path so the model can inspect selected ranges or search the complete
+output. Each process is limited by `retained_output_max_bytes`; retained files
+are removed when the shell runtime closes.
 
 `process_poll_max_wait_seconds` caps a single managed-process wait. The default
 stays below Anthropic's five-minute prompt-cache TTL and applies even when a
