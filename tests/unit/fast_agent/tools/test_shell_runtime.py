@@ -34,6 +34,7 @@ from fast_agent.tools.execution_environment import (
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
 from fast_agent.tools.process_resources import ProcessResourceSnapshot
 from fast_agent.tools.shell_runtime import ShellRuntime
+from fast_agent.tools.shell_tool_definitions import parse_poll_process_arguments
 from fast_agent.ui import console
 from fast_agent.ui.display_suppression import suppress_interactive_display
 from fast_agent.ui.progress_display import progress_display
@@ -465,6 +466,14 @@ def _extract_progress_payloads(logger: RecordingFastLogger) -> list[dict[str, An
     return payloads
 
 
+def _parse_poll(runtime: ShellRuntime, arguments: dict[str, Any]):
+    return parse_poll_process_arguments(
+        arguments,
+        default_wait_seconds=runtime._process_poll_default_wait_seconds,
+        max_wait_seconds=runtime._max_process_poll_seconds,
+    )
+
+
 def test_shell_output_byte_limit_coerces_invalid_values() -> None:
     logger = logging.getLogger("shell-runtime-test")
     runtime = ShellRuntime(activation_reason="test", logger=logger)
@@ -747,12 +756,8 @@ def test_poll_process_uses_model_default_wait_and_buffers_output() -> None:
     poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
     wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
     assert wait_schema["default"] == 30
-    assert runtime._parse_poll_process_arguments(
-        {"process_id": "process-1"}
-    ).wait_sec == 30
-    assert runtime._parse_poll_process_arguments(
-        {"process_id": "process-1"}
-    ).wake_on_output is False
+    assert _parse_poll(runtime, {"process_id": "process-1"}).wait_sec == 30
+    assert _parse_poll(runtime, {"process_id": "process-1"}).wake_on_output is False
     metadata = runtime.process_tool_metadata(
         "poll_process", {"process_id": "process-1"}
     )
@@ -775,9 +780,7 @@ def test_poll_process_clamps_model_default_to_configured_maximum() -> None:
     poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
     wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
     assert wait_schema["default"] == 50
-    assert runtime._parse_poll_process_arguments(
-        {"process_id": "process-1"}
-    ).wait_sec == 50
+    assert _parse_poll(runtime, {"process_id": "process-1"}).wait_sec == 50
 
 
 def test_poll_process_updates_default_for_model_switch() -> None:
@@ -792,9 +795,7 @@ def test_poll_process_updates_default_for_model_switch() -> None:
     poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
     wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
     assert wait_schema["default"] == 25
-    assert runtime._parse_poll_process_arguments(
-        {"process_id": "process-1"}
-    ).wait_sec == 25
+    assert _parse_poll(runtime, {"process_id": "process-1"}).wait_sec == 25
 
 
 @pytest.mark.asyncio

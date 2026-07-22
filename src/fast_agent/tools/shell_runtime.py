@@ -36,12 +36,6 @@ from fast_agent.tools.execution_environment import (
     ShellRuntimeInfo,
     execute_shell,
 )
-from fast_agent.tools.filesystem_tool_args import (
-    coerce_optional_string_argument,
-    coerce_positive_int_argument,
-    coerce_required_string_argument,
-    coerce_tool_arguments,
-)
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
 from fast_agent.tools.output_truncation import format_output_truncation_notice
 from fast_agent.tools.process_resources import (
@@ -51,7 +45,21 @@ from fast_agent.tools.process_resources import (
     observe_resource_changes,
     sample_process_resources,
 )
-from fast_agent.tools.shell_command import classify_shell_detachment
+from fast_agent.tools.shell_tool_definitions import (
+    PROCESS_OUTPUT_DEBOUNCE_SECONDS,
+    ShellExecuteArguments,
+    build_execute_tool,
+    build_minimal_bash_tool,
+    build_minimal_process_tool,
+    build_poll_process_tool,
+    build_terminate_process_tool,
+    parse_execute_arguments,
+    parse_minimal_bash_arguments,
+    parse_minimal_process_arguments,
+    parse_poll_process_arguments,
+    parse_terminate_process_arguments,
+    set_poll_process_tool_default_wait_seconds,
+)
 from fast_agent.tools.tool_sources import SHELL_TOOL_SOURCE, set_tool_source
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -74,9 +82,9 @@ from fast_agent.utils.tool_names import (
 _IO_DRAIN_TIMEOUT_SECONDS = 2.0
 _DEFAULT_IDLE_YIELD_SECONDS = 10
 _DEFAULT_FOREGROUND_YIELD_SECONDS = 30
-_MAX_IDLE_YIELD_SECONDS = 30
-_MINIMAL_BASH_ARGUMENTS = frozenset({"command", "run_in_background"})
-_MINIMAL_PROCESS_ARGUMENTS = frozenset({"process_id", "action"})
+_PROCESS_OUTPUT_DEBOUNCE_SECONDS = PROCESS_OUTPUT_DEBOUNCE_SECONDS
+
+
 def _default_max_process_poll_seconds() -> int:
     from fast_agent.config import ShellSettings
 
@@ -89,19 +97,6 @@ def _default_minimal_process_profile() -> bool:
     return ShellSettings().tool_profile == "minimal_process"
 
 
-_EXECUTE_ARGUMENTS = frozenset(
-    {
-        "command",
-        "cwd",
-        "background",
-        "lifecycle",
-        "yield_after_idle_sec",
-        "output_byte_limit",
-    }
-)
-_POLL_PROCESS_ARGUMENTS = frozenset({"process_id", "wait_sec", "wake_on_output"})
-_TERMINATE_PROCESS_ARGUMENTS = frozenset({"process_id"})
-_PROCESS_OUTPUT_DEBOUNCE_SECONDS = 2.0
 _PROCESS_PROGRESS_EMIT_INTERVAL_SECONDS = 1.0
 _RESOURCE_OBSERVATION_TIMEOUT_SECONDS = 0.075
 
@@ -259,29 +254,6 @@ class _ShellRuntimeExecution:
 
 
 @dataclass(frozen=True, slots=True)
-class _ShellExecuteArguments:
-    command: str
-    cwd: str | None
-    background: bool
-    lifecycle: Literal["session", "persistent"]
-    yield_after_idle_sec: int | None
-    output_byte_limit: int | None
-
-
-@dataclass(frozen=True, slots=True)
-class _PollProcessArguments:
-    process_id: str
-    wait_sec: int
-    wake_on_output: bool
-
-
-@dataclass(frozen=True, slots=True)
-class _MinimalProcessArguments:
-    process_id: str
-    action: Literal["status", "wait", "stop"]
-
-
-@dataclass(frozen=True, slots=True)
 class _ManagedProcessOperation:
     kind: Literal["status", "wait", "stop"]
     process_id: str | None
@@ -402,218 +374,33 @@ class ShellRuntime:
         self._resource_observations_enabled = self.runtime_info().kind == "local"
 
         if self.enabled:
-            # Detect the shell early so we can include it in the tool description
-            runtime_info = self.runtime_info()
-            shell_name = runtime_info.name
-
-            self._tool = set_tool_source(
-                Tool(
-                    name=EXECUTE_TOOL_NAME,
-                    description=(
-                        f"Run one shell command in {shell_name}. Most commands return when they "
-                        "exit. If a foreground command remains active for 10 seconds without "
-                        "output or 30 seconds total, it keeps running and returns a process ID; "
-                        "use poll_process to monitor it or terminate_process to stop it. Set "
-                        "`background=true` for known long-running commands. Explicit background "
-                        "commands default to `lifecycle='persistent'` and remain running after "
-                        "the agent runtime exits; set `lifecycle='session'` for temporary "
-                        "concurrent jobs that should be terminated at shutdown. Automatically "
-                        "yielded foreground commands remain session-scoped. Do not append '&'. "
-                        "`cwd` and `output_byte_limit` apply only to this command. Pipelines report "
-                        "the final command's status unless you enable `pipefail`."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "command": {
-                                "type": "string",
-                                "description": "Command string only - no shell executable prefix (correct: 'pwd', incorrect: 'bash -c pwd').",
-                            },
-                            "cwd": {
-                                "type": "string",
-                                "description": "Optional working directory for this command only.",
-                            },
-                            "background": {
-                                "type": "boolean",
-                                "description": (
-                                    "Return promptly while the command continues running as a "
-                                    "managed process. By default it remains running after the "
-                                    "agent runtime exits. Set lifecycle='session' for temporary "
-                                    "concurrent work that should be terminated at shutdown. Do "
-                                    "not append '&' to the command."
-                                ),
-                            },
-                            "lifecycle": {
-                                "type": "string",
-                                "enum": ["session", "persistent"],
-                                "default": "persistent",
-                                "description": (
-                                    "Lifetime of a background command. Omitted lifecycle defaults "
-                                    "to 'persistent' when background=true. 'session' terminates "
-                                    "the process when the agent runtime exits. 'persistent' leaves "
-                                    "it running in the execution environment after the agent "
-                                    "exits. Automatically yielded foreground commands are always "
-                                    "session-scoped."
-                                ),
-                            },
-                            "yield_after_idle_sec": {
-                                "type": "integer",
-                                "description": (
-                                    "Optional seconds without output before returning a live "
-                                    "process ID without stopping the command. Defaults to 10."
-                                ),
-                                "minimum": 1,
-                                "maximum": _MAX_IDLE_YIELD_SECONDS,
-                            },
-                            "output_byte_limit": {
-                                "type": "integer",
-                                "description": (
-                                    "Optional maximum output bytes returned to the model for this "
-                                    "command (clamped to "
-                                    f"{MAX_TERMINAL_OUTPUT_BYTE_LIMIT}). Complete output is not "
-                                    "retained after truncation."
-                                ),
-                                "minimum": 1,
-                                "maximum": MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
-                            },
-                        },
-                        "required": ["command"],
-                        "additionalProperties": False,
-                    },
-                ),
-                SHELL_TOOL_SOURCE,
-            )
-            self._poll_process_tool = set_tool_source(
-                Tool(
-                    name=POLL_PROCESS_TOOL_NAME,
-                    description=(
-                        "Wait for a managed shell process to exit or for the polling deadline. "
-                        "Completion always returns promptly. Routine stdout/stderr is buffered "
-                        "and included when the call returns, but does not end the wait by default. "
-                        "Omit `wait_sec` to use the model default declared in the schema, or use "
-                        "0 for a non-blocking status check. Set `wake_on_output=true` only when "
-                        "new output must affect the next action immediately; output-triggered "
-                        f"returns are debounced until output has been quiet for "
-                        f"{_PROCESS_OUTPUT_DEBOUNCE_SECONDS:g} seconds, while continuous output "
-                        "remains buffered until completion or the deadline. Repeated polls return "
-                        "only output not returned previously."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "process_id": {
-                                "type": "string",
-                                "description": "Process ID returned by execute.",
-                            },
-                            "wait_sec": {
-                                "type": "integer",
-                                "default": self._process_poll_default_wait_seconds,
-                                "description": (
-                                    "Optional wait in seconds, from 0 through "
-                                    f"{self._max_process_poll_seconds}."
-                                ),
-                                "minimum": 0,
-                                "maximum": self._max_process_poll_seconds,
-                            },
-                            "wake_on_output": {
-                                "type": "boolean",
-                                "default": False,
-                                "description": (
-                                    "Return after new output has been quiet for "
-                                    f"{_PROCESS_OUTPUT_DEBOUNCE_SECONDS:g} seconds. Defaults to "
-                                    "false so routine output remains buffered until the process "
-                                    "completes or wait_sec elapses. Continuous output does not "
-                                    "return early."
-                                ),
-                            },
-                        },
-                        "required": ["process_id"],
-                        "additionalProperties": False,
-                    },
-                ),
-                SHELL_TOOL_SOURCE,
-            )
-            self._terminate_process_tool = set_tool_source(
-                Tool(
-                    name=TERMINATE_PROCESS_TOOL_NAME,
-                    description=(
-                        "Terminate a managed shell process and its process group. Returns success "
-                        "if the process was terminated or had already exited."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "process_id": {
-                                "type": "string",
-                                "description": "Process ID returned by execute.",
-                            }
-                        },
-                        "required": ["process_id"],
-                        "additionalProperties": False,
-                    },
-                ),
-                SHELL_TOOL_SOURCE,
-            )
+            shell_name = self.runtime_info().name
             if self._minimal_process_profile:
                 self._tool = set_tool_source(
-                    Tool(
-                        name=BASH_TOOL_NAME,
-                        description=(
-                            f"Run one shell command in {shell_name}. Set "
-                            "`run_in_background=true` for a server, service, or other "
-                            "long-running command; it returns a managed process ID and remains "
-                            "running for the verifier. Do not use shell `&`, `nohup`, or `disown` "
-                            "to detach services. Foreground commands that take time may yield a "
-                            "managed process ID; use Process to inspect, wait for, or stop it."
-                        ),
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "command": {"type": "string"},
-                                "run_in_background": {
-                                    "type": "boolean",
-                                    "default": False,
-                                    "description": (
-                                        "Use true for servers, services, and other commands that "
-                                        "must remain running. Do not also add shell `&`, `nohup`, "
-                                        "or `disown`."
-                                    ),
-                                },
-                            },
-                            "required": ["command"],
-                            "additionalProperties": False,
-                        },
-                    ),
+                    build_minimal_bash_tool(shell_name=shell_name),
                     SHELL_TOOL_SOURCE,
                 )
                 self._poll_process_tool = set_tool_source(
-                    Tool(
-                        name=PROCESS_TOOL_NAME,
-                        description=(
-                            "Inspect, wait for, or stop a managed process returned by Bash. "
-                            "`status` returns immediately, `wait` waits for the model-specific "
-                            "polling interval, and `stop` terminates the process group."
-                        ),
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "process_id": {
-                                    "type": "string",
-                                    "description": "Managed process ID returned by Bash.",
-                                },
-                                "action": {
-                                    "type": "string",
-                                    "enum": ["status", "wait", "stop"],
-                                    "default": "status",
-                                },
-                            },
-                            "required": ["process_id"],
-                            "additionalProperties": False,
-                        },
-                    ),
+                    build_minimal_process_tool(),
                     SHELL_TOOL_SOURCE,
                 )
                 self._terminate_process_tool = None
+            else:
+                self._tool = set_tool_source(
+                    build_execute_tool(shell_name=shell_name),
+                    SHELL_TOOL_SOURCE,
+                )
+                self._poll_process_tool = set_tool_source(
+                    build_poll_process_tool(
+                        default_wait_seconds=self._process_poll_default_wait_seconds,
+                        max_wait_seconds=self._max_process_poll_seconds,
+                    ),
+                    SHELL_TOOL_SOURCE,
+                )
+                self._terminate_process_tool = set_tool_source(
+                    build_terminate_process_tool(),
+                    SHELL_TOOL_SOURCE,
+                )
         else:
             self._poll_process_tool = None
             self._terminate_process_tool = None
@@ -750,9 +537,9 @@ class ShellRuntime:
         info = self.runtime_info()
         try:
             parsed = (
-                self._parse_minimal_bash_arguments(arguments)
+                parse_minimal_bash_arguments(arguments)
                 if self._minimal_process_profile
-                else self._parse_execute_arguments(arguments)
+                else parse_execute_arguments(arguments)
             )
         except ValueError:
             parsed = None
@@ -838,7 +625,7 @@ class ShellRuntime:
     ) -> _ManagedProcessOperation:
         if tool_name == PROCESS_TOOL_NAME and self._minimal_process_profile:
             try:
-                parsed = self._parse_minimal_process_arguments(arguments)
+                parsed = parse_minimal_process_arguments(arguments)
             except ValueError:
                 return _ManagedProcessOperation(
                     kind="status",
@@ -989,167 +776,6 @@ class ShellRuntime:
     def _invalid_execute_result(self, message: str) -> CallToolResult:
         return _text_result(message, is_error=True)
 
-    def _parse_execute_arguments(
-        self,
-        arguments: dict[str, Any] | None,
-    ) -> _ShellExecuteArguments:
-        payload = coerce_tool_arguments(arguments)
-        unknown = sorted(set(payload) - _EXECUTE_ARGUMENTS)
-        if unknown:
-            if unknown in (["timeout"], ["timeout_sec"]):
-                raise ValueError(
-                    f"Error: unknown argument {unknown[0]!r}; use 'yield_after_idle_sec' to "
-                    "return a live process ID without stopping the command"
-                )
-            rendered = ", ".join(repr(name) for name in unknown)
-            raise ValueError(f"Error: unknown execute argument(s): {rendered}")
-
-        yield_after_idle_sec = coerce_positive_int_argument(
-            payload.get("yield_after_idle_sec"),
-            "yield_after_idle_sec",
-        )
-        if (
-            yield_after_idle_sec is not None
-            and yield_after_idle_sec > _MAX_IDLE_YIELD_SECONDS
-        ):
-            raise ValueError(
-                f"Error: 'yield_after_idle_sec' argument must be at most "
-                f"{_MAX_IDLE_YIELD_SECONDS}"
-            )
-        background = payload.get("background", False)
-        if type(background) is not bool:
-            raise ValueError("Error: 'background' argument must be a boolean")
-        lifecycle = payload.get(
-            "lifecycle",
-            "persistent" if background else "session",
-        )
-        if lifecycle not in {"session", "persistent"}:
-            raise ValueError(
-                "Error: 'lifecycle' argument must be 'session' or 'persistent'"
-            )
-        if lifecycle == "persistent" and not background:
-            raise ValueError(
-                "Error: lifecycle='persistent' requires background=true"
-            )
-
-        output_byte_limit = coerce_positive_int_argument(
-            payload.get("output_byte_limit"),
-            "output_byte_limit",
-        )
-        if output_byte_limit is not None:
-            output_byte_limit = min(
-                output_byte_limit,
-                MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
-            )
-
-        return _ShellExecuteArguments(
-            command=coerce_required_string_argument(
-                payload.get("command"),
-                "command",
-                strip=True,
-            ),
-            cwd=coerce_optional_string_argument(
-                payload.get("cwd"),
-                "cwd",
-                empty_as_none=True,
-                strip=True,
-            ),
-            background=background,
-            lifecycle=cast("Literal['session', 'persistent']", lifecycle),
-            yield_after_idle_sec=yield_after_idle_sec,
-            output_byte_limit=output_byte_limit,
-        )
-
-    def _parse_poll_process_arguments(
-        self,
-        arguments: dict[str, Any] | None,
-    ) -> _PollProcessArguments:
-        payload = coerce_tool_arguments(arguments)
-        unknown = sorted(set(payload) - _POLL_PROCESS_ARGUMENTS)
-        if unknown:
-            rendered = ", ".join(repr(name) for name in unknown)
-            raise ValueError(f"Error: unknown poll_process argument(s): {rendered}")
-        wait_sec = payload.get("wait_sec", self._process_poll_default_wait_seconds)
-        if type(wait_sec) is not int or wait_sec < 0:
-            raise ValueError("Error: 'wait_sec' argument must be a non-negative integer")
-        if wait_sec > self._max_process_poll_seconds:
-            raise ValueError(
-                "Error: 'wait_sec' argument must be at most "
-                f"{self._max_process_poll_seconds}"
-            )
-        wake_on_output = payload.get("wake_on_output", False)
-        if type(wake_on_output) is not bool:
-            raise ValueError("Error: 'wake_on_output' argument must be a boolean")
-        return _PollProcessArguments(
-            process_id=coerce_required_string_argument(
-                payload.get("process_id"),
-                "process_id",
-                strip=True,
-            ),
-            wait_sec=wait_sec,
-            wake_on_output=wake_on_output,
-        )
-
-    def _parse_minimal_bash_arguments(
-        self,
-        arguments: dict[str, Any] | None,
-    ) -> _ShellExecuteArguments:
-        payload = coerce_tool_arguments(arguments)
-        unknown = sorted(set(payload) - _MINIMAL_BASH_ARGUMENTS)
-        if unknown:
-            rendered = ", ".join(repr(name) for name in unknown)
-            raise ValueError(f"Error: unknown Bash argument(s): {rendered}")
-        run_in_background = payload.get("run_in_background", False)
-        if type(run_in_background) is not bool:
-            raise ValueError("Error: 'run_in_background' argument must be a boolean")
-        command = coerce_required_string_argument(
-            payload.get("command"),
-            "command",
-            strip=True,
-        )
-        if (
-            classify_shell_detachment(
-                command,
-                run_in_background=run_in_background,
-            )
-            == "service_detach"
-        ):
-            raise ValueError(
-                "Shell-level service detachment was not executed.\n"
-                "Submit only the long-running service command with "
-                "run_in_background=true. Use Process to inspect or stop it, "
-                "and run readiness checks in a separate Bash call."
-            )
-        return _ShellExecuteArguments(
-            command=command,
-            cwd=None,
-            background=run_in_background,
-            lifecycle="persistent" if run_in_background else "session",
-            yield_after_idle_sec=None,
-            output_byte_limit=None,
-        )
-
-    @staticmethod
-    def _parse_minimal_process_arguments(
-        arguments: dict[str, Any] | None,
-    ) -> _MinimalProcessArguments:
-        payload = coerce_tool_arguments(arguments)
-        unknown = sorted(set(payload) - _MINIMAL_PROCESS_ARGUMENTS)
-        if unknown:
-            rendered = ", ".join(repr(name) for name in unknown)
-            raise ValueError(f"Error: unknown Process argument(s): {rendered}")
-        action = payload.get("action", "status")
-        if action not in {"status", "wait", "stop"}:
-            raise ValueError("Error: 'action' must be 'status', 'wait', or 'stop'")
-        return _MinimalProcessArguments(
-            process_id=coerce_required_string_argument(
-                payload.get("process_id"),
-                "process_id",
-                strip=True,
-            ),
-            action=cast("Literal['status', 'wait', 'stop']", action),
-        )
-
     def set_process_poll_default_wait_seconds(self, value: int) -> None:
         """Update the model-specific default used when wait_sec is omitted."""
         default_wait = value if type(value) is int and value >= 0 else 0
@@ -1157,27 +783,11 @@ class ShellRuntime:
             default_wait,
             self._max_process_poll_seconds,
         )
-        if (
-            self._poll_process_tool is not None
-            and "wait_sec" in self._poll_process_tool.inputSchema["properties"]
-        ):
-            wait_schema = self._poll_process_tool.inputSchema["properties"]["wait_sec"]
-            wait_schema["default"] = self._process_poll_default_wait_seconds
-
-    @staticmethod
-    def _parse_terminate_process_arguments(
-        arguments: dict[str, Any] | None,
-    ) -> str:
-        payload = coerce_tool_arguments(arguments)
-        unknown = sorted(set(payload) - _TERMINATE_PROCESS_ARGUMENTS)
-        if unknown:
-            rendered = ", ".join(repr(name) for name in unknown)
-            raise ValueError(f"Error: unknown terminate_process argument(s): {rendered}")
-        return coerce_required_string_argument(
-            payload.get("process_id"),
-            "process_id",
-            strip=True,
-        )
+        if self._poll_process_tool is not None:
+            set_poll_process_tool_default_wait_seconds(
+                self._poll_process_tool,
+                default_wait_seconds=self._process_poll_default_wait_seconds,
+            )
 
     def _build_display_state(
         self,
@@ -1579,7 +1189,7 @@ class ShellRuntime:
 
     async def _start_managed_process(
         self,
-        parsed: _ShellExecuteArguments,
+        parsed: ShellExecuteArguments,
         *,
         defer_display_to_tool_result: bool,
     ) -> _ManagedShellProcess:
@@ -1989,7 +1599,11 @@ class ShellRuntime:
         """Return incremental output and status for a managed process."""
         poll_started_at = time.monotonic()
         try:
-            parsed = self._parse_poll_process_arguments(arguments)
+            parsed = parse_poll_process_arguments(
+                arguments,
+                default_wait_seconds=self._process_poll_default_wait_seconds,
+                max_wait_seconds=self._max_process_poll_seconds,
+            )
         except ValueError as exc:
             return _text_result(str(exc), is_error=True)
 
@@ -2171,7 +1785,7 @@ class ShellRuntime:
     ) -> CallToolResult:
         """Terminate one managed process through the environment cancellation contract."""
         try:
-            process_id = self._parse_terminate_process_arguments(arguments)
+            process_id = parse_terminate_process_arguments(arguments)
         except ValueError as exc:
             return _text_result(str(exc), is_error=True)
 
@@ -2230,7 +1844,7 @@ class ShellRuntime:
         """Dispatch one model-facing shell lifecycle tool."""
         if name == BASH_TOOL_NAME and self._minimal_process_profile:
             try:
-                parsed = self._parse_minimal_bash_arguments(arguments)
+                parsed = parse_minimal_bash_arguments(arguments)
             except ValueError as exc:
                 return self._invalid_execute_result(str(exc))
             return await self._execute_parsed(
@@ -2241,7 +1855,7 @@ class ShellRuntime:
             )
         if name == PROCESS_TOOL_NAME and self._minimal_process_profile:
             try:
-                parsed_process = self._parse_minimal_process_arguments(arguments)
+                parsed_process = parse_minimal_process_arguments(arguments)
             except ValueError as exc:
                 return _text_result(str(exc), is_error=True)
             if parsed_process.action == "stop":
@@ -2469,7 +2083,7 @@ class ShellRuntime:
     ) -> CallToolResult:
         """Execute a command until completion or yield it as a managed process."""
         try:
-            parsed = self._parse_execute_arguments(arguments)
+            parsed = parse_execute_arguments(arguments)
         except ValueError as exc:
             return self._invalid_execute_result(str(exc))
         return await self._execute_parsed(
@@ -2481,7 +2095,7 @@ class ShellRuntime:
 
     async def _execute_parsed(
         self,
-        parsed: _ShellExecuteArguments,
+        parsed: ShellExecuteArguments,
         tool_use_id: str | None,
         *,
         show_tool_call_id: bool,
