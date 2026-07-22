@@ -328,7 +328,7 @@ async def test_shell_and_card_tools_are_both_highlighted() -> None:
         content=[TextContent(type="text", text="response")],
         tool_calls={
             "shell": CallToolRequest(
-                params=CallToolRequestParams(name="execute", arguments={"command": "pwd"})
+                params=CallToolRequestParams(name="Bash", arguments={"command": "pwd"})
             ),
             "lsp": CallToolRequest(
                 params=CallToolRequestParams(
@@ -462,7 +462,8 @@ async def test_shell_can_include_local_read_text_file_when_enabled(tmp_path: Pat
     agent = McpAgent(config=config, context=Context(config=settings))
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
-    assert "execute" in tool_names
+    assert "Bash" in tool_names
+    assert "Process" in tool_names
     assert "read_text_file" in tool_names
     assert "write_text_file" in tool_names
     assert "edit_file" in tool_names
@@ -735,7 +736,8 @@ async def test_local_read_text_file_option_is_enabled_by_default() -> None:
     agent = McpAgent(config=config, context=Context())
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
-    assert "execute" in tool_names
+    assert "Bash" in tool_names
+    assert "Process" in tool_names
     assert "read_text_file" in tool_names
     assert "write_text_file" in tool_names
     assert "edit_file" in tool_names
@@ -919,6 +921,79 @@ async def test_write_text_file_mode_on_restores_tool_for_anthropic_models() -> N
     assert "write_text_file" in tool_names
     assert "edit_file" in tool_names
     assert "apply_patch" not in tool_names
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_default_shell_profile_exposes_facades_with_file_tools() -> None:
+    settings = Settings()
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="sonnet",
+    )
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "Bash" in tool_names
+    assert "Process" in tool_names
+    assert "execute" not in tool_names
+    assert "poll_process" not in tool_names
+    assert "terminate_process" not in tool_names
+    assert "read_text_file" in tool_names
+    assert "edit_file" in tool_names
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_minimal_process_planned_metadata_matches_runtime_dispatch() -> None:
+    settings = Settings()
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+    )
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    bash_metadata = agent._metadata_for_planned_tool(
+        tool_name="Bash",
+        tool_args={"command": "service", "run_in_background": True},
+        local_tool=None,
+        is_external_runtime_tool=False,
+        is_filesystem_runtime_tool=False,
+        route_to_namespaced_candidate=False,
+    )
+    assert bash_metadata is not None
+    assert bash_metadata["background"] is True
+    assert bash_metadata["lifecycle"] == "persistent"
+
+    status_metadata = agent._metadata_for_planned_tool(
+        tool_name="Process",
+        tool_args={"process_id": "process-1", "action": "status"},
+        local_tool=None,
+        is_external_runtime_tool=False,
+        is_filesystem_runtime_tool=False,
+        route_to_namespaced_candidate=False,
+    )
+    assert status_metadata is not None
+    assert status_metadata["action"] == "poll"
+    assert status_metadata["wait_sec"] == 0
+
+    stop_metadata = agent._metadata_for_planned_tool(
+        tool_name="Process",
+        tool_args={"process_id": "process-1", "action": "stop"},
+        local_tool=None,
+        is_external_runtime_tool=False,
+        is_filesystem_runtime_tool=False,
+        route_to_namespaced_candidate=False,
+    )
+    assert stop_metadata is not None
+    assert stop_metadata["action"] == "terminate"
 
     await agent._aggregator.close()
 
@@ -1480,10 +1555,10 @@ async def test_shell_tool_use_turn_hides_bottom_bar_and_mentions_shell_access() 
 
     tool_calls = {
         "1": CallToolRequest(
-            params=CallToolRequestParams(
-                name="execute",
-                arguments={"command": "pwd"},
-            )
+                params=CallToolRequestParams(
+                    name="Bash",
+                    arguments={"command": "pwd"},
+                )
         )
     }
     message = PromptMessageExtended(
@@ -1582,7 +1657,7 @@ async def test_local_shell_result_is_not_retruncated_by_mcp_result_policy() -> N
         tool_calls={
             "call-1": CallToolRequest(
                 params=CallToolRequestParams(
-                    name="execute",
+                    name="Bash",
                     arguments={"command": "emit output"},
                 )
             )

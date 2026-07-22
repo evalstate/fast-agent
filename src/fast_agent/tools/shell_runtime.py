@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import math
 import posixpath
+import re
 import time
 from collections import deque
 from contextlib import nullcontext, suppress
@@ -63,8 +64,10 @@ from fast_agent.ui.shell_output_truncation import (
 from fast_agent.utils.path_display import format_relative_path
 from fast_agent.utils.text import summarize_command
 from fast_agent.utils.tool_names import (
+    BASH_TOOL_NAME,
     EXECUTE_TOOL_NAME,
     POLL_PROCESS_TOOL_NAME,
+    PROCESS_TOOL_NAME,
     TERMINATE_PROCESS_TOOL_NAME,
 )
 
@@ -72,12 +75,27 @@ _IO_DRAIN_TIMEOUT_SECONDS = 2.0
 _DEFAULT_IDLE_YIELD_SECONDS = 10
 _DEFAULT_FOREGROUND_YIELD_SECONDS = 30
 _MAX_IDLE_YIELD_SECONDS = 30
+_MINIMAL_BASH_ARGUMENTS = frozenset({"command", "run_in_background"})
+_MINIMAL_PROCESS_ARGUMENTS = frozenset({"process_id", "action"})
+_HEREDOC_PATTERN = re.compile(
+    r"<<-?\s*(?:'([^']+)'|\"([^\"]+)\"|([A-Za-z_][A-Za-z0-9_]*))"
+)
+
+type ShellDetachmentKind = Literal["none", "ambiguous", "service_detach"]
 
 
 def _default_max_process_poll_seconds() -> int:
     from fast_agent.config import ShellSettings
 
     return ShellSettings().process_poll_max_wait_seconds
+
+
+def _default_minimal_process_profile() -> bool:
+    from fast_agent.config import ShellSettings
+
+    return ShellSettings().tool_profile == "minimal_process"
+
+
 _EXECUTE_ARGUMENTS = frozenset(
     {
         "command",
@@ -264,6 +282,219 @@ class _PollProcessArguments:
     wake_on_output: bool
 
 
+@dataclass(frozen=True, slots=True)
+class _MinimalProcessArguments:
+    process_id: str
+    action: Literal["status", "wait", "stop"]
+
+
+@dataclass(frozen=True, slots=True)
+class _ManagedProcessOperation:
+    kind: Literal["status", "wait", "stop"]
+    process_id: str | None
+    wait_sec: int | None
+
+
+def _without_heredoc_bodies(command: str) -> str:
+    lines = command.splitlines(keepends=True)
+    kept: list[str] = []
+    delimiters: deque[tuple[str, bool]] = deque()
+    for line in lines:
+        if delimiters:
+            delimiter, strip_tabs = delimiters[0]
+            candidate = line.rstrip("\r\n")
+            if strip_tabs:
+                candidate = candidate.lstrip("\t")
+            if candidate == delimiter:
+                delimiters.popleft()
+                kept.append("\n")
+            continue
+        kept.append(line)
+        for match in _HEREDOC_PATTERN.finditer(line):
+            delimiter = next(group for group in match.groups() if group is not None)
+            delimiters.append((delimiter, line[match.start() :].startswith("<<-")))
+    return "".join(kept)
+
+
+def _command_chunks(words: list[tuple[str, bool]]) -> list[list[str]]:
+    chunks: list[list[str]] = []
+    for word, at_command_position in words:
+        if at_command_position:
+            chunks.append([])
+        if chunks:
+            chunks[-1].append(word)
+    return chunks
+
+
+def _skip_env_prefix(words: list[str], index: int) -> int:
+    options_with_values = {
+        "-C",
+        "-S",
+        "-u",
+        "--argv0",
+        "--block-signal",
+        "--chdir",
+        "--default-signal",
+        "--ignore-signal",
+        "--split-string",
+        "--unset",
+    }
+    while index < len(words):
+        word = words[index]
+        if word == "--":
+            index += 1
+            break
+        if not word.startswith("-") or word == "-":
+            break
+        index += 1
+        if word in options_with_values and index < len(words):
+            index += 1
+    while index < len(words) and re.fullmatch(
+        r"[A-Za-z_][A-Za-z0-9_]*=.*",
+        words[index],
+    ):
+        index += 1
+    return index
+
+
+def _invoked_command_basename(words: list[str]) -> str | None:
+    index = 0
+    while index < len(words):
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[index]):
+            index += 1
+            continue
+        command = posixpath.basename(words[index])
+        index += 1
+        if command == "command":
+            if index < len(words) and words[index] in {"-v", "-V"}:
+                return None
+            while index < len(words) and words[index] in {"-p", "--"}:
+                index += 1
+            continue
+        if command == "exec":
+            while index < len(words):
+                option = words[index]
+                if option == "--":
+                    index += 1
+                    break
+                if option == "-a" and index + 1 < len(words):
+                    index += 2
+                    continue
+                if option in {"-c", "-l"}:
+                    index += 1
+                    continue
+                break
+            continue
+        if command == "env":
+            index = _skip_env_prefix(words, index)
+            continue
+        return command
+    return None
+
+
+def classify_shell_detachment(command: str, *, run_in_background: bool) -> ShellDetachmentKind:
+    """Conservatively identify shell-level service detachment."""
+    source = _without_heredoc_bodies(command)
+    words: list[tuple[str, bool]] = []
+    top_level_background = False
+    token: list[str] = []
+    command_position = True
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    index = 0
+
+    def finish_word() -> None:
+        nonlocal command_position
+        if not token:
+            return
+        words.append(("".join(token), command_position))
+        token.clear()
+        command_position = False
+
+    while index < len(source):
+        char = source[index]
+        if escaped:
+            token.append(char)
+            escaped = False
+            index += 1
+            continue
+        if quote is not None:
+            if char == "\\" and quote == '"':
+                escaped = True
+            elif char == quote:
+                quote = None
+            else:
+                token.append(char)
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char == "\\":
+            escaped = True
+            index += 1
+            continue
+        if char == "#" and not token and (index == 0 or source[index - 1].isspace()):
+            newline = source.find("\n", index)
+            index = len(source) if newline < 0 else newline
+            continue
+        if char in {"(", ")"}:
+            finish_word()
+            depth = max(depth + (1 if char == "(" else -1), 0)
+            command_position = char == "("
+            index += 1
+            continue
+        if char == "&":
+            previous = source[index - 1] if index else ""
+            following = source[index + 1] if index + 1 < len(source) else ""
+            if previous in {">", "<"}:
+                token.append(char)
+                index += 1
+                continue
+            finish_word()
+            if following == "&":
+                command_position = True
+                index += 2
+                continue
+            if depth == 0:
+                top_level_background = True
+            command_position = True
+            index += 1
+            continue
+        if char == "|" and index + 1 < len(source) and source[index + 1] == "|":
+            finish_word()
+            command_position = True
+            index += 2
+            continue
+        if char in {";", "\n"}:
+            finish_word()
+            command_position = True
+            index += 1
+            continue
+        if char.isspace() or char in {"<", ">", "|"}:
+            finish_word()
+            index += 1
+            continue
+        token.append(char)
+        index += 1
+    finish_word()
+
+    command_words = {
+        invoked
+        for chunk in _command_chunks(words)
+        if (invoked := _invoked_command_basename(chunk)) is not None
+    }
+    if top_level_background and (
+        run_in_background or "nohup" in command_words or "disown" in command_words
+    ):
+        return "service_detach"
+    if top_level_background:
+        return "ambiguous"
+    return "none"
+
+
 @dataclass(slots=True)
 class _ActiveProcessPoll:
     tool_use_id: str
@@ -363,12 +594,14 @@ class ShellRuntime:
         self._show_bash_output = True
         self._prefer_local_shell = False
         self._max_process_poll_seconds = _default_max_process_poll_seconds()
+        self._minimal_process_profile = _default_minimal_process_profile()
         if config is not None:
             shell_config = config.shell_execution
             self._output_display_lines = shell_config.output_display_lines
             self._show_bash_output = shell_config.show_bash
             self._prefer_local_shell = shell_config.prefer_local_shell
             self._max_process_poll_seconds = shell_config.process_poll_max_wait_seconds
+            self._minimal_process_profile = shell_config.tool_profile == "minimal_process"
         self._process_poll_default_wait_seconds = min(
             process_poll_default_wait_seconds,
             self._max_process_poll_seconds,
@@ -528,6 +761,66 @@ class ShellRuntime:
                 ),
                 SHELL_TOOL_SOURCE,
             )
+            if self._minimal_process_profile:
+                self._tool = set_tool_source(
+                    Tool(
+                        name=BASH_TOOL_NAME,
+                        description=(
+                            f"Run one shell command in {shell_name}. Set "
+                            "`run_in_background=true` for a server, service, or other "
+                            "long-running command; it returns a managed process ID and remains "
+                            "running for the verifier. Do not use shell `&`, `nohup`, or `disown` "
+                            "to detach services. Foreground commands that take time may yield a "
+                            "managed process ID; use Process to inspect, wait for, or stop it."
+                        ),
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "command": {"type": "string"},
+                                "run_in_background": {
+                                    "type": "boolean",
+                                    "default": False,
+                                    "description": (
+                                        "Use true for servers, services, and other commands that "
+                                        "must remain running. Do not also add shell `&`, `nohup`, "
+                                        "or `disown`."
+                                    ),
+                                },
+                            },
+                            "required": ["command"],
+                            "additionalProperties": False,
+                        },
+                    ),
+                    SHELL_TOOL_SOURCE,
+                )
+                self._poll_process_tool = set_tool_source(
+                    Tool(
+                        name=PROCESS_TOOL_NAME,
+                        description=(
+                            "Inspect, wait for, or stop a managed process returned by Bash. "
+                            "`status` returns immediately, `wait` waits for the model-specific "
+                            "polling interval, and `stop` terminates the process group."
+                        ),
+                        inputSchema={
+                            "type": "object",
+                            "properties": {
+                                "process_id": {
+                                    "type": "string",
+                                    "description": "Managed process ID returned by Bash.",
+                                },
+                                "action": {
+                                    "type": "string",
+                                    "enum": ["status", "wait", "stop"],
+                                    "default": "status",
+                                },
+                            },
+                            "required": ["process_id"],
+                            "additionalProperties": False,
+                        },
+                    ),
+                    SHELL_TOOL_SOURCE,
+                )
+                self._terminate_process_tool = None
         else:
             self._poll_process_tool = None
             self._terminate_process_tool = None
@@ -663,7 +956,11 @@ class ShellRuntime:
         """Build metadata for display when the shell tool is invoked."""
         info = self.runtime_info()
         try:
-            parsed = self._parse_execute_arguments(arguments)
+            parsed = (
+                self._parse_minimal_bash_arguments(arguments)
+                if self._minimal_process_profile
+                else self._parse_execute_arguments(arguments)
+            )
         except ValueError:
             parsed = None
         command = parsed.command if parsed is not None else arguments.get("command")
@@ -707,17 +1004,14 @@ class ShellRuntime:
         arguments: dict[str, Any],
     ) -> dict[str, Any]:
         """Build compact display metadata for process lifecycle tools."""
+        operation = self._managed_process_operation(tool_name, arguments)
         metadata: dict[str, Any] = {
             "variant": "shell_process",
-            "action": "poll"
-            if tool_name == POLL_PROCESS_TOOL_NAME
-            else "terminate",
-            "process_id": arguments.get("process_id"),
-            "wait_sec": arguments.get(
-                "wait_sec", self._process_poll_default_wait_seconds
-            ),
+            "action": "terminate" if operation.kind == "stop" else "poll",
+            "process_id": operation.process_id,
+            "wait_sec": operation.wait_sec,
         }
-        process_id = arguments.get("process_id")
+        process_id = operation.process_id
         process = (
             self._managed_processes.get(process_id)
             if isinstance(process_id, str)
@@ -743,6 +1037,43 @@ class ShellRuntime:
             }
         )
         return metadata
+
+    def _managed_process_operation(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> _ManagedProcessOperation:
+        if tool_name == PROCESS_TOOL_NAME and self._minimal_process_profile:
+            try:
+                parsed = self._parse_minimal_process_arguments(arguments)
+            except ValueError:
+                return _ManagedProcessOperation(
+                    kind="status",
+                    process_id=None,
+                    wait_sec=0,
+                )
+            return _ManagedProcessOperation(
+                kind=parsed.action,
+                process_id=parsed.process_id,
+                wait_sec=(
+                    None
+                    if parsed.action == "stop"
+                    else 0
+                    if parsed.action == "status"
+                    else self._process_poll_default_wait_seconds
+                ),
+            )
+
+        process_id = arguments.get("process_id")
+        return _ManagedProcessOperation(
+            kind="stop" if tool_name == TERMINATE_PROCESS_TOOL_NAME else "wait",
+            process_id=process_id if isinstance(process_id, str) else None,
+            wait_sec=(
+                None
+                if tool_name == TERMINATE_PROCESS_TOOL_NAME
+                else arguments.get("wait_sec", self._process_poll_default_wait_seconds)
+            ),
+        )
 
     def _process_progress_details(
         self,
@@ -966,6 +1297,66 @@ class ShellRuntime:
             wake_on_output=wake_on_output,
         )
 
+    def _parse_minimal_bash_arguments(
+        self,
+        arguments: dict[str, Any] | None,
+    ) -> _ShellExecuteArguments:
+        payload = coerce_tool_arguments(arguments)
+        unknown = sorted(set(payload) - _MINIMAL_BASH_ARGUMENTS)
+        if unknown:
+            rendered = ", ".join(repr(name) for name in unknown)
+            raise ValueError(f"Error: unknown Bash argument(s): {rendered}")
+        run_in_background = payload.get("run_in_background", False)
+        if type(run_in_background) is not bool:
+            raise ValueError("Error: 'run_in_background' argument must be a boolean")
+        command = coerce_required_string_argument(
+            payload.get("command"),
+            "command",
+            strip=True,
+        )
+        if (
+            classify_shell_detachment(
+                command,
+                run_in_background=run_in_background,
+            )
+            == "service_detach"
+        ):
+            raise ValueError(
+                "Shell-level service detachment was not executed.\n"
+                "Submit only the long-running service command with "
+                "run_in_background=true. Use Process to inspect or stop it, "
+                "and run readiness checks in a separate Bash call."
+            )
+        return _ShellExecuteArguments(
+            command=command,
+            cwd=None,
+            background=run_in_background,
+            lifecycle="persistent" if run_in_background else "session",
+            yield_after_idle_sec=None,
+            output_byte_limit=None,
+        )
+
+    @staticmethod
+    def _parse_minimal_process_arguments(
+        arguments: dict[str, Any] | None,
+    ) -> _MinimalProcessArguments:
+        payload = coerce_tool_arguments(arguments)
+        unknown = sorted(set(payload) - _MINIMAL_PROCESS_ARGUMENTS)
+        if unknown:
+            rendered = ", ".join(repr(name) for name in unknown)
+            raise ValueError(f"Error: unknown Process argument(s): {rendered}")
+        action = payload.get("action", "status")
+        if action not in {"status", "wait", "stop"}:
+            raise ValueError("Error: 'action' must be 'status', 'wait', or 'stop'")
+        return _MinimalProcessArguments(
+            process_id=coerce_required_string_argument(
+                payload.get("process_id"),
+                "process_id",
+                strip=True,
+            ),
+            action=cast("Literal['status', 'wait', 'stop']", action),
+        )
+
     def set_process_poll_default_wait_seconds(self, value: int) -> None:
         """Update the model-specific default used when wait_sec is omitted."""
         default_wait = value if type(value) is int and value >= 0 else 0
@@ -973,7 +1364,10 @@ class ShellRuntime:
             default_wait,
             self._max_process_poll_seconds,
         )
-        if self._poll_process_tool is not None:
+        if (
+            self._poll_process_tool is not None
+            and "wait_sec" in self._poll_process_tool.inputSchema["properties"]
+        ):
             wait_schema = self._poll_process_tool.inputSchema["properties"]["wait_sec"]
             wait_schema["default"] = self._process_poll_default_wait_seconds
 
@@ -1678,12 +2072,30 @@ class ShellRuntime:
                     f"elapsed_seconds: {elapsed:.1f}",
                     f"total_output_bytes: {process.output_state.lifetime_output_bytes}",
                     (
-                        f"Use {POLL_PROCESS_TOOL_NAME} to monitor it or "
-                        f"{TERMINATE_PROCESS_TOOL_NAME} to stop it."
+                        "Use Process with action='status' or 'wait' to monitor it, "
+                        "or action='stop' to stop it."
+                        if self._minimal_process_profile
+                        else (
+                            f"Use {POLL_PROCESS_TOOL_NAME} to monitor it or "
+                            f"{TERMINATE_PROCESS_TOOL_NAME} to stop it."
+                        )
                     ),
                 ]
             )
-            if process.callbacks.os_process_id is not None:
+            if (
+                self._minimal_process_profile
+                and process.lifecycle == "session"
+                and yielded_reason in {"idle", "foreground"}
+            ):
+                sections.append(
+                    "This process is session-scoped and will be stopped when the agent finishes. "
+                    "If it must remain running, stop it and relaunch with "
+                    "run_in_background=true."
+                )
+            if (
+                process.callbacks.os_process_id is not None
+                and not self._minimal_process_profile
+            ):
                 sections.insert(-3, f"os_pid: {process.callbacks.os_process_id}")
             result = _process_result(
                 "\n".join(sections),
@@ -2023,6 +2435,41 @@ class ShellRuntime:
         defer_display_to_tool_result: bool = False,
     ) -> CallToolResult:
         """Dispatch one model-facing shell lifecycle tool."""
+        if name == BASH_TOOL_NAME and self._minimal_process_profile:
+            try:
+                parsed = self._parse_minimal_bash_arguments(arguments)
+            except ValueError as exc:
+                return self._invalid_execute_result(str(exc))
+            return await self._execute_parsed(
+                parsed,
+                tool_use_id,
+                show_tool_call_id=show_tool_call_id,
+                defer_display_to_tool_result=defer_display_to_tool_result,
+            )
+        if name == PROCESS_TOOL_NAME and self._minimal_process_profile:
+            try:
+                parsed_process = self._parse_minimal_process_arguments(arguments)
+            except ValueError as exc:
+                return _text_result(str(exc), is_error=True)
+            if parsed_process.action == "stop":
+                return await self._call_process_lifecycle_tool(
+                    TERMINATE_PROCESS_TOOL_NAME,
+                    {"process_id": parsed_process.process_id},
+                    tool_use_id=tool_use_id,
+                )
+            wait_sec = (
+                0
+                if parsed_process.action == "status"
+                else self._process_poll_default_wait_seconds
+            )
+            return await self._call_process_lifecycle_tool(
+                POLL_PROCESS_TOOL_NAME,
+                {
+                    "process_id": parsed_process.process_id,
+                    "wait_sec": wait_sec,
+                },
+                tool_use_id=tool_use_id,
+            )
         if name == EXECUTE_TOOL_NAME:
             return await self.execute(
                 arguments,
@@ -2232,6 +2679,21 @@ class ShellRuntime:
             parsed = self._parse_execute_arguments(arguments)
         except ValueError as exc:
             return self._invalid_execute_result(str(exc))
+        return await self._execute_parsed(
+            parsed,
+            tool_use_id,
+            show_tool_call_id=show_tool_call_id,
+            defer_display_to_tool_result=defer_display_to_tool_result,
+        )
+
+    async def _execute_parsed(
+        self,
+        parsed: _ShellExecuteArguments,
+        tool_use_id: str | None,
+        *,
+        show_tool_call_id: bool,
+        defer_display_to_tool_result: bool,
+    ) -> CallToolResult:
         idle_yield_seconds = (
             self._idle_yield_seconds
             if parsed.yield_after_idle_sec is None

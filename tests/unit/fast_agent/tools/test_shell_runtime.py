@@ -33,7 +33,7 @@ from fast_agent.tools.execution_environment import (
 )
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
 from fast_agent.tools.process_resources import ProcessResourceSnapshot
-from fast_agent.tools.shell_runtime import ShellRuntime
+from fast_agent.tools.shell_runtime import ShellRuntime, classify_shell_detachment
 from fast_agent.ui import console
 from fast_agent.ui.display_suppression import suppress_interactive_display
 from fast_agent.ui.progress_display import progress_display
@@ -517,6 +517,7 @@ def test_execute_tool_schema_declares_per_call_options() -> None:
     runtime = ShellRuntime(
         activation_reason="test",
         logger=logging.getLogger("shell-runtime-test"),
+        config=Settings(shell_execution=ShellSettings(tool_profile="native")),
     )
 
     assert runtime.tool is not None
@@ -556,9 +557,210 @@ def test_execute_tool_schema_declares_per_call_options() -> None:
     assert "continuous output remains buffered" in (poll_tool.description or "")
 
 
+def test_minimal_process_profile_exposes_only_bash_and_process() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+
+    assert [tool.name for tool in runtime.tools] == ["Bash", "Process"]
+    assert runtime.tool is not None
+    assert set(runtime.tool.inputSchema["properties"]) == {
+        "command",
+        "run_in_background",
+    }
+    process_tool = runtime.tools[1]
+    assert set(process_tool.inputSchema["properties"]) == {"process_id", "action"}
+    assert process_tool.inputSchema["properties"]["action"]["enum"] == [
+        "status",
+        "wait",
+        "stop",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("command", "run_in_background", "expected"),
+    [
+        ("nohup server >server.log 2>&1 &", False, "service_detach"),
+        ("/usr/bin/nohup server >server.log 2>&1 &", False, "service_detach"),
+        ("command nohup server &", False, "service_detach"),
+        ("FOO=bar /usr/bin/nohup server &", False, "service_detach"),
+        ("env FOO=bar nohup server &", False, "service_detach"),
+        ("env -u OLD FOO=bar nohup server &", False, "service_detach"),
+        ("exec -a service /usr/bin/nohup server &", False, "service_detach"),
+        (
+            "env -i PATH=/usr/bin /usr/bin/nohup server &",
+            False,
+            "service_detach",
+        ),
+        ("server & disown", False, "service_detach"),
+        ("server &", True, "service_detach"),
+        ("server &", False, "ambiguous"),
+        ("echo one && echo two", True, "none"),
+        ("echo 'A&B' 2>&1", True, "none"),
+        ("curl 'https://example.test/?a=1&b=2'", True, "none"),
+        ("echo ok # nohup server &", True, "none"),
+        ("cat <<'EOF'\nnohup server &\nEOF\n", True, "none"),
+    ],
+)
+def test_shell_detachment_classifier(
+    command: str,
+    run_in_background: bool,
+    expected: str,
+) -> None:
+    assert (
+        classify_shell_detachment(
+            command,
+            run_in_background=run_in_background,
+        )
+        == expected
+    )
+
+
+@pytest.mark.asyncio
+async def test_minimal_bash_rejects_detachment_before_environment_execution() -> None:
+    environment = _RecordingShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+
+    result = await runtime.call_tool(
+        "Bash",
+        {"command": "nohup service >service.log 2>&1 &"},
+    )
+
+    assert result.isError is True
+    assert environment.requests == []
+    assert isinstance(result.content[0], TextContent)
+    assert "run_in_background=true" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_direct_user_shell_bypasses_model_detachment_policy() -> None:
+    environment = _DirectShellEnvironment(stream_output=False)
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+
+    await runtime.execute_direct_shell("nohup service >service.log 2>&1 &")
+
+    assert environment.requests[0].command == "nohup service >service.log 2>&1 &"
+
+
+@pytest.mark.asyncio
+async def test_minimal_process_actions_map_to_managed_runtime() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        process_poll_default_wait_seconds=7,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+
+    started = await runtime.call_tool(
+        "Bash",
+        {"command": "service", "run_in_background": True},
+    )
+    started_metadata = shell_runtime_module.process_result_metadata(started)
+    assert started_metadata is not None
+    assert started_metadata["lifecycle"] == "persistent"
+    assert environment.requests[0].terminate_on_cancel is False
+    assert isinstance(started.content[0], TextContent)
+    assert "os_pid" not in started.content[0].text
+
+    status = await runtime.call_tool(
+        "Process",
+        {"process_id": "process-1", "action": "status"},
+    )
+    status_metadata = shell_runtime_module.process_result_metadata(status)
+    assert status_metadata is not None
+    assert status_metadata["poll_wait_sec"] == 0
+
+    environment.release.set()
+    waited = await runtime.call_tool(
+        "Process",
+        {"process_id": "process-1", "action": "wait"},
+    )
+    waited_metadata = shell_runtime_module.process_result_metadata(waited)
+    assert waited_metadata is not None
+    assert waited_metadata["poll_wait_sec"] == 7
+
+
+def test_minimal_process_metadata_matches_facade_operations() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        process_poll_default_wait_seconds=7,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+
+    bash_metadata = runtime.metadata(
+        {"command": "service", "run_in_background": True}
+    )
+    assert bash_metadata["background"] is True
+    assert bash_metadata["lifecycle"] == "persistent"
+
+    status_metadata = runtime.process_tool_metadata(
+        "Process",
+        {"process_id": "process-1", "action": "status"},
+    )
+    assert status_metadata["action"] == "poll"
+    assert status_metadata["wait_sec"] == 0
+
+    wait_metadata = runtime.process_tool_metadata(
+        "Process",
+        {"process_id": "process-1", "action": "wait"},
+    )
+    assert wait_metadata["action"] == "poll"
+    assert wait_metadata["wait_sec"] == 7
+
+    stop_metadata = runtime.process_tool_metadata(
+        "Process",
+        {"process_id": "process-1", "action": "stop"},
+    )
+    assert stop_metadata["action"] == "terminate"
+    assert stop_metadata["wait_sec"] is None
+
+
+@pytest.mark.asyncio
+async def test_minimal_process_stop_terminates_managed_process() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+    await runtime.call_tool(
+        "Bash",
+        {"command": "service", "run_in_background": True},
+    )
+
+    stopped = await runtime.call_tool(
+        "Process",
+        {"process_id": "process-1", "action": "stop"},
+    )
+
+    metadata = shell_runtime_module.process_result_metadata(stopped)
+    assert metadata is not None
+    assert metadata["process_status"] == "terminated"
+    assert environment.cancelled is True
+
+
 def test_poll_process_schema_uses_configured_maximum_wait() -> None:
     settings = Settings(
-        shell_execution=ShellSettings(process_poll_max_wait_seconds=240)
+        shell_execution=ShellSettings(
+            tool_profile="native",
+            process_poll_max_wait_seconds=240,
+        )
     )
     runtime = ShellRuntime(
         activation_reason="test",
@@ -578,6 +780,7 @@ def test_poll_process_uses_model_default_wait_and_buffers_output() -> None:
         activation_reason="test",
         logger=logging.getLogger("shell-runtime-test"),
         process_poll_default_wait_seconds=30,
+        config=Settings(shell_execution=ShellSettings(tool_profile="native")),
     )
 
     poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
@@ -601,7 +804,10 @@ def test_poll_process_clamps_model_default_to_configured_maximum() -> None:
         logger=logging.getLogger("shell-runtime-test"),
         process_poll_default_wait_seconds=120,
         config=Settings(
-            shell_execution=ShellSettings(process_poll_max_wait_seconds=50)
+            shell_execution=ShellSettings(
+                tool_profile="native",
+                process_poll_max_wait_seconds=50,
+            )
         ),
     )
 
@@ -617,6 +823,7 @@ def test_poll_process_updates_default_for_model_switch() -> None:
     runtime = ShellRuntime(
         activation_reason="test",
         logger=logging.getLogger("shell-runtime-test"),
+        config=Settings(shell_execution=ShellSettings(tool_profile="native")),
     )
 
     runtime.set_process_poll_default_wait_seconds(25)
@@ -656,6 +863,7 @@ def test_shell_metadata_uses_effective_per_call_options() -> None:
         working_directory=Path("/default"),
         timeout_seconds=90,
         output_byte_limit=1000,
+        config=Settings(shell_execution=ShellSettings(tool_profile="native")),
     )
 
     metadata = runtime.metadata(
@@ -1398,6 +1606,7 @@ async def test_background_command_returns_handle_and_terminate_cancels_job() -> 
         activation_reason="test",
         logger=logging.getLogger("shell-runtime-test"),
         shell_environment=environment,
+        config=Settings(shell_execution=ShellSettings(tool_profile="native")),
     )
 
     with console.console.capture() as capture:
@@ -1751,15 +1960,20 @@ async def test_automatically_yielded_foreground_process_remains_session_scoped()
         activation_reason="test",
         logger=logging.getLogger("shell-runtime-test"),
         shell_environment=environment,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
         idle_yield_seconds=0.05,
         foreground_yield_seconds=0.5,
     )
 
-    result = await runtime.execute({"command": "slow-build"})
+    result = await runtime.call_tool("Bash", {"command": "slow-build"})
 
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "effective_lifecycle" not in result.content[0].text
+    assert "session-scoped and will be stopped when the agent finishes" in (
+        result.content[0].text
+    )
+    assert "relaunch with run_in_background=true" in result.content[0].text
     metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
     assert metadata["lifecycle"] == "session"
     await runtime.close()

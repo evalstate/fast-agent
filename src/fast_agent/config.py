@@ -57,6 +57,7 @@ from fast_agent.utils.type_narrowing import is_str_object_dict
 
 type TerminalImageSize = int | Literal["auto"] | str | None
 type ShellWriteTextFileMode = Literal["auto", "on", "off", "apply_patch"]
+type ShellToolProfile = Literal["native", "minimal_process"]
 
 SHELL_WRITE_TEXT_FILE_MODES: tuple[ShellWriteTextFileMode, ...] = (
     "auto",
@@ -271,6 +272,13 @@ class HarnessAppSettings(BaseModel):
 class ShellSettings(BaseModel):
     """Configuration for shell execution behavior."""
 
+    tool_profile: ShellToolProfile = Field(
+        default="minimal_process",
+        description=(
+            "Model-facing shell contract: 'minimal_process' exposes Bash and Process; "
+            "'native' retains the legacy execute/poll_process/terminate_process tools"
+        ),
+    )
     timeout_seconds: int = Field(
         default=90,
         description="Maximum seconds without command output before terminating",
