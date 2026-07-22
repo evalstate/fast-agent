@@ -303,8 +303,27 @@ class ShellSettings(BaseModel):
         description="Show shell command output on the console",
     )
     output_byte_limit: int | None = Field(
+        default=8192,
+        description="Model-facing shell output preview bytes (None = model-based auto)",
+    )
+    retain_truncated_output: bool = Field(
+        default=True,
+        description=(
+            "Retain complete truncated shell output in a private session-scoped "
+            "temporary file and include its path in the model-facing truncation notice"
+        ),
+    )
+    retained_output_max_bytes: int = Field(
+        default=2 * 1024 * 1024,
+        ge=1,
+        description="Maximum bytes retained per shell process when retention is enabled",
+    )
+    retained_output_temp_directory: Path | None = Field(
         default=None,
-        description="Override model-based output byte limit (None = auto)",
+        description=(
+            "Parent directory for private retained-output session directories "
+            "(None = platform temporary directory)"
+        ),
     )
     # Stay below Anthropic's 5-minute cache TTL; pinned boundaries make warm polling unnecessary.
     process_poll_max_wait_seconds: int = Field(
@@ -404,6 +423,12 @@ class ShellSettings(BaseModel):
         if isinstance(value, str):
             return int(value.strip())
         return int(value)
+
+    @field_validator("retained_output_max_bytes", mode="before")
+    @classmethod
+    def _coerce_retained_output_max_bytes(cls, value: Any) -> int:
+        _reject_bool_integer_field(value, field_name="retained_output_max_bytes")
+        return int(value.strip()) if isinstance(value, str) else int(value)
 
     @field_validator("process_poll_max_wait_seconds", mode="before")
     @classmethod

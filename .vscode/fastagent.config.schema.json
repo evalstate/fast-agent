@@ -3057,9 +3057,36 @@
               "type": "null"
             }
           ],
-          "default": null,
-          "description": "Override model-based output byte limit (None = auto)",
+          "default": 8192,
+          "description": "Model-facing shell output preview bytes (None = model-based auto)",
           "title": "Output Byte Limit"
+        },
+        "retain_truncated_output": {
+          "default": true,
+          "description": "Retain complete truncated shell output in a private session-scoped temporary file and include its path in the model-facing truncation notice",
+          "title": "Retain Truncated Output",
+          "type": "boolean"
+        },
+        "retained_output_max_bytes": {
+          "default": 2097152,
+          "description": "Maximum bytes retained per shell process when retention is enabled",
+          "minimum": 1,
+          "title": "Retained Output Max Bytes",
+          "type": "integer"
+        },
+        "retained_output_temp_directory": {
+          "anyOf": [
+            {
+              "format": "path",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Parent directory for private retained-output session directories (None = platform temporary directory)",
+          "title": "Retained Output Temp Directory"
         },
         "process_poll_max_wait_seconds": {
           "default": 250,

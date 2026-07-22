@@ -97,6 +97,14 @@ anthropic:
 #  output_display_lines: 5  # default
 # show shell command output in console (false to suppress bash output)
 #  show_bash: true
+# model-facing shell output preview size in bytes (null = model-specific automatic)
+#  output_byte_limit: 8192
+# retain complete truncated output in private session-scoped temporary files
+#  retain_truncated_output: true
+# maximum retained bytes per shell process
+#  retained_output_max_bytes: 2097152
+# optional parent directory for retained-output session directories
+#  retained_output_temp_directory: null
 # maximum managed-process wait; 250s stays below the 5m cache TTL
 #  process_poll_max_wait_seconds: 250
 # fold repetitive quiet managed-process polling: auto, on, or off

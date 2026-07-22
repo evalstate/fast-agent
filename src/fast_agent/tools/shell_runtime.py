@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import posixpath
+import shutil
+import tempfile
 import time
 from collections import deque
 from contextlib import nullcontext, suppress
@@ -190,6 +192,9 @@ class ShellRuntime:
         self._prefer_local_shell = False
         self._max_process_poll_seconds = _default_max_process_poll_seconds()
         self._minimal_process_profile = _default_minimal_process_profile()
+        self._retained_output_directory: Path | None = None
+        self._retained_output_max_bytes = 0
+        self._retained_output_next_id = 1
         if config is not None:
             shell_config = config.shell_execution
             self._output_display_lines = shell_config.output_display_lines
@@ -197,6 +202,18 @@ class ShellRuntime:
             self._prefer_local_shell = shell_config.prefer_local_shell
             self._max_process_poll_seconds = shell_config.process_poll_max_wait_seconds
             self._minimal_process_profile = shell_config.tool_profile == "minimal_process"
+            self._retained_output_max_bytes = shell_config.retained_output_max_bytes
+            if shell_config.retain_truncated_output:
+                parent = shell_config.retained_output_temp_directory
+                if parent is not None:
+                    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                self._retained_output_directory = Path(
+                    tempfile.mkdtemp(
+                        prefix="fast-agent-output-",
+                        dir=str(parent) if parent is not None else None,
+                    )
+                )
+                self._retained_output_directory.chmod(0o700)
         self._process_poll_default_wait_seconds = min(
             process_poll_default_wait_seconds,
             self._max_process_poll_seconds,
@@ -743,6 +760,8 @@ class ShellRuntime:
                 else output_byte_limit
             ),
             output_byte_limit_requested=output_byte_limit is not None,
+            retained_output_path=self._next_retained_output_path(),
+            retained_output_max_bytes=self._retained_output_max_bytes,
         )
         display_state = self._build_display_state(
             defer_display_to_tool_result=defer_display_to_tool_result,
@@ -781,6 +800,8 @@ class ShellRuntime:
                 else parsed.output_byte_limit
             ),
             output_byte_limit_requested=parsed.output_byte_limit is not None,
+            retained_output_path=self._next_retained_output_path(),
+            retained_output_max_bytes=self._retained_output_max_bytes,
         )
         display_state = self._build_display_state(
             defer_display_to_tool_result=defer_display_to_tool_result,
@@ -893,6 +914,15 @@ class ShellRuntime:
         if runtime_info.kind == "local":
             return str(Path(candidate).resolve())
         return posixpath.normpath(candidate)
+
+    def _next_retained_output_path(self) -> Path | None:
+        if self._retained_output_directory is None:
+            return None
+        path = self._retained_output_directory / (
+            f"output-{self._retained_output_next_id}.log"
+        )
+        self._retained_output_next_id += 1
+        return path
 
     async def _get_managed_process(self, process_id: str) -> ManagedShellProcess | None:
         async with self._processes_lock:
@@ -1459,6 +1489,9 @@ class ShellRuntime:
                 *(process.task for process in processes),
                 return_exceptions=True,
             )
+        if self._retained_output_directory is not None:
+            shutil.rmtree(self._retained_output_directory, ignore_errors=True)
+            self._retained_output_directory = None
 
     async def execute_shell(
         self,
