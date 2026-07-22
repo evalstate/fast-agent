@@ -37,7 +37,6 @@ from fast_agent.tools.execution_environment import (
     execute_shell,
 )
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
-from fast_agent.tools.output_truncation import format_output_truncation_notice
 from fast_agent.tools.process_resources import (
     ProcessResourceObservationState,
     ProcessResourceSnapshot,
@@ -45,6 +44,7 @@ from fast_agent.tools.process_resources import (
     observe_resource_changes,
     sample_process_resources,
 )
+from fast_agent.tools.shell_output import ShellOutputBuffer
 from fast_agent.tools.shell_tool_definitions import (
     PROCESS_OUTPUT_DEBOUNCE_SECONDS,
     ShellExecuteArguments,
@@ -158,22 +158,6 @@ def _process_result(
 
 
 @dataclass(slots=True)
-class _ShellOutputState:
-    output_byte_limit: int
-    output_byte_limit_requested: bool = False
-    output_segments: list[str] = field(default_factory=list)
-    output_tail_bytes: bytearray = field(default_factory=bytearray)
-    output_bytes: int = 0
-    total_output_bytes: int = 0
-    output_truncated: bool = False
-    truncation_notice_printed: bool = False
-    had_stream_output: bool = False
-    output_line_count: int = 0
-    unread_output_line_count: int = 0
-    lifetime_output_bytes: int = 0
-
-
-@dataclass(slots=True)
 class _ShellDisplayState:
     use_live_shell_display: bool
     display_line_limit: int | None
@@ -192,7 +176,7 @@ class _ShellDisplayState:
 @dataclass(slots=True)
 class _ShellRuntimeCallbacks:
     runtime: ShellRuntime
-    output_state: _ShellOutputState
+    output_state: ShellOutputBuffer
     display_state: _ShellDisplayState
     activity_event: asyncio.Event = field(default_factory=asyncio.Event)
     started_event: asyncio.Event = field(default_factory=asyncio.Event)
@@ -249,7 +233,7 @@ class _ShellRuntimeCallbacks:
 @dataclass(slots=True)
 class _ShellRuntimeExecution:
     execution: ShellExecution
-    output_state: _ShellOutputState
+    output_state: ShellOutputBuffer
     display_state: _ShellDisplayState
 
 
@@ -280,7 +264,7 @@ class _ManagedShellProcess:
     request: ShellExecutionRequest
     lifecycle: Literal["session", "persistent"]
     callbacks: _ShellRuntimeCallbacks
-    output_state: _ShellOutputState
+    output_state: ShellOutputBuffer
     display_state: _ShellDisplayState
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     poll_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -809,55 +793,10 @@ class ShellRuntime:
             state.display_tail_buffer = deque(maxlen=max(display_window.tail_lines, 1))
         return state
 
-    def _append_output_text(self, output_text: str, state: _ShellOutputState) -> None:
-        output_blob = output_text.encode("utf-8", errors="replace")
-        state.total_output_bytes += len(output_blob)
-        state.lifetime_output_bytes += len(output_blob)
-        self._append_output_tail(output_blob, state)
-        if state.output_truncated:
-            return
-
-        remaining = state.output_byte_limit - state.output_bytes
-        if remaining <= 0:
-            state.output_truncated = True
-            return
-        if len(output_blob) <= remaining:
-            state.output_segments.append(output_text)
-            state.output_bytes += len(output_blob)
-            return
-
-        truncated_text = output_blob[:remaining].decode("utf-8", errors="replace")
-        if truncated_text:
-            state.output_segments.append(truncated_text)
-        state.output_bytes += remaining
-        state.output_truncated = True
-
-    def _append_output_tail(self, output_blob: bytes, state: _ShellOutputState) -> None:
-        tail_limit = self._truncated_tail_byte_limit(state.output_byte_limit)
-        if len(output_blob) >= tail_limit:
-            state.output_tail_bytes = bytearray(output_blob[-tail_limit:])
-            return
-
-        state.output_tail_bytes.extend(output_blob)
-        overflow = len(state.output_tail_bytes) - tail_limit
-        if overflow > 0:
-            del state.output_tail_bytes[:overflow]
-
-    @staticmethod
-    def _truncated_tail_byte_limit(output_byte_limit: int) -> int:
-        return max(output_byte_limit // 2, 1)
-
-    @staticmethod
-    def _truncated_head_byte_limit(output_byte_limit: int) -> int:
-        return max(
-            output_byte_limit - ShellRuntime._truncated_tail_byte_limit(output_byte_limit),
-            1,
-        )
-
     def _maybe_print_truncation_notice(
         self,
         *,
-        output_state: _ShellOutputState,
+        output_state: ShellOutputBuffer,
         display_state: _ShellDisplayState,
     ) -> None:
         if output_state.truncation_notice_printed or not output_state.output_truncated:
@@ -880,7 +819,7 @@ class ShellRuntime:
         output_state.truncation_notice_printed = True
 
     @staticmethod
-    def _truncation_notice_style(output_state: _ShellOutputState) -> str:
+    def _truncation_notice_style(output_state: ShellOutputBuffer) -> str:
         return (
             "black on blue"
             if output_state.output_byte_limit_requested
@@ -946,7 +885,7 @@ class ShellRuntime:
         text: str,
         *,
         style: str | None,
-        output_state: _ShellOutputState,
+        output_state: ShellOutputBuffer,
         display_state: _ShellDisplayState,
         is_stderr: bool,
     ) -> None:
@@ -954,7 +893,7 @@ class ShellRuntime:
         output_state.output_line_count += 1
         output_state.unread_output_line_count += 1
         output_text = text if not is_stderr else f"[stderr] {text}"
-        self._append_output_text(output_text, output_state)
+        output_state.append(output_text)
         self._maybe_print_truncation_notice(
             output_state=output_state,
             display_state=display_state,
@@ -979,119 +918,6 @@ class ShellRuntime:
             )
         except Exception:
             return
-
-    def _truncation_summary(
-        self,
-        output_state: _ShellOutputState,
-        *,
-        head_bytes: int | None = None,
-        tail_bytes: int | None = None,
-    ) -> str | None:
-        if not output_state.output_truncated:
-            return None
-        retained_bytes = (
-            output_state.output_bytes
-            if head_bytes is None or tail_bytes is None
-            else head_bytes + tail_bytes
-        )
-        retained_tokens = max(int(retained_bytes / TERMINAL_BYTES_PER_TOKEN), 1)
-        total_tokens = max(int(output_state.total_output_bytes / TERMINAL_BYTES_PER_TOKEN), 1)
-        omitted_bytes = max(output_state.total_output_bytes - retained_bytes, 0)
-        if head_bytes is not None and tail_bytes is not None:
-            return format_output_truncation_notice(
-                label="Output",
-                total_bytes=output_state.total_output_bytes,
-                head_bytes=head_bytes,
-                tail_bytes=tail_bytes,
-                guidance="Increase shell_execution.output_byte_limit to retain more.",
-            )
-        return (
-            "[Output truncated: retained "
-            f"{output_state.output_bytes} of {output_state.total_output_bytes} bytes "
-            f"(~{retained_tokens} of ~{total_tokens} tokens); "
-            f"omitted {omitted_bytes} bytes. "
-            "Increase shell_execution.output_byte_limit to retain more.]"
-        )
-
-    def _truncated_combined_output(self, output_state: _ShellOutputState) -> str:
-        head_limit = self._truncated_head_byte_limit(output_state.output_byte_limit)
-        head_blob = "".join(output_state.output_segments).encode("utf-8", errors="replace")[
-            :head_limit
-        ]
-        tail_blob = bytes(output_state.output_tail_bytes)[
-            -self._truncated_tail_byte_limit(output_state.output_byte_limit) :
-        ]
-
-        parts: list[str] = []
-        if head_blob:
-            head_text = head_blob.decode("utf-8", errors="replace")
-            parts.append(head_text if head_text.endswith("\n") else f"{head_text}\n")
-
-        truncation_summary = self._truncation_summary(
-            output_state,
-            head_bytes=len(head_blob),
-            tail_bytes=len(tail_blob),
-        )
-        if truncation_summary:
-            parts.append(f"{truncation_summary}\n")
-
-        if tail_blob:
-            tail_text = tail_blob.decode("utf-8", errors="replace")
-            parts.append(tail_text if tail_text.endswith("\n") else f"{tail_text}\n")
-
-        return "".join(parts)
-
-    def _consume_combined_output(self, output_state: _ShellOutputState) -> str:
-        combined_output = (
-            self._truncated_combined_output(output_state)
-            if output_state.output_truncated
-            else "".join(output_state.output_segments)
-        )
-        output_state.output_segments.clear()
-        output_state.output_tail_bytes.clear()
-        output_state.output_bytes = 0
-        output_state.total_output_bytes = 0
-        output_state.output_truncated = False
-        output_state.truncation_notice_printed = False
-        output_state.unread_output_line_count = 0
-        return combined_output
-
-    def _build_shell_result(
-        self,
-        *,
-        execution: ShellExecution,
-        output_state: _ShellOutputState,
-    ) -> tuple[CallToolResult, str]:
-        shell_result = execution.result
-        combined_output = (
-            self._truncated_combined_output(output_state)
-            if output_state.output_truncated
-            else "".join(output_state.output_segments)
-        )
-        if combined_output and not combined_output.endswith("\n"):
-            combined_output += "\n"
-
-        if execution.io_drain_timed_out:
-            combined_output += (
-                f"(output collection stopped after {_IO_DRAIN_TIMEOUT_SECONDS:.1f}s "
-                "because stdout/stderr pipes remained open)\n"
-            )
-
-        if execution.timed_out:
-            combined_output += (
-                f"(timeout after {execution.options.timeout_seconds:g}s - process terminated)"
-            )
-            return (
-                _text_result(combined_output, is_error=True),
-                f"failed (timeout after {execution.options.timeout_seconds:g}s)",
-            )
-
-        combined_output += f"process exit code was {shell_result.exit_code}"
-        completion_state = "completed" if shell_result.exit_code == 0 else "failed"
-        return (
-            _text_result(combined_output, is_error=shell_result.exit_code != 0),
-            f"{completion_state} (exit {shell_result.exit_code})",
-        )
 
     def _flush_live_display_tail(self, display_state: _ShellDisplayState) -> None:
         if (
@@ -1119,7 +945,7 @@ class ShellRuntime:
         result: CallToolResult,
         *,
         shell_result: ShellExecutionResult,
-        output_state: _ShellOutputState,
+        output_state: ShellOutputBuffer,
         display_state: _ShellDisplayState,
         tool_use_id: str | None,
         show_tool_call_id: bool,
@@ -1156,7 +982,7 @@ class ShellRuntime:
         defer_display_to_tool_result: bool,
         display_line_limit: int | None,
     ) -> _ShellRuntimeExecution:
-        output_state = _ShellOutputState(
+        output_state = ShellOutputBuffer(
             output_byte_limit=(
                 self._output_byte_limit
                 if output_byte_limit is None
@@ -1193,7 +1019,7 @@ class ShellRuntime:
         *,
         defer_display_to_tool_result: bool,
     ) -> _ManagedShellProcess:
-        output_state = _ShellOutputState(
+        output_state = ShellOutputBuffer(
             output_byte_limit=(
                 self._output_byte_limit
                 if parsed.output_byte_limit is None
@@ -1446,7 +1272,7 @@ class ShellRuntime:
     ) -> CallToolResult:
         self._record_buffered_process_result(process)
         unread_output_line_count = process.output_state.unread_output_line_count
-        output = self._consume_combined_output(process.output_state)
+        output = process.output_state.consume()
         sections: list[str] = []
         if output:
             sections.append(output.rstrip("\n"))

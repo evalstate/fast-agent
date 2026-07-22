@@ -15,6 +15,18 @@ class TruncatedOutput:
     omitted_bytes: int
 
 
+@dataclass(frozen=True, slots=True)
+class OutputByteWindow:
+    head_bytes: int
+    tail_bytes: int
+
+
+def split_output_byte_limit(byte_limit: int) -> OutputByteWindow:
+    tail_bytes = max(byte_limit // 2, 1)
+    head_bytes = max(byte_limit - tail_bytes, 1)
+    return OutputByteWindow(head_bytes=head_bytes, tail_bytes=tail_bytes)
+
+
 def format_output_truncation_notice(
     *,
     label: str,
@@ -49,10 +61,9 @@ def truncate_text_output(
     if len(blob) <= byte_limit:
         return None
 
-    tail_limit = max(byte_limit // 2, 1)
-    head_limit = max(byte_limit - tail_limit, 1)
-    head_blob = blob[:head_limit]
-    tail_blob = blob[-tail_limit:]
+    window = split_output_byte_limit(byte_limit)
+    head_blob = blob[: window.head_bytes]
+    tail_blob = blob[-window.tail_bytes :]
     notice = format_output_truncation_notice(
         label=label,
         total_bytes=len(blob),

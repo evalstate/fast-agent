@@ -33,6 +33,7 @@ from fast_agent.tools.execution_environment import (
 )
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
 from fast_agent.tools.process_resources import ProcessResourceSnapshot
+from fast_agent.tools.shell_output import ShellOutputBuffer
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.tools.shell_tool_definitions import parse_poll_process_arguments
 from fast_agent.ui import console
@@ -490,8 +491,8 @@ def test_shell_output_byte_limit_coerces_invalid_values() -> None:
 
 
 def test_truncation_notice_style_reflects_per_call_limit() -> None:
-    configured_limit = shell_runtime_module._ShellOutputState(output_byte_limit=1024)
-    per_call_limit = shell_runtime_module._ShellOutputState(
+    configured_limit = ShellOutputBuffer(output_byte_limit=1024)
+    per_call_limit = ShellOutputBuffer(
         output_byte_limit=1024,
         output_byte_limit_requested=True,
     )
