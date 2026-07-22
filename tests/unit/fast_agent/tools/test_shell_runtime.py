@@ -490,6 +490,16 @@ def test_shell_output_byte_limit_coerces_invalid_values() -> None:
     assert runtime.output_byte_limit == 1024
 
 
+def test_shell_runtime_preserves_detachment_helper_imports() -> None:
+    from fast_agent.tools.shell_command import (
+        ShellDetachmentKind,
+        classify_shell_detachment,
+    )
+
+    assert shell_runtime_module.ShellDetachmentKind is ShellDetachmentKind
+    assert shell_runtime_module.classify_shell_detachment is classify_shell_detachment
+
+
 def test_truncation_notice_style_reflects_per_call_limit() -> None:
     configured_limit = ShellOutputBuffer(output_byte_limit=1024)
     per_call_limit = ShellOutputBuffer(

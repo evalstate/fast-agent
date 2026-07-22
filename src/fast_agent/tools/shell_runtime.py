@@ -39,6 +39,12 @@ from fast_agent.tools.process_resources import (
     observe_resource_changes,
     sample_process_resources,
 )
+from fast_agent.tools.shell_command import (
+    ShellDetachmentKind as ShellDetachmentKind,
+)
+from fast_agent.tools.shell_command import (
+    classify_shell_detachment as classify_shell_detachment,
+)
 from fast_agent.tools.shell_output import ShellOutputBuffer
 from fast_agent.tools.shell_process import (
     ActiveProcessPoll,
