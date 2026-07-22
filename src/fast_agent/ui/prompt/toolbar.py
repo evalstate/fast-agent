@@ -154,4 +154,4 @@ def _format_toolbar_agent_identity(
     label = f"{agent_name}[S]" if _is_smart_agent(agent) else agent_name
     color = escape_html(toolbar_color, quote=True)
     escaped_label = escape_html(label, quote=False)
-    return f"<style fg='{color}' bg='ansiblack'> {escaped_label}</style>"
+    return f" <style fg='{color}' bg='ansiblack'> {escaped_label}</style>"
