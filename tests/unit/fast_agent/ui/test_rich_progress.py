@@ -15,6 +15,7 @@ from fast_agent.ui.rich_progress import (
     DynamicDetailsColumn,
     RichProgressDisplay,
     SpinnerDescriptionColumn,
+    _format_compacting_track,
 )
 from fast_agent.utils.time import format_process_elapsed
 
@@ -54,6 +55,11 @@ def _task_fields(display: RichProgressDisplay, task_name: str) -> dict[str, Any]
         if task.id == task_id:
             return task.fields
     raise AssertionError(f"Task not found for {task_name}")
+
+
+def test_compacting_track_drains_by_braille_row_then_repeats() -> None:
+    frames = [_format_compacting_track((index + 0.1) * 0.18) for index in range(6)]
+    assert frames == ["⣿⣿⣿", "⣶⣶⣶", "⣤⣤⣤", "⣀⣀⣀", "   ", "⣿⣿⣿"]
 
 
 class TestStopPreventsResume:
@@ -453,10 +459,30 @@ class TestAggregatorInitializedVisibility:
         # The countdown immediately follows the compact monitoring label.
         prefix = "▎◀ Monitoring "
         assert rendered.plain.startswith(prefix)
-        assert len(rendered.plain) == len(prefix) + 3
-        # ~2/3 of a 30s wait remaining → at least one full cell still lit.
-        assert "⣿" in rendered.plain
+        assert len(rendered.plain) == len(prefix) + 1
+        assert rendered.plain[-1] != " "
         display.stop()
+
+    def test_process_poll_heartbeats_toggle_next_dot_blink(self) -> None:
+        display = _make_display()
+        event = _make_event(
+            action=ProgressAction.CALLING_TOOL,
+            correlation_id="call-poll-blink",
+            tool_name="poll_process",
+            process_wait_seconds=50,
+        )
+
+        display.update(event)
+        fields = _task_fields(display, "test-agent::call-poll-blink")
+        assert fields["process_poll_blink_next"] is False
+
+        display.update(event)
+        fields = _task_fields(display, "test-agent::call-poll-blink")
+        assert fields["process_poll_blink_next"] is True
+
+        display.update(event)
+        fields = _task_fields(display, "test-agent::call-poll-blink")
+        assert fields["process_poll_blink_next"] is False
 
     def test_process_poll_completion_snaps_countdown_empty_before_drop(self) -> None:
         display = RichProgressDisplay(
@@ -482,7 +508,7 @@ class TestAggregatorInitializedVisibility:
 
         mid = SpinnerDescriptionColumn(spinner_name="braille_dense").render(task)
         assert "Monitoring" in mid.plain
-        assert "⣿" in mid.plain
+        assert mid.plain[-1] != " "
 
         display.update(
             _make_event(
@@ -499,8 +525,9 @@ class TestAggregatorInitializedVisibility:
         finished = next(task for task in display._progress.tasks if task.id == task_id)
         empty = SpinnerDescriptionColumn(spinner_name="braille_dense").render(finished)
         assert "Monitoring" in empty.plain
-        # Three blank cells (spaces) for exhausted track.
-        assert "   " in empty.plain
+        # One blank cell for the exhausted 30-second track.
+        assert empty.plain.endswith(" ")
+        assert len(empty.plain) == len("▎◀ Monitoring ") + 1
         time.sleep(0.85)
         assert "test-agent::call-poll-finish" not in display._taskmap
         display.stop()

@@ -85,6 +85,7 @@ _HOOK_STATUS_BUCKET_AFTER_TURN_COMPLETE = "after_turn_complete"
 HistoryRollbackStatus = Literal[
     "history_disabled",
     "history_empty",
+    "appended_completed_tool_result",
     "appended_interrupted_tool_result",
     "history_unchanged",
 ]
@@ -396,6 +397,7 @@ class ToolRunner:
 
             self._agent.load_message_history(folded.history)
             self._delta_messages = [folded.tool_message]
+            self._pending_tool_response = folded.tool_message
             _logger.info(
                 "Folded completed managed-process polling history",
                 data=folded.metadata,
@@ -538,9 +540,20 @@ class ToolRunner:
         )
 
     def _reset_history_after_cancelled_turn(self) -> HistoryRollbackState:
+        history = list(self._agent.message_history)
+        resumable_history = self._history_for_resumable_persistence()
+        if resumable_history is not None and len(resumable_history) > len(history):
+            self._agent.load_message_history(resumable_history)
+            return HistoryRollbackState(
+                status="appended_completed_tool_result",
+                history_before=len(history),
+                history_after=len(resumable_history),
+                removed_messages=0,
+            )
+
         return ToolRunner.reconcile_interrupted_history(
             self._agent,
-            use_history=self._agent.config.use_history,
+            use_history=self._use_history_enabled(),
         )
 
     @staticmethod

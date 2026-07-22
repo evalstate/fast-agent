@@ -154,6 +154,37 @@ class ExplodingSecondTurnLlm(PassthroughLLM):
         raise RuntimeError("llm boom")
 
 
+class BlockingSecondTurnLlm(PassthroughLLM):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._turn = 0
+        self.followup_started = asyncio.Event()
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        self._turn += 1
+        if self._turn == 1:
+            return Prompt.assistant(
+                "use tool",
+                stop_reason=LlmStopReason.TOOL_USE,
+                tool_calls={
+                    "ok_call": CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(name="ok_tool", arguments={}),
+                    )
+                },
+            )
+
+        self.followup_started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+
 class ContinuedToolResultLlm(PassthroughLLM):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -252,6 +283,34 @@ async def test_cancelled_stop_reason_preserves_history_and_skips_after_turn_hook
     assert rollback_state is not None
     assert getattr(rollback_state, "status", None) == "history_unchanged"
     assert getattr(rollback_state, "removed_messages", None) == 0
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_external_cancel_after_completed_tool_preserves_real_result() -> None:
+    llm = BlockingSecondTurnLlm()
+    agent = ToolAgent(AgentConfig("cancelled-followup"), [ok_tool])
+    agent._llm = llm
+
+    task = asyncio.create_task(agent.generate("trigger"))
+    await asyncio.wait_for(llm.followup_started.wait(), timeout=1.0)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    history = agent.message_history
+    assert history[-1].role == "user"
+    assert history[-1].tool_results is not None
+    result = history[-1].tool_results["ok_call"]
+    [content] = result.content
+    assert isinstance(content, TextContent)
+    assert content.text == "ok"
+    assert result.isError in (False, None)
+
+    rollback_state = agent.last_turn_history_state
+    assert rollback_state is not None
+    assert rollback_state.status == "appended_completed_tool_result"
 
 
 @pytest.mark.unit

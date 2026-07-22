@@ -453,6 +453,9 @@ class InteractivePrompt:
         if status == "history_empty":
             return "History was already empty."
 
+        if status == "appended_completed_tool_result":
+            return "Preserved the completed tool result for the interrupted follow-up request."
+
         if status == "appended_interrupted_tool_result":
             return (
                 "Added an interrupted tool-result marker "

@@ -665,7 +665,23 @@ def _toolbar_style_segment(
     escaped_foreground = escape_html(foreground, quote=True)
     escaped_background = escape_html(background, quote=True)
     escaped_content = escape_html(content, quote=False)
-    return f"<style fg='{escaped_foreground}' bg='{escaped_background}'>{escaped_content}</style>"
+    return (
+        f"<style fg='{escaped_foreground}' bg='{escaped_background}'>"
+        f"{escaped_content}</style>"
+    )
+
+
+def _format_toolbar_mode_segment(mode_style: str, mode_text: str) -> str:
+    if mode_text == "MLT":
+        return _toolbar_style_segment(
+            mode_text,
+            foreground=mode_style,
+        )
+    return _toolbar_style_segment(
+        mode_text,
+        foreground="ansiblack",
+        background=mode_style,
+    )
 
 
 def _build_middle_segment(
@@ -675,6 +691,10 @@ def _build_middle_segment(
     attachment_summary=None,
 ) -> str:
     middle_segments: list[str] = []
+    context_chip = _format_context_usage_percent_for_toolbar(agent_state.context_pct)
+    context_or_turns = (
+        context_chip if context_chip is not None else f"{agent_state.turn_count:03d}"
+    )
     if agent_state.model_display:
         model_prefix = ""
         if agent_state.is_codex_responses_model:
@@ -695,18 +715,16 @@ def _build_middle_segment(
         prefix = ""
         if agent_state.tdv_segment:
             prefix += agent_state.tdv_segment
-        if process_indicator:
-            prefix += process_indicator
         if attachment_indicator:
             prefix += attachment_indicator
         if agent_state.model_gauges:
             prefix += agent_state.model_gauges
-        middle_segments.append(f"{prefix} {model_chip}" if prefix else model_chip)
-
-    context_chip = _format_context_usage_percent_for_toolbar(agent_state.context_pct)
-    middle_segments.append(
-        context_chip if context_chip is not None else f"{agent_state.turn_count:03d}"
-    )
+        model_segment = f"{prefix} {model_chip}" if prefix else model_chip
+        middle_segments.append(
+            f"{process_indicator}| {model_segment} {context_or_turns}"
+        )
+    else:
+        middle_segments.append(context_or_turns)
     if shortcut_text:
         middle_segments.append(shortcut_text)
     return " | ".join(middle_segments)
@@ -805,15 +823,10 @@ def _format_toolbar_prefix(
     mode_style: str,
     mode_text: str,
 ) -> str:
+    mode_segment = _format_toolbar_mode_segment(mode_style, mode_text)
     if middle:
-        return (
-            f" {agent_identity_segment} "
-            f" {middle} | {_toolbar_style_segment(mode_text, foreground=mode_style, padded=True)} | "
-        )
-    return (
-        f" {agent_identity_segment} "
-        f"Mode: {_toolbar_style_segment(mode_text, foreground=mode_style, padded=True)} | "
-    )
+        return f"{agent_identity_segment} {middle} | {mode_segment} | "
+    return f"{agent_identity_segment} Mode: {mode_segment} | "
 
 
 def _build_toolbar_html(

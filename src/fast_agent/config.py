@@ -57,6 +57,7 @@ from fast_agent.utils.type_narrowing import is_str_object_dict
 
 type TerminalImageSize = int | Literal["auto"] | str | None
 type ShellWriteTextFileMode = Literal["auto", "on", "off", "apply_patch"]
+type ShellToolProfile = Literal["native", "minimal_process"]
 
 SHELL_WRITE_TEXT_FILE_MODES: tuple[ShellWriteTextFileMode, ...] = (
     "auto",
@@ -271,6 +272,13 @@ class HarnessAppSettings(BaseModel):
 class ShellSettings(BaseModel):
     """Configuration for shell execution behavior."""
 
+    tool_profile: ShellToolProfile = Field(
+        default="minimal_process",
+        description=(
+            "Model-facing shell contract: 'minimal_process' exposes Bash and Process; "
+            "'native' retains the legacy execute/poll_process/terminate_process tools"
+        ),
+    )
     timeout_seconds: int = Field(
         default=90,
         description="Maximum seconds without command output before terminating",
@@ -295,8 +303,27 @@ class ShellSettings(BaseModel):
         description="Show shell command output on the console",
     )
     output_byte_limit: int | None = Field(
+        default=8192,
+        description="Model-facing shell output preview bytes (None = model-based auto)",
+    )
+    retain_truncated_output: bool = Field(
+        default=True,
+        description=(
+            "Retain complete truncated shell output in a private session-scoped "
+            "temporary file and include its path in the model-facing truncation notice"
+        ),
+    )
+    retained_output_max_bytes: int = Field(
+        default=2 * 1024 * 1024,
+        ge=1,
+        description="Maximum bytes retained per shell process when retention is enabled",
+    )
+    retained_output_temp_directory: Path | None = Field(
         default=None,
-        description="Override model-based output byte limit (None = auto)",
+        description=(
+            "Parent directory for private retained-output session directories "
+            "(None = platform temporary directory)"
+        ),
     )
     # Stay below Anthropic's 5-minute cache TTL; pinned boundaries make warm polling unnecessary.
     process_poll_max_wait_seconds: int = Field(
@@ -396,6 +423,12 @@ class ShellSettings(BaseModel):
         if isinstance(value, str):
             return int(value.strip())
         return int(value)
+
+    @field_validator("retained_output_max_bytes", mode="before")
+    @classmethod
+    def _coerce_retained_output_max_bytes(cls, value: Any) -> int:
+        _reject_bool_integer_field(value, field_name="retained_output_max_bytes")
+        return int(value.strip()) if isinstance(value, str) else int(value)
 
     @field_validator("process_poll_max_wait_seconds", mode="before")
     @classmethod
@@ -987,11 +1020,21 @@ class AnthropicSettings(BaseModel):
     )
     cache_mode: Literal["off", "prompt", "auto"] = Field(
         default="auto",
-        description="Caching mode: off (disabled), prompt (cache tools+system), auto (same as prompt)",
+        description=(
+            "Caching mode: off (disabled), prompt (cache tools+system), "
+            "auto (also advance through recent conversation turns)"
+        ),
     )
     cache_ttl: Literal["5m", "1h"] = Field(
         default="5m",
         description="Cache TTL: 5m (standard) or 1h (extended, additional cost)",
+    )
+    cache_diagnostics: bool = Field(
+        default=False,
+        description=(
+            "Enable first-party Anthropic cache-miss diagnosis for debugging. "
+            "Adds a beta request field and provider diagnostics to responses."
+        ),
     )
     reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
         default=None,

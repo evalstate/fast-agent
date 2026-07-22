@@ -215,11 +215,11 @@ Compare `start_time`/`end_time` values between main session and sub-agent traces
 
 ## Log File
 
-Check `fast-agent-log.jsonl` for errors during the session timeframe:
+Check `<fast-agent-home>/fast-agent-log.jsonl` for errors during the session timeframe:
 
 ```bash
 # Filter by timestamp range
-cat fast-agent-log.jsonl | while read line; do
+cat .fast-agent/fast-agent-log.jsonl | while read line; do
   ts=$(echo "$line" | jq -r '.timestamp // empty' 2>/dev/null)
   if [[ "$ts" > "2026-01-18T10:20" && "$ts" < "2026-01-18T10:45" ]]; then
     echo "$line" | jq -c '{timestamp, level, message}'

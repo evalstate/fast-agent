@@ -5,27 +5,80 @@ These tests directly test the _convert_extended_messages_to_provider method
 to verify cache_control markers are applied correctly based on cache_mode settings.
 """
 
-from typing import Literal
+import json
+from pathlib import Path
+from typing import Any, Literal
 
+import httpx
 import pytest
-from anthropic.types.beta import BetaMessageParam
+from anthropic import AuthenticationError
+from anthropic.types.beta import (
+    BetaDiagnostics,
+    BetaMessage,
+    BetaMessageParam,
+    BetaTextBlockParam,
+    BetaUsage,
+)
 from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
     TextContent,
+    Tool,
 )
 
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.constants import FAST_AGENT_SHELL_PROCESS_METADATA
 from fast_agent.context import Context
+from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.history.process_poll_folding import managed_process_poll_cache_boundary
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
-from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
+from fast_agent.llm.provider.anthropic.llm_anthropic import (
+    ANTHROPIC_CACHE_DIAGNOSTICS_CHANNEL,
+    CACHE_DIAGNOSIS_BETA,
+    AnthropicLLM,
+)
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import AnthropicConverter
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types import RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
+
+
+class RecordingCacheDiagnosticsLLM(AnthropicLLM):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.requests: list[dict[str, Any]] = []
+
+    def _initialize_anthropic_client(self) -> object:
+        return object()
+
+    async def _execute_anthropic_stream(
+        self,
+        *,
+        anthropic: Any,
+        arguments: dict[str, Any],
+        model: str,
+        capture_filename: Path | None,
+        timeout_seconds: float | None,
+    ) -> tuple[BetaMessage, list[str], list[str]]:
+        del anthropic, capture_filename, timeout_seconds
+        self.requests.append(arguments)
+        response_id = f"msg_{len(self.requests)}"
+        return (
+            BetaMessage(
+                id=response_id,
+                type="message",
+                role="assistant",
+                content=[],
+                model=model,
+                stop_reason="end_turn",
+                stop_sequence=None,
+                usage=BetaUsage(input_tokens=1, output_tokens=1),
+                diagnostics=BetaDiagnostics(cache_miss_reason=None),
+            ),
+            [],
+            [],
+        )
 
 
 def _content_dicts(message: BetaMessageParam) -> list[dict[str, object]]:
@@ -46,6 +99,22 @@ def _cache_control(block: dict[str, object]) -> dict[str, object] | None:
     if isinstance(cache_control, dict):
         return {str(key): value for key, value in cache_control.items()}
     return None
+
+
+def _count_cache_controls(messages: list[BetaMessageParam]) -> int:
+    return sum(
+        _cache_control(block) is not None
+        for message in messages
+        for block in _content_dicts(message)
+    )
+
+
+def _message(text: str, *, is_template: bool = False) -> PromptMessageExtended:
+    return PromptMessageExtended(
+        role="user",
+        content=[TextContent(type="text", text=text)],
+        is_template=is_template,
+    )
 
 
 class TestAnthropicCaching:
@@ -263,8 +332,8 @@ class TestAnthropicCaching:
 
         assert prepared[-1] == message_param
 
-    def test_auto_cache_checkpoints_latest_assistant_on_next_request(self):
-        """Cache a completed assistant turn on the immediately following request."""
+    def test_auto_cache_advances_through_latest_user_request_boundary(self):
+        """Cache through the latest completed tool-result turn immediately."""
         llm = self._create_llm(cache_mode="auto")
         history = [
             PromptMessageExtended(
@@ -291,13 +360,18 @@ class TestAnthropicCaching:
             current_extended=history[-1],
         )
 
+        initial_user_blocks = _content_dicts(converted[0])
         assistant_blocks = _content_dicts(converted[1])
         current_user_blocks = _content_dicts(converted[2])
-        assert _cache_control(assistant_blocks[-1]) == {
+        assert _cache_control(initial_user_blocks[-1]) == {
             "type": "ephemeral",
             "ttl": "5m",
         }
-        assert all(_cache_control(block) is None for block in current_user_blocks)
+        assert all(_cache_control(block) is None for block in assistant_blocks)
+        assert _cache_control(current_user_blocks[-1]) == {
+            "type": "ephemeral",
+            "ttl": "5m",
+        }
 
     def test_build_request_messages_without_history(self):
         """When history is disabled, always send the current message."""
@@ -309,6 +383,265 @@ class TestAnthropicCaching:
         prepared = llm._build_request_messages(params, message_param, history=[])
 
         assert prepared == [message_param]
+
+    def test_cache_plan_accounts_for_provider_message_prefix(self):
+        llm = self._create_llm(cache_mode="auto")
+        history = [
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="request")],
+            ),
+            PromptMessageExtended(
+                role="assistant",
+                content=[TextContent(type="text", text="response")],
+            ),
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="tool result")],
+            ),
+        ]
+        prefix = BetaMessageParam(
+            role="user",
+            content=[BetaTextBlockParam(type="text", text="provider prefix")],
+        )
+        converted = [prefix, *map(AnthropicConverter.convert_to_anthropic, history)]
+
+        llm._apply_anthropic_cache_plan(
+            arguments={},
+            messages=converted,
+            params=llm.get_request_params(RequestParams(use_history=True)),
+            cache_mode="auto",
+            history=history,
+            current_extended=history[-1],
+            pre_message_count=1,
+        )
+
+        assert all(_cache_control(block) is None for block in _content_dicts(prefix))
+        assert _cache_control(_content_dicts(converted[1])[-1]) is not None
+        assert _cache_control(_content_dicts(converted[3])[-1]) is not None
+
+    def test_cache_plan_skips_non_one_to_one_message_conversion(self):
+        llm = self._create_llm(cache_mode="prompt")
+        history = [
+            _message("template 1", is_template=True),
+            _message("template 2", is_template=True),
+        ]
+        provider_messages = [AnthropicConverter.convert_to_anthropic(history[0])]
+
+        llm._apply_anthropic_cache_plan(
+            arguments={},
+            messages=provider_messages,
+            params=llm.get_request_params(RequestParams(use_history=True)),
+            cache_mode="prompt",
+            history=history,
+            current_extended=history[-1],
+            history_message_count=1,
+        )
+
+        assert _count_cache_controls(provider_messages) == 0
+
+    def test_cache_plan_uses_current_when_history_conversion_is_empty(self):
+        llm = self._create_llm(cache_mode="auto")
+        history = [_message("discarded history")]
+        current = _message("current request")
+        provider_messages = [AnthropicConverter.convert_to_anthropic(current)]
+
+        llm._apply_anthropic_cache_plan(
+            arguments={},
+            messages=provider_messages,
+            params=llm.get_request_params(RequestParams(use_history=True)),
+            cache_mode="auto",
+            history=history,
+            current_extended=current,
+            history_message_count=0,
+        )
+
+        assert _count_cache_controls(provider_messages) == 1
+
+    def test_list_valued_system_prompt_receives_cache_marker(self):
+        llm = self._create_llm(cache_mode="auto", cache_ttl="1h")
+        arguments = {
+            "system": [
+                BetaTextBlockParam(type="text", text="first"),
+                BetaTextBlockParam(type="text", text="second"),
+            ]
+        }
+
+        assert llm._apply_system_cache(arguments, "auto") == 1
+
+        system = arguments["system"]
+        assert isinstance(system, list)
+        assert "cache_control" not in system[0]
+        assert system[1]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+    def test_cache_diagnostics_beta_and_response_channel_are_opt_in(self):
+        ctx = self._create_context_with_cache_mode("auto")
+        assert ctx.config is not None
+        assert ctx.config.anthropic is not None
+        ctx.config.anthropic.cache_diagnostics = True
+        llm = AnthropicLLM(context=ctx)
+
+        flags = llm._resolve_anthropic_beta_flags(
+            model="claude-sonnet-5",
+            structured_mode=None,
+            thinking_enabled=False,
+            request_tools=[],
+            web_tool_betas=[],
+            cache_diagnostics_enabled=llm._cache_diagnostics_enabled(),
+        )
+        response = BetaMessage(
+            id="msg_current",
+            type="message",
+            role="assistant",
+            content=[],
+            model="claude-sonnet-5",
+            stop_reason="end_turn",
+            stop_sequence=None,
+            usage=BetaUsage(input_tokens=1, output_tokens=1),
+            diagnostics=BetaDiagnostics(cache_miss_reason=None),
+        )
+
+        channels = llm._anthropic_response_channels(
+            response,
+            model="claude-sonnet-5",
+            thinking_segments=[],
+            tool_calls=None,
+        )
+
+        assert CACHE_DIAGNOSIS_BETA in flags
+        assert channels is not None
+        [block] = channels[ANTHROPIC_CACHE_DIAGNOSTICS_CHANNEL]
+        assert isinstance(block, TextContent)
+        assert json.loads(block.text) == {
+            "cache_miss_reason": None,
+            "kind": "anthropic_cache_diagnosis",
+            "response_id": "msg_current",
+            "status": "pending",
+        }
+
+    def test_enabled_cache_diagnostics_records_pending_null_response(self):
+        llm = self._create_llm(cache_mode="auto")
+        response = BetaMessage(
+            id="msg_pending",
+            type="message",
+            role="assistant",
+            content=[],
+            model="claude-sonnet-5",
+            stop_reason="end_turn",
+            stop_sequence=None,
+            usage=BetaUsage(input_tokens=1, output_tokens=1),
+            diagnostics=None,
+        )
+
+        channels = llm._anthropic_response_channels(
+            response,
+            model="claude-sonnet-5",
+            thinking_segments=[],
+            tool_calls=None,
+            cache_diagnostics_enabled=True,
+        )
+
+        assert channels is not None
+        [block] = channels[ANTHROPIC_CACHE_DIAGNOSTICS_CHANNEL]
+        assert isinstance(block, TextContent)
+        assert json.loads(block.text) == {
+            "cache_miss_reason": None,
+            "kind": "anthropic_cache_diagnosis",
+            "response_id": "msg_pending",
+            "status": "pending",
+        }
+
+    @pytest.mark.asyncio
+    async def test_anthropic_tool_payload_preserves_order_across_requests(self):
+        llm = self._create_llm(cache_mode="auto")
+        tools = [
+            Tool(name="zeta", description="last alphabetically", inputSchema={"type": "object"}),
+            Tool(name="alpha", description="first alphabetically", inputSchema={"type": "object"}),
+        ]
+
+        first = await llm._prepare_tools("claude-sonnet-5", tools=tools)
+        second = await llm._prepare_tools("claude-sonnet-5", tools=tools)
+
+        assert [tool["name"] for tool in first] == ["zeta", "alpha"]
+        assert second == first
+
+    @pytest.mark.asyncio
+    async def test_cache_diagnostics_links_consecutive_requests(self):
+        ctx = self._create_context_with_cache_mode("auto")
+        assert ctx.config is not None
+        assert ctx.config.anthropic is not None
+        ctx.config.anthropic.cache_diagnostics = True
+        llm = RecordingCacheDiagnosticsLLM(context=ctx, model="claude-sonnet-5")
+        first_user = PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="first")],
+        )
+
+        first_assistant = await llm._anthropic_completion(
+            AnthropicConverter.convert_to_anthropic(first_user),
+            history=[first_user],
+            current_extended=first_user,
+        )
+        second_user = PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="second")],
+        )
+        await llm._anthropic_completion(
+            AnthropicConverter.convert_to_anthropic(second_user),
+            history=[first_user, first_assistant, second_user],
+            current_extended=second_user,
+        )
+        await llm._anthropic_completion(
+            AnthropicConverter.convert_to_anthropic(first_user),
+            history=[first_user],
+            current_extended=first_user,
+        )
+
+        assert llm.requests[0]["diagnostics"] == {"previous_message_id": None}
+        assert llm.requests[1]["diagnostics"] == {"previous_message_id": "msg_1"}
+        assert llm.requests[2]["diagnostics"] == {"previous_message_id": None}
+        assert CACHE_DIAGNOSIS_BETA in llm.requests[1]["betas"]
+
+    @pytest.mark.asyncio
+    async def test_cache_diagnostics_preserves_authentication_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ctx = self._create_context_with_cache_mode("auto")
+        assert ctx.config is not None
+        assert ctx.config.anthropic is not None
+        ctx.config.anthropic.cache_diagnostics = True
+        llm = RecordingCacheDiagnosticsLLM(context=ctx, model="claude-sonnet-5")
+        error = AuthenticationError(
+            message="invalid API key",
+            response=httpx.Response(
+                401,
+                request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+            ),
+            body=None,
+        )
+
+        async def return_authentication_error(
+            **kwargs: object,
+        ) -> tuple[AuthenticationError, list[str], list[str]]:
+            del kwargs
+            return error, [], []
+
+        monkeypatch.setattr(
+            llm,
+            "_execute_anthropic_stream",
+            return_authentication_error,
+        )
+        current = _message("hello")
+
+        with pytest.raises(ProviderKeyError, match="Invalid Anthropic API key"):
+            await llm._anthropic_completion(
+                AnthropicConverter.convert_to_anthropic(current),
+                history=[current],
+                current_extended=current,
+            )
+
+        assert llm._cache_diagnostics_previous_message_id is None
 
     def test_auto_mode_pins_cache_to_managed_process_start(self):
         llm = self._create_llm(cache_mode="auto")

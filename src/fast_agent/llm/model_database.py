@@ -198,8 +198,8 @@ class ModelDatabase:
         "explaining what you’re about to do."
     )
     ANTHROPIC_MODEL_SPECIFIC = (
-        "When `execute` runs a POSIX shell, create text files with single-quoted heredocs "
-        "(`<<'EOF'`), combining related files in one `execute` call. Use `edit_file` for "
+        "When running POSIX shell commands, create text files with single-quoted heredocs "
+        "(`<<'EOF'`), combining related files in one shell call. Use `edit_file` for "
         "targeted changes to existing files. Do not serialize independent file creation "
         "across turns."
     )

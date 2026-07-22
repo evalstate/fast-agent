@@ -16,6 +16,7 @@ from fast_agent.types import LlmStopReason
 from fast_agent.utils.tool_names import (
     EXECUTE_TOOL_NAME,
     POLL_PROCESS_TOOL_NAME,
+    PROCESS_TOOL_NAME,
     SHELL_BUILTIN_TOOL_NAMES,
     TERMINATE_PROCESS_TOOL_NAME,
     is_read_text_file_tool_name,
@@ -224,7 +225,7 @@ def _tool_call_name(call: "CallToolRequest") -> str:
 
 def _tool_use_requests_only(
     message: "PromptMessageExtended",
-    predicate: Callable[[str], bool],
+    predicate: Callable[[CallToolRequest], bool],
 ) -> bool:
     if message.stop_reason != LlmStopReason.TOOL_USE:
         return False
@@ -233,10 +234,7 @@ def _tool_use_requests_only(
     if not tool_calls:
         return False
 
-    return all(
-        (tool_name := _tool_call_name(call)) and predicate(tool_name)
-        for call in tool_calls.values()
-    )
+    return all(predicate(call) for call in tool_calls.values())
 
 
 def tool_use_requests_shell_access(
@@ -250,7 +248,8 @@ def tool_use_requests_shell_access(
     if assume_execute_is_shell:
         built_in_aliases.add(EXECUTE_TOOL_NAME)
 
-    def _is_shell_tool(tool_name: str) -> bool:
+    def _is_shell_tool(call: CallToolRequest) -> bool:
+        tool_name = _tool_call_name(call)
         normalized = normalize_tool_name(tool_name)
 
         if shell_tool_name and matches_tool_name(tool_name, shell_tool_name):
@@ -268,7 +267,8 @@ def tool_use_requests_file_read_access(
 ) -> bool:
     """Return True when this TOOL_USE turn only requests read_text_file calls."""
 
-    def _is_read_tool(tool_name: str) -> bool:
+    def _is_read_tool(call: CallToolRequest) -> bool:
+        tool_name = _tool_call_name(call)
         if read_tool_name and matches_tool_name(tool_name, read_tool_name):
             return True
 
@@ -280,11 +280,17 @@ def tool_use_requests_file_read_access(
 def tool_use_requests_process_lifecycle(message: "PromptMessageExtended") -> bool:
     """Return True for turns containing only managed-process lifecycle calls."""
 
-    def _is_process_lifecycle_tool(tool_name: str) -> bool:
-        return normalize_tool_name(tool_name) in {
+    def _is_process_lifecycle_tool(call: CallToolRequest) -> bool:
+        tool_name = _tool_call_name(call)
+        if normalize_tool_name(tool_name) in {
             POLL_PROCESS_TOOL_NAME,
             TERMINATE_PROCESS_TOOL_NAME,
-        }
+        }:
+            return True
+        if not matches_tool_name(tool_name, PROCESS_TOOL_NAME):
+            return False
+        arguments = call.params.arguments or {}
+        return arguments.get("action", "status") in {"status", "wait", "stop"}
 
     return _tool_use_requests_only(message, _is_process_lifecycle_tool)
 
@@ -292,8 +298,14 @@ def tool_use_requests_process_lifecycle(message: "PromptMessageExtended") -> boo
 def tool_use_requests_process_poll(message: "PromptMessageExtended") -> bool:
     """Return True for turns containing only managed-process poll calls."""
 
-    def _is_process_poll_tool(tool_name: str) -> bool:
-        return normalize_tool_name(tool_name) == POLL_PROCESS_TOOL_NAME
+    def _is_process_poll_tool(call: CallToolRequest) -> bool:
+        tool_name = _tool_call_name(call)
+        if normalize_tool_name(tool_name) == POLL_PROCESS_TOOL_NAME:
+            return True
+        if not matches_tool_name(tool_name, PROCESS_TOOL_NAME):
+            return False
+        arguments = call.params.arguments or {}
+        return arguments.get("action", "status") in {"status", "wait"}
 
     return _tool_use_requests_only(message, _is_process_poll_tool)
 

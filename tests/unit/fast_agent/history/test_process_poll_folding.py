@@ -163,6 +163,56 @@ def test_process_cache_boundary_survives_poll_folding():
     assert managed_process_poll_cache_boundary(effective_history) == 2
 
 
+@pytest.mark.parametrize("explicit_wait_sec", [None, 30])
+def test_minimal_process_aliases_preserve_folding_and_cache_boundary(
+    explicit_wait_sec: int | None,
+) -> None:
+    history = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="start the service")],
+        ),
+        *_managed_process_start(),
+        _poll_request(1),
+        _poll_result(1, output_line_count=0),
+        _poll_request(2),
+        _poll_result(2, output_line_count=0),
+        _poll_request(3),
+    ]
+    start_calls = history[1].tool_calls
+    assert start_calls is not None
+    start = next(iter(start_calls.values()))
+    start.params.name = "Bash"
+    start.params.arguments = {
+        "command": "sleep 500",
+        "run_in_background": True,
+    }
+    for message in history[3::2]:
+        calls = message.tool_calls
+        assert calls is not None
+        call = next(iter(calls.values()))
+        call.params.name = "Process"
+        call.params.arguments = {
+            "process_id": "process-1",
+            "action": "wait",
+        }
+        if explicit_wait_sec is not None:
+            call.params.arguments["wait_sec"] = explicit_wait_sec
+    for message in history[4::2]:
+        _update_result_metadata(message, poll_wait_sec=30)
+
+    terminal_result = _poll_result(3, status="completed", output_line_count=0)
+    _update_result_metadata(terminal_result, poll_wait_sec=30)
+    assert managed_process_poll_cache_boundary([*history, terminal_result]) == 2
+    folded = fold_completed_process_poll_history(
+        history,
+        terminal_result,
+    )
+    assert folded is not None
+    assert folded.metadata["process_id"] == "process-1"
+    assert folded.metadata["requested_waits"] == {30: 3}
+
+
 def _summary_result(folded) -> CallToolResult:
     results = folded.tool_message.tool_results
     assert results is not None

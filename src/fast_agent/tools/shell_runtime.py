@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-import math
 import posixpath
+import shutil
+import tempfile
 import time
 from collections import deque
 from contextlib import nullcontext, suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from mcp.types import CallToolResult, TextContent, Tool
 from rich.text import Text
@@ -23,12 +24,10 @@ if TYPE_CHECKING:
 from fast_agent.agents.tool_agent import _tool_progress_context
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
-    FAST_AGENT_SHELL_PROCESS_METADATA,
     MAX_MANAGED_SHELL_PROCESSES,
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
     TERMINAL_BYTES_PER_TOKEN,
 )
-from fast_agent.core.logging.progress_payloads import build_progress_payload
 from fast_agent.event_progress import ProgressAction
 from fast_agent.tools.execution_environment import (
     ShellExecution,
@@ -36,20 +35,45 @@ from fast_agent.tools.execution_environment import (
     ShellRuntimeInfo,
     execute_shell,
 )
-from fast_agent.tools.filesystem_tool_args import (
-    coerce_optional_string_argument,
-    coerce_positive_int_argument,
-    coerce_required_string_argument,
-    coerce_tool_arguments,
-)
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
-from fast_agent.tools.output_truncation import format_output_truncation_notice
 from fast_agent.tools.process_resources import (
-    ProcessResourceObservationState,
     ProcessResourceSnapshot,
-    ProcessResourceSnapshotMetadata,
     observe_resource_changes,
     sample_process_resources,
+)
+from fast_agent.tools.shell_command import (
+    ShellDetachmentKind as ShellDetachmentKind,
+)
+from fast_agent.tools.shell_command import (
+    classify_shell_detachment as classify_shell_detachment,
+)
+from fast_agent.tools.shell_output import ShellOutputBuffer
+from fast_agent.tools.shell_process import (
+    ActiveProcessPoll,
+    ManagedProcessSnapshot,
+    ManagedShellProcess,
+    ProcessResultMetadata,
+    ShellDisplayState,
+    ShellRuntimeCallbacks,
+    build_managed_process_result,
+    process_result,
+    process_result_metadata,
+)
+from fast_agent.tools.shell_progress import ShellProgressReporter
+from fast_agent.tools.shell_tool_definitions import (
+    PROCESS_OUTPUT_DEBOUNCE_SECONDS,
+    ShellExecuteArguments,
+    build_execute_tool,
+    build_minimal_bash_tool,
+    build_minimal_process_tool,
+    build_poll_process_tool,
+    build_terminate_process_tool,
+    parse_execute_arguments,
+    parse_minimal_bash_arguments,
+    parse_minimal_process_arguments,
+    parse_poll_process_arguments,
+    parse_terminate_process_arguments,
+    set_poll_process_tool_default_wait_seconds,
 )
 from fast_agent.tools.tool_sources import SHELL_TOOL_SOURCE, set_tool_source
 from fast_agent.ui import console
@@ -63,35 +87,33 @@ from fast_agent.ui.shell_output_truncation import (
 from fast_agent.utils.path_display import format_relative_path
 from fast_agent.utils.text import summarize_command
 from fast_agent.utils.tool_names import (
+    BASH_TOOL_NAME,
     EXECUTE_TOOL_NAME,
     POLL_PROCESS_TOOL_NAME,
+    PROCESS_TOOL_NAME,
     TERMINATE_PROCESS_TOOL_NAME,
 )
 
 _IO_DRAIN_TIMEOUT_SECONDS = 2.0
 _DEFAULT_IDLE_YIELD_SECONDS = 10
 _DEFAULT_FOREGROUND_YIELD_SECONDS = 30
-_MAX_IDLE_YIELD_SECONDS = 30
+_DEFAULT_MINIMAL_PROCESS_WAIT_SECONDS = 30
+_MINIMAL_PROCESS_MIN_WAIT_SECONDS = 10
+_PROCESS_OUTPUT_DEBOUNCE_SECONDS = PROCESS_OUTPUT_DEBOUNCE_SECONDS
 
 
 def _default_max_process_poll_seconds() -> int:
     from fast_agent.config import ShellSettings
 
     return ShellSettings().process_poll_max_wait_seconds
-_EXECUTE_ARGUMENTS = frozenset(
-    {
-        "command",
-        "cwd",
-        "background",
-        "lifecycle",
-        "yield_after_idle_sec",
-        "output_byte_limit",
-    }
-)
-_POLL_PROCESS_ARGUMENTS = frozenset({"process_id", "wait_sec", "wake_on_output"})
-_TERMINATE_PROCESS_ARGUMENTS = frozenset({"process_id"})
-_PROCESS_OUTPUT_DEBOUNCE_SECONDS = 2.0
-_PROCESS_PROGRESS_EMIT_INTERVAL_SECONDS = 1.0
+
+
+def _default_minimal_process_profile() -> bool:
+    from fast_agent.config import ShellSettings
+
+    return ShellSettings().tool_profile == "minimal_process"
+
+
 _RESOURCE_OBSERVATION_TIMEOUT_SECONDS = 0.075
 
 
@@ -102,213 +124,18 @@ def _text_result(message: str, *, is_error: bool) -> CallToolResult:
     )
 
 
-class ProcessResultMetadata(TypedDict, total=False):
-    """Durable metadata emitted by managed-process lifecycle tools."""
-
-    process_id: str
-    lifecycle: Literal["session", "persistent"]
-    process_status: str
-    process_yield_reason: str | None
-    process_elapsed_seconds: float
-    os_process_id: int | None
-    exit_code: int
-    output_line_count: int
-    output_bytes_since_last_poll: int
-    seconds_since_last_output: float
-    has_observed_output: bool
-    total_output_bytes: int
-    poll_wait_sec: int
-    poll_wake_on_output: bool
-    poll_elapsed_seconds: float
-    poll_deadline_overshoot_seconds: float
-    resource_snapshot: ProcessResourceSnapshotMetadata
-    resource_observation: str
-
-
-def process_result_metadata(result: CallToolResult) -> ProcessResultMetadata | None:
-    """Return the canonical managed-process metadata attached to a result."""
-    metadata = (result.meta or {}).get(FAST_AGENT_SHELL_PROCESS_METADATA)
-    if not isinstance(metadata, dict):
-        return None
-    return cast("ProcessResultMetadata", metadata)
-
-
-def _process_result(
-    message: str,
-    *,
-    is_error: bool,
-    metadata: ProcessResultMetadata,
-) -> CallToolResult:
-    result = _text_result(message, is_error=is_error)
-    result.meta = {
-        **(result.meta or {}),
-        FAST_AGENT_SHELL_PROCESS_METADATA: metadata,
-    }
-    # Shell result rendering consumes this transient projection. Process lifecycle
-    # consumers read the canonical durable metadata above.
-    if "output_line_count" in metadata:
-        cast("Any", result).output_line_count = metadata["output_line_count"]
-    return result
-
-
-@dataclass(slots=True)
-class _ShellOutputState:
-    output_byte_limit: int
-    output_byte_limit_requested: bool = False
-    output_segments: list[str] = field(default_factory=list)
-    output_tail_bytes: bytearray = field(default_factory=bytearray)
-    output_bytes: int = 0
-    total_output_bytes: int = 0
-    output_truncated: bool = False
-    truncation_notice_printed: bool = False
-    had_stream_output: bool = False
-    output_line_count: int = 0
-    unread_output_line_count: int = 0
-    lifetime_output_bytes: int = 0
-
-
-@dataclass(slots=True)
-class _ShellDisplayState:
-    use_live_shell_display: bool
-    display_line_limit: int | None
-    display_head_limit: int = 0
-    display_tail_limit: int = 0
-    displayed_head_count: int = 0
-    display_total_line_count: int = 0
-    display_overflowed: bool = False
-    display_ellipsis_printed: bool = False
-    timeout_notice_printed: bool = False
-    display_tail_buffer: deque[tuple[int, str, str | None]] = field(
-        default_factory=lambda: deque(maxlen=1)
-    )
-
-
-@dataclass(slots=True)
-class _ShellRuntimeCallbacks:
-    runtime: ShellRuntime
-    output_state: _ShellOutputState
-    display_state: _ShellDisplayState
-    activity_event: asyncio.Event = field(default_factory=asyncio.Event)
-    started_event: asyncio.Event = field(default_factory=asyncio.Event)
-    os_process_id: int | None = None
-    last_output_time: float = field(default_factory=time.monotonic)
-    process: _ManagedShellProcess | None = None
-
-    async def on_started(self, process_id: int | None) -> None:
-        self.os_process_id = process_id
-        try:
-            if self.process is not None:
-                await self.runtime._capture_process_resource_baseline(self.process)
-        finally:
-            self.started_event.set()
-
-    async def on_stdout(self, text: str) -> None:
-        self.runtime._record_stream_output(
-            text,
-            style=None,
-            output_state=self.output_state,
-            display_state=self.display_state,
-            is_stderr=False,
-        )
-        self.last_output_time = time.monotonic()
-        self.activity_event.set()
-        if self.process is not None:
-            self.runtime._emit_managed_process_output_progress(self.process)
-
-    async def on_stderr(self, text: str) -> None:
-        self.runtime._record_stream_output(
-            text,
-            style="red",
-            output_state=self.output_state,
-            display_state=self.display_state,
-            is_stderr=True,
-        )
-        self.last_output_time = time.monotonic()
-        self.activity_event.set()
-        if self.process is not None:
-            self.runtime._emit_managed_process_output_progress(self.process)
-
-    async def on_idle_warning(self, elapsed: float, remaining: float) -> None:
-        if self.display_state.use_live_shell_display:
-            console.console.print(
-                f"▶ No output detected - terminating in {int(remaining)}s",
-                style="black on red",
-            )
-        await self.runtime._emit_watchdog_progress(elapsed)
-
-    async def on_timeout(self) -> None:
-        self.runtime._print_timeout_notice(self.display_state)
-
-
 @dataclass(slots=True)
 class _ShellRuntimeExecution:
     execution: ShellExecution
-    output_state: _ShellOutputState
-    display_state: _ShellDisplayState
+    output_state: ShellOutputBuffer
+    display_state: ShellDisplayState
 
 
 @dataclass(frozen=True, slots=True)
-class _ShellExecuteArguments:
-    command: str
-    cwd: str | None
-    background: bool
-    lifecycle: Literal["session", "persistent"]
-    yield_after_idle_sec: int | None
-    output_byte_limit: int | None
-
-
-@dataclass(frozen=True, slots=True)
-class _PollProcessArguments:
-    process_id: str
-    wait_sec: int
-    wake_on_output: bool
-
-
-@dataclass(slots=True)
-class _ActiveProcessPoll:
-    tool_use_id: str
-    deadline_at: float
-    started_at: float
-    last_progress_emitted_at: float = 0.0
-    pending_progress_task: asyncio.Task[None] | None = None
-    heartbeat_task: asyncio.Task[None] | None = None
-
-
-@dataclass(slots=True)
-class _ManagedShellProcess:
-    process_id: str
-    command: str
-    working_directory: str
-    started_at: float
-    task: asyncio.Task[ShellExecution]
-    request: ShellExecutionRequest
-    lifecycle: Literal["session", "persistent"]
-    callbacks: _ShellRuntimeCallbacks
-    output_state: _ShellOutputState
-    display_state: _ShellDisplayState
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    poll_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    completed_at: float | None = None
-    terminated: bool = False
-    buffered_result_recorded: bool = False
-    active_poll: _ActiveProcessPoll | None = None
-    resource_observations: ProcessResourceObservationState = field(
-        default_factory=ProcessResourceObservationState
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class ManagedProcessSnapshot:
-    """Immutable user-facing state for one retained managed process."""
-
-    process_id: str
-    command: str
-    working_directory: str
-    status: str
-    elapsed_seconds: float
-    os_process_id: int | None
-    total_output_bytes: int
-    exit_code: int | None
+class _ManagedProcessOperation:
+    kind: Literal["status", "wait", "stop"]
+    process_id: str | None
+    wait_sec: int | None
 
 
 def _coerce_output_byte_limit(output_byte_limit: int | None) -> int:
@@ -345,6 +172,7 @@ class ShellRuntime:
         )
         self._activation_reason = activation_reason
         self._logger = logger
+        self._progress = ShellProgressReporter(logger, agent_name)
         self._timeout_seconds = timeout_seconds
         self._warning_interval_seconds = warning_interval_seconds
         self._output_byte_limit = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
@@ -356,19 +184,36 @@ class ShellRuntime:
         self._agent_name = agent_name
         self._idle_yield_seconds = idle_yield_seconds
         self._foreground_yield_seconds = foreground_yield_seconds
-        self._managed_processes: dict[str, _ManagedShellProcess] = {}
+        self._managed_processes: dict[str, ManagedShellProcess] = {}
         self._next_process_id = 1
         self._processes_lock = asyncio.Lock()
         self._output_display_lines: int | None = None
         self._show_bash_output = True
         self._prefer_local_shell = False
         self._max_process_poll_seconds = _default_max_process_poll_seconds()
+        self._minimal_process_profile = _default_minimal_process_profile()
+        self._retained_output_directory: Path | None = None
+        self._retained_output_max_bytes = 0
+        self._retained_output_next_id = 1
         if config is not None:
             shell_config = config.shell_execution
             self._output_display_lines = shell_config.output_display_lines
             self._show_bash_output = shell_config.show_bash
             self._prefer_local_shell = shell_config.prefer_local_shell
             self._max_process_poll_seconds = shell_config.process_poll_max_wait_seconds
+            self._minimal_process_profile = shell_config.tool_profile == "minimal_process"
+            self._retained_output_max_bytes = shell_config.retained_output_max_bytes
+            if shell_config.retain_truncated_output:
+                parent = shell_config.retained_output_temp_directory
+                if parent is not None:
+                    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                self._retained_output_directory = Path(
+                    tempfile.mkdtemp(
+                        prefix="fast-agent-output-",
+                        dir=str(parent) if parent is not None else None,
+                    )
+                )
+                self._retained_output_directory.chmod(0o700)
         self._process_poll_default_wait_seconds = min(
             process_poll_default_wait_seconds,
             self._max_process_poll_seconds,
@@ -376,158 +221,36 @@ class ShellRuntime:
         self._resource_observations_enabled = self.runtime_info().kind == "local"
 
         if self.enabled:
-            # Detect the shell early so we can include it in the tool description
-            runtime_info = self.runtime_info()
-            shell_name = runtime_info.name
-
-            self._tool = set_tool_source(
-                Tool(
-                    name=EXECUTE_TOOL_NAME,
-                    description=(
-                        f"Run one shell command in {shell_name}. Most commands return when they "
-                        "exit. If a foreground command remains active for 10 seconds without "
-                        "output or 30 seconds total, it keeps running and returns a process ID; "
-                        "use poll_process to monitor it or terminate_process to stop it. Set "
-                        "`background=true` for known long-running commands. Explicit background "
-                        "commands default to `lifecycle='persistent'` and remain running after "
-                        "the agent runtime exits; set `lifecycle='session'` for temporary "
-                        "concurrent jobs that should be terminated at shutdown. Automatically "
-                        "yielded foreground commands remain session-scoped. Do not append '&'. "
-                        "`cwd` and `output_byte_limit` apply only to this command. Pipelines report "
-                        "the final command's status unless you enable `pipefail`."
+            shell_name = self.runtime_info().name
+            if self._minimal_process_profile:
+                self._tool = set_tool_source(
+                    build_minimal_bash_tool(shell_name=shell_name),
+                    SHELL_TOOL_SOURCE,
+                )
+                self._poll_process_tool = set_tool_source(
+                    build_minimal_process_tool(
+                        default_wait_seconds=self._minimal_process_wait_seconds(),
+                        max_wait_seconds=self._max_process_poll_seconds,
                     ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "command": {
-                                "type": "string",
-                                "description": "Command string only - no shell executable prefix (correct: 'pwd', incorrect: 'bash -c pwd').",
-                            },
-                            "cwd": {
-                                "type": "string",
-                                "description": "Optional working directory for this command only.",
-                            },
-                            "background": {
-                                "type": "boolean",
-                                "description": (
-                                    "Return promptly while the command continues running as a "
-                                    "managed process. By default it remains running after the "
-                                    "agent runtime exits. Set lifecycle='session' for temporary "
-                                    "concurrent work that should be terminated at shutdown. Do "
-                                    "not append '&' to the command."
-                                ),
-                            },
-                            "lifecycle": {
-                                "type": "string",
-                                "enum": ["session", "persistent"],
-                                "default": "persistent",
-                                "description": (
-                                    "Lifetime of a background command. Omitted lifecycle defaults "
-                                    "to 'persistent' when background=true. 'session' terminates "
-                                    "the process when the agent runtime exits. 'persistent' leaves "
-                                    "it running in the execution environment after the agent "
-                                    "exits. Automatically yielded foreground commands are always "
-                                    "session-scoped."
-                                ),
-                            },
-                            "yield_after_idle_sec": {
-                                "type": "integer",
-                                "description": (
-                                    "Optional seconds without output before returning a live "
-                                    "process ID without stopping the command. Defaults to 10."
-                                ),
-                                "minimum": 1,
-                                "maximum": _MAX_IDLE_YIELD_SECONDS,
-                            },
-                            "output_byte_limit": {
-                                "type": "integer",
-                                "description": (
-                                    "Optional maximum output bytes returned to the model for this "
-                                    "command (clamped to "
-                                    f"{MAX_TERMINAL_OUTPUT_BYTE_LIMIT}). Complete output is not "
-                                    "retained after truncation."
-                                ),
-                                "minimum": 1,
-                                "maximum": MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
-                            },
-                        },
-                        "required": ["command"],
-                        "additionalProperties": False,
-                    },
-                ),
-                SHELL_TOOL_SOURCE,
-            )
-            self._poll_process_tool = set_tool_source(
-                Tool(
-                    name=POLL_PROCESS_TOOL_NAME,
-                    description=(
-                        "Wait for a managed shell process to exit or for the polling deadline. "
-                        "Completion always returns promptly. Routine stdout/stderr is buffered "
-                        "and included when the call returns, but does not end the wait by default. "
-                        "Omit `wait_sec` to use the model default declared in the schema, or use "
-                        "0 for a non-blocking status check. Set `wake_on_output=true` only when "
-                        "new output must affect the next action immediately; output-triggered "
-                        f"returns are debounced until output has been quiet for "
-                        f"{_PROCESS_OUTPUT_DEBOUNCE_SECONDS:g} seconds, while continuous output "
-                        "remains buffered until completion or the deadline. Repeated polls return "
-                        "only output not returned previously."
+                    SHELL_TOOL_SOURCE,
+                )
+                self._terminate_process_tool = None
+            else:
+                self._tool = set_tool_source(
+                    build_execute_tool(shell_name=shell_name),
+                    SHELL_TOOL_SOURCE,
+                )
+                self._poll_process_tool = set_tool_source(
+                    build_poll_process_tool(
+                        default_wait_seconds=self._process_poll_default_wait_seconds,
+                        max_wait_seconds=self._max_process_poll_seconds,
                     ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "process_id": {
-                                "type": "string",
-                                "description": "Process ID returned by execute.",
-                            },
-                            "wait_sec": {
-                                "type": "integer",
-                                "default": self._process_poll_default_wait_seconds,
-                                "description": (
-                                    "Optional wait in seconds, from 0 through "
-                                    f"{self._max_process_poll_seconds}."
-                                ),
-                                "minimum": 0,
-                                "maximum": self._max_process_poll_seconds,
-                            },
-                            "wake_on_output": {
-                                "type": "boolean",
-                                "default": False,
-                                "description": (
-                                    "Return after new output has been quiet for "
-                                    f"{_PROCESS_OUTPUT_DEBOUNCE_SECONDS:g} seconds. Defaults to "
-                                    "false so routine output remains buffered until the process "
-                                    "completes or wait_sec elapses. Continuous output does not "
-                                    "return early."
-                                ),
-                            },
-                        },
-                        "required": ["process_id"],
-                        "additionalProperties": False,
-                    },
-                ),
-                SHELL_TOOL_SOURCE,
-            )
-            self._terminate_process_tool = set_tool_source(
-                Tool(
-                    name=TERMINATE_PROCESS_TOOL_NAME,
-                    description=(
-                        "Terminate a managed shell process and its process group. Returns success "
-                        "if the process was terminated or had already exited."
-                    ),
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "process_id": {
-                                "type": "string",
-                                "description": "Process ID returned by execute.",
-                            }
-                        },
-                        "required": ["process_id"],
-                        "additionalProperties": False,
-                    },
-                ),
-                SHELL_TOOL_SOURCE,
-            )
+                    SHELL_TOOL_SOURCE,
+                )
+                self._terminate_process_tool = set_tool_source(
+                    build_terminate_process_tool(),
+                    SHELL_TOOL_SOURCE,
+                )
         else:
             self._poll_process_tool = None
             self._terminate_process_tool = None
@@ -563,7 +286,7 @@ class ShellRuntime:
 
     @staticmethod
     def _process_snapshot(
-        process: _ManagedShellProcess,
+        process: ManagedShellProcess,
         *,
         now: float,
     ) -> ManagedProcessSnapshot:
@@ -663,7 +386,11 @@ class ShellRuntime:
         """Build metadata for display when the shell tool is invoked."""
         info = self.runtime_info()
         try:
-            parsed = self._parse_execute_arguments(arguments)
+            parsed = (
+                parse_minimal_bash_arguments(arguments)
+                if self._minimal_process_profile
+                else parse_execute_arguments(arguments)
+            )
         except ValueError:
             parsed = None
         command = parsed.command if parsed is not None else arguments.get("command")
@@ -707,17 +434,14 @@ class ShellRuntime:
         arguments: dict[str, Any],
     ) -> dict[str, Any]:
         """Build compact display metadata for process lifecycle tools."""
+        operation = self._managed_process_operation(tool_name, arguments)
         metadata: dict[str, Any] = {
             "variant": "shell_process",
-            "action": "poll"
-            if tool_name == POLL_PROCESS_TOOL_NAME
-            else "terminate",
-            "process_id": arguments.get("process_id"),
-            "wait_sec": arguments.get(
-                "wait_sec", self._process_poll_default_wait_seconds
-            ),
+            "action": "terminate" if operation.kind == "stop" else "poll",
+            "process_id": operation.process_id,
+            "wait_sec": operation.wait_sec,
         }
-        process_id = arguments.get("process_id")
+        process_id = operation.process_id
         process = (
             self._managed_processes.get(process_id)
             if isinstance(process_id, str)
@@ -744,226 +468,63 @@ class ShellRuntime:
         )
         return metadata
 
-    def _process_progress_details(
+    def _managed_process_operation(
         self,
-        metadata: dict[str, Any],
-    ) -> str:
-        return str(metadata.get("process_id") or "process")
-
-    def _emit_managed_process_output_progress(
-        self,
-        process: _ManagedShellProcess,
-    ) -> None:
-        """Refresh an active poll row, coalescing chatty output bursts."""
-        active_poll = process.active_poll
-        if active_poll is None:
-            return
-
-        now = time.monotonic()
-        remaining = (
-            _PROCESS_PROGRESS_EMIT_INTERVAL_SECONDS
-            - (now - active_poll.last_progress_emitted_at)
-        )
-        if remaining > 0:
-            pending = active_poll.pending_progress_task
-            if pending is None or pending.done():
-                active_poll.pending_progress_task = asyncio.create_task(
-                    self._emit_deferred_managed_process_output_progress(
-                        process,
-                        active_poll,
-                        delay=remaining,
-                    ),
-                    name=f"fast-agent-{process.process_id}-progress",
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> _ManagedProcessOperation:
+        if tool_name == PROCESS_TOOL_NAME and self._minimal_process_profile:
+            try:
+                parsed = parse_minimal_process_arguments(
+                    arguments,
+                    min_wait_seconds=_MINIMAL_PROCESS_MIN_WAIT_SECONDS,
+                    max_wait_seconds=self._max_process_poll_seconds,
                 )
-            return
-        self._emit_managed_process_output_progress_now(process, active_poll)
-
-    async def _emit_deferred_managed_process_output_progress(
-        self,
-        process: _ManagedShellProcess,
-        active_poll: _ActiveProcessPoll,
-        *,
-        delay: float,
-    ) -> None:
-        await asyncio.sleep(delay)
-        active_poll.pending_progress_task = None
-        self._emit_managed_process_output_progress_now(process, active_poll)
-
-    def _emit_managed_process_output_progress_now(
-        self,
-        process: _ManagedShellProcess,
-        active_poll: _ActiveProcessPoll,
-    ) -> None:
-        self._emit_managed_process_poll_progress_now(
-            process,
-            active_poll,
-            has_fresh_output=True,
-            log_message="Process output progress",
-        )
-
-    def _emit_managed_process_poll_progress_now(
-        self,
-        process: _ManagedShellProcess,
-        active_poll: _ActiveProcessPoll,
-        *,
-        has_fresh_output: bool,
-        log_message: str,
-    ) -> None:
-        if process.active_poll is not active_poll:
-            return
-
-        now = time.monotonic()
-        active_poll.last_progress_emitted_at = now
-        seconds_since_last_output = max(now - process.callbacks.last_output_time, 0.0)
-        self._emit_progress_event(
-            action=ProgressAction.CALLING_TOOL,
-            tool_use_id=active_poll.tool_use_id,
-            tool_name=POLL_PROCESS_TOOL_NAME,
-            tool_event="progress",
-            details=process.process_id,
-            process_elapsed_seconds=max(now - process.started_at, 0.0),
-            process_command=summarize_command(process.command),
-            process_id=process.process_id,
-            # Keep the original poll budget stable so the UI countdown track can
-            # drain against task elapsed time instead of a shrinking remainder.
-            process_wait_seconds=max(
-                math.ceil(active_poll.deadline_at - active_poll.started_at),
-                0,
-            ),
-            process_has_observed_output=(
-                True
-                if has_fresh_output
-                else process.output_state.had_stream_output
-            ),
-            process_seconds_since_last_output=(
-                0.0 if has_fresh_output else seconds_since_last_output
-            ),
-            process_total_output_bytes=process.output_state.lifetime_output_bytes,
-            log_message=log_message,
-        )
-
-    async def _poll_progress_heartbeat(
-        self,
-        process: _ManagedShellProcess,
-        active_poll: _ActiveProcessPoll,
-    ) -> None:
-        """Keep the monitoring row alive during quiet waits (e.g. sleep)."""
-        try:
-            while process.active_poll is active_poll and not process.task.done():
-                await asyncio.sleep(_PROCESS_PROGRESS_EMIT_INTERVAL_SECONDS)
-                if process.active_poll is not active_poll:
-                    return
-                self._emit_managed_process_poll_progress_now(
-                    process,
-                    active_poll,
-                    has_fresh_output=False,
-                    log_message="Process poll heartbeat",
+            except ValueError:
+                return _ManagedProcessOperation(
+                    kind="status",
+                    process_id=None,
+                    wait_sec=0,
                 )
-        except asyncio.CancelledError:
-            return
+            return _ManagedProcessOperation(
+                kind=parsed.action,
+                process_id=parsed.process_id,
+                wait_sec=(
+                    None
+                    if parsed.action == "stop"
+                    else 0
+                    if parsed.action == "status"
+                    else (
+                        parsed.wait_sec
+                        if parsed.wait_sec is not None
+                        else self._minimal_process_wait_seconds()
+                    )
+                ),
+            )
+
+        process_id = arguments.get("process_id")
+        return _ManagedProcessOperation(
+            kind="stop" if tool_name == TERMINATE_PROCESS_TOOL_NAME else "wait",
+            process_id=process_id if isinstance(process_id, str) else None,
+            wait_sec=(
+                None
+                if tool_name == TERMINATE_PROCESS_TOOL_NAME
+                else arguments.get("wait_sec", self._process_poll_default_wait_seconds)
+            ),
+        )
 
     def _invalid_execute_result(self, message: str) -> CallToolResult:
         return _text_result(message, is_error=True)
 
-    def _parse_execute_arguments(
-        self,
-        arguments: dict[str, Any] | None,
-    ) -> _ShellExecuteArguments:
-        payload = coerce_tool_arguments(arguments)
-        unknown = sorted(set(payload) - _EXECUTE_ARGUMENTS)
-        if unknown:
-            if unknown in (["timeout"], ["timeout_sec"]):
-                raise ValueError(
-                    f"Error: unknown argument {unknown[0]!r}; use 'yield_after_idle_sec' to "
-                    "return a live process ID without stopping the command"
-                )
-            rendered = ", ".join(repr(name) for name in unknown)
-            raise ValueError(f"Error: unknown execute argument(s): {rendered}")
-
-        yield_after_idle_sec = coerce_positive_int_argument(
-            payload.get("yield_after_idle_sec"),
-            "yield_after_idle_sec",
+    def _minimal_process_wait_seconds(self) -> int:
+        configured_wait = (
+            self._process_poll_default_wait_seconds
+            if self._process_poll_default_wait_seconds > 0
+            else _DEFAULT_MINIMAL_PROCESS_WAIT_SECONDS
         )
-        if (
-            yield_after_idle_sec is not None
-            and yield_after_idle_sec > _MAX_IDLE_YIELD_SECONDS
-        ):
-            raise ValueError(
-                f"Error: 'yield_after_idle_sec' argument must be at most "
-                f"{_MAX_IDLE_YIELD_SECONDS}"
-            )
-        background = payload.get("background", False)
-        if type(background) is not bool:
-            raise ValueError("Error: 'background' argument must be a boolean")
-        lifecycle = payload.get(
-            "lifecycle",
-            "persistent" if background else "session",
-        )
-        if lifecycle not in {"session", "persistent"}:
-            raise ValueError(
-                "Error: 'lifecycle' argument must be 'session' or 'persistent'"
-            )
-        if lifecycle == "persistent" and not background:
-            raise ValueError(
-                "Error: lifecycle='persistent' requires background=true"
-            )
-
-        output_byte_limit = coerce_positive_int_argument(
-            payload.get("output_byte_limit"),
-            "output_byte_limit",
-        )
-        if output_byte_limit is not None:
-            output_byte_limit = min(
-                output_byte_limit,
-                MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
-            )
-
-        return _ShellExecuteArguments(
-            command=coerce_required_string_argument(
-                payload.get("command"),
-                "command",
-                strip=True,
-            ),
-            cwd=coerce_optional_string_argument(
-                payload.get("cwd"),
-                "cwd",
-                empty_as_none=True,
-                strip=True,
-            ),
-            background=background,
-            lifecycle=cast("Literal['session', 'persistent']", lifecycle),
-            yield_after_idle_sec=yield_after_idle_sec,
-            output_byte_limit=output_byte_limit,
-        )
-
-    def _parse_poll_process_arguments(
-        self,
-        arguments: dict[str, Any] | None,
-    ) -> _PollProcessArguments:
-        payload = coerce_tool_arguments(arguments)
-        unknown = sorted(set(payload) - _POLL_PROCESS_ARGUMENTS)
-        if unknown:
-            rendered = ", ".join(repr(name) for name in unknown)
-            raise ValueError(f"Error: unknown poll_process argument(s): {rendered}")
-        wait_sec = payload.get("wait_sec", self._process_poll_default_wait_seconds)
-        if type(wait_sec) is not int or wait_sec < 0:
-            raise ValueError("Error: 'wait_sec' argument must be a non-negative integer")
-        if wait_sec > self._max_process_poll_seconds:
-            raise ValueError(
-                "Error: 'wait_sec' argument must be at most "
-                f"{self._max_process_poll_seconds}"
-            )
-        wake_on_output = payload.get("wake_on_output", False)
-        if type(wake_on_output) is not bool:
-            raise ValueError("Error: 'wake_on_output' argument must be a boolean")
-        return _PollProcessArguments(
-            process_id=coerce_required_string_argument(
-                payload.get("process_id"),
-                "process_id",
-                strip=True,
-            ),
-            wait_sec=wait_sec,
-            wake_on_output=wake_on_output,
+        return min(
+            max(configured_wait, _MINIMAL_PROCESS_MIN_WAIT_SECONDS),
+            self._max_process_poll_seconds,
         )
 
     def set_process_poll_default_wait_seconds(self, value: int) -> None:
@@ -974,34 +535,25 @@ class ShellRuntime:
             self._max_process_poll_seconds,
         )
         if self._poll_process_tool is not None:
-            wait_schema = self._poll_process_tool.inputSchema["properties"]["wait_sec"]
-            wait_schema["default"] = self._process_poll_default_wait_seconds
-
-    @staticmethod
-    def _parse_terminate_process_arguments(
-        arguments: dict[str, Any] | None,
-    ) -> str:
-        payload = coerce_tool_arguments(arguments)
-        unknown = sorted(set(payload) - _TERMINATE_PROCESS_ARGUMENTS)
-        if unknown:
-            rendered = ", ".join(repr(name) for name in unknown)
-            raise ValueError(f"Error: unknown terminate_process argument(s): {rendered}")
-        return coerce_required_string_argument(
-            payload.get("process_id"),
-            "process_id",
-            strip=True,
-        )
+            set_poll_process_tool_default_wait_seconds(
+                self._poll_process_tool,
+                default_wait_seconds=(
+                    self._minimal_process_wait_seconds()
+                    if self._minimal_process_profile
+                    else self._process_poll_default_wait_seconds
+                ),
+            )
 
     def _build_display_state(
         self,
         *,
         defer_display_to_tool_result: bool,
         display_line_limit: int | None = None,
-    ) -> _ShellDisplayState:
+    ) -> ShellDisplayState:
         use_live_shell_display = (
             self._show_bash_output and not defer_display_to_tool_result and display_tools_enabled()
         )
-        state = _ShellDisplayState(
+        state = ShellDisplayState(
             use_live_shell_display=use_live_shell_display,
             display_line_limit=display_line_limit,
         )
@@ -1012,56 +564,11 @@ class ShellRuntime:
             state.display_tail_buffer = deque(maxlen=max(display_window.tail_lines, 1))
         return state
 
-    def _append_output_text(self, output_text: str, state: _ShellOutputState) -> None:
-        output_blob = output_text.encode("utf-8", errors="replace")
-        state.total_output_bytes += len(output_blob)
-        state.lifetime_output_bytes += len(output_blob)
-        self._append_output_tail(output_blob, state)
-        if state.output_truncated:
-            return
-
-        remaining = state.output_byte_limit - state.output_bytes
-        if remaining <= 0:
-            state.output_truncated = True
-            return
-        if len(output_blob) <= remaining:
-            state.output_segments.append(output_text)
-            state.output_bytes += len(output_blob)
-            return
-
-        truncated_text = output_blob[:remaining].decode("utf-8", errors="replace")
-        if truncated_text:
-            state.output_segments.append(truncated_text)
-        state.output_bytes += remaining
-        state.output_truncated = True
-
-    def _append_output_tail(self, output_blob: bytes, state: _ShellOutputState) -> None:
-        tail_limit = self._truncated_tail_byte_limit(state.output_byte_limit)
-        if len(output_blob) >= tail_limit:
-            state.output_tail_bytes = bytearray(output_blob[-tail_limit:])
-            return
-
-        state.output_tail_bytes.extend(output_blob)
-        overflow = len(state.output_tail_bytes) - tail_limit
-        if overflow > 0:
-            del state.output_tail_bytes[:overflow]
-
-    @staticmethod
-    def _truncated_tail_byte_limit(output_byte_limit: int) -> int:
-        return max(output_byte_limit // 2, 1)
-
-    @staticmethod
-    def _truncated_head_byte_limit(output_byte_limit: int) -> int:
-        return max(
-            output_byte_limit - ShellRuntime._truncated_tail_byte_limit(output_byte_limit),
-            1,
-        )
-
     def _maybe_print_truncation_notice(
         self,
         *,
-        output_state: _ShellOutputState,
-        display_state: _ShellDisplayState,
+        output_state: ShellOutputBuffer,
+        display_state: ShellDisplayState,
     ) -> None:
         if output_state.truncation_notice_printed or not output_state.output_truncated:
             return
@@ -1083,7 +590,7 @@ class ShellRuntime:
         output_state.truncation_notice_printed = True
 
     @staticmethod
-    def _truncation_notice_style(output_state: _ShellOutputState) -> str:
+    def _truncation_notice_style(output_state: ShellOutputBuffer) -> str:
         return (
             "black on blue"
             if output_state.output_byte_limit_requested
@@ -1092,7 +599,7 @@ class ShellRuntime:
 
     def _print_timeout_notice(
         self,
-        display_state: _ShellDisplayState,
+        display_state: ShellDisplayState,
         *,
         timeout_seconds: float | None = None,
     ) -> None:
@@ -1109,7 +616,7 @@ class ShellRuntime:
         text: str,
         style: str | None,
         *,
-        display_state: _ShellDisplayState,
+        display_state: ShellDisplayState,
     ) -> None:
         if not display_state.use_live_shell_display:
             return
@@ -1149,15 +656,15 @@ class ShellRuntime:
         text: str,
         *,
         style: str | None,
-        output_state: _ShellOutputState,
-        display_state: _ShellDisplayState,
+        output_state: ShellOutputBuffer,
+        display_state: ShellDisplayState,
         is_stderr: bool,
     ) -> None:
         output_state.had_stream_output = True
         output_state.output_line_count += 1
         output_state.unread_output_line_count += 1
         output_text = text if not is_stderr else f"[stderr] {text}"
-        self._append_output_text(output_text, output_state)
+        output_state.append(output_text)
         self._maybe_print_truncation_notice(
             output_state=output_state,
             display_state=display_state,
@@ -1183,120 +690,7 @@ class ShellRuntime:
         except Exception:
             return
 
-    def _truncation_summary(
-        self,
-        output_state: _ShellOutputState,
-        *,
-        head_bytes: int | None = None,
-        tail_bytes: int | None = None,
-    ) -> str | None:
-        if not output_state.output_truncated:
-            return None
-        retained_bytes = (
-            output_state.output_bytes
-            if head_bytes is None or tail_bytes is None
-            else head_bytes + tail_bytes
-        )
-        retained_tokens = max(int(retained_bytes / TERMINAL_BYTES_PER_TOKEN), 1)
-        total_tokens = max(int(output_state.total_output_bytes / TERMINAL_BYTES_PER_TOKEN), 1)
-        omitted_bytes = max(output_state.total_output_bytes - retained_bytes, 0)
-        if head_bytes is not None and tail_bytes is not None:
-            return format_output_truncation_notice(
-                label="Output",
-                total_bytes=output_state.total_output_bytes,
-                head_bytes=head_bytes,
-                tail_bytes=tail_bytes,
-                guidance="Increase shell_execution.output_byte_limit to retain more.",
-            )
-        return (
-            "[Output truncated: retained "
-            f"{output_state.output_bytes} of {output_state.total_output_bytes} bytes "
-            f"(~{retained_tokens} of ~{total_tokens} tokens); "
-            f"omitted {omitted_bytes} bytes. "
-            "Increase shell_execution.output_byte_limit to retain more.]"
-        )
-
-    def _truncated_combined_output(self, output_state: _ShellOutputState) -> str:
-        head_limit = self._truncated_head_byte_limit(output_state.output_byte_limit)
-        head_blob = "".join(output_state.output_segments).encode("utf-8", errors="replace")[
-            :head_limit
-        ]
-        tail_blob = bytes(output_state.output_tail_bytes)[
-            -self._truncated_tail_byte_limit(output_state.output_byte_limit) :
-        ]
-
-        parts: list[str] = []
-        if head_blob:
-            head_text = head_blob.decode("utf-8", errors="replace")
-            parts.append(head_text if head_text.endswith("\n") else f"{head_text}\n")
-
-        truncation_summary = self._truncation_summary(
-            output_state,
-            head_bytes=len(head_blob),
-            tail_bytes=len(tail_blob),
-        )
-        if truncation_summary:
-            parts.append(f"{truncation_summary}\n")
-
-        if tail_blob:
-            tail_text = tail_blob.decode("utf-8", errors="replace")
-            parts.append(tail_text if tail_text.endswith("\n") else f"{tail_text}\n")
-
-        return "".join(parts)
-
-    def _consume_combined_output(self, output_state: _ShellOutputState) -> str:
-        combined_output = (
-            self._truncated_combined_output(output_state)
-            if output_state.output_truncated
-            else "".join(output_state.output_segments)
-        )
-        output_state.output_segments.clear()
-        output_state.output_tail_bytes.clear()
-        output_state.output_bytes = 0
-        output_state.total_output_bytes = 0
-        output_state.output_truncated = False
-        output_state.truncation_notice_printed = False
-        output_state.unread_output_line_count = 0
-        return combined_output
-
-    def _build_shell_result(
-        self,
-        *,
-        execution: ShellExecution,
-        output_state: _ShellOutputState,
-    ) -> tuple[CallToolResult, str]:
-        shell_result = execution.result
-        combined_output = (
-            self._truncated_combined_output(output_state)
-            if output_state.output_truncated
-            else "".join(output_state.output_segments)
-        )
-        if combined_output and not combined_output.endswith("\n"):
-            combined_output += "\n"
-
-        if execution.io_drain_timed_out:
-            combined_output += (
-                f"(output collection stopped after {_IO_DRAIN_TIMEOUT_SECONDS:.1f}s "
-                "because stdout/stderr pipes remained open)\n"
-            )
-
-        if execution.timed_out:
-            combined_output += (
-                f"(timeout after {execution.options.timeout_seconds:g}s - process terminated)"
-            )
-            return (
-                _text_result(combined_output, is_error=True),
-                f"failed (timeout after {execution.options.timeout_seconds:g}s)",
-            )
-
-        combined_output += f"process exit code was {shell_result.exit_code}"
-        completion_state = "completed" if shell_result.exit_code == 0 else "failed"
-        return (
-            _text_result(combined_output, is_error=shell_result.exit_code != 0),
-            f"{completion_state} (exit {shell_result.exit_code})",
-        )
-
-    def _flush_live_display_tail(self, display_state: _ShellDisplayState) -> None:
+    def _flush_live_display_tail(self, display_state: ShellDisplayState) -> None:
         if (
             not display_state.use_live_shell_display
             or display_state.display_line_limit is None
@@ -1322,8 +716,8 @@ class ShellRuntime:
         result: CallToolResult,
         *,
         shell_result: ShellExecutionResult,
-        output_state: _ShellOutputState,
-        display_state: _ShellDisplayState,
+        output_state: ShellOutputBuffer,
+        display_state: ShellDisplayState,
         tool_use_id: str | None,
         show_tool_call_id: bool,
         defer_display_to_tool_result: bool,
@@ -1359,13 +753,15 @@ class ShellRuntime:
         defer_display_to_tool_result: bool,
         display_line_limit: int | None,
     ) -> _ShellRuntimeExecution:
-        output_state = _ShellOutputState(
+        output_state = ShellOutputBuffer(
             output_byte_limit=(
                 self._output_byte_limit
                 if output_byte_limit is None
                 else output_byte_limit
             ),
             output_byte_limit_requested=output_byte_limit is not None,
+            retained_output_path=self._next_retained_output_path(),
+            retained_output_max_bytes=self._retained_output_max_bytes,
         )
         display_state = self._build_display_state(
             defer_display_to_tool_result=defer_display_to_tool_result,
@@ -1378,8 +774,9 @@ class ShellRuntime:
                 env=env,
                 timeout=self._timeout_seconds if timeout is None else timeout,
             ),
-            callbacks=_ShellRuntimeCallbacks(
+            callbacks=ShellRuntimeCallbacks(
                 runtime=self,
+                progress=self._progress,
                 output_state=output_state,
                 display_state=display_state,
             ),
@@ -1392,24 +789,27 @@ class ShellRuntime:
 
     async def _start_managed_process(
         self,
-        parsed: _ShellExecuteArguments,
+        parsed: ShellExecuteArguments,
         *,
         defer_display_to_tool_result: bool,
-    ) -> _ManagedShellProcess:
-        output_state = _ShellOutputState(
+    ) -> ManagedShellProcess:
+        output_state = ShellOutputBuffer(
             output_byte_limit=(
                 self._output_byte_limit
                 if parsed.output_byte_limit is None
                 else parsed.output_byte_limit
             ),
             output_byte_limit_requested=parsed.output_byte_limit is not None,
+            retained_output_path=self._next_retained_output_path(),
+            retained_output_max_bytes=self._retained_output_max_bytes,
         )
         display_state = self._build_display_state(
             defer_display_to_tool_result=defer_display_to_tool_result,
             display_line_limit=self._output_display_lines,
         )
-        callbacks = _ShellRuntimeCallbacks(
+        callbacks = ShellRuntimeCallbacks(
             runtime=self,
+            progress=self._progress,
             output_state=output_state,
             display_state=display_state,
         )
@@ -1446,7 +846,7 @@ class ShellRuntime:
                 self._environment.execute(request, callbacks=callbacks),
                 name=f"fast-agent-{process_id}",
             )
-            process = _ManagedShellProcess(
+            process = ManagedShellProcess(
                 process_id=process_id,
                 command=parsed.command,
                 working_directory=working_directory,
@@ -1470,7 +870,7 @@ class ShellRuntime:
 
     @staticmethod
     def _record_managed_process_completion(
-        process: _ManagedShellProcess,
+        process: ManagedShellProcess,
         completed_task: asyncio.Task[ShellExecution],
     ) -> None:
         del completed_task
@@ -1515,13 +915,22 @@ class ShellRuntime:
             return str(Path(candidate).resolve())
         return posixpath.normpath(candidate)
 
-    async def _get_managed_process(self, process_id: str) -> _ManagedShellProcess | None:
+    def _next_retained_output_path(self) -> Path | None:
+        if self._retained_output_directory is None:
+            return None
+        path = self._retained_output_directory / (
+            f"output-{self._retained_output_next_id}.log"
+        )
+        self._retained_output_next_id += 1
+        return path
+
+    async def _get_managed_process(self, process_id: str) -> ManagedShellProcess | None:
         async with self._processes_lock:
             return self._managed_processes.get(process_id)
 
     async def _sample_managed_process_resources(
         self,
-        process: _ManagedShellProcess,
+        process: ManagedShellProcess,
     ) -> ProcessResourceSnapshot | None:
         if not self._resource_observations_enabled:
             return None
@@ -1534,7 +943,7 @@ class ShellRuntime:
 
     async def _capture_process_resource_baseline(
         self,
-        process: _ManagedShellProcess,
+        process: ManagedShellProcess,
     ) -> None:
         snapshot = await self._sample_managed_process_resources(process)
         if snapshot is not None:
@@ -1542,7 +951,7 @@ class ShellRuntime:
 
     async def _wait_for_initial_process_result(
         self,
-        process: _ManagedShellProcess,
+        process: ManagedShellProcess,
         *,
         idle_yield_seconds: float,
     ) -> str | None:
@@ -1577,7 +986,7 @@ class ShellRuntime:
 
         return None
 
-    def _record_buffered_process_result(self, process: _ManagedShellProcess) -> None:
+    def _record_buffered_process_result(self, process: ManagedShellProcess) -> None:
         if process.buffered_result_recorded or not process.task.done():
             return
         process.buffered_result_recorded = True
@@ -1643,136 +1052,16 @@ class ShellRuntime:
 
     def _managed_process_result(
         self,
-        process: _ManagedShellProcess,
+        process: ManagedShellProcess,
         *,
         yielded_reason: str | None = None,
     ) -> CallToolResult:
         self._record_buffered_process_result(process)
-        unread_output_line_count = process.output_state.unread_output_line_count
-        output = self._consume_combined_output(process.output_state)
-        sections: list[str] = []
-        if output:
-            sections.append(output.rstrip("\n"))
-
-        elapsed = time.monotonic() - process.started_at
-        if yielded_reason == "background":
-            sections.append(f"effective_lifecycle: {process.lifecycle}")
-        if not process.task.done():
-            if yielded_reason == "background":
-                reason = "started in the background"
-            elif yielded_reason == "idle":
-                reason = "reached the no-output yield threshold"
-            elif yielded_reason == "foreground":
-                reason = "reached the foreground yield threshold"
-            else:
-                reason = "is still running"
-            status_message = (
-                "Process is still running."
-                if yielded_reason is None
-                else f"Process is still running because it {reason}."
-            )
-            sections.extend(
-                [
-                    status_message,
-                    f"process_id: {process.process_id}",
-                    f"elapsed_seconds: {elapsed:.1f}",
-                    f"total_output_bytes: {process.output_state.lifetime_output_bytes}",
-                    (
-                        f"Use {POLL_PROCESS_TOOL_NAME} to monitor it or "
-                        f"{TERMINATE_PROCESS_TOOL_NAME} to stop it."
-                    ),
-                ]
-            )
-            if process.callbacks.os_process_id is not None:
-                sections.insert(-3, f"os_pid: {process.callbacks.os_process_id}")
-            result = _process_result(
-                "\n".join(sections),
-                is_error=False,
-                metadata={
-                    "process_id": process.process_id,
-                    "lifecycle": process.lifecycle,
-                    "process_status": "running",
-                    "process_yield_reason": yielded_reason,
-                    "process_elapsed_seconds": elapsed,
-                    "os_process_id": process.callbacks.os_process_id,
-                    "output_line_count": unread_output_line_count,
-                    "total_output_bytes": process.output_state.lifetime_output_bytes,
-                },
-            )
-            cast("Any", result)._suppress_display = yielded_reason is not None or not output
-            return result
-
-        if process.task.cancelled():
-            status = "terminated" if process.terminated else "cancelled"
-            sections.extend(
-                [
-                    f"process_id: {process.process_id}",
-                    f"process status: {status}",
-                ]
-            )
-            return _process_result(
-                "\n".join(sections),
-                is_error=False,
-                metadata={
-                    "process_id": process.process_id,
-                    "lifecycle": process.lifecycle,
-                    "process_status": status,
-                    "process_elapsed_seconds": elapsed,
-                    "os_process_id": process.callbacks.os_process_id,
-                    "output_line_count": unread_output_line_count,
-                    "total_output_bytes": process.output_state.lifetime_output_bytes,
-                },
-            )
-
-        exception = process.task.exception()
-        if exception is not None:
-            sections.extend(
-                [
-                    f"process_id: {process.process_id}",
-                    f"Command execution failed: {exception}",
-                ]
-            )
-            return _process_result(
-                "\n".join(sections),
-                is_error=True,
-                metadata={
-                    "process_id": process.process_id,
-                    "lifecycle": process.lifecycle,
-                    "process_status": "failed",
-                    "process_elapsed_seconds": elapsed,
-                    "os_process_id": process.callbacks.os_process_id,
-                    "output_line_count": unread_output_line_count,
-                    "total_output_bytes": process.output_state.lifetime_output_bytes,
-                },
-            )
-
-        execution = process.task.result()
-        if execution.io_drain_timed_out:
-            sections.append(
-                f"Output collection stopped after {_IO_DRAIN_TIMEOUT_SECONDS:.1f}s because "
-                "stdout/stderr pipes remained open."
-            )
-        sections.extend(
-            [
-                f"process_id: {process.process_id}",
-                f"process exit code was {execution.result.exit_code}",
-            ]
-        )
-        return _process_result(
-            "\n".join(sections),
-            is_error=execution.result.exit_code != 0,
-            metadata={
-                "process_id": process.process_id,
-                "lifecycle": process.lifecycle,
-                "process_status": (
-                    "completed" if execution.result.exit_code == 0 else "failed"
-                ),
-                "process_elapsed_seconds": elapsed,
-                "os_process_id": process.callbacks.os_process_id,
-                "exit_code": execution.result.exit_code,
-                "output_line_count": unread_output_line_count,
-                "total_output_bytes": process.output_state.lifetime_output_bytes,
-            },
+        return build_managed_process_result(
+            process,
+            yielded_reason=yielded_reason,
+            minimal_process_profile=self._minimal_process_profile,
+            io_drain_timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
         )
 
     async def poll_process(
@@ -1784,7 +1073,11 @@ class ShellRuntime:
         """Return incremental output and status for a managed process."""
         poll_started_at = time.monotonic()
         try:
-            parsed = self._parse_poll_process_arguments(arguments)
+            parsed = parse_poll_process_arguments(
+                arguments,
+                default_wait_seconds=self._process_poll_default_wait_seconds,
+                max_wait_seconds=self._max_process_poll_seconds,
+            )
         except ValueError as exc:
             return _text_result(str(exc), is_error=True)
 
@@ -1806,7 +1099,7 @@ class ShellRuntime:
             output_wake = False
             poll_started_at_monotonic = time.monotonic()
             active_poll = (
-                _ActiveProcessPoll(
+                ActiveProcessPoll(
                     tool_use_id=progress_tool_use_id,
                     deadline_at=poll_started_at_monotonic + parsed.wait_sec,
                     started_at=poll_started_at_monotonic,
@@ -1819,7 +1112,7 @@ class ShellRuntime:
                 # Quiet processes (sleep) never stream output; heartbeat keeps
                 # the live countdown bar visible for the whole wait.
                 active_poll.heartbeat_task = asyncio.create_task(
-                    self._poll_progress_heartbeat(process, active_poll),
+                    self._progress.poll_heartbeat(process, active_poll),
                     name=f"fast-agent-{process.process_id}-poll-heartbeat",
                 )
             try:
@@ -1905,7 +1198,7 @@ class ShellRuntime:
 
     @staticmethod
     async def _wait_for_managed_process_poll(
-        process: _ManagedShellProcess,
+        process: ManagedShellProcess,
         *,
         wait_sec: int,
         wake_on_output: bool,
@@ -1966,7 +1259,7 @@ class ShellRuntime:
     ) -> CallToolResult:
         """Terminate one managed process through the environment cancellation contract."""
         try:
-            process_id = self._parse_terminate_process_arguments(arguments)
+            process_id = parse_terminate_process_arguments(arguments)
         except ValueError as exc:
             return _text_result(str(exc), is_error=True)
 
@@ -1979,7 +1272,7 @@ class ShellRuntime:
 
         async with process.lock:
             if process.task.done():
-                return _process_result(
+                return process_result(
                     f"process_id: {process_id}\noutcome: already_exited",
                     is_error=False,
                     metadata={
@@ -1995,7 +1288,7 @@ class ShellRuntime:
                 exception = process.task.exception()
                 if exception is not None:
                     process.terminated = False
-                    return _process_result(
+                    return process_result(
                         f"process_id: {process_id}\noutcome: termination_failed\n"
                         f"error: {exception}",
                         is_error=True,
@@ -2004,7 +1297,7 @@ class ShellRuntime:
                             "process_status": "termination_failed",
                         },
                     )
-            return _process_result(
+            return process_result(
                 f"process_id: {process_id}\noutcome: terminated",
                 is_error=False,
                 metadata={
@@ -2023,6 +1316,49 @@ class ShellRuntime:
         defer_display_to_tool_result: bool = False,
     ) -> CallToolResult:
         """Dispatch one model-facing shell lifecycle tool."""
+        if name == BASH_TOOL_NAME and self._minimal_process_profile:
+            try:
+                parsed = parse_minimal_bash_arguments(arguments)
+            except ValueError as exc:
+                return self._invalid_execute_result(str(exc))
+            return await self._execute_parsed(
+                parsed,
+                tool_use_id,
+                show_tool_call_id=show_tool_call_id,
+                defer_display_to_tool_result=defer_display_to_tool_result,
+            )
+        if name == PROCESS_TOOL_NAME and self._minimal_process_profile:
+            try:
+                parsed_process = parse_minimal_process_arguments(
+                    arguments,
+                    min_wait_seconds=_MINIMAL_PROCESS_MIN_WAIT_SECONDS,
+                    max_wait_seconds=self._max_process_poll_seconds,
+                )
+            except ValueError as exc:
+                return _text_result(str(exc), is_error=True)
+            if parsed_process.action == "stop":
+                return await self._call_process_lifecycle_tool(
+                    TERMINATE_PROCESS_TOOL_NAME,
+                    {"process_id": parsed_process.process_id},
+                    tool_use_id=tool_use_id,
+                )
+            wait_sec = (
+                0
+                if parsed_process.action == "status"
+                else (
+                    parsed_process.wait_sec
+                    if parsed_process.wait_sec is not None
+                    else self._minimal_process_wait_seconds()
+                )
+            )
+            return await self._call_process_lifecycle_tool(
+                POLL_PROCESS_TOOL_NAME,
+                {
+                    "process_id": parsed_process.process_id,
+                    "wait_sec": wait_sec,
+                },
+                tool_use_id=tool_use_id,
+            )
         if name == EXECUTE_TOOL_NAME:
             return await self.execute(
                 arguments,
@@ -2054,14 +1390,13 @@ class ShellRuntime:
         process_id = (arguments or {}).get("process_id")
         payload = arguments or {}
         process_metadata = self.process_tool_metadata(name, payload)
+        start_details = self._progress.process_details(process_metadata)
         if name == POLL_PROCESS_TOOL_NAME:
-            start_details = self._process_progress_details(process_metadata)
             operation = self.poll_process(
                 arguments,
                 progress_tool_use_id=tool_use_id,
             )
         else:
-            start_details = self._process_progress_details(process_metadata)
             operation = self.terminate_process(arguments)
 
         elapsed = process_metadata.get("elapsed_seconds")
@@ -2075,7 +1410,7 @@ class ShellRuntime:
         seconds_since_last_output = process_metadata.get("seconds_since_last_output")
         has_observed_output = process_metadata.get("has_observed_output")
         total_output_bytes = process_metadata.get("total_output_bytes")
-        self._emit_progress_event(
+        self._progress.emit(
             action=ProgressAction.CALLING_TOOL,
             tool_use_id=tool_use_id,
             tool_name=name,
@@ -2111,7 +1446,7 @@ class ShellRuntime:
             metadata.get("process_yield_reason") if metadata is not None else None
         )
         details = f"{process_id}: {status}" if process_id and status else status
-        self._emit_progress_event(
+        self._progress.emit(
             action=ProgressAction.TOOL_PROGRESS,
             tool_use_id=tool_use_id,
             tool_name=name,
@@ -2154,6 +1489,9 @@ class ShellRuntime:
                 *(process.task for process in processes),
                 return_exceptions=True,
             )
+        if self._retained_output_directory is not None:
+            shutil.rmtree(self._retained_output_directory, ignore_errors=True)
+            self._retained_output_directory = None
 
     async def execute_shell(
         self,
@@ -2229,9 +1567,24 @@ class ShellRuntime:
     ) -> CallToolResult:
         """Execute a command until completion or yield it as a managed process."""
         try:
-            parsed = self._parse_execute_arguments(arguments)
+            parsed = parse_execute_arguments(arguments)
         except ValueError as exc:
             return self._invalid_execute_result(str(exc))
+        return await self._execute_parsed(
+            parsed,
+            tool_use_id,
+            show_tool_call_id=show_tool_call_id,
+            defer_display_to_tool_result=defer_display_to_tool_result,
+        )
+
+    async def _execute_parsed(
+        self,
+        parsed: ShellExecuteArguments,
+        tool_use_id: str | None,
+        *,
+        show_tool_call_id: bool,
+        defer_display_to_tool_result: bool,
+    ) -> CallToolResult:
         idle_yield_seconds = (
             self._idle_yield_seconds
             if parsed.yield_after_idle_sec is None
@@ -2248,7 +1601,7 @@ class ShellRuntime:
         progress_context = progress_display.paused() if display_tools_enabled() else nullcontext()
         with progress_context:
             try:
-                self._emit_progress_event(
+                self._progress.emit(
                     action=ProgressAction.CALLING_TOOL,
                     tool_use_id=tool_use_id,
                     tool_event="start",
@@ -2333,7 +1686,7 @@ class ShellRuntime:
                     )
                 else:
                     completion_details = process_status
-                self._emit_progress_event(
+                self._progress.emit(
                     action=ProgressAction.TOOL_PROGRESS,
                     tool_use_id=tool_use_id,
                     details=completion_details,
@@ -2344,7 +1697,7 @@ class ShellRuntime:
 
             except Exception as exc:
                 self._logger.error(f"Execute tool failed: {exc}")
-                self._emit_progress_event(
+                self._progress.emit(
                     action=ProgressAction.TOOL_PROGRESS,
                     tool_use_id=tool_use_id,
                     details=f"failed: {exc}",
@@ -2352,67 +1705,3 @@ class ShellRuntime:
                     tool_terminal=True,
                 )
                 return _text_result(f"Command execution failed: {exc}", is_error=True)
-
-    def _emit_progress_event(
-        self,
-        *,
-        action: ProgressAction,
-        tool_use_id: str | None,
-        tool_name: str = EXECUTE_TOOL_NAME,
-        tool_event: str | None = None,
-        progress: float | None = None,
-        total: float | None = None,
-        details: str | None = None,
-        tool_state: str | None = None,
-        tool_terminal: bool | None = None,
-        process_elapsed_seconds: float | None = None,
-        process_command: str | None = None,
-        process_id: str | None = None,
-        process_wait_seconds: int | None = None,
-        process_yield_reason: str | None = None,
-        process_has_observed_output: bool | None = None,
-        process_seconds_since_last_output: float | None = None,
-        process_total_output_bytes: int | None = None,
-        log_message: str = "Shell tool lifecycle",
-    ) -> None:
-        """Emit shell tool lifecycle events for progress display when supported."""
-        info = getattr(self._logger, "info", None)
-        if not callable(info):
-            return
-
-        payload: dict[str, Any] = build_progress_payload(
-            action=action,
-            tool_name=tool_name,
-            server_name="local",
-            agent_name=self._agent_name,
-            tool_use_id=tool_use_id,
-            tool_call_id=tool_use_id,
-            tool_event=tool_event,
-            tool_state=tool_state,
-            tool_terminal=tool_terminal,
-            progress=progress,
-            total=total,
-            details=details,
-            extra={
-                key: value
-                for key, value in {
-                    "process_elapsed_seconds": process_elapsed_seconds,
-                    "process_command": process_command,
-                    "process_id": process_id,
-                    "process_wait_seconds": process_wait_seconds,
-                    "process_yield_reason": process_yield_reason,
-                    "process_has_observed_output": process_has_observed_output,
-                    "process_seconds_since_last_output": process_seconds_since_last_output,
-                    "process_total_output_bytes": process_total_output_bytes,
-                }.items()
-                if value is not None
-            },
-        )
-
-        try:
-            info(log_message, data=payload)
-        except TypeError:
-            # Standard library loggers reject custom keyword arguments.
-            return
-        except Exception:
-            return
