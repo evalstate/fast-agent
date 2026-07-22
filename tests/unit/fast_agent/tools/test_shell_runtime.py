@@ -591,16 +591,36 @@ def test_minimal_process_profile_exposes_only_bash_and_process() -> None:
         "run_in_background",
     }
     process_tool = runtime.tools[1]
-    assert set(process_tool.inputSchema["properties"]) == {"process_id", "action"}
+    assert set(process_tool.inputSchema["properties"]) == {
+        "process_id",
+        "action",
+        "wait_sec",
+    }
     assert process_tool.inputSchema["properties"]["action"]["enum"] == [
         "status",
         "wait",
         "stop",
     ]
+    wait_schema = process_tool.inputSchema["properties"]["wait_sec"]
+    assert "default" not in wait_schema
+    assert wait_schema["maximum"] == 250
+    assert "Values below 10 are clamped to 10" in wait_schema["description"]
+    assert "Use 30 seconds unless more frequent monitoring is needed" in (
+        process_tool.description or ""
+    )
 
 
 @pytest.mark.asyncio
-async def test_minimal_bash_rejects_detachment_before_environment_execution() -> None:
+@pytest.mark.parametrize(
+    "command",
+    [
+        "nohup service >service.log 2>&1 &",
+        "service &",
+    ],
+)
+async def test_minimal_bash_rejects_detachment_before_environment_execution(
+    command: str,
+) -> None:
     environment = _RecordingShellEnvironment()
     runtime = ShellRuntime(
         activation_reason="test",
@@ -611,7 +631,7 @@ async def test_minimal_bash_rejects_detachment_before_environment_execution() ->
 
     result = await runtime.call_tool(
         "Bash",
-        {"command": "nohup service >service.log 2>&1 &"},
+        {"command": command},
     )
 
     assert result.isError is True
@@ -672,7 +692,7 @@ async def test_minimal_process_actions_map_to_managed_runtime() -> None:
     )
     waited_metadata = shell_runtime_module.process_result_metadata(waited)
     assert waited_metadata is not None
-    assert waited_metadata["poll_wait_sec"] == 7
+    assert waited_metadata["poll_wait_sec"] == 10
 
 
 @pytest.mark.asyncio
@@ -705,6 +725,32 @@ async def test_minimal_process_wait_uses_nonzero_fallback() -> None:
     assert facade_metadata["wait_sec"] == 30
 
 
+@pytest.mark.asyncio
+async def test_minimal_process_wait_clamps_explicit_budget_to_ten_seconds() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        process_poll_default_wait_seconds=7,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+
+    await runtime.call_tool(
+        "Bash",
+        {"command": "service", "run_in_background": True},
+    )
+    environment.release.set()
+    waited = await runtime.call_tool(
+        "Process",
+        {"process_id": "process-1", "action": "wait", "wait_sec": 3},
+    )
+
+    metadata = shell_runtime_module.process_result_metadata(waited)
+    assert metadata is not None
+    assert metadata["poll_wait_sec"] == 10
+
+
 def test_minimal_process_metadata_matches_facade_operations() -> None:
     runtime = ShellRuntime(
         activation_reason="test",
@@ -731,7 +777,13 @@ def test_minimal_process_metadata_matches_facade_operations() -> None:
         {"process_id": "process-1", "action": "wait"},
     )
     assert wait_metadata["action"] == "poll"
-    assert wait_metadata["wait_sec"] == 7
+    assert wait_metadata["wait_sec"] == 10
+    explicit_wait_metadata = runtime.process_tool_metadata(
+        "Process",
+        {"process_id": "process-1", "action": "wait", "wait_sec": 3},
+    )
+    assert explicit_wait_metadata["action"] == "poll"
+    assert explicit_wait_metadata["wait_sec"] == 10
 
     stop_metadata = runtime.process_tool_metadata(
         "Process",
@@ -739,6 +791,24 @@ def test_minimal_process_metadata_matches_facade_operations() -> None:
     )
     assert stop_metadata["action"] == "terminate"
     assert stop_metadata["wait_sec"] is None
+
+
+@pytest.mark.parametrize("action", ["status", "stop"])
+def test_minimal_process_ignores_wait_for_non_wait_actions(action: str) -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+
+    metadata = runtime.process_tool_metadata(
+        "Process",
+        {"process_id": "process-1", "action": action, "wait_sec": 30},
+    )
+
+    assert metadata["action"] == ("poll" if action == "status" else "terminate")
+    if action == "status":
+        assert metadata["wait_sec"] == 0
 
 
 @pytest.mark.asyncio

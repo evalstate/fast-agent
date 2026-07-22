@@ -24,8 +24,15 @@ from fast_agent.tools.shell_command import classify_shell_detachment
         ("echo one && echo two", True, "none"),
         ("echo 'A&B' 2>&1", True, "none"),
         ("curl 'https://example.test/?a=1&b=2'", True, "none"),
+        ("pytest &>results.log", False, "none"),
+        ("pytest &>>results.log", False, "none"),
+        ("build |& tee build.log", False, "none"),
         ("echo ok # nohup server &", True, "none"),
         ("cat <<'EOF'\nnohup server &\nEOF\n", True, "none"),
+        ("echo '<<EOF'\nnohup server &", False, "service_detach"),
+        ('echo "<<EOF"\nnohup server &', False, "service_detach"),
+        ("echo 'text\n<<EOF'\nnohup server &", False, "service_detach"),
+        ("echo \\<<EOF\nnohup server &", False, "service_detach"),
     ],
 )
 def test_shell_detachment_classifier(

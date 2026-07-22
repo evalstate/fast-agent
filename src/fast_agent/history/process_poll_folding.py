@@ -21,7 +21,12 @@ from fast_agent.history.process_poll_fold_audit import (
     ArchivedPollExchange,
     ProcessPollFoldAudit,
 )
-from fast_agent.tools.shell_runtime import EXECUTE_TOOL_NAME, POLL_PROCESS_TOOL_NAME
+from fast_agent.utils.tool_names import (
+    BASH_TOOL_NAME,
+    EXECUTE_TOOL_NAME,
+    POLL_PROCESS_TOOL_NAME,
+    PROCESS_TOOL_NAME,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -63,12 +68,19 @@ def _single_poll_call(
     if message.role != "assistant" or len(calls) != 1:
         return None
     call_id, request = next(iter(calls.items()))
-    if request.params.name != POLL_PROCESS_TOOL_NAME:
-        return None
     arguments = request.params.arguments or {}
+    if request.params.name == POLL_PROCESS_TOOL_NAME:
+        wait_sec = arguments.get("wait_sec")
+        wake_on_output = arguments.get("wake_on_output", False)
+    elif request.params.name == PROCESS_TOOL_NAME:
+        action = arguments.get("action", "status")
+        if action not in {"status", "wait"}:
+            return None
+        wait_sec = 0 if action == "status" else arguments.get("wait_sec")
+        wake_on_output = False
+    else:
+        return None
     process_id = arguments.get("process_id")
-    wait_sec = arguments.get("wait_sec")
-    wake_on_output = arguments.get("wake_on_output", False)
     if (
         not isinstance(process_id, str)
         or ("wait_sec" in arguments and type(wait_sec) is not int)
@@ -97,7 +109,7 @@ def _managed_process_start_id(
     calls = request.tool_calls or {}
     results = result.tool_results or {}
     for call_id, call in calls.items():
-        if call.params.name != EXECUTE_TOOL_NAME:
+        if call.params.name not in {EXECUTE_TOOL_NAME, BASH_TOOL_NAME}:
             continue
         tool_result = results.get(call_id)
         if tool_result is None:

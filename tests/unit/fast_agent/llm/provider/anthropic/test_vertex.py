@@ -29,6 +29,13 @@ def _build_vertex_llm(config: Settings) -> AnthropicVertexLLM:
     return AnthropicVertexLLM(context=Context(config=config), model="claude-sonnet-4-6")
 
 
+def test_cache_diagnosis_is_first_party_only() -> None:
+    config = Settings(anthropic=AnthropicSettings(cache_diagnostics=True))
+
+    assert _build_direct_llm(config)._cache_diagnostics_enabled() is True
+    assert _build_vertex_llm(config)._cache_diagnostics_enabled() is False
+
+
 def test_vertex_cfg_accepts_model_object() -> None:
     anthropic = AnthropicSettings()
     setattr(

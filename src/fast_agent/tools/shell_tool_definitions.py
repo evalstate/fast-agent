@@ -39,7 +39,7 @@ _POLL_PROCESS_ARGUMENTS = frozenset(
 )
 _TERMINATE_PROCESS_ARGUMENTS = frozenset({"process_id"})
 _MINIMAL_BASH_ARGUMENTS = frozenset({"command", "run_in_background"})
-_MINIMAL_PROCESS_ARGUMENTS = frozenset({"process_id", "action"})
+_MINIMAL_PROCESS_ARGUMENTS = frozenset({"process_id", "action", "wait_sec"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +63,7 @@ class PollProcessArguments:
 class MinimalProcessArguments:
     process_id: str
     action: Literal["status", "wait", "stop"]
+    wait_sec: int | None
 
 
 def build_execute_tool(*, shell_name: str) -> Tool:
@@ -250,14 +251,20 @@ def build_minimal_bash_tool(*, shell_name: str) -> Tool:
     )
 
 
-def build_minimal_process_tool() -> Tool:
+def build_minimal_process_tool(
+    *,
+    default_wait_seconds: int,
+    max_wait_seconds: int,
+) -> Tool:
     return Tool(
         name=PROCESS_TOOL_NAME,
         description=(
             "Inspect, wait for, or stop a managed process returned by Bash. "
-            "`status` returns immediately, `wait` waits for the model-specific "
-            "polling interval (with a nonzero fallback when the model has none), "
-            "and `stop` terminates the process group."
+            "`status` returns immediately. `wait` accepts an optional `wait_sec`; "
+            "when omitted it uses the configured model-specific polling interval "
+            "(with a nonzero fallback when the model has none). "
+            f"Use {default_wait_seconds} seconds unless more frequent monitoring "
+            "is needed. `stop` terminates the process group."
         ),
         inputSchema={
             "type": "object",
@@ -270,6 +277,15 @@ def build_minimal_process_tool() -> Tool:
                     "type": "string",
                     "enum": ["status", "wait", "stop"],
                     "default": "status",
+                },
+                "wait_sec": {
+                    "type": "integer",
+                    "description": (
+                        "Optional wait in seconds for action='wait', from 0 through "
+                        f"{max_wait_seconds}. Values below 10 are clamped to 10."
+                    ),
+                    "minimum": 0,
+                    "maximum": max_wait_seconds,
                 },
             },
             "required": ["process_id"],
@@ -426,15 +442,12 @@ def parse_minimal_bash_arguments(
         "command",
         strip=True,
     )
-    if (
-        classify_shell_detachment(
-            command,
-            run_in_background=run_in_background,
-        )
-        == "service_detach"
-    ):
+    if classify_shell_detachment(
+        command,
+        run_in_background=run_in_background,
+    ) != "none":
         raise ValueError(
-            "Shell-level service detachment was not executed.\n"
+            "Shell-level backgrounding was not executed.\n"
             "Submit only the long-running service command with "
             "run_in_background=true. Use Process to inspect or stop it, "
             "and run readiness checks in a separate Bash call."
@@ -451,6 +464,9 @@ def parse_minimal_bash_arguments(
 
 def parse_minimal_process_arguments(
     arguments: dict[str, Any] | None,
+    *,
+    min_wait_seconds: int,
+    max_wait_seconds: int,
 ) -> MinimalProcessArguments:
     payload = coerce_tool_arguments(arguments)
     _reject_unknown_arguments(
@@ -461,6 +477,19 @@ def parse_minimal_process_arguments(
     action = payload.get("action", "status")
     if action not in {"status", "wait", "stop"}:
         raise ValueError("Error: 'action' must be 'status', 'wait', or 'stop'")
+    wait_sec = payload.get("wait_sec")
+    if action == "wait" and wait_sec is not None:
+        if type(wait_sec) is not int or wait_sec < 0:
+            raise ValueError(
+                "Error: 'wait_sec' argument must be a non-negative integer"
+            )
+        if wait_sec > max_wait_seconds:
+            raise ValueError(
+                f"Error: 'wait_sec' argument must be at most {max_wait_seconds}"
+            )
+        wait_sec = min(max(wait_sec, min_wait_seconds), max_wait_seconds)
+    elif action != "wait":
+        wait_sec = None
     return MinimalProcessArguments(
         process_id=coerce_required_string_argument(
             payload.get("process_id"),
@@ -468,6 +497,7 @@ def parse_minimal_process_arguments(
             strip=True,
         ),
         action=cast("Literal['status', 'wait', 'stop']", action),
+        wait_sec=wait_sec,
     )
 
 

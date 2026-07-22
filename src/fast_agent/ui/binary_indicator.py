@@ -8,8 +8,19 @@ TOOLBAR_BINARY_ENABLED_COLOR = "ansigreen"
 TOOLBAR_BINARY_DISABLED_COLOR = "ansibrightblack"
 
 
-def render_glyph_indicator(*, glyph: str, color: str) -> str:
-    return f"<style bg='{escape_html(color, quote=True)}'>{escape_html(glyph, quote=False)}</style>"
+def render_glyph_indicator(
+    *,
+    glyph: str,
+    color: str,
+    foreground: str | None = None,
+) -> str:
+    foreground_style = (
+        f" fg='{escape_html(foreground, quote=True)}'" if foreground is not None else ""
+    )
+    return (
+        f"<style{foreground_style} bg='{escape_html(color, quote=True)}'>"
+        f"{escape_html(glyph, quote=False)}</style>"
+    )
 
 
 def render_supported_glyph_indicator(

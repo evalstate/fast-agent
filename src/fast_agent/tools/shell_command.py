@@ -12,10 +12,54 @@ _HEREDOC_PATTERN = re.compile(
 )
 
 
+def _heredoc_declarations(
+    line: str,
+    quote: str | None,
+) -> tuple[list[tuple[str, bool]], str | None]:
+    declarations: list[tuple[str, bool]] = []
+    escaped = False
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if escaped:
+            escaped = False
+            index += 1
+            continue
+        if quote is not None:
+            if char == "\\" and quote == '"':
+                escaped = True
+            elif char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char == "\\":
+            escaped = True
+            index += 1
+            continue
+        if char == "<" and (index == 0 or line[index - 1] != "<"):
+            match = _HEREDOC_PATTERN.match(line, index)
+            if match is not None:
+                delimiter = next(
+                    group for group in match.groups() if group is not None
+                )
+                declarations.append(
+                    (delimiter, match.group(0).startswith("<<-"))
+                )
+                index = match.end()
+                continue
+        index += 1
+    return declarations, quote
+
+
 def _without_heredoc_bodies(command: str) -> str:
     lines = command.splitlines(keepends=True)
     kept: list[str] = []
     delimiters: deque[tuple[str, bool]] = deque()
+    quote: str | None = None
     for line in lines:
         if delimiters:
             delimiter, strip_tabs = delimiters[0]
@@ -27,9 +71,8 @@ def _without_heredoc_bodies(command: str) -> str:
                 kept.append("\n")
             continue
         kept.append(line)
-        for match in _HEREDOC_PATTERN.finditer(line):
-            delimiter = next(group for group in match.groups() if group is not None)
-            delimiters.append((delimiter, line[match.start() :].startswith("<<-")))
+        declarations, quote = _heredoc_declarations(line, quote)
+        delimiters.extend(declarations)
     return "".join(kept)
 
 
@@ -174,6 +217,10 @@ def classify_shell_detachment(
                 token.append(char)
                 index += 1
                 continue
+            if following == ">":
+                finish_word()
+                index += 1
+                continue
             finish_word()
             if following == "&":
                 command_position = True
@@ -184,17 +231,17 @@ def classify_shell_detachment(
             command_position = True
             index += 1
             continue
-        if char == "|" and index + 1 < len(source) and source[index + 1] == "|":
+        if char == "|":
             finish_word()
             command_position = True
-            index += 2
+            index += 2 if index + 1 < len(source) and source[index + 1] in {"|", "&"} else 1
             continue
         if char in {";", "\n"}:
             finish_word()
             command_position = True
             index += 1
             continue
-        if char.isspace() or char in {"<", ">", "|"}:
+        if char.isspace() or char in {"<", ">"}:
             finish_word()
             index += 1
             continue

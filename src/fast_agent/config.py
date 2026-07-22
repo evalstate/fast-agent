@@ -995,11 +995,21 @@ class AnthropicSettings(BaseModel):
     )
     cache_mode: Literal["off", "prompt", "auto"] = Field(
         default="auto",
-        description="Caching mode: off (disabled), prompt (cache tools+system), auto (same as prompt)",
+        description=(
+            "Caching mode: off (disabled), prompt (cache tools+system), "
+            "auto (also advance through recent conversation turns)"
+        ),
     )
     cache_ttl: Literal["5m", "1h"] = Field(
         default="5m",
         description="Cache TTL: 5m (standard) or 1h (extended, additional cost)",
+    )
+    cache_diagnostics: bool = Field(
+        default=False,
+        description=(
+            "Enable first-party Anthropic cache-miss diagnosis for debugging. "
+            "Adds a beta request field and provider diagnostics to responses."
+        ),
     )
     reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
         default=None,

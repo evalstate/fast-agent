@@ -51,9 +51,23 @@ _BRAILLE_DENSE = {
     ],
 }
 
+_COMPACTING_FRAME_SECONDS = 0.18
+_COMPACTING_FRAMES = (
+    "⣿⣿⣿",
+    "⣶⣶⣶",
+    "⣤⣤⣤",
+    "⣀⣀⣀",
+    "   ",
+)
+
 
 def _ensure_spinners() -> None:
     SPINNERS.setdefault(PROGRESS_SPINNER_NAME, _BRAILLE_DENSE)
+
+
+def _format_compacting_track(elapsed_seconds: float) -> str:
+    frame = int(max(elapsed_seconds, 0.0) / _COMPACTING_FRAME_SECONDS)
+    return _COMPACTING_FRAMES[frame % len(_COMPACTING_FRAMES)]
 
 
 _ACTION_DESCRIPTION_ICONS = {
@@ -126,11 +140,15 @@ class SpinnerDescriptionColumn(ProgressColumn):
 
     def _render_activity_glyph(self, task: "Task") -> Text:
         """Pulse spinner, or a depleting braille track while a process poll waits."""
+        if bool(task.fields.get("is_compacting")):
+            return Text(_format_compacting_track(task.elapsed or 0.0), style="cyan")
+
         if bool(task.fields.get("is_process_poll")):
             wait_seconds = task.fields.get("process_wait_seconds")
             countdown = format_process_poll_countdown_track(
                 wait_seconds=wait_seconds if type(wait_seconds) is int else None,
                 elapsed_seconds=task.elapsed or 0.0,
+                blink_next=bool(task.fields.get("process_poll_blink_next")),
             )
             if countdown is not None:
                 return Text(countdown, style="magenta")
@@ -658,6 +676,7 @@ class RichProgressDisplay:
             ),
             "task_name": task_name,
             "is_process_poll": is_process_poll,
+            "is_compacting": event.action == ProgressAction.COMPACTING,
         }
         if event.process_elapsed_seconds is not None:
             update_kwargs["process_elapsed_seconds"] = event.process_elapsed_seconds
@@ -838,6 +857,7 @@ class RichProgressDisplay:
             is_correlated_tool_event=is_correlated_tool_event,
         )
         should_drop_tool_task = is_correlated_tool_event and event.tool_terminal
+        had_existing_task = task_name in self._taskmap
         task_id = self._task_id_for_event(event, task_name)
 
         self._task_kind[task_name] = self._task_kind_for_event(
@@ -858,14 +878,17 @@ class RichProgressDisplay:
             self._finish_process_poll_task(task_name, task_id, existing)
             return
 
-        self._progress.update(
-            task_id,
-            **self._update_kwargs_for_event(
-                event,
-                task_name=task_name,
-                is_correlated_tool_event=is_correlated_tool_event,
-            ),
+        update_kwargs = self._update_kwargs_for_event(
+            event,
+            task_name=task_name,
+            is_correlated_tool_event=is_correlated_tool_event,
         )
+        if self._is_process_poll_event(event):
+            blink_next = False
+            if had_existing_task and existing is not None:
+                blink_next = not bool(existing.fields.get("process_poll_blink_next"))
+            update_kwargs["process_poll_blink_next"] = blink_next
+        self._progress.update(task_id, **update_kwargs)
         if self._is_process_poll_event(event):
             # Anchor field baselines to the current task clock so local ticks
             # between refresh events do not double-count process age.

@@ -13,7 +13,10 @@ class AnthropicCachePlanner:
         self.max_total_blocks = max_total_blocks
 
     def _template_prefix_count(self, messages: list[PromptMessageExtended]) -> int:
-        return sum(msg.is_template for msg in messages)
+        for index, message in enumerate(messages):
+            if not message.is_template:
+                return index
+        return len(messages)
 
     def plan_indices(
         self,
@@ -46,7 +49,7 @@ class AnthropicCachePlanner:
         conversation_candidates = [
             index
             for index in range(template_prefix, len(messages))
-            if messages[index].role == "assistant"
+            if messages[index].role == "user"
         ]
         conversation_reserve = int(
             cache_mode == "auto" and not process_indices and bool(conversation_candidates)
@@ -62,7 +65,7 @@ class AnthropicCachePlanner:
 
         conversation_indices: list[int] = []
         if cache_mode == "auto" and budget > 0 and not process_indices:
-            # Reapply the prior checkpoint and advance it to the newest assistant turn.
+            # Retain the prior request boundary and advance through the newest user turn.
             conversation_indices = conversation_candidates[
                 -min(budget, self.max_conversation_blocks) :
             ]

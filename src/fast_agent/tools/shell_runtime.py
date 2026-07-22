@@ -96,6 +96,7 @@ _IO_DRAIN_TIMEOUT_SECONDS = 2.0
 _DEFAULT_IDLE_YIELD_SECONDS = 10
 _DEFAULT_FOREGROUND_YIELD_SECONDS = 30
 _DEFAULT_MINIMAL_PROCESS_WAIT_SECONDS = 30
+_MINIMAL_PROCESS_MIN_WAIT_SECONDS = 10
 _PROCESS_OUTPUT_DEBOUNCE_SECONDS = PROCESS_OUTPUT_DEBOUNCE_SECONDS
 
 
@@ -210,7 +211,10 @@ class ShellRuntime:
                     SHELL_TOOL_SOURCE,
                 )
                 self._poll_process_tool = set_tool_source(
-                    build_minimal_process_tool(),
+                    build_minimal_process_tool(
+                        default_wait_seconds=self._minimal_process_wait_seconds(),
+                        max_wait_seconds=self._max_process_poll_seconds,
+                    ),
                     SHELL_TOOL_SOURCE,
                 )
                 self._terminate_process_tool = None
@@ -454,7 +458,11 @@ class ShellRuntime:
     ) -> _ManagedProcessOperation:
         if tool_name == PROCESS_TOOL_NAME and self._minimal_process_profile:
             try:
-                parsed = parse_minimal_process_arguments(arguments)
+                parsed = parse_minimal_process_arguments(
+                    arguments,
+                    min_wait_seconds=_MINIMAL_PROCESS_MIN_WAIT_SECONDS,
+                    max_wait_seconds=self._max_process_poll_seconds,
+                )
             except ValueError:
                 return _ManagedProcessOperation(
                     kind="status",
@@ -469,7 +477,11 @@ class ShellRuntime:
                     if parsed.action == "stop"
                     else 0
                     if parsed.action == "status"
-                    else self._minimal_process_wait_seconds()
+                    else (
+                        parsed.wait_sec
+                        if parsed.wait_sec is not None
+                        else self._minimal_process_wait_seconds()
+                    )
                 ),
             )
 
@@ -488,10 +500,13 @@ class ShellRuntime:
         return _text_result(message, is_error=True)
 
     def _minimal_process_wait_seconds(self) -> int:
-        if self._process_poll_default_wait_seconds > 0:
-            return self._process_poll_default_wait_seconds
+        configured_wait = (
+            self._process_poll_default_wait_seconds
+            if self._process_poll_default_wait_seconds > 0
+            else _DEFAULT_MINIMAL_PROCESS_WAIT_SECONDS
+        )
         return min(
-            _DEFAULT_MINIMAL_PROCESS_WAIT_SECONDS,
+            max(configured_wait, _MINIMAL_PROCESS_MIN_WAIT_SECONDS),
             self._max_process_poll_seconds,
         )
 
@@ -505,7 +520,11 @@ class ShellRuntime:
         if self._poll_process_tool is not None:
             set_poll_process_tool_default_wait_seconds(
                 self._poll_process_tool,
-                default_wait_seconds=self._process_poll_default_wait_seconds,
+                default_wait_seconds=(
+                    self._minimal_process_wait_seconds()
+                    if self._minimal_process_profile
+                    else self._process_poll_default_wait_seconds
+                ),
             )
 
     def _build_display_state(
@@ -1280,7 +1299,11 @@ class ShellRuntime:
             )
         if name == PROCESS_TOOL_NAME and self._minimal_process_profile:
             try:
-                parsed_process = parse_minimal_process_arguments(arguments)
+                parsed_process = parse_minimal_process_arguments(
+                    arguments,
+                    min_wait_seconds=_MINIMAL_PROCESS_MIN_WAIT_SECONDS,
+                    max_wait_seconds=self._max_process_poll_seconds,
+                )
             except ValueError as exc:
                 return _text_result(str(exc), is_error=True)
             if parsed_process.action == "stop":
@@ -1292,7 +1315,11 @@ class ShellRuntime:
             wait_sec = (
                 0
                 if parsed_process.action == "status"
-                else self._minimal_process_wait_seconds()
+                else (
+                    parsed_process.wait_sec
+                    if parsed_process.wait_sec is not None
+                    else self._minimal_process_wait_seconds()
+                )
             )
             return await self._call_process_lifecycle_tool(
                 POLL_PROCESS_TOOL_NAME,

@@ -85,10 +85,10 @@ def test_conversation_cache_respects_four_block_limit():
     total_cache_blocks = system_cache_blocks + count_cache_controls(provider_msgs)
 
     assert total_cache_blocks <= 4
-    assert plan_indices == [0, 1, 7]
+    assert plan_indices == [0, 1, 6]
 
 
-def test_conversation_cache_checkpoints_latest_assistant_on_next_request():
+def test_conversation_cache_advances_through_latest_user_request_boundary():
     planner = AnthropicCachePlanner(max_total_blocks=4)
     extended = [
         make_message("template", is_template=True),
@@ -100,14 +100,14 @@ def test_conversation_cache_checkpoints_latest_assistant_on_next_request():
     plan_indices = planner.plan_indices(extended, cache_mode="auto", system_cache_blocks=0)
     provider_msgs = [AnthropicConverter.convert_to_anthropic(msg) for msg in extended]
 
-    assert plan_indices == [0, 2]
+    assert plan_indices == [0, 1, 3]
     for idx in plan_indices:
         AnthropicLLM._apply_cache_control_to_message(provider_msgs[idx])
 
-    assert count_cache_controls(provider_msgs) == 2
+    assert count_cache_controls(provider_msgs) == 3
 
 
-def test_conversation_cache_reapplies_previous_assistant_checkpoint():
+def test_conversation_cache_reapplies_previous_user_request_boundary():
     planner = AnthropicCachePlanner(max_total_blocks=4)
     extended = [
         make_message("user 1"),
@@ -121,7 +121,7 @@ def test_conversation_cache_reapplies_previous_assistant_checkpoint():
         extended,
         cache_mode="auto",
         system_cache_blocks=1,
-    ) == [1, 3]
+    ) == [2, 4]
 
 
 def test_conversation_cache_reserves_marker_after_large_template_prefix():
@@ -139,7 +139,24 @@ def test_conversation_cache_reserves_marker_after_large_template_prefix():
         extended,
         cache_mode="auto",
         system_cache_blocks=1,
-    ) == [0, 1, 4]
+    ) == [0, 1, 5]
+
+
+def test_only_leading_templates_are_treated_as_template_prefix():
+    planner = AnthropicCachePlanner(max_total_blocks=4)
+    extended = [
+        make_message("template", is_template=True),
+        make_message("user 1"),
+        make_message("not a prefix template", is_template=True),
+        make_message("assistant", role="assistant"),
+        make_message("user 2"),
+    ]
+
+    assert planner.plan_indices(
+        extended,
+        cache_mode="auto",
+        system_cache_blocks=1,
+    ) == [0, 2, 4]
 
 
 def test_process_poll_boundary_replaces_periodic_conversation_markers():

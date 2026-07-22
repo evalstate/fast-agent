@@ -123,7 +123,9 @@ STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
 INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
 TASK_BUDGETS_BETA = "task-budgets-2026-03-13"
+CACHE_DIAGNOSIS_BETA = "cache-diagnosis-2026-04-07"
 TEST_REFUSAL_TRIGGER_ENV = "FAST_AGENT_TEST_REFUSAL_TRIGGERS"
+ANTHROPIC_CACHE_DIAGNOSTICS_CHANNEL = "fast-agent-provider-diagnostics"
 
 # Explicit 1M context is still opt-in for pre-4.6 Anthropic models.
 LONG_CONTEXT_BETA = "context-1m-2025-08-07"
@@ -495,6 +497,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             bool(web_fetch_override) if isinstance(web_fetch_override, bool) else None
         )
         self._file_id_cache: dict[str, str] = {}
+        self._cache_diagnostics_previous_message_id: str | None = None
 
         raw_setting = kwargs.get("reasoning_effort")
         config = self.context.config.anthropic if self.context and self.context.config else None
@@ -770,6 +773,14 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if self.context.config and self.context.config.anthropic:
             cache_mode = self.context.config.anthropic.cache_mode
         return cache_mode
+
+    def _cache_diagnostics_enabled(self) -> bool:
+        config = self.context.config.anthropic if self.context and self.context.config else None
+        return bool(
+            config
+            and config.cache_diagnostics
+            and self.supports_direct_anthropic_beta("cache_diagnosis")
+        )
 
     @staticmethod
     def _anthropic_file_cache_key(data: bytes, filename: str, mime_type: str) -> str:
@@ -1246,7 +1257,20 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 return 1
             # If it's already a list (shouldn't happen in current flow but type-safe)
             if isinstance(system_content, list):
-                logger.debug("System prompt already in list format")
+                for content_block in reversed(system_content):
+                    if not is_str_object_dict(content_block):
+                        continue
+                    if content_block.get("cache_control"):
+                        return 1
+                    content_block["cache_control"] = {
+                        "type": "ephemeral",
+                        "ttl": cache_ttl,
+                    }
+                    logger.debug(
+                        "Applied cache_control to list-valued system prompt "
+                        "(caches tools+system in one block)"
+                    )
+                    return 1
             else:
                 logger.debug(f"Unexpected system prompt type: {type(system_content)}")
 
@@ -2074,6 +2098,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         request_tools: list[BetaToolParam],
         web_tool_betas: Sequence[str],
         provider_mcp_enabled: bool = False,
+        cache_diagnostics_enabled: bool = False,
     ) -> list[str]:
         beta_flags: list[str] = []
         adaptive_thinking = self._supports_adaptive_thinking(model)
@@ -2096,6 +2121,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             beta_flags.append(MCP_CLIENT_BETA)
         if self.task_budget_tokens is not None and self._supports_task_budget(model):
             beta_flags.append(TASK_BUDGETS_BETA)
+        if cache_diagnostics_enabled:
+            beta_flags.append(CACHE_DIAGNOSIS_BETA)
         return dedupe_preserve_order(beta_flags)
 
     def _apply_anthropic_cache_plan(
@@ -2107,6 +2134,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         cache_mode: str,
         history: list[PromptMessageExtended] | None,
         current_extended: PromptMessageExtended | None,
+        pre_message_count: int = 0,
     ) -> None:
         system_cache_applied = self._apply_system_cache(arguments, cache_mode)
 
@@ -2132,10 +2160,41 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             system_cache_blocks=system_cache_applied,
             process_poll_boundary=process_poll_boundary,
         )
+        if cache_indices:
+            assert len(messages) == pre_message_count + len(plan_messages), (
+                "Anthropic cache planning requires one provider message per normalized message"
+            )
         cache_ttl = self._get_cache_ttl()
+        applied_indices: list[int] = []
+        failed_indices: list[int] = []
         for idx in cache_indices:
-            if 0 <= idx < len(messages):
-                self._apply_cache_control_to_message(messages[idx], ttl=cache_ttl)
+            provider_idx = pre_message_count + idx
+            if self._apply_cache_control_to_message(messages[provider_idx], ttl=cache_ttl):
+                applied_indices.append(provider_idx)
+            else:
+                failed_indices.append(provider_idx)
+
+        block_distances: list[int] = []
+        for previous_idx, current_idx in zip(applied_indices, applied_indices[1:]):
+            block_distances.append(
+                sum(
+                    len(content)
+                    for message in messages[previous_idx + 1 : current_idx + 1]
+                    if isinstance((content := message.get("content")), list)
+                )
+            )
+        logger.debug(
+            "Anthropic cache plan",
+            data={
+                "mode": cache_mode,
+                "ttl": cache_ttl,
+                "system_blocks": system_cache_applied,
+                "message_indices": applied_indices,
+                "failed_message_indices": failed_indices,
+                "process_boundary": process_poll_boundary is not None,
+                "content_block_distances": block_distances,
+            },
+        )
 
     async def _execute_anthropic_stream(
         self,
@@ -2475,6 +2534,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         model: str,
         thinking_segments: list[str],
         tool_calls: dict[str, CallToolRequest] | None,
+        cache_diagnostics_enabled: bool = False,
     ) -> dict[str, list[Any]] | None:
         channels = self._anthropic_reasoning_channel(response, thinking_segments)
         raw_thinking_blocks = self._raw_anthropic_thinking_blocks(response)
@@ -2521,6 +2581,28 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 ANTHROPIC_CONTAINER_CHANNEL,
                 [TextContent(type="text", text=json.dumps({"id": response.container.id}))],
             )
+        if cache_diagnostics_enabled or response.diagnostics is not None:
+            diagnostics = (
+                response.diagnostics.model_dump(mode="json", exclude_none=False)
+                if response.diagnostics is not None
+                else {"cache_miss_reason": None}
+            )
+            diagnostics.update(
+                {
+                    "kind": "anthropic_cache_diagnosis",
+                    "response_id": response.id,
+                    "status": (
+                        "pending"
+                        if diagnostics["cache_miss_reason"] is None
+                        else "cache_miss"
+                    ),
+                }
+            )
+            channels = self._add_anthropic_channel(
+                channels,
+                ANTHROPIC_CACHE_DIAGNOSTICS_CHANNEL,
+                [TextContent(type="text", text=json.dumps(diagnostics))],
+            )
         return channels
 
     async def _finalize_anthropic_response(
@@ -2534,6 +2616,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         structured_mode: StructuredOutputMode | None,
         structured_model: type[ModelT] | None,
         structured_schema: dict[str, Any] | None = None,
+        cache_diagnostics_enabled: bool = False,
     ) -> PromptMessageExtended:
         response_as_message = self.convert_message_to_message_param(response)
         messages.append(response_as_message)
@@ -2555,6 +2638,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             model,
             thinking_segments,
             stop_result.tool_calls,
+            cache_diagnostics_enabled=cache_diagnostics_enabled,
         )
         if test_refusal_category := self._test_refusal_category():
             stop_result = _AnthropicStopResult(LlmStopReason.SAFETY)
@@ -2703,6 +2787,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         # Get cache mode configuration
         cache_mode = self._get_cache_mode()
         logger.debug(f"Anthropic cache_mode: {cache_mode}")
+        cache_diagnostics_enabled = (
+            cache_mode != "off" and self._cache_diagnostics_enabled()
+        )
 
         model = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
 
@@ -2739,9 +2826,19 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             request_tools=request_tools,
             web_tool_betas=web_tool_betas,
             provider_mcp_enabled=bool(provider_mcp_payload.servers),
+            cache_diagnostics_enabled=cache_diagnostics_enabled,
         )
         if beta_flags:
             base_args["betas"] = beta_flags
+        if cache_diagnostics_enabled:
+            previous_message_id = (
+                self._cache_diagnostics_previous_message_id
+                if history and any(message.role == "assistant" for message in history)
+                else None
+            )
+            base_args["diagnostics"] = {
+                "previous_message_id": previous_message_id
+            }
         if provider_mcp_payload.servers:
             base_args["mcp_servers"] = provider_mcp_payload.servers
 
@@ -2759,6 +2856,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             cache_mode=cache_mode,
             history=history,
             current_extended=current_extended,
+            pre_message_count=len(pre_messages or []),
         )
 
         logger.debug(f"{arguments}")
@@ -2790,6 +2888,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
         # Track usage if response is valid and has usage data
         self._track_anthropic_usage(response, model)
+        if cache_diagnostics_enabled:
+            self._cache_diagnostics_previous_message_id = response.id
 
         if isinstance(response, AuthenticationError):
             raise ProviderKeyError(
@@ -2816,6 +2916,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             structured_mode=structured.mode,
             structured_model=structured_model,
             structured_schema=structured.effective_schema,
+            cache_diagnostics_enabled=cache_diagnostics_enabled,
         )
 
         # Update diagnostic snapshot (never read again)
