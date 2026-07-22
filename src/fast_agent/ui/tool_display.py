@@ -11,6 +11,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from fast_agent.config import Settings, ShellSettings
+from fast_agent.constants import FAST_AGENT_SHELL_PROCESS_METADATA
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.tool_result_metadata import get_tool_result_media_preview
 from fast_agent.tools.apply_patch_tool import extract_apply_patch_input, is_apply_patch_tool_name
@@ -36,6 +37,7 @@ from fast_agent.utils.path_display import fit_path_for_display
 from fast_agent.utils.text import strip_casefold, strip_str_to_none
 from fast_agent.utils.tool_names import (
     POLL_PROCESS_TOOL_NAME,
+    PROCESS_TOOL_NAME,
     SHELL_EXECUTION_TOOL_NAMES,
     is_read_text_file_tool_name,
     normalize_tool_name,
@@ -704,7 +706,13 @@ class ToolDisplay:
         from mcp.types import TextContent
 
         if normalize_tool_name(tool_name) != POLL_PROCESS_TOOL_NAME:
-            return False
+            if normalize_tool_name(tool_name) != normalize_tool_name(PROCESS_TOOL_NAME):
+                return False
+            process_metadata = (result.meta or {}).get(
+                FAST_AGENT_SHELL_PROCESS_METADATA
+            )
+            if not isinstance(process_metadata, dict) or "poll_wait_sec" not in process_metadata:
+                return False
         content = result.content
         if (
             not isinstance(content, list)

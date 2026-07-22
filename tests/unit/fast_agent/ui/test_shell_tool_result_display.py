@@ -1,6 +1,7 @@
 from mcp.types import CallToolResult, TextContent
 
 from fast_agent.config import Settings, ShellSettings
+from fast_agent.constants import FAST_AGENT_SHELL_PROCESS_METADATA
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.progress_display import progress_display
@@ -127,11 +128,32 @@ def test_quiet_running_poll_result_is_not_rendered() -> None:
         ],
         isError=False,
     )
+    result.meta = {
+        FAST_AGENT_SHELL_PROCESS_METADATA: {
+            "process_id": "process-2",
+            "process_status": "running",
+            "poll_wait_sec": 30,
+        }
+    }
+
+    for tool_name in ("poll_process", "Process"):
+        with console.console.capture() as capture:
+            display.show_tool_result(result, name="dev", tool_name=tool_name)
+
+        assert capture.get() == ""
+
+
+def test_process_non_poll_result_is_rendered() -> None:
+    display = ConsoleDisplay()
+    result = CallToolResult(
+        content=[TextContent(type="text", text="Process is still running.")],
+        isError=False,
+    )
 
     with console.console.capture() as capture:
-        display.show_tool_result(result, name="dev", tool_name="poll_process")
+        display.show_tool_result(result, name="dev", tool_name="Process")
 
-    assert capture.get() == ""
+    assert "Process is still running" in capture.get()
 
 
 def test_managed_process_poll_uses_shared_elapsed_format() -> None:

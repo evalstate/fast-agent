@@ -9,7 +9,9 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
 import pytest
+from anthropic import AuthenticationError
 from anthropic.types.beta import (
     BetaDiagnostics,
     BetaMessage,
@@ -28,6 +30,7 @@ from mcp.types import (
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.constants import FAST_AGENT_SHELL_PROCESS_METADATA
 from fast_agent.context import Context
+from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.history.process_poll_folding import managed_process_poll_cache_boundary
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
 from fast_agent.llm.provider.anthropic.llm_anthropic import (
@@ -96,6 +99,22 @@ def _cache_control(block: dict[str, object]) -> dict[str, object] | None:
     if isinstance(cache_control, dict):
         return {str(key): value for key, value in cache_control.items()}
     return None
+
+
+def _count_cache_controls(messages: list[BetaMessageParam]) -> int:
+    return sum(
+        _cache_control(block) is not None
+        for message in messages
+        for block in _content_dicts(message)
+    )
+
+
+def _message(text: str, *, is_template: bool = False) -> PromptMessageExtended:
+    return PromptMessageExtended(
+        role="user",
+        content=[TextContent(type="text", text=text)],
+        is_template=is_template,
+    )
 
 
 class TestAnthropicCaching:
@@ -401,6 +420,44 @@ class TestAnthropicCaching:
         assert _cache_control(_content_dicts(converted[1])[-1]) is not None
         assert _cache_control(_content_dicts(converted[3])[-1]) is not None
 
+    def test_cache_plan_skips_non_one_to_one_message_conversion(self):
+        llm = self._create_llm(cache_mode="prompt")
+        history = [
+            _message("template 1", is_template=True),
+            _message("template 2", is_template=True),
+        ]
+        provider_messages = [AnthropicConverter.convert_to_anthropic(history[0])]
+
+        llm._apply_anthropic_cache_plan(
+            arguments={},
+            messages=provider_messages,
+            params=llm.get_request_params(RequestParams(use_history=True)),
+            cache_mode="prompt",
+            history=history,
+            current_extended=history[-1],
+            history_message_count=1,
+        )
+
+        assert _count_cache_controls(provider_messages) == 0
+
+    def test_cache_plan_uses_current_when_history_conversion_is_empty(self):
+        llm = self._create_llm(cache_mode="auto")
+        history = [_message("discarded history")]
+        current = _message("current request")
+        provider_messages = [AnthropicConverter.convert_to_anthropic(current)]
+
+        llm._apply_anthropic_cache_plan(
+            arguments={},
+            messages=provider_messages,
+            params=llm.get_request_params(RequestParams(use_history=True)),
+            cache_mode="auto",
+            history=history,
+            current_extended=current,
+            history_message_count=0,
+        )
+
+        assert _count_cache_controls(provider_messages) == 1
+
     def test_list_valued_system_prompt_receives_cache_marker(self):
         llm = self._create_llm(cache_mode="auto", cache_ttl="1h")
         arguments = {
@@ -544,6 +601,47 @@ class TestAnthropicCaching:
         assert llm.requests[1]["diagnostics"] == {"previous_message_id": "msg_1"}
         assert llm.requests[2]["diagnostics"] == {"previous_message_id": None}
         assert CACHE_DIAGNOSIS_BETA in llm.requests[1]["betas"]
+
+    @pytest.mark.asyncio
+    async def test_cache_diagnostics_preserves_authentication_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ctx = self._create_context_with_cache_mode("auto")
+        assert ctx.config is not None
+        assert ctx.config.anthropic is not None
+        ctx.config.anthropic.cache_diagnostics = True
+        llm = RecordingCacheDiagnosticsLLM(context=ctx, model="claude-sonnet-5")
+        error = AuthenticationError(
+            message="invalid API key",
+            response=httpx.Response(
+                401,
+                request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+            ),
+            body=None,
+        )
+
+        async def return_authentication_error(
+            **kwargs: object,
+        ) -> tuple[AuthenticationError, list[str], list[str]]:
+            del kwargs
+            return error, [], []
+
+        monkeypatch.setattr(
+            llm,
+            "_execute_anthropic_stream",
+            return_authentication_error,
+        )
+        current = _message("hello")
+
+        with pytest.raises(ProviderKeyError, match="Invalid Anthropic API key"):
+            await llm._anthropic_completion(
+                AnthropicConverter.convert_to_anthropic(current),
+                history=[current],
+                current_extended=current,
+            )
+
+        assert llm._cache_diagnostics_previous_message_id is None
 
     def test_auto_mode_pins_cache_to_managed_process_start(self):
         llm = self._create_llm(cache_mode="auto")

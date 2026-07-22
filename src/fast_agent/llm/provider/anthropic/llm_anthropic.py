@@ -172,6 +172,7 @@ class _AnthropicCompletionRequest:
     params: RequestParams
     messages: list[BetaMessageParam]
     message_param: BetaMessageParam
+    history_message_count: int
 
 
 @dataclass(slots=True)
@@ -1931,6 +1932,21 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         Ensures that the current user message is only included once when history
         is enabled, which prevents duplicate tool_result blocks from being sent.
         """
+        messages, _ = self._build_request_messages_with_history_count(
+            params,
+            message_param,
+            pre_messages,
+            history,
+        )
+        return messages
+
+    def _build_request_messages_with_history_count(
+        self,
+        params: RequestParams,
+        message_param: BetaMessageParam,
+        pre_messages: list[BetaMessageParam] | None,
+        history: list[PromptMessageExtended] | None,
+    ) -> tuple[list[BetaMessageParam], int]:
         messages: list[BetaMessageParam] = list(pre_messages) if pre_messages else []
 
         history_messages: list[BetaMessageParam] = []
@@ -1942,7 +1958,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if include_current:
             messages.append(message_param)
 
-        return messages
+        return messages, len(history_messages)
 
     @staticmethod
     def _container_id_from_channels(
@@ -2135,6 +2151,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         history: list[PromptMessageExtended] | None,
         current_extended: PromptMessageExtended | None,
         pre_message_count: int = 0,
+        history_message_count: int | None = None,
     ) -> None:
         system_cache_applied = self._apply_system_cache(arguments, cache_mode)
 
@@ -2142,8 +2159,13 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             max_conversation_blocks=self.MAX_CONVERSATION_CACHE_BLOCKS
         )
         plan_messages: list[PromptMessageExtended] = []
-        include_current = not params.use_history or not history
-        if params.use_history and history:
+        converted_history_count = (
+            history_message_count
+            if history_message_count is not None
+            else len(history or [])
+        )
+        include_current = not params.use_history or converted_history_count == 0
+        if params.use_history and history and converted_history_count > 0:
             plan_messages.extend(history)
         if include_current and current_extended:
             plan_messages.append(current_extended)
@@ -2160,10 +2182,17 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             system_cache_blocks=system_cache_applied,
             process_poll_boundary=process_poll_boundary,
         )
-        if cache_indices:
-            assert len(messages) == pre_message_count + len(plan_messages), (
-                "Anthropic cache planning requires one provider message per normalized message"
+        expected_message_count = pre_message_count + len(plan_messages)
+        if cache_indices and len(messages) != expected_message_count:
+            logger.warning(
+                "Skipping Anthropic conversation cache plan because normalized and "
+                "provider message counts differ",
+                data={
+                    "normalized_messages": len(plan_messages),
+                    "provider_messages": len(messages) - pre_message_count,
+                },
             )
+            cache_indices = []
         cache_ttl = self._get_cache_ttl()
         applied_indices: list[int] = []
         failed_indices: list[int] = []
@@ -2675,17 +2704,18 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             await self._prepare_anthropic_file_resources(anthropic, messages_to_prepare)
         if current_extended is not None:
             message_param = AnthropicConverter.convert_to_anthropic(current_extended)
-        messages = self._build_request_messages(
+        messages, history_message_count = self._build_request_messages_with_history_count(
             params,
             message_param,
             pre_messages,
-            history=history,
+            history,
         )
         return _AnthropicCompletionRequest(
             client=anthropic,
             params=params,
             messages=messages,
             message_param=message_param,
+            history_message_count=history_message_count,
         )
 
     def _resolve_anthropic_structured_mode(
@@ -2857,6 +2887,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             history=history,
             current_extended=current_extended,
             pre_message_count=len(pre_messages or []),
+            history_message_count=request.history_message_count,
         )
 
         logger.debug(f"{arguments}")
@@ -2886,11 +2917,6 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 stop_reason=LlmStopReason.CANCELLED,
             )
 
-        # Track usage if response is valid and has usage data
-        self._track_anthropic_usage(response, model)
-        if cache_diagnostics_enabled:
-            self._cache_diagnostics_previous_message_id = response.id
-
         if isinstance(response, AuthenticationError):
             raise ProviderKeyError(
                 "Invalid Anthropic API key",
@@ -2901,6 +2927,11 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             # but keeping for backward compatibility
             logger.error(f"Unexpected error type: {type(response).__name__}", exc_info=response)
             return build_stream_failure_response(self.provider, response, model)
+
+        # Track usage and diagnostics only after legacy error responses are narrowed out.
+        self._track_anthropic_usage(response, model)
+        if cache_diagnostics_enabled:
+            self._cache_diagnostics_previous_message_id = response.id
 
         logger.debug(
             f"{model} response:",

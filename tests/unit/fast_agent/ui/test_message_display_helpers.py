@@ -55,6 +55,20 @@ def _tool_use_message_with_names(*tool_names: str) -> PromptMessageExtended:
     )
 
 
+def _process_tool_use_message(action: str | None = None) -> PromptMessageExtended:
+    arguments = {} if action is None else {"action": action}
+    return PromptMessageExtended(
+        role="assistant",
+        content=[],
+        stop_reason=LlmStopReason.TOOL_USE,
+        tool_calls={
+            "1": CallToolRequest(
+                params=CallToolRequestParams(name="Process", arguments=arguments)
+            )
+        },
+    )
+
+
 def test_tool_use_requests_shell_access_for_execute_when_assumed() -> None:
     message = _tool_use_message("execute")
 
@@ -124,6 +138,24 @@ def test_process_lifecycle_tool_use_omits_generic_additional_message() -> None:
 
 def test_process_poll_rejects_terminate_process() -> None:
     message = _tool_use_message_with_names("terminate_process")
+
+    assert tool_use_requests_process_lifecycle(message)
+    assert not tool_use_requests_process_poll(message)
+
+
+@pytest.mark.parametrize("action", [None, "status", "wait"])
+def test_process_facade_status_and_wait_are_process_polls(
+    action: str | None,
+) -> None:
+    message = _process_tool_use_message(action)
+
+    assert tool_use_requests_process_lifecycle(message)
+    assert tool_use_requests_process_poll(message)
+    assert build_tool_use_additional_message(message) is None
+
+
+def test_process_facade_stop_is_lifecycle_but_not_poll() -> None:
+    message = _process_tool_use_message("stop")
 
     assert tool_use_requests_process_lifecycle(message)
     assert not tool_use_requests_process_poll(message)
