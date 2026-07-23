@@ -11,8 +11,8 @@ from collections import OrderedDict
 from hashlib import blake2b
 from typing import TYPE_CHECKING
 
-from fast_agent.ui.markdown_renderables import build_markdown_renderable
-from fast_agent.ui.streaming_buffer import StreamBuffer
+from fast_agent.ui.markdown.buffer import StreamBuffer
+from fast_agent.ui.markdown.renderables import build_markdown_renderable
 
 if TYPE_CHECKING:
     from rich.console import Console

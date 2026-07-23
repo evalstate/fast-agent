@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fast_agent.llm.provider_types import Provider
-from fast_agent.ui.attachment_indicator import (
+from fast_agent.ui.prompt.status_bar.attachment import (
     ATTACHMENT_GLYPH,
     ATTACHMENT_IDLE_COLOR,
     ATTACHMENT_QUESTIONABLE_COLOR,

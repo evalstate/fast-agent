@@ -17,8 +17,8 @@ from fast_agent.ui.gauge_glyph_palette import (
     PAIRED_REASONING_GAUGE_GLYPHS,
     PAIRED_VERBOSITY_GAUGE_GLYPHS,
 )
+from fast_agent.ui.prompt.status_bar.text_verbosity import render_text_verbosity_gauge
 from fast_agent.ui.reasoning_effort_display import render_reasoning_effort_gauge
-from fast_agent.ui.text_verbosity_display import render_text_verbosity_gauge
 from fast_agent.utils.path_display import (
     fit_path_for_display,
     format_parent_current_path,
@@ -154,4 +154,4 @@ def _format_toolbar_agent_identity(
     label = f"{agent_name}[S]" if _is_smart_agent(agent) else agent_name
     color = escape_html(toolbar_color, quote=True)
     escaped_label = escape_html(label, quote=False)
-    return f" <style fg='{color}' bg='ansiblack'> {escaped_label}</style>"
+    return f" <style fg='{color}' bg='ansiblack'> {escaped_label} </style>"

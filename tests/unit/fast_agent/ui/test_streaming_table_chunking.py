@@ -1,5 +1,5 @@
 from fast_agent.llm.stream_types import StreamChunk
-from fast_agent.ui.stream_segments import StreamSegmentAssembler
+from fast_agent.ui.streaming.segments import StreamSegmentAssembler
 
 
 def test_table_rows_do_not_duplicate_when_streaming_in_parts() -> None:

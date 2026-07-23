@@ -29,19 +29,17 @@ from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui import notification_tracker
-from fast_agent.ui.attachment_indicator import (
-    DraftAttachmentSummary,
-    render_attachment_indicator,
-    summarize_draft_attachments,
-)
 from fast_agent.ui.context_usage_display import (
     ContextUsageAccumulator,
     resolve_context_usage_percent,
 )
-from fast_agent.ui.managed_process_indicator import render_managed_process_indicator
-from fast_agent.ui.model_chip_display import render_model_chip
-from fast_agent.ui.prompt.alert_flags import _resolve_alert_flags_from_history
-from fast_agent.ui.prompt.toolbar import (
+from fast_agent.ui.prompt.status_bar.alert_flags import _resolve_alert_flags_from_history
+from fast_agent.ui.prompt.status_bar.attachment import (
+    DraftAttachmentSummary,
+    render_attachment_indicator,
+    summarize_draft_attachments,
+)
+from fast_agent.ui.prompt.status_bar.formatting import (
     _can_fit_shell_path_and_version,
     _fit_shell_identity_for_toolbar,
     _fit_shell_path_for_toolbar,
@@ -51,9 +49,11 @@ from fast_agent.ui.prompt.toolbar import (
     _resolve_toolbar_width,
     _toolbar_markup_width,
 )
-from fast_agent.ui.service_tier_display import render_service_tier_indicator
-from fast_agent.ui.web_fetch_display import render_web_fetch_indicator
-from fast_agent.ui.web_search_display import render_web_search_indicator
+from fast_agent.ui.prompt.status_bar.managed_process import render_managed_process_indicator
+from fast_agent.ui.prompt.status_bar.model_chip import render_model_chip
+from fast_agent.ui.prompt.status_bar.service_tier import render_service_tier_indicator
+from fast_agent.ui.prompt.status_bar.web_fetch import render_web_fetch_indicator
+from fast_agent.ui.prompt.status_bar.web_search import render_web_search_indicator
 from fast_agent.utils.collections import unique_preserve_order
 from fast_agent.utils.count_display import format_count
 

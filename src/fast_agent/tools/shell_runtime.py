@@ -312,6 +312,7 @@ class ShellRuntime:
             os_process_id=process.callbacks.os_process_id,
             total_output_bytes=process.output_state.lifetime_output_bytes,
             exit_code=exit_code,
+            output_spool_path=process.request.output_spool_path,
         )
 
     @property
@@ -841,6 +842,7 @@ class ShellRuntime:
                 terminate_after_idle=False,
                 retain_output=False,
                 terminate_on_cancel=parsed.lifecycle == "session",
+                detach=parsed.lifecycle == "persistent",
             )
             task = asyncio.create_task(
                 self._environment.execute(request, callbacks=callbacks),
@@ -1477,7 +1479,12 @@ class ShellRuntime:
                 )
                 console.console.print(
                     f"  {process.process_id}{pid_details}, "
-                    f"lifecycle={process.lifecycle}",
+                    f"lifecycle={process.lifecycle}"
+                    + (
+                        f", output_spool={process.request.output_spool_path}"
+                        if process.request.output_spool_path is not None
+                        else ""
+                    ),
                     style="yellow",
                 )
         for process in processes:

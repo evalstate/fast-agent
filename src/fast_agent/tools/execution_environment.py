@@ -52,8 +52,15 @@ class ShellRuntimeInfo:
 class ShellExecutionRequest:
     """One command execution request.
 
-    Owners may set ``terminate_on_cancel`` before cancelling an active request
-    to distinguish explicit termination from persistent runtime shutdown.
+    ``terminate_on_cancel`` controls whether cancellation terminates the process
+    tree. ``detach`` requires the child to survive runtime exit, so adapters must
+    capture output without parent-owned pipes. ``retain_output`` controls whether
+    joined output strings are retained in the returned result; callbacks remain
+    independent of result retention.
+
+    Owners may set ``terminate_on_cancel`` before cancelling an active request to
+    distinguish explicit termination from persistent runtime shutdown. Adapters
+    may populate ``output_spool_path`` while detached output remains on disk.
     """
 
     command: str
@@ -63,6 +70,8 @@ class ShellExecutionRequest:
     terminate_after_idle: bool = True
     retain_output: bool = True
     terminate_on_cancel: bool = True
+    detach: bool = False
+    output_spool_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

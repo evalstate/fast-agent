@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 from pydantic import ByteSize
 
+from fast_agent.utils.time import format_compact_duration
+
 # Braille dots:
 #   1 4
 #   2 5
@@ -16,10 +18,11 @@ from pydantic import ByteSize
 # top→bottom on the right: 1, 2, 3, 7, 4, 5, 6, 8. Across cells, drain is
 # right→left (left cells stay full longest; the right edge empties first).
 #
-# Each sweep drains 8–24 physical dots across one to three cells. A dot remains
-# visible for at most 10 seconds; longer waits use more cells, then additional
-# full sweeps rather than slowing the drain. The next dot blinks before staying
-# off. Blank is reserved for the poll deadline.
+# Each sweep drains 8–24 physical dots based on the wait budget, displayed in a
+# fixed three-cell track. A dot remains visible for at most 10 seconds; longer
+# waits use more dots, then additional full sweeps rather than slowing the
+# drain. The next dot blinks before staying off. Blank is reserved for the poll
+# deadline.
 _CELL_DOT_BITS: tuple[int, ...] = (
     0x01,  # 1
     0x02,  # 2
@@ -132,10 +135,10 @@ def format_process_output_activity(
     has_observed_output: bool | None,
     seconds_since_last_output: float | None,
 ) -> ProcessOutputActivity | None:
-    """Return a short activity chip that highlights recent output, then goes quiet.
+    """Return a short activity chip with output recency.
 
-    Recent output is emphasized for a short window, then fades, then collapses to
-    an untimed ``quiet`` marker. Missing/never-seen output stays silent.
+    Recent output is emphasized for a short window, then fades. Missing or
+    never-seen output stays silent.
     """
     if has_observed_output is None or seconds_since_last_output is None:
         return None
@@ -143,11 +146,13 @@ def format_process_output_activity(
         return None
 
     age = max(seconds_since_last_output, 0.0)
+    age_label = format_compact_duration(age) or "0s"
+    text = f"output {age_label} ago"
     if age <= 5:
-        return ProcessOutputActivity("output", "bold bright_green")
+        return ProcessOutputActivity(text, "bold bright_green")
     if age < 30:
-        return ProcessOutputActivity("output", "green")
-    return ProcessOutputActivity("quiet")
+        return ProcessOutputActivity(text, "green")
+    return ProcessOutputActivity(text)
 
 
 def format_process_poll_countdown_track(
@@ -159,10 +164,11 @@ def format_process_poll_countdown_track(
     """Return a braille track that empties as a poll wait approaches its deadline.
 
     Drain order is top→bottom within a cell (left column, then right) and
-    right→left across cells. The next dot blinks before staying off. Tracks use
-    one cell per 80s of wait budget, up to three cells. Waits longer than 240s
-    run multiple sweeps so a dot never remains unchanged for more than 10s.
-    ``None`` falls back to the pulse spinner.
+    right→left across cells. The next dot blinks before staying off. Timing uses
+    eight dots per 80s of wait budget, up to 24 dots, while the rendered track
+    remains three cells wide. Waits longer than 240s run multiple sweeps so a
+    dot never remains unchanged for more than 10s. ``None`` falls back to the
+    pulse spinner.
     """
     if type(wait_seconds) is not int or wait_seconds <= 0:
         return None
@@ -172,10 +178,7 @@ def format_process_poll_countdown_track(
         elapsed_seconds=elapsed_seconds,
         blink_next=blink_next,
     )
-    return _track_from_remaining_units(
-        remaining_units,
-        cell_count=_countdown_cell_count(wait_seconds),
-    )
+    return _track_from_remaining_units(remaining_units)
 
 
 def format_process_output_size(total_bytes: int | None) -> str | None:

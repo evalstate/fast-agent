@@ -1,4 +1,4 @@
-from fast_agent.ui.stream_segments import StreamSegmentAssembler
+from fast_agent.ui.streaming.segments import StreamSegmentAssembler
 
 
 def test_markdown_freezes_completed_paragraph_before_mutable_tail() -> None:

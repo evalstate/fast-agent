@@ -1,4 +1,4 @@
-from fast_agent.ui.stream_viewport import estimate_plain_text_height
+from fast_agent.ui.streaming.viewport import estimate_plain_text_height
 
 
 def test_estimate_plain_text_height_wraps_long_line() -> None:

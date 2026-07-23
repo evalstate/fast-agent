@@ -13,7 +13,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from shutil import rmtree
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, BinaryIO
 
 from fast_agent.core.logging.logger import Logger
 from fast_agent.home import build_child_environment
@@ -25,6 +25,14 @@ from fast_agent.tools.execution_environment import (
     ShellExecutionRequest,
     ShellExecutionResult,
     ShellRuntimeInfo,
+)
+from fast_agent.tools.shell_output_spool import (
+    ShellOutputSpoolPaths,
+    ShellOutputSpoolTailer,
+    create_local_output_spool,
+    delete_local_output_spool,
+    open_local_output_spool,
+    read_local_output_chunk,
 )
 from fast_agent.utils.shell_detection import shell_runtime_info
 from fast_agent.utils.text import strip_casefold
@@ -53,6 +61,8 @@ class _ShellProcessPlan:
     shell_path: str | None
     is_windows: bool
     process_kwargs: dict[str, Any]
+    output_spool: ShellOutputSpoolPaths | None = None
+    output_files: tuple[BinaryIO, BinaryIO] | None = None
 
 
 @dataclass(slots=True)
@@ -206,29 +216,77 @@ class LocalShellExecutor:
         plan = self._build_process_plan(
             configured_working_dir,
             env=request.env,
-            capture_output=request.terminate_on_cancel,
+            detach=request.detach,
         )
-        process = await self._start_shell_process(request.command, plan)
+        try:
+            process = await self._start_shell_process(request.command, plan)
+        except BaseException:
+            if plan.output_spool is not None:
+                delete_local_output_spool(plan.output_spool)
+            raise
+        finally:
+            if plan.output_files is not None:
+                for output_file in plan.output_files:
+                    output_file.close()
+        if plan.output_spool is not None:
+            request.output_spool_path = plan.output_spool.directory
         if callbacks is not None:
             await callbacks.on_started(process.pid)
         output = _ShellOutputCapture(retain_output=request.retain_output)
 
-        stdout_task = asyncio.create_task(
-            self._stream_process_output(
-                process.stdout,
-                output=output,
-                callbacks=callbacks,
-                is_stderr=False,
+        if plan.output_spool is not None:
+            async def on_stdout(text: str) -> None:
+                await self._record_stream_output(
+                    text,
+                    output=output,
+                    callbacks=callbacks,
+                    is_stderr=False,
+                )
+
+            async def on_stderr(text: str) -> None:
+                await self._record_stream_output(
+                    text,
+                    output=output,
+                    callbacks=callbacks,
+                    is_stderr=True,
+                )
+
+            async def process_exited() -> bool:
+                return process.returncode is not None
+
+            tailer = ShellOutputSpoolTailer(
+                plan.output_spool,
+                read_chunk=read_local_output_chunk,
+                on_stdout=on_stdout,
+                on_stderr=on_stderr,
             )
-        )
-        stderr_task = asyncio.create_task(
-            self._stream_process_output(
-                process.stderr,
-                output=output,
-                callbacks=callbacks,
-                is_stderr=True,
-            )
-        )
+            output_tasks = [
+                asyncio.create_task(
+                    tailer.tail_until(
+                        process_exited,
+                        poll_interval=_PROCESS_EXIT_POLL_SECONDS,
+                    )
+                )
+            ]
+        else:
+            output_tasks = [
+                asyncio.create_task(
+                    self._stream_process_output(
+                        process.stdout,
+                        output=output,
+                        callbacks=callbacks,
+                        is_stderr=False,
+                    )
+                ),
+                asyncio.create_task(
+                    self._stream_process_output(
+                        process.stderr,
+                        output=output,
+                        callbacks=callbacks,
+                        is_stderr=True,
+                    )
+                ),
+            ]
         watchdog_task = asyncio.create_task(
             self._watch_process_timeout(
                 process,
@@ -247,13 +305,30 @@ class LocalShellExecutor:
                     process,
                     is_windows=plan.is_windows,
                 )
+                try:
+                    await self._drain_output_tasks(
+                        output_tasks,
+                        timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
+                    )
+                finally:
+                    if plan.output_spool is not None:
+                        delete_local_output_spool(plan.output_spool)
+                        request.output_spool_path = None
+            else:
+                for task in output_tasks:
+                    await self._cancel_task_if_running(task)
             raise
         finally:
             await self._cancel_task_if_running(watchdog_task)
-        drain_timed_out = await self._drain_output_tasks(
-            [stdout_task, stderr_task],
-            timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
-        )
+        try:
+            drain_timed_out = await self._drain_output_tasks(
+                output_tasks,
+                timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
+            )
+        finally:
+            if plan.output_spool is not None:
+                delete_local_output_spool(plan.output_spool)
+                request.output_spool_path = None
         return ShellExecution(
             result=output.result,
             options=options,
@@ -266,7 +341,7 @@ class LocalShellExecutor:
         configured_working_dir: Path,
         *,
         env: Mapping[str, str] | None = None,
-        capture_output: bool = True,
+        detach: bool = False,
     ) -> _ShellProcessPlan:
         working_dir = self.resolve_working_directory(configured_working_dir)
         runtime_details = self.runtime_info()
@@ -281,16 +356,27 @@ class LocalShellExecutor:
             child_env.update(self._default_env)
         if env is not None:
             child_env.update(env)
+        output_spool = create_local_output_spool() if detach else None
+        try:
+            output_files = (
+                open_local_output_spool(output_spool)
+                if output_spool is not None
+                else None
+            )
+        except BaseException:
+            if output_spool is not None:
+                delete_local_output_spool(output_spool)
+            raise
         process_kwargs: dict[str, Any] = {
             "stdout": (
-                asyncio.subprocess.PIPE
-                if capture_output
-                else asyncio.subprocess.DEVNULL
+                output_files[0]
+                if output_files is not None
+                else asyncio.subprocess.PIPE
             ),
             "stderr": (
-                asyncio.subprocess.PIPE
-                if capture_output
-                else asyncio.subprocess.DEVNULL
+                output_files[1]
+                if output_files is not None
+                else asyncio.subprocess.PIPE
             ),
             "cwd": working_dir,
             "env": child_env,
@@ -307,6 +393,8 @@ class LocalShellExecutor:
             shell_path=shell_path,
             is_windows=is_windows,
             process_kwargs=process_kwargs,
+            output_spool=output_spool,
+            output_files=output_files,
         )
 
     async def _start_shell_process(

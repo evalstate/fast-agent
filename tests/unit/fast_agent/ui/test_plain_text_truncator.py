@@ -1,4 +1,4 @@
-from fast_agent.ui.plain_text_truncator import PlainTextTruncator
+from fast_agent.ui.streaming.plain_text import PlainTextTruncator
 
 
 def test_truncate_keeps_small_text() -> None:

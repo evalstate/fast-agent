@@ -1,4 +1,4 @@
-from fast_agent.ui.process_poll_display import (
+from fast_agent.ui.progress.process_poll import (
     _cell_glyph,
     _countdown_cell_count,
     _countdown_cycle_count,
@@ -25,7 +25,7 @@ def test_process_output_activity_highlights_recent_then_goes_quiet() -> None:
         seconds_since_last_output=4,
     )
     assert hot is not None
-    assert hot.text == "output"
+    assert hot.text == "output 4s ago"
     assert hot.style == "bold bright_green"
 
     warm = format_process_output_activity(
@@ -33,7 +33,7 @@ def test_process_output_activity_highlights_recent_then_goes_quiet() -> None:
         seconds_since_last_output=12,
     )
     assert warm is not None
-    assert warm.text == "output"
+    assert warm.text == "output 12s ago"
     assert warm.style == "green"
 
     quiet = format_process_output_activity(
@@ -41,7 +41,7 @@ def test_process_output_activity_highlights_recent_then_goes_quiet() -> None:
         seconds_since_last_output=90,
     )
     assert quiet is not None
-    assert quiet.text == "quiet"
+    assert quiet.text == "output 1m30s ago"
     assert quiet.style is None
 
 
@@ -82,13 +82,24 @@ def test_process_poll_countdown_track_drains_right_to_left() -> None:
     assert full == "⣿⣿⣿"
     assert first_blink == "⣿⣿⡿"
     assert empty == "   "
-    assert overdue == " "
+    assert overdue == "   "
     assert first_drop is not None and last_dot is not None
     # Right cell drops first.
     assert first_drop == "⣿⣿" + _cell_glyph(7)
     # Final filled step is the last dot in drain order; blank only at deadline.
     assert last_dot == _cell_glyph(1) + "  "
     assert len(full) == 3
+
+
+def test_process_poll_countdown_track_is_always_three_cells_wide() -> None:
+    track = format_process_poll_countdown_track(
+        wait_seconds=50,
+        elapsed_seconds=13,
+    )
+
+    assert track is not None
+    assert len(track) == 3
+    assert track.endswith("  ")
 
 
 def test_process_poll_countdown_blinks_toward_next_state() -> None:
@@ -118,8 +129,8 @@ def test_process_poll_countdown_scales_track_to_wait_budget() -> None:
     assert _countdown_cell_count(161) == 3
     assert _countdown_cell_count(600) == 3
 
-    assert format_process_poll_countdown_track(wait_seconds=50, elapsed_seconds=0) == "⣿"
-    assert format_process_poll_countdown_track(wait_seconds=100, elapsed_seconds=0) == "⣿⣿"
+    assert format_process_poll_countdown_track(wait_seconds=50, elapsed_seconds=0) == "⣿  "
+    assert format_process_poll_countdown_track(wait_seconds=100, elapsed_seconds=0) == "⣿⣿ "
     assert format_process_poll_countdown_track(wait_seconds=200, elapsed_seconds=0) == "⣿⣿⣿"
 
 
@@ -146,8 +157,8 @@ def test_step_timing_uses_adaptive_dots_with_10s_cap_and_rotation() -> None:
     assert format_process_poll_countdown_track(
         wait_seconds=27,
         elapsed_seconds=26,
-    ) == _cell_glyph(1)
-    assert format_process_poll_countdown_track(wait_seconds=27, elapsed_seconds=27) == " "
+    ) == f"{_cell_glyph(1)}  "
+    assert format_process_poll_countdown_track(wait_seconds=27, elapsed_seconds=27) == "   "
 
     assert _remaining_units_for_wait(wait_seconds=600, elapsed_seconds=0) == 24
     mid = _remaining_units_for_wait(wait_seconds=600, elapsed_seconds=300)

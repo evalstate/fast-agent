@@ -11,7 +11,7 @@ from rich.live import Live
 from rich.text import Text
 
 from fast_agent.event_progress import ProgressAction, ProgressEvent
-from fast_agent.ui.rich_progress import (
+from fast_agent.ui.progress.display import (
     DynamicDetailsColumn,
     RichProgressDisplay,
     SpinnerDescriptionColumn,
@@ -459,8 +459,7 @@ class TestAggregatorInitializedVisibility:
         # The countdown immediately follows the compact monitoring label.
         prefix = "▎◀ Monitoring "
         assert rendered.plain.startswith(prefix)
-        assert len(rendered.plain) == len(prefix) + 1
-        assert rendered.plain[-1] != " "
+        assert len(rendered.plain) == len(prefix) + 3
         display.stop()
 
     def test_process_poll_heartbeats_toggle_next_dot_blink(self) -> None:
@@ -508,7 +507,7 @@ class TestAggregatorInitializedVisibility:
 
         mid = SpinnerDescriptionColumn(spinner_name="braille_dense").render(task)
         assert "Monitoring" in mid.plain
-        assert mid.plain[-1] != " "
+        assert not mid.plain.endswith("   ")
 
         display.update(
             _make_event(
@@ -525,9 +524,8 @@ class TestAggregatorInitializedVisibility:
         finished = next(task for task in display._progress.tasks if task.id == task_id)
         empty = SpinnerDescriptionColumn(spinner_name="braille_dense").render(finished)
         assert "Monitoring" in empty.plain
-        # One blank cell for the exhausted 30-second track.
-        assert empty.plain.endswith(" ")
-        assert len(empty.plain) == len("▎◀ Monitoring ") + 1
+        assert empty.plain.endswith("   ")
+        assert len(empty.plain) == len("▎◀ Monitoring ") + 3
         time.sleep(0.85)
         assert "test-agent::call-poll-finish" not in display._taskmap
         display.stop()
@@ -624,7 +622,7 @@ class TestAggregatorInitializedVisibility:
 
         rendered = DynamicDetailsColumn().render(task)
         # 65s base + 5s local tick; 4s-old output ages into the warm window.
-        assert rendered.plain == "1m10s · output · 12.5KB · uv run worker.py"
+        assert rendered.plain == "1m10s · output 9s ago · 12.5KB · uv run worker.py"
         assert any(str(span.style) == "green" for span in rendered.spans)
         display.stop()
 
@@ -664,7 +662,7 @@ class TestAggregatorInitializedVisibility:
         task = next(task for task in display._progress.tasks if task.id == task_id)
 
         rendered = DynamicDetailsColumn().render(task)
-        assert rendered.plain == "1m10s · output · 25.0KB · uv run worker.py"
+        assert rendered.plain == "1m10s · output <1s ago · 25.0KB · uv run worker.py"
         assert any(str(span.style) == "bold bright_green" for span in rendered.spans)
         display.stop()
 
@@ -691,12 +689,12 @@ class TestAggregatorInitializedVisibility:
         task = next(task for task in display._progress.tasks if task.id == task_id)
 
         warm = DynamicDetailsColumn().render(task)
-        assert warm.plain == "1m30s · output · 12.5KB"
+        assert warm.plain == "1m30s · output 12s ago · 12.5KB"
         assert any(str(span.style) == "green" for span in warm.spans)
 
         task.fields["process_seconds_since_last_output"] = 90
         quiet = DynamicDetailsColumn().render(task)
-        assert quiet.plain == "1m30s · quiet · 12.5KB"
+        assert quiet.plain == "1m30s · output 1m30s ago · 12.5KB"
         display.stop()
 
     def test_poll_process_keeps_non_default_agent_name(self) -> None:

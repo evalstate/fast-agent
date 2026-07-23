@@ -19,7 +19,7 @@ from fast_agent.cli.command_support import get_settings_or_exit
 from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.ui import console as shared_console
 from fast_agent.ui.console_display import ConsoleDisplay
-from fast_agent.ui.markdown_renderables import build_markdown_renderable
+from fast_agent.ui.markdown import build_markdown_renderable
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 from fast_agent.ui.streaming import StreamingMessageHandle
 from fast_agent.utils.async_utils import run_coroutine

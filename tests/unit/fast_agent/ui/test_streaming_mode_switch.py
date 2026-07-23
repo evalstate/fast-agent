@@ -8,10 +8,14 @@ from fast_agent.config import Settings
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.types.streaming import StreamingMode
 from fast_agent.ui import console
-from fast_agent.ui import streaming as streaming_module
 from fast_agent.ui.console_display import ConsoleDisplay, _StreamingMessageHandle
-from fast_agent.ui.markdown_renderables import close_incomplete_code_blocks
-from fast_agent.ui.stream_segments import StreamSegment, StreamSegmentAssembler, ToolCodePreview
+from fast_agent.ui.markdown.renderables import close_incomplete_code_blocks
+from fast_agent.ui.streaming import display as streaming_module
+from fast_agent.ui.streaming.segments import (
+    StreamSegment,
+    StreamSegmentAssembler,
+    ToolCodePreview,
+)
 
 
 def _set_console_size(width: int = 80, height: int = 24) -> Console:

@@ -9,7 +9,7 @@ from fast_agent.core.logging.listeners import FilteredListener, convert_log_even
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.logging.transport import AsyncEventBus
 from fast_agent.event_progress import ProgressAction
-from fast_agent.ui.rich_progress import RichProgressDisplay
+from fast_agent.ui.progress import RichProgressDisplay
 
 
 async def _wait_for(

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import codecs
 import json
 import posixpath
 import re
@@ -25,6 +24,10 @@ from fast_agent.tools.execution_environment import (
     ShellExecutionRequest,
     ShellExecutionResult,
     ShellRuntimeInfo,
+)
+from fast_agent.tools.shell_output_spool import (
+    ShellOutputSpoolPaths,
+    ShellOutputSpoolTailer,
 )
 from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 
@@ -418,6 +421,12 @@ class HuggingFaceSandboxEnvironment:
         output_dir = f"{_MANAGED_OUTPUT_ROOT}/{execution_id}"
         stdout_path = f"{output_dir}/stdout"
         stderr_path = f"{output_dir}/stderr"
+        output_spool = ShellOutputSpoolPaths(
+            directory=output_dir,
+            stdout=stdout_path,
+            stderr=stderr_path,
+        )
+        request.output_spool_path = output_dir
         effective_env = dict(self._execution_env)
         effective_env.update(request.env or {})
         script = (
@@ -444,85 +453,63 @@ class HuggingFaceSandboxEnvironment:
             if request.terminate_on_cancel:
                 await self._kill_managed_process(sandbox, process)
                 await self._delete_managed_output(sandbox, output_dir)
+                request.output_spool_path = None
             raise
 
-        stdout_offset = 0
-        stderr_offset = 0
         retained_stdout: list[str] = []
         retained_stderr: list[str] = []
-        stdout_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-        stderr_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         discovery_deadline = (
             time.monotonic() + _MANAGED_PROCESS_DISCOVERY_TIMEOUT_SECONDS
+        )
+
+        async def on_stdout(text: str) -> None:
+            if request.retain_output:
+                retained_stdout.append(text)
+            if callbacks is not None:
+                await callbacks.on_stdout(text)
+
+        async def on_stderr(text: str) -> None:
+            if request.retain_output:
+                retained_stderr.append(text)
+            if callbacks is not None:
+                await callbacks.on_stderr(text)
+
+        async def process_exited() -> bool:
+            nonlocal process
+            current = await asyncio.to_thread(
+                self._managed_process_snapshot,
+                sandbox,
+                process.pid,
+            )
+            if current is None and time.monotonic() >= discovery_deadline:
+                raise RuntimeError(
+                    f"Hugging Face sandbox process {process.pid} was not discoverable"
+                )
+            if current is not None and not current.running:
+                process = current
+                return True
+            return False
+
+        tailer = ShellOutputSpoolTailer(
+            output_spool,
+            read_chunk=lambda path, offset, size: self._read_managed_output_chunk(
+                sandbox,
+                path,
+                offset=offset,
+                size=size,
+            ),
+            on_stdout=on_stdout,
+            on_stderr=on_stderr,
+            chunk_size=_MANAGED_OUTPUT_READ_CHUNK_BYTES,
+            chunks_per_poll=_MANAGED_OUTPUT_CHUNKS_PER_POLL,
         )
         try:
             if callbacks is not None:
                 await callbacks.on_started(process.pid)
-            while True:
-                (
-                    stdout_offset,
-                    stderr_offset,
-                    stdout_delta,
-                    stderr_delta,
-                    _,
-                ) = await self._emit_managed_output_deltas(
-                    sandbox,
-                    stdout_path=stdout_path,
-                    stderr_path=stderr_path,
-                    stdout_offset=stdout_offset,
-                    stderr_offset=stderr_offset,
-                    stdout_decoder=stdout_decoder,
-                    stderr_decoder=stderr_decoder,
-                    callbacks=callbacks,
-                )
-                if request.retain_output:
-                    retained_stdout.append(stdout_delta)
-                    retained_stderr.append(stderr_delta)
-                current = await asyncio.to_thread(
-                    self._managed_process_snapshot,
-                    sandbox,
-                    process.pid,
-                )
-                if current is None and time.monotonic() >= discovery_deadline:
-                    raise RuntimeError(
-                        f"Hugging Face sandbox process {process.pid} was not discoverable"
-                    )
-                if current is not None and not current.running:
-                    process = current
-                    break
-                await asyncio.sleep(_MANAGED_PROCESS_POLL_SECONDS)
-
-            caught_up = False
-            while not caught_up:
-                (
-                    stdout_offset,
-                    stderr_offset,
-                    stdout_delta,
-                    stderr_delta,
-                    caught_up,
-                ) = await self._emit_managed_output_deltas(
-                    sandbox,
-                    stdout_path=stdout_path,
-                    stderr_path=stderr_path,
-                    stdout_offset=stdout_offset,
-                    stderr_offset=stderr_offset,
-                    stdout_decoder=stdout_decoder,
-                    stderr_decoder=stderr_decoder,
-                    callbacks=callbacks,
-                )
-                if request.retain_output:
-                    retained_stdout.append(stdout_delta)
-                    retained_stderr.append(stderr_delta)
-            stdout_tail = stdout_decoder.decode(b"", final=True)
-            stderr_tail = stderr_decoder.decode(b"", final=True)
-            if callbacks is not None:
-                if stdout_tail:
-                    await callbacks.on_stdout(stdout_tail)
-                if stderr_tail:
-                    await callbacks.on_stderr(stderr_tail)
-            if request.retain_output:
-                retained_stdout.append(stdout_tail)
-                retained_stderr.append(stderr_tail)
+            await tailer.tail_until(
+                process_exited,
+                poll_interval=_MANAGED_PROCESS_POLL_SECONDS,
+            )
             exit_code = process.exit_code if process.exit_code is not None else 1
             return ShellExecution(
                 result=ShellExecutionResult(
@@ -542,6 +529,7 @@ class HuggingFaceSandboxEnvironment:
         finally:
             if request.terminate_on_cancel or process.exit_code is not None:
                 await self._delete_managed_output(sandbox, output_dir)
+                request.output_spool_path = None
 
     @staticmethod
     def _managed_process_snapshot(
@@ -553,88 +541,37 @@ class HuggingFaceSandboxEnvironment:
             None,
         )
 
-    async def _emit_managed_output_deltas(
-        self,
-        sandbox: _Sandbox,
-        *,
-        stdout_path: str,
-        stderr_path: str,
-        stdout_offset: int,
-        stderr_offset: int,
-        stdout_decoder: codecs.IncrementalDecoder,
-        stderr_decoder: codecs.IncrementalDecoder,
-        callbacks: ShellExecutionCallbacks | None,
-    ) -> tuple[int, int, str, str, bool]:
-        stdout_result, stderr_result = await asyncio.gather(
-            self._read_managed_output_delta(
-                sandbox,
-                stdout_path,
-                offset=stdout_offset,
-            ),
-            self._read_managed_output_delta(
-                sandbox,
-                stderr_path,
-                offset=stderr_offset,
-            ),
-        )
-        stdout_payload, stdout_caught_up = stdout_result
-        stderr_payload, stderr_caught_up = stderr_result
-        stdout = stdout_decoder.decode(stdout_payload, final=False)
-        stderr = stderr_decoder.decode(stderr_payload, final=False)
-        if callbacks is not None:
-            if stdout:
-                await callbacks.on_stdout(stdout)
-            if stderr:
-                await callbacks.on_stderr(stderr)
-        return (
-            stdout_offset + len(stdout_payload),
-            stderr_offset + len(stderr_payload),
-            stdout,
-            stderr,
-            stdout_caught_up and stderr_caught_up,
-        )
-
     @staticmethod
-    async def _read_managed_output_delta(
+    async def _read_managed_output_chunk(
         sandbox: _Sandbox,
         path: str,
         *,
         offset: int,
-    ) -> tuple[bytes, bool]:
-        def read_chunks() -> tuple[bytes, bool]:
-            chunks: list[bytes] = []
-            current_offset = offset
-            caught_up = False
-            for _ in range(_MANAGED_OUTPUT_CHUNKS_PER_POLL):
-                result = cast(
-                    "_SandboxCommandResult",
-                    sandbox.run(
-                        [
-                            "python3",
-                            "-c",
-                            _READ_MANAGED_OUTPUT_SCRIPT,
-                            path,
-                            str(current_offset),
-                            str(_MANAGED_OUTPUT_READ_CHUNK_BYTES),
-                        ],
-                        shell=False,
-                        check=False,
-                    ),
+        size: int,
+    ) -> bytes:
+        def read_chunk() -> bytes:
+            result = cast(
+                "_SandboxCommandResult",
+                sandbox.run(
+                    [
+                        "python3",
+                        "-c",
+                        _READ_MANAGED_OUTPUT_SCRIPT,
+                        path,
+                        str(offset),
+                        str(size),
+                    ],
+                    shell=False,
+                    check=False,
+                ),
+            )
+            if result.exit_code not in {0, None}:
+                raise RuntimeError(
+                    f"Could not read managed Hugging Face output file {path}"
                 )
-                if result.exit_code not in {0, None}:
-                    raise RuntimeError(
-                        f"Could not read managed Hugging Face output file {path}"
-                    )
-                payload = base64.b64decode(result.stdout)
-                chunks.append(payload)
-                current_offset += len(payload)
-                if len(payload) < _MANAGED_OUTPUT_READ_CHUNK_BYTES:
-                    caught_up = True
-                    break
-            content = b"".join(chunks)
-            return content, caught_up
+            return base64.b64decode(result.stdout)
 
-        return await asyncio.to_thread(read_chunks)
+        return await asyncio.to_thread(read_chunk)
 
     @staticmethod
     async def _kill_managed_process(

@@ -1,4 +1,4 @@
-from fast_agent.ui.streaming_buffer import StreamBuffer
+from fast_agent.ui.markdown.buffer import StreamBuffer
 
 
 def test_contains_context_markers_returns_false_for_plain_text() -> None:

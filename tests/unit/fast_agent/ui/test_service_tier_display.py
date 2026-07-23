@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, cast
 
-from fast_agent.ui.reasoning_effort_display import AUTO_COLOR
-from fast_agent.ui.service_tier_display import (
+from fast_agent.ui.prompt.status_bar.service_tier import (
     SERVICE_TIER_DISABLED_COLOR,
     SERVICE_TIER_FAST_COLOR,
     SERVICE_TIER_FLEX_COLOR,
@@ -9,6 +8,7 @@ from fast_agent.ui.service_tier_display import (
     cycle_service_tier,
     render_service_tier_indicator,
 )
+from fast_agent.ui.reasoning_effort_display import AUTO_COLOR
 
 if TYPE_CHECKING:
     from fast_agent.commands.model_capabilities import ServiceTierValue

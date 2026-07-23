@@ -2,7 +2,7 @@ from typing import cast
 
 from fast_agent.llm.text_verbosity import TextVerbosityLevel, TextVerbositySpec
 from fast_agent.ui.gauge_glyph_palette import PAIRED_VERBOSITY_GAUGE_GLYPHS
-from fast_agent.ui.text_verbosity_display import render_text_verbosity_gauge
+from fast_agent.ui.prompt.status_bar.text_verbosity import render_text_verbosity_gauge
 
 
 def test_text_verbosity_gauge_is_hidden_without_spec() -> None:
