@@ -2,6 +2,7 @@
   "client_id": "https://fast-agent.ai/oauth/client.json",
   "client_name": "fast-agent",
   "client_uri": "https://fast-agent.ai",
+  "logo_uri": "https://fast-agent.ai/assets/brand/fast-agent-icon.svg",
   "redirect_uris": [
     "http://127.0.0.1/callback",
     "http://127.0.0.1:3030/callback",
