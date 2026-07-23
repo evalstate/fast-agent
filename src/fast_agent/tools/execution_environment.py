@@ -54,13 +54,17 @@ class ShellExecutionRequest:
 
     ``terminate_on_cancel`` controls whether cancellation terminates the process
     tree. ``detach`` requires the child to survive runtime exit, so adapters must
-    capture output without parent-owned pipes. ``retain_output`` controls whether
-    joined output strings are retained in the returned result; callbacks remain
-    independent of result retention.
+    capture output without parent-owned pipes. A request that starts with
+    ``terminate_on_cancel=False`` must therefore also set ``detach=True``; a
+    surviving child attached to parent-owned pipes would block or die on SIGPIPE
+    once the runtime exits. ``retain_output`` controls whether joined output
+    strings are retained in the returned result; callbacks remain independent of
+    result retention.
 
-    Owners may set ``terminate_on_cancel`` before cancelling an active request to
-    distinguish explicit termination from persistent runtime shutdown. Adapters
-    may populate ``output_spool_path`` while detached output remains on disk.
+    Owners may set ``terminate_on_cancel`` to ``True`` before cancelling an
+    active request to distinguish explicit termination from persistent runtime
+    shutdown. Adapters may populate ``output_spool_path`` while detached output
+    remains on disk.
     """
 
     command: str
@@ -72,6 +76,13 @@ class ShellExecutionRequest:
     terminate_on_cancel: bool = True
     detach: bool = False
     output_spool_path: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.terminate_on_cancel and not self.detach:
+            raise ValueError(
+                "terminate_on_cancel=False requires detach=True: a child that "
+                "survives cancellation cannot use parent-owned output pipes"
+            )
 
 
 @dataclass(frozen=True, slots=True)

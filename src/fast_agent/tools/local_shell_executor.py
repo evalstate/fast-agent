@@ -219,15 +219,18 @@ class LocalShellExecutor:
             detach=request.detach,
         )
         try:
-            process = await self._start_shell_process(request.command, plan)
+            try:
+                process = await self._start_shell_process(request.command, plan)
+            finally:
+                # Close before any spool deletion: Windows cannot remove a
+                # directory containing open files.
+                if plan.output_files is not None:
+                    for output_file in plan.output_files:
+                        output_file.close()
         except BaseException:
             if plan.output_spool is not None:
                 delete_local_output_spool(plan.output_spool)
             raise
-        finally:
-            if plan.output_files is not None:
-                for output_file in plan.output_files:
-                    output_file.close()
         if plan.output_spool is not None:
             request.output_spool_path = plan.output_spool.directory
         if callbacks is not None:

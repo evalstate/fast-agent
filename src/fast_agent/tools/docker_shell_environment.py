@@ -32,6 +32,9 @@ if TYPE_CHECKING:
 
 _STREAM_READ_CHUNK_SIZE = 4096
 _PROCESS_EXIT_POLL_SECONDS = 0.1
+# Each spool poll spawns one `docker exec` per stream, so detached tailing uses
+# a slower cadence than in-process exit polling to keep dockerd load bounded.
+_SPOOL_TAIL_POLL_SECONDS = 0.5
 _IDLE_POLL_SECONDS = 1.0
 _MANAGED_PROCESS_DISCOVERY_TIMEOUT_SECONDS = 5.0
 _MANAGED_PROCESS_TERM_GRACE_SECONDS = 2.0
@@ -322,7 +325,7 @@ class DockerShellEnvironment:
                 asyncio.create_task(
                     tailer.tail_until(
                         process_exited,
-                        poll_interval=_PROCESS_EXIT_POLL_SECONDS,
+                        poll_interval=_SPOOL_TAIL_POLL_SECONDS,
                     )
                 )
             ]

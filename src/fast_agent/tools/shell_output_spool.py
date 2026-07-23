@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 import codecs
 import os
+import stat
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import rmtree
 from typing import BinaryIO, Protocol
+
+_FINAL_DRAIN_PAUSE_SECONDS = 0.05
 
 
 class SpoolChunkReader(Protocol):
@@ -68,7 +71,9 @@ class ShellOutputSpoolTailer:
             await asyncio.sleep(poll_interval)
 
         while not await self._emit_deltas():
-            pass
+            # A surviving descendant may still be appending; yield between
+            # catch-up rounds instead of spinning at full read speed.
+            await asyncio.sleep(_FINAL_DRAIN_PAUSE_SECONDS)
 
         stdout_tail = self._stdout_decoder.decode(b"", final=True)
         stderr_tail = self._stderr_decoder.decode(b"", final=True)
@@ -107,8 +112,29 @@ class ShellOutputSpoolTailer:
         return b"".join(chunks), False
 
 
+def _local_spool_root() -> str | None:
+    """Return a stable per-user root so leftover spools stay discoverable.
+
+    Falls back to ``None`` (system temp) unless the root is a private directory
+    owned by the current user, so an attacker-created shared-temp entry can
+    never become the parent of a spool.
+    """
+    suffix = f"-{os.getuid()}" if hasattr(os, "getuid") else ""
+    root = Path(tempfile.gettempdir()) / f"fast-agent-managed{suffix}"
+    try:
+        root.mkdir(mode=0o700, exist_ok=True)
+        details = root.lstat()
+        if not stat.S_ISDIR(details.st_mode) or details.st_mode & 0o022:
+            return None
+        if hasattr(os, "getuid") and details.st_uid != os.getuid():
+            return None
+    except OSError:
+        return None
+    return str(root)
+
+
 def create_local_output_spool() -> ShellOutputSpoolPaths:
-    directory = Path(tempfile.mkdtemp(prefix="fast-agent-managed-"))
+    directory = Path(tempfile.mkdtemp(prefix="fast-agent-managed-", dir=_local_spool_root()))
     directory.chmod(0o700)
     stdout = directory / "stdout.log"
     stderr = directory / "stderr.log"
