@@ -8,7 +8,7 @@ from typing import Literal
 type ShellDetachmentKind = Literal["none", "ambiguous", "service_detach"]
 
 _HEREDOC_PATTERN = re.compile(
-    r"<<-?\s*(?:'([^']+)'|\"([^\"]+)\"|([A-Za-z_][A-Za-z0-9_]*))"
+    r"<<-?\s*(?:'([^']+)'|\"([^\"]+)\"|\\([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*))"
 )
 
 

@@ -29,6 +29,7 @@ from fast_agent.tools.shell_command import classify_shell_detachment
         ("build |& tee build.log", False, "none"),
         ("echo ok # nohup server &", True, "none"),
         ("cat <<'EOF'\nnohup server &\nEOF\n", True, "none"),
+        ("cat <<\\EOF\nnohup server &\nEOF\n", True, "none"),
         ("echo '<<EOF'\nnohup server &", False, "service_detach"),
         ('echo "<<EOF"\nnohup server &', False, "service_detach"),
         ("echo 'text\n<<EOF'\nnohup server &", False, "service_detach"),
