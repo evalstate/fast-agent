@@ -3,7 +3,7 @@ from fast_agent.ui.binary_indicator import (
     TOOLBAR_BINARY_ENABLED_COLOR,
 )
 from fast_agent.ui.model_binary_toggles import WEB_SEARCH_TOGGLE
-from fast_agent.ui.web_search_display import render_web_search_indicator
+from fast_agent.ui.prompt.status_bar.web_search import render_web_search_indicator
 
 
 def test_render_web_search_indicator_hidden_when_unsupported() -> None:

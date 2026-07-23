@@ -13,9 +13,9 @@ from fast_agent.agents.agent_types import AgentType
 from fast_agent.commands.protocols import HfDisplayInfoProvider
 from fast_agent.ui.message_primitives import MessageType
 from fast_agent.ui.model_shortcuts import build_model_shortcut_hints
-from fast_agent.ui.prompt.input_toolbar import resolve_active_llm
+from fast_agent.ui.prompt.status_bar import resolve_active_llm
 from fast_agent.ui.shell_notice import format_shell_notice
-from fast_agent.ui.streaming_preferences import resolve_streaming_preferences
+from fast_agent.ui.streaming.preferences import resolve_streaming_preferences
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.path_display import format_home_relative_path
 

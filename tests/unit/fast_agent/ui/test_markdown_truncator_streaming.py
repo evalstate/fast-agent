@@ -6,8 +6,7 @@ import re
 from rich.console import Console, Group
 from rich.syntax import Syntax
 
-from fast_agent.ui.markdown_renderables import build_markdown_renderable
-from fast_agent.ui.markdown_truncator import MarkdownTruncator
+from fast_agent.ui.markdown import MarkdownTruncator, build_markdown_renderable
 
 
 def _find_renderable_containing(renderable: object, needle: str) -> object | None:

@@ -52,7 +52,7 @@ def _lazy_call(module_name: str, attr_name: str, *args, **kwargs):
 
 def _extract_alert_flags_from_alert(*args, **kwargs):
     return _lazy_call(
-        "fast_agent.ui.prompt.alert_flags",
+        "fast_agent.ui.prompt.status_bar.alert_flags",
         "_extract_alert_flags_from_alert",
         *args,
         **kwargs,
@@ -61,7 +61,7 @@ def _extract_alert_flags_from_alert(*args, **kwargs):
 
 def _extract_alert_flags_from_meta(*args, **kwargs):
     return _lazy_call(
-        "fast_agent.ui.prompt.alert_flags",
+        "fast_agent.ui.prompt.status_bar.alert_flags",
         "_extract_alert_flags_from_meta",
         *args,
         **kwargs,
@@ -70,7 +70,7 @@ def _extract_alert_flags_from_meta(*args, **kwargs):
 
 def _resolve_alert_flags_from_history(*args, **kwargs):
     return _lazy_call(
-        "fast_agent.ui.prompt.alert_flags",
+        "fast_agent.ui.prompt.status_bar.alert_flags",
         "_resolve_alert_flags_from_history",
         *args,
         **kwargs,
@@ -97,7 +97,7 @@ def create_keybindings(*args, **kwargs):
 
 def _can_fit_shell_path_and_version(*args, **kwargs):
     return _lazy_call(
-        "fast_agent.ui.prompt.toolbar",
+        "fast_agent.ui.prompt.status_bar.formatting",
         "_can_fit_shell_path_and_version",
         *args,
         **kwargs,
@@ -106,7 +106,7 @@ def _can_fit_shell_path_and_version(*args, **kwargs):
 
 def _fit_shell_identity_for_toolbar(*args, **kwargs):
     return _lazy_call(
-        "fast_agent.ui.prompt.toolbar",
+        "fast_agent.ui.prompt.status_bar.formatting",
         "_fit_shell_identity_for_toolbar",
         *args,
         **kwargs,
@@ -115,7 +115,7 @@ def _fit_shell_identity_for_toolbar(*args, **kwargs):
 
 def _fit_shell_path_for_toolbar(*args, **kwargs):
     return _lazy_call(
-        "fast_agent.ui.prompt.toolbar",
+        "fast_agent.ui.prompt.status_bar.formatting",
         "_fit_shell_path_for_toolbar",
         *args,
         **kwargs,
@@ -124,7 +124,7 @@ def _fit_shell_path_for_toolbar(*args, **kwargs):
 
 def _format_context_usage_percent_for_toolbar(*args, **kwargs):
     return _lazy_call(
-        "fast_agent.ui.prompt.toolbar",
+        "fast_agent.ui.prompt.status_bar.formatting",
         "_format_context_usage_percent_for_toolbar",
         *args,
         **kwargs,
@@ -133,7 +133,7 @@ def _format_context_usage_percent_for_toolbar(*args, **kwargs):
 
 def _format_parent_current_path(*args, **kwargs):
     return _lazy_call(
-        "fast_agent.ui.prompt.toolbar",
+        "fast_agent.ui.prompt.status_bar.formatting",
         "_format_parent_current_path",
         *args,
         **kwargs,
@@ -142,7 +142,7 @@ def _format_parent_current_path(*args, **kwargs):
 
 def _format_toolbar_agent_identity(*args, **kwargs):
     return _lazy_call(
-        "fast_agent.ui.prompt.toolbar",
+        "fast_agent.ui.prompt.status_bar.formatting",
         "_format_toolbar_agent_identity",
         *args,
         **kwargs,
@@ -151,7 +151,7 @@ def _format_toolbar_agent_identity(*args, **kwargs):
 
 def _left_truncate_with_ellipsis(*args, **kwargs):
     return _lazy_call(
-        "fast_agent.ui.prompt.toolbar",
+        "fast_agent.ui.prompt.status_bar.formatting",
         "_left_truncate_with_ellipsis",
         *args,
         **kwargs,
@@ -160,7 +160,7 @@ def _left_truncate_with_ellipsis(*args, **kwargs):
 
 def _render_model_gauges(*args, **kwargs):
     return _lazy_call(
-        "fast_agent.ui.prompt.toolbar",
+        "fast_agent.ui.prompt.status_bar.formatting",
         "_render_model_gauges",
         *args,
         **kwargs,

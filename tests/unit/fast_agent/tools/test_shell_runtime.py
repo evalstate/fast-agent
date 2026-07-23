@@ -683,6 +683,7 @@ async def test_minimal_process_actions_map_to_managed_runtime() -> None:
     assert started_metadata is not None
     assert started_metadata["lifecycle"] == "persistent"
     assert environment.requests[0].terminate_on_cancel is False
+    assert environment.requests[0].detach is True
     assert isinstance(started.content[0], TextContent)
     assert "os_pid" not in started.content[0].text
 
@@ -1952,6 +1953,7 @@ async def test_runtime_close_detaches_default_background_process() -> None:
 
     assert environment.cancelled is False
     assert environment.requests[0].terminate_on_cancel is False
+    assert environment.requests[0].detach is True
 
 
 @pytest.mark.asyncio
@@ -1973,6 +1975,7 @@ async def test_runtime_close_terminates_explicit_session_process() -> None:
     await runtime.close()
 
     assert environment.cancelled is True
+    assert environment.requests[0].detach is False
 
 
 @pytest.mark.asyncio
@@ -1995,6 +1998,7 @@ async def test_runtime_close_detaches_persistent_process() -> None:
 
     assert environment.cancelled is False
     assert environment.requests[0].terminate_on_cancel is False
+    assert environment.requests[0].detach is True
 
 
 @pytest.mark.asyncio

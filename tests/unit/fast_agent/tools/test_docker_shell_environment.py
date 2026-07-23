@@ -17,6 +17,7 @@ from fast_agent.tools.execution_environment import (
     EnvironmentFilesystemWithBytes,
     ShellExecutionRequest,
 )
+from fast_agent.tools.shell_output_spool import ShellOutputSpoolPaths
 from fast_agent.tools.shell_runtime import ShellRuntime
 
 
@@ -134,6 +135,65 @@ def test_docker_managed_exec_publishes_a_container_process_group_pid() -> None:
         "bash",
         "python -m http.server 8000",
     ]
+
+
+def test_detached_docker_managed_exec_redirects_to_spool_files() -> None:
+    environment = DockerShellEnvironment(container="workspace", cwd="/workspace")
+    spool = ShellOutputSpoolPaths(
+        directory="/tmp/fast-agent-managed/run",
+        stdout="/tmp/fast-agent-managed/run/stdout.log",
+        stderr="/tmp/fast-agent-managed/run/stderr.log",
+    )
+
+    argv = environment._managed_exec_argv(
+        ShellExecutionRequest(
+            command="python -m http.server 8000",
+            terminate_after_idle=False,
+            detach=True,
+        ),
+        "/tmp/fast-agent-managed/run/process.pid",
+        output_spool=spool,
+    )
+
+    assert '>"$stdout_file" 2>"$stderr_file"' in argv[7]
+    assert argv[-2:] == [spool.stdout, spool.stderr]
+
+
+@pytest.mark.asyncio
+async def test_docker_managed_output_reader_requests_byte_range() -> None:
+    class _ReadEnvironment(DockerShellEnvironment):
+        def __init__(self) -> None:
+            super().__init__(container="workspace")
+            self.script = ""
+            self.args: list[str] = []
+
+        async def _docker_shell_bytes(
+            self,
+            script: str,
+            args: list[str],
+            *,
+            stdin: bytes | None = None,
+        ) -> docker_environment_module._DockerExecResult:
+            assert stdin is None
+            self.script = script
+            self.args = args
+            return docker_environment_module._DockerExecResult(
+                exit_code=0,
+                stdout=b"chunk",
+                stderr="",
+            )
+
+    environment = _ReadEnvironment()
+
+    payload = await environment._read_managed_output_chunk(
+        "/tmp/output.log",
+        128,
+        4096,
+    )
+
+    assert payload == b"chunk"
+    assert "tail -c" in environment.script
+    assert environment.args == ["/tmp/output.log", "128", "4096"]
 
 
 @pytest.mark.asyncio

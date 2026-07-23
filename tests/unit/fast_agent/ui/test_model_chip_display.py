@@ -1,4 +1,4 @@
-from fast_agent.ui.model_chip_display import MODEL_CHIP_COLOR, render_model_chip
+from fast_agent.ui.prompt.status_bar.model_chip import MODEL_CHIP_COLOR, render_model_chip
 
 WEB_INDICATOR = "<style bg='ansigreen'>⊕</style>"
 WEB_FETCH_INDICATOR = "<style bg='ansigreen'> ⇣</style>"

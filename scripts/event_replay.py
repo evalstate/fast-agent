@@ -15,7 +15,7 @@ import typer
 
 from fast_agent.core.logging.events import Event
 from fast_agent.core.logging.listeners import convert_log_event
-from fast_agent.ui.rich_progress import RichProgressDisplay
+from fast_agent.ui.progress import RichProgressDisplay
 
 if TYPE_CHECKING:
     from fast_agent.event_progress import ProgressEvent

@@ -13,7 +13,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from fast_agent.ui.apply_patch_preview import style_apply_patch_preview_text
-from fast_agent.ui.markdown_helpers import prepare_markdown_content
+from fast_agent.ui.markdown.content import prepare_markdown_content
 from fast_agent.utils.text import strip_casefold
 
 _FENCE_OPEN_LINE_RE = re.compile(r"^\s{0,3}(?P<delim>`{3,}|~{3,})(?P<info>.*)$")

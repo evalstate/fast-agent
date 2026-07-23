@@ -64,15 +64,15 @@ from fast_agent.ui.prompt.input_runtime import (
     run_prompt_once,
     start_toolbar_switch_task,
 )
-from fast_agent.ui.prompt.input_toolbar import (
+from fast_agent.ui.prompt.keybindings import ShellPrefixLexer, create_keybindings
+from fast_agent.ui.prompt.special_commands import handle_special_commands_async
+from fast_agent.ui.prompt.status_bar import (
     ShellToolbarState,
     ToolbarRenderCache,
     render_input_toolbar,
     resolve_active_llm,
 )
-from fast_agent.ui.prompt.keybindings import ShellPrefixLexer, create_keybindings
-from fast_agent.ui.prompt.special_commands import handle_special_commands_async
-from fast_agent.ui.service_tier_display import cycle_service_tier
+from fast_agent.ui.prompt.status_bar.service_tier import cycle_service_tier
 from fast_agent.utils.env import env_flag
 
 if TYPE_CHECKING:

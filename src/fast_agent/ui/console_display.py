@@ -26,8 +26,7 @@ from fast_agent.ui.display_suppression import (
     display_status_enabled,
     display_tools_enabled,
 )
-from fast_agent.ui.markdown_helpers import prepare_markdown_content
-from fast_agent.ui.markdown_renderables import build_markdown_renderable
+from fast_agent.ui.markdown import build_markdown_renderable, prepare_markdown_content
 from fast_agent.ui.mcp_ui_utils import UILink
 from fast_agent.ui.mermaid_utils import (
     MermaidDiagram,
@@ -37,7 +36,7 @@ from fast_agent.ui.mermaid_utils import (
 )
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 from fast_agent.ui.message_styles import A3MessageStyle
-from fast_agent.ui.process_poll_display import (
+from fast_agent.ui.progress.process_poll import (
     format_process_output_activity,
     format_process_output_size,
 )
@@ -51,7 +50,7 @@ from fast_agent.ui.streaming import (
 from fast_agent.ui.streaming import (
     StreamingMessageHandle as _StreamingMessageHandle,
 )
-from fast_agent.ui.streaming_preferences import (
+from fast_agent.ui.streaming.preferences import (
     StreamingPreferences,
     resolve_streaming_preferences,
 )
@@ -1140,7 +1139,7 @@ class ConsoleDisplay:
         cursor_suffix: str = "",
         close_incomplete_fences: bool = False,
     ) -> RenderableType:
-        from fast_agent.ui.markdown_renderables import build_markdown_renderable
+        from fast_agent.ui.markdown import build_markdown_renderable
 
         return build_markdown_renderable(
             text,

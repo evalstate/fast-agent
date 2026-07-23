@@ -1,6 +1,9 @@
 import json
 
-from fast_agent.ui.stream_segments import StreamSegmentAssembler, extract_partial_json_string_field
+from fast_agent.ui.streaming.segments import (
+    StreamSegmentAssembler,
+    extract_partial_json_string_field,
+)
 
 
 def _make_assembler(

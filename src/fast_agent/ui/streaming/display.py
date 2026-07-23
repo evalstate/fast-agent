@@ -22,15 +22,15 @@ from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.tool_activity_presentation import tool_activity_family_uses_status_body
 from fast_agent.ui import console
 from fast_agent.ui.apply_patch_preview import style_apply_patch_preview_text
-from fast_agent.ui.markdown_helpers import prepare_markdown_content
-from fast_agent.ui.markdown_renderables import (
+from fast_agent.ui.markdown.content import prepare_markdown_content
+from fast_agent.ui.markdown.renderables import (
     build_markdown_renderable,
     close_incomplete_code_blocks,
 )
-from fast_agent.ui.markdown_truncator import MarkdownTruncator
-from fast_agent.ui.plain_text_truncator import PlainTextTruncator
-from fast_agent.ui.stream_segments import StreamSegmentAssembler
-from fast_agent.ui.stream_viewport import StreamViewport
+from fast_agent.ui.markdown.truncation import MarkdownTruncator
+from fast_agent.ui.streaming.plain_text import PlainTextTruncator
+from fast_agent.ui.streaming.segments import StreamSegmentAssembler
+from fast_agent.ui.streaming.viewport import StreamViewport
 from fast_agent.utils.env import env_flag
 
 if TYPE_CHECKING:
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.ui.console_display import ConsoleDisplay
-    from fast_agent.ui.stream_segments import StreamSegment
+    from fast_agent.ui.streaming.segments import StreamSegment
 
 
 logger = get_logger(__name__)

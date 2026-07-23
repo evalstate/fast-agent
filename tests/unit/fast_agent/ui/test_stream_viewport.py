@@ -1,9 +1,9 @@
 from rich.console import Console
 
-from fast_agent.ui.markdown_truncator import MarkdownTruncator
-from fast_agent.ui.plain_text_truncator import PlainTextTruncator
-from fast_agent.ui.stream_segments import StreamSegment
-from fast_agent.ui.stream_viewport import StreamViewport, estimate_plain_text_height
+from fast_agent.ui.markdown import MarkdownTruncator
+from fast_agent.ui.streaming.plain_text import PlainTextTruncator
+from fast_agent.ui.streaming.segments import StreamSegment
+from fast_agent.ui.streaming.viewport import StreamViewport, estimate_plain_text_height
 
 
 class _FakeMarkdownTruncator(MarkdownTruncator):

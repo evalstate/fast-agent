@@ -5,8 +5,8 @@ from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 
-from fast_agent.ui.markdown_helpers import prepare_markdown_content
-from fast_agent.ui.markdown_renderables import (
+from fast_agent.ui.markdown.content import prepare_markdown_content
+from fast_agent.ui.markdown.renderables import (
     _rewrite_fence_languages,
     build_markdown_renderable,
     extract_single_fenced_code_block,

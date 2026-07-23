@@ -7,9 +7,9 @@ from prompt_toolkit.formatted_text import HTML, to_formatted_text
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui import notification_tracker
-from fast_agent.ui.attachment_indicator import DraftAttachmentSummary
 from fast_agent.ui.prompt.attachment_tokens import build_local_attachment_token
-from fast_agent.ui.prompt.input_toolbar import (
+from fast_agent.ui.prompt.status_bar.attachment import DraftAttachmentSummary
+from fast_agent.ui.prompt.status_bar.renderer import (
     AttachmentResourceSnapshot,
     ToolbarAgentState,
     ToolbarRenderCache,

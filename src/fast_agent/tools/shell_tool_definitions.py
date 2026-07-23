@@ -77,8 +77,10 @@ def build_execute_tool(*, shell_name: str) -> Tool:
             "`background=true` for known long-running commands. Explicit background "
             "commands default to `lifecycle='persistent'` and remain running after "
             "the agent runtime exits; set `lifecycle='session'` for temporary "
-            "concurrent jobs that should be terminated at shutdown. Automatically "
-            "yielded foreground commands remain session-scoped. Do not append '&'. "
+            "concurrent jobs that should be terminated at shutdown. Persistent "
+            "output is monitorable while the runtime is active and continues to a "
+            "reported spool path after shutdown. Automatically yielded foreground "
+            "commands remain session-scoped. Do not append '&'. "
             "`cwd` and `output_byte_limit` apply only to this command. Pipelines "
             "report the final command's status unless you enable `pipefail`."
         ),
@@ -114,8 +116,10 @@ def build_execute_tool(*, shell_name: str) -> Tool:
                         "Lifetime of a background command. Omitted lifecycle defaults "
                         "to 'persistent' when background=true. 'session' terminates "
                         "the process when the agent runtime exits. 'persistent' leaves "
-                        "it running in the execution environment after the agent "
-                        "exits. Automatically yielded foreground commands are always "
+                        "it running in the execution environment after the agent exits "
+                        "and writes subsequent output to its reported, size-unbounded "
+                        "spool path. "
+                        "Automatically yielded foreground commands are always "
                         "session-scoped."
                     ),
                 },

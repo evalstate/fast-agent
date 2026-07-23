@@ -3,7 +3,7 @@ from fast_agent.ui.binary_indicator import (
     TOOLBAR_BINARY_ENABLED_COLOR,
 )
 from fast_agent.ui.model_binary_toggles import WEB_FETCH_TOGGLE
-from fast_agent.ui.web_fetch_display import render_web_fetch_indicator
+from fast_agent.ui.prompt.status_bar.web_fetch import render_web_fetch_indicator
 
 
 def test_render_web_fetch_indicator_hidden_when_unsupported() -> None:

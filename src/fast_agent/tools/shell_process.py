@@ -194,6 +194,7 @@ class ManagedProcessSnapshot:
     os_process_id: int | None
     total_output_bytes: int
     exit_code: int | None
+    output_spool_path: str | None = None
 
 
 def build_managed_process_result(

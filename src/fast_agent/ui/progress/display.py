@@ -20,7 +20,7 @@ from fast_agent.tools.tool_sources import ACP_TERMINAL_TOOL_SOURCE
 from fast_agent.ui.agent_identity import is_default_agent_name
 from fast_agent.ui.console import console as default_console
 from fast_agent.ui.console import ensure_blocking_console
-from fast_agent.ui.process_poll_display import (
+from fast_agent.ui.progress.process_poll import (
     format_process_output_activity,
     format_process_output_size,
     format_process_poll_countdown_track,

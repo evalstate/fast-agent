@@ -22,6 +22,10 @@ from fast_agent.tools.execution_environment import (
     ShellExecutionResult,
     ShellRuntimeInfo,
 )
+from fast_agent.tools.shell_output_spool import (
+    ShellOutputSpoolPaths,
+    ShellOutputSpoolTailer,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -40,12 +44,21 @@ set -eu
 pid_file="$1"
 shell="$2"
 command="$3"
+stdout_file="${4:-}"
+stderr_file="${5:-}"
+umask 077
 command -v setsid >/dev/null 2>&1 || {
     echo "fast-agent managed Docker execution requires setsid inside the container" >&2
     exit 127
 }
 mkdir -p -- "$(dirname -- "$pid_file")"
-setsid "$shell" -lc "$command" &
+if [ -n "$stdout_file" ]; then
+    : >"$stdout_file"
+    : >"$stderr_file"
+    setsid "$shell" -lc "$command" >"$stdout_file" 2>"$stderr_file" &
+else
+    setsid "$shell" -lc "$command" &
+fi
 child=$!
 printf '%s\n' "$child" > "$pid_file"
 set +e
@@ -53,6 +66,14 @@ wait "$child"
 status=$?
 set -e
 exit "$status"
+""".strip()
+_DOCKER_READ_MANAGED_OUTPUT_SCRIPT = """
+path="$1"
+offset="$2"
+size="$3"
+[ -e "$path" ] || exit 0
+start=$((offset + 1))
+tail -c "+$start" -- "$path" | head -c "$size"
 """.strip()
 _DOCKER_LIST_DIR_SCRIPT = """
 dir="$1"
@@ -192,13 +213,33 @@ class DockerShellEnvironment:
             else None,
             warning_interval_seconds=self._warning_interval_seconds,
         )
-        managed_pid_file = (
-            f"{_MANAGED_PROCESS_ROOT}/{uuid.uuid4().hex}.pid"
+        managed_output_dir = (
+            f"{_MANAGED_PROCESS_ROOT}/{uuid.uuid4().hex}"
             if not request.terminate_after_idle
             else None
         )
+        managed_pid_file = (
+            f"{managed_output_dir}/process.pid"
+            if managed_output_dir is not None
+            else None
+        )
+        output_spool = (
+            ShellOutputSpoolPaths(
+                directory=managed_output_dir,
+                stdout=f"{managed_output_dir}/stdout.log",
+                stderr=f"{managed_output_dir}/stderr.log",
+            )
+            if managed_output_dir is not None and request.detach
+            else None
+        )
+        if output_spool is not None:
+            request.output_spool_path = output_spool.directory
         argv = (
-            self._managed_exec_argv(request, managed_pid_file)
+            self._managed_exec_argv(
+                request,
+                managed_pid_file,
+                output_spool=output_spool,
+            )
             if managed_pid_file is not None
             else self._exec_argv(request)
         )
@@ -207,18 +248,19 @@ class DockerShellEnvironment:
             process = await asyncio.create_subprocess_exec(
                 *argv,
                 stdout=(
-                    asyncio.subprocess.PIPE
-                    if request.terminate_on_cancel
-                    else asyncio.subprocess.DEVNULL
+                    asyncio.subprocess.DEVNULL
+                    if output_spool is not None
+                    else asyncio.subprocess.PIPE
                 ),
                 stderr=(
-                    asyncio.subprocess.PIPE
-                    if request.terminate_on_cancel
-                    else asyncio.subprocess.DEVNULL
+                    asyncio.subprocess.DEVNULL
+                    if output_spool is not None
+                    else asyncio.subprocess.PIPE
                 ),
                 env=process_env,
             )
         except FileNotFoundError as exc:
+            request.output_spool_path = None
             raise EnvironmentStartupError(
                 f"Could not start {self._container_cli} shell environment.",
                 f"Container CLI not found: {self._container_cli}. "
@@ -242,29 +284,67 @@ class DockerShellEnvironment:
                 raise
             except BaseException:
                 await self._terminate_process(process)
-                await self._delete_managed_pid_file(managed_pid_file)
+                if managed_output_dir is not None:
+                    await self._delete_managed_execution_files(managed_output_dir)
                 raise
         if callbacks is not None:
             await callbacks.on_started(
                 container_process_id if container_process_id is not None else process.pid
             )
         output = _DockerOutputCapture.create(retain_output=request.retain_output)
-        stdout_task = asyncio.create_task(
-            self._stream_output(
-                process.stdout,
-                output=output,
-                callbacks=callbacks,
-                is_stderr=False,
+        if output_spool is not None:
+            async def on_stdout(text: str) -> None:
+                await self._record_output(
+                    text,
+                    output=output,
+                    callbacks=callbacks,
+                    is_stderr=False,
+                )
+
+            async def on_stderr(text: str) -> None:
+                await self._record_output(
+                    text,
+                    output=output,
+                    callbacks=callbacks,
+                    is_stderr=True,
+                )
+
+            async def process_exited() -> bool:
+                return process.returncode is not None
+
+            tailer = ShellOutputSpoolTailer(
+                output_spool,
+                read_chunk=self._read_managed_output_chunk,
+                on_stdout=on_stdout,
+                on_stderr=on_stderr,
             )
-        )
-        stderr_task = asyncio.create_task(
-            self._stream_output(
-                process.stderr,
-                output=output,
-                callbacks=callbacks,
-                is_stderr=True,
-            )
-        )
+            output_tasks = [
+                asyncio.create_task(
+                    tailer.tail_until(
+                        process_exited,
+                        poll_interval=_PROCESS_EXIT_POLL_SECONDS,
+                    )
+                )
+            ]
+        else:
+            output_tasks = [
+                asyncio.create_task(
+                    self._stream_output(
+                        process.stdout,
+                        output=output,
+                        callbacks=callbacks,
+                        is_stderr=False,
+                    )
+                ),
+                asyncio.create_task(
+                    self._stream_output(
+                        process.stderr,
+                        output=output,
+                        callbacks=callbacks,
+                        is_stderr=True,
+                    )
+                ),
+            ]
 
         try:
             output.exit_code = await self._wait_for_exit(
@@ -282,10 +362,22 @@ class DockerShellEnvironment:
                 )
             else:
                 await self._terminate_process(process)
+            if request.terminate_on_cancel:
+                try:
+                    await self._drain_output_tasks(output_tasks)
+                finally:
+                    if managed_output_dir is not None:
+                        await self._delete_managed_execution_files(managed_output_dir)
+                        request.output_spool_path = None
+            else:
+                await self._cancel_output_tasks(output_tasks)
             raise
-        drain_timed_out = await self._drain_output_tasks([stdout_task, stderr_task])
-        if managed_pid_file is not None:
-            await self._delete_managed_pid_file(managed_pid_file)
+        try:
+            drain_timed_out = await self._drain_output_tasks(output_tasks)
+        finally:
+            if managed_output_dir is not None:
+                await self._delete_managed_execution_files(managed_output_dir)
+                request.output_spool_path = None
         return ShellExecution(
             result=output.result,
             options=options,
@@ -307,12 +399,14 @@ class DockerShellEnvironment:
         self,
         request: ShellExecutionRequest,
         managed_pid_file: str,
+        *,
+        output_spool: ShellOutputSpoolPaths | None = None,
     ) -> list[str]:
         cwd = request.cwd or self._cwd
         effective_env = dict(self._default_env)
         effective_env.update(request.env or {})
         env_args = [item for name in effective_env for item in ("-e", name)]
-        return [
+        argv = [
             self._container_cli,
             "exec",
             *env_args,
@@ -327,6 +421,9 @@ class DockerShellEnvironment:
             self._shell,
             request.command,
         ]
+        if output_spool is not None:
+            argv.extend([output_spool.stdout, output_spool.stderr])
+        return argv
 
     def _exec_process_env(self, request: ShellExecutionRequest) -> dict[str, str]:
         effective_env = dict(self._default_env)
@@ -350,18 +447,32 @@ class DockerShellEnvironment:
             chunk = await stream.read(_STREAM_READ_CHUNK_SIZE)
             if not chunk:
                 return
-            text = chunk.decode(errors="replace")
-            output.last_output_time = time.monotonic()
-            if is_stderr:
-                if output.retain_output:
-                    output.stderr_segments.append(text)
-                if callbacks is not None:
-                    await callbacks.on_stderr(text)
-            else:
-                if output.retain_output:
-                    output.stdout_segments.append(text)
-                if callbacks is not None:
-                    await callbacks.on_stdout(text)
+            await self._record_output(
+                chunk.decode(errors="replace"),
+                output=output,
+                callbacks=callbacks,
+                is_stderr=is_stderr,
+            )
+
+    @staticmethod
+    async def _record_output(
+        text: str,
+        *,
+        output: _DockerOutputCapture,
+        callbacks: ShellExecutionCallbacks | None,
+        is_stderr: bool,
+    ) -> None:
+        output.last_output_time = time.monotonic()
+        if is_stderr:
+            if output.retain_output:
+                output.stderr_segments.append(text)
+            if callbacks is not None:
+                await callbacks.on_stderr(text)
+        else:
+            if output.retain_output:
+                output.stdout_segments.append(text)
+            if callbacks is not None:
+                await callbacks.on_stdout(text)
 
     async def _wait_for_exit(
         self,
@@ -501,6 +612,32 @@ class DockerShellEnvironment:
 
     async def _delete_managed_pid_file(self, managed_pid_file: str) -> None:
         await self._docker_shell_bytes('rm -f -- "$1"', [managed_pid_file])
+
+    async def _delete_managed_execution_files(self, output_dir: str) -> None:
+        await self._docker_shell_bytes('rm -rf -- "$1"', [output_dir])
+
+    async def _read_managed_output_chunk(
+        self,
+        path: str,
+        offset: int,
+        size: int,
+    ) -> bytes:
+        result = await self._docker_shell_bytes(
+            _DOCKER_READ_MANAGED_OUTPUT_SCRIPT,
+            [path, str(offset), str(size)],
+        )
+        if result.exit_code != 0:
+            raise RuntimeError(
+                f"Could not read managed Docker output file {path}: "
+                f"{result.stderr.strip() or 'container command failed'}"
+            )
+        return result.stdout
+
+    async def _cancel_output_tasks(self, tasks: list[asyncio.Task[None]]) -> None:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _drain_output_tasks(self, tasks: list[asyncio.Task[None]]) -> bool:
         done, pending = await asyncio.wait(tasks, timeout=2)

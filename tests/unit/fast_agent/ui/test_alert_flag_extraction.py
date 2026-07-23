@@ -9,7 +9,7 @@ from fast_agent.constants import (
     FAST_AGENT_REMOVED_METADATA_CHANNEL,
 )
 from fast_agent.types import PromptMessageExtended
-from fast_agent.ui.prompt.alert_flags import (
+from fast_agent.ui.prompt.status_bar.alert_flags import (
     _extract_alert_flags_from_alert,
     _extract_alert_flags_from_meta,
     _resolve_alert_flags_from_history,
