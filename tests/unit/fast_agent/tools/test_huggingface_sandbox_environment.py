@@ -500,6 +500,7 @@ async def test_managed_execute_persistent_cancellation_leaves_remote_process_run
                 command="sleep 60",
                 terminate_after_idle=False,
                 terminate_on_cancel=False,
+                detach=True,
             ),
             callbacks=callbacks,
         )

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from fast_agent.tools.execution_environment import (
     ShellEnvironment,
     ShellExecution,
@@ -47,3 +49,18 @@ def test_shell_runtime_info_is_typed() -> None:
 
     assert info.name == "bash"
     assert info.kind == "docker"
+
+
+def test_shell_execution_request_rejects_surviving_child_with_pipes() -> None:
+    with pytest.raises(ValueError, match="requires detach=True"):
+        ShellExecutionRequest(command="sleep 60", terminate_on_cancel=False)
+
+
+def test_shell_execution_request_allows_detached_survivor() -> None:
+    request = ShellExecutionRequest(
+        command="sleep 60",
+        terminate_on_cancel=False,
+        detach=True,
+    )
+
+    assert request.detach is True

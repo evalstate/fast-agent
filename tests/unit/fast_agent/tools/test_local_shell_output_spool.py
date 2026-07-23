@@ -193,6 +193,56 @@ async def test_completed_detached_execution_removes_drained_spool(
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(platform.system() == "Windows", reason="Unix process groups")
+async def test_runtime_close_leaves_real_persistent_background_process_running(
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "service.py"
+    script.write_text(
+        "\n".join(
+            [
+                "import time",
+                "while True:",
+                "    print('serving', flush=True)",
+                "    time.sleep(0.05)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        working_directory=tmp_path,
+        config=Settings(shell_execution=ShellSettings(show_bash=False)),
+    )
+
+    await runtime.execute(
+        {
+            "command": f'exec "{sys.executable}" "{script}"',
+            "background": True,
+        }
+    )
+    snapshot = (await runtime.process_snapshots())[0]
+    assert snapshot.os_process_id is not None
+    assert snapshot.output_spool_path is not None
+    spool_path = Path(snapshot.output_spool_path)
+    stdout_path = spool_path / "stdout.log"
+
+    await runtime.close()
+
+    try:
+        os.kill(snapshot.os_process_id, 0)
+        initial_size = await _wait_for_file_growth(stdout_path)
+        await _wait_for_file_growth(stdout_path, initial_size=initial_size)
+    finally:
+        try:
+            os.killpg(snapshot.os_process_id, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        rmtree(spool_path, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(platform.system() == "Windows", reason="Unix process groups")
 async def test_runtime_close_terminates_real_session_background_process(
     tmp_path: Path,
 ) -> None:
