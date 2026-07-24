@@ -627,7 +627,7 @@ class TestAggregatorInitializedVisibility:
         # 65s base + 5s local tick; 4s-old output ages into the warm window.
         assert (
             rendered.plain
-            == "out 9s    · err —     · time 1m10s · size 12.5KB · uv run worker.py"
+            == "out  9s · err   — · time 1m10s · size 12.5KB · uv run worker.py"
         )
         assert any(str(span.style) == "green" for span in rendered.spans)
         display.stop()
@@ -670,7 +670,7 @@ class TestAggregatorInitializedVisibility:
         rendered = DynamicDetailsColumn().render(task)
         assert (
             rendered.plain
-            == "out —     · err —     · time 1m10s · size 25.0KB · uv run worker.py"
+            == "out   — · err   — · time 1m10s · size 25.0KB · uv run worker.py"
         )
         display.stop()
 
@@ -697,11 +697,11 @@ class TestAggregatorInitializedVisibility:
         task = next(task for task in display._progress.tasks if task.id == task_id)
 
         warm = DynamicDetailsColumn().render(task)
-        assert warm.plain == "out —     · err —     · time 1m30s · size 12.5KB"
+        assert warm.plain == "out   — · err   — · time 1m30s · size 12.5KB"
 
         task.fields["process_seconds_since_last_output"] = 90
         quiet = DynamicDetailsColumn().render(task)
-        assert quiet.plain == "out —     · err —     · time 1m30s · size 12.5KB"
+        assert quiet.plain == "out   — · err   — · time 1m30s · size 12.5KB"
         display.stop()
 
     def test_poll_process_keeps_non_default_agent_name(self) -> None:

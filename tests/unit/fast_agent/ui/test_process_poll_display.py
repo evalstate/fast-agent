@@ -68,7 +68,7 @@ def test_process_monitor_stats_use_stable_columns_and_stream_colors() -> None:
         )
     )
 
-    assert rendered.plain == "out 9s    · err 2s    · time 1m10s · size 12.5KB"
+    assert rendered.plain == "out  9s · err  2s · time 1m10s · size 12.5KB"
     styles = {str(span.style) for span in rendered.spans}
     assert "green" in styles
     assert "bold bright_red" in styles
@@ -84,6 +84,21 @@ def test_process_monitor_stats_use_stable_columns_and_stream_colors() -> None:
         )
     )
     assert len(idle.plain) == len(rendered.plain)
+
+
+def test_process_monitor_activity_clamps_subsecond_age_to_one_second() -> None:
+    rendered = render_process_monitor_stats(
+        ProcessMonitorStats(
+            elapsed_seconds=1,
+            stdout_age_seconds=0.2,
+            stderr_age_seconds=None,
+            stdout_bytes=1,
+            stderr_bytes=0,
+            total_output_bytes=1,
+        )
+    )
+
+    assert rendered.plain.startswith("out  1s · err   —")
 
 
 def test_cell_glyph_fills_top_to_bottom_left_column_first() -> None:

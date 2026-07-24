@@ -99,7 +99,7 @@ def test_regular_agent_usage_displays_cache_percentage_and_ttl() -> None:
 
     assert display is not None
     output = format_regular_turn_usage(display)
-    assert "(cache 5%)" in output
+    assert "(cache 5%, wrote 10)" in output
     assert "· cache TTL " in output
     assert "^" not in output
     assert "*" not in output
@@ -112,6 +112,7 @@ def test_usage_display_omits_cache_percentage_when_provider_does_not_report_it()
             output_tokens=20,
             tool_calls=0,
             cache_percentage=None,
+            cache_write_tokens=None,
             context_percentage=None,
             cache_ttl=None,
         )
@@ -127,6 +128,7 @@ def test_usage_display_compacts_counts_at_one_million() -> None:
             output_tokens=1_000_000,
             tool_calls=0,
             cache_percentage=None,
+            cache_write_tokens=None,
             context_percentage=None,
             cache_ttl=None,
         )

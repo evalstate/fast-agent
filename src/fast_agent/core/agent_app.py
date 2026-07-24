@@ -899,6 +899,7 @@ class AgentApp:
             output_tokens=output_tokens,
             tool_calls=tool_calls,
             cache_percentage=self._cached_prompt_percentage(turn_slice),
+            cache_write_tokens=self._cache_write_tokens(turn_slice),
             context_percentage=accumulator.context_usage_percentage,
             cache_ttl=self._cache_ttl_display(agent, turn_slice, has_cache_activity),
         )
@@ -919,6 +920,13 @@ class AgentApp:
             return None
         cache_read = sum(value for value in cache_reads if value is not None)
         return (cache_read / prompt_total) * 100
+
+    @staticmethod
+    def _cache_write_tokens(turn_slice: list[TurnUsage]) -> int | None:
+        cache_writes = [turn.prompt.cache_write for turn in turn_slice]
+        if not cache_writes or any(value is None for value in cache_writes):
+            return None
+        return sum(value for value in cache_writes if value is not None)
 
     def _cache_ttl_display(
         self,

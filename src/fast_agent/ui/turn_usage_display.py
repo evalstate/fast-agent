@@ -37,6 +37,7 @@ class TurnUsageDisplay:
     output_tokens: int
     tool_calls: int
     cache_percentage: float | None
+    cache_write_tokens: int | None
     context_percentage: float | None
     cache_ttl: CacheTTLDisplay | None
 
@@ -54,11 +55,12 @@ def _format_cache_percentage(percentage: float) -> str:
 
 
 def format_turn_usage(usage: TurnUsageDisplay) -> str:
-    cache_info = (
-        f" [dim](cache {_format_cache_percentage(usage.cache_percentage)})[/dim]"
-        if usage.cache_percentage is not None
-        else ""
-    )
+    cache_parts: list[str] = []
+    if usage.cache_percentage is not None:
+        cache_parts.append(_format_cache_percentage(usage.cache_percentage))
+    if usage.cache_write_tokens:
+        cache_parts.append(f"wrote {format_compact_count(usage.cache_write_tokens)}")
+    cache_info = f" [dim](cache {', '.join(cache_parts)})[/dim]" if cache_parts else ""
     details: list[str] = []
     if usage.tool_calls > 0:
         details.append(
@@ -94,12 +96,19 @@ def format_parallel_turn_usage(children: Sequence[NamedTurnUsageDisplay]) -> lis
             if child.usage.cache_percentage is not None
         )
         cache_percentage = cached_tokens / total_input * 100
+    cache_writes = [child.usage.cache_write_tokens for child in children]
+    cache_write_tokens = (
+        sum(value for value in cache_writes if value is not None)
+        if all(value is not None for value in cache_writes)
+        else None
+    )
 
     total = TurnUsageDisplay(
         input_tokens=total_input,
         output_tokens=sum(child.usage.output_tokens for child in children),
         tool_calls=sum(child.usage.tool_calls for child in children),
         cache_percentage=cache_percentage,
+        cache_write_tokens=cache_write_tokens,
         context_percentage=None,
         cache_ttl=None,
     )

@@ -15,6 +15,7 @@ def _usage(
     output_tokens: int,
     tool_calls: int = 0,
     cache_percentage: float | None = None,
+    cache_write_tokens: int | None = None,
     context_percentage: float | None = None,
     cache_ttl: CacheTTLExpiry | None = None,
 ) -> TurnUsageDisplay:
@@ -23,6 +24,7 @@ def _usage(
         output_tokens=output_tokens,
         tool_calls=tool_calls,
         cache_percentage=cache_percentage,
+        cache_write_tokens=cache_write_tokens,
         context_percentage=context_percentage,
         cache_ttl=cache_ttl,
     )
@@ -37,6 +39,7 @@ def test_regular_turn_usage_uses_compact_detail_hierarchy() -> None:
             output_tokens=12_345,
             tool_calls=3,
             cache_percentage=82,
+            cache_write_tokens=1_200,
             context_percentage=14.2,
             cache_ttl=CacheTTLExpiry(expires_at=expiry),
         )
@@ -44,7 +47,8 @@ def test_regular_turn_usage_uses_compact_detail_hierarchy() -> None:
 
     assert (
         rendered
-        == "[dim]Last:[/dim] [blue]▶ 1.23M[/blue] input [dim](cache 82%)[/dim]  "
+        == "[dim]Last:[/dim] [blue]▶ 1.23M[/blue] input "
+        "[dim](cache 82%, wrote 1,200)[/dim]  "
         "[green]◀ 12,345[/green] output"
         " [dim]· 3 tool calls · context 14.2% · cache TTL 14:32[/dim]"
     )
@@ -55,16 +59,26 @@ def test_parallel_turn_usage_weights_cache_percentage_by_input_tokens() -> None:
         [
             NamedTurnUsageDisplay(
                 name="one",
-                usage=_usage(input_tokens=100, output_tokens=10, cache_percentage=50),
+                usage=_usage(
+                    input_tokens=100,
+                    output_tokens=10,
+                    cache_percentage=50,
+                    cache_write_tokens=10,
+                ),
             ),
             NamedTurnUsageDisplay(
                 name="two",
-                usage=_usage(input_tokens=300, output_tokens=20, cache_percentage=25),
+                usage=_usage(
+                    input_tokens=300,
+                    output_tokens=20,
+                    cache_percentage=25,
+                    cache_write_tokens=20,
+                ),
             ),
         ]
     )
 
-    assert "▶ 400[/blue] input [dim](cache 31%)[/dim]" in lines[0]
+    assert "▶ 400[/blue] input [dim](cache 31%, wrote 30)[/dim]" in lines[0]
     assert "◀ 30[/green] output" in lines[0]
     assert lines[1].startswith("[dim]  ├─ one:[/dim]")
     assert lines[2].startswith("[dim]  └─ two:[/dim]")

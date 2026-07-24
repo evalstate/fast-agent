@@ -143,7 +143,7 @@ class ProcessMonitorStats:
     total_output_bytes: int | None
 
 
-_ACTIVITY_WIDTH = 5
+_ACTIVITY_WIDTH = 3
 _ELAPSED_WIDTH = 5
 _SIZE_WIDTH = 6
 
@@ -163,14 +163,14 @@ def _activity_label(age_seconds: float | None) -> str:
     if age_seconds is None:
         return "—"
     age = max(age_seconds, 0.0)
-    if age < 10 * 60:
-        return format_compact_duration(age) or "0s"
+    if age < 60:
+        return f"{max(1, int(age))}s"
     if age < 60 * 60:
         return f"{int(age // 60)}m"
     if age < 24 * 60 * 60:
         return f"{int(age // (60 * 60))}h"
     days = int(age // (24 * 60 * 60))
-    return f"{days}d" if days <= 99 else ">99d"
+    return f"{min(days, 99)}d"
 
 
 def render_process_monitor_stats(stats: ProcessMonitorStats) -> Text:
@@ -195,14 +195,12 @@ def render_process_monitor_stats(stats: ProcessMonitorStats) -> Text:
         _activity_label(stats.stdout_age_seconds),
         width=_ACTIVITY_WIDTH,
         style=_activity_style(stats.stdout_age_seconds, stream="stdout"),
-        align="<",
     )
     append_field(
         "err",
         _activity_label(stats.stderr_age_seconds),
         width=_ACTIVITY_WIDTH,
         style=_activity_style(stats.stderr_age_seconds, stream="stderr"),
-        align="<",
     )
     elapsed = (
         format_process_elapsed(stats.elapsed_seconds)
