@@ -525,7 +525,7 @@ def _parse_streaming_timeout_query(
         keys=("streaming_timeout",),
         label="streaming_timeout",
     )
-    if timeout is None or timeout <= 0:
+    if timeout is None or not math.isfinite(timeout) or timeout <= 0:
         raise ModelConfigError(
             f"Invalid streaming_timeout query value: '{raw_value}' in '{model_spec}'. "
             "Use a positive number of seconds or 'none'."

@@ -133,6 +133,13 @@ class ShellExecutionCallbacks(Protocol):
 
 
 @runtime_checkable
+class ShellOutputActivityCallbacks(Protocol):
+    """Optional notification for output buffered before a complete line is available."""
+
+    async def on_output_activity(self, *, is_stderr: bool, byte_count: int) -> None: ...
+
+
+@runtime_checkable
 class ShellEnvironment(Protocol):
     """Minimal environment contract used by harness and shell tools.
 

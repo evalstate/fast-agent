@@ -625,6 +625,7 @@ def test_shell_output_retention_product_defaults() -> None:
     [
         "nohup service >service.log 2>&1 &",
         "service &",
+        'echo "$(service >/dev/null 2>&1 &)"',
     ],
 )
 async def test_minimal_bash_rejects_detachment_before_environment_execution(
@@ -647,6 +648,25 @@ async def test_minimal_bash_rejects_detachment_before_environment_execution(
     assert environment.requests == []
     assert isinstance(result.content[0], TextContent)
     assert "run_in_background=true" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_minimal_bash_accepts_bitwise_arithmetic() -> None:
+    environment = _RecordingShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+
+    result = await runtime.call_tool(
+        "Bash",
+        {"command": "echo $((3 & 1))"},
+    )
+
+    assert result.isError is False
+    assert [request.command for request in environment.requests] == ["echo $((3 & 1))"]
 
 
 @pytest.mark.asyncio
@@ -2307,6 +2327,41 @@ async def test_execute_retained_output_reports_quota(
     await runtime.close()
 
 
+@pytest.mark.asyncio
+async def test_remote_execute_does_not_advertise_host_retained_output(
+    tmp_path: Path,
+) -> None:
+    environment = _DirectShellEnvironment(
+        stream_output=True,
+        stdout="x" * 2000,
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        timeout_seconds=10,
+        output_byte_limit=80,
+        shell_environment=environment,
+        config=Settings(
+            shell_execution=ShellSettings(
+                show_bash=False,
+                retain_truncated_output=True,
+                retained_output_max_bytes=4096,
+                retained_output_temp_directory=tmp_path,
+            )
+        ),
+    )
+
+    result = await runtime.execute({"command": "produce-output"})
+
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "Increase shell_execution.output_byte_limit to retain more." in (
+        result.content[0].text
+    )
+    assert "Use read_text_file for selected line ranges" not in result.content[0].text
+    assert runtime._retained_output_directory is None
+
+
 def test_shell_output_retention_continues_after_result_consumption(
     tmp_path: Path,
 ) -> None:
@@ -2348,6 +2403,15 @@ def test_shell_output_tracks_raw_stdout_and_stderr_bytes() -> None:
 
     assert output.lifetime_stdout_bytes == len("hello\n")
     assert output.lifetime_stderr_bytes == len("warning\n")
+
+
+def test_shell_output_accepts_raw_byte_counts_from_spool_reader() -> None:
+    output = ShellOutputBuffer(output_byte_limit=80)
+
+    output.record_stream_bytes(4, is_stderr=False)
+    output.append_stream("�", is_stderr=False, count_bytes=False)
+
+    assert output.lifetime_stdout_bytes == 4
 
 
 @pytest.mark.asyncio

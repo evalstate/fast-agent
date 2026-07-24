@@ -41,6 +41,18 @@ DISPLAY_BOOL_DEFAULTS: dict[str, bool] = {
     "enable_prompt_marks": True,
 }
 
+SHELL_FORM_BOOL_DEFAULTS: dict[str, bool] = {
+    "show_bash": True,
+    "retain_truncated_output": True,
+    "prefer_local_shell": False,
+    "enable_read_text_file": True,
+}
+
+SHELL_FORM_POSITIVE_INTEGER_FIELDS = (
+    "retained_output_max_bytes",
+    "process_poll_max_wait_seconds",
+)
+
 # Use round-trip mode to preserve comments and formatting
 _yaml = YAML()
 _yaml.preserve_quotes = True
@@ -201,12 +213,20 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
                 default=current_value,
             )
         elif annotation is int:
+            if name == "retained_output_max_bytes":
+                maximum = 1024 * 1024 * 1024
+            elif name == "process_poll_max_wait_seconds":
+                maximum = 600
+            elif "timeout" in name or "interval" in name:
+                maximum = 3600
+            else:
+                maximum = 300
             fields[name] = integer(
                 title=_field_title(name),
                 description=desc,
                 default=current_value,
                 minimum=1,
-                maximum=3600 if "timeout" in name or "interval" in name else 300,
+                maximum=maximum,
             )
         elif annotation == int | None:
             # Handle optional integers (like output_display_lines, output_byte_limit)
@@ -355,14 +375,37 @@ def _normalize_shell_updates(result: dict[str, Any]) -> dict[str, Any]:
     else:
         shell_updates["output_byte_limit"] = byte_limit
 
-    shell_updates["show_bash"] = result.get("show_bash", True)
-    shell_updates["enable_read_text_file"] = result.get("enable_read_text_file", True)
+    for key, default in SHELL_FORM_BOOL_DEFAULTS.items():
+        shell_updates[key] = bool(result.get(key, default))
+
+    for key in SHELL_FORM_POSITIVE_INTEGER_FIELDS:
+        value = positive_int_or_none(result.get(key))
+        if value is not None:
+            shell_updates[key] = value
 
     # write_text_file mode: auto|on|off|apply_patch (defaults to auto).
     mode_raw = result.get("write_text_file_mode", "auto")
     shell_updates["write_text_file_mode"] = normalize_shell_write_text_file_mode(mode_raw) or "auto"
 
     return shell_updates
+
+
+def _preserve_unedited_section_values(
+    config_data: dict[str, Any],
+    *,
+    section_name: str,
+    edited_fields: set[str],
+    updates: dict[str, Any],
+) -> dict[str, Any]:
+    """Carry forward raw values for fields omitted from an interactive form."""
+    current_section = config_data.get(section_name)
+    if not isinstance(current_section, dict):
+        return updates
+    preserved = {
+        key: value for key, value in current_section.items() if key not in edited_fields
+    }
+    preserved.update(updates)
+    return preserved
 
 
 def _normalize_display_updates(result: dict[str, Any]) -> dict[str, Any]:
@@ -428,6 +471,12 @@ def config_shell(config: ConfigOption = None) -> None:
         minimal_write=minimal_write,
         updates=shell_updates,
         baseline=baseline,
+    )
+    persisted_updates = _preserve_unedited_section_values(
+        config_data,
+        section_name="shell_execution",
+        edited_fields=set(result),
+        updates=persisted_updates,
     )
 
     _replace_config_section(

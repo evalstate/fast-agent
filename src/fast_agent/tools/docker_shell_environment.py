@@ -20,6 +20,7 @@ from fast_agent.tools.execution_environment import (
     ShellExecutionOptions,
     ShellExecutionRequest,
     ShellExecutionResult,
+    ShellOutputActivityCallbacks,
     ShellRuntimeInfo,
 )
 from fast_agent.tools.shell_output_spool import (
@@ -296,6 +297,12 @@ class DockerShellEnvironment:
             )
         output = _DockerOutputCapture.create(retain_output=request.retain_output)
         if output_spool is not None:
+            activity_callbacks = (
+                callbacks
+                if isinstance(callbacks, ShellOutputActivityCallbacks)
+                else None
+            )
+
             async def on_stdout(text: str) -> None:
                 await self._record_output(
                     text,
@@ -312,6 +319,20 @@ class DockerShellEnvironment:
                     is_stderr=True,
                 )
 
+            async def on_stdout_activity(byte_count: int) -> None:
+                if activity_callbacks is not None:
+                    await activity_callbacks.on_output_activity(
+                        is_stderr=False,
+                        byte_count=byte_count,
+                    )
+
+            async def on_stderr_activity(byte_count: int) -> None:
+                if activity_callbacks is not None:
+                    await activity_callbacks.on_output_activity(
+                        is_stderr=True,
+                        byte_count=byte_count,
+                    )
+
             async def process_exited() -> bool:
                 return process.returncode is not None
 
@@ -320,6 +341,8 @@ class DockerShellEnvironment:
                 read_chunk=self._read_managed_output_chunk,
                 on_stdout=on_stdout,
                 on_stderr=on_stderr,
+                on_stdout_activity=on_stdout_activity,
+                on_stderr_activity=on_stderr_activity,
             )
             output_tasks = [
                 asyncio.create_task(

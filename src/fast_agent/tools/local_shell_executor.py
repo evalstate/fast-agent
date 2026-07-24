@@ -24,6 +24,7 @@ from fast_agent.tools.execution_environment import (
     ShellExecutionOptions,
     ShellExecutionRequest,
     ShellExecutionResult,
+    ShellOutputActivityCallbacks,
     ShellRuntimeInfo,
 )
 from fast_agent.tools.shell_output_spool import (
@@ -234,10 +235,27 @@ class LocalShellExecutor:
         if plan.output_spool is not None:
             request.output_spool_path = plan.output_spool.directory
         if callbacks is not None:
-            await callbacks.on_started(process.pid)
+            try:
+                await callbacks.on_started(process.pid)
+            except BaseException as exc:
+                if not isinstance(exc, asyncio.CancelledError) or request.terminate_on_cancel:
+                    await self._terminate_cancelled_process(
+                        process,
+                        is_windows=plan.is_windows,
+                    )
+                    if plan.output_spool is not None:
+                        delete_local_output_spool(plan.output_spool)
+                        request.output_spool_path = None
+                raise
         output = _ShellOutputCapture(retain_output=request.retain_output)
 
         if plan.output_spool is not None:
+            activity_callbacks = (
+                callbacks
+                if isinstance(callbacks, ShellOutputActivityCallbacks)
+                else None
+            )
+
             async def on_stdout(text: str) -> None:
                 await self._record_stream_output(
                     text,
@@ -254,6 +272,20 @@ class LocalShellExecutor:
                     is_stderr=True,
                 )
 
+            async def on_stdout_activity(byte_count: int) -> None:
+                if activity_callbacks is not None:
+                    await activity_callbacks.on_output_activity(
+                        is_stderr=False,
+                        byte_count=byte_count,
+                    )
+
+            async def on_stderr_activity(byte_count: int) -> None:
+                if activity_callbacks is not None:
+                    await activity_callbacks.on_output_activity(
+                        is_stderr=True,
+                        byte_count=byte_count,
+                    )
+
             async def process_exited() -> bool:
                 return process.returncode is not None
 
@@ -262,6 +294,8 @@ class LocalShellExecutor:
                 read_chunk=read_local_output_chunk,
                 on_stdout=on_stdout,
                 on_stderr=on_stderr,
+                on_stdout_activity=on_stdout_activity,
+                on_stderr_activity=on_stderr_activity,
             )
             output_tasks = [
                 asyncio.create_task(
@@ -309,10 +343,14 @@ class LocalShellExecutor:
                     is_windows=plan.is_windows,
                 )
                 try:
-                    await self._drain_output_tasks(
-                        output_tasks,
-                        timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
-                    )
+                    if plan.output_spool is not None:
+                        for task in output_tasks:
+                            await self._cancel_task_if_running(task)
+                    else:
+                        await self._drain_output_tasks(
+                            output_tasks,
+                            timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
+                        )
                 finally:
                     if plan.output_spool is not None:
                         delete_local_output_spool(plan.output_spool)
