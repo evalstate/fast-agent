@@ -50,6 +50,12 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# OpenAI prompt caching docs guarantee at least 30 minutes for GPT-5.6 and later,
+# including later major versions and model variants such as ``-mini``.
+# https://platform.openai.com/docs/guides/prompt-caching
+_OPENAI_MINIMUM_CACHE_TTL_MODEL_VERSION = (5, 6)
+_OPENAI_MINIMUM_CACHE_TTL_SECONDS = 30 * 60
+
 
 @dataclass(slots=True, frozen=True)
 class AgentRefreshResult:
@@ -933,7 +939,7 @@ class AgentApp:
             and self._uses_openai_minimum_cache_ttl(turn.model)
             for turn in turn_slice
         ):
-            return CacheTTLMinimum(seconds=30 * 60)
+            return CacheTTLMinimum(seconds=_OPENAI_MINIMUM_CACHE_TTL_SECONDS)
 
         cache_ttl = self._configured_cache_ttl(agent)
         if not cache_ttl:
@@ -949,7 +955,7 @@ class AgentApp:
         if match is None:
             return False
         version = (int(match.group(1)), int(match.group(2) or 0))
-        return version >= (5, 6)
+        return version >= _OPENAI_MINIMUM_CACHE_TTL_MODEL_VERSION
 
     @staticmethod
     def _configured_cache_ttl(agent) -> str | None:

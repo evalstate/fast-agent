@@ -185,12 +185,6 @@ class DynamicDetailsColumn(ProgressColumn):
             stderr_age = self._numeric_field(
                 task.fields.get("process_seconds_since_last_stderr")
             )
-            if stdout_age is None and stderr_age is None and bool(
-                task.fields.get("process_has_observed_output")
-            ):
-                stdout_age = self._numeric_field(
-                    task.fields.get("process_seconds_since_last_output")
-                )
             parts.append(
                 render_process_monitor_stats(
                     ProcessMonitorStats(

@@ -693,12 +693,12 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             try:
                 result = await func(*args, **kwargs)
             except Exception as e:
-                self._notify_stream_listeners(StreamChunk(event="rollback"))
                 if self._is_fatal_retry_error(e):
                     raise
 
                 last_error = e
                 if attempt < retries:
+                    self._notify_stream_listeners(StreamChunk(event="rollback"))
                     wait_seconds = self._retry_wait_seconds(attempt)
                     retry_records.append(
                         provider_retry(
@@ -717,6 +717,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         if last_error:
             result = await self._handle_exhausted_retries(last_error, on_final_error)
+            self._notify_stream_listeners(StreamChunk(event="rollback"))
             self._append_retry_telemetry(result, retry_records)
             return result
 

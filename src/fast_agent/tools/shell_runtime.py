@@ -466,19 +466,20 @@ class ShellRuntime:
                     time.monotonic() - process.callbacks.last_output_time,
                     0.0,
                 ),
-                "seconds_since_last_stdout": (
-                    max(time.monotonic() - process.callbacks.last_stdout_time, 0.0)
-                    if process.callbacks.last_stdout_time is not None
-                    else None
-                ),
-                "seconds_since_last_stderr": (
-                    max(time.monotonic() - process.callbacks.last_stderr_time, 0.0)
-                    if process.callbacks.last_stderr_time is not None
-                    else None
-                ),
                 "has_observed_output": process.output_state.had_stream_output,
             }
         )
+        now = time.monotonic()
+        if process.callbacks.last_stdout_time is not None:
+            metadata["seconds_since_last_stdout"] = max(
+                now - process.callbacks.last_stdout_time,
+                0.0,
+            )
+        if process.callbacks.last_stderr_time is not None:
+            metadata["seconds_since_last_stderr"] = max(
+                now - process.callbacks.last_stderr_time,
+                0.0,
+            )
         return metadata
 
     def _managed_process_operation(

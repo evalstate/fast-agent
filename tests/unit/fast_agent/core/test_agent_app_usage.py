@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 from types import SimpleNamespace
 
+import pytest
+
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import (
@@ -152,6 +154,21 @@ def test_openai_responses_usage_displays_documented_minimum_cache_ttl() -> None:
 
     assert display is not None
     assert "cache TTL ≥30m" in format_regular_turn_usage(display)
+
+
+@pytest.mark.parametrize(
+    ("model", "uses_minimum_ttl"),
+    [
+        ("gpt-5.5", False),
+        ("gpt-5.6-mini", True),
+        ("gpt-6", True),
+    ],
+)
+def test_openai_minimum_cache_ttl_model_range(
+    model: str,
+    uses_minimum_ttl: bool,
+) -> None:
+    assert AgentApp._uses_openai_minimum_cache_ttl(model) is uses_minimum_ttl
 
 
 def test_older_openai_responses_usage_omits_org_dependent_cache_ttl() -> None:

@@ -68,7 +68,7 @@ def test_process_monitor_stats_use_stable_columns_and_stream_colors() -> None:
         )
     )
 
-    assert rendered.plain == "out 9s  · err 2s  · time 1m10s · size 12.5KB"
+    assert rendered.plain == "out 9s    · err 2s    · time 1m10s · size 12.5KB"
     styles = {str(span.style) for span in rendered.spans}
     assert "green" in styles
     assert "bold bright_red" in styles

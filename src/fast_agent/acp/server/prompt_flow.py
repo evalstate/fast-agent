@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
 
 from acp.exceptions import RequestError
@@ -24,7 +24,6 @@ from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol, StreamingAgentProtocol, ToolRunnerHookCapable
-from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import AgentRequest, AgentResponse, LlmStopReason, PromptMessageExtended
@@ -36,6 +35,7 @@ if TYPE_CHECKING:
     from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
     from fast_agent.acp.server.models import ACPSessionState
     from fast_agent.core.fastagent import AgentInstance
+    from fast_agent.llm.stream_types import StreamChunk
 logger = get_logger(__name__)
 
 HUGGINGFACE_META_KEY: Final[str] = "co.huggingface"
@@ -61,33 +61,6 @@ class StructuredOutputRequest:
 @dataclass
 class StreamState:
     assistant_text_seen: bool = False
-    pending_chunks: list[StreamChunk] = field(default_factory=list)
-    committed_chunk_count: int = 0
-    committed_assistant_text_seen: bool = False
-
-    def record(self, chunk: StreamChunk) -> tuple[StreamChunk, ...]:
-        if chunk.event == "rollback":
-            del self.pending_chunks[self.committed_chunk_count :]
-            self.assistant_text_seen = self.committed_assistant_text_seen
-            return ()
-        if chunk.event == "commit":
-            committed_chunks = tuple(self.pending_chunks[self.committed_chunk_count :])
-            self.committed_assistant_text_seen = (
-                self.committed_assistant_text_seen
-                or any(
-                    not pending.is_reasoning
-                    for pending in committed_chunks
-                )
-            )
-            self.assistant_text_seen = self.committed_assistant_text_seen
-            self.committed_chunk_count = len(self.pending_chunks)
-            return committed_chunks
-        if not chunk.text:
-            return ()
-        self.pending_chunks.append(chunk)
-        if not chunk.is_reasoning:
-            self.assistant_text_seen = True
-        return ()
 
 
 @dataclass(slots=True)
@@ -460,9 +433,6 @@ class ACPPromptFlow:
                 acp_stop_reason=acp_stop_reason,
             )
 
-            flush_stream = stream_context.get("flush_stream")
-            if flush_stream is not None:
-                flush_stream()
             await self._finalize_prompt_delivery(
                 session_id=session_id,
                 response_text=response_text,
@@ -638,7 +608,6 @@ class ACPPromptFlow:
         remove_listener: Callable[[], None] | None = None
         streaming_tasks: list[asyncio.Task] = []
         stream_state = StreamState()
-        flush_stream: Callable[[], None] | None = None
         if self._host._connection and isinstance(agent, StreamingAgentProtocol):
             connection = self._host._connection
             update_lock = asyncio.Lock()
@@ -662,30 +631,19 @@ class ACPPromptFlow:
                         exc_info=True,
                     )
 
-            async def send_committed_stream_updates(
-                chunks: tuple[StreamChunk, ...],
-            ) -> None:
+            async def send_stream_updates(chunk: StreamChunk) -> None:
                 async with update_lock:
-                    for chunk in chunks:
-                        await send_stream_update(chunk)
-
-            def schedule_stream_updates(chunks: tuple[StreamChunk, ...]) -> None:
-                if chunks:
-                    streaming_tasks.append(
-                        asyncio.create_task(send_committed_stream_updates(chunks))
-                    )
+                    await send_stream_update(chunk)
 
             def on_stream_chunk(chunk: StreamChunk) -> None:
-                if not chunk:
+                if not chunk or not chunk.text:
                     return
-                schedule_stream_updates(stream_state.record(chunk))
-
-            def flush_pending_stream_updates() -> None:
-                schedule_stream_updates(stream_state.record(StreamChunk(event="commit")))
+                if not chunk.is_reasoning:
+                    stream_state.assistant_text_seen = True
+                streaming_tasks.append(asyncio.create_task(send_stream_updates(chunk)))
 
             stream_listener = on_stream_chunk
             remove_listener = agent.add_stream_listener(stream_listener)
-            flush_stream = flush_pending_stream_updates
 
             logger.info(
                 "Streaming enabled for prompt",
@@ -698,7 +656,6 @@ class ACPPromptFlow:
             "remove_listener": remove_listener,
             "streaming_tasks": streaming_tasks,
             "stream_state": stream_state,
-            "flush_stream": flush_stream,
         }
 
     async def _run_with_status_hooks(

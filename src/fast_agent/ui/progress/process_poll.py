@@ -143,7 +143,7 @@ class ProcessMonitorStats:
     total_output_bytes: int | None
 
 
-_ACTIVITY_WIDTH = 3
+_ACTIVITY_WIDTH = 5
 _ELAPSED_WIDTH = 5
 _SIZE_WIDTH = 6
 
@@ -216,6 +216,7 @@ def render_process_monitor_stats(stats: ProcessMonitorStats) -> Text:
         if stats.stdout_bytes is not None and stats.stderr_bytes is not None
         else None
     )
+    # Per-stream counts are raw bytes; the combined fallback may include display prefixes.
     size = format_process_output_size(
         stream_bytes if stream_bytes is not None else stats.total_output_bytes
     )

@@ -123,7 +123,7 @@ class DummyStructuredStreamResult:
 
 
 @pytest.mark.asyncio
-async def test_stream_retry_discards_failed_attempt_before_acp_delivery() -> None:
+async def test_stream_retry_delivers_failed_and_recovered_attempts_live() -> None:
     host = FakePromptFlowHost(EmptyStructuredAgent())
     host._connection = CapturingConnection()
     flow = ACPPromptFlow(host)
@@ -142,11 +142,12 @@ async def test_stream_retry_discards_failed_attempt_before_acp_delivery() -> Non
     listener(StreamChunk(text="failed partial"))
     await asyncio.sleep(0)
 
-    assert host._connection.notifications == []
+    assert [
+        notification["update"].content.text for notification in host._connection.notifications
+    ] == ["failed partial"]
 
     listener(StreamChunk(event="rollback"))
-    assert context["stream_state"].assistant_text_seen is False
-    assert context["stream_state"].pending_chunks == []
+    assert context["stream_state"].assistant_text_seen is True
 
     listener(StreamChunk(text="recovered"))
     listener(StreamChunk(event="commit"))
@@ -155,11 +156,11 @@ async def test_stream_retry_discards_failed_attempt_before_acp_delivery() -> Non
     assert context["stream_state"].assistant_text_seen is True
     assert [
         notification["update"].content.text for notification in host._connection.notifications
-    ] == ["recovered"]
+    ] == ["failed partial", "recovered"]
 
 
 @pytest.mark.asyncio
-async def test_stream_retry_preserves_chunks_from_committed_provider_calls() -> None:
+async def test_stream_retry_control_events_do_not_interrupt_live_delivery() -> None:
     host = FakePromptFlowHost(EmptyStructuredAgent())
     host._connection = CapturingConnection()
     flow = ACPPromptFlow(host)
@@ -194,11 +195,11 @@ async def test_stream_retry_preserves_chunks_from_committed_provider_calls() -> 
 
     assert [
         notification["update"].content.text for notification in host._connection.notifications
-    ] == ["before tool", "recovered follow-up"]
+    ] == ["before tool", "failed follow-up", "recovered follow-up"]
 
 
 @pytest.mark.asyncio
-async def test_stream_completion_flushes_delta_only_agent_output() -> None:
+async def test_stream_completion_delivers_delta_only_agent_output_live() -> None:
     host = FakePromptFlowHost(EmptyStructuredAgent())
     host._connection = CapturingConnection()
     flow = ACPPromptFlow(host)
@@ -214,10 +215,6 @@ async def test_stream_completion_flushes_delta_only_agent_output() -> None:
         session_id="session-1",
     )
     listeners[0](StreamChunk(text="remote response"))
-
-    assert host._connection.notifications == []
-
-    context["flush_stream"]()
     await asyncio.gather(*context["streaming_tasks"])
 
     assert [

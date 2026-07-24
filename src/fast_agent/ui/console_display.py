@@ -427,8 +427,6 @@ class ConsoleDisplay:
         line.append(process_id, style="bold")
         stdout_age = seconds_since_last_stdout
         stderr_age = seconds_since_last_stderr
-        if stdout_age is None and stderr_age is None and has_observed_output:
-            stdout_age = seconds_since_last_output
         line.append(" · ", style="dim")
         line.append_text(
             render_process_monitor_stats(

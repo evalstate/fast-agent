@@ -719,6 +719,13 @@ async def test_minimal_process_wait_uses_nonzero_fallback() -> None:
         "Bash",
         {"command": "service", "run_in_background": True},
     )
+    facade_metadata = runtime.process_tool_metadata(
+        "Process",
+        {"process_id": "process-1", "action": "status"},
+    )
+    assert "seconds_since_last_stdout" not in facade_metadata
+    assert "seconds_since_last_stderr" not in facade_metadata
+
     environment.release.set()
     waited = await runtime.call_tool(
         "Process",
