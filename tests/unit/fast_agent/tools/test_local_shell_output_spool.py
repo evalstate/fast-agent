@@ -45,6 +45,18 @@ class _StartedCallbacks:
         return None
 
 
+class _BlockingStartedCallbacks(_StartedCallbacks):
+    async def on_started(self, process_id: int | None) -> None:
+        await super().on_started(process_id)
+        await asyncio.Event().wait()
+
+
+class _FailingStartedCallbacks(_StartedCallbacks):
+    async def on_started(self, process_id: int | None) -> None:
+        await super().on_started(process_id)
+        raise RuntimeError("started callback failed")
+
+
 async def _wait_for_file_growth(path: Path, *, initial_size: int = -1) -> int:
     deadline = time.monotonic() + 3
     while time.monotonic() < deadline:
@@ -189,6 +201,78 @@ async def test_completed_detached_execution_removes_drained_spool(
     assert callbacks.output_spool_path is not None
     assert not Path(callbacks.output_spool_path).exists()
     assert request.output_spool_path is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(platform.system() == "Windows", reason="Unix process groups")
+async def test_cancellation_during_started_callback_terminates_detached_process(
+    tmp_path: Path,
+) -> None:
+    executor = LocalShellExecutor(
+        logger=logging.getLogger(__name__),
+        working_directory=tmp_path,
+    )
+    request = ShellExecutionRequest(
+        command=f'exec "{sys.executable}" -c "import time; time.sleep(30)"',
+        terminate_after_idle=False,
+        detach=True,
+    )
+    callbacks = _BlockingStartedCallbacks(request)
+    task = asyncio.create_task(executor.execute(request, callbacks=callbacks))
+    await asyncio.wait_for(callbacks.started.wait(), timeout=3)
+    assert callbacks.process_id is not None
+    assert callbacks.output_spool_path is not None
+    spool_path = Path(callbacks.output_spool_path)
+
+    try:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        with pytest.raises(ProcessLookupError):
+            os.kill(callbacks.process_id, 0)
+        assert not spool_path.exists()
+        assert request.output_spool_path is None
+    finally:
+        try:
+            os.killpg(callbacks.process_id, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        rmtree(spool_path, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(platform.system() == "Windows", reason="Unix process groups")
+async def test_started_callback_failure_terminates_detached_process(tmp_path: Path) -> None:
+    executor = LocalShellExecutor(
+        logger=logging.getLogger(__name__),
+        working_directory=tmp_path,
+    )
+    request = ShellExecutionRequest(
+        command=f'exec "{sys.executable}" -c "import time; time.sleep(30)"',
+        terminate_after_idle=False,
+        detach=True,
+    )
+    callbacks = _FailingStartedCallbacks(request)
+
+    try:
+        with pytest.raises(RuntimeError, match="started callback failed"):
+            await executor.execute(request, callbacks=callbacks)
+
+        assert callbacks.process_id is not None
+        assert callbacks.output_spool_path is not None
+        with pytest.raises(ProcessLookupError):
+            os.kill(callbacks.process_id, 0)
+        assert not Path(callbacks.output_spool_path).exists()
+        assert request.output_spool_path is None
+    finally:
+        if callbacks.process_id is not None:
+            try:
+                os.killpg(callbacks.process_id, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        if callbacks.output_spool_path is not None:
+            rmtree(callbacks.output_spool_path, ignore_errors=True)
 
 
 @pytest.mark.asyncio

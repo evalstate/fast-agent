@@ -234,7 +234,18 @@ class LocalShellExecutor:
         if plan.output_spool is not None:
             request.output_spool_path = plan.output_spool.directory
         if callbacks is not None:
-            await callbacks.on_started(process.pid)
+            try:
+                await callbacks.on_started(process.pid)
+            except BaseException as exc:
+                if not isinstance(exc, asyncio.CancelledError) or request.terminate_on_cancel:
+                    await self._terminate_cancelled_process(
+                        process,
+                        is_windows=plan.is_windows,
+                    )
+                    if plan.output_spool is not None:
+                        delete_local_output_spool(plan.output_spool)
+                        request.output_spool_path = None
+                raise
         output = _ShellOutputCapture(retain_output=request.retain_output)
 
         if plan.output_spool is not None:
