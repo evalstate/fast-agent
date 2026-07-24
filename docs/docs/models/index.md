@@ -81,7 +81,7 @@ Start with the native providers for common use, or use additional providers for 
 | Provider family      | Start with                                               | Main features                                                                                                                                   |
 | -------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | OpenAI Responses     | `gpt55`, `gpt54`, `gpt52`, `gpt-5-mini`, `codex`         | GPT-5 class models, reasoning, text verbosity, structured outputs, `web_search`, SSE/WebSocket transports, service tiers, connectors            |
-| Anthropic            | `fable`, `sonnet`, `opus`, `opus48`, `opus47`, `haiku`   | Claude 4.x, prompt caching, adaptive reasoning/effort, structured outputs, `web_search`, `web_fetch`, long context, task budget where supported |
+| Anthropic            | `fable`, `sonnet`, `opus`, `opus5`, `opus48`, `haiku`    | Claude 4.x/5, prompt caching, adaptive reasoning/effort, structured outputs, `web_search`, `web_fetch` where supported, long context, task budget |
 | Google               | `gemini`, `gemini35flash`                                | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments             |
 | xAI / Grok           | `grok43`, `grok45`, `grok-4.3`, `grok-4.5`               | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                             |
 | Hugging Face         | `kimi`, `kimi26instant`, `deepseek-hf`, `glm`, `minimax` | Hugging Face Inference Providers routing, curated aliases, and HF MCP authentication                                                            |
@@ -118,7 +118,8 @@ fast-agent --model sonnet
 fast-agent --model "sonnet?reasoning=4096"
 fast-agent --model "opus?reasoning=auto"
 fast-agent --model "opus?reasoning=xhigh"
-fast-agent --model "opus?web_search=on&web_fetch=on"
+fast-agent --model "opus?web_search=on"
+fast-agent --model "opus48?web_search=on&web_fetch=on"
 fast-agent --model "opus?task_budget=128k"
 ```
 
@@ -133,8 +134,9 @@ Useful query parameters and config:
 - `anthropic.cache_mode: auto|prompt|off`
 - `anthropic.cache_ttl: 5m|1h`
 
-`opus` currently resolves to `claude-opus-4-8`; use `opus47` or `opus46` when you need to pin an
-older Opus generation. Claude Opus 4.7+ uses adaptive reasoning rather than fixed thinking budgets:
+`opus` and `opus5` resolve to `claude-opus-5`; use `opus48`, `opus47`, or `opus46` to pin an older
+Opus generation. Opus 5 does not support `web_fetch`, so use `web_search` alone or pin `opus48`
+when fetch is required. Claude Opus 4.7+ uses adaptive reasoning rather than fixed thinking budgets:
 `reasoning=auto` lets the model choose, effort levels tune depth and token spend, and `task_budget`
 sets a model-visible budget for a whole agentic loop. `task_budget` is separate from `max_tokens`,
 which remains the enforced per-response ceiling.
@@ -217,7 +219,8 @@ Examples:
 - `responses.gpt-5.5?streaming_timeout=300`
 - `responses.gpt-5.5?web_search=on`
 - `sonnet?reasoning=4096`
-- `opus?web_search=on&web_fetch=on`
+- `opus?web_search=on`
+- `opus48?web_search=on&web_fetch=on`
 - `gemini3?reasoning=auto`
 - `xai.grok-4.3?x_search=on`
 - `kimi26instant`

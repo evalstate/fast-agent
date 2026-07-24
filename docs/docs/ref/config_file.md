@@ -217,7 +217,7 @@ Anthropic models fall into three groups:
 - **Budget-based thinking** (older models): defaults to a 1024 token budget. Set `reasoning` to a
   budget integer or disable with `"0"`/`off`/`false`. You can also pass `low`/`medium`/`high`/`max`,
   which map to preset budgets.
-- **Adaptive thinking** (e.g. `claude-opus-4-6`, `claude-opus-4-7`, `claude-opus-4-8`): defaults
+- **Adaptive thinking** (e.g. `claude-opus-4-6`, `claude-opus-4-8`, `claude-opus-5`): defaults
   to `auto` (provider-chosen). Use effort levels (`low`/`medium`/`high`/`max`, plus `xhigh` where
   advertised) to set `output_config.effort`. Fixed thinking budgets are deprecated for these models;
   Opus 4.7+ additionally supports `task_budget` for model-visible agent-loop budgets.

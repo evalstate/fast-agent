@@ -662,6 +662,26 @@ def test_model_database_opus_47_reasoning_spec():
     assert spec.allow_toggle_disable
 
 
+def test_model_database_opus_5_capabilities():
+    """Opus 5 defaults to adaptive thinking and does not support web fetch."""
+    params = ModelDatabase.get_model_params("claude-opus-5")
+    spec = ModelDatabase.get_reasoning_effort_spec("claude-opus-5")
+
+    assert params is not None
+    assert params.context_window == 1_000_000
+    assert params.max_output_tokens == 128_000
+    assert params.anthropic_thinking_field_required is False
+    assert params.anthropic_thinking_disable_supported is True
+    assert params.anthropic_web_search_version == "web_search_20260209"
+    assert params.anthropic_web_fetch_version is None
+    assert params.anthropic_task_budget_supported is True
+    assert spec is not None
+    assert spec.kind == "effort"
+    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
+    assert spec.allow_auto is True
+    assert spec.allow_toggle_disable is True
+
+
 def test_model_database_fable_5_reasoning_spec_is_always_on():
     """Fable 5 adaptive thinking is always on and needs no thinking field."""
     params = ModelDatabase.get_model_params("claude-fable-5")

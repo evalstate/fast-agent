@@ -2094,6 +2094,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if self._normalize_model_name(str(arguments.get("model", ""))) not in {
             "claude-opus-4-7",
             "claude-opus-4-8",
+            "claude-opus-5",
             "claude-fable-5",
             "claude-sonnet-5",
         }:
