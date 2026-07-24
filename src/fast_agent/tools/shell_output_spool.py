@@ -14,6 +14,7 @@ from typing import BinaryIO, Protocol
 
 _FINAL_DRAIN_PAUSE_SECONDS = 0.05
 _FINAL_DRAIN_GRACE_SECONDS = 0.25
+_MAX_PENDING_LINE_CHARACTERS = 65536
 
 
 class SpoolChunkReader(Protocol):
@@ -58,6 +59,8 @@ class ShellOutputSpoolTailer:
         self._stderr_offset = 0
         self._stdout_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self._stderr_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._stdout_pending = ""
+        self._stderr_pending = ""
 
     async def tail_until(
         self,
@@ -83,9 +86,10 @@ class ShellOutputSpoolTailer:
         stdout_tail = self._stdout_decoder.decode(b"", final=True)
         stderr_tail = self._stderr_decoder.decode(b"", final=True)
         if stdout_tail:
-            await self._on_stdout(stdout_tail)
+            await self._emit_text(stdout_tail, is_stderr=False)
         if stderr_tail:
-            await self._on_stderr(stderr_tail)
+            await self._emit_text(stderr_tail, is_stderr=True)
+        await self._flush_pending()
 
     async def _emit_deltas(self) -> bool:
         stdout_result, stderr_result = await asyncio.gather(
@@ -100,10 +104,42 @@ class ShellOutputSpoolTailer:
         stdout = self._stdout_decoder.decode(stdout_payload, final=False)
         stderr = self._stderr_decoder.decode(stderr_payload, final=False)
         if stdout:
-            await self._on_stdout(stdout)
+            await self._emit_text(stdout, is_stderr=False)
         if stderr:
-            await self._on_stderr(stderr)
+            await self._emit_text(stderr, is_stderr=True)
         return stdout_caught_up and stderr_caught_up
+
+    async def _emit_text(self, text: str, *, is_stderr: bool) -> None:
+        pending = (self._stderr_pending if is_stderr else self._stdout_pending) + text
+        handler = self._on_stderr if is_stderr else self._on_stdout
+
+        while pending:
+            newline_index = pending.find("\n")
+            if newline_index >= 0:
+                line = pending[: newline_index + 1]
+                pending = pending[newline_index + 1 :]
+                await handler(line)
+                continue
+            if len(pending) < _MAX_PENDING_LINE_CHARACTERS:
+                break
+            line = pending[:_MAX_PENDING_LINE_CHARACTERS]
+            pending = pending[_MAX_PENDING_LINE_CHARACTERS:]
+            await handler(line)
+
+        if is_stderr:
+            self._stderr_pending = pending
+        else:
+            self._stdout_pending = pending
+
+    async def _flush_pending(self) -> None:
+        if self._stdout_pending:
+            stdout = self._stdout_pending
+            self._stdout_pending = ""
+            await self._on_stdout(stdout)
+        if self._stderr_pending:
+            stderr = self._stderr_pending
+            self._stderr_pending = ""
+            await self._on_stderr(stderr)
 
     async def _read_available(self, path: str, offset: int) -> tuple[bytes, bool]:
         chunks: list[bytes] = []

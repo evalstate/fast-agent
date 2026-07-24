@@ -78,7 +78,7 @@ async def test_persistent_background_output_reaches_poll_buffer(tmp_path: Path) 
             [
                 "import sys, time",
                 "time.sleep(0.3)",
-                "print('ticker stdout', flush=True)",
+                "print('ticker stdout one\\nticker stdout two', flush=True)",
                 "print('ticker stderr', file=sys.stderr, flush=True)",
                 "time.sleep(30)",
             ]
@@ -114,10 +114,12 @@ async def test_persistent_background_output_reaches_poll_buffer(tmp_path: Path) 
 
         assert result.content
         assert isinstance(result.content[0], TextContent)
-        assert "ticker stdout" in result.content[0].text
+        assert "ticker stdout one" in result.content[0].text
+        assert "ticker stdout two" in result.content[0].text
         assert "[stderr] ticker stderr" in result.content[0].text
         metadata = shell_runtime_module.process_result_metadata(result)
         assert metadata is not None
+        assert metadata["output_line_count"] == 3
         assert metadata["output_bytes_since_last_poll"] > 0
         assert metadata["process_yield_reason"] == "output"
         snapshot = (await runtime.process_snapshots())[0]
