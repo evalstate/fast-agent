@@ -392,11 +392,12 @@ class _CancellableLocalShellExecutor(LocalShellExecutor):
         await asyncio.Future()
         raise AssertionError("unreachable")
 
-    async def _terminate_cancelled_process(
+    async def _terminate_process_group(
         self,
         process: Any,
         *,
         is_windows: bool,
+        reason: str,
     ) -> None:
         self.terminated_pids.append(process.pid)
         process.returncode = -signal.SIGTERM

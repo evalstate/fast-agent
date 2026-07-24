@@ -239,9 +239,14 @@ class LocalShellExecutor:
                 await callbacks.on_started(process.pid)
             except BaseException as exc:
                 if not isinstance(exc, asyncio.CancelledError) or request.terminate_on_cancel:
-                    await self._terminate_cancelled_process(
+                    await self._terminate_process_group(
                         process,
                         is_windows=plan.is_windows,
+                        reason=(
+                            "cancelled during startup"
+                            if isinstance(exc, asyncio.CancelledError)
+                            else "start callback failed"
+                        ),
                     )
                     if plan.output_spool is not None:
                         delete_local_output_spool(plan.output_spool)
@@ -338,9 +343,10 @@ class LocalShellExecutor:
             output.exit_code = await self._wait_for_process_exit(process)
         except asyncio.CancelledError:
             if request.terminate_on_cancel:
-                await self._terminate_cancelled_process(
+                await self._terminate_process_group(
                     process,
                     is_windows=plan.is_windows,
+                    reason="cancelled",
                 )
                 try:
                     if plan.output_spool is not None:
@@ -571,18 +577,24 @@ class LocalShellExecutor:
                 continue
 
             output.timeout_occurred = True
-            self._logger.debug("Watchdog: timeout exceeded, terminating process group")
+            self._logger.debug("Watchdog: timeout exceeded")
             if callbacks is not None:
                 await callbacks.on_timeout()
-            await self._terminate_timed_out_process(process, is_windows=is_windows)
+            await self._terminate_process_group(
+                process,
+                is_windows=is_windows,
+                reason="timeout",
+            )
             return
 
-    async def _terminate_timed_out_process(
+    async def _terminate_process_group(
         self,
         process: asyncio.subprocess.Process,
         *,
         is_windows: bool,
+        reason: str,
     ) -> None:
+        self._logger.debug(f"Terminating process group ({reason})")
         try:
             if is_windows:
                 await self._terminate_windows_process(process)
@@ -596,15 +608,6 @@ class LocalShellExecutor:
                 process.kill()
             except Exception:
                 return
-
-    async def _terminate_cancelled_process(
-        self,
-        process: asyncio.subprocess.Process,
-        *,
-        is_windows: bool,
-    ) -> None:
-        self._logger.debug("Shell execution cancelled, terminating process group")
-        await self._terminate_timed_out_process(process, is_windows=is_windows)
 
     async def _terminate_windows_process(self, process: asyncio.subprocess.Process) -> None:
         try:
