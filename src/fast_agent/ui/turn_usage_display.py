@@ -47,9 +47,15 @@ class NamedTurnUsageDisplay:
     usage: TurnUsageDisplay
 
 
+def _format_cache_percentage(percentage: float) -> str:
+    if percentage < 100 and round(percentage) == 100:
+        return ">99%"
+    return f"{percentage:.0f}%"
+
+
 def format_turn_usage(usage: TurnUsageDisplay) -> str:
     cache_info = (
-        f" [dim](cache {usage.cache_percentage:.0f}%)[/dim]"
+        f" [dim](cache {_format_cache_percentage(usage.cache_percentage)})[/dim]"
         if usage.cache_percentage is not None
         else ""
     )

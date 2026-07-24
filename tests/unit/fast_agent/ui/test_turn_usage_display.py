@@ -68,3 +68,15 @@ def test_parallel_turn_usage_weights_cache_percentage_by_input_tokens() -> None:
     assert "◀ 30[/green] output" in lines[0]
     assert lines[1].startswith("[dim]  ├─ one:[/dim]")
     assert lines[2].startswith("[dim]  └─ two:[/dim]")
+
+
+def test_cache_percentage_only_shows_100_when_exact() -> None:
+    almost_all = format_regular_turn_usage(
+        _usage(input_tokens=454_471, output_tokens=20, cache_percentage=99.9)
+    )
+    all_cached = format_regular_turn_usage(
+        _usage(input_tokens=454_471, output_tokens=20, cache_percentage=100)
+    )
+
+    assert "(cache >99%)" in almost_all
+    assert "(cache 100%)" in all_cached
