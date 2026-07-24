@@ -53,7 +53,7 @@ from fast_agent.types import RequestParams
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
     from fast_agent.config import MCPServerSettings
@@ -61,6 +61,7 @@ if TYPE_CHECKING:
     from fast_agent.core.agent_instance_factory import AgentInstanceFactory
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.core.instruction_refresh import ConfiguredMcpInstructionCapable
+    from fast_agent.llm.stream_types import StreamChunk
     from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
 
 logger = get_logger(__name__)
@@ -76,6 +77,33 @@ class _SessionInitialization:
     permission_handler_created: bool = False
     terminal_runtime_created: bool = False
     filesystem_runtime_created: bool = False
+
+
+@dataclass(slots=True)
+class _ACPToolStreamAttemptBuffer:
+    """Keep ACP tool progress transactional with the provider stream attempt."""
+
+    listener: Callable[[str, dict[str, Any] | None], None]
+    pending_events: list[tuple[str, dict[str, Any] | None]]
+
+    def __init__(self, listener: Callable[[str, dict[str, Any] | None], None]) -> None:
+        self.listener = listener
+        self.pending_events = []
+
+    def handle_tool_event(self, event_type: str, payload: dict[str, Any] | None) -> None:
+        self.pending_events.append((event_type, deepcopy(payload)))
+
+    def handle_stream_chunk(self, chunk: StreamChunk) -> None:
+        if chunk.event == "rollback":
+            self.pending_events.clear()
+            return
+        if chunk.event != "commit":
+            return
+
+        events = self.pending_events
+        self.pending_events = []
+        for event_type, payload in events:
+            self.listener(event_type, payload)
 
 
 class SessionRuntimeHost(Protocol):
@@ -706,7 +734,11 @@ class ACPServerSessionRuntime:
         llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
         if tool_handler and llm is not None:
             with suppress(Exception):
-                llm.add_tool_stream_listener(tool_handler.handle_tool_stream_event)
+                attempt_buffer = _ACPToolStreamAttemptBuffer(
+                    tool_handler.handle_tool_stream_event
+                )
+                llm.add_tool_stream_listener(attempt_buffer.handle_tool_event)
+                llm.add_stream_listener(attempt_buffer.handle_stream_chunk)
 
     @staticmethod
     def _bind_agent_runtimes(session_state: ACPSessionState, agent: AgentProtocol) -> None:

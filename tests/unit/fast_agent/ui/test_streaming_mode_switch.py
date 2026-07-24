@@ -33,6 +33,61 @@ def _restore_console_size(original_console: Console) -> None:
     console.console = original_console
 
 
+def test_stream_rollback_discards_uncommitted_attempt() -> None:
+    assembler = StreamSegmentAssembler(base_kind="plain", tool_prefix="")
+    assembler.handle_stream_chunk(StreamChunk("partial answer"))
+    assembler.handle_tool_event(
+        "start",
+        {"tool_name": "fetch", "tool_use_id": "call_partial"},
+    )
+
+    assert assembler.segments
+    assert assembler.handle_stream_chunk(StreamChunk(event="rollback"))
+    assert assembler.segments == []
+    assert not assembler.has_pending_content()
+
+    assembler.handle_stream_chunk(StreamChunk("recovered answer"))
+
+    assert [segment.text for segment in assembler.segments] == ["recovered answer"]
+
+
+def test_stream_rollback_restores_committed_text_and_tool_segments() -> None:
+    assembler = StreamSegmentAssembler(base_kind="plain", tool_prefix="->")
+    assembler.handle_stream_chunk(StreamChunk("before tool"))
+    assembler.handle_tool_event(
+        "start",
+        {
+            "tool_name": "fetch",
+            "tool_use_id": "call_committed",
+            "chunk": '{"query":"status"}',
+        },
+    )
+    assembler.handle_tool_event(
+        "stop",
+        {"tool_name": "fetch", "tool_use_id": "call_committed"},
+    )
+    assembler.handle_stream_chunk(StreamChunk(event="commit"))
+    committed_segments = [
+        (segment.kind, segment.text, segment.tool_completed)
+        for segment in assembler.segments
+    ]
+
+    assembler.handle_stream_chunk(StreamChunk("failed follow-up"))
+    assembler.handle_tool_event(
+        "start",
+        {"tool_name": "discard", "tool_use_id": "call_failed"},
+    )
+    assert assembler.handle_stream_chunk(StreamChunk(event="rollback"))
+
+    assert [
+        (segment.kind, segment.text, segment.tool_completed)
+        for segment in assembler.segments
+    ] == committed_segments
+    assert "before tool" in "".join(segment.text for segment in assembler.segments)
+    assert "failed follow-up" not in "".join(segment.text for segment in assembler.segments)
+    assert all(segment.tool_use_id != "call_failed" for segment in assembler.segments)
+
+
 def _make_handle(
     streaming_mode: StreamingMode = "markdown",
 ) -> _StreamingMessageHandle:

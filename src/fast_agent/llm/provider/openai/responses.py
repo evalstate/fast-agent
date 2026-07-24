@@ -47,7 +47,6 @@ from fast_agent.llm.provider.openai.schema_sanitizer import (
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
-from fast_agent.llm.provider.openai.streaming_utils import with_stream_idle_timeout
 from fast_agent.llm.provider.openai.structured_output import OpenAIStructuredOutputMixin
 from fast_agent.llm.provider.openai.web_tools import (
     ResolvedOpenAIWebSearch,
@@ -55,7 +54,10 @@ from fast_agent.llm.provider.openai.web_tools import (
     resolve_web_search,
 )
 from fast_agent.llm.provider.reasoning_config import reasoning_setting_from_config
-from fast_agent.llm.provider.streaming_timeouts import enter_stream_with_timeout
+from fast_agent.llm.provider.streaming_timeouts import (
+    enter_stream_with_timeout,
+    with_stream_idle_timeout,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.request_params import RequestParams
@@ -1262,7 +1264,6 @@ class ResponsesLLM(
                     timed_stream = with_stream_idle_timeout(
                         stream,
                         idle_timeout_seconds=timeout,
-                        timeout_message=f"Streaming was idle for more than {timeout} seconds.",
                     )
                     try:
                         response, streamed_summary = await self._process_stream(
@@ -1429,7 +1430,6 @@ class ResponsesLLM(
         timed_stream = with_stream_idle_timeout(
             stream,
             idle_timeout_seconds=context.timeout,
-            timeout_message=f"Streaming was idle for more than {context.timeout} seconds.",
         )
         try:
             response, streamed_summary = await self._process_stream(

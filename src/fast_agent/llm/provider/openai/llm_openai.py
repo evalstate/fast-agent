@@ -50,11 +50,13 @@ from fast_agent.llm.provider.openai.schema_sanitizer import (
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
-from fast_agent.llm.provider.openai.streaming_utils import with_stream_idle_timeout
 from fast_agent.llm.provider.openai.structured_output import OpenAIStructuredOutputMixin
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider.reasoning_config import reasoning_setting_from_config
-from fast_agent.llm.provider.streaming_timeouts import await_stream_start
+from fast_agent.llm.provider.streaming_timeouts import (
+    await_stream_start,
+    with_stream_idle_timeout,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.stream_types import StreamChunk
@@ -1148,7 +1150,6 @@ class OpenAILLM(
         timed_stream = with_stream_idle_timeout(
             stream,
             idle_timeout_seconds=timeout,
-            timeout_message=f"Streaming was idle for more than {timeout} seconds.",
         )
         try:
             response, streamed_reasoning = await self._process_stream(

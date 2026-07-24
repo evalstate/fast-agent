@@ -1,12 +1,14 @@
+import json
 from types import SimpleNamespace
 
 import pytest
 from httpx import Request
 from openai import APIError
 
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_RETRY
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
@@ -27,6 +29,7 @@ class FailingOpenAILLM(OpenAILLM):
         is_template: bool = False,
     ) -> PromptMessageExtended:
         self.attempts += 1
+        self._notify_stream_listeners(StreamChunk(text=f"partial {self.attempts}"))
         raise APIError("simulated failure", Request("GET", "http://example.com"), body=None)
 
 
@@ -52,11 +55,22 @@ async def test_retry_attempts_and_backoff_are_configurable():
     llm = FailingOpenAILLM(context=ctx, name="fail-llm")
     llm.retry_count = 1
     llm.retry_backoff_seconds = 0.01
+    stream_events = []
+    llm.add_stream_listener(stream_events.append)
 
     response = await llm.generate([Prompt.user("hi")])
 
     assert llm.attempts == 2  # initial + 1 retry
+    assert [(chunk.event, chunk.text) for chunk in stream_events] == [
+        ("delta", "partial 1"),
+        ("rollback", ""),
+        ("delta", "partial 2"),
+        ("rollback", ""),
+    ]
     assert response.stop_reason == LlmStopReason.ERROR
+    assert response.channels is not None
+    retry_payload = json.loads(get_text(response.channels[FAST_AGENT_RETRY][0]) or "")
+    assert retry_payload["provider_attempts"] == 2
 
 
 @pytest.mark.asyncio

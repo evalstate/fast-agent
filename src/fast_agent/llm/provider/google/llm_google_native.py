@@ -29,7 +29,10 @@ from fast_agent.llm.provider.google._stream_capture import (
     stream_capture_filename,
 )
 from fast_agent.llm.provider.google.google_converter import GoogleConverter, GoogleToolResult
-from fast_agent.llm.provider.streaming_timeouts import await_stream_start
+from fast_agent.llm.provider.streaming_timeouts import (
+    await_stream_start,
+    with_stream_idle_timeout,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     format_reasoning_setting,
@@ -400,8 +403,12 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             )
             return None
 
-        return await self._consume_google_stream(
+        timed_stream = with_stream_idle_timeout(
             response_stream,
+            idle_timeout_seconds=timeout_seconds,
+        )
+        return await self._consume_google_stream(
+            timed_stream,
             model=model,
             capture_base=capture_base,
         )

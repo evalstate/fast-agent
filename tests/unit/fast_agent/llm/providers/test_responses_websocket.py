@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from aiohttp import WSMsgType
-from mcp.types import TextContent
+from mcp.types import CallToolResult, TextContent
 
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_RETRY
 from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
@@ -30,11 +30,16 @@ from fast_agent.llm.provider.openai.responses_websocket import (
 )
 from fast_agent.llm.provider.openai.streaming_utils import (
     validate_incomplete_tool_entries,
+)
+from fast_agent.llm.provider.streaming_timeouts import (
+    StreamIdleTimeoutError,
     with_stream_idle_timeout,
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
+from fast_agent.mcp.prompt import Prompt
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 if TYPE_CHECKING:
     from mcp import Tool
@@ -280,7 +285,6 @@ async def test_with_stream_idle_timeout_allows_long_active_stream() -> None:
     timed_stream = with_stream_idle_timeout(
         _DelayedStream(delays=[0.005, 0.005, 0.005], values=["a", "b", "c"]),
         idle_timeout_seconds=0.01,
-        timeout_message="idle timeout",
     )
 
     observed = [event async for event in timed_stream]
@@ -293,12 +297,14 @@ async def test_with_stream_idle_timeout_raises_when_stream_goes_idle() -> None:
     timed_stream = with_stream_idle_timeout(
         _DelayedStream(delays=[0.005, 0.02], values=["a", "b"]),
         idle_timeout_seconds=0.01,
-        timeout_message="idle timeout",
     )
 
     iterator = timed_stream.__aiter__()
     assert await iterator.__anext__() == "a"
-    with pytest.raises(TimeoutError, match="idle timeout"):
+    with pytest.raises(
+        StreamIdleTimeoutError,
+        match="No stream events were received for 0.01 seconds",
+    ):
         await iterator.__anext__()
 
 
@@ -312,7 +318,6 @@ async def test_with_stream_idle_timeout_preserves_get_final_response() -> None:
             final_response=final_response,
         ),
         idle_timeout_seconds=0.01,
-        timeout_message="idle timeout",
     )
 
     observed = [event async for event in timed_stream]
@@ -1702,6 +1707,53 @@ async def test_empty_response_retry_failure_uses_configured_retry_loop(
 
 
 @pytest.mark.asyncio
+async def test_retry_rolls_back_stream_and_records_completed_tool_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = _TransportHarness(name="transport-harness", transport="sse")
+    harness.retry_count = 1
+    calls = 0
+    chunks = []
+    history = [
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "call_1": CallToolResult(
+                    content=[TextContent(type="text", text="completed")]
+                )
+            },
+        )
+    ]
+
+    async def recover(_messages: list[PromptMessageExtended]) -> PromptMessageExtended:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise StreamIdleTimeoutError(0.01, events_received=4)
+        return Prompt.assistant("recovered")
+
+    async def no_wait(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+
+    monkeypatch.setattr(harness, "_wait_before_retry", no_wait)
+    harness.add_stream_listener(chunks.append)
+
+    result = await harness._execute_with_retry(recover, history)
+
+    assert calls == 2
+    assert [chunk.event for chunk in chunks] == ["rollback", "commit"]
+    retry_payload = json.loads(result.channels[FAST_AGENT_RETRY][0].text)
+    assert retry_payload["provider_attempts"] == 2
+    assert retry_payload["retries"][0]["reason"] == "stream_idle"
+    assert retry_payload["retries"][0]["stream_events_received"] == 4
+    assert retry_payload["retries"][0]["boundary"] == {
+        "kind": "completed_tool_call",
+        "message_index": 0,
+        "tool_call_ids": ["call_1"],
+    }
+
+
+@pytest.mark.asyncio
 async def test_repeated_empty_responses_completion_returns_error() -> None:
     harness = _TransportHarness(name="transport-harness", transport="sse")
     harness.sse_texts = [None, None]
@@ -1849,7 +1901,7 @@ async def test_websocket_streaming_timeout_releases_reusable_connection() -> Non
         }
     ]
 
-    with pytest.raises(TimeoutError, match="Streaming was idle for more than"):
+    with pytest.raises(StreamIdleTimeoutError, match="No stream events were received"):
         await harness._responses_completion_ws(
             input_items=input_items,
             request_params=params,
