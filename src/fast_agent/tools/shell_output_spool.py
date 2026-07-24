@@ -7,6 +7,7 @@ import codecs
 import os
 import stat
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import rmtree
@@ -26,7 +27,7 @@ class SpoolOutputHandler(Protocol):
 
 
 class SpoolOutputActivityHandler(Protocol):
-    async def __call__(self) -> None: ...
+    async def __call__(self, byte_count: int) -> None: ...
 
 
 class SpoolExitCheck(Protocol):
@@ -69,6 +70,7 @@ class ShellOutputSpoolTailer:
         self._stderr_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self._stdout_pending = ""
         self._stderr_pending = ""
+        self._last_output_at: float | None = None
 
     async def tail_until(
         self,
@@ -83,9 +85,13 @@ class ShellOutputSpoolTailer:
                 break
             await asyncio.sleep(poll_interval)
 
-        # Give surviving descendants a bounded window to append after the
-        # tracked shell exits, then catch up without repeated empty remote reads.
-        await asyncio.sleep(final_grace_seconds)
+        # Give surviving descendants a bounded append window only when the
+        # tracked process was producing output immediately before exit.
+        if (
+            self._last_output_at is not None
+            and time.monotonic() - self._last_output_at <= final_grace_seconds
+        ):
+            await asyncio.sleep(final_grace_seconds)
         while not await self._emit_deltas():
             # A surviving descendant may still be appending; require a bounded
             # grace period after tracked-process exit before closing the spool.
@@ -108,42 +114,40 @@ class ShellOutputSpoolTailer:
         stderr_payload, stderr_caught_up = stderr_result
         self._stdout_offset += len(stdout_payload)
         self._stderr_offset += len(stderr_payload)
+        if stdout_payload or stderr_payload:
+            self._last_output_at = time.monotonic()
+        if stdout_payload and self._on_stdout_activity is not None:
+            await self._on_stdout_activity(len(stdout_payload))
+        if stderr_payload and self._on_stderr_activity is not None:
+            await self._on_stderr_activity(len(stderr_payload))
 
         stdout = self._stdout_decoder.decode(stdout_payload, final=False)
         stderr = self._stderr_decoder.decode(stderr_payload, final=False)
-        stdout_emitted = await self._emit_text(stdout, is_stderr=False)
-        stderr_emitted = await self._emit_text(stderr, is_stderr=True)
-        if stdout_payload and not stdout_emitted and self._on_stdout_activity is not None:
-            await self._on_stdout_activity()
-        if stderr_payload and not stderr_emitted and self._on_stderr_activity is not None:
-            await self._on_stderr_activity()
+        await self._emit_text(stdout, is_stderr=False)
+        await self._emit_text(stderr, is_stderr=True)
         return stdout_caught_up and stderr_caught_up
 
-    async def _emit_text(self, text: str, *, is_stderr: bool) -> bool:
+    async def _emit_text(self, text: str, *, is_stderr: bool) -> None:
         pending = (self._stderr_pending if is_stderr else self._stdout_pending) + text
         handler = self._on_stderr if is_stderr else self._on_stdout
-        emitted = False
 
         while pending:
-            newline_index = pending.find("\n")
-            if newline_index >= 0:
-                line = pending[: newline_index + 1]
-                pending = pending[newline_index + 1 :]
+            line_end = _line_end(pending)
+            if line_end is not None:
+                line = pending[:line_end]
+                pending = pending[line_end:]
                 await handler(line)
-                emitted = True
                 continue
             if len(pending) < _MAX_PENDING_LINE_CHARACTERS:
                 break
             line = pending[:_MAX_PENDING_LINE_CHARACTERS]
             pending = pending[_MAX_PENDING_LINE_CHARACTERS:]
             await handler(line)
-            emitted = True
 
         if is_stderr:
             self._stderr_pending = pending
         else:
             self._stdout_pending = pending
-        return emitted
 
     async def _flush_pending(self) -> None:
         if self._stdout_pending:
@@ -165,6 +169,21 @@ class ShellOutputSpoolTailer:
             if len(payload) < self._chunk_size:
                 return b"".join(chunks), True
         return b"".join(chunks), False
+
+
+def _line_end(text: str) -> int | None:
+    """Return the end of the next LF-, CRLF-, or CR-terminated line."""
+    newline = text.find("\n")
+    carriage_return = text.find("\r")
+    indexes = [index for index in (newline, carriage_return) if index >= 0]
+    if not indexes:
+        return None
+
+    delimiter = min(indexes)
+    end = delimiter + 1
+    if text[delimiter] == "\r" and end < len(text) and text[end] == "\n":
+        end += 1
+    return end
 
 
 def _local_spool_root() -> str | None:

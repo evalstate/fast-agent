@@ -2405,6 +2405,15 @@ def test_shell_output_tracks_raw_stdout_and_stderr_bytes() -> None:
     assert output.lifetime_stderr_bytes == len("warning\n")
 
 
+def test_shell_output_accepts_raw_byte_counts_from_spool_reader() -> None:
+    output = ShellOutputBuffer(output_byte_limit=80)
+
+    output.record_stream_bytes(4, is_stderr=False)
+    output.append_stream("�", is_stderr=False, count_bytes=False)
+
+    assert output.lifetime_stdout_bytes == 4
+
+
 @pytest.mark.asyncio
 async def test_execute_truncated_result_includes_tail() -> None:
     logger = logging.getLogger("shell-runtime-test")

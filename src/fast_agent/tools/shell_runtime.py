@@ -676,12 +676,17 @@ class ShellRuntime:
         output_state: ShellOutputBuffer,
         display_state: ShellDisplayState,
         is_stderr: bool,
+        count_bytes: bool = True,
     ) -> None:
         output_state.had_stream_output = True
         output_state.unread_output_activity = True
         output_state.output_line_count += 1
         output_state.unread_output_line_count += 1
-        output_state.append_stream(text, is_stderr=is_stderr)
+        output_state.append_stream(
+            text,
+            is_stderr=is_stderr,
+            count_bytes=count_bytes,
+        )
         self._maybe_print_truncation_notice(
             output_state=output_state,
             display_state=display_state,

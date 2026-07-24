@@ -108,6 +108,8 @@ class ShellRuntimeCallbacks:
     last_output_time: float = field(default_factory=time.monotonic)
     last_stdout_time: float | None = None
     last_stderr_time: float | None = None
+    raw_stdout_bytes_recorded: bool = False
+    raw_stderr_bytes_recorded: bool = False
     process: ManagedShellProcess | None = None
 
     async def on_started(self, process_id: int | None) -> None:
@@ -125,7 +127,10 @@ class ShellRuntimeCallbacks:
             output_state=self.output_state,
             display_state=self.display_state,
             is_stderr=False,
+            count_bytes=not self.raw_stdout_bytes_recorded,
         )
+        if self.raw_stdout_bytes_recorded:
+            return
         now = time.monotonic()
         self.last_output_time = now
         self.last_stdout_time = now
@@ -140,7 +145,10 @@ class ShellRuntimeCallbacks:
             output_state=self.output_state,
             display_state=self.display_state,
             is_stderr=True,
+            count_bytes=not self.raw_stderr_bytes_recorded,
         )
+        if self.raw_stderr_bytes_recorded:
+            return
         now = time.monotonic()
         self.last_output_time = now
         self.last_stderr_time = now
@@ -148,11 +156,18 @@ class ShellRuntimeCallbacks:
         if self.process is not None:
             self.progress.emit_process_output(self.process)
 
-    async def on_output_activity(self, *, is_stderr: bool) -> None:
-        del is_stderr
+    async def on_output_activity(self, *, is_stderr: bool, byte_count: int) -> None:
         self.output_state.had_stream_output = True
         self.output_state.unread_output_activity = True
-        self.last_output_time = time.monotonic()
+        self.output_state.record_stream_bytes(byte_count, is_stderr=is_stderr)
+        now = time.monotonic()
+        self.last_output_time = now
+        if is_stderr:
+            self.raw_stderr_bytes_recorded = True
+            self.last_stderr_time = now
+        else:
+            self.raw_stdout_bytes_recorded = True
+            self.last_stdout_time = now
         self.activity_event.set()
         if self.process is not None:
             self.progress.emit_process_output(self.process)
