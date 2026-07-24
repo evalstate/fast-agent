@@ -16,21 +16,21 @@ from acp.schema import (
     TextContentBlock,
     TextResourceContents,
 )
-from mcp.types import AudioContent as MCPAudioContent
-from mcp.types import (
+from mcp_types import AudioContent as MCPAudioContent
+from mcp_types import (
     BlobResourceContents as MCPBlobResourceContents,
 )
-from mcp.types import (
+from mcp_types import (
     EmbeddedResource as MCPEmbeddedResource,
 )
-from mcp.types import (
+from mcp_types import (
     ImageContent as MCPImageContent,
 )
-from mcp.types import ResourceLink as MCPResourceLink
-from mcp.types import (
+from mcp_types import ResourceLink as MCPResourceLink
+from mcp_types import (
     TextContent as MCPTextContent,
 )
-from mcp.types import (
+from mcp_types import (
     TextResourceContents as MCPTextResourceContents,
 )
 
@@ -100,7 +100,7 @@ class TestImageContentConversion:
         assert isinstance(mcp_content, MCPImageContent)
         assert mcp_content.type == "image"
         assert mcp_content.data == image_data
-        assert mcp_content.mimeType == "image/png"
+        assert mcp_content.mime_type == "image/png"
 
     def test_image_with_uri(self):
         """Test image content with URI (should be preserved)."""
@@ -117,7 +117,7 @@ class TestImageContentConversion:
 
         assert isinstance(mcp_content, MCPImageContent)
         assert mcp_content.data == image_data
-        assert mcp_content.mimeType == "image/jpeg"
+        assert mcp_content.mime_type == "image/jpeg"
 
 
 class TestAudioContentConversion:
@@ -138,7 +138,7 @@ class TestAudioContentConversion:
         assert isinstance(mcp_content, MCPAudioContent)
         assert mcp_content.type == "audio"
         assert mcp_content.data == audio_data
-        assert mcp_content.mimeType == "audio/wav"
+        assert mcp_content.mime_type == "audio/wav"
 
 
 class TestResourceLinkConversion:
@@ -162,7 +162,7 @@ class TestResourceLinkConversion:
         assert mcp_content.type == "resource_link"
         assert mcp_content.name == "Demo resource"
         assert str(mcp_content.uri) == "https://example.com/resource.pdf"
-        assert mcp_content.mimeType == "application/pdf"
+        assert mcp_content.mime_type == "application/pdf"
         assert mcp_content.size == 1234
         assert mcp_content.description == "A resource"
         assert mcp_content.title == "Demo"
@@ -188,7 +188,7 @@ class TestEmbeddedResourceConversion:
         assert mcp_content.type == "resource"
         assert isinstance(mcp_content.resource, MCPTextResourceContents)
         assert str(mcp_content.resource.uri) == "file:///path/to/file.py"
-        assert mcp_content.resource.mimeType == "text/x-python"
+        assert mcp_content.resource.mime_type == "text/x-python"
         assert mcp_content.resource.text == "def hello():\n    print('Hello')"
 
     def test_blob_resource_conversion(self):
@@ -210,7 +210,7 @@ class TestEmbeddedResourceConversion:
         assert mcp_content.type == "resource"
         assert isinstance(mcp_content.resource, MCPBlobResourceContents)
         assert str(mcp_content.resource.uri) == "file:///path/to/file.pdf"
-        assert mcp_content.resource.mimeType == "application/pdf"
+        assert mcp_content.resource.mime_type == "application/pdf"
         assert mcp_content.resource.blob == blob_data
 
     def test_text_resource_without_mimetype(self):
@@ -228,7 +228,7 @@ class TestEmbeddedResourceConversion:
         assert isinstance(mcp_content, MCPEmbeddedResource)
         assert isinstance(mcp_content.resource, MCPTextResourceContents)
         assert str(mcp_content.resource.uri) == "file:///path/to/file.txt"
-        assert mcp_content.resource.mimeType is None
+        assert mcp_content.resource.mime_type is None
         assert mcp_content.resource.text == "Hello, world!"
 
 

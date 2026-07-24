@@ -42,10 +42,10 @@ def _make_hf_llm(model: str) -> HuggingFaceLLM:
 @pytest.mark.parametrize(
     ("params", "expected_dump"),
     [
-        (RequestParams(systemPrompt="test prompt"), {"systemPrompt": "test prompt"}),
+        (RequestParams(system_prompt="test prompt"), {"system_prompt": "test prompt"}),
         (
-            RequestParams(systemPrompt="test", maxTokens=8192),
-            {"systemPrompt": "test", "maxTokens": 8192},
+            RequestParams(system_prompt="test", max_tokens=8192),
+            {"system_prompt": "test", "max_tokens": 8192},
         ),
     ],
 )
@@ -63,11 +63,11 @@ def test_request_params_dump_recreate_preserves_unset_max_tokens_as_none() -> No
     maxTokens fallback through dump/recreate flows.
     """
 
-    original = RequestParams(systemPrompt="test")
+    original = RequestParams(system_prompt="test")
     recreated = RequestParams(**original.model_dump(exclude={"model"}))
 
-    assert "maxTokens" in recreated.model_dump(exclude_unset=True)
-    assert recreated.maxTokens is None
+    assert "max_tokens" in recreated.model_dump(exclude_unset=True)
+    assert recreated.max_tokens is None
 
 
 @pytest.mark.parametrize(
@@ -80,26 +80,26 @@ def test_request_params_dump_recreate_preserves_unset_max_tokens_as_none() -> No
 def test_huggingface_llm_initialization_uses_model_aware_max_tokens(model: str) -> None:
     llm = _make_hf_llm(model)
 
-    assert llm.default_request_params.maxTokens == EXPECTED_KIMI_MAX_TOKENS
+    assert llm.default_request_params.max_tokens == EXPECTED_KIMI_MAX_TOKENS
 
 
 def test_acp_request_param_merge_preserves_model_aware_max_tokens() -> None:
     llm = _make_hf_llm("moonshotai/kimi-k2-instruct-0905")
 
     merged = llm.get_request_params(
-        RequestParams(systemPrompt="Updated system prompt for ACP session")
+        RequestParams(system_prompt="Updated system prompt for ACP session")
     )
 
-    assert merged.systemPrompt == "Updated system prompt for ACP session"
-    assert merged.maxTokens == EXPECTED_KIMI_MAX_TOKENS
+    assert merged.system_prompt == "Updated system prompt for ACP session"
+    assert merged.max_tokens == EXPECTED_KIMI_MAX_TOKENS
 
 
 def test_acp_request_param_merge_allows_explicit_max_tokens_override() -> None:
     llm = _make_hf_llm("moonshotai/kimi-k2-instruct-0905")
 
-    merged = llm.get_request_params(RequestParams(systemPrompt="test", maxTokens=4096))
+    merged = llm.get_request_params(RequestParams(system_prompt="test", max_tokens=4096))
 
-    assert merged.maxTokens == 4096
+    assert merged.max_tokens == 4096
 
 
 @pytest.mark.parametrize(
@@ -117,7 +117,7 @@ async def test_attach_llm_paths_preserve_model_aware_max_tokens(model_spec: str)
     llm = await agent.attach_llm(ModelFactory.create_factory(model_spec))
     assert _is_fastagent_llm(llm)
 
-    assert llm.default_request_params.maxTokens == EXPECTED_KIMI_MAX_TOKENS
+    assert llm.default_request_params.max_tokens == EXPECTED_KIMI_MAX_TOKENS
 
 
 @pytest.mark.asyncio
@@ -127,7 +127,7 @@ async def test_apply_model_flow_recomputes_model_aware_max_tokens_after_dump_rec
     model-specific fields so the newly selected model can restore its own limits.
     """
 
-    original_params = RequestParams(systemPrompt="original prompt")
+    original_params = RequestParams(system_prompt="original prompt")
     recreated_params = RequestParams(**original_params.model_dump(exclude={"model", "maxTokens"}))
     agent = LlmAgent(AgentConfig(name="Test Agent"))
 
@@ -136,8 +136,8 @@ async def test_apply_model_flow_recomputes_model_aware_max_tokens_after_dump_rec
     )
     assert _is_fastagent_llm(llm)
 
-    assert llm.default_request_params.systemPrompt == "original prompt"
-    assert llm.default_request_params.maxTokens == EXPECTED_KIMI_MAX_TOKENS
+    assert llm.default_request_params.system_prompt == "original prompt"
+    assert llm.default_request_params.max_tokens == EXPECTED_KIMI_MAX_TOKENS
 
 
 @pytest.mark.asyncio
@@ -148,7 +148,7 @@ async def test_attach_llm_then_acp_merge_preserves_model_aware_max_tokens() -> N
     llm = await agent.attach_llm(ModelFactory.create_factory("hf.moonshotai/kimi-k2-instruct-0905"))
     assert _is_fastagent_llm(llm)
 
-    merged = llm.get_request_params(RequestParams(systemPrompt="Updated for ACP session"))
+    merged = llm.get_request_params(RequestParams(system_prompt="Updated for ACP session"))
 
-    assert merged.systemPrompt == "Updated for ACP session"
-    assert merged.maxTokens == EXPECTED_KIMI_MAX_TOKENS
+    assert merged.system_prompt == "Updated for ACP session"
+    assert merged.max_tokens == EXPECTED_KIMI_MAX_TOKENS

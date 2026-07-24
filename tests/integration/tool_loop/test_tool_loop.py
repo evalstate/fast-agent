@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 from mcp import CallToolRequest, Tool
-from mcp.types import CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent

@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from mcp.types import Tool
+from mcp_types import Tool
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 MODULE_PATH = PROJECT_ROOT / "src" / "fast_agent" / "mcp" / "mcp_aggregator.py"
@@ -53,7 +53,7 @@ def test_get_server_instructions_does_not_implicitly_connect() -> None:
 
     aggregator._namespaced_tool_map = {
         "huggingface.tool_a": NamespacedTool(
-            tool=Tool(name="tool_a", inputSchema={"type": "object"}),
+            tool=Tool(name="tool_a", input_schema={"type": "object"}),
             server_name="huggingface",
             namespaced_tool_name="huggingface.tool_a",
         )

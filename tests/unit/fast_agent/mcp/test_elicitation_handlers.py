@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from mcp.types import CallToolResult, ElicitRequestURLParams
+from mcp_types import CallToolResult, ElicitRequestURLParams
 
 from fast_agent.human_input.types import HumanInputResponse
 from fast_agent.mcp.elicitation_handlers import (
@@ -142,7 +142,7 @@ async def test_forms_handler_defers_url_elicitation_to_result_payload(capsys) ->
         mode="url",
         message="Open browser to continue",
         url="https://example.com/continue",
-        elicitationId="form-url-1",
+        elicitation_id="form-url-1",
     )
 
     result = await forms_elicitation_handler(context, params)
@@ -151,7 +151,7 @@ async def test_forms_handler_defers_url_elicitation_to_result_payload(capsys) ->
     captured = capsys.readouterr()
     assert captured.out.strip() == ""
 
-    tool_result = CallToolResult(content=[], isError=False)
+    tool_result = CallToolResult(content=[], is_error=False)
     session._attach_pending_url_elicitation_payload_for_request(
         tool_result,
         request_method="tools/call",

@@ -1,7 +1,7 @@
 from typing import cast
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent

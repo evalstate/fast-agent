@@ -57,7 +57,7 @@ class HarvestCapture:
 WEATHER_TOOL = Tool(
     name="weather",
     description="Check the weather in a city",
-    inputSchema={
+    input_schema={
         "type": "object",
         "properties": {
             "city": {
@@ -412,7 +412,7 @@ async def _run_scenario(
                 max_tokens_override if max_tokens_override is not None else scenario.max_tokens
             )
             request_params = (
-                RequestParams(maxTokens=effective_max_tokens)
+                RequestParams(max_tokens=effective_max_tokens)
                 if effective_max_tokens is not None
                 else None
             )

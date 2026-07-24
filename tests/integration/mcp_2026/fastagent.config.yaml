@@ -1,0 +1,17 @@
+default_model: passthrough
+
+logger:
+  level: error
+  type: console
+
+mcp:
+  servers:
+    modern:
+      command: uv
+      args: [run, mrtr_server.py]
+      transport: stdio
+      elicitation:
+        mode: none
+    modern_http:
+      url: http://127.0.0.1:${FAST_AGENT_TEST_HTTP_PORT}/mcp
+      transport: http

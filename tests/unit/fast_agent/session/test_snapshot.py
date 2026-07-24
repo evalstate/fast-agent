@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.config import get_settings
@@ -383,7 +383,7 @@ def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_pa
         model="config-foo",
         use_history=False,
         default_request_params=RequestParams(
-            maxTokens=111,
+            max_tokens=111,
             parallel_tool_calls=False,
         ),
     )
@@ -391,7 +391,7 @@ def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_pa
         "bar",
         instruction="template bar",
         model="config-bar",
-        default_request_params=RequestParams(maxTokens=222),
+        default_request_params=RequestParams(max_tokens=222),
     )
     bar_config.source_path = tmp_path / "cards" / "bar.md"
 
@@ -408,7 +408,7 @@ def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_pa
             model_name="runtime-bar",
             provider_name="anthropic",
             request_params=RequestParams(
-                maxTokens=4096,
+                max_tokens=4096,
                 temperature=0.2,
                 top_p=0.9,
                 top_k=5,
@@ -473,7 +473,7 @@ def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_pa
     foo_params = foo_config.default_request_params
     assert foo_params is not None
     assert foo_snapshot.request_settings == SessionRequestSettingsSnapshot(
-        max_tokens=foo_params.maxTokens,
+        max_tokens=foo_params.max_tokens,
         use_history=foo_params.use_history,
         parallel_tool_calls=foo_params.parallel_tool_calls,
         max_iterations=foo_params.max_iterations,
@@ -839,7 +839,7 @@ async def test_save_history_writes_captured_snapshot_payload(tmp_path: Path) -> 
         llm=_Llm(
             model_name="passthrough",
             provider_name="fast-agent",
-            request_params=RequestParams(maxTokens=123, temperature=0.4),
+            request_params=RequestParams(max_tokens=123, temperature=0.4),
         ),
         usage_summary={
             "prompt": {"total": 11},
@@ -895,7 +895,7 @@ async def test_save_history_persists_explicit_resolved_prompts(tmp_path: Path) -
         llm=_Llm(
             model_name="passthrough",
             provider_name="fast-agent",
-            request_params=RequestParams(maxTokens=123),
+            request_params=RequestParams(max_tokens=123),
         ),
         message_history=[
             PromptMessageExtended(
@@ -936,7 +936,7 @@ async def test_save_history_tracks_most_recent_active_agent_across_known_agents(
         llm=_Llm(
             model_name="passthrough",
             provider_name="fast-agent",
-            request_params=RequestParams(maxTokens=100),
+            request_params=RequestParams(max_tokens=100),
         ),
         message_history=[
             PromptMessageExtended(
@@ -952,7 +952,7 @@ async def test_save_history_tracks_most_recent_active_agent_across_known_agents(
         llm=_Llm(
             model_name="passthrough",
             provider_name="fast-agent",
-            request_params=RequestParams(maxTokens=200),
+            request_params=RequestParams(max_tokens=200),
         ),
         message_history=[
             PromptMessageExtended(

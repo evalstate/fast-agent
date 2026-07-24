@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-from mcp.types import CallToolRequest, ContentBlock, EmbeddedResource
+from mcp_types import CallToolRequest, ContentBlock, EmbeddedResource
 
 from fast_agent.constants import (
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
@@ -298,9 +298,9 @@ class ResponsesContentMixin:
 
     @staticmethod
     def _content_mime_type(content: ContentBlock) -> str | None:
-        mime_type = getattr(content, "mimeType", None)
+        mime_type = getattr(content, "mime_type", None)
         if isinstance(content, EmbeddedResource):
-            mime_type = getattr(content.resource, "mimeType", None)
+            mime_type = getattr(content.resource, "mime_type", None)
         return mime_type
 
     @staticmethod

@@ -3,8 +3,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from mcp.types import EmbeddedResource, TextContent, TextResourceContents
-from pydantic import AnyUrl
+from mcp_types import EmbeddedResource, TextContent, TextResourceContents
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.constants import MCP_UI
@@ -48,8 +47,8 @@ async def test_mcp_ui_html_write_and_link_display(passthrough_agent):
     ui_res = EmbeddedResource(
         type="resource",
         resource=TextResourceContents(
-            uri=AnyUrl("ui://my-component/instance-1"),
-            mimeType="text/html",
+            uri="ui://my-component/instance-1",
+            mime_type="text/html",
             text="<p>Hello World</p>",
         ),
     )

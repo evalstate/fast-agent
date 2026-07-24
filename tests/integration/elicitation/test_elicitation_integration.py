@@ -7,16 +7,13 @@ These tests verify that:
 3. Elicitation capabilities are properly advertised to servers
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
-from mcp.shared.context import RequestContext
-from mcp.types import ElicitRequestParams, ElicitResult
+from mcp.client.session import ClientRequestContext
+from mcp_types import ElicitRequestParams, ElicitResult
 
 from fast_agent.core.logging.logger import get_logger
-
-if TYPE_CHECKING:
-    from mcp import ClientSession
 
 logger = get_logger(__name__)
 
@@ -24,13 +21,13 @@ type ElicitationContent = dict[str, str | int | float | list[str] | None]
 
 
 async def custom_test_elicitation_handler(
-    context: RequestContext["ClientSession", Any],
+    context: ClientRequestContext,
     params: ElicitRequestParams,
 ) -> ElicitResult:
     """Test handler that returns predictable responses for integration testing."""
     logger.info(f"Test elicitation handler called with: {params.message}")
 
-    requested_schema = getattr(params, "requestedSchema", None)
+    requested_schema = getattr(params, "requested_schema", None)
     if requested_schema:
         # Generate test data based on the schema for round-trip verification
         properties = requested_schema.get("properties", {})

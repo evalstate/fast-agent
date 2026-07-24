@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from mcp.types import CallToolResult, TextContent, Tool
+from mcp_types import CallToolResult, TextContent, Tool
 from rich.text import Text
 
 if TYPE_CHECKING:
@@ -29,6 +29,9 @@ from fast_agent.constants import (
     TERMINAL_BYTES_PER_TOKEN,
 )
 from fast_agent.event_progress import ProgressAction
+from fast_agent.mcp.tool_result_metadata import (
+    update_tool_result_display_metadata,
+)
 from fast_agent.tools.execution_environment import (
     ShellExecution,
     ShellExecutionRequest,
@@ -119,7 +122,7 @@ _RESOURCE_OBSERVATION_TIMEOUT_SECONDS = 0.075
 
 def _text_result(message: str, *, is_error: bool) -> CallToolResult:
     return CallToolResult(
-        isError=is_error,
+        is_error=is_error,
         content=[TextContent(type="text", text=message)],
     )
 
@@ -758,10 +761,14 @@ class ShellRuntime:
         suppress_display = True
         if defer_display_to_tool_result and self._show_bash_output:
             suppress_display = False
-        result_meta = cast("Any", result)
-        result_meta._suppress_display = suppress_display
-        result_meta.exit_code = shell_result.exit_code
-        result_meta.output_line_count = output_state.output_line_count
+        update_tool_result_display_metadata(
+            result,
+            {
+                "suppress_display": suppress_display,
+                "exit_code": shell_result.exit_code,
+                "output_line_count": output_state.output_line_count,
+            },
+        )
         return result
 
     async def _execute_shell_command(
@@ -1501,8 +1508,8 @@ class ShellRuntime:
             action=ProgressAction.TOOL_PROGRESS,
             tool_use_id=tool_use_id,
             tool_name=name,
-            details=details or ("failed" if result.isError else "completed"),
-            tool_state="failed" if result.isError else "completed",
+            details=details or ("failed" if result.is_error else "completed"),
+            tool_state="failed" if result.is_error else "completed",
             tool_terminal=True,
             process_yield_reason=yield_reason,
         )
@@ -1709,7 +1716,7 @@ class ShellRuntime:
                     self._flush_live_display_tail(process.display_state)
                     process.display_state.use_live_shell_display = False
                     if defer_display_to_tool_result:
-                        cast("Any", result)._suppress_display = False
+                        update_tool_result_display_metadata(result, {"suppress_display": False})
                     else:
                         self._display.show_managed_process_status(
                             process_id=process.process_id,
@@ -1746,7 +1753,7 @@ class ShellRuntime:
                     action=ProgressAction.TOOL_PROGRESS,
                     tool_use_id=tool_use_id,
                     details=completion_details,
-                    tool_state="failed" if result.isError else "completed",
+                    tool_state="failed" if result.is_error else "completed",
                     tool_terminal=True,
                 )
                 return result

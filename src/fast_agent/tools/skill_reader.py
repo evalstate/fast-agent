@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from mcp.types import CallToolResult, TextContent, Tool
+from mcp_types import CallToolResult, TextContent, Tool
 
 from fast_agent.tools.filesystem_tool_args import (
     coerce_required_string_argument,
@@ -57,7 +57,7 @@ class SkillReader:
                     "Read a skill's SKILL.md file or associated resources. "
                     "Use this to load skill instructions before using the skill."
                 ),
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "path": {
@@ -144,6 +144,6 @@ class SkillReader:
 
 def _text_result(text: str, *, is_error: bool) -> CallToolResult:
     return CallToolResult(
-        isError=is_error,
+        is_error=is_error,
         content=[TextContent(type="text", text=text)],
     )

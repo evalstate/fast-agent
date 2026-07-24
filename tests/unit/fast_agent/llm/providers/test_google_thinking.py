@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from google.genai import types as google_types
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.config import Settings
 from fast_agent.context import Context

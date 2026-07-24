@@ -1,7 +1,7 @@
 import json
 from types import SimpleNamespace
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.config import (
     MetaAISettings,

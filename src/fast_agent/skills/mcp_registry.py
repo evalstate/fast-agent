@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Protocol
 from urllib.parse import urlparse
 
 import frontmatter
-from mcp.types import BlobResourceContents, ServerCapabilities, TextResourceContents
+from mcp_types import BlobResourceContents, ServerCapabilities, TextResourceContents
 from pydantic import AnyUrl
 
 from fast_agent.core.logging.logger import get_logger
@@ -46,7 +46,7 @@ from fast_agent.skills.provenance import (
 from fast_agent.skills.registry import SkillRegistry
 
 if TYPE_CHECKING:
-    from mcp.types import ListResourcesResult, ReadResourceResult
+    from mcp_types import ListResourcesResult, ReadResourceResult
 
 
 class McpSkillRegistryClient(Protocol):
@@ -145,8 +145,7 @@ class McpSkillRegistry:
 def _extension_settings(capabilities: ServerCapabilities | None) -> Mapping[str, Any] | None:
     if capabilities is None:
         return None
-    extras = capabilities.model_extra or {}
-    extensions = extras.get("extensions")
+    extensions = capabilities.extensions
     if not isinstance(extensions, Mapping):
         return None
     settings = extensions.get(SKILLS_EXTENSION)
@@ -156,8 +155,7 @@ def _extension_settings(capabilities: ServerCapabilities | None) -> Mapping[str,
 def server_supports_mcp_skills(capabilities: ServerCapabilities | None) -> bool:
     if capabilities is None:
         return False
-    extras = capabilities.model_extra or {}
-    extensions = extras.get("extensions")
+    extensions = capabilities.extensions
     if not isinstance(extensions, Mapping):
         return False
     return SKILLS_EXTENSION in extensions
@@ -746,7 +744,7 @@ async def _walk_skill_directory(
                     data={"server": server_name, "root": root_uri, "uri": child_uri},
                 )
                 continue
-            if resource.mimeType == DIRECTORY_MIME_TYPE:
+            if resource.mime_type == DIRECTORY_MIME_TYPE:
                 await _walk_skill_directory(
                     aggregator,
                     server_name=server_name,
@@ -775,7 +773,7 @@ async def _walk_skill_directory(
                     data={
                         "server": server_name,
                         "uri": child_uri,
-                        "mimeType": resource.mimeType,
+                        "mimeType": resource.mime_type,
                     },
                 )
                 continue
@@ -785,7 +783,7 @@ async def _walk_skill_directory(
             destination = dest_dir / PurePosixPath(relative)
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(data)
-        cursor = listing.nextCursor
+        cursor = listing.next_cursor
         if not cursor:
             break
 
@@ -991,4 +989,3 @@ def _safe_install_dir_name(name: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
         raise ValueError(f"Invalid MCP skill name for local install: {name}")
     return name
-

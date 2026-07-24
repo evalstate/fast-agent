@@ -38,7 +38,7 @@ from .execution_environment import EnvironmentFilesystemWithBytes
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from mcp.types import CallToolResult
+    from mcp_types import CallToolResult
 
     from fast_agent.llm.model_info import ModelInfo
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler

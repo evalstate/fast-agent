@@ -66,9 +66,9 @@ async def client_capabilities_resource() -> str:
         text = "Client Capabilities:\n" + "\n".join(capabilities_list)
 
         # Add client info for debugging
-        client_info = ctx.session.client_params.clientInfo
+        client_info = ctx.session.client_params.client_info
         text += f"\n\nClient Info: {client_info.name} v{client_info.version}"
-        text += f"\nProtocol Version: {ctx.session.client_params.protocolVersion}"
+        text += f"\nProtocol Version: {ctx.session.client_params.protocol_version}"
 
     return text
 

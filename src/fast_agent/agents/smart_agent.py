@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
 
-from mcp.types import BlobResourceContents, ReadResourceResult, TextResourceContents
+from mcp_types import BlobResourceContents, ReadResourceResult, TextResourceContents
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.mcp_agent import McpAgent
@@ -1241,7 +1241,7 @@ def _extract_read_resource_text(result: ReadResourceResult, *, max_chars: int = 
     for idx, content in enumerate(result.contents, start=1):
         if isinstance(content, TextResourceContents):
             text = content.text
-            lines.append(f"[{idx}] text ({content.mimeType or 'unknown'})")
+            lines.append(f"[{idx}] text ({content.mime_type or 'unknown'})")
             lines.append(text)
             continue
 
@@ -1253,7 +1253,7 @@ def _extract_read_resource_text(result: ReadResourceResult, *, max_chars: int = 
                 preview = decoded[:400].decode("utf-8", errors="replace")
             except Exception:
                 preview = "<binary blob>"
-            lines.append(f"[{idx}] blob ({content.mimeType or 'unknown'}, {blob_len} b64 chars)")
+            lines.append(f"[{idx}] blob ({content.mime_type or 'unknown'}, {blob_len} b64 chars)")
             if preview:
                 lines.append(preview)
             continue

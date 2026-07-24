@@ -15,8 +15,9 @@ classifiers = [
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "fastapi==0.136.3",
-    "fastmcp==3.4.4",
-    "mcp==1.28.1",
+    "fastmcp==4.0.0a2",
+    "mcp==2.0.0b2",
+    "mcp-types==2.0.0b2",
     "pydantic-settings==2.14.2",
     "pydantic==2.13.4",
     "pyyaml==6.0.3",
@@ -189,6 +190,13 @@ ignore=["E501"]
 # More lenient settings for existing code
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN"]  # Don't require type annotations in tests
+
+[tool.uv]
+constraint-dependencies = [
+    "fastmcp-slim==4.0.0a2",
+    "mcp==2.0.0b2",
+    "mcp-types==2.0.0b2",
+]
 
 [tool.uv.workspace]
 members = [

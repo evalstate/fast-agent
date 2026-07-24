@@ -41,7 +41,7 @@ from anthropic.types.beta import (
     BetaToolUseBlockParam,
 )
 from mcp import Tool
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     CallToolRequest,
     CallToolRequestParams,
@@ -820,7 +820,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
     @staticmethod
     def _anthropic_document_mime_type(resource: BlobResourceContents) -> str | None:
-        mime_type = normalize_mime_type(resource.mimeType)
+        mime_type = normalize_mime_type(resource.mime_type)
         if not mime_type and getattr(resource, "uri", None):
             mime_type = guess_mime_type(str(resource.uri))
         if mime_type not in DOCUMENT_MIME_TYPES or mime_type == "application/pdf":
@@ -1131,7 +1131,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             BetaToolParam(
                 name=tool.name,
                 description=tool.description or "",
-                input_schema=tool.inputSchema,
+                input_schema=tool.input_schema,
             )
             for tool in tools or []
         ]
@@ -1368,7 +1368,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         # Create the content for responses
         structured_content = TextContent(type="text", text=json.dumps(tool_args))
 
-        tool_result = CallToolResult(isError=False, content=[structured_content])
+        tool_result = CallToolResult(is_error=False, content=[structured_content])
         messages.append(
             AnthropicConverter.create_tool_results_message([(tool_use_id, tool_result)])
         )
@@ -2031,7 +2031,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         base_args: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "stop_sequences": params.stopSequences,
+            "stop_sequences": params.stop_sequences,
         }
         container_id = self._resolve_container_id_for_request(history, current_extended)
         if container_id:
@@ -2040,8 +2040,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if request_tools:
             base_args["tools"] = request_tools
 
-        if self.instruction or params.systemPrompt:
-            base_args["system"] = self.instruction or params.systemPrompt
+        if self.instruction or params.system_prompt:
+            base_args["system"] = self.instruction or params.system_prompt
 
         if structured_mode == "tool_use":
             if self._is_thinking_enabled(model) and self._requires_explicit_thinking_field(model):
@@ -2064,7 +2064,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
         thinking_args, thinking_enabled = self._resolve_thinking_arguments(
             model=model,
-            max_tokens=params.maxTokens,
+            max_tokens=params.max_tokens,
             structured_mode=structured_mode,
         )
         base_args.update(thinking_args)

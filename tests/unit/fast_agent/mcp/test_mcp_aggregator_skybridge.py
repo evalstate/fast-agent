@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
-from mcp.types import Tool
+from mcp_types import Tool
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 MODULE_PATH = PROJECT_ROOT / "src" / "fast_agent" / "mcp" / "mcp_aggregator.py"
@@ -89,7 +89,7 @@ def test_skybridge_detection_marks_valid_resources() -> None:
         return_value=[SimpleNamespace(uri="ui://component/app")]
     )
     aggregator._get_resource_from_server = AsyncMock(
-        return_value=SimpleNamespace(contents=[SimpleNamespace(mimeType=SKYBRIDGE_MIME_TYPE)])
+        return_value=SimpleNamespace(contents=[SimpleNamespace(mime_type=SKYBRIDGE_MIME_TYPE)])
     )
 
     server_name, config = asyncio.run(aggregator._evaluate_skybridge_for_server("test"))
@@ -129,7 +129,7 @@ def test_mcp_app_detection_marks_valid_resources() -> None:
         return_value=[SimpleNamespace(uri="ui://component/app")]
     )
     aggregator._get_resource_from_server = AsyncMock(
-        return_value=SimpleNamespace(contents=[SimpleNamespace(mimeType=MCP_APP_MIME_TYPE)])
+        return_value=SimpleNamespace(contents=[SimpleNamespace(mime_type=MCP_APP_MIME_TYPE)])
     )
 
     _, config = asyncio.run(aggregator._evaluate_skybridge_for_server("test"))
@@ -163,7 +163,7 @@ def test_mcp_app_detection_supports_legacy_flat_resource_uri() -> None:
         return_value=[SimpleNamespace(uri="ui://component/app")]
     )
     aggregator._get_resource_from_server = AsyncMock(
-        return_value=SimpleNamespace(contents=[SimpleNamespace(mimeType=MCP_APP_MIME_TYPE)])
+        return_value=SimpleNamespace(contents=[SimpleNamespace(mime_type=MCP_APP_MIME_TYPE)])
     )
 
     _, config = asyncio.run(aggregator._evaluate_skybridge_for_server("test"))
@@ -191,7 +191,7 @@ def test_mcp_app_detection_warns_on_skybridge_mime() -> None:
         return_value=[SimpleNamespace(uri="ui://component/app")]
     )
     aggregator._get_resource_from_server = AsyncMock(
-        return_value=SimpleNamespace(contents=[SimpleNamespace(mimeType=SKYBRIDGE_MIME_TYPE)])
+        return_value=SimpleNamespace(contents=[SimpleNamespace(mime_type=SKYBRIDGE_MIME_TYPE)])
     )
 
     _, config = asyncio.run(aggregator._evaluate_skybridge_for_server("test"))
@@ -220,7 +220,7 @@ def test_skybridge_detection_warns_on_invalid_mime() -> None:
         return_value=[SimpleNamespace(uri="ui://component/app")]
     )
     aggregator._get_resource_from_server = AsyncMock(
-        return_value=SimpleNamespace(contents=[SimpleNamespace(mimeType="text/html")])
+        return_value=SimpleNamespace(contents=[SimpleNamespace(mime_type="text/html")])
     )
 
     _, config = asyncio.run(aggregator._evaluate_skybridge_for_server("test"))
@@ -392,7 +392,7 @@ def test_skybridge_resource_without_tool_warns() -> None:
         return_value=[SimpleNamespace(uri="ui://component/app")]
     )
     aggregator._get_resource_from_server = AsyncMock(
-        return_value=SimpleNamespace(contents=[SimpleNamespace(mimeType=SKYBRIDGE_MIME_TYPE)])
+        return_value=SimpleNamespace(contents=[SimpleNamespace(mime_type=SKYBRIDGE_MIME_TYPE)])
     )
 
     _, config = asyncio.run(aggregator._evaluate_skybridge_for_server("test"))

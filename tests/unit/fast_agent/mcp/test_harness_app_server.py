@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from fastmcp import FastMCP
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance

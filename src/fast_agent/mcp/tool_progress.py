@@ -11,7 +11,7 @@ from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from mcp.types import ContentBlock
+    from mcp_types import ContentBlock
 else:
     ContentBlock = Any
 

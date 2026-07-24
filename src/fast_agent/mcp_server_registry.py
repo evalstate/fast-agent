@@ -7,22 +7,23 @@ supports dynamic registration of initialization hooks, and provides methods for
 server initialization.
 """
 
-from collections.abc import AsyncIterator
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
-from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from mcp import ClientSession
+from mcp.client._probe import negotiate_auto
 
-from fast_agent.config import (
-    MCPServerSettings,
-    Settings,
-)
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.interfaces import ClientSessionFactory
 
 if TYPE_CHECKING:
-    from mcp.types import InitializeResult, ServerCapabilities
+    from collections.abc import AsyncIterator
+
+    from mcp import ClientSession
+    from mcp_types import ServerCapabilities
+
+    from fast_agent.config import MCPServerSettings, Settings
+    from fast_agent.mcp.interfaces import ClientSessionFactory
 
 logger = get_logger(__name__)
 
@@ -49,7 +50,7 @@ class ServerRegistry:
             config (Settings): The Settings object containing the server configurations.
             config_path (str): Path to the YAML configuration file.
         """
-        self._init_results: dict[str, InitializeResult] = {}
+        self._capabilities: dict[str, ServerCapabilities] = {}
         self._config = config
         self.registry = config.mcp.servers if config is not None and config.mcp is not None else {}
 
@@ -74,8 +75,7 @@ class ServerRegistry:
 
     def get_server_capabilities(self, server_name: str) -> "ServerCapabilities | None":
         """Return cached capabilities for a server, or None if not yet initialized."""
-        init_result = self._init_results.get(server_name)
-        return init_result.capabilities if init_result else None
+        return self._capabilities.get(server_name)
 
     @asynccontextmanager
     async def initialize_server(
@@ -121,11 +121,7 @@ class ServerRegistry:
             )
 
             async with transport_context as (read_stream, write_stream, _get_session_id_cb):
-                read_timeout = (
-                    timedelta(seconds=config.read_timeout_seconds)
-                    if config.read_timeout_seconds
-                    else None
-                )
+                read_timeout = config.read_timeout_seconds
                 if client_session_factory is not None:
                     session = client_session_factory(
                         read_stream,
@@ -139,8 +135,9 @@ class ServerRegistry:
                     )
 
                 async with session:
-                    result: InitializeResult = await session.initialize()
-                    self._init_results[server_name] = result
+                    await negotiate_auto(session)
+                    if session.server_capabilities is not None:
+                        self._capabilities[server_name] = session.server_capabilities
                     yield session
 
         try:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from mcp.types import CallToolRequest, CallToolResult, Tool
+from mcp_types import CallToolRequest, CallToolResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -42,7 +42,7 @@ _tool_schema = {
 _tool = Tool(
     name="weather",
     description="Check the weather in a city",
-    inputSchema=_tool_schema,
+    input_schema=_tool_schema,
 )
 
 
@@ -70,7 +70,7 @@ async def test_responses_streaming_summary(responses_agent, model_name):
     try:
         result: "PromptMessageExtended" = await agent.generate(
             "In one sentence, what is the capital of France?",
-            request_params=RequestParams(maxTokens=200),
+            request_params=RequestParams(max_tokens=200),
         )
     finally:
         remove_listener()
@@ -111,7 +111,7 @@ async def test_responses_tool_streaming(responses_agent, model_name):
         result: "PromptMessageExtended" = await agent.generate(
             "Call the weather tool for Paris.",
             tools=[_tool],
-            request_params=RequestParams(maxTokens=200),
+            request_params=RequestParams(max_tokens=200),
         )
     finally:
         remove_listener()
@@ -148,7 +148,7 @@ async def test_responses_tool_followup(responses_agent, model_name):
     first_response: "PromptMessageExtended" = await agent.generate(
         tool_prompt,
         tools=[_tool],
-        request_params=RequestParams(maxTokens=200),
+        request_params=RequestParams(max_tokens=200),
     )
     assert first_response.stop_reason is LlmStopReason.TOOL_USE
     assert first_response.tool_calls
@@ -162,7 +162,7 @@ async def test_responses_tool_followup(responses_agent, model_name):
         pytest.skip("Model did not return encrypted reasoning to pass back.")
 
     tool_use_id = next(iter(first_response.tool_calls.keys()))
-    tool_result = CallToolResult(content=[text_content("It is sunny.")], isError=False)
+    tool_result = CallToolResult(content=[text_content("It is sunny.")], is_error=False)
     tool_message = PromptMessageExtended(
         role="user",
         content=[],
@@ -172,7 +172,7 @@ async def test_responses_tool_followup(responses_agent, model_name):
     followup_prompt = "Use the tool result to answer in one sentence and do not call tools."
     followup_response: "PromptMessageExtended" = await agent.generate(
         [tool_prompt, first_response, tool_message, followup_prompt],
-        request_params=RequestParams(maxTokens=200),
+        request_params=RequestParams(max_tokens=200),
     )
 
     assert followup_response.stop_reason is LlmStopReason.END_TURN

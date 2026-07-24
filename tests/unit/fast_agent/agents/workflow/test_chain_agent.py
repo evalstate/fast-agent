@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from mcp.types import ImageContent
+from mcp_types import ImageContent
 from pydantic import BaseModel
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from mcp import Tool
-    from mcp.types import PromptMessage
+    from mcp_types import PromptMessage
 
 
 class StructuredResult(BaseModel):
@@ -127,7 +127,7 @@ class MultimodalRecordingAgent(RecordingAgent):
             role="assistant",
             content=[
                 text_content(self.response_text),
-                ImageContent(type="image", data="aW1hZ2U=", mimeType="image/png"),
+                ImageContent(type="image", data="aW1hZ2U=", mime_type="image/png"),
             ],
         )
 

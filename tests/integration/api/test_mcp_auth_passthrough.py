@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 
-import httpx
+import httpx2
 import pytest
 from fastmcp.server.auth import AccessToken
 from mcp import ClientSession
@@ -107,15 +107,15 @@ async def _call_send_tool(
         )
 
         async with starlette_app.router.lifespan_context(starlette_app):
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=transport_app),
+            async with httpx2.AsyncClient(
+                transport=httpx2.ASGITransport(app=transport_app),
                 base_url="http://testserver",
                 headers=headers,
             ) as client:
                 async with streamable_http_client(
                     "http://testserver/mcp",
                     http_client=client,
-                ) as (read_stream, write_stream, _):
+                ) as (read_stream, write_stream):
                     async with ClientSession(read_stream, write_stream) as session:
                         await session.initialize()
                         result = await session.call_tool("worker", {"message": "hello"})

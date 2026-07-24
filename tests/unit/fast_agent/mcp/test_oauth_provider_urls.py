@@ -1,4 +1,4 @@
-import httpx
+import httpx2 as httpx
 import pytest
 from mcp.shared.auth import ProtectedResourceMetadata
 from pydantic import AnyHttpUrl

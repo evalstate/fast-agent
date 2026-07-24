@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from mcp.types import CallToolResult, ContentBlock, EmbeddedResource
+from mcp_types import CallToolResult, ContentBlock, EmbeddedResource
 
 from fast_agent.constants import MCP_UI
 from fast_agent.mcp.ui_modes import McpUIMode, normalize_mcp_ui_mode
@@ -259,7 +259,7 @@ class McpUIMixin:
                 # Recreate CallToolResult without UI blocks
                 new_results[key] = CallToolResult(
                     content=split_blocks.other_blocks,
-                    isError=result.isError,
+                    is_error=result.is_error,
                 )
             except Exception:
                 # Pass through untouched on any error

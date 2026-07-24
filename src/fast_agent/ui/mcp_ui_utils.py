@@ -10,8 +10,9 @@ import webbrowser
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
-from mcp.types import BlobResourceContents, ContentBlock, EmbeddedResource, TextResourceContents
+from mcp_types import BlobResourceContents, ContentBlock, EmbeddedResource, TextResourceContents
 
 from fast_agent.paths import resolve_mcp_ui_output_dir
 from fast_agent.utils.filename import sanitize_filename_component
@@ -85,11 +86,11 @@ def _decode_text_or_blob(resource: UIResourceContents) -> str | None:
 
 
 def _resource_uri(resource: UIResourceContents) -> str | None:
-    return str(resource.uri) if resource.uri else None
+    return quote(resource.uri, safe=":/?#[]@!$&'()*+,;=%") if resource.uri else None
 
 
 def _resource_mime_type(resource: UIResourceContents) -> str:
-    return resource.mimeType or ""
+    return resource.mime_type or ""
 
 
 def _first_https_url_from_uri_list(text: str) -> str | None:

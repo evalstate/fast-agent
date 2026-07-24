@@ -3,8 +3,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from mcp.shared.exceptions import McpError
-from mcp.types import (
+from mcp.shared.exceptions import MCPError as McpError
+from mcp_types import (
     CallToolResult,
     ErrorData,
     Implementation,
@@ -34,6 +34,8 @@ from fast_agent.mcp.skybridge import SkybridgeServerConfig
 from fast_agent.mcp_server_registry import ServerRegistry
 
 if TYPE_CHECKING:
+    from mcp.client.session import ClientSession
+
     from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
 
 
@@ -60,10 +62,18 @@ class _DummySession:
     async def initialize(self):
         self.initialized = True
         return InitializeResult(
-            protocolVersion="2025-03-26",
+            protocol_version="2025-03-26",
             capabilities=ServerCapabilities(tools=ToolsCapability()),
-            serverInfo=Implementation(name="stub", version="0.1"),
+            server_info=Implementation(name="stub", version="0.1"),
         )
+
+    async def send_discover(self, version: str):
+        del version
+        raise McpError(-32601, "Method not found")
+
+    @property
+    def server_capabilities(self) -> ServerCapabilities | None:
+        return ServerCapabilities(tools=ToolsCapability()) if self.initialized else None
 
 
 def _make_stub_aggregator(
@@ -279,7 +289,7 @@ async def test_execute_on_server_nonpersistent_retries_with_oauth_after_401(
         async def list_tools(self) -> ListToolsResult:
             if self._trigger_oauth is not True:
                 raise RuntimeError("401 Unauthorized")
-            return ListToolsResult(tools=[Tool(name="echo", inputSchema={"type": "object"})])
+            return ListToolsResult(tools=[Tool(name="echo", input_schema={"type": "object"})])
 
     @asynccontextmanager
     async def _fake_gen_client(
@@ -337,6 +347,14 @@ async def test_execute_on_server_uses_request_scoped_connection_for_forwarded_hf
             del kwargs
             return CallToolResult(content=[TextContent(type="text", text="ok")])
 
+        call_tool_complete = call_tool
+
+        async def read_resource_complete(self, **kwargs):  # noqa: ANN003
+            raise AssertionError(kwargs)
+
+        async def get_prompt_complete(self, **kwargs):  # noqa: ANN003
+            raise AssertionError(kwargs)
+
     gen_client_calls: list[str] = []
 
     @asynccontextmanager
@@ -370,6 +388,33 @@ async def test_execute_on_server_uses_request_scoped_connection_for_forwarded_hf
     assert gen_client_calls == ["hf"]
 
 
+@pytest.mark.asyncio
+async def test_execute_session_method_rejects_session_without_completed_mrtr_operations() -> None:
+    aggregator = MCPAggregator(
+        server_names=[],
+        connection_persistence=False,
+        context=_build_context({}),
+    )
+
+    class _IncompleteSession:
+        async def call_tool(self, **kwargs):  # noqa: ANN003
+            raise AssertionError(kwargs)
+
+    with pytest.raises(
+        TypeError,
+        match="MCP session factory must provide completed MRTR operations",
+    ):
+        await aggregator._execute_session_method(
+            cast("ClientSession", _IncompleteSession()),
+            server_name="alpha",
+            operation_name="echo",
+            method_name="call_tool",
+            method_args={"name": "echo", "arguments": {}},
+            error_factory=None,
+            progress_callback=None,
+        )
+
+
 # ---------------------------------------------------------------------------
 # get_capabilities (non-persistent path)
 # ---------------------------------------------------------------------------
@@ -388,11 +433,7 @@ async def test_get_capabilities_nonpersistent_returns_real_capabilities(
     @asynccontextmanager
     async def _fake_initialize_server(self, server_name, client_session_factory=None, trigger_oauth=None):
         del trigger_oauth
-        self._init_results[server_name] = InitializeResult(
-            protocolVersion="2025-03-26",
-            capabilities=expected_caps,
-            serverInfo=Implementation(name="stub", version="0.1"),
-        )
+        self._capabilities[server_name] = expected_caps
         yield _DummySession()
 
     monkeypatch.setattr(
@@ -425,11 +466,7 @@ async def test_get_capabilities_nonpersistent_caches_result(monkeypatch) -> None
         del trigger_oauth
         nonlocal init_count
         init_count += 1
-        self._init_results[server_name] = InitializeResult(
-            protocolVersion="2025-03-26",
-            capabilities=expected_caps,
-            serverInfo=Implementation(name="stub", version="0.1"),
-        )
+        self._capabilities[server_name] = expected_caps
         yield _DummySession()
 
     monkeypatch.setattr(
@@ -496,7 +533,9 @@ async def test_get_capabilities_returns_none_when_initialize_raises(monkeypatch)
 def _make_mcp_error_none_code(message: str) -> McpError:
     """Build an McpError whose error code is None (simulates servers that omit it)."""
     error_data = ErrorData.model_construct(code=None, message=message)
-    return McpError(error_data)
+    error = McpError(0, message)
+    error.error = error_data
+    return error
 
 
 @pytest.mark.asyncio
@@ -515,7 +554,7 @@ async def test_fetch_server_tools_returns_empty_for_mcp_error() -> None:
     aggregator = _make_stub_aggregator(
         _build_context({}),
         "no-tools",
-        execute_error=McpError(
+        execute_error=McpError.from_error_data(
             ErrorData(code=METHOD_NOT_FOUND_ERROR_CODE, message="Method not found")
         ),
     )
@@ -552,7 +591,7 @@ async def test_fetch_server_tools_reraises_non_probe_mcp_error() -> None:
     aggregator = _make_stub_aggregator(
         _build_context({}),
         "bad-req",
-        execute_error=McpError(ErrorData(code=-32600, message="Invalid request")),
+        execute_error=McpError.from_error_data(ErrorData(code=-32600, message="Invalid request")),
     )
     with pytest.raises(McpError):
         await aggregator._fetch_server_tools("bad-req")
@@ -566,8 +605,8 @@ async def test_fetch_server_tools_nonpersistent_success() -> None:
         supports_tools=True,
         execute_result=ListToolsResult(
             tools=[
-                Tool(name="read_file", inputSchema={"type": "object"}),
-                Tool(name="write_file", inputSchema={"type": "object"}),
+                Tool(name="read_file", input_schema={"type": "object"}),
+                Tool(name="write_file", input_schema={"type": "object"}),
             ]
         ),
     )
@@ -581,7 +620,7 @@ async def test_fetch_server_tools_reraises_mcp_error_when_tools_advertised() -> 
         _build_context({}),
         "broken",
         supports_tools=True,
-        execute_error=McpError(ErrorData(code=-32600, message="Invalid request")),
+        execute_error=McpError.from_error_data(ErrorData(code=-32600, message="Invalid request")),
     )
     with pytest.raises(McpError):
         await aggregator._fetch_server_tools("broken")
@@ -634,13 +673,13 @@ def test_is_capability_probe_error_with_not_implemented_error() -> None:
 
 
 def test_is_capability_probe_error_with_method_not_found_code() -> None:
-    exc = McpError(ErrorData(code=METHOD_NOT_FOUND_ERROR_CODE, message="Method not found"))
+    exc = McpError.from_error_data(ErrorData(code=METHOD_NOT_FOUND_ERROR_CODE, message="Method not found"))
     assert _is_capability_probe_error(exc) is True
 
 
 def test_is_capability_probe_error_with_method_not_found_message_no_code() -> None:
     """Message fallback only triggers when the server omitted the error code."""
-    exc = McpError(ErrorData(code=0, message="Method not found on server"))
+    exc = McpError.from_error_data(ErrorData(code=0, message="Method not found on server"))
     # code=0 is truthy but not None — message fallback should NOT trigger
     assert _is_capability_probe_error(exc) is False
 
@@ -652,10 +691,10 @@ def test_is_capability_probe_error_with_method_not_found_message_no_code() -> No
 def test_is_capability_probe_error_rejects_infrastructure_errors() -> None:
     assert _is_capability_probe_error(RuntimeError("connection lost")) is False
     assert _is_capability_probe_error(AttributeError("no such attr")) is False
-    exc = McpError(ErrorData(code=-32600, message="Invalid request"))
+    exc = McpError.from_error_data(ErrorData(code=-32600, message="Invalid request"))
     assert _is_capability_probe_error(exc) is False
     # Different code + "method not found" in message should NOT match
-    exc2 = McpError(ErrorData(code=-32000, message="Method not found on server"))
+    exc2 = McpError.from_error_data(ErrorData(code=-32000, message="Method not found on server"))
     assert _is_capability_probe_error(exc2) is False
 
 
@@ -675,11 +714,7 @@ async def test_detach_server_clears_capabilities_cache(monkeypatch) -> None:
     @asynccontextmanager
     async def _fake_initialize_server(self, server_name, client_session_factory=None, trigger_oauth=None):
         del trigger_oauth
-        self._init_results[server_name] = InitializeResult(
-            protocolVersion="2025-03-26",
-            capabilities=expected_caps,
-            serverInfo=Implementation(name="stub", version="0.1"),
-        )
+        self._capabilities[server_name] = expected_caps
         yield _DummySession()
 
     monkeypatch.setattr(
@@ -748,11 +783,7 @@ async def test_attach_server_force_reconnect_refreshes_capabilities_cache() -> N
             del client_session_factory, trigger_oauth
             capabilities = capability_generations[min(self.initialize_count, 1)]
             self.initialize_count += 1
-            self._init_results[server_name] = InitializeResult(
-                protocolVersion="2025-03-26",
-                capabilities=capabilities,
-                serverInfo=Implementation(name="stub", version="0.1"),
-            )
+            self._capabilities[server_name] = capabilities
             yield _DummySession()
 
     registry = _SequencedRegistry()
@@ -774,9 +805,9 @@ async def test_attach_server_force_reconnect_refreshes_capabilities_cache() -> N
             if method_name == "list_tools":
                 if capabilities and capabilities.tools:
                     return ListToolsResult(
-                        tools=[Tool(name="echo", inputSchema={"type": "object"})]
+                        tools=[Tool(name="echo", input_schema={"type": "object"})]
                     )
-                raise McpError(
+                raise McpError.from_error_data(
                     ErrorData(code=METHOD_NOT_FOUND_ERROR_CODE, message="Method not found")
                 )
             if method_name == "list_prompts":

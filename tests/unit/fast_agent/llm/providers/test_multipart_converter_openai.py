@@ -4,7 +4,7 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from mcp.types import (
+from mcp_types import (
     Annotations,
     AudioContent,
     BlobResourceContents,
@@ -18,7 +18,6 @@ from mcp.types import (
     TextResourceContents,
 )
 from openai import AsyncOpenAI
-from pydantic import AnyUrl
 
 from fast_agent.llm.provider.openai import llm_openai
 from fast_agent.llm.provider.openai.multipart_converter_openai import (
@@ -138,7 +137,7 @@ class TestOpenAIUserConverter(unittest.TestCase):
         image_content = ImageContent(
             type="image",
             data=self.sample_image_base64,
-            mimeType="image/jpeg",
+            mime_type="image/jpeg",
             annotations=Annotations(audience=["user"], priority=0.5),
         )
         multipart = PromptMessageExtended(role="user", content=[image_content])
@@ -162,8 +161,8 @@ class TestOpenAIUserConverter(unittest.TestCase):
         """Test conversion of text-based EmbeddedResource to OpenAI text content with fastagent:file tags."""
         # Create a text resource
         text_resource = TextResourceContents(
-            uri=AnyUrl("test://example.com/document.txt"),
-            mimeType="text/plain",
+            uri="test://example.com/document.txt",
+            mime_type="text/plain",
             text=self.sample_text,
         )
         embedded_resource = EmbeddedResource(type="resource", resource=text_resource)
@@ -189,8 +188,8 @@ class TestOpenAIUserConverter(unittest.TestCase):
         # Create a PDF resource
         pdf_base64 = base64.b64encode(b"fake_pdf_data").decode("utf-8")
         pdf_resource = BlobResourceContents(
-            uri=AnyUrl("test://example.com/document.pdf"),
-            mimeType="application/pdf",
+            uri="test://example.com/document.pdf",
+            mime_type="application/pdf",
             blob=pdf_base64,
         )
         embedded_resource = EmbeddedResource(type="resource", resource=pdf_resource)
@@ -215,8 +214,8 @@ class TestOpenAIUserConverter(unittest.TestCase):
         """Test conversion of image URL in EmbeddedResource to OpenAI image block."""
         # Create an image resource with URL
         image_resource = BlobResourceContents(
-            uri=AnyUrl("https://example.com/image.jpg"),
-            mimeType="image/jpeg",
+            uri="https://example.com/image.jpg",
+            mime_type="image/jpeg",
             blob=self.sample_image_base64,  # This would be ignored for URL in OpenAI
         )
         embedded_resource = EmbeddedResource(type="resource", resource=image_resource)
@@ -240,9 +239,9 @@ class TestOpenAIUserConverter(unittest.TestCase):
         """Test conversion of text-based EmbeddedResource to OpenAI text content with fastagent:file tags."""
         # Create a text resource
         resource_link = ResourceLink(
-            uri=AnyUrl("test://example.com/document.txt"),
+            uri="test://example.com/document.txt",
             type="resource_link",
-            mimeType="text/plain",
+            mime_type="text/plain",
             description="Some description",
             name="some name",
         )
@@ -265,9 +264,9 @@ class TestOpenAIUserConverter(unittest.TestCase):
     def test_image_resource_link_conversion(self):
         """Test conversion of image ResourceLink to OpenAI image_url content."""
         resource_link = ResourceLink(
-            uri=AnyUrl("https://example.com/image.jpg"),
+            uri="https://example.com/image.jpg",
             type="resource_link",
-            mimeType="image/jpeg",
+            mime_type="image/jpeg",
             name="image.jpg",
         )
         multipart = PromptMessageExtended(role="user", content=[resource_link])
@@ -284,9 +283,9 @@ class TestOpenAIUserConverter(unittest.TestCase):
     def test_document_resource_link_conversion(self):
         """Test conversion of document ResourceLink to OpenAI file content."""
         resource_link = ResourceLink(
-            uri=AnyUrl("https://example.com/report.pdf"),
+            uri="https://example.com/report.pdf",
             type="resource_link",
-            mimeType="application/pdf",
+            mime_type="application/pdf",
             name="report.pdf",
         )
         multipart = PromptMessageExtended(role="user", content=[resource_link])
@@ -306,7 +305,7 @@ class TestOpenAIUserConverter(unittest.TestCase):
         # Create multiple content blocks
         text_content1 = TextContent(type="text", text="First text")
         image_content = ImageContent(
-            type="image", data=self.sample_image_base64, mimeType="image/jpeg"
+            type="image", data=self.sample_image_base64, mime_type="image/jpeg"
         )
         text_content2 = TextContent(type="text", text="Second text")
 
@@ -329,7 +328,7 @@ class TestOpenAIUserConverter(unittest.TestCase):
         self.assertEqual(text_part(openai_msg, 2), "Second text")
 
     def test_audio_content_conversion_gets_explicit_text_fallback(self):
-        audio_content = AudioContent(type="audio", data="ZmFrZV9hdWRpbw==", mimeType="audio/wav")
+        audio_content = AudioContent(type="audio", data="ZmFrZV9hdWRpbw==", mime_type="audio/wav")
         multipart = PromptMessageExtended(role="user", content=[audio_content])
 
         openai_msgs = OpenAIConverter.convert_to_openai(multipart)
@@ -346,8 +345,8 @@ class TestOpenAIUserConverter(unittest.TestCase):
         # Create an embedded SVG resource
         svg_content = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"></svg>'
         svg_resource = TextResourceContents(
-            uri=AnyUrl("test://example.com/image.svg"),
-            mimeType="image/svg+xml",
+            uri="test://example.com/image.svg",
+            mime_type="image/svg+xml",
             text=svg_content,
         )
         embedded_resource = EmbeddedResource(type="resource", resource=svg_resource)
@@ -386,8 +385,8 @@ class TestOpenAIUserConverter(unittest.TestCase):
 
         # Create a code resource
         code_resource = TextResourceContents(
-            uri=AnyUrl("test://example.com/example.py"),
-            mimeType="text/x-python",
+            uri="test://example.com/example.py",
+            mime_type="text/x-python",
             text=code_text,
         )
         embedded_resource = EmbeddedResource(type="resource", resource=code_resource)
@@ -461,7 +460,7 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
         """Test conversion of a PromptMessage with image content to OpenAI format."""
         # Create a PromptMessage with ImageContent
         image_base64 = base64.b64encode(b"fake_image_data").decode("utf-8")
-        image_content = ImageContent(type="image", data=image_base64, mimeType="image/jpeg")
+        image_content = ImageContent(type="image", data=image_base64, mime_type="image/jpeg")
         prompt_message = PromptMessageExtended(role="user", content=[image_content])
 
         # Convert to OpenAI format
@@ -481,8 +480,8 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
         """Test conversion of a PromptMessage with embedded resource to OpenAI format."""
         # Create a PromptMessage with embedded text resource
         text_resource = TextResourceContents(
-            uri=AnyUrl("test://example.com/document.txt"),
-            mimeType="text/plain",
+            uri="test://example.com/document.txt",
+            mime_type="text/plain",
             text="This is a text resource",
         )
         embedded_resource = EmbeddedResource(type="resource", resource=text_resource)
@@ -520,7 +519,7 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
             role="assistant",
             content=[
                 TextContent(type="text", text="Assistant summary"),
-                ImageContent(type="image", data=image_base64, mimeType="image/jpeg"),
+                ImageContent(type="image", data=image_base64, mime_type="image/jpeg"),
             ],
         )
 
@@ -536,7 +535,7 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
         image_base64 = base64.b64encode(b"fake_image_data").decode("utf-8")
         multipart = PromptMessageExtended(
             role="assistant",
-            content=[ImageContent(type="image", data=image_base64, mimeType="image/jpeg")],
+            content=[ImageContent(type="image", data=image_base64, mime_type="image/jpeg")],
         )
 
         openai_msgs = OpenAIConverter.convert_to_openai(multipart)
@@ -550,7 +549,7 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
     def test_assistant_audio_content_gets_text_fallback(self):
         multipart = PromptMessageExtended(
             role="assistant",
-            content=[AudioContent(type="audio", data="ZmFrZV9hdWRpbw==", mimeType="audio/wav")],
+            content=[AudioContent(type="audio", data="ZmFrZV9hdWRpbw==", mime_type="audio/wav")],
         )
 
         openai_msgs = OpenAIConverter.convert_to_openai(multipart)
@@ -604,7 +603,7 @@ class TestOpenAIToolConverter(unittest.TestCase):
         """Test conversion of CallToolResult to OpenAI tool message."""
         # Create a tool result with text content
         text_content = TextContent(type="text", text=self.sample_text)
-        tool_result = CallToolResult(content=[text_content], isError=False)
+        tool_result = CallToolResult(content=[text_content], is_error=False)
 
         # Create a tool call ID
         tool_call_id = "call_abc123"
@@ -625,15 +624,15 @@ class TestOpenAIToolConverter(unittest.TestCase):
         """Test conversion of multiple tool results with different content types."""
         # Create first tool result with text only
         text_result = CallToolResult(
-            content=[TextContent(type="text", text="Text-only result")], isError=False
+            content=[TextContent(type="text", text="Text-only result")], is_error=False
         )
 
         # Create second tool result with image
         image_base64 = base64.b64encode(b"fake_image_data").decode("utf-8")
-        image_content = ImageContent(type="image", data=image_base64, mimeType="image/jpeg")
+        image_content = ImageContent(type="image", data=image_base64, mime_type="image/jpeg")
         image_result = CallToolResult(
             content=[TextContent(type="text", text="Here's the image:"), image_content],
-            isError=False,
+            is_error=False,
         )
 
         # Create tool call IDs
@@ -671,20 +670,20 @@ class TestOpenAIToolConverter(unittest.TestCase):
 
         # Add an image
         image_base64 = base64.b64encode(b"fake_image_data").decode("utf-8")
-        image_content = ImageContent(type="image", data=image_base64, mimeType="image/jpeg")
+        image_content = ImageContent(type="image", data=image_base64, mime_type="image/jpeg")
 
         # Add a PDF file
         pdf_base64 = base64.b64encode(b"fake_pdf_data").decode("utf-8")
         pdf_resource = BlobResourceContents(
-            uri=AnyUrl("test://example.com/document.pdf"),
-            mimeType="application/pdf",
+            uri="test://example.com/document.pdf",
+            mime_type="application/pdf",
             blob=pdf_base64,
         )
         pdf_embedded = EmbeddedResource(type="resource", resource=pdf_resource)
 
         # Create the tool result with all content types
         tool_result = CallToolResult(
-            content=[text_content, image_content, pdf_embedded], isError=False
+            content=[text_content, image_content, pdf_embedded], is_error=False
         )
 
         # Create a tool call ID
@@ -716,16 +715,16 @@ class TestOpenAIToolConverter(unittest.TestCase):
     def test_tool_result_prefers_structured_content_for_tool_text(self):
         """Test that structuredContent becomes the canonical tool text payload."""
         image_base64 = base64.b64encode(b"fake_image_data").decode("utf-8")
-        image_content = ImageContent(type="image", data=image_base64, mimeType="image/jpeg")
+        image_content = ImageContent(type="image", data=image_base64, mime_type="image/jpeg")
         tool_result = CallToolResult(
             content=[
                 TextContent(type="text", text="stale summary"),
-                TextContent(type="text", text="ignored detail"),
-                image_content,
-            ],
-            isError=False,
-        )
-        setattr(tool_result, "structuredContent", {"status": "fresh", "value": 3})
+            TextContent(type="text", text="ignored detail"),
+            image_content,
+        ],
+        structured_content={"status": "fresh", "value": 3},
+        is_error=False,
+    )
 
         converted = OpenAIConverter.convert_tool_result_to_openai(
             tool_result=tool_result,
@@ -744,14 +743,14 @@ class TestOpenAIToolConverter(unittest.TestCase):
     def test_tool_result_resource_link_pdf_becomes_user_file_message(self):
         """PDF ResourceLinks in tool results use OpenAI's internal file_url shape."""
         resource_link = ResourceLink(
-            uri=AnyUrl("https://example.com/report.pdf"),
+            uri="https://example.com/report.pdf",
             type="resource_link",
-            mimeType="application/pdf",
+            mime_type="application/pdf",
             name="report.pdf",
         )
         tool_result = CallToolResult(
             content=[TextContent(type="text", text="attached"), resource_link],
-            isError=False,
+            is_error=False,
         )
 
         converted = OpenAIConverter.convert_tool_result_to_openai(
@@ -771,11 +770,11 @@ class TestOpenAIToolConverter(unittest.TestCase):
 
     def test_empty_schema_behavior(self):
         """Test adjustment of parameters for empty schema."""
-        inputSchema = {
+        input_schema = {
             "type": "object",
         }
         an_llm = llm_openai.OpenAILLM(Provider.OPENAI)
-        adjusted = an_llm.adjust_schema(inputSchema)
+        adjusted = an_llm.adjust_schema(input_schema)
         assert adjusted["properties"] == {}
 
 
@@ -811,7 +810,7 @@ class TestTextConcatenation(unittest.TestCase):
         text1 = TextContent(type="text", text="Text before image.")
 
         image_base64 = base64.b64encode(b"fake_image_data").decode("utf-8")
-        image = ImageContent(type="image", data=image_base64, mimeType="image/jpeg")
+        image = ImageContent(type="image", data=image_base64, mime_type="image/jpeg")
 
         text2 = TextContent(type="text", text="Text after image.")
         text3 = TextContent(type="text", text="More text after image.")
@@ -844,7 +843,7 @@ class TestTextConcatenation(unittest.TestCase):
         text1 = TextContent(type="text", text="First part of result.")
         text2 = TextContent(type="text", text="Second part of result.")
 
-        tool_result = CallToolResult(content=[text1, text2], isError=False)
+        tool_result = CallToolResult(content=[text1, text2], is_error=False)
 
         # Convert with concatenation enabled
         tool_message = OpenAIConverter.convert_tool_result_to_openai(
@@ -866,8 +865,8 @@ class TestTextConcatenation(unittest.TestCase):
         # Create a binary resource with an unsupported format
         binary_base64 = base64.b64encode(b"fake_binary_data").decode("utf-8")
         binary_resource = BlobResourceContents(
-            uri=AnyUrl("test://example.com/data.bin"),
-            mimeType="application/octet-stream",
+            uri="test://example.com/data.bin",
+            mime_type="application/octet-stream",
             blob=binary_base64,
         )
         embedded_resource = EmbeddedResource(type="resource", resource=binary_resource)

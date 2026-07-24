@@ -4,9 +4,9 @@ This module defines protocols (interfaces) that can be used to break circular de
 """
 
 from contextlib import AbstractAsyncContextManager
-from datetime import timedelta
 from typing import (
     TYPE_CHECKING,
+    Any,
     Protocol,
     runtime_checkable,
 )
@@ -24,7 +24,14 @@ from fast_agent.interfaces import (
 )
 
 if TYPE_CHECKING:
-    from mcp.types import ServerCapabilities
+    from mcp.shared.dispatcher import ProgressFnT
+    from mcp_types import (
+        CallToolResult,
+        GetPromptResult,
+        ReadResourceResult,
+        RequestParamsMeta,
+        ServerCapabilities,
+    )
 
     from fast_agent.config import MCPServerSettings
     from fast_agent.mcp.transport_tracking import TransportChannelMetrics
@@ -32,6 +39,7 @@ if TYPE_CHECKING:
 __all__ = [
     "AgentProtocol",
     "ClientSessionFactory",
+    "CompletingClientSession",
     "FastAgentLLMProtocol",
     "LLMFactoryProtocol",
     "LlmAgentProtocol",
@@ -44,6 +52,36 @@ __all__ = [
 
 
 @runtime_checkable
+class CompletingClientSession(Protocol):
+    """Session operations that resolve modern input-required rounds."""
+
+    async def call_tool_complete(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: "ProgressFnT | None" = None,
+        *,
+        meta: dict[str, Any] | None = None,
+    ) -> "CallToolResult": ...
+
+    async def read_resource_complete(
+        self,
+        uri: str,
+        *,
+        meta: "RequestParamsMeta | None" = None,
+    ) -> "ReadResourceResult": ...
+
+    async def get_prompt_complete(
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        *,
+        meta: "RequestParamsMeta | None" = None,
+    ) -> "GetPromptResult": ...
+
+
+@runtime_checkable
 class ClientSessionFactory(Protocol):
     """Protocol for creating client sessions across persistent and temporary connections."""
 
@@ -51,7 +89,7 @@ class ClientSessionFactory(Protocol):
         self,
         read_stream: MemoryObjectReceiveStream,
         write_stream: MemoryObjectSendStream,
-        read_timeout: timedelta | None,
+        read_timeout: float | None,
         *,
         server_config: "MCPServerSettings | None" = None,
         transport_metrics: "TransportChannelMetrics | None" = None,

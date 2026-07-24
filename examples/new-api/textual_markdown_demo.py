@@ -25,7 +25,7 @@ from fast_agent.ui.markdown import prepare_markdown_content
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 
 if TYPE_CHECKING:
-    from mcp.types import CallToolResult
+    from mcp_types import CallToolResult
 
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.llm.stream_types import StreamChunk
@@ -760,7 +760,7 @@ class MarkdownLLMApp(App[None]):
                 content_blocks.append(text)
         content = "\n\n".join(content_blocks) if content_blocks else "_No content returned._"
 
-        structured = getattr(result, "structuredContent", None)
+        structured = getattr(result, "structured_content", None)
         if structured is not None:
             try:
                 structured_text = json.dumps(structured, indent=2)
@@ -768,7 +768,7 @@ class MarkdownLLMApp(App[None]):
                 structured_text = str(structured)
             content += f"\n\n```json\n{structured_text}\n```"
 
-        status = "ERROR" if result.isError else "success"
+        status = "ERROR" if result.is_error else "success"
         right_info = f"tool result - {status}"
 
         bottom_metadata: list[str] = []
@@ -784,9 +784,9 @@ class MarkdownLLMApp(App[None]):
             name=agent_name or "Tool",
             right_info=right_info,
             bottom_metadata=bottom_metadata or None,
-            highlight_color_override="red" if result.isError else None,
-            block_color_override="red" if result.isError else None,
-            arrow_style_override="dim red" if result.isError else None,
+            highlight_color_override="red" if result.is_error else None,
+            block_color_override="red" if result.is_error else None,
+            arrow_style_override="dim red" if result.is_error else None,
         )
         self._messages.append(message)
         self._refresh_chat()

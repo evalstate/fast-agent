@@ -16,8 +16,7 @@ from a2a.types import (
     TaskStatus,
 )
 from google.protobuf.json_format import MessageToDict
-from mcp.types import EmbeddedResource, TextContent, TextResourceContents
-from pydantic import AnyUrl
+from mcp_types import EmbeddedResource, TextContent, TextResourceContents
 
 from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.a2a.content import filename_from_uri
@@ -340,8 +339,8 @@ def test_a2a_remote_agent_sends_json_text_resources_as_data_parts() -> None:
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri=AnyUrl("resource:///query.json"),
-                            mimeType="application/json",
+                            uri="resource:///query.json",
+                            mime_type="application/json",
                             text='{"format": "markdown", "limit": 5}',
                         ),
                     )

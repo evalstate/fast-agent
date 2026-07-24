@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
@@ -167,7 +167,7 @@ async def test_acp_filesystem_denied_write_has_no_filesystem_or_diff_side_effect
         tool_use_id="tool-use-1",
     )
 
-    assert result.isError is True
+    assert result.is_error is True
     assert connection.read_calls == 0
     assert connection.write_calls == 0
     assert connection.update_calls == 1
@@ -203,7 +203,7 @@ async def test_acp_filesystem_read_rejects_boolean_line_or_limit(field: str) -> 
 
     result = await runtime.read_text_file({"path": "example.txt", field: True})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "must be an integer greater than or equal to 1" in result.content[0].text
@@ -232,7 +232,7 @@ async def test_acp_filesystem_read_forwards_valid_line_and_limit() -> None:
 
     result = await runtime.read_text_file({"path": "example.txt", "line": 2, "limit": 3})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert connection.read_kwargs == {
         "path": "example.txt",
         "session_id": "session",

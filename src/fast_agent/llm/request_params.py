@@ -5,7 +5,7 @@ Request parameters definitions for LLM interactions.
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeGuard
 
 from mcp import SamplingMessage
-from mcp.types import CreateMessageRequestParams
+from mcp_types import CreateMessageRequestParams
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS, DEFAULT_STREAMING_TIMEOUT
@@ -71,7 +71,7 @@ class RequestParams(CreateMessageRequestParams):
     to avoid confusion with the 'message' parameter on 'generate' method.
     """
 
-    maxTokens: int | None = None
+    max_tokens: int | None = None
     """The maximum number of tokens to sample, as requested by the server."""
 
     model: str | None = None
@@ -203,7 +203,7 @@ class RequestParams(CreateMessageRequestParams):
     """Responses-family service tier override (fast/priority or flex)."""
 
     @field_validator(
-        "maxTokens",
+        "max_tokens",
         "max_iterations",
         "streaming_timeout",
         "temperature",

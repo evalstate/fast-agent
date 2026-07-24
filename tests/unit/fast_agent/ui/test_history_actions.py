@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, TextContent
 
 from fast_agent.constants import ANTHROPIC_SERVER_TOOLS_CHANNEL, FAST_AGENT_TOOL_METADATA
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from fastmcp import FastMCP
-from mcp.types import Completion, ResourceTemplateReference
+from mcp_types import Completion, ResourceTemplateReference
 
 mcp = FastMCP("Smart Resource Template Test Server")
 
@@ -36,7 +36,7 @@ def smart_static() -> str:
     return "static"
 
 
-@mcp._mcp_server.completion()
+@mcp.completion()
 async def complete_resource_template_argument(ref, argument, context):
     del context
     if not isinstance(ref, ResourceTemplateReference):
@@ -46,7 +46,7 @@ async def complete_resource_template_argument(ref, argument, context):
 
     prefix = argument.value or ""
     values = [name for name in sorted(_ITEMS.keys()) if name.startswith(prefix)]
-    return Completion(values=values, total=len(_ITEMS), hasMore=False)
+    return Completion(values=values, total=len(_ITEMS), has_more=False)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ similar to how elicitation handlers work.
 
 from typing import Protocol, runtime_checkable
 
-from mcp.types import ContentBlock
+from mcp_types import ContentBlock
 
 
 @runtime_checkable

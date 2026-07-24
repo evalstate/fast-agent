@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from mcp.types import (
+from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -67,7 +67,7 @@ def _poll_result(
 ) -> PromptMessageExtended:
     result = CallToolResult(
         content=[TextContent(type="text", text=f"poll output {index}")],
-        isError=status == "failed",
+        is_error=status == "failed",
     )
     line_count = index if output_line_count is None else output_line_count
     metadata: dict[str, object] = {

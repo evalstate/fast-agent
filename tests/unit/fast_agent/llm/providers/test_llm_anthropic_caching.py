@@ -19,7 +19,7 @@ from anthropic.types.beta import (
     BetaTextBlockParam,
     BetaUsage,
 )
-from mcp.types import (
+from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -299,7 +299,7 @@ class TestAnthropicCaching:
         llm = self._create_llm()
         tool_id = "toolu_test"
         tool_result = CallToolResult(
-            content=[TextContent(type="text", text="result payload")], isError=False
+            content=[TextContent(type="text", text="result payload")], is_error=False
         )
         user_msg = PromptMessageExtended(
             role="user", content=[], tool_results={tool_id: tool_result}
@@ -555,8 +555,8 @@ class TestAnthropicCaching:
     async def test_anthropic_tool_payload_preserves_order_across_requests(self):
         llm = self._create_llm(cache_mode="auto")
         tools = [
-            Tool(name="zeta", description="last alphabetically", inputSchema={"type": "object"}),
-            Tool(name="alpha", description="first alphabetically", inputSchema={"type": "object"}),
+            Tool(name="zeta", description="last alphabetically", input_schema={"type": "object"}),
+            Tool(name="alpha", description="first alphabetically", input_schema={"type": "object"}),
         ]
 
         first = await llm._prepare_tools("claude-sonnet-5", tools=tools)

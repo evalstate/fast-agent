@@ -8,7 +8,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from mcp.types import (
+from mcp_types import (
     ElicitRequestFormParams,
     ElicitRequestParams,
     ElicitRequestURLParams,
@@ -23,8 +23,7 @@ from fast_agent.utils.text import strip_casefold
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from mcp import ClientSession
-    from mcp.shared.context import RequestContext
+    from mcp.client.session import ClientRequestContext
 
     from fast_agent.human_input.types import HumanInputResponse
     from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
@@ -150,7 +149,7 @@ def _parse_elicitation_content(
 
 
 async def auto_cancel_elicitation_handler(
-    context: RequestContext["ClientSession", Any],
+    context: ClientRequestContext,
     params: ElicitRequestParams,
 ) -> ElicitResult | ErrorData:
     """Handler that automatically cancels all elicitation requests.
@@ -164,7 +163,7 @@ async def auto_cancel_elicitation_handler(
 
 
 def _mcp_agent_session(
-    context: RequestContext["ClientSession", Any],
+    context: ClientRequestContext,
 ) -> MCPAgentClientSession | None:
     from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
@@ -175,7 +174,7 @@ def _mcp_agent_session(
 
 
 def _elicitation_context_info(
-    context: RequestContext["ClientSession", Any],
+    context: ClientRequestContext,
 ) -> _ElicitationContextInfo:
     server_config = get_server_config(context)
     session = _mcp_agent_session(context)
@@ -197,7 +196,7 @@ def _handle_url_elicitation(
     context_info: _ElicitationContextInfo,
 ) -> ElicitResult:
     url = str(params.url)
-    elicitation_id = str(params.elicitationId) if params.elicitationId is not None else None
+    elicitation_id = str(params.elicitation_id) if params.elicitation_id is not None else None
     logger.info(
         f"URL elicitation from {context_info.server_name}: {url} (elicitationId={elicitation_id})"
     )
@@ -231,7 +230,7 @@ def _form_human_input_request(
 ):
     from fast_agent.human_input.types import HumanInputRequest
 
-    requested_schema = params.requestedSchema
+    requested_schema = params.requested_schema
     return HumanInputRequest(
         prompt=params.message,
         description=f"Schema: {requested_schema}" if requested_schema else None,
@@ -286,14 +285,14 @@ async def _handle_form_elicitation(
     if special_result := _special_elicitation_action(response_data, context_info.server_name):
         return special_result
 
-    content = _parse_elicitation_content(response, params.requestedSchema)
+    content = _parse_elicitation_content(response, params.requested_schema)
     if content is None:
         return ElicitResult(action="decline")
     return ElicitResult(action="accept", content=content)
 
 
 async def forms_elicitation_handler(
-    context: RequestContext["ClientSession", Any], params: ElicitRequestParams
+    context: ClientRequestContext, params: ElicitRequestParams
 ) -> ElicitResult:
     """
     Combined elicitation handler supporting both form and URL modes.

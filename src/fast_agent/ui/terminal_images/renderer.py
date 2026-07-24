@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
-from mcp.types import BlobResourceContents, EmbeddedResource, ImageContent, TextContent
+from mcp_types import BlobResourceContents, EmbeddedResource, ImageContent, TextContent
 from rich.console import Group, RenderableType
 from rich.text import Text
 
@@ -196,12 +196,12 @@ def _artifact_from_content(item: object, index: int) -> ImageArtifact | None:
             return None
         return ImageArtifact(
             data=data,
-            mime_type=item.mimeType,
-            label=_label(index, item.mimeType, len(data), None),
+            mime_type=item.mime_type,
+            label=_label(index, item.mime_type, len(data), None),
         )
 
     if isinstance(item, EmbeddedResource) and isinstance(item.resource, BlobResourceContents):
-        mime_type = item.resource.mimeType or "application/octet-stream"
+        mime_type = item.resource.mime_type or "application/octet-stream"
         if not mime_type.startswith("image/"):
             return None
         data = _decode_base64(item.resource.blob)

@@ -3,7 +3,7 @@ Integration tests for the enhanced resource API features.
 """
 
 import pytest
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError as McpError
 
 from fast_agent.mcp.prompts.prompt_helpers import get_text
 

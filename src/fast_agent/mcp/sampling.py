@@ -6,9 +6,8 @@ Supports "sampling with tools" as per MCP specification.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from mcp import ClientSession
-from mcp.shared.context import RequestContext
-from mcp.types import (
+from mcp.client.session import ClientRequestContext
+from mcp_types import (
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
@@ -97,7 +96,7 @@ def _current_app_context() -> "Context | None":
         return None
 
 
-def _sampling_server_name(context: RequestContext[ClientSession, Any]) -> str:
+def _sampling_server_name(context: ClientRequestContext) -> str:
     session = context.session
     if isinstance(session, _NamedSamplingSession) and session.session_server_name:
         return session.session_server_name
@@ -130,7 +129,7 @@ def resolve_auto_sampling_enabled(app_context: "Context | None") -> bool:
     return app_context.config.auto_sampling
 
 
-def _configured_sampling_model(context: RequestContext[ClientSession, Any]) -> str | None:
+def _configured_sampling_model(context: ClientRequestContext) -> str | None:
     server_config = get_server_config(context)
     if server_config and server_config.sampling:
         return server_config.sampling.model
@@ -138,7 +137,7 @@ def _configured_sampling_model(context: RequestContext[ClientSession, Any]) -> s
 
 
 def _agent_sampling_overrides(
-    context: RequestContext[ClientSession, Any],
+    context: ClientRequestContext,
 ) -> tuple[str | None, str | None]:
     from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
@@ -172,7 +171,7 @@ def _default_sampling_model(app_context: Any | None) -> str | None:
 
 
 def _select_sampling_model(
-    context: RequestContext[ClientSession, Any],
+    context: ClientRequestContext,
 ) -> _SamplingModelSelection:
     app_context = _current_app_context()
     model = _configured_sampling_model(context)
@@ -204,19 +203,19 @@ def _sampling_response(
             role=llm_response.role,
             content=content_blocks,
             model=model,
-            stopReason="toolUse",
+            stop_reason="toolUse",
         )
 
     return CreateMessageResult(
         role=llm_response.role,
         content=TextContent(type="text", text=llm_response.first_text()),
         model=model,
-        stopReason=LlmStopReason.END_TURN.value,
+        stop_reason=LlmStopReason.END_TURN.value,
     )
 
 
 async def sample(
-    context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+    context: ClientRequestContext, params: CreateMessageRequestParams
 ) -> CreateMessageResult | CreateMessageResultWithTools:
     """
     Handle sampling requests from the MCP protocol using SamplingConverter.
@@ -300,7 +299,7 @@ def sampling_agent_config(
     """
     # Use systemPrompt from params if available, otherwise use default
     instruction = "You are a helpful AI Agent."
-    if params and params.systemPrompt is not None:
-        instruction = params.systemPrompt
+    if params and params.system_prompt is not None:
+        instruction = params.system_prompt
 
     return AgentConfig(name="sampling_agent", instruction=instruction)

@@ -7,7 +7,7 @@ from enum import StrEnum
 from threading import Lock
 from typing import TYPE_CHECKING, Literal, cast
 
-from mcp.types import (
+from mcp_types import (
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCNotification,
@@ -95,17 +95,16 @@ class ModeStats:
 
 
 def _summarise_message(message: JSONRPCMessage) -> str:
-    root = message.root
-    if isinstance(root, JSONRPCRequest):
-        method = root.method or ""
+    if isinstance(message, JSONRPCRequest):
+        method = message.method or ""
         return f"request {method}"
-    if isinstance(root, JSONRPCNotification):
-        method = root.method or ""
+    if isinstance(message, JSONRPCNotification):
+        method = message.method or ""
         return f"notify {method}"
-    if isinstance(root, JSONRPCResponse):
+    if isinstance(message, JSONRPCResponse):
         return "response"
-    if isinstance(root, JSONRPCError):
-        code = getattr(root.error, "code", None)
+    if isinstance(message, JSONRPCError):
+        code = message.error.code
         return f"error {code}" if code is not None else "error"
     return "message"
 
@@ -421,7 +420,7 @@ class TransportChannelMetrics:
     def _record_response_channel(self, event: ChannelEvent) -> None:
         if event.message is None:
             return
-        root = event.message.root
+        root = event.message
         request_id: RequestId | None = None
         if isinstance(root, (JSONRPCResponse, JSONRPCError)):
             request_id = root.id
@@ -444,7 +443,7 @@ class TransportChannelMetrics:
         sub_mode: PostMode | None = None,
     ) -> ActivityState:
         classification = self._classify_message(message)
-        root = message.root
+        root = message
         request_id = self._message_request_id(root)
         classification = self._classify_ping_exchange(classification, root, request_id)
         self._tally_classification(channel_key, classification, timestamp, sub_mode=sub_mode)
@@ -524,7 +523,7 @@ class TransportChannelMetrics:
     def _classify_message(self, message: JSONRPCMessage | None) -> ActivityState:
         if message is None:
             return ActivityState.NONE
-        root = message.root
+        root = message
         method = getattr(root, "method", "")
         normalized_method = strip_casefold(method) if isinstance(method, str) else ""
 

@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 
 import pytest
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     CallToolResult,
     EmbeddedResource,
@@ -10,7 +10,6 @@ from mcp.types import (
     ResourceLink,
     TextContent,
 )
-from pydantic import AnyUrl
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_decorator import LlmDecorator
@@ -213,7 +212,7 @@ async def test_sanitizes_image_content_for_text_only_model():
     decorator, stub = make_decorator("passthrough")
 
     text_block = TextContent(type="text", text="Hello")
-    image_block = ImageContent(type="image", data="AAA", mimeType="image/png")
+    image_block = ImageContent(type="image", data="AAA", mime_type="image/png")
     message = PromptMessageExtended(role="user", content=[text_block, image_block])
 
     _, summary = decorator._sanitize_messages_for_llm([message])
@@ -252,7 +251,7 @@ async def test_sanitizes_image_content_for_text_only_model():
 async def test_overlay_model_info_keeps_supported_image_content():
     decorator, stub = make_overlay_vision_decorator()
 
-    image_block = ImageContent(type="image", data="AAA", mimeType="image/png")
+    image_block = ImageContent(type="image", data="AAA", mime_type="image/png")
     message = PromptMessageExtended(role="user", content=[image_block])
 
     _, summary = decorator._sanitize_messages_for_llm([message])
@@ -272,12 +271,12 @@ async def test_removes_unsupported_tool_result_content():
     decorator, stub = make_decorator("passthrough")
 
     resource = BlobResourceContents(
-        uri=AnyUrl("file://example.pdf"),
-        mimeType="application/pdf",
+        uri="file://example.pdf",
+        mime_type="application/pdf",
         blob="AA==",
     )
     embedded = EmbeddedResource(type="resource", resource=resource)
-    tool_result = CallToolResult(content=[embedded], isError=False)
+    tool_result = CallToolResult(content=[embedded], is_error=False)
     message = PromptMessageExtended(role="user", tool_results={"tool1": tool_result})
 
     _, summary = decorator._sanitize_messages_for_llm([message])
@@ -318,8 +317,8 @@ async def test_removes_remote_office_document_links_for_anthropic() -> None:
 
     resource = ResourceLink(
         type="resource_link",
-        uri=AnyUrl("https://example.com/report.docx"),
-        mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        uri="https://example.com/report.docx",
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         name="report.docx",
     )
     message = PromptMessageExtended(role="user", content=[resource])
@@ -341,7 +340,7 @@ async def test_removes_remote_office_document_links_for_anthropic() -> None:
 async def test_metadata_clears_when_supported_content_only():
     decorator, stub = make_decorator("passthrough")
 
-    image_block = ImageContent(type="image", data="AAA", mimeType="image/png")
+    image_block = ImageContent(type="image", data="AAA", mime_type="image/png")
     first_message = PromptMessageExtended(role="user", content=[image_block])
     await decorator.generate_impl([first_message])
 
@@ -362,7 +361,7 @@ async def test_metadata_clears_when_supported_content_only():
 async def test_history_persists_alert_channel_but_strips_removed_metadata():
     decorator, _ = make_decorator("passthrough")
 
-    image_block = ImageContent(type="image", data="AAA", mimeType="image/png")
+    image_block = ImageContent(type="image", data="AAA", mime_type="image/png")
     message = PromptMessageExtended(role="user", content=[image_block])
 
     await decorator.generate_impl([message])

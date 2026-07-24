@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from urllib.parse import parse_qs, urlparse
 
-from mcp.types import CallToolResult, ImageContent, TextContent
+from mcp_types import CallToolResult, ImageContent, TextContent
 
 from fast_agent.constants import (
     FAST_AGENT_PROCESS_POLL_FOLD,
@@ -211,7 +211,7 @@ def _atif_content(blocks: list[object]) -> AtifContent:
     images = [
         block
         for block in blocks
-        if isinstance(block, ImageContent) and _is_atif_image_mime(block.mimeType)
+        if isinstance(block, ImageContent) and _is_atif_image_mime(block.mime_type)
     ]
     texts = [block.text for block in blocks if isinstance(block, TextContent)]
     if not images:
@@ -221,8 +221,8 @@ def _atif_content(blocks: list[object]) -> AtifContent:
         AtifContentPart(
             type="image",
             source=AtifImageSource(
-                media_type=cast("AtifImageMime", image.mimeType),
-                path=f"data:{image.mimeType};base64,{image.data}",
+                media_type=cast("AtifImageMime", image.mime_type),
+                path=f"data:{image.mime_type};base64,{image.data}",
             ),
         )
         for image in images
@@ -261,7 +261,7 @@ def _tool_result_extra(
     call_id: str,
     result: CallToolResult,
 ) -> dict[str, object]:
-    extra: dict[str, object] = {"is_error": bool(result.isError)}
+    extra: dict[str, object] = {"is_error": bool(result.is_error)}
     timing = (_json_channel_mapping(message, FAST_AGENT_TOOL_TIMING) or {}).get(call_id)
     if isinstance(timing, dict):
         timing_mapping: dict[str, object] = {

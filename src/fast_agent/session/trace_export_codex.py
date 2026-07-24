@@ -10,7 +10,7 @@ from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING, Protocol, cast
 from urllib.parse import parse_qsl, urlencode
 
-from mcp.types import (
+from mcp_types import (
     AudioContent,
     CallToolRequest,
     CallToolResult,
@@ -197,7 +197,7 @@ def _sanitize_text(sanitization: _TextSanitization | None, text: str) -> str:
 
 
 def _data_url(image: ImageContent) -> str:
-    return f"data:{image.mimeType};base64,{image.data}"
+    return f"data:{image.mime_type};base64,{image.data}"
 
 
 def _message_texts(blocks: Iterable[ContentBlock]) -> list[str]:
@@ -210,9 +210,9 @@ def _user_images(blocks: Iterable[ContentBlock]) -> list[str]:
 
 def _content_mime_type(block: ContentBlock) -> str | None:
     if isinstance(block, (AudioContent, ImageContent, ResourceLink)):
-        return block.mimeType
+        return block.mime_type
     if isinstance(block, EmbeddedResource):
-        return block.resource.mimeType
+        return block.resource.mime_type
     return None
 
 
@@ -239,7 +239,7 @@ def _embedded_text_item(
     if not isinstance(resource, TextResourceContents):
         return None
 
-    mime_type = resource.mimeType or "text/plain"
+    mime_type = resource.mime_type or "text/plain"
     if not is_text_mime_type(mime_type):
         return None
 
@@ -729,7 +729,7 @@ def _tool_result_output(
 
 
 def _tool_result_status(result: CallToolResult) -> str:
-    return "error" if result.isError else "success"
+    return "error" if result.is_error else "success"
 
 
 def _object_mapping(value: object) -> dict[str, object] | None:

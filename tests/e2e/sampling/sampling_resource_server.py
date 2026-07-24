@@ -1,7 +1,7 @@
 from fastmcp import Context, FastMCP
 from fastmcp.server.dependencies import get_context
 from fastmcp.utilities.types import Image
-from mcp.types import SamplingMessage, TextContent
+from mcp_types import SamplingMessage, TextContent
 
 from fast_agent.mcp.helpers.content_helpers import get_text
 

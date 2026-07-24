@@ -11,7 +11,7 @@ import random
 from typing import TYPE_CHECKING, Any, cast
 
 from mcp.shared.context import RequestContext
-from mcp.types import ElicitRequestParams, ElicitResult
+from mcp_types import ElicitRequestParams, ElicitResult
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn
 from rich.prompt import Confirm
@@ -33,7 +33,7 @@ async def game_character_elicitation_handler(
     """Custom handler that creates an interactive character creation experience."""
     logger.info(f"Game character elicitation handler called: {params.message}")
 
-    requested_schema = getattr(params, "requestedSchema", None)
+    requested_schema = getattr(params, "requested_schema", None)
     if requested_schema:
         properties = requested_schema.get("properties", {})
         content: dict[str, Any] = {}

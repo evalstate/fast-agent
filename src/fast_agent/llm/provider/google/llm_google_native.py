@@ -12,7 +12,7 @@ from google.genai import (
     types,
 )
 from mcp import Tool as McpTool
-from mcp.types import (
+from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     ContentBlock,
@@ -351,12 +351,12 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
         return RequestParams(
             model=chosen_model,
-            systemPrompt=self.instruction,  # System instruction will be mapped in _google_completion
+            system_prompt=self.instruction,  # System instruction will be mapped in _google_completion
             parallel_tool_calls=True,  # Assume parallel tool calls are supported by default with native API
             max_iterations=DEFAULT_MAX_ITERATIONS,
             use_history=True,
             # Pick a safe default per model (e.g. gemini-2.0-flash is limited to 8192).
-            maxTokens=max_tokens,
+            max_tokens=max_tokens,
             # Include other relevant default parameters
         )
 

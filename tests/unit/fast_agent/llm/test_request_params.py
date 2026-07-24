@@ -69,7 +69,7 @@ def test_request_params_rejects_bool_numeric_values() -> None:
 
 def test_request_params_accepts_numeric_values() -> None:
     params = RequestParams(
-        maxTokens=10,
+        max_tokens=10,
         max_iterations=2,
         streaming_timeout=3.5,
         temperature=0.7,
@@ -81,7 +81,7 @@ def test_request_params_accepts_numeric_values() -> None:
         repetition_penalty=1.1,
     )
 
-    assert params.maxTokens == 10
+    assert params.max_tokens == 10
     assert params.max_iterations == 2
     assert params.streaming_timeout == 3.5
     assert params.temperature == 0.7

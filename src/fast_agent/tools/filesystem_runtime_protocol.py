@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from mcp.types import CallToolResult, Tool
+    from mcp_types import CallToolResult, Tool
 
     from fast_agent.types import RequestParams
 

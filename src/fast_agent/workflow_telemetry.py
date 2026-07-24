@@ -14,7 +14,7 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
-from mcp.types import ContentBlock, TextContent
+from mcp_types import ContentBlock, TextContent
 
 if TYPE_CHECKING:
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler

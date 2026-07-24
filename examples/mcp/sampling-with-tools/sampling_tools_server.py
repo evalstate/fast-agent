@@ -12,7 +12,7 @@ import sys
 
 from fastmcp import Context, FastMCP
 from fastmcp.tools import ToolResult
-from mcp.types import (
+from mcp_types import (
     SamplingMessage,
     TextContent,
     Tool,
@@ -35,7 +35,7 @@ CALCULATOR_TOOLS = [
     Tool(
         name="add",
         description="Add two numbers together",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "a": {"type": "number", "description": "First number"},
@@ -47,7 +47,7 @@ CALCULATOR_TOOLS = [
     Tool(
         name="subtract",
         description="Subtract second number from first",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "a": {"type": "number", "description": "First number"},
@@ -59,7 +59,7 @@ CALCULATOR_TOOLS = [
     Tool(
         name="multiply",
         description="Multiply two numbers together",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "a": {"type": "number", "description": "First number"},
@@ -71,7 +71,7 @@ CALCULATOR_TOOLS = [
     Tool(
         name="divide",
         description="Divide first number by second",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "a": {"type": "number", "description": "Numerator"},
@@ -87,7 +87,7 @@ CALCULATOR_TOOLS = [
 SECRET_CODE_TOOL = Tool(
     name="get_secret",
     description="Returns a secret code. You must call this tool to get the secret.",
-    inputSchema={
+    input_schema={
         "type": "object",
         "properties": {},
         "required": [],
@@ -128,10 +128,10 @@ async def fetch_secret(ctx: Context) -> ToolResult:
         tool_choice=ToolChoice(mode="required"),  # Force the LLM to use the tool
     )
 
-    logger.info(f"Received response with stopReason: {result.stopReason}")
+    logger.info(f"Received response with stopReason: {result.stop_reason}")
 
     # If LLM wants to use the tool
-    if result.stopReason == "toolUse":
+    if result.stop_reason == "toolUse":
         tool_uses = []
         if isinstance(result.content, list):
             tool_uses = [c for c in result.content if isinstance(c, ToolUseContent)]
@@ -143,7 +143,7 @@ async def fetch_secret(ctx: Context) -> ToolResult:
             tool_results = [
                 ToolResultContent(
                     type="tool_result",
-                    toolUseId=tu.id,
+                    tool_use_id=tu.id,
                     content=[TextContent(type="text", text=f"SECRET: {SECRET_CODE}")],
                 )
                 for tu in tool_uses

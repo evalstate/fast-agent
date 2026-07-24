@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
-from mcp.types import CallToolResult, ContentBlock, TextContent, Tool
+from mcp_types import CallToolResult, ContentBlock, TextContent, Tool
 
 from fast_agent.llm.provider_types import Provider
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME, build_apply_patch_tool
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 def text_result(message: str, *, is_error: bool) -> CallToolResult:
     return CallToolResult(
         content=[TextContent(type="text", text=message)],
-        isError=is_error,
+        is_error=is_error,
     )
 
 
@@ -218,12 +218,12 @@ class FilesystemRuntimeBase(ABC):
         result = await method(arguments, tool_use_id)
 
         if tool_handler is not None and tool_call_id is not None:
-            error_text = self._extract_error_text(result, tool_name) if result.isError else None
+            error_text = self._extract_error_text(result, tool_name) if result.is_error else None
             with suppress(Exception):
                 await tool_handler.on_tool_complete(
                     tool_call_id,
-                    not result.isError,
-                    result.content if not result.isError else None,
+                    not result.is_error,
+                    result.content if not result.is_error else None,
                     error_text,
                 )
         return result

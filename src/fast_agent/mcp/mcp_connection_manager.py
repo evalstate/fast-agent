@@ -10,27 +10,26 @@ from collections import deque
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, Protocol, runtime_checkable
 from urllib.parse import urlsplit
 
-import httpx
+import httpx2
 from anyio import CancelScope, Event, Lock, create_task_group
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from httpx import HTTPStatusError
+from httpx2 import HTTPStatusError
 from mcp import ClientSession
+from mcp.client._probe import negotiate_auto
+from mcp.client.sse import sse_client
 from mcp.client.stdio import (
     StdioServerParameters,
     get_default_environment,
 )
-from mcp.client.streamable_http import GetSessionIdCallback
-from mcp.shared._httpx_utils import (
-    MCP_DEFAULT_SSE_READ_TIMEOUT,
-    MCP_DEFAULT_TIMEOUT,
-    create_mcp_http_client,
-)
-from mcp.types import Implementation, JSONRPCMessage, ServerCapabilities
+from mcp.client.streamable_http import streamable_http_client
+from mcp.client.subscriptions import SubscriptionLost, listen
+from mcp.shared.exceptions import MCPError
+from mcp_types import Implementation, JSONRPCMessage, ServerCapabilities
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.context_dependent import ContextDependent
@@ -48,9 +47,7 @@ from fast_agent.mcp.oauth_client import (
     OAuthFlowCancelledError,
     build_oauth_provider,
 )
-from fast_agent.mcp.sse_tracking import tracking_sse_client
 from fast_agent.mcp.stdio_tracking_simple import tracking_stdio_client
-from fast_agent.mcp.streamable_http_tracking import tracking_streamablehttp_client
 from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 from fast_agent.utils.commandline import join_commandline
 from fast_agent.utils.count_display import format_count
@@ -72,7 +69,7 @@ OAuthMode = str
 class PingableClientSession(Protocol):
     """Client session capability used by the optional keepalive loop."""
 
-    async def ping(self, read_timeout_seconds: timedelta | None = None) -> object: ...
+    async def ping(self, read_timeout_seconds: float | None = None) -> object: ...
 
 
 def _pingable_session(session: object | None) -> PingableClientSession | None:
@@ -125,7 +122,7 @@ def _add_none_to_context(context_manager):
 
 @asynccontextmanager
 async def _managed_http_transport_context(
-    http_client: httpx.AsyncClient,
+    http_client: httpx2.AsyncClient,
     transport_context: AbstractAsyncContextManager,
 ):
     """Own an HTTP client for a transport context built from that client."""
@@ -351,32 +348,32 @@ def create_transport_context(
     if config.transport == "sse":
         if not config.url:
             raise ValueError(f"Server '{server_name}' uses sse transport but no url is specified")
-        return tracking_sse_client(
-            config.url,
-            prepared_auth.headers,
-            sse_read_timeout=config.read_transport_sse_timeout_seconds,
-            auth=prepared_auth.oauth_provider,
+        return _add_none_to_context(
+            sse_client(
+                config.url,
+                prepared_auth.headers,
+                sse_read_timeout=config.read_transport_sse_timeout_seconds,
+                auth=prepared_auth.oauth_provider,
+            )
         )
     if config.transport == "http":
         if not config.url:
             raise ValueError(f"Server '{server_name}' uses http transport but no url is specified")
         timeout = None
         if config.http_timeout_seconds is not None or config.http_read_timeout_seconds is not None:
-            timeout = httpx.Timeout(
-                config.http_timeout_seconds or MCP_DEFAULT_TIMEOUT,
-                read=config.http_read_timeout_seconds or MCP_DEFAULT_SSE_READ_TIMEOUT,
+            timeout = httpx2.Timeout(
+                config.http_timeout_seconds or 30,
+                read=config.http_read_timeout_seconds or 300,
             )
-        http_client = create_mcp_http_client(
+        http_client = httpx2.AsyncClient(
             headers=prepared_auth.headers,
             auth=prepared_auth.oauth_provider,
             timeout=timeout,
+            follow_redirects=True,
         )
         return _managed_http_transport_context(
             http_client,
-            tracking_streamablehttp_client(
-                config.url,
-                http_client=http_client,
-            ),
+            _add_none_to_context(streamable_http_client(config.url, http_client=http_client)),
         )
     raise ValueError(f"Unsupported transport: {config.transport}")
 
@@ -398,7 +395,7 @@ class ServerConnection:
                 tuple[
                     MemoryObjectReceiveStream[JSONRPCMessage | Exception],
                     MemoryObjectSendStream[JSONRPCMessage],
-                    GetSessionIdCallback | None,
+                    Callable[[], str | None] | None,
                 ]
             ],
         ],
@@ -423,13 +420,18 @@ class ServerConnection:
         self.server_instructions: str | None = None
         self.server_capabilities: ServerCapabilities | None = None
         self.server_implementation: Implementation | None = None
+        self.protocol_version: str | None = None
+        self.protocol_era: str | None = None
+        self.supported_protocol_versions: tuple[str, ...] = ()
+        self.negotiation: str | None = None
+        self.subscription_state: str | None = None
         self.client_capabilities: dict | None = None
         self.server_instructions_available: bool = False
         self.server_instructions_enabled: bool = (
             server_config.include_instructions if server_config else True
         )
         self.session_id: str | None = None
-        self._get_session_id_cb: GetSessionIdCallback | None = None
+        self._get_session_id_cb: Callable[[], str | None] | None = None
         self.transport_metrics: TransportChannelMetrics | None = None
         self._ping_ok_count = 0
         self._ping_fail_count = 0
@@ -475,13 +477,18 @@ class ServerConnection:
         Must be called within an async context.
         """
         assert self.session, "Session must be created before initialization"
-        result = await self.session.initialize()
+        await negotiate_auto(self.session)
+        self.protocol_version = self.session.protocol_version
+        discover_result = self.session.discover_result
+        self.protocol_era = "modern" if discover_result is not None else "legacy"
+        self.negotiation = "discover" if discover_result is not None else "initialize"
+        self.supported_protocol_versions = (
+            tuple(discover_result.supported_versions) if discover_result is not None else ()
+        )
+        self.server_capabilities = self.session.server_capabilities
+        self.server_implementation = self.session.server_info
 
-        self.server_capabilities = result.capabilities
-        # InitializeResult exposes server info via `serverInfo`; keep fallback for older fields
-        self.server_implementation = result.serverInfo
-
-        raw_instructions = result.instructions
+        raw_instructions = self.session.instructions
         self.server_instructions_available = bool(raw_instructions)
 
         # Store instructions if provided by the server and enabled in config
@@ -596,11 +603,7 @@ class ServerConnection:
         Create a new session instance for this server connection.
         """
 
-        read_timeout = (
-            timedelta(seconds=self.server_config.read_timeout_seconds)
-            if self.server_config.read_timeout_seconds
-            else None
-        )
+        read_timeout = self.server_config.read_timeout_seconds
 
         session = self._client_session_factory(
             read_stream,
@@ -623,13 +626,9 @@ async def _run_ping_loop(server_conn: ServerConnection) -> None:
 
     max_missed = server_conn.server_config.max_missed_pings
     missed = 0
-    read_timeout = (
-        timedelta(seconds=server_conn.server_config.read_timeout_seconds)
-        if server_conn.server_config.read_timeout_seconds
-        else None
-    )
+    read_timeout = server_conn.server_config.read_timeout_seconds
     if read_timeout is None:
-        read_timeout = timedelta(seconds=interval)
+        read_timeout = float(interval)
 
     while not server_conn._shutdown_event.is_set():
         await asyncio.sleep(interval)
@@ -787,7 +786,7 @@ async def _run_server_lifecycle(server_conn: ServerConnection) -> None:
 
 def _refresh_server_session_id(
     server_conn: ServerConnection,
-    get_session_id_cb: GetSessionIdCallback | None,
+    get_session_id_cb: Callable[[], str | None] | None,
 ) -> None:
     if get_session_id_cb is not None:
         try:
@@ -800,23 +799,74 @@ def _refresh_server_session_id(
 
 
 async def _wait_for_shutdown_with_optional_ping(server_conn: ServerConnection) -> None:
+    subscription_task: asyncio.Task[None] | None = None
+    if server_conn.protocol_era == "modern" and server_conn.server_config.transport == "http":
+        subscription_task = asyncio.create_task(_run_subscription_loop(server_conn))
+    elif server_conn.protocol_era == "modern":
+        server_conn.subscription_state = "unsupported"
     if not _ping_loop_enabled(server_conn):
-        await server_conn.wait_for_shutdown_request()
-        return
-
-    ping_task = asyncio.create_task(_run_ping_loop(server_conn))
+        ping_task = None
+    else:
+        ping_task = asyncio.create_task(_run_ping_loop(server_conn))
     try:
         await server_conn.wait_for_shutdown_request()
     finally:
-        if not ping_task.done():
+        if ping_task is not None and not ping_task.done():
             ping_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await ping_task
+        if subscription_task is not None and not subscription_task.done():
+            subscription_task.cancel()
+        if ping_task is not None:
+            with suppress(asyncio.CancelledError):
+                await ping_task
+        if subscription_task is not None:
+            with suppress(asyncio.CancelledError):
+                await subscription_task
+
+
+async def _run_subscription_loop(server_conn: ServerConnection) -> None:
+    session = server_conn.session
+    if not isinstance(session, MCPAgentClientSession):
+        server_conn.subscription_state = "unsupported"
+        return
+    delay = 0.25
+    while not server_conn._shutdown_event.is_set():
+        try:
+            async with listen(
+                session,
+                tools_list_changed=True,
+                prompts_list_changed=True,
+                resources_list_changed=True,
+            ) as subscription:
+                server_conn.subscription_state = "open"
+                delay = 0.25
+                async for event in subscription:
+                    await session.handle_subscription_event(event)
+            server_conn.subscription_state = "closed"
+        except SubscriptionLost:
+            server_conn.subscription_state = "error"
+        except MCPError as exc:
+            if exc.code == -32601:
+                server_conn.subscription_state = "unsupported"
+                return
+            server_conn.subscription_state = "error"
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            server_conn.subscription_state = "error"
+            logger.debug(
+                "%s: subscription stream failed",
+                server_conn.server_name,
+                exc_info=True,
+            )
+        if server_conn._shutdown_event.is_set():
+            return
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, 5)
 
 
 def _ping_loop_enabled(server_conn: ServerConnection) -> bool:
     interval = server_conn.server_config.ping_interval_seconds
-    return bool(interval and interval > 0)
+    return server_conn.protocol_era == "legacy" and bool(interval and interval > 0)
 
 
 def _handle_shutdown_cleanup_error(
@@ -1366,12 +1416,14 @@ class MCPConnectionManager(ContextDependent):
             transport_metrics=transport_metrics,
             suppress_transport_errors=self._suppress_mcp_sse_errors,
         )
-        return tracking_sse_client(
-            config.url,
-            headers,
-            sse_read_timeout=config.read_transport_sse_timeout_seconds,
-            auth=oauth_auth,
-            channel_hook=channel_hook,
+        del channel_hook
+        return _add_none_to_context(
+            sse_client(
+                config.url,
+                headers,
+                sse_read_timeout=config.read_transport_sse_timeout_seconds,
+                auth=oauth_auth,
+            )
         )
 
     def _persistent_http_transport_context(
@@ -1399,18 +1451,16 @@ class MCPConnectionManager(ContextDependent):
             transport_metrics=transport_metrics,
             suppress_transport_errors=self._suppress_mcp_streamable_http_errors,
         )
-        http_client = create_mcp_http_client(
+        del channel_hook
+        http_client = httpx2.AsyncClient(
             headers=headers,
             auth=oauth_auth,
             timeout=self._http_timeout(config),
+            follow_redirects=True,
         )
         return _managed_http_transport_context(
             http_client,
-            tracking_streamablehttp_client(
-                config.url,
-                http_client=http_client,
-                channel_hook=channel_hook,
-            ),
+            _add_none_to_context(streamable_http_client(config.url, http_client=http_client)),
         )
 
     def _prepare_persistent_http_transport_auth(
@@ -1449,12 +1499,12 @@ class MCPConnectionManager(ContextDependent):
         )
 
     @staticmethod
-    def _http_timeout(config: MCPServerSettings) -> httpx.Timeout | None:
+    def _http_timeout(config: MCPServerSettings) -> httpx2.Timeout | None:
         if config.http_timeout_seconds is None and config.http_read_timeout_seconds is None:
             return None
-        return httpx.Timeout(
-            config.http_timeout_seconds or MCP_DEFAULT_TIMEOUT,
-            read=config.http_read_timeout_seconds or MCP_DEFAULT_SSE_READ_TIMEOUT,
+        return httpx2.Timeout(
+            config.http_timeout_seconds or 30,
+            read=config.http_read_timeout_seconds or 300,
         )
 
     async def _launch_and_wait_for_server(

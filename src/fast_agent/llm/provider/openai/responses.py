@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
 from mcp import Tool
-from mcp.types import ContentBlock, TextContent
+from mcp_types import ContentBlock, TextContent
 from openai import APIError, AsyncOpenAI, AuthenticationError, DefaultAioHttpClient
 
 from fast_agent.constants import (
@@ -760,7 +760,7 @@ class ResponsesLLM(
                     "type": "function",
                     "name": tool.name,
                     "description": tool.description or "",
-                    "parameters": self._adjust_schema(tool.inputSchema, model),
+                    "parameters": self._adjust_schema(tool.input_schema, model),
                     "strict": False,
                 }
             )
@@ -834,10 +834,10 @@ class ResponsesLLM(
         base_args: dict[str, Any],
         request_params: RequestParams,
     ) -> None:
-        if request_params.maxTokens is None:
+        if request_params.max_tokens is None:
             return
 
-        max_tokens = request_params.maxTokens
+        max_tokens = request_params.max_tokens
         if max_tokens < MIN_RESPONSES_MAX_TOKENS:
             self.logger.debug(
                 "Clamping max_output_tokens to Responses minimum",
@@ -894,7 +894,7 @@ class ResponsesLLM(
             "parallel_tool_calls": request_params.parallel_tool_calls,
         }
 
-        system_prompt = self.instruction or request_params.systemPrompt
+        system_prompt = self.instruction or request_params.system_prompt
         if system_prompt:
             base_args["instructions"] = system_prompt
 

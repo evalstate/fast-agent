@@ -48,10 +48,10 @@ def test_instruction_propagates_to_default_request_params():
     a user provides their own default_request_params.
     """
     # Create RequestParams with custom settings but no systemPrompt
-    request_params = RequestParams(model="sonnet", temperature=0.7, maxTokens=32768)
+    request_params = RequestParams(model="sonnet", temperature=0.7, max_tokens=32768)
 
     # Verify systemPrompt is not set initially
-    assert request_params.systemPrompt is None
+    assert request_params.system_prompt is None
 
     # Create AgentConfig with both instruction and default_request_params
     instruction = "You are a helpful assistant specialized in testing."
@@ -64,9 +64,9 @@ def test_instruction_propagates_to_default_request_params():
 
     # The instruction should be propagated to default_request_params.systemPrompt
     assert config.default_request_params is not None
-    assert config.default_request_params.systemPrompt == instruction, (
+    assert config.default_request_params.system_prompt == instruction, (
         f"Expected systemPrompt to be '{instruction}', "
-        f"but got {config.default_request_params.systemPrompt}"
+        f"but got {config.default_request_params.system_prompt}"
     )
 
 
@@ -193,11 +193,11 @@ def test_instruction_takes_precedence_over_systemPrompt():
     # Create RequestParams with a systemPrompt already set
     original_system_prompt = "You are a generic assistant from RequestParams."
     request_params = RequestParams(
-        model="sonnet", temperature=0.7, maxTokens=32768, systemPrompt=original_system_prompt
+        model="sonnet", temperature=0.7, max_tokens=32768, system_prompt=original_system_prompt
     )
 
     # Verify systemPrompt is set initially
-    assert request_params.systemPrompt == original_system_prompt
+    assert request_params.system_prompt == original_system_prompt
 
     # Create AgentConfig with BOTH instruction AND default_request_params with systemPrompt
     instruction = "You are a specialized assistant from AgentConfig instruction."
@@ -210,10 +210,10 @@ def test_instruction_takes_precedence_over_systemPrompt():
 
     # The AgentConfig.instruction should take precedence over systemPrompt in RequestParams
     assert config.default_request_params is not None
-    assert config.default_request_params.systemPrompt == instruction, (
+    assert config.default_request_params.system_prompt == instruction, (
         f"Expected AgentConfig.instruction ('{instruction}') to override "
         f"RequestParams.systemPrompt ('{original_system_prompt}'), "
-        f"but got {config.default_request_params.systemPrompt}"
+        f"but got {config.default_request_params.system_prompt}"
     )
 
 

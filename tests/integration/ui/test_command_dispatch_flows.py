@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended

@@ -4,13 +4,13 @@ import logging
 from typing import TYPE_CHECKING
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 
 if TYPE_CHECKING:
-    from mcp.types import PromptMessage
+    from mcp_types import PromptMessage
 
     from fast_agent.types import PromptMessageExtended
 

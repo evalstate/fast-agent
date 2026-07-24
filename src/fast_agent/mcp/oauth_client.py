@@ -37,12 +37,12 @@ from mcp.client.auth.utils import (
     handle_registration_response,
     should_use_client_metadata_url,
 )
-from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthToken,
 )
+from mcp.shared.inbound import MCP_PROTOCOL_VERSION_HEADER
 from pydantic import AnyUrl
 from rich.text import Text
 
@@ -57,7 +57,7 @@ from fast_agent.utils.transports import uses_mcp_remote_transport
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    import httpx
+    import httpx2 as httpx
 
     from fast_agent.config import MCPServerSettings
 
@@ -695,7 +695,7 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
             if not self._initialized:
                 await self._initialize()  # pragma: no cover
 
-            self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
+            self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
 
             refresh_request = await self._refresh_request_if_needed()
             if refresh_request is not None:

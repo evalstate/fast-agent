@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from mcp.types import CallToolRequest, CallToolResult, ClientRequest, TextContent
+from mcp_types import (
+    CallToolRequest,
+    CallToolResult,
+    ClientRequest,
+    RequestParamsMeta,
+    TextContent,
+)
 
 from fast_agent.llm.fastagent_llm import _mcp_metadata_var
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
@@ -24,6 +29,13 @@ class _RecordingSession:
         self.last_kwargs = dict(kwargs)
         return "ok-read"
 
+    call_tool_complete = call_tool
+    read_resource_complete = read_resource
+
+    async def get_prompt_complete(self, **kwargs: Any) -> Any:
+        self.last_kwargs = dict(kwargs)
+        return "ok-prompt"
+
 
 class _FakeConnectionManager:
     def __init__(self, session: _RecordingSession) -> None:
@@ -35,9 +47,12 @@ class _FakeConnectionManager:
 
 
 class _RawCallToolSession(MCPAgentClientSession):
+    _call_tool_adapter = object()
+
     def __init__(self) -> None:
         self.last_request: ClientRequest | None = None
         self.last_timeout = None
+        self._tool_output_schemas = {"legacy_tool": None}
 
     async def send_request(
         self,
@@ -56,24 +71,24 @@ class _RawCallToolSession(MCPAgentClientSession):
 @pytest.mark.asyncio
 async def test_client_session_call_tool_uses_raw_request_path_with_meta() -> None:
     session = _RawCallToolSession()
-    metadata = {"trace": {"id": "abc"}}
+    metadata = cast("RequestParamsMeta", {"trace": {"id": "abc"}})
 
     result = await session.call_tool(
         name="legacy_tool",
         arguments={"value": 1},
-        read_timeout_seconds=timedelta(seconds=3),
+        read_timeout_seconds=3,
         meta=metadata,
     )
 
     assert result.content == [TextContent(type="text", text="legacy result")]
-    assert session.last_timeout == timedelta(seconds=3)
+    assert session.last_timeout == 3
     assert session.last_request is not None
-    request = cast("CallToolRequest", session.last_request.root)
+    request = cast("CallToolRequest", session.last_request)
     assert request.method == "tools/call"
     assert request.params.name == "legacy_tool"
     assert request.params.arguments == {"value": 1}
     assert request.params.meta is not None
-    assert request.params.meta.model_dump(exclude_none=True) == metadata
+    assert request.params.meta == metadata
 
 
 @pytest.mark.asyncio

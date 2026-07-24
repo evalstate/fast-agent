@@ -2,8 +2,7 @@ import base64
 from pathlib import Path
 
 import pytest
-from mcp.types import BlobResourceContents, EmbeddedResource
-from pydantic import AnyUrl
+from mcp_types import BlobResourceContents, EmbeddedResource
 
 from fast_agent.types import PromptMessageExtended, video_link
 
@@ -108,8 +107,8 @@ async def test_gemini_video_local_content(fast_agent, model_name):
     video_resource = EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri=AnyUrl(video_path.resolve().as_uri()),
-            mimeType="video/mp4",
+            uri=video_path.resolve().as_uri(),
+            mime_type="video/mp4",
             blob=video_b64,
         ),
     )

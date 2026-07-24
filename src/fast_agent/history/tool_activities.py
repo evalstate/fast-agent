@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from mcp.types import CallToolResult, ContentBlock, TextContent
+from mcp_types import CallToolResult, ContentBlock, TextContent
 
 from fast_agent.constants import ANTHROPIC_ASSISTANT_RAW_CONTENT, ANTHROPIC_SERVER_TOOLS_CHANNEL
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -48,7 +48,7 @@ class ToolActivity:
 
     @property
     def is_error(self) -> bool:
-        return bool(self.result.isError) if self.result is not None else False
+        return bool(self.result.is_error) if self.result is not None else False
 
 
 def tool_activities_for_message(
@@ -366,11 +366,11 @@ def _result_from_payload(payload: Mapping[str, Any]) -> CallToolResult:
     if isinstance(raw_content, Sequence) and not isinstance(raw_content, (str, bytes)):
         content.extend(_content_from_payload(item) for item in raw_content)
 
-    raw_is_error = payload.get("is_error")
+    raw_is_error = payload.get("isError")
     if not isinstance(raw_is_error, bool):
-        raw_is_error = payload.get("isError")
+        raw_is_error = payload.get("is_error")
 
-    return CallToolResult(content=content, isError=bool(raw_is_error))
+    return CallToolResult(content=content, is_error=bool(raw_is_error))
 
 
 def _content_from_payload(payload: object) -> ContentBlock:

@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping, Sequence
     from pathlib import Path
 
-    from mcp.types import GetPromptResult, PromptMessage
+    from mcp_types import GetPromptResult, PromptMessage
 
     from fast_agent.agents.agent_types import AgentType
     from fast_agent.cli.runtime.shell_cwd_policy import MissingShellCwdPolicy

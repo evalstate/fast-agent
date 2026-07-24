@@ -8,7 +8,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
-from mcp.types import ImageContent, TextContent
+from mcp_types import ImageContent, TextContent
 from PIL import Image
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -195,8 +195,8 @@ async def test_environment_filesystem_runtime_reads_and_writes_remote_files() ->
     )
     read = await runtime.call_tool("read_text_file", {"path": "notes.txt", "line": 2})
 
-    assert write.isError is False
-    assert read.isError is False
+    assert write.is_error is False
+    assert read.is_error is False
     assert env.files["/workspace/notes.txt"] == "hello\nworld\n"
     assert _text(read) == "world"
 
@@ -209,7 +209,7 @@ async def test_environment_filesystem_runtime_preserves_full_file_content() -> N
 
     read = await runtime.call_tool("read_text_file", {"path": "notes.txt"})
 
-    assert read.isError is False
+    assert read.is_error is False
     assert _text(read) == "hello\r\nworld\r\n"
 
 
@@ -227,7 +227,7 @@ async def test_environment_filesystem_runtime_attaches_environment_media() -> No
     pending = runtime.consume_pending_media_attachments()
 
     assert "attach_media" in tool_names
-    assert result.isError is False
+    assert result.is_error is False
     assert "Staged image.png as embedded image/png media input" in _text(result)
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
@@ -263,7 +263,7 @@ async def test_filesystem_runtimes_normalize_png_with_excess_raster_data(
             {"source": "crop.png", "mime_type": "image/png"},
         )
 
-    assert result.isError is False
+    assert result.is_error is False
     pending = runtime.consume_pending_media_attachments()
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
@@ -302,7 +302,7 @@ async def test_environment_filesystem_runtime_rejects_invalid_image_data(
         {"source": "image.png", "mime_type": "image/png"},
     )
 
-    assert result.isError is True
+    assert result.is_error is True
     assert error in _text(result)
     assert runtime.consume_pending_media_attachments() == []
 
@@ -319,11 +319,11 @@ async def test_environment_filesystem_runtime_converts_ppm_to_png() -> None:
     )
     pending = runtime.consume_pending_media_attachments()
 
-    assert result.isError is False
+    assert result.is_error is False
     assert "Converted screen.ppm from image/x-portable-anymap to image/png" in _text(result)
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
-    assert pending[0].mimeType == "image/png"
+    assert pending[0].mime_type == "image/png"
     assert base64.b64decode(pending[0].data).startswith(b"\x89PNG\r\n\x1a\n")
 
 
@@ -336,11 +336,11 @@ async def test_environment_filesystem_runtime_detects_pillow_image_without_known
     result = await runtime.call_tool("attach_media", {"source": "screen.tga"})
     pending = runtime.consume_pending_media_attachments()
 
-    assert result.isError is False
+    assert result.is_error is False
     assert "Converted screen.tga from image/x-tga to image/png" in _text(result)
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
-    assert pending[0].mimeType == "image/png"
+    assert pending[0].mime_type == "image/png"
     assert base64.b64decode(pending[0].data).startswith(b"\x89PNG\r\n\x1a\n")
 
 
@@ -379,7 +379,7 @@ async def test_environment_filesystem_runtime_hides_attach_media_without_byte_re
 
     assert "attach_media" not in {tool.name for tool in runtime.tools}
     result = await runtime.call_tool("attach_media", {"source": "image.png"})
-    assert result.isError is True
+    assert result.is_error is True
 
 
 @pytest.mark.asyncio
@@ -419,7 +419,7 @@ async def test_environment_filesystem_runtime_applies_patch_to_remote_files() ->
         },
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert env.files["/workspace/notes.txt"] == "ONE\ntwo\n"
     assert "M notes.txt" in _text(result)
 
@@ -445,7 +445,7 @@ async def test_environment_filesystem_runtime_move_removes_source_file() -> None
         },
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert env.files["/workspace/b.py"] == "print('hello')\n"
     assert "/workspace/a.py" not in env.files
 
@@ -466,7 +466,7 @@ async def test_environment_filesystem_runtime_reports_edit_write_failure() -> No
         {"path": "notes.txt", "old_string": "world", "new_string": "there"},
     )
 
-    assert result.isError is True
+    assert result.is_error is True
     assert _text(result) == "Error writing file: disk full"
 
 
@@ -492,9 +492,9 @@ async def test_mcp_agent_routes_file_tools_to_injected_execution_environment() -
     read = await agent.call_tool("read_text_file", {"path": "remote.txt"})
     shell = await agent.call_tool("Bash", {"command": "pwd"})
 
-    assert read.isError is False
+    assert read.is_error is False
     assert _text(read) == "remote file\n"
-    assert shell.isError is False
+    assert shell.is_error is False
     assert env.requests[-1].command == "pwd"
 
     await agent._aggregator.close()
@@ -547,7 +547,7 @@ async def test_mcp_agent_stages_media_from_injected_execution_environment() -> N
     pending = agent._consume_pending_media_attachments()
 
     assert "attach_media" in tool_names
-    assert result.isError is False
+    assert result.is_error is False
     assert len(pending) == 1
     assert isinstance(pending[0], ImageContent)
 
@@ -575,7 +575,7 @@ async def test_mcp_agent_uses_local_environment_filesystem_cwd(
 
     assert "read_text_file" in tool_names
     assert "attach_media" in tool_names
-    assert result.isError is False
+    assert result.is_error is False
     assert _text(result) == "from local environment\n"
 
     await agent._aggregator.close()
@@ -609,7 +609,7 @@ async def test_mcp_agent_reads_environment_skills_with_environment_read_tool() -
     assert agent.skill_read_tool_name == "read_text_file"
 
     read = await agent.call_tool("read_text_file", {"path": str(manifest.path)})
-    assert read.isError is False
+    assert read.is_error is False
     assert "Use alpha." in _text(read)
 
     await agent._aggregator.close()

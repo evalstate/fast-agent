@@ -13,7 +13,7 @@ from anthropic.types.beta import (
     BetaUsage,
 )
 from mcp import Tool
-from mcp.types import TextContent
+from mcp_types import TextContent
 from pydantic import BaseModel
 
 from fast_agent.config import AnthropicSettings, Settings
@@ -284,7 +284,7 @@ def test_opus_47_task_budget_merges_into_output_config() -> None:
     args, thinking_enabled = llm._build_anthropic_base_args(
         model="claude-opus-4-7",
         messages=[],
-        params=RequestParams(maxTokens=1024),
+        params=RequestParams(max_tokens=1024),
         history=None,
         current_extended=None,
         request_tools=[],
@@ -319,7 +319,7 @@ def test_vertex_opus_47_task_budget_merges_into_output_config() -> None:
     args, thinking_enabled = llm._build_anthropic_base_args(
         model="claude-opus-4-7",
         messages=[],
-        params=RequestParams(maxTokens=1024),
+        params=RequestParams(max_tokens=1024),
         history=None,
         current_extended=None,
         request_tools=[],
@@ -476,7 +476,7 @@ def test_json_structured_output_uses_output_config_format():
     args, thinking_enabled = llm._build_anthropic_base_args(
         model="claude-opus-4-6",
         messages=[],
-        params=RequestParams(maxTokens=1024),
+        params=RequestParams(max_tokens=1024),
         history=None,
         current_extended=None,
         request_tools=[],
@@ -496,7 +496,7 @@ def test_json_structured_output_sanitizes_map_additional_properties():
     args, _ = llm._build_anthropic_base_args(
         model="claude-opus-4-6",
         messages=[],
-        params=RequestParams(maxTokens=1024),
+        params=RequestParams(max_tokens=1024),
         history=None,
         current_extended=None,
         request_tools=[],
@@ -567,7 +567,7 @@ def test_json_structured_output_merges_with_adaptive_effort():
     args, thinking_enabled = llm._build_anthropic_base_args(
         model="claude-opus-4-6",
         messages=[],
-        params=RequestParams(maxTokens=1024),
+        params=RequestParams(max_tokens=1024),
         history=None,
         current_extended=None,
         request_tools=[],
@@ -770,7 +770,7 @@ def test_json_structured_output_uses_raw_schema_when_supplied() -> None:
     args, _ = llm._build_anthropic_base_args(
         model="claude-opus-4-6",
         messages=[],
-        params=RequestParams(maxTokens=1024, structured_schema=schema),
+        params=RequestParams(max_tokens=1024, structured_schema=schema),
         history=None,
         current_extended=None,
         request_tools=[],
@@ -798,7 +798,7 @@ def test_json_structured_output_transforms_raw_schema_with_anthropic_sdk() -> No
     args, _ = llm._build_anthropic_base_args(
         model="claude-opus-4-6",
         messages=[],
-        params=RequestParams(maxTokens=1024, structured_schema=schema),
+        params=RequestParams(max_tokens=1024, structured_schema=schema),
         history=None,
         current_extended=None,
         request_tools=[],
@@ -839,7 +839,7 @@ async def test_json_structured_output_preserves_regular_tools() -> None:
     tool = Tool(
         name="lookup_probe_payload",
         description="Return the probe payload for validation.",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {},
             "additionalProperties": False,
@@ -870,7 +870,7 @@ def test_structured_schema_with_tools_is_deferred_until_tool_result() -> None:
     tool = Tool(
         name="lookup_probe_payload",
         description="Return the probe payload for validation.",
-        inputSchema={"type": "object", "properties": {}},
+        input_schema={"type": "object", "properties": {}},
     )
     params = RequestParams(structured_schema=schema, structured_tool_policy="defer")
 
@@ -894,7 +894,7 @@ def test_structured_schema_with_no_tools_policy_preserves_schema_for_tool_suppre
     tool = Tool(
         name="lookup_probe_payload",
         description="Return the probe payload for validation.",
-        inputSchema={"type": "object", "properties": {}},
+        input_schema={"type": "object", "properties": {}},
     )
     params = RequestParams(structured_schema=schema, structured_tool_policy="no_tools")
 

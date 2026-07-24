@@ -7,7 +7,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from mcp.types import (
+from mcp_types import (
     EmbeddedResource,
     ImageContent,
     PromptMessage,
@@ -137,12 +137,11 @@ def test_with_file_paths():
         assert decoded == b"fake image data"
 
         # Test with ResourceContents and EmbeddedResource
-        from mcp.types import ReadResourceResult, TextResourceContents
-        from pydantic import AnyUrl
+        from mcp_types import ReadResourceResult, TextResourceContents
 
         # Create a TextResourceContents
         text_resource = TextResourceContents(
-            uri=AnyUrl("file:///test/example.txt"), text="Sample text", mimeType="text/plain"
+            uri="file:///test/example.txt", text="Sample text", mime_type="text/plain"
         )
 
         # Test with ResourceContent
@@ -178,7 +177,7 @@ def test_with_file_paths():
 
         # Test with direct ImageContent
         image_content = ImageContent(
-            type="image", data="ZmFrZSBpbWFnZSBkYXRh", mimeType="image/png"
+            type="image", data="ZmFrZSBpbWFnZSBkYXRh", mime_type="image/png"
         )
         message = Prompt.assistant(image_content)
         assert message.role == "assistant"

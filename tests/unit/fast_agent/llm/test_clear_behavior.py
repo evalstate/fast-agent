@@ -1,5 +1,5 @@
 import pytest
-from mcp.types import GetPromptResult, PromptMessage, TextContent
+from mcp_types import GetPromptResult, PromptMessage, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent

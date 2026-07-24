@@ -19,7 +19,7 @@ from fastmcp import FastMCP
 from fastmcp.prompts import Message, Prompt, PromptArgument, PromptResult
 from fastmcp.prompts.function_prompt import FunctionPrompt
 from fastmcp.resources import FileResource
-from mcp.types import BlobResourceContents, EmbeddedResource, ImageContent, PromptMessage
+from mcp_types import BlobResourceContents, EmbeddedResource, ImageContent, PromptMessage
 from pydantic import AnyUrl, Field
 
 from fast_agent.mcp import mime_utils, resource_utils
@@ -62,9 +62,9 @@ def convert_to_fastmcp_messages(
                 content = EmbeddedResource(
                     type="resource",
                     resource=BlobResourceContents(
-                        uri=AnyUrl("resource://fast-agent/prompt-image"),
+                        uri="resource://fast-agent/prompt-image",
                         blob=content.data,
-                        mimeType=content.mimeType,
+                        mime_type=content.mime_type,
                     ),
                 )
             result.append(Message(content=content, role=role))

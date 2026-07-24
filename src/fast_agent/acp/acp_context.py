@@ -54,7 +54,7 @@ class ClientCapabilities:
     terminal: bool = False
     fs_read: bool = False
     fs_write: bool = False
-    _meta: dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_acp_capabilities(cls, caps: ACPClientCapabilities | None) -> "ClientCapabilities":
@@ -68,7 +68,7 @@ class ClientCapabilities:
             terminal=bool(caps.terminal),
             fs_read=bool(fs_caps.read_text_file) if fs_caps else False,
             fs_write=bool(fs_caps.write_text_file) if fs_caps else False,
-            _meta=dict(meta) if isinstance(meta, dict) else {},
+            meta=dict(meta) if isinstance(meta, dict) else {},
         )
 
 

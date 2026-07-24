@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 
 from fast_agent.mcp.mime_utils import is_image_mime_type
 from fast_agent.mcp.tool_result_metadata import set_tool_result_media_preview
@@ -175,7 +175,7 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
             self._logger.exception("Error attaching resource")
             return CallToolResult(
                 content=[TextContent(type="text", text=str(exc))],
-                isError=True,
+                is_error=True,
             )
 
         self._pending_media_attachments.append(attached.block)
@@ -186,7 +186,7 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
                     text=attach_media_staging_message(attached),
                 )
             ],
-            isError=False,
+            is_error=False,
         )
         if is_image_mime_type(attached.mime_type):
             set_tool_result_media_preview(result, [attached.block])
@@ -201,7 +201,7 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
         if not isinstance(arguments, dict):
             return CallToolResult(
                 content=[TextContent(type="text", text="Error: arguments must be a dict")],
-                isError=True,
+                is_error=True,
             )
 
         patch_text = extract_apply_patch_input(arguments)
@@ -213,7 +213,7 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
                         text="Error: 'input' argument is required and must be a string",
                     )
                 ],
-                isError=True,
+                is_error=True,
             )
 
         stdout = io.StringIO()
@@ -226,7 +226,7 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
             error_text = stderr.getvalue().strip() or str(exc)
             return CallToolResult(
                 content=[TextContent(type="text", text=error_text)],
-                isError=True,
+                is_error=True,
             )
 
         output = stdout.getvalue().strip()
@@ -235,7 +235,7 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
         self._logger.debug("Applied local patch", base_directory=str(base_directory))
         return CallToolResult(
             content=[TextContent(type="text", text=output)],
-            isError=False,
+            is_error=False,
         )
 
     async def edit_file(
@@ -256,7 +256,7 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
                         ),
                     )
                 ],
-                isError=True,
+                is_error=True,
             )
 
         resolved_path = self._resolve_path(edit_input.path)
@@ -272,8 +272,8 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
         is_error = structured_payload["success"] is False
         return CallToolResult(
             content=[TextContent(type="text", text=payload_text)],
-            structuredContent=structured_payload,
-            isError=is_error,
+            structured_content=structured_payload,
+            is_error=is_error,
         )
 
     def metadata(self) -> dict[str, Any]:

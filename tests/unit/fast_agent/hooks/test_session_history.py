@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.hooks.hook_context import HookContext
 from fast_agent.hooks.session_history import save_session_history

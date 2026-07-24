@@ -12,7 +12,7 @@ from acp.exceptions import RequestError
 from acp.helpers import text_block
 from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation
 from acp.stdio import spawn_agent_process
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended

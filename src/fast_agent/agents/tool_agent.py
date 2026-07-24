@@ -5,7 +5,7 @@ from contextvars import ContextVar
 from typing import Any
 
 from fastmcp.tools import FunctionTool, ToolResult
-from mcp.types import CallToolResult, ContentBlock, ListToolsResult, Tool
+from mcp_types import CallToolResult, ContentBlock, ListToolsResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
@@ -131,7 +131,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             Tool(
                 name=tool.name,
                 description=tool.description,
-                inputSchema=tool.parameters,
+                input_schema=tool.parameters,
             )
         )
 
@@ -696,7 +696,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             if isinstance(item, BaseException):
                 result = CallToolResult(
                     content=[text_content(f"Error: {item!s}")],
-                    isError=True,
+                    is_error=True,
                 )
                 duration_ms = 0.0
             else:
@@ -827,7 +827,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
     ) -> str:
         error_result = CallToolResult(
             content=[text_content(error_message)],
-            isError=True,
+            is_error=True,
         )
         tool_results[correlation_id] = error_result
         self.display.show_tool_result(
@@ -872,7 +872,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             logger.warning(f"Unknown tool: {name}")
             return CallToolResult(
                 content=[text_content(f"Unknown tool: {name}")],
-                isError=True,
+                is_error=True,
             )
 
         tool_handler = self._get_tool_handler(request_params)
@@ -902,7 +902,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             logger.error(f"Tool {name} failed: {e}")
             tool_result = CallToolResult(
                 content=[text_content(f"Error: {e!s}")],
-                isError=True,
+                is_error=True,
             )
             payload = url_elicitation_required_payload(e)
             if payload is not None:
@@ -933,7 +933,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
     def _native_tool_result_to_mcp_result(result: ToolResult) -> CallToolResult:
         return CallToolResult(
             content=result.content,
-            structuredContent=result.structured_content,
+            structured_content=result.structured_content,
             _meta=result.meta,
-            isError=False,
+            is_error=False,
         )

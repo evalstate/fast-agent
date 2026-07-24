@@ -100,7 +100,7 @@ async def test_parallel_tool_progress_rows_are_tracked_and_cleaned_up(fast_agent
                         {"steps": 5},
                         tool_use_id=f"parallel-tool-{index}",
                     )
-                    assert not result.isError
+                    assert not result.is_error
 
                 await asyncio.gather(*(run_one(i) for i in range(3)))
 

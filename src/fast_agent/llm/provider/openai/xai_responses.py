@@ -4,7 +4,7 @@ import json
 import os
 from typing import TYPE_CHECKING, Any
 
-from mcp.types import ContentBlock, TextContent
+from mcp_types import ContentBlock, TextContent
 
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.llm.provider.openai.responses import ResponsesLLM

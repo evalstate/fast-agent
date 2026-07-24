@@ -4,8 +4,7 @@ import base64
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from mcp.types import EmbeddedResource, ReadResourceResult, TextResourceContents
-from pydantic import AnyUrl
+from mcp_types import EmbeddedResource, ReadResourceResult, TextResourceContents
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.core.agent_app import AgentRefreshResult
@@ -27,8 +26,8 @@ class _MentionAgent:
         return ReadResourceResult(
             contents=[
                 TextResourceContents(
-                    uri=AnyUrl(resource_uri),
-                    mimeType="text/plain",
+                    uri=resource_uri,
+                    mime_type="text/plain",
                     text="payload",
                 )
             ]

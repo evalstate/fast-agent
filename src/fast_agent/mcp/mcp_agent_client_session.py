@@ -9,38 +9,42 @@ import asyncio
 import json
 import sys
 from contextlib import suppress
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
-from mcp import ClientSession, ServerNotification
-from mcp.types import (
+from mcp import ClientSession
+from mcp.client._input_required import run_input_required_driver
+from mcp.client.subscriptions import (
+    PromptsListChanged,
+    ResourcesListChanged,
+    ServerEvent,
+    ToolsListChanged,
+)
+from mcp_types import (
     URL_ELICITATION_REQUIRED,
-    CallToolRequest,
-    CallToolRequestParams,
     CallToolResult,
     ClientRequest,
     EmptyResult,
-    GetPromptRequest,
-    GetPromptRequestParams,
+    ErrorData,
     GetPromptResult,
     Implementation,
+    InputRequest,
+    InputRequiredResult,
+    InputResponse,
+    InputResponses,
     ListResourcesResult,
     ListRootsResult,
     PaginatedRequestParams,
-    PingRequest,
     ProgressNotification,
-    ReadResourceRequest,
-    ReadResourceRequestParams,
     ReadResourceResult,
     Request,
-    RequestParams,
+    RequestParamsMeta,
     Root,
     SamplingCapability,
     SamplingToolsCapability,
     ToolListChangedNotification,
 )
-from pydantic import AnyUrl, FileUrl
-from pydantic.networks import UrlConstraints
-from typing_extensions import Annotated, Literal
+from pydantic import AnyUrl, BaseModel, FileUrl, TypeAdapter
+from typing_extensions import Literal
 
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
@@ -48,6 +52,7 @@ from fast_agent.mcp.helpers.server_config_helpers import get_server_config
 from fast_agent.mcp.sampling import resolve_auto_sampling_enabled, sample
 from fast_agent.mcp.tool_result_metadata import (
     set_url_elicitation_required_payload,
+    update_tool_result_display_metadata,
     url_elicitation_required_payload,
 )
 from fast_agent.mcp.url_elicitation_required import (
@@ -59,23 +64,21 @@ from fast_agent.utils.env import env_flag
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
-    from datetime import timedelta
-
-    from mcp.client.session import ListRootsFnT, SamplingFnT
-    from mcp.shared.context import RequestContext
-    from mcp.shared.message import MessageMetadata
-    from mcp.shared.session import ProgressFnT, ReceiveResultT
+    from mcp.client.session import ClientRequestContext, ListRootsFnT, SamplingFnT
+    from mcp.shared.dispatcher import ProgressFnT
+    from mcp.shared.message import ClientMessageMetadata
 
     from fast_agent.config import MCPServerSettings
     from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 logger = get_logger(__name__)
+ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 
 
 class DirectoryReadRequestParams(PaginatedRequestParams):
     """Parameters for the SEP-2640 ``resources/directory/read`` method."""
 
-    uri: Annotated[AnyUrl, UrlConstraints(host_required=False)]
+    uri: str
 
 
 class DirectoryReadRequest(
@@ -100,7 +103,7 @@ def _progress_trace(message: str) -> None:
 _URL_ELICITATION_RESULT_PREFIX = "fast-agent-url-elicitation-required:"
 
 
-async def list_roots(context: RequestContext[ClientSession, None]) -> ListRootsResult:
+async def list_roots(context: ClientRequestContext) -> ListRootsResult:
     """List roots callback that will be called by the MCP library."""
 
     if (server_config := get_server_config(context.session)) and server_config.roots:
@@ -155,6 +158,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             sampling_capabilities=sampling_caps,
             client_info=fast_agent,
             elicitation_callback=elicitation_handler,
+            message_handler=self._handle_message,
         )
 
     def _pop_fast_agent_kwargs(self, kwargs: dict[str, Any]) -> Any:
@@ -259,6 +263,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             "sampling_capabilities",
             "client_info",
             "elicitation_callback",
+            "message_handler",
         ):
             kwargs.pop(key, None)
 
@@ -273,16 +278,16 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
     async def send_request(
         self,
-        request: ClientRequest,
-        result_type: type[ReceiveResultT],
-        request_read_timeout_seconds: timedelta | None = None,
-        metadata: MessageMetadata | None = None,
+        request: ClientRequest | Request[Any, Any],
+        result_type: type[ReceiveResultT] | TypeAdapter[ReceiveResultT],
+        request_read_timeout_seconds: float | None = None,
+        metadata: ClientMessageMetadata | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
         logger.debug("send_request: request=", data=request.model_dump())
-        request_id = getattr(self, "_request_id", None)
+        request_id = None
         is_ping_request = self._is_ping_request(request)
-        request_method = getattr(getattr(request, "root", None), "method", "unknown")
+        request_method = request.method
 
         self._trace_request_progress(
             "outbound-request",
@@ -431,9 +436,8 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         raise ConnectionError(f"MCP server {self.session_server_name} offline") from exc
 
     @staticmethod
-    def _is_ping_request(request: ClientRequest) -> bool:
-        root = getattr(request, "root", None)
-        method = getattr(root, "method", None)
+    def _is_ping_request(request: Any) -> bool:
+        method = request.method
         if not isinstance(method, str):
             return False
         method_lower = strip_casefold(method)
@@ -441,45 +445,31 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
     def _is_session_terminated_error(self, exc: Exception) -> bool:
         """Check if exception is a session terminated error (code 32600 from 404)."""
-        from mcp.shared.exceptions import McpError
+        from mcp.shared.exceptions import MCPError
 
         from fast_agent.core.exceptions import ServerSessionTerminatedError
 
-        if isinstance(exc, McpError):
-            error_data = getattr(exc, "error", None)
-            if error_data:
-                code = getattr(error_data, "code", None)
-                if code == ServerSessionTerminatedError.SESSION_TERMINATED_CODE:
-                    return True
-        return False
+        return (
+            isinstance(exc, MCPError)
+            and exc.code == ServerSessionTerminatedError.SESSION_TERMINATED_CODE
+        )
 
     def _is_url_elicitation_required_error(self, exc: Exception) -> bool:
         """Check if exception is URL elicitation required error (-32042)."""
-        from mcp.shared.exceptions import McpError
+        from mcp.shared.exceptions import MCPError
 
-        if not isinstance(exc, McpError):
-            return False
-
-        error_data = getattr(exc, "error", None)
-        if error_data is None:
-            return False
-
-        return getattr(error_data, "code", None) == URL_ELICITATION_REQUIRED
+        return isinstance(exc, MCPError) and exc.code == URL_ELICITATION_REQUIRED
 
     def _attach_url_elicitation_required_payload(self, exc: Exception, request_method: str) -> None:
         """Attach parsed URL elicitation data to exception for deferred display."""
-        from mcp.shared.exceptions import McpError
+        from mcp.shared.exceptions import MCPError
 
-        if not isinstance(exc, McpError):
-            return
-
-        error_data = getattr(exc, "error", None)
-        if error_data is None:
+        if not isinstance(exc, MCPError):
             return
 
         server_name = self.session_server_name or "unknown"
         payload = build_url_elicitation_required_display_payload(
-            error_data.data,
+            exc.data,
             server_name=server_name,
             request_method=request_method,
         )
@@ -540,7 +530,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         *,
         request_method: str,
     ) -> None:
-        if not isinstance(result, CallToolResult) or not result.isError or not result.content:
+        if not isinstance(result, CallToolResult) or not result.is_error or not result.content:
             return
 
         first_block = result.content[0]
@@ -578,49 +568,18 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         if not channel:
             return
         with suppress(Exception):
-            result_meta = cast("Any", result)
-            result_meta.transport_channel = channel
+            update_tool_result_display_metadata(result, {"transport_channel": channel})
 
-    async def _received_notification(self, notification: ServerNotification) -> None:
-        """
-        Can be overridden by subclasses to handle a notification without needing
-        to listen on the message stream.
-        """
-        logger.debug(
-            "_received_notification: notification=",
-            data=notification.model_dump(),
-        )
+    async def _handle_message(self, message: object) -> None:
+        if isinstance(message, ToolListChangedNotification):
+            if self._tool_list_changed_callback and self.session_server_name:
+                asyncio.create_task(
+                    self._handle_tool_list_change_callback(self.session_server_name)
+                )
+        if self._aggregator and not isinstance(message, ProgressNotification | Exception):
+            asyncio.create_task(self._handle_server_notification(message))
 
-        # Call parent notification handler first
-        await super()._received_notification(notification)
-
-        # Then process our specific notification types
-        match notification.root:
-            case ToolListChangedNotification():
-                # Simple notification handling - just call the callback if it exists
-                if self._tool_list_changed_callback and self.session_server_name:
-                    logger.info(
-                        f"Tool list changed for server '{self.session_server_name}', triggering callback"
-                    )
-                    asyncio.create_task(
-                        self._handle_tool_list_change_callback(self.session_server_name)
-                    )
-                else:
-                    logger.debug(
-                        f"Tool list changed for server '{self.session_server_name}' but no callback registered"
-                    )
-
-        # Forward non-progress server notifications to the aggregator callback.
-        # Progress updates already flow through the request progress callback path.
-        _cb = (
-            getattr(self._aggregator, "server_notification_callback", None)
-            if self._aggregator
-            else None
-        )
-        if _cb and not isinstance(notification.root, ProgressNotification):
-            asyncio.create_task(self._handle_server_notification(notification))
-
-    async def _handle_server_notification(self, notification: ServerNotification) -> None:
+    async def _handle_server_notification(self, notification: object) -> None:
         """Forward server notifications to the registered callback."""
         _cb = (
             getattr(self._aggregator, "server_notification_callback", None)
@@ -639,6 +598,30 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 f"Error in server notification callback for '{self.session_server_name}': {e}"
             )
 
+    async def handle_subscription_event(self, event: ServerEvent) -> None:
+        if self._aggregator is None or self.session_server_name is None:
+            return
+        if isinstance(event, ToolsListChanged):
+            await self._aggregator._handle_tool_list_changed(self.session_server_name)
+        elif isinstance(event, PromptsListChanged):
+            await self._aggregator._fetch_and_cache_prompts(self.session_server_name)
+        elif isinstance(event, ResourcesListChanged):
+            await self._aggregator._refresh_server_resources(self.session_server_name)
+
+    async def _dispatch_input(
+        self,
+        key: str,
+        request: InputRequest,
+    ) -> InputResponse | ErrorData:
+        from mcp.client.session import ClientRequestContext
+
+        context = ClientRequestContext(
+            session=self,
+            request_id=key,
+            meta=request.params.meta if request.params else None,
+        )
+        return await self.dispatch_input_request(context, request)
+
     async def _handle_tool_list_change_callback(self, server_name: str) -> None:
         """
         Helper method to handle tool list change callback in a separate task
@@ -649,11 +632,11 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         except Exception as e:
             logger.error(f"Error in tool list changed callback: {e}")
 
-    async def call_tool(
+    async def call_tool_complete(
         self,
         name: str,
         arguments: dict[str, Any] | None = None,
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
         meta: dict[str, Any] | None = None,
@@ -663,56 +646,75 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         Always uses our overridden send_request to ensure session terminated errors
         are properly detected and converted to ServerSessionTerminatedError.
         """
-        request_meta = RequestParams.Meta(**meta) if meta is not None else None
-        return await self.send_request(
-            ClientRequest(
-                CallToolRequest(
-                    params=CallToolRequestParams(
-                        name=name,
-                        arguments=arguments,
-                        _meta=request_meta,
-                    )
-                )
-            ),
-            CallToolResult,
-            request_read_timeout_seconds=read_timeout_seconds,
-            progress_callback=progress_callback,
+        first = await super().call_tool(
+            name,
+            arguments,
+            read_timeout_seconds,
+            progress_callback,
+            meta=cast("RequestParamsMeta | None", meta),
+            allow_input_required=True,
+        )
+        if not isinstance(first, InputRequiredResult):
+            return first
+
+        async def retry(
+            responses: InputResponses | None,
+            request_state: str | None,
+        ) -> CallToolResult | InputRequiredResult:
+            return await super(MCPAgentClientSession, self).call_tool(
+                name,
+                arguments,
+                read_timeout_seconds,
+                progress_callback,
+                input_responses=responses,
+                request_state=request_state,
+                meta=cast("RequestParamsMeta | None", meta),
+                allow_input_required=True,
+            )
+
+        return await run_input_required_driver(
+            first,
+            dispatch=self._dispatch_input,
+            retry=retry,
         )
 
-    async def ping(self, read_timeout_seconds: timedelta | None = None) -> EmptyResult:
+    async def ping(self, read_timeout_seconds: float | None = None) -> EmptyResult:
         """Send a ping request to check server liveness."""
-        request = PingRequest(method="ping")
-        return await self.send_request(
-            ClientRequest(request),
-            EmptyResult,
-            request_read_timeout_seconds=read_timeout_seconds,
-        )
+        del read_timeout_seconds
+        return await self.send_ping()
 
-    async def read_resource(
+    async def read_resource_complete(
         self,
         uri: AnyUrl | str,
         *,
-        meta: dict[str, Any] | RequestParams.Meta | None = None,
+        meta: RequestParamsMeta | None = None,
     ) -> ReadResourceResult:
         """Read a resource with optional metadata support.
 
         Always uses our overridden send_request to ensure session terminated errors
         are properly detected and converted to ServerSessionTerminatedError.
         """
-        # Convert str to AnyUrl if needed
-        uri_obj: AnyUrl = uri if isinstance(uri, AnyUrl) else AnyUrl(uri)
+        first = await super().read_resource(str(uri), meta=meta, allow_input_required=True)
+        if not isinstance(first, InputRequiredResult):
+            return first
 
-        # Always create request ourselves to ensure we go through our send_request override
-        params = ReadResourceRequestParams(uri=uri_obj)
-
-        supplied_meta = meta.model_dump() if isinstance(meta, RequestParams.Meta) else meta
-        if supplied_meta:
-            params = ReadResourceRequestParams(
-                uri=uri_obj, _meta=RequestParams.Meta(**supplied_meta)
+        async def retry(
+            responses: InputResponses | None,
+            request_state: str | None,
+        ) -> ReadResourceResult | InputRequiredResult:
+            return await super(MCPAgentClientSession, self).read_resource(
+                str(uri),
+                input_responses=responses,
+                request_state=request_state,
+                meta=meta,
+                allow_input_required=True,
             )
 
-        request = ReadResourceRequest(method="resources/read", params=params)
-        return await self.send_request(ClientRequest(request), ReadResourceResult)
+        return await run_input_required_driver(
+            first,
+            dispatch=self._dispatch_input,
+            retry=retry,
+        )
 
     async def read_directory(
         self,
@@ -728,36 +730,46 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         the closed ``ClientRequest`` union, so the bare request goes through our
         ``send_request`` override; wrapping it would emit union serializer warnings.
         """
-        uri_obj: AnyUrl = uri if isinstance(uri, AnyUrl) else AnyUrl(uri)
-        params = DirectoryReadRequestParams(uri=uri_obj, cursor=cursor)
+        params = DirectoryReadRequestParams(uri=str(uri), cursor=cursor)
         request = DirectoryReadRequest(method="resources/directory/read", params=params)
-        return await self.send_request(
-            cast("ClientRequest", request),
-            ListResourcesResult,
-        )
+        return await self.send_request(request, ListResourcesResult)
 
-    async def get_prompt(
+    async def get_prompt_complete(
         self,
         name: str,
         arguments: dict[str, str] | None = None,
         *,
-        meta: dict[str, Any] | RequestParams.Meta | None = None,
+        meta: RequestParamsMeta | None = None,
     ) -> GetPromptResult:
         """Get a prompt with optional metadata support.
 
         Always uses our overridden send_request to ensure session terminated errors
         are properly detected and converted to ServerSessionTerminatedError.
         """
-        # Always create request ourselves to ensure we go through our send_request override
-        params = GetPromptRequestParams(name=name, arguments=arguments)
+        first = await super().get_prompt(
+            name,
+            arguments,
+            meta=meta,
+            allow_input_required=True,
+        )
+        if not isinstance(first, InputRequiredResult):
+            return first
 
-        supplied_meta = meta.model_dump() if isinstance(meta, RequestParams.Meta) else meta
-        if supplied_meta:
-            params = GetPromptRequestParams(
-                name=name,
-                arguments=arguments,
-                _meta=RequestParams.Meta(**supplied_meta),
+        async def retry(
+            responses: InputResponses | None,
+            request_state: str | None,
+        ) -> GetPromptResult | InputRequiredResult:
+            return await super(MCPAgentClientSession, self).get_prompt(
+                name,
+                arguments,
+                input_responses=responses,
+                request_state=request_state,
+                meta=meta,
+                allow_input_required=True,
             )
 
-        request = GetPromptRequest(method="prompts/get", params=params)
-        return await self.send_request(ClientRequest(request), GetPromptResult)
+        return await run_input_required_driver(
+            first,
+            dispatch=self._dispatch_input,
+            retry=retry,
+        )

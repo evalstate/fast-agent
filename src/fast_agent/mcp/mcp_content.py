@@ -9,7 +9,7 @@ import base64
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from mcp.types import (
+from mcp_types import (
     Annotations,
     BlobResourceContents,
     ContentBlock,
@@ -21,7 +21,6 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
-from pydantic import AnyUrl
 
 from fast_agent.mcp.message_roles import MessageRole
 from fast_agent.mcp.mime_utils import (
@@ -104,7 +103,7 @@ def MCPImage(
     return {
         "role": role,
         "content": ImageContent(
-            type="image", data=b64_data, mimeType=mime_type, annotations=annotations
+            type="image", data=b64_data, mime_type=mime_type, annotations=annotations
         ),
     }
 
@@ -141,18 +140,18 @@ def MCPFile(
         binary_data = path.read_bytes()
         b64_data = base64.b64encode(binary_data).decode("ascii")
 
-        resource = BlobResourceContents(uri=AnyUrl(uri), blob=b64_data, mimeType=mime_type)
+        resource = BlobResourceContents(uri=uri, blob=b64_data, mime_type=mime_type)
     else:
         # Read as text
         try:
             text_data = path.read_text(encoding="utf-8")
-            resource = TextResourceContents(uri=AnyUrl(uri), text=text_data, mimeType=mime_type)
+            resource = TextResourceContents(uri=uri, text=text_data, mime_type=mime_type)
         except UnicodeDecodeError:
             # Fallback to binary if text read fails
             binary_data = path.read_bytes()
             b64_data = base64.b64encode(binary_data).decode("ascii")
             resource = BlobResourceContents(
-                uri=AnyUrl(uri), blob=b64_data, mimeType=mime_type or "application/octet-stream"
+                uri=uri, blob=b64_data, mime_type=mime_type or "application/octet-stream"
             )
 
     return {

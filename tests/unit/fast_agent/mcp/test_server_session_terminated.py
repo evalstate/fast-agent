@@ -2,8 +2,8 @@
 Tests for server session termination handling and reconnection functionality.
 """
 
-from mcp.shared.exceptions import McpError
-from mcp.types import ErrorData
+from mcp.shared.exceptions import MCPError as McpError
+from mcp_types import ErrorData
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.core.exceptions import FastAgentError, ServerSessionTerminatedError
@@ -38,12 +38,12 @@ class TestSessionTerminationDetection:
 
     def test_detects_mcp_error_code_32600(self):
         """Detects McpError with code 32600."""
-        error = McpError(ErrorData(code=32600, message="Session terminated"))
+        error = McpError.from_error_data(ErrorData(code=32600, message="Session terminated"))
         assert self._make_session()._is_session_terminated_error(error) is True
 
     def test_ignores_different_error_codes(self):
         """Ignores McpError with different codes."""
-        error = McpError(ErrorData(code=-32601, message="Method not found"))
+        error = McpError.from_error_data(ErrorData(code=-32601, message="Method not found"))
         assert self._make_session()._is_session_terminated_error(error) is False
 
     def test_ignores_non_mcp_errors(self):

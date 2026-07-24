@@ -7,11 +7,10 @@ import base64
 import logging
 import sys
 from pathlib import Path
-from typing import cast
 
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image
-from mcp.types import AnyUrl, BlobResourceContents, EmbeddedResource, ImageContent, TextContent
+from mcp_types import BlobResourceContents, EmbeddedResource, ImageContent, TextContent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -66,9 +65,9 @@ async def get_pdf() -> list[TextContent | EmbeddedResource]:
             EmbeddedResource(
                 type="resource",
                 resource=BlobResourceContents(
-                    uri=cast("AnyUrl", f"file://{Path(pdf_path).absolute()}"),
+                    uri=f"file://{Path(pdf_path).absolute()}",
                     blob=b64_data,
-                    mimeType="application/pdf",
+                    mime_type="application/pdf",
                 ),
             ),
         ]

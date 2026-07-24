@@ -2,7 +2,7 @@ import json  # Import at the module level
 from typing import Any
 
 from mcp import CallToolRequest, Tool
-from mcp.types import CallToolRequestParams, PromptMessage
+from mcp_types import CallToolRequestParams, PromptMessage
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.fastagent_llm import (

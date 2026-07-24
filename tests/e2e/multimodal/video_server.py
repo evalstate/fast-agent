@@ -7,7 +7,7 @@ import logging
 import sys
 
 from fastmcp import FastMCP
-from mcp.types import ResourceLink, TextContent
+from mcp_types import ResourceLink, TextContent
 
 from fast_agent.mcp.helpers.content_helpers import text_content, video_link
 

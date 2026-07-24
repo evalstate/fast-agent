@@ -420,9 +420,9 @@ def test_get_elicitation_tool_builds_sanitized_schema_without_refs() -> None:
     tool = get_elicitation_tool()
 
     assert tool.name == HUMAN_INPUT_TOOL_NAME
-    refs = _collect_schema_refs(tool.inputSchema)
+    refs = _collect_schema_refs(tool.input_schema)
     assert refs == []
-    properties = tool.inputSchema.get("properties")
+    properties = tool.input_schema.get("properties")
     assert isinstance(properties, dict)
     assert "fields" in properties
 

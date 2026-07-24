@@ -18,9 +18,9 @@ from typing import (
 
 from mcp import GetPromptResult, ReadResourceResult
 from mcp.client.session import ClientSession
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.session import ProgressFnT
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     CompleteResult,
     Completion,
@@ -54,7 +54,7 @@ from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.helpers.content_helpers import get_text
-from fast_agent.mcp.interfaces import ServerRegistryProtocol
+from fast_agent.mcp.interfaces import CompletingClientSession, ServerRegistryProtocol
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.mcp_connection_manager import (
     MCPConnectionManager,
@@ -182,15 +182,14 @@ def _is_capability_probe_error(exc: Exception) -> bool:
     """Return True when exc indicates a server does not support a probed method."""
     if isinstance(exc, NotImplementedError):
         return True
-    if isinstance(exc, McpError):
-        code = exc.error.code
+    if isinstance(exc, MCPError):
+        code = exc.code
         if code == METHOD_NOT_FOUND_ERROR_CODE:
             return True
         # Only fall back to message matching when the server omitted the error code;
         # if a different code is set, trust the code over the message text.
         if code is None:
-            message = exc.error.message
-            if isinstance(message, str) and METHOD_NOT_FOUND_MESSAGE in strip_casefold(message):
+            if METHOD_NOT_FOUND_MESSAGE in strip_casefold(exc.message):
                 return True
     return False
 
@@ -228,6 +227,10 @@ class ServerStatus(BaseModel):
     server_name: str
     implementation_name: str | None = None
     implementation_version: str | None = None
+    protocol_version: str | None = None
+    protocol_era: str | None = None
+    supported_protocol_versions: tuple[str, ...] = ()
+    negotiation: str | None = None
     server_capabilities: ServerCapabilities | None = None
     client_capabilities: Mapping[str, Any] | None = None
     client_info_name: str | None = None
@@ -248,6 +251,7 @@ class ServerStatus(BaseModel):
     sampling_mode: str | None = None
     spoofing_enabled: bool | None = None
     session_id: str | None = None
+    subscription_state: str | None = None
     transport_channels: TransportSnapshot | None = None
     skybridge: SkybridgeServerConfig | None = None
     mcp_skills_enabled: bool | None = None
@@ -1186,7 +1190,7 @@ class MCPAggregator(ContextDependent):
     ) -> None:
         seen_mime_types: list[str] = []
         for content in read_result.contents:
-            mime_type = content.mimeType
+            mime_type = content.mime_type
             if mime_type:
                 seen_mime_types.append(mime_type)
             if mime_type == SKYBRIDGE_MIME_TYPE:
@@ -1684,6 +1688,10 @@ class MCPAggregator(ContextDependent):
         if implementation is not None:
             status.implementation_name = implementation.name
             status.implementation_version = implementation.version
+        status.protocol_version = server_conn.protocol_version
+        status.protocol_era = server_conn.protocol_era
+        status.supported_protocol_versions = server_conn.supported_protocol_versions
+        status.negotiation = server_conn.negotiation
 
         status.server_capabilities = server_conn.server_capabilities
         status.mcp_skills_enabled = server_supports_mcp_skills(server_conn.server_capabilities)
@@ -1700,6 +1708,7 @@ class MCPAggregator(ContextDependent):
         status.instructions_available = server_conn.server_instructions_available
         status.instructions_enabled = server_conn.server_instructions_enabled
         status.instructions_included = bool(server_conn.server_instructions)
+        status.subscription_state = server_conn.subscription_state
 
         self._apply_ping_status(status, server_conn)
         self._apply_session_status(status, server_conn)
@@ -1952,14 +1961,23 @@ class MCPAggregator(ContextDependent):
         progress_callback: ProgressFnT | None,
     ) -> R:
         try:
-            method = getattr(client, method_name)
-            kwargs = self._server_method_kwargs(method_name, method_args)
-            if method_name == "call_tool" and progress_callback:
-                result = await method(progress_callback=progress_callback, **kwargs)
-            else:
-                result = await method(**kwargs)
+            if method_name in {"call_tool", "read_resource", "get_prompt"}:
+                if not isinstance(client, CompletingClientSession):
+                    raise TypeError("MCP session factory must provide completed MRTR operations")
+                kwargs = self._server_method_kwargs(method_name, method_args)
+                if method_name == "call_tool":
+                    result = await client.call_tool_complete(
+                        progress_callback=progress_callback,
+                        **kwargs,
+                    )
+                elif method_name == "read_resource":
+                    result = await client.read_resource_complete(**kwargs)
+                else:
+                    result = await client.get_prompt_complete(**kwargs)
+                return cast("R", result)
 
-            return result
+            method = getattr(client, method_name)
+            return cast("R", await method(**self._server_method_kwargs(method_name, method_args)))
         except (ConnectionError, ServerSessionTerminatedError):
             raise
         except Exception as e:
@@ -2352,7 +2370,7 @@ class MCPAggregator(ContextDependent):
         if server_name is None:
             logger.error(f"Error: Tool '{name}' not found")
             return CallToolResult(
-                isError=True,
+                is_error=True,
                 content=[TextContent(type="text", text=f"Tool '{name}' not found")],
             )
 
@@ -2416,7 +2434,7 @@ class MCPAggregator(ContextDependent):
                         "arguments": arguments,
                     },
                     error_factory=lambda msg: CallToolResult(
-                        isError=True, content=[TextContent(type="text", text=msg)]
+                        is_error=True, content=[TextContent(type="text", text=msg)]
                     ),
                     progress_callback=progress_callback,
                 )
@@ -2501,7 +2519,7 @@ class MCPAggregator(ContextDependent):
     @staticmethod
     def _tool_error_result(message: str) -> CallToolResult:
         return CallToolResult(
-            isError=True,
+            is_error=True,
             content=[TextContent(type="text", text=message)],
         )
 
@@ -2556,7 +2574,7 @@ class MCPAggregator(ContextDependent):
         tool_call_id: str,
         tool_use_id: str | None,
     ) -> None:
-        completion_state = "completed" if not result.isError else "failed"
+        completion_state = "completed" if not result.is_error else "failed"
         logger.info(
             "Tool call completed",
             data=build_progress_payload(
@@ -2587,18 +2605,18 @@ class MCPAggregator(ContextDependent):
                 tool_call_id=tool_call_id,
                 has_content=content is not None,
                 content_count=len(content) if content else 0,
-                is_error=result.isError,
+                is_error=result.is_error,
             )
 
             error_text = None
-            if result.isError and content:
+            if result.is_error and content:
                 text_parts = [text for c in content if (text := get_text(c))]
                 error_text = "\n".join(text_parts) if text_parts else None
                 content = None
 
             await active_tool_handler.on_tool_complete(
                 tool_call_id,
-                not result.isError,
+                not result.is_error,
                 content,
                 error_text,
             )
@@ -3015,6 +3033,10 @@ class MCPAggregator(ContextDependent):
         # Refresh the tools for this server
         await self._refresh_server_tools(server_name)
 
+    async def _refresh_server_resources(self, server_name: str) -> None:
+        _, skybridge_config = await self._evaluate_skybridge_for_server(server_name)
+        self._skybridge_configs[server_name] = skybridge_config
+
     async def _refresh_server_tools(self, server_name: str) -> None:
         """
         Refresh the tools for a specific server.
@@ -3157,11 +3179,11 @@ class MCPAggregator(ContextDependent):
         )
 
         try:
-            uri_obj = AnyUrl(uri)
+            uri_value = str(AnyUrl(uri))
         except Exception as e:
             raise ValueError(f"Invalid {noun.lower()} URI: {uri}. Error: {e}") from e
 
-        method_args: dict[str, Any] = {"uri": uri_obj}
+        method_args: dict[str, Any] = {"uri": uri_value}
         if extra_args:
             method_args.update(extra_args)
 
@@ -3304,10 +3326,10 @@ class MCPAggregator(ContextDependent):
             operation_name="",
             method_name="list_resource_templates",
             method_args={},
-            error_factory=lambda _: ListResourceTemplatesResult(resourceTemplates=[]),
+            error_factory=lambda _: ListResourceTemplatesResult(resource_templates=[]),
         )
 
-        return result.resourceTemplates
+        return result.resource_templates
 
     async def list_resources(self, server_name: str | None = None) -> dict[str, list[str]]:
         """
