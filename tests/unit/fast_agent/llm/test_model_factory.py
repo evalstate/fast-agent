@@ -856,7 +856,11 @@ def test_claude_alias_resolves_to_sonnet_46():
 
     config = ModelFactory.parse_model_string("opus4")
     assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == ModelFactory.parse_model_string("opus").model_name
+    assert config.model_name == "claude-opus-4-8"
+
+    config = ModelFactory.parse_model_string("opus5")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-opus-5"
 
     config = ModelFactory.parse_model_string("opus46")
     assert config.provider == Provider.ANTHROPIC
@@ -865,6 +869,10 @@ def test_claude_alias_resolves_to_sonnet_46():
     config = ModelFactory.parse_model_string("opus47")
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-opus-4-7"
+
+    config = ModelFactory.parse_model_string("opus48")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-opus-4-8"
 
     config = ModelFactory.parse_model_string("fable")
     assert config.provider == Provider.ANTHROPIC

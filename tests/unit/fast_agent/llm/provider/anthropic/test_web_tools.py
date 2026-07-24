@@ -199,6 +199,22 @@ def test_web_search_enabled_property_reflects_search_only() -> None:
     assert llm.web_fetch_enabled is True
 
 
+def test_opus_5_supports_web_search_but_not_web_fetch() -> None:
+    llm = _create_llm(
+        model="claude-opus-5",
+        web_search=AnthropicWebSearchSettings(enabled=True),
+        web_fetch=AnthropicWebFetchSettings(enabled=True),
+    )
+
+    tools, betas = llm._prepare_web_tools("claude-opus-5")
+
+    assert llm.web_search_supported is True
+    assert llm.web_fetch_supported is False
+    assert [tool["name"] for tool in tools] == ["web_search"]
+    assert tools[0]["type"] == "web_search_20260209"
+    assert betas == ("code-execution-web-tools-2026-02-09",)
+
+
 @pytest.mark.asyncio
 async def test_request_includes_web_tools_and_required_beta_for_46_model() -> None:
     llm = _create_llm(

@@ -69,9 +69,10 @@ def test_list_current_aliases_for_provider() -> None:
         "fable",
         "haiku",
         "opus",
+        "opus48",
         "sonnet",
     }.issubset(aliases)
-    assert aliases.index("opus") < aliases.index("opus46")
+    assert aliases.index("opus") < aliases.index("opus48") < aliases.index("opus46")
 
 
 def test_anthropic_catalog_lists_user_facing_factory_aliases() -> None:
@@ -84,6 +85,9 @@ def test_anthropic_catalog_lists_user_facing_factory_aliases() -> None:
     assert ModelFactory.MODEL_PRESETS["sonnet5"] == "claude-sonnet-5"
     assert ModelFactory.MODEL_PRESETS["fable"] == "claude-fable-5"
     assert ModelFactory.MODEL_PRESETS["fable5"] == "claude-fable-5"
+    assert ModelFactory.MODEL_PRESETS["opus"] == "claude-opus-5"
+    assert ModelFactory.MODEL_PRESETS["opus5"] == "claude-opus-5"
+    assert ModelFactory.MODEL_PRESETS["opus48"] == "claude-opus-4-8"
 
 
 def test_current_catalog_entries_match_model_presets_for_shared_aliases() -> None:

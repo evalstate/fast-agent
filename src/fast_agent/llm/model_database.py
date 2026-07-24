@@ -570,6 +570,13 @@ class ModelDatabase:
             "max_output_tokens": 128_000,
         }
     )
+    ANTHROPIC_OPUS_5 = ANTHROPIC_OPUS_48.model_copy(
+        update={
+            "anthropic_thinking_field_required": False,
+            "anthropic_thinking_disable_supported": True,
+            "anthropic_web_fetch_version": None,
+        }
+    )
     ANTHROPIC_FABLE_5 = ANTHROPIC_OPUS_48.model_copy(
         update={
             "reasoning_effort_spec": ANTHROPIC_ALWAYS_ON_ADAPTIVE_THINKING_EFFORT_SPEC,
@@ -1116,6 +1123,7 @@ class ModelDatabase:
         "claude-opus-4-6": ANTHROPIC_OPUS_46,
         "claude-opus-4-7": ANTHROPIC_OPUS_47,
         "claude-opus-4-8": ANTHROPIC_OPUS_48,
+        "claude-opus-5": ANTHROPIC_OPUS_5,
         "claude-fable-5": ANTHROPIC_FABLE_5,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,

@@ -82,15 +82,18 @@ Claude reasoning support depends on the model family:
 
 | Model family | fast-agent aliases | Reasoning mode | Effort values | Task budget |
 | --- | --- | --- | --- | --- |
-| Claude Opus 4.8 | `opus`, `opus48` | adaptive | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
+| Claude Opus 5 | `opus`, `opus5` | adaptive, on by default | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
+| Claude Opus 4.8 | `opus4`, `opus48` | adaptive | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
 | Claude Opus 4.7 | `opus47` | adaptive | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | supported |
 | Claude Opus 4.6 | `opus46` | adaptive | `auto`, `low`, `medium`, `high`, `max`, `off` | not supported |
 | Claude Sonnet 5 | `sonnet`, `sonnet5` | adaptive | `auto`, `low`, `medium`, `high`, `xhigh`, `max`, `off` | not supported |
 | Claude Sonnet 4.6 | `sonnet46` | adaptive | `auto`, `low`, `medium`, `high`, `max`, `off` | not supported |
 | Older Claude 4.x / Haiku | `haiku`, pinned older IDs | token budget | `1024+` token budgets, or preset aliases | not supported |
 
-Adaptive models use `thinking: {"type": "adaptive"}` under the hood. Use effort levels
-(`low`, `medium`, `high`, `xhigh` where supported, `max`) or `auto` with `anthropic.reasoning`:
+Adaptive models that require an explicit setting use `thinking: {"type": "adaptive"}` under the
+hood. Opus 5 has adaptive thinking on by default, so **fast-agent** omits the field for `auto`.
+Use effort levels (`low`, `medium`, `high`, `xhigh` where supported, `max`) or `auto` with
+`anthropic.reasoning`:
 
 ```yaml
 anthropic:
@@ -172,6 +175,7 @@ Supported values are `on`/`off` (also accepts `true`/`false`, `1`/`0`).
 
 Version policy is model-aware:
 
+- Claude Opus 5 supports `web_search_20260209` but does not support `web_fetch`.
 - Claude 4.6 models use `web_search_20260209` and `web_fetch_20260209`
   (with required beta header `code-execution-web-tools-2026-02-09`).
 - Other supported Anthropic models use legacy versions
