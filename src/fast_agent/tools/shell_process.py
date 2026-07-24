@@ -39,8 +39,12 @@ class ProcessResultMetadata(TypedDict, total=False):
     output_line_count: int
     output_bytes_since_last_poll: int
     seconds_since_last_output: float
+    seconds_since_last_stdout: float
+    seconds_since_last_stderr: float
     has_observed_output: bool
     total_output_bytes: int
+    stdout_bytes: int
+    stderr_bytes: int
     poll_wait_sec: int
     poll_wake_on_output: bool
     poll_elapsed_seconds: float
@@ -101,6 +105,8 @@ class ShellRuntimeCallbacks:
     started_event: asyncio.Event = field(default_factory=asyncio.Event)
     os_process_id: int | None = None
     last_output_time: float = field(default_factory=time.monotonic)
+    last_stdout_time: float | None = None
+    last_stderr_time: float | None = None
     process: ManagedShellProcess | None = None
 
     async def on_started(self, process_id: int | None) -> None:
@@ -119,7 +125,9 @@ class ShellRuntimeCallbacks:
             display_state=self.display_state,
             is_stderr=False,
         )
-        self.last_output_time = time.monotonic()
+        now = time.monotonic()
+        self.last_output_time = now
+        self.last_stdout_time = now
         self.activity_event.set()
         if self.process is not None:
             self.progress.emit_process_output(self.process)
@@ -132,7 +140,9 @@ class ShellRuntimeCallbacks:
             display_state=self.display_state,
             is_stderr=True,
         )
-        self.last_output_time = time.monotonic()
+        now = time.monotonic()
+        self.last_output_time = now
+        self.last_stderr_time = now
         self.activity_event.set()
         if self.process is not None:
             self.progress.emit_process_output(self.process)
@@ -195,6 +205,26 @@ class ManagedProcessSnapshot:
     total_output_bytes: int
     exit_code: int | None
     output_spool_path: str | None = None
+
+
+def _process_stream_metadata(process: ManagedShellProcess) -> ProcessResultMetadata:
+    now = time.monotonic()
+    metadata = ProcessResultMetadata(
+        has_observed_output=process.output_state.had_stream_output,
+        stdout_bytes=process.output_state.lifetime_stdout_bytes,
+        stderr_bytes=process.output_state.lifetime_stderr_bytes,
+    )
+    if process.callbacks.last_stdout_time is not None:
+        metadata["seconds_since_last_stdout"] = max(
+            now - process.callbacks.last_stdout_time,
+            0.0,
+        )
+    if process.callbacks.last_stderr_time is not None:
+        metadata["seconds_since_last_stderr"] = max(
+            now - process.callbacks.last_stderr_time,
+            0.0,
+        )
+    return metadata
 
 
 def build_managed_process_result(
@@ -268,6 +298,7 @@ def build_managed_process_result(
                 "os_process_id": process.callbacks.os_process_id,
                 "output_line_count": unread_output_line_count,
                 "total_output_bytes": process.output_state.lifetime_output_bytes,
+                **_process_stream_metadata(process),
             },
         )
         cast("Any", result)._suppress_display = yielded_reason is not None or not output
@@ -292,6 +323,7 @@ def build_managed_process_result(
                 "os_process_id": process.callbacks.os_process_id,
                 "output_line_count": unread_output_line_count,
                 "total_output_bytes": process.output_state.lifetime_output_bytes,
+                **_process_stream_metadata(process),
             },
         )
 
@@ -314,6 +346,7 @@ def build_managed_process_result(
                 "os_process_id": process.callbacks.os_process_id,
                 "output_line_count": unread_output_line_count,
                 "total_output_bytes": process.output_state.lifetime_output_bytes,
+                **_process_stream_metadata(process),
             },
         )
 
@@ -341,5 +374,6 @@ def build_managed_process_result(
             "exit_code": execution.result.exit_code,
             "output_line_count": unread_output_line_count,
             "total_output_bytes": process.output_state.lifetime_output_bytes,
+            **_process_stream_metadata(process),
         },
     )

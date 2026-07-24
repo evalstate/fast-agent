@@ -459,10 +459,22 @@ class ShellRuntime:
                 "elapsed_seconds": snapshot.elapsed_seconds,
                 "os_process_id": snapshot.os_process_id,
                 "total_output_bytes": snapshot.total_output_bytes,
+                "stdout_bytes": process.output_state.lifetime_stdout_bytes,
+                "stderr_bytes": process.output_state.lifetime_stderr_bytes,
                 "process_status": snapshot.status,
                 "seconds_since_last_output": max(
                     time.monotonic() - process.callbacks.last_output_time,
                     0.0,
+                ),
+                "seconds_since_last_stdout": (
+                    max(time.monotonic() - process.callbacks.last_stdout_time, 0.0)
+                    if process.callbacks.last_stdout_time is not None
+                    else None
+                ),
+                "seconds_since_last_stderr": (
+                    max(time.monotonic() - process.callbacks.last_stderr_time, 0.0)
+                    if process.callbacks.last_stderr_time is not None
+                    else None
                 ),
                 "has_observed_output": process.output_state.had_stream_output,
             }
@@ -664,8 +676,7 @@ class ShellRuntime:
         output_state.had_stream_output = True
         output_state.output_line_count += 1
         output_state.unread_output_line_count += 1
-        output_text = text if not is_stderr else f"[stderr] {text}"
-        output_state.append(output_text)
+        output_state.append_stream(text, is_stderr=is_stderr)
         self._maybe_print_truncation_notice(
             output_state=output_state,
             display_state=display_state,
@@ -998,6 +1009,7 @@ class ShellRuntime:
         if process.output_state.had_stream_output:
             return
         recorded_output = False
+        recorded_at = time.monotonic()
         if execution.result.stdout:
             self._record_stream_output(
                 execution.result.stdout,
@@ -1006,6 +1018,7 @@ class ShellRuntime:
                 display_state=process.display_state,
                 is_stderr=False,
             )
+            process.callbacks.last_stdout_time = recorded_at
             recorded_output = True
         if execution.result.stderr:
             self._record_stream_output(
@@ -1015,9 +1028,10 @@ class ShellRuntime:
                 display_state=process.display_state,
                 is_stderr=True,
             )
+            process.callbacks.last_stderr_time = recorded_at
             recorded_output = True
         if recorded_output:
-            process.callbacks.last_output_time = time.monotonic()
+            process.callbacks.last_output_time = recorded_at
 
     @staticmethod
     def _append_poll_output_activity(
@@ -1412,6 +1426,10 @@ class ShellRuntime:
         seconds_since_last_output = process_metadata.get("seconds_since_last_output")
         has_observed_output = process_metadata.get("has_observed_output")
         total_output_bytes = process_metadata.get("total_output_bytes")
+        seconds_since_last_stdout = process_metadata.get("seconds_since_last_stdout")
+        seconds_since_last_stderr = process_metadata.get("seconds_since_last_stderr")
+        stdout_bytes = process_metadata.get("stdout_bytes")
+        stderr_bytes = process_metadata.get("stderr_bytes")
         self._progress.emit(
             action=ProgressAction.CALLING_TOOL,
             tool_use_id=tool_use_id,
@@ -1439,6 +1457,24 @@ class ShellRuntime:
                 total_output_bytes
                 if type(total_output_bytes) is int and total_output_bytes >= 0
                 else None
+            ),
+            process_seconds_since_last_stdout=(
+                float(seconds_since_last_stdout)
+                if isinstance(seconds_since_last_stdout, (int, float))
+                and not isinstance(seconds_since_last_stdout, bool)
+                else None
+            ),
+            process_seconds_since_last_stderr=(
+                float(seconds_since_last_stderr)
+                if isinstance(seconds_since_last_stderr, (int, float))
+                and not isinstance(seconds_since_last_stderr, bool)
+                else None
+            ),
+            process_stdout_bytes=(
+                stdout_bytes if type(stdout_bytes) is int and stdout_bytes >= 0 else None
+            ),
+            process_stderr_bytes=(
+                stderr_bytes if type(stderr_bytes) is int and stderr_bytes >= 0 else None
             ),
         )
         result = await operation

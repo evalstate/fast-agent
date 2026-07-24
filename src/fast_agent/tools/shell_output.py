@@ -28,6 +28,8 @@ class ShellOutputBuffer:
     output_line_count: int = 0
     unread_output_line_count: int = 0
     lifetime_output_bytes: int = 0
+    lifetime_stdout_bytes: int = 0
+    lifetime_stderr_bytes: int = 0
     retained_output_path: Path | None = None
     retained_output_max_bytes: int = 0
     retained_output_bytes: int = 0
@@ -59,6 +61,15 @@ class ShellOutputBuffer:
             self.output_segments.append(truncated_text)
         self.output_bytes += remaining
         self.output_truncated = True
+
+    def append_stream(self, text: str, *, is_stderr: bool) -> None:
+        """Append process output while tracking raw stdout/stderr byte totals."""
+        byte_count = len(text.encode("utf-8", errors="replace"))
+        if is_stderr:
+            self.lifetime_stderr_bytes += byte_count
+        else:
+            self.lifetime_stdout_bytes += byte_count
+        self.append(text if not is_stderr else f"[stderr] {text}")
 
     def combined(self) -> str:
         if not self.output_truncated:

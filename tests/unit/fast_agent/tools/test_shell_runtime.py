@@ -1835,6 +1835,10 @@ async def test_lifecycle_tool_calls_emit_correlated_progress() -> None:
     assert progress_payloads[0]["process_has_observed_output"] is False
     assert progress_payloads[0]["process_seconds_since_last_output"] >= 0
     assert progress_payloads[0]["process_total_output_bytes"] == 0
+    assert progress_payloads[0]["process_stdout_bytes"] == 0
+    assert progress_payloads[0]["process_stderr_bytes"] == 0
+    assert "process_seconds_since_last_stdout" not in progress_payloads[0]
+    assert "process_seconds_since_last_stderr" not in progress_payloads[0]
     assert "≤0s" not in progress_payloads[0]["details"]
     assert progress_payloads[0]["process_elapsed_seconds"] >= 0
     assert progress_payloads[0]["process_command"] == "server"
@@ -1894,6 +1898,10 @@ async def test_active_poll_emits_throttled_output_progress() -> None:
     assert update["process_has_observed_output"] is True
     assert update["process_seconds_since_last_output"] == 0
     assert update["process_total_output_bytes"] == len("burst output\n")
+    assert update["process_seconds_since_last_stdout"] >= 0
+    assert "process_seconds_since_last_stderr" not in update
+    assert update["process_stdout_bytes"] == len("burst output\n")
+    assert update["process_stderr_bytes"] == 0
     assert update["process_elapsed_seconds"] >= 0
     await runtime.close()
 
@@ -2323,6 +2331,16 @@ def test_shell_output_does_not_create_file_without_truncation(
     output.append("short output\n")
 
     assert retained_path.exists() is False
+
+
+def test_shell_output_tracks_raw_stdout_and_stderr_bytes() -> None:
+    output = ShellOutputBuffer(output_byte_limit=80)
+
+    output.append_stream("hello\n", is_stderr=False)
+    output.append_stream("warning\n", is_stderr=True)
+
+    assert output.lifetime_stdout_bytes == len("hello\n")
+    assert output.lifetime_stderr_bytes == len("warning\n")
 
 
 @pytest.mark.asyncio

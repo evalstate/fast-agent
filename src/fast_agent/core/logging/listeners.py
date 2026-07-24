@@ -304,6 +304,18 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         process_total_output_bytes=_optional_nonnegative_int(
             event_data.get("process_total_output_bytes")
         ),
+        process_seconds_since_last_stdout=_optional_float(
+            event_data.get("process_seconds_since_last_stdout")
+        ),
+        process_seconds_since_last_stderr=_optional_float(
+            event_data.get("process_seconds_since_last_stderr")
+        ),
+        process_stdout_bytes=_optional_nonnegative_int(
+            event_data.get("process_stdout_bytes")
+        ),
+        process_stderr_bytes=_optional_nonnegative_int(
+            event_data.get("process_stderr_bytes")
+        ),
         streaming_tokens=_streaming_tokens(action, event_data),
         progress=progress,
         total=total,

@@ -1,9 +1,23 @@
 from fast_agent.utils.count_display import (
+    format_compact_count,
     format_count,
     format_count_breakdown,
     format_count_parts,
     plural_label,
 )
+
+
+def test_format_compact_count_keeps_counts_below_one_million_exact() -> None:
+    assert format_compact_count(999_999) == "999,999"
+
+
+def test_format_compact_count_uses_three_significant_digits() -> None:
+    assert format_compact_count(1_000_000) == "1.00M"
+    assert format_compact_count(1_234_567) == "1.23M"
+    assert format_compact_count(12_345_678) == "12.3M"
+    assert format_compact_count(123_456_789) == "123M"
+    assert format_compact_count(999_999_999) == "1.00B"
+    assert format_compact_count(1_250_000_000) == "1.25B"
 
 
 def test_plural_label_uses_singular_for_one() -> None:
