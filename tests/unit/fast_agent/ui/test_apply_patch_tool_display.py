@@ -160,7 +160,11 @@ def test_process_lifecycle_tool_calls_use_compact_display() -> None:
         )
 
     rendered = capture.get()
-    assert "dev monitoring · process-3 · 1m05s · uv run worker.py" in rendered
+    compact_rendered = " ".join(rendered.split())
+    assert (
+        "dev monitoring · process-3 · out — · err — · time 1m05s · size 0B"
+        " · uv run worker.py"
+    ) in compact_rendered
     assert "pid 4321" not in rendered
     assert "terminate process-4" in rendered
     assert "'process_id'" not in rendered

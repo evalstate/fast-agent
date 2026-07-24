@@ -61,6 +61,12 @@ from fast_agent.llm.response_telemetry import (
     append_usage_channel,
     start_request_timing_capture,
 )
+from fast_agent.llm.retry_telemetry import (
+    ProviderRetry,
+    append_retry_channel,
+    provider_retry,
+    retry_boundary,
+)
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_schema import (
     validate_json_instance,
@@ -680,24 +686,56 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """
         retries = max(0, int(self.retry_count))
         last_error = None
+        retry_records: list[ProviderRetry] = []
+        boundary = retry_boundary(args[0] if args else None)
 
         for attempt in range(retries + 1):
             try:
-                # Await the async function
-                return await func(*args, **kwargs)
+                result = await func(*args, **kwargs)
             except Exception as e:
                 if self._is_fatal_retry_error(e):
                     raise
 
                 last_error = e
                 if attempt < retries:
+                    self._notify_stream_listeners(StreamChunk(event="rollback"))
+                    wait_seconds = self._retry_wait_seconds(attempt)
+                    retry_records.append(
+                        provider_retry(
+                            e,
+                            attempt=attempt + 1,
+                            max_attempts=retries + 1,
+                            wait_seconds=wait_seconds,
+                            boundary=boundary,
+                        )
+                    )
                     await self._wait_before_retry(e, attempt=attempt, retries=retries)
+            else:
+                self._notify_stream_listeners(StreamChunk(event="commit"))
+                self._append_retry_telemetry(result, retry_records)
+                return result
 
         if last_error:
-            return await self._handle_exhausted_retries(last_error, on_final_error)
+            result = await self._handle_exhausted_retries(last_error, on_final_error)
+            self._notify_stream_listeners(StreamChunk(event="rollback"))
+            self._append_retry_telemetry(result, retry_records)
+            return result
 
         # This line satisfies Pylance that we never implicitly return None
         raise RuntimeError("Retry loop finished without success or exception")
+
+    @staticmethod
+    def _append_retry_telemetry(result: Any, retries: list[ProviderRetry]) -> None:
+        if not retries:
+            return
+        if isinstance(result, PromptMessageExtended):
+            append_retry_channel(result, retries)
+            return
+        if isinstance(result, tuple):
+            for item in reversed(result):
+                if isinstance(item, PromptMessageExtended):
+                    append_retry_channel(item, retries)
+                    return
 
     @staticmethod
     def _is_fatal_retry_error(error: Exception) -> bool:
@@ -733,7 +771,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         attempt: int,
         retries: int,
     ) -> None:
-        wait_time = self.retry_backoff_seconds * (attempt + 1)
+        wait_time = self._retry_wait_seconds(attempt)
         self._log_retry_webdebug(error, attempt=attempt, retries=retries)
 
         with self._paused_progress_display():
@@ -743,6 +781,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             )
 
         await asyncio.sleep(wait_time)
+
+    def _retry_wait_seconds(self, attempt: int) -> float:
+        return self.retry_backoff_seconds * (attempt + 1)
 
     @staticmethod
     def _log_retry_webdebug(error: Exception, *, attempt: int, retries: int) -> None:
@@ -1404,7 +1445,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     def _notify_stream_listeners(self, chunk: StreamChunk) -> None:
         """Notify registered listeners with a streaming chunk."""
-        if not chunk.text:
+        if chunk.event == "delta" and not chunk.text:
             return
         for listener in list(self._stream_listeners):
             try:

@@ -1493,6 +1493,36 @@ class ToolDisplay:
                         and total_output_bytes >= 0
                         else None
                     ),
+                    seconds_since_last_stdout=(
+                        float(since_stdout)
+                        if isinstance(
+                            since_stdout := metadata.get("seconds_since_last_stdout"),
+                            (int, float),
+                        )
+                        and not isinstance(since_stdout, bool)
+                        else None
+                    ),
+                    seconds_since_last_stderr=(
+                        float(since_stderr)
+                        if isinstance(
+                            since_stderr := metadata.get("seconds_since_last_stderr"),
+                            (int, float),
+                        )
+                        and not isinstance(since_stderr, bool)
+                        else None
+                    ),
+                    stdout_bytes=(
+                        stdout_bytes
+                        if type(stdout_bytes := metadata.get("stdout_bytes")) is int
+                        and stdout_bytes >= 0
+                        else None
+                    ),
+                    stderr_bytes=(
+                        stderr_bytes
+                        if type(stderr_bytes := metadata.get("stderr_bytes")) is int
+                        and stderr_bytes >= 0
+                        else None
+                    ),
                     tool_call_id=tool_call_id,
                 )
                 return

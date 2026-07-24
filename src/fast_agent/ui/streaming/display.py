@@ -714,7 +714,7 @@ class StreamingMessageHandle:
 
     def update_chunk(self, chunk: StreamChunk) -> None:
         """Structured streaming update with an explicit reasoning flag."""
-        if not self._active or not chunk or not chunk.text:
+        if not self._active or (chunk.event == "delta" and not chunk.text):
             return
 
         if self._async_mode and self._queue is not None:

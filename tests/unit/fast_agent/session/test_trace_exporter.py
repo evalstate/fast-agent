@@ -22,6 +22,7 @@ from mcp.types import (
 
 from fast_agent.constants import (
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    FAST_AGENT_RETRY,
     FAST_AGENT_TIMING,
     FAST_AGENT_TOOL_METADATA,
     FAST_AGENT_TOOL_TIMING,
@@ -635,6 +636,51 @@ def test_atif_omits_unknown_tool_use_tokens() -> None:
     reported_zero = trajectory(0)
     assert reported_zero["steps"][0]["metrics"]["extra"]["tool_use_prompt_tokens"] == 0
     assert reported_zero["final_metrics"]["extra"]["total_tool_use_tokens"] == 0
+
+
+def test_atif_records_provider_retry_and_clean_boundary() -> None:
+    retry = {
+        "schema": "fast-agent.retry/v1",
+        "provider_attempts": 2,
+        "retries": [
+            {
+                "attempt": 1,
+                "max_attempts": 3,
+                "wait_seconds": 10.0,
+                "error_type": "StreamIdleTimeoutError",
+                "error_message": "No stream events were received for 120.0 seconds.",
+                "reason": "stream_idle",
+                "boundary": {
+                    "kind": "completed_tool_call",
+                    "message_index": 2,
+                    "tool_call_ids": ["call_1"],
+                },
+                "stream_events_received": 7,
+            }
+        ],
+    }
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="recovered")],
+        channels={
+            FAST_AGENT_RETRY: [TextContent(type="text", text=json.dumps(retry))]
+        },
+    )
+
+    trajectory = build_atif_trajectory(
+        AtifRunSource(
+            session_id="session",
+            agent_name="agent",
+            model_name="model",
+            provider="openai",
+            history=[message],
+            message_timestamps=(None,),
+        )
+    )
+
+    step = trajectory.steps[0]
+    assert step.llm_call_count == 2
+    assert step.extra == {"retry": retry}
 
 
 def test_atif_final_metrics_require_complete_llm_step_usage() -> None:

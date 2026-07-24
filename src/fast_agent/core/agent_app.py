@@ -4,22 +4,30 @@ Direct AgentApp implementation for interacting with agents without proxies.
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import TYPE_CHECKING
 
 from deprecated import deprecated
-from rich import print as rich_print
 from rich.markup import escape
 
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.llm.usage_tracking import last_turn_usage
+from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.usage_tracking import UsageSchema, last_turn_usage
 from fast_agent.ui.display_suppression import display_usage_enabled
-from fast_agent.ui.progress_display import progress_display
+from fast_agent.ui.turn_usage_display import (
+    CacheTTLDisplay,
+    CacheTTLExpiry,
+    CacheTTLMinimum,
+    NamedTurnUsageDisplay,
+    TurnUsageDisplay,
+    display_parallel_turn_usage,
+    display_regular_turn_usage,
+)
 from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
@@ -34,12 +42,19 @@ if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
     from fast_agent.core.harness import HarnessSession
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.llm.usage_tracking import TurnUsage
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
     from fast_agent.session.session_manager import ResumeSessionAgentsResult, SessionManager
     from fast_agent.types import PromptMessageExtended, RequestParams
     from fast_agent.ui.interactive_prompt import PromptLoopResult
 
 logger = get_logger(__name__)
+
+# OpenAI prompt caching docs guarantee at least 30 minutes for GPT-5.6 and later,
+# including later major versions and model variants such as ``-mini``.
+# https://platform.openai.com/docs/guides/prompt-caching
+_OPENAI_MINIMUM_CACHE_TTL_MODEL_VERSION = (5, 6)
+_OPENAI_MINIMUM_CACHE_TTL_SECONDS = 30 * 60
 
 
 @dataclass(slots=True, frozen=True)
@@ -815,149 +830,143 @@ class AgentApp:
 
     def _show_regular_agent_usage(self, agent, turn_start_index: int | None) -> None:
         """Show usage for a regular (non-parallel) agent."""
-        usage_info = self._format_agent_usage(agent, turn_start_index)
-        if usage_info:
-            with progress_display.paused():
-                rich_print()
-                rich_print(
-                    f"[dim]Last turn: {usage_info['display_text']}[/dim]{usage_info['cache_suffix']}"
-                )
+        usage = self._collect_agent_turn_usage(agent, turn_start_index)
+        if usage:
+            display_regular_turn_usage(usage)
 
     def _show_parallel_agent_usage(
         self, parallel_agent: ParallelAgent, turn_start_indices: dict[str, int]
     ) -> None:
         """Show usage for a parallel agent and its children."""
-        child_usage_data = []
-        total_prompt = 0
-        total_completion = 0
-        total_tool_calls = 0
+        children: list[NamedTurnUsageDisplay] = []
 
         for child_agent in parallel_agent.fan_out_agents:
-            usage_info = self._format_agent_usage(
+            usage = self._collect_agent_turn_usage(
                 child_agent, turn_start_indices.get(child_agent.name)
             )
-            if usage_info:
-                child_usage_data.append({**usage_info, "name": child_agent.name})
-                total_prompt += usage_info["prompt_tokens"]
-                total_completion += usage_info["completion_tokens"]
-                total_tool_calls += usage_info["tool_calls"]
+            if usage:
+                children.append(NamedTurnUsageDisplay(name=child_agent.name, usage=usage))
 
         if parallel_agent.fan_in_agent:
-            usage_info = self._format_agent_usage(
+            usage = self._collect_agent_turn_usage(
                 parallel_agent.fan_in_agent,
                 turn_start_indices.get(parallel_agent.fan_in_agent.name),
             )
-            if usage_info:
-                child_usage_data.append({**usage_info, "name": parallel_agent.fan_in_agent.name})
-                total_prompt += usage_info["prompt_tokens"]
-                total_completion += usage_info["completion_tokens"]
-                total_tool_calls += usage_info["tool_calls"]
-
-        if not child_usage_data:
-            return
-
-        # Show aggregated usage for parallel agent (no context percentage)
-        with progress_display.paused():
-            tool_info = f", {total_tool_calls} tool calls" if total_tool_calls > 0 else ""
-            rich_print(
-                f"[dim]Last turn (parallel): {total_prompt:,} Prompt, {total_completion:,} Completion{tool_info}[/dim]"
-            )
-
-            # Show individual child agent usage
-            for i, usage_data in enumerate(child_usage_data):
-                is_last = i == len(child_usage_data) - 1
-                prefix = "└─" if is_last else "├─"
-                rich_print(
-                    f"[dim]  {prefix} {usage_data['name']}: {usage_data['display_text']}[/dim]{usage_data['cache_suffix']}"
+            if usage:
+                children.append(
+                    NamedTurnUsageDisplay(
+                        name=parallel_agent.fan_in_agent.name,
+                        usage=usage,
+                    )
                 )
 
-    def _format_agent_usage(self, agent, turn_start_index: int | None) -> dict | None:
-        """Format usage information for a single agent."""
-        if not agent or not agent.usage_accumulator:
+        if children:
+            display_parallel_turn_usage(children)
+
+    def _collect_agent_turn_usage(
+        self, agent: AgentProtocol, turn_start_index: int | None
+    ) -> TurnUsageDisplay | None:
+        """Project canonical usage into the compact post-turn UI shape."""
+        accumulator = agent.usage_accumulator
+        if accumulator is None:
             return None
 
-        # Get the last turn's usage (if any)
-        turns = agent.usage_accumulator.turns
+        turns = accumulator.turns
         if not turns:
             return None
 
-        usage_result = self._usage_totals_and_turns(agent, turn_start_index)
-        if usage_result is None:
-            return None
-        usage_totals, turn_slice = usage_result
-        prompt_tokens = usage_totals["prompt_tokens"]
-        completion_tokens = usage_totals["completion_tokens"]
-        tool_calls = usage_totals["tool_calls"]
-        cache_indicators = self._cache_indicators(turn_slice)
-        cache_expiry_text = self._cache_expiry_text(agent, cache_indicators)
-        context_percentage = agent.usage_accumulator.context_usage_percentage
-        display_text = self._usage_display_text(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            tool_calls=tool_calls,
-            context_percentage=context_percentage,
-        )
-        cache_suffix = f" {cache_indicators}{cache_expiry_text}" if cache_indicators else ""
-
-        return {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "tool_calls": tool_calls,
-            "context_percentage": context_percentage,
-            "display_text": display_text,
-            "cache_suffix": cache_suffix,
-        }
-
-    def _usage_totals_and_turns(self, agent, turn_start_index: int | None):
-        turns = agent.usage_accumulator.turns
-        totals = last_turn_usage(agent.usage_accumulator, turn_start_index)
+        totals = last_turn_usage(accumulator, turn_start_index)
         if totals:
             turn_slice = turns[turn_start_index:] if turn_start_index is not None else [turns[-1]]
-            return totals, turn_slice
+            input_tokens = totals["prompt_tokens"]
+            output_tokens = totals["completion_tokens"]
+            tool_calls = totals["tool_calls"]
+        else:
+            last_turn = turns[-1]
+            if last_turn.prompt.total is None or last_turn.completion.total is None:
+                return None
+            turn_slice = [last_turn]
+            input_tokens = last_turn.prompt.total
+            output_tokens = last_turn.completion.total
+            tool_calls = last_turn.tool_calls
 
-        last_turn = turns[-1]
-        if last_turn.prompt.total is None or last_turn.completion.total is None:
-            return None
-        return (
-            {
-                "prompt_tokens": last_turn.prompt.total,
-                "completion_tokens": last_turn.completion.total,
-                "tool_calls": last_turn.tool_calls,
-            },
-            [last_turn],
+        has_cache_activity = any(
+            (turn.prompt.cache_read or 0) > 0 or (turn.prompt.cache_write or 0) > 0
+            for turn in turn_slice
+        )
+        return TurnUsageDisplay(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            tool_calls=tool_calls,
+            cache_percentage=self._cached_prompt_percentage(turn_slice),
+            cache_write_tokens=self._cache_write_tokens(turn_slice),
+            context_percentage=accumulator.context_usage_percentage,
+            cache_ttl=self._cache_ttl_display(agent, turn_slice, has_cache_activity),
         )
 
     @staticmethod
-    def _cache_indicators(turn_slice) -> str:
-        indicators = ""
-        if any((turn.prompt.cache_write or 0) > 0 for turn in turn_slice):
-            indicators += "[bright_yellow]^[/bright_yellow]"
-        if any(
-            (turn.prompt.cache_read or 0) > 0
-            for turn in turn_slice
+    def _cached_prompt_percentage(turn_slice: list[TurnUsage]) -> float | None:
+        cache_reads = [turn.prompt.cache_read for turn in turn_slice]
+        prompt_totals = [turn.prompt.total for turn in turn_slice]
+        if (
+            any(value is None for value in cache_reads)
+            or any(value is None for value in prompt_totals)
+            or not prompt_totals
         ):
-            indicators += "[bright_green]*[/bright_green]"
-        return indicators
+            return None
 
-    def _cache_expiry_text(self, agent, cache_indicators: str) -> str:
-        last_cache_activity = agent.usage_accumulator.last_cache_activity_time
-        if not cache_indicators or not last_cache_activity:
-            return ""
-
-        cache_ttl = self._cache_ttl(agent)
-        if not cache_ttl:
-            return ""
-
-        ttl_minutes = 60 if cache_ttl == "1h" else 5
-        expiry_timestamp = last_cache_activity + (ttl_minutes * 60)
-        if expiry_timestamp <= time.time():
-            return ""
-
-        expiry_time = datetime.fromtimestamp(expiry_timestamp).strftime("%H:%M")
-        return f" [dim]({expiry_time})[/dim]"
+        prompt_total = sum(value for value in prompt_totals if value is not None)
+        if prompt_total == 0:
+            return None
+        cache_read = sum(value for value in cache_reads if value is not None)
+        return (cache_read / prompt_total) * 100
 
     @staticmethod
-    def _cache_ttl(agent) -> str | None:
+    def _cache_write_tokens(turn_slice: list[TurnUsage]) -> int | None:
+        cache_writes = [turn.prompt.cache_write for turn in turn_slice]
+        if not cache_writes or any(value is None for value in cache_writes):
+            return None
+        return sum(value for value in cache_writes if value is not None)
+
+    def _cache_ttl_display(
+        self,
+        agent: AgentProtocol,
+        turn_slice: list[TurnUsage],
+        has_cache_activity: bool,
+    ) -> CacheTTLDisplay | None:
+        accumulator = agent.usage_accumulator
+        if accumulator is None:
+            return None
+        last_cache_activity = accumulator.last_cache_activity_time
+        if not has_cache_activity or not last_cache_activity:
+            return None
+
+        if all(
+            turn.provider in {Provider.OPENAI, Provider.RESPONSES, Provider.CODEX_RESPONSES}
+            and turn.usage_schema is UsageSchema.OPENAI_RESPONSES
+            and self._uses_openai_minimum_cache_ttl(turn.model)
+            for turn in turn_slice
+        ):
+            return CacheTTLMinimum(seconds=_OPENAI_MINIMUM_CACHE_TTL_SECONDS)
+
+        cache_ttl = self._configured_cache_ttl(agent)
+        if not cache_ttl:
+            return None
+
+        ttl_minutes = 60 if cache_ttl == "1h" else 5
+        expiry = last_cache_activity + (ttl_minutes * 60)
+        return CacheTTLExpiry(expires_at=expiry) if expiry > time.time() else None
+
+    @staticmethod
+    def _uses_openai_minimum_cache_ttl(model: str) -> bool:
+        match = re.search(r"gpt-(\d+)(?:\.(\d+))?", model.lower())
+        if match is None:
+            return False
+        version = (int(match.group(1)), int(match.group(2) or 0))
+        return version >= _OPENAI_MINIMUM_CACHE_TTL_MODEL_VERSION
+
+    @staticmethod
+    def _configured_cache_ttl(agent) -> str | None:
         llm = getattr(agent, "llm", None)
         resolved_model = getattr(llm, "resolved_model", None)
         cache_ttl = getattr(resolved_model, "cache_ttl", None)
@@ -965,18 +974,3 @@ class AgentApp:
         if context and context.config and context.config.anthropic:
             return context.config.anthropic.cache_ttl
         return cache_ttl
-
-    @staticmethod
-    def _usage_display_text(
-        *,
-        prompt_tokens: int,
-        completion_tokens: int,
-        tool_calls: int,
-        context_percentage: float | None,
-    ) -> str:
-        tool_info = f", {tool_calls} tool calls" if tool_calls > 0 else ""
-        context_info = f" ({context_percentage:.1f}%)" if context_percentage is not None else ""
-        return (
-            f"{prompt_tokens:,} Prompt, {completion_tokens:,} Completion"
-            f"{tool_info}{context_info}"
-        )

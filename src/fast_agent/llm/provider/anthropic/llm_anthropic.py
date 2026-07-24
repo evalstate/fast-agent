@@ -90,7 +90,11 @@ from fast_agent.llm.provider.anthropic.web_tools import (
     web_tool_progress_label,
 )
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
-from fast_agent.llm.provider.streaming_timeouts import await_stream_start, enter_stream_with_timeout
+from fast_agent.llm.provider.streaming_timeouts import (
+    await_stream_start,
+    enter_stream_with_timeout,
+    with_stream_idle_timeout,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     AUTO_REASONING,
@@ -2263,7 +2267,14 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                         timeout_message=(
                             f"Anthropic stream did not start within {timeout_seconds} seconds."
                         ),
-                    ) as stream:
+                    ) as raw_stream:
+                        stream = cast(
+                            "BetaAsyncMessageStream",
+                            with_stream_idle_timeout(
+                                raw_stream,
+                                idle_timeout_seconds=timeout_seconds,
+                            ),
+                        )
                         (
                             response,
                             thinking_segments,
@@ -2274,7 +2285,14 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                     stream_manager,
                     timeout_seconds=timeout_seconds,
                     timeout_message=f"Anthropic stream did not start within {timeout_seconds} seconds.",
-                ) as stream:
+                ) as raw_stream:
+                    stream = cast(
+                        "BetaAsyncMessageStream",
+                        with_stream_idle_timeout(
+                            raw_stream,
+                            idle_timeout_seconds=timeout_seconds,
+                        ),
+                    )
                     (
                         response,
                         thinking_segments,

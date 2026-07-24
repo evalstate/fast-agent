@@ -36,7 +36,6 @@ if TYPE_CHECKING:
     from fast_agent.acp.server.models import ACPSessionState
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.llm.stream_types import StreamChunk
-
 logger = get_logger(__name__)
 
 HUGGINGFACE_META_KEY: Final[str] = "co.huggingface"
@@ -617,15 +616,14 @@ class ACPPromptFlow:
                 if not chunk.text:
                     return
                 try:
-                    async with update_lock:
-                        if chunk.is_reasoning:
-                            message_chunk = update_agent_thought_text(chunk.text)
-                        else:
-                            message_chunk = update_agent_message_text(chunk.text)
-                        await connection.session_update(
-                            session_id=session_id,
-                            update=message_chunk,
-                        )
+                    if chunk.is_reasoning:
+                        message_chunk = update_agent_thought_text(chunk.text)
+                    else:
+                        message_chunk = update_agent_message_text(chunk.text)
+                    await connection.session_update(
+                        session_id=session_id,
+                        update=message_chunk,
+                    )
                 except Exception as e:
                     logger.error(
                         f"Error sending stream update: {e}",
@@ -633,13 +631,16 @@ class ACPPromptFlow:
                         exc_info=True,
                     )
 
+            async def send_stream_updates(chunk: StreamChunk) -> None:
+                async with update_lock:
+                    await send_stream_update(chunk)
+
             def on_stream_chunk(chunk: StreamChunk) -> None:
                 if not chunk or not chunk.text:
                     return
                 if not chunk.is_reasoning:
                     stream_state.assistant_text_seen = True
-                task = asyncio.create_task(send_stream_update(chunk))
-                streaming_tasks.append(task)
+                streaming_tasks.append(asyncio.create_task(send_stream_updates(chunk)))
 
             stream_listener = on_stream_chunk
             remove_listener = agent.add_stream_listener(stream_listener)

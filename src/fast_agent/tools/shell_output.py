@@ -25,9 +25,12 @@ class ShellOutputBuffer:
     output_truncated: bool = False
     truncation_notice_printed: bool = False
     had_stream_output: bool = False
+    unread_output_activity: bool = False
     output_line_count: int = 0
     unread_output_line_count: int = 0
     lifetime_output_bytes: int = 0
+    lifetime_stdout_bytes: int = 0
+    lifetime_stderr_bytes: int = 0
     retained_output_path: Path | None = None
     retained_output_max_bytes: int = 0
     retained_output_bytes: int = 0
@@ -59,6 +62,28 @@ class ShellOutputBuffer:
             self.output_segments.append(truncated_text)
         self.output_bytes += remaining
         self.output_truncated = True
+
+    def append_stream(
+        self,
+        text: str,
+        *,
+        is_stderr: bool,
+        count_bytes: bool = True,
+    ) -> None:
+        """Append process output while tracking raw stdout/stderr byte totals."""
+        if count_bytes:
+            self.record_stream_bytes(
+                len(text.encode("utf-8", errors="replace")),
+                is_stderr=is_stderr,
+            )
+        self.append(text if not is_stderr else f"[stderr] {text}")
+
+    def record_stream_bytes(self, byte_count: int, *, is_stderr: bool) -> None:
+        """Record raw stream bytes at the environment read boundary."""
+        if is_stderr:
+            self.lifetime_stderr_bytes += byte_count
+        else:
+            self.lifetime_stdout_bytes += byte_count
 
     def combined(self) -> str:
         if not self.output_truncated:
@@ -100,6 +125,7 @@ class ShellOutputBuffer:
         self.total_output_bytes = 0
         self.output_truncated = False
         self.truncation_notice_printed = False
+        self.unread_output_activity = False
         self.unread_output_line_count = 0
         return combined_output
 

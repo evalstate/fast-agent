@@ -612,6 +612,9 @@ class TestAggregatorInitializedVisibility:
                 process_has_observed_output=True,
                 process_seconds_since_last_output=4,
                 process_total_output_bytes=12_500,
+                process_seconds_since_last_stdout=4,
+                process_stdout_bytes=12_000,
+                process_stderr_bytes=500,
             )
         )
         task_id = display._taskmap["test-agent::call_abcdef0123456789"]
@@ -622,7 +625,10 @@ class TestAggregatorInitializedVisibility:
 
         rendered = DynamicDetailsColumn().render(task)
         # 65s base + 5s local tick; 4s-old output ages into the warm window.
-        assert rendered.plain == "1m10s · output 9s ago · 12.5KB · uv run worker.py"
+        assert (
+            rendered.plain
+            == "out  9s · err   — · time 1m10s · size 12.5KB · uv run worker.py"
+        )
         assert any(str(span.style) == "green" for span in rendered.spans)
         display.stop()
 
@@ -662,8 +668,10 @@ class TestAggregatorInitializedVisibility:
         task = next(task for task in display._progress.tasks if task.id == task_id)
 
         rendered = DynamicDetailsColumn().render(task)
-        assert rendered.plain == "1m10s · output <1s ago · 25.0KB · uv run worker.py"
-        assert any(str(span.style) == "bold bright_green" for span in rendered.spans)
+        assert (
+            rendered.plain
+            == "out   — · err   — · time 1m10s · size 25.0KB · uv run worker.py"
+        )
         display.stop()
 
     def test_process_output_activity_fades_then_goes_quiet(self) -> None:
@@ -689,12 +697,11 @@ class TestAggregatorInitializedVisibility:
         task = next(task for task in display._progress.tasks if task.id == task_id)
 
         warm = DynamicDetailsColumn().render(task)
-        assert warm.plain == "1m30s · output 12s ago · 12.5KB"
-        assert any(str(span.style) == "green" for span in warm.spans)
+        assert warm.plain == "out   — · err   — · time 1m30s · size 12.5KB"
 
         task.fields["process_seconds_since_last_output"] = 90
         quiet = DynamicDetailsColumn().render(task)
-        assert quiet.plain == "1m30s · output 1m30s ago · 12.5KB"
+        assert quiet.plain == "out   — · err   — · time 1m30s · size 12.5KB"
         display.stop()
 
     def test_poll_process_keeps_non_default_agent_name(self) -> None:

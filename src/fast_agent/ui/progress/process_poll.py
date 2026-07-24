@@ -6,8 +6,9 @@ import math
 from dataclasses import dataclass
 
 from pydantic import ByteSize
+from rich.text import Text
 
-from fast_agent.utils.time import format_compact_duration
+from fast_agent.utils.time import format_compact_duration, format_process_elapsed
 
 # Braille dots:
 #   1 4
@@ -128,6 +129,97 @@ class ProcessOutputActivity:
 
     text: str
     style: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessMonitorStats:
+    """Stable monitoring fields shared by live and fallback process displays."""
+
+    elapsed_seconds: float | None
+    stdout_age_seconds: float | None
+    stderr_age_seconds: float | None
+    stdout_bytes: int | None
+    stderr_bytes: int | None
+    total_output_bytes: int | None
+
+
+_ACTIVITY_WIDTH = 3
+_ELAPSED_WIDTH = 5
+_SIZE_WIDTH = 6
+
+
+def _activity_style(age_seconds: float | None, *, stream: str) -> str:
+    if age_seconds is None:
+        return "dim"
+    color = "green" if stream == "stdout" else "red"
+    if age_seconds <= 5:
+        return f"bold bright_{color}"
+    if age_seconds < 30:
+        return color
+    return f"dim {color}"
+
+
+def _activity_label(age_seconds: float | None) -> str:
+    if age_seconds is None:
+        return "—"
+    age = max(age_seconds, 0.0)
+    if age < 60:
+        return f"{max(1, int(age))}s"
+    if age < 60 * 60:
+        return f"{int(age // 60)}m"
+    if age < 24 * 60 * 60:
+        return f"{int(age // (60 * 60))}h"
+    days = int(age // (24 * 60 * 60))
+    return f"{min(days, 99)}d"
+
+
+def render_process_monitor_stats(stats: ProcessMonitorStats) -> Text:
+    """Render fixed-width ``out · err · time · size`` process statistics."""
+    line = Text()
+
+    def append_field(
+        label: str,
+        value: str,
+        *,
+        width: int,
+        style: str = "dim",
+        align: str = ">",
+    ) -> None:
+        if line:
+            line.append(" · ", style="dim")
+        line.append(f"{label} ", style="dim")
+        line.append(f"{value:{align}{width}}", style=style)
+
+    append_field(
+        "out",
+        _activity_label(stats.stdout_age_seconds),
+        width=_ACTIVITY_WIDTH,
+        style=_activity_style(stats.stdout_age_seconds, stream="stdout"),
+    )
+    append_field(
+        "err",
+        _activity_label(stats.stderr_age_seconds),
+        width=_ACTIVITY_WIDTH,
+        style=_activity_style(stats.stderr_age_seconds, stream="stderr"),
+    )
+    elapsed = (
+        format_process_elapsed(stats.elapsed_seconds)
+        if stats.elapsed_seconds is not None
+        else "—"
+    )
+    append_field("time", elapsed, width=_ELAPSED_WIDTH, align="<")
+
+    stream_bytes = (
+        stats.stdout_bytes + stats.stderr_bytes
+        if stats.stdout_bytes is not None and stats.stderr_bytes is not None
+        else None
+    )
+    # Per-stream counts are raw bytes; the combined fallback may include display prefixes.
+    size = format_process_output_size(
+        stream_bytes if stream_bytes is not None else stats.total_output_bytes
+    )
+    append_field("size", size or "0B", width=_SIZE_WIDTH)
+    return line
 
 
 def format_process_output_activity(

@@ -124,11 +124,17 @@ def test_serialize_anthropic_text_payload_flattens_nested_text_objects() -> None
 
 
 class _DummyStreamManager:
-    async def __aenter__(self):
+    async def __aenter__(self) -> _DummyStreamManager:
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, *_args: object) -> bool:
         return False
+
+    def __aiter__(self) -> _DummyStreamManager:
+        return self
+
+    async def __anext__(self) -> Any:
+        raise StopAsyncIteration
 
 
 class _FinalMessageValidationFailureStream:

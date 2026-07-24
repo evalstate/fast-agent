@@ -86,6 +86,16 @@ class ShellProgressReporter:
         now = time.monotonic()
         active_poll.last_progress_emitted_at = now
         seconds_since_last_output = max(now - process.callbacks.last_output_time, 0.0)
+        seconds_since_last_stdout = (
+            max(now - process.callbacks.last_stdout_time, 0.0)
+            if process.callbacks.last_stdout_time is not None
+            else None
+        )
+        seconds_since_last_stderr = (
+            max(now - process.callbacks.last_stderr_time, 0.0)
+            if process.callbacks.last_stderr_time is not None
+            else None
+        )
         self.emit(
             action=ProgressAction.CALLING_TOOL,
             tool_use_id=active_poll.tool_use_id,
@@ -108,6 +118,10 @@ class ShellProgressReporter:
                 0.0 if has_fresh_output else seconds_since_last_output
             ),
             process_total_output_bytes=process.output_state.lifetime_output_bytes,
+            process_seconds_since_last_stdout=seconds_since_last_stdout,
+            process_seconds_since_last_stderr=seconds_since_last_stderr,
+            process_stdout_bytes=process.output_state.lifetime_stdout_bytes,
+            process_stderr_bytes=process.output_state.lifetime_stderr_bytes,
             log_message=log_message,
         )
 
@@ -151,6 +165,10 @@ class ShellProgressReporter:
         process_has_observed_output: bool | None = None,
         process_seconds_since_last_output: float | None = None,
         process_total_output_bytes: int | None = None,
+        process_seconds_since_last_stdout: float | None = None,
+        process_seconds_since_last_stderr: float | None = None,
+        process_stdout_bytes: int | None = None,
+        process_stderr_bytes: int | None = None,
         log_message: str = "Shell tool lifecycle",
     ) -> None:
         """Emit shell tool lifecycle events for progress display when supported."""
@@ -182,6 +200,10 @@ class ShellProgressReporter:
                     "process_has_observed_output": process_has_observed_output,
                     "process_seconds_since_last_output": process_seconds_since_last_output,
                     "process_total_output_bytes": process_total_output_bytes,
+                    "process_seconds_since_last_stdout": process_seconds_since_last_stdout,
+                    "process_seconds_since_last_stderr": process_seconds_since_last_stderr,
+                    "process_stdout_bytes": process_stdout_bytes,
+                    "process_stderr_bytes": process_stderr_bytes,
                 }.items()
                 if value is not None
             },

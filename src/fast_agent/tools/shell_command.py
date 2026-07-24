@@ -160,10 +160,18 @@ def classify_shell_detachment(
     """Conservatively identify shell-level service detachment."""
     source = _without_heredoc_bodies(command)
     words: list[tuple[str, bool]] = []
-    top_level_background = False
+    has_background_job = False
     token: list[str] = []
     command_position = True
-    depth = 0
+    contexts: list[
+        Literal[
+            "arithmetic",
+            "arithmetic_group",
+            "quoted_arithmetic",
+            "quoted_shell",
+            "shell",
+        ]
+    ] = []
     quote: str | None = None
     escaped = False
     index = 0
@@ -186,6 +194,19 @@ def classify_shell_detachment(
         if quote is not None:
             if char == "\\" and quote == '"':
                 escaped = True
+            elif quote == '"' and source.startswith("$((", index):
+                token.append("$((")
+                contexts.append("quoted_arithmetic")
+                quote = None
+                index += 3
+                continue
+            elif quote == '"' and source.startswith("$(", index):
+                finish_word()
+                contexts.append("quoted_shell")
+                quote = None
+                command_position = True
+                index += 2
+                continue
             elif char == quote:
                 quote = None
             else:
@@ -204,9 +225,66 @@ def classify_shell_detachment(
             newline = source.find("\n", index)
             index = len(source) if newline < 0 else newline
             continue
+        context = contexts[-1] if contexts else None
+        if context in {"arithmetic", "arithmetic_group", "quoted_arithmetic"}:
+            if source.startswith("$((", index):
+                token.append("$((")
+                contexts.append("arithmetic")
+                index += 3
+                continue
+            if source.startswith("$(", index):
+                finish_word()
+                contexts.append("shell")
+                command_position = True
+                index += 2
+                continue
+            if char == "(":
+                token.append(char)
+                contexts.append("arithmetic_group")
+                index += 1
+                continue
+            if char == ")":
+                if context in {"arithmetic", "quoted_arithmetic"} and source.startswith(
+                    "))", index
+                ):
+                    token.append("))")
+                    contexts.pop()
+                    if context == "quoted_arithmetic":
+                        quote = '"'
+                    index += 2
+                else:
+                    token.append(char)
+                    if context == "arithmetic_group":
+                        contexts.pop()
+                    index += 1
+                continue
+            token.append(char)
+            index += 1
+            continue
+        if source.startswith("$((", index):
+            token.append("$((")
+            contexts.append("arithmetic")
+            index += 3
+            continue
+        if source.startswith("((", index):
+            token.append("((")
+            contexts.append("arithmetic")
+            index += 2
+            continue
+        if source.startswith("$(", index):
+            finish_word()
+            contexts.append("shell")
+            command_position = True
+            index += 2
+            continue
         if char in {"(", ")"}:
             finish_word()
-            depth = max(depth + (1 if char == "(" else -1), 0)
+            if char == "(":
+                contexts.append("shell")
+            elif contexts and contexts[-1] in {"shell", "quoted_shell"}:
+                closed_context = contexts.pop()
+                if closed_context == "quoted_shell":
+                    quote = '"'
             command_position = char == "("
             index += 1
             continue
@@ -226,8 +304,7 @@ def classify_shell_detachment(
                 command_position = True
                 index += 2
                 continue
-            if depth == 0:
-                top_level_background = True
+            has_background_job = True
             command_position = True
             index += 1
             continue
@@ -254,10 +331,10 @@ def classify_shell_detachment(
         for chunk in _command_chunks(words)
         if (invoked := _invoked_command_basename(chunk)) is not None
     }
-    if top_level_background and (
+    if has_background_job and (
         run_in_background or "nohup" in command_words or "disown" in command_words
     ):
         return "service_detach"
-    if top_level_background:
+    if has_background_job:
         return "ambiguous"
     return "none"

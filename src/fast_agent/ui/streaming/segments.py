@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -977,6 +978,7 @@ class StreamSegmentAssembler:
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None = None,
         apply_patch_preview_max_lines: int | None = None,
     ) -> None:
+        self._base_kind = base_kind
         self._buffer = StreamSegmentBuffer(base_kind)
         self._reasoning_parser = ReasoningStreamParser()
         self._reasoning_active = False
@@ -986,6 +988,7 @@ class StreamSegmentAssembler:
         self._tool_states: dict[str, ToolStreamState] = {}
         self._fallback_tool_counter = 0
         self._last_tool_id: str | None = None
+        self._committed_state = self._capture_state()
 
     @property
     def segments(self) -> list[StreamSegment]:
@@ -1007,6 +1010,12 @@ class StreamSegmentAssembler:
         return False
 
     def handle_stream_chunk(self, chunk: StreamChunk) -> bool:
+        if chunk.event == "rollback":
+            self._restore_committed_state()
+            return True
+        if chunk.event == "commit":
+            self._committed_state = self._capture_state()
+            return False
         if not chunk.text:
             return False
 
@@ -1024,6 +1033,44 @@ class StreamSegmentAssembler:
             self._buffer.mark_reasoning_boundary()
 
         return self._buffer.append_content(chunk.text)
+
+    def reset(self) -> None:
+        """Reset all streamed content and establish a new clean boundary."""
+
+        self._buffer = StreamSegmentBuffer(self._base_kind)
+        self._reasoning_parser = ReasoningStreamParser()
+        self._reasoning_active = False
+        self._tool_states.clear()
+        self._fallback_tool_counter = 0
+        self._last_tool_id = None
+        self._committed_state = self._capture_state()
+
+    def _capture_state(self) -> tuple[
+        StreamSegmentBuffer,
+        ReasoningStreamParser,
+        bool,
+        dict[str, ToolStreamState],
+        int,
+        str | None,
+    ]:
+        return (
+            deepcopy(self._buffer),
+            deepcopy(self._reasoning_parser),
+            self._reasoning_active,
+            deepcopy(self._tool_states),
+            self._fallback_tool_counter,
+            self._last_tool_id,
+        )
+
+    def _restore_committed_state(self) -> None:
+        (
+            self._buffer,
+            self._reasoning_parser,
+            self._reasoning_active,
+            self._tool_states,
+            self._fallback_tool_counter,
+            self._last_tool_id,
+        ) = deepcopy(self._committed_state)
 
     def handle_text(self, chunk: str) -> bool:
         if not chunk:

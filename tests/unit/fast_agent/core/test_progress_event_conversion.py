@@ -64,6 +64,10 @@ def test_convert_poll_start_uses_process_details_without_tool_prefix() -> None:
                 "process_has_observed_output": True,
                 "process_seconds_since_last_output": 4,
                 "process_total_output_bytes": 12_500,
+                "process_seconds_since_last_stdout": 4,
+                "process_seconds_since_last_stderr": 2,
+                "process_stdout_bytes": 12_000,
+                "process_stderr_bytes": 500,
             }
         },
     )
@@ -79,6 +83,10 @@ def test_convert_poll_start_uses_process_details_without_tool_prefix() -> None:
     assert progress_event.process_has_observed_output is True
     assert progress_event.process_seconds_since_last_output == 4
     assert progress_event.process_total_output_bytes == 12_500
+    assert progress_event.process_seconds_since_last_stdout == 4
+    assert progress_event.process_seconds_since_last_stderr == 2
+    assert progress_event.process_stdout_bytes == 12_000
+    assert progress_event.process_stderr_bytes == 500
 
 
 def test_convert_log_event_uses_tool_use_id_when_call_id_missing() -> None:

@@ -16,6 +16,7 @@ from mcp.types import CallToolResult, ImageContent, TextContent
 
 from fast_agent.constants import (
     FAST_AGENT_PROCESS_POLL_FOLD,
+    FAST_AGENT_RETRY,
     FAST_AGENT_SHELL_PROCESS_METADATA,
     FAST_AGENT_TIMING,
     FAST_AGENT_TOOL_METADATA,
@@ -288,11 +289,23 @@ def _tool_result_extra(
 
 def _step_timing_extra(message: PromptMessageExtended) -> dict[str, object]:
     timing = _json_channel_mapping(message, FAST_AGENT_TIMING) or {}
-    return {
+    extra = {
         key: value
         for key in ("duration_ms", "ttft_ms", "time_to_response_ms")
         if (value := timing.get(key)) is not None
     }
+    retry = _json_channel_mapping(message, FAST_AGENT_RETRY)
+    if retry:
+        extra["retry"] = retry
+    return extra
+
+
+def _llm_call_count(message: PromptMessageExtended) -> int:
+    retry = _json_channel_mapping(message, FAST_AGENT_RETRY)
+    provider_attempts = retry.get("provider_attempts") if retry else None
+    if type(provider_attempts) is int and provider_attempts > 0:
+        return provider_attempts
+    return 1
 
 
 def _process_poll_folds(
@@ -560,7 +573,7 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
                 ),
                 tool_calls=calls,
                 metrics=_usage(message) if step_source == "agent" else None,
-                llm_call_count=1 if step_source == "agent" else None,
+                llm_call_count=_llm_call_count(message) if step_source == "agent" else None,
                 extra=step_extra if step_source == "agent" and step_extra else None,
             )
         )

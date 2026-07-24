@@ -37,8 +37,8 @@ from fast_agent.ui.mermaid_utils import (
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 from fast_agent.ui.message_styles import A3MessageStyle
 from fast_agent.ui.progress.process_poll import (
-    format_process_output_activity,
-    format_process_output_size,
+    ProcessMonitorStats,
+    render_process_monitor_stats,
 )
 from fast_agent.ui.shell_output_truncation import format_shell_output_line_count
 from fast_agent.ui.streaming import (
@@ -57,7 +57,7 @@ from fast_agent.ui.streaming.preferences import (
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.ui.tool_display import ToolDisplay
 from fast_agent.utils.count_display import format_count
-from fast_agent.utils.time import format_duration, format_process_elapsed
+from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -409,7 +409,11 @@ class ConsoleDisplay:
         has_observed_output: bool | None,
         seconds_since_last_output: float | None,
         total_output_bytes: int | None,
-        tool_call_id: str | None,
+        seconds_since_last_stdout: float | None = None,
+        seconds_since_last_stderr: float | None = None,
+        stdout_bytes: int | None = None,
+        stderr_bytes: int | None = None,
+        tool_call_id: str | None = None,
     ) -> None:
         """Display a one-line poll heartbeat when live progress is disabled."""
         del wait_sec  # retained for call-site compatibility; poll countdown is live-only
@@ -421,22 +425,21 @@ class ConsoleDisplay:
         line.append("monitoring", style="bold magenta")
         line.append(" · ", style="dim")
         line.append(process_id, style="bold")
-        if elapsed_seconds is not None:
-            line.append(
-                f" · {format_process_elapsed(elapsed_seconds)}",
-                style="dim",
+        stdout_age = seconds_since_last_stdout
+        stderr_age = seconds_since_last_stderr
+        line.append(" · ", style="dim")
+        line.append_text(
+            render_process_monitor_stats(
+                ProcessMonitorStats(
+                    elapsed_seconds=elapsed_seconds,
+                    stdout_age_seconds=stdout_age,
+                    stderr_age_seconds=stderr_age,
+                    stdout_bytes=stdout_bytes,
+                    stderr_bytes=stderr_bytes,
+                    total_output_bytes=total_output_bytes,
+                )
             )
-        output_activity = format_process_output_activity(
-            has_observed_output=has_observed_output,
-            seconds_since_last_output=seconds_since_last_output,
         )
-        if output_activity is not None:
-            line.append(
-                f" · {output_activity.text}",
-                style=output_activity.style or "dim",
-            )
-        if output_size := format_process_output_size(total_output_bytes):
-            line.append(f" · {output_size}", style="dim")
         if command:
             line.append(f" · {command}", style="dim")
         if formatted_id := format_tool_call_id(tool_call_id):

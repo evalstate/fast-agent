@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
+from unittest.mock import Mock
 
 import pytest
 from acp.helpers import text_block, update_agent_thought_text
@@ -10,6 +11,8 @@ from acp.helpers import text_block, update_agent_thought_text
 from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
 from fast_agent.acp.server.prompt_flow import ACPPromptFlow
 from fast_agent.acp.server.prompt_flow import PromptFlowHost as ACPPromptFlowHost
+from fast_agent.interfaces import StreamingAgentProtocol
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 if TYPE_CHECKING:
@@ -117,6 +120,106 @@ class DummyStructuredStreamResult:
 
     def last_text(self) -> str:
         return '{"answer":"ok"}'
+
+
+@pytest.mark.asyncio
+async def test_stream_retry_delivers_failed_and_recovered_attempts_live() -> None:
+    host = FakePromptFlowHost(EmptyStructuredAgent())
+    host._connection = CapturingConnection()
+    flow = ACPPromptFlow(host)
+    agent = Mock(spec=StreamingAgentProtocol)
+    listeners: list[Any] = []
+    agent.add_stream_listener.side_effect = lambda listener: (
+        listeners.append(listener),
+        lambda: None,
+    )[1]
+
+    context = await flow._prepare_streaming_context(
+        agent=agent,
+        session_id="session-1",
+    )
+    listener = listeners[0]
+    listener(StreamChunk(text="failed partial"))
+    await asyncio.sleep(0)
+
+    assert [
+        notification["update"].content.text for notification in host._connection.notifications
+    ] == ["failed partial"]
+
+    listener(StreamChunk(event="rollback"))
+    assert context["stream_state"].assistant_text_seen is True
+
+    listener(StreamChunk(text="recovered"))
+    listener(StreamChunk(event="commit"))
+    await asyncio.gather(*context["streaming_tasks"])
+
+    assert context["stream_state"].assistant_text_seen is True
+    assert [
+        notification["update"].content.text for notification in host._connection.notifications
+    ] == ["failed partial", "recovered"]
+
+
+@pytest.mark.asyncio
+async def test_stream_retry_control_events_do_not_interrupt_live_delivery() -> None:
+    host = FakePromptFlowHost(EmptyStructuredAgent())
+    host._connection = CapturingConnection()
+    flow = ACPPromptFlow(host)
+    agent = Mock(spec=StreamingAgentProtocol)
+    listeners: list[Any] = []
+    agent.add_stream_listener.side_effect = lambda listener: (
+        listeners.append(listener),
+        lambda: None,
+    )[1]
+
+    context = await flow._prepare_streaming_context(
+        agent=agent,
+        session_id="session-1",
+    )
+    listener = listeners[0]
+    listener(StreamChunk(text="before tool"))
+    listener(StreamChunk(event="commit"))
+    await asyncio.gather(*context["streaming_tasks"])
+
+    assert [
+        notification["update"].content.text for notification in host._connection.notifications
+    ] == ["before tool"]
+
+    listener(StreamChunk(text="failed follow-up"))
+    listener(StreamChunk(event="rollback"))
+    assert context["stream_state"].assistant_text_seen is True
+
+    listener(StreamChunk(text="recovered follow-up"))
+    listener(StreamChunk(event="commit"))
+
+    await asyncio.gather(*context["streaming_tasks"])
+
+    assert [
+        notification["update"].content.text for notification in host._connection.notifications
+    ] == ["before tool", "failed follow-up", "recovered follow-up"]
+
+
+@pytest.mark.asyncio
+async def test_stream_completion_delivers_delta_only_agent_output_live() -> None:
+    host = FakePromptFlowHost(EmptyStructuredAgent())
+    host._connection = CapturingConnection()
+    flow = ACPPromptFlow(host)
+    agent = Mock(spec=StreamingAgentProtocol)
+    listeners: list[Any] = []
+    agent.add_stream_listener.side_effect = lambda listener: (
+        listeners.append(listener),
+        lambda: None,
+    )[1]
+
+    context = await flow._prepare_streaming_context(
+        agent=agent,
+        session_id="session-1",
+    )
+    listeners[0](StreamChunk(text="remote response"))
+    await asyncio.gather(*context["streaming_tasks"])
+
+    assert [
+        notification["update"].content.text for notification in host._connection.notifications
+    ] == ["remote response"]
 
 
 @pytest.mark.asyncio

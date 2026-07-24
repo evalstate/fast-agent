@@ -39,8 +39,13 @@ class ProcessResultMetadata(TypedDict, total=False):
     output_line_count: int
     output_bytes_since_last_poll: int
     seconds_since_last_output: float
+    seconds_since_last_stdout: float
+    seconds_since_last_stderr: float
     has_observed_output: bool
     total_output_bytes: int
+    stdout_bytes: int
+    stderr_bytes: int
+    output_spool_path: str
     poll_wait_sec: int
     poll_wake_on_output: bool
     poll_elapsed_seconds: float
@@ -101,6 +106,10 @@ class ShellRuntimeCallbacks:
     started_event: asyncio.Event = field(default_factory=asyncio.Event)
     os_process_id: int | None = None
     last_output_time: float = field(default_factory=time.monotonic)
+    last_stdout_time: float | None = None
+    last_stderr_time: float | None = None
+    raw_stdout_bytes_recorded: bool = False
+    raw_stderr_bytes_recorded: bool = False
     process: ManagedShellProcess | None = None
 
     async def on_started(self, process_id: int | None) -> None:
@@ -118,8 +127,13 @@ class ShellRuntimeCallbacks:
             output_state=self.output_state,
             display_state=self.display_state,
             is_stderr=False,
+            count_bytes=not self.raw_stdout_bytes_recorded,
         )
-        self.last_output_time = time.monotonic()
+        if self.raw_stdout_bytes_recorded:
+            return
+        now = time.monotonic()
+        self.last_output_time = now
+        self.last_stdout_time = now
         self.activity_event.set()
         if self.process is not None:
             self.progress.emit_process_output(self.process)
@@ -131,8 +145,29 @@ class ShellRuntimeCallbacks:
             output_state=self.output_state,
             display_state=self.display_state,
             is_stderr=True,
+            count_bytes=not self.raw_stderr_bytes_recorded,
         )
-        self.last_output_time = time.monotonic()
+        if self.raw_stderr_bytes_recorded:
+            return
+        now = time.monotonic()
+        self.last_output_time = now
+        self.last_stderr_time = now
+        self.activity_event.set()
+        if self.process is not None:
+            self.progress.emit_process_output(self.process)
+
+    async def on_output_activity(self, *, is_stderr: bool, byte_count: int) -> None:
+        self.output_state.had_stream_output = True
+        self.output_state.unread_output_activity = True
+        self.output_state.record_stream_bytes(byte_count, is_stderr=is_stderr)
+        now = time.monotonic()
+        self.last_output_time = now
+        if is_stderr:
+            self.raw_stderr_bytes_recorded = True
+            self.last_stderr_time = now
+        else:
+            self.raw_stdout_bytes_recorded = True
+            self.last_stdout_time = now
         self.activity_event.set()
         if self.process is not None:
             self.progress.emit_process_output(self.process)
@@ -197,6 +232,26 @@ class ManagedProcessSnapshot:
     output_spool_path: str | None = None
 
 
+def _process_stream_metadata(process: ManagedShellProcess) -> ProcessResultMetadata:
+    now = time.monotonic()
+    metadata = ProcessResultMetadata(
+        has_observed_output=process.output_state.had_stream_output,
+        stdout_bytes=process.output_state.lifetime_stdout_bytes,
+        stderr_bytes=process.output_state.lifetime_stderr_bytes,
+    )
+    if process.callbacks.last_stdout_time is not None:
+        metadata["seconds_since_last_stdout"] = max(
+            now - process.callbacks.last_stdout_time,
+            0.0,
+        )
+    if process.callbacks.last_stderr_time is not None:
+        metadata["seconds_since_last_stderr"] = max(
+            now - process.callbacks.last_stderr_time,
+            0.0,
+        )
+    return metadata
+
+
 def build_managed_process_result(
     process: ManagedShellProcess,
     *,
@@ -213,6 +268,9 @@ def build_managed_process_result(
     elapsed = time.monotonic() - process.started_at
     if yielded_reason == "background":
         sections.append(f"effective_lifecycle: {process.lifecycle}")
+    output_spool_path = process.request.output_spool_path
+    if output_spool_path is not None:
+        sections.append(f"output_spool_path: {output_spool_path}")
     if not process.task.done():
         if yielded_reason == "background":
             reason = "started in the background"
@@ -268,6 +326,12 @@ def build_managed_process_result(
                 "os_process_id": process.callbacks.os_process_id,
                 "output_line_count": unread_output_line_count,
                 "total_output_bytes": process.output_state.lifetime_output_bytes,
+                **_process_stream_metadata(process),
+                **(
+                    {"output_spool_path": output_spool_path}
+                    if output_spool_path is not None
+                    else {}
+                ),
             },
         )
         cast("Any", result)._suppress_display = yielded_reason is not None or not output
@@ -292,6 +356,12 @@ def build_managed_process_result(
                 "os_process_id": process.callbacks.os_process_id,
                 "output_line_count": unread_output_line_count,
                 "total_output_bytes": process.output_state.lifetime_output_bytes,
+                **_process_stream_metadata(process),
+                **(
+                    {"output_spool_path": output_spool_path}
+                    if output_spool_path is not None
+                    else {}
+                ),
             },
         )
 
@@ -314,6 +384,12 @@ def build_managed_process_result(
                 "os_process_id": process.callbacks.os_process_id,
                 "output_line_count": unread_output_line_count,
                 "total_output_bytes": process.output_state.lifetime_output_bytes,
+                **_process_stream_metadata(process),
+                **(
+                    {"output_spool_path": output_spool_path}
+                    if output_spool_path is not None
+                    else {}
+                ),
             },
         )
 
@@ -341,5 +417,11 @@ def build_managed_process_result(
             "exit_code": execution.result.exit_code,
             "output_line_count": unread_output_line_count,
             "total_output_bytes": process.output_state.lifetime_output_bytes,
+            **_process_stream_metadata(process),
+            **(
+                {"output_spool_path": output_spool_path}
+                if output_spool_path is not None
+                else {}
+            ),
         },
     )

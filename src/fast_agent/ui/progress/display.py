@@ -21,9 +21,9 @@ from fast_agent.ui.agent_identity import is_default_agent_name
 from fast_agent.ui.console import console as default_console
 from fast_agent.ui.console import ensure_blocking_console
 from fast_agent.ui.progress.process_poll import (
-    format_process_output_activity,
-    format_process_output_size,
+    ProcessMonitorStats,
     format_process_poll_countdown_track,
+    render_process_monitor_stats,
 )
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.time import format_process_elapsed
@@ -177,32 +177,54 @@ class DynamicDetailsColumn(ProgressColumn):
             parts.append(details)
         local_tick = self._local_tick_seconds(task)
         elapsed_base = task.fields.get("process_elapsed_seconds")
-        if isinstance(elapsed_base, (int, float)) and not isinstance(elapsed_base, bool):
-            parts.append(format_process_elapsed(float(elapsed_base) + local_tick))
         if is_process_poll:
-            output_age = task.fields.get("process_seconds_since_last_output")
-            if isinstance(output_age, (int, float)) and not isinstance(output_age, bool):
-                output_age = float(output_age) + local_tick
-            else:
-                output_age = None
-            output_activity = format_process_output_activity(
-                has_observed_output=task.fields.get("process_has_observed_output"),
-                seconds_since_last_output=output_age,
+            elapsed = self._numeric_field(elapsed_base)
+            stdout_age = self._numeric_field(
+                task.fields.get("process_seconds_since_last_stdout")
             )
-            if output_activity is not None:
-                if output_activity.style:
-                    parts.append(Text(output_activity.text, style=output_activity.style))
-                else:
-                    parts.append(output_activity.text)
-            output_size = format_process_output_size(
-                task.fields.get("process_total_output_bytes")
+            stderr_age = self._numeric_field(
+                task.fields.get("process_seconds_since_last_stderr")
             )
-            if output_size:
-                parts.append(output_size)
+            parts.append(
+                render_process_monitor_stats(
+                    ProcessMonitorStats(
+                        elapsed_seconds=elapsed + local_tick if elapsed is not None else None,
+                        stdout_age_seconds=(
+                            stdout_age + local_tick if stdout_age is not None else None
+                        ),
+                        stderr_age_seconds=(
+                            stderr_age + local_tick if stderr_age is not None else None
+                        ),
+                        stdout_bytes=self._integer_field(
+                            task.fields.get("process_stdout_bytes")
+                        ),
+                        stderr_bytes=self._integer_field(
+                            task.fields.get("process_stderr_bytes")
+                        ),
+                        total_output_bytes=self._integer_field(
+                            task.fields.get("process_total_output_bytes")
+                        ),
+                    )
+                )
+            )
+        elif (elapsed := self._numeric_field(elapsed_base)) is not None:
+            parts.append(format_process_elapsed(elapsed + local_tick))
         command = task.fields.get("process_command")
         if isinstance(command, str) and command:
             parts.append(command)
         return self._join_detail_parts(parts)
+
+    @staticmethod
+    def _numeric_field(value: object) -> float | None:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+        return None
+
+    @staticmethod
+    def _integer_field(value: object) -> int | None:
+        if type(value) is int and value >= 0:
+            return value
+        return None
 
     @staticmethod
     def _local_tick_seconds(task: "Task") -> float:
@@ -696,6 +718,18 @@ class RichProgressDisplay:
             update_kwargs["process_total_output_bytes"] = (
                 event.process_total_output_bytes
             )
+        if event.process_seconds_since_last_stdout is not None:
+            update_kwargs["process_seconds_since_last_stdout"] = (
+                event.process_seconds_since_last_stdout
+            )
+        if event.process_seconds_since_last_stderr is not None:
+            update_kwargs["process_seconds_since_last_stderr"] = (
+                event.process_seconds_since_last_stderr
+            )
+        if event.process_stdout_bytes is not None:
+            update_kwargs["process_stdout_bytes"] = event.process_stdout_bytes
+        if event.process_stderr_bytes is not None:
+            update_kwargs["process_stderr_bytes"] = event.process_stderr_bytes
         if event.action == ProgressAction.TOOL_PROGRESS and event.progress is not None:
             self._add_tool_progress_update_kwargs(event, update_kwargs)
         return update_kwargs

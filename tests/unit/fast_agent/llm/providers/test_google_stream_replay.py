@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from google.genai import types as google_types
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.provider.google.llm_google_native import GoogleNativeLLM
+from fast_agent.llm.provider.streaming_timeouts import StreamIdleTimeoutError
 
 REPO_ROOT = next(
     parent for parent in Path(__file__).resolve().parents if (parent / "tests" / "support").is_dir()
@@ -79,6 +81,54 @@ class _SyntheticGoogleStream:
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+class _IdleGoogleStream:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def __aiter__(self) -> _IdleGoogleStream:
+        return self
+
+    async def __anext__(self) -> google_types.GenerateContentResponse:
+        await asyncio.sleep(1)
+        raise StopAsyncIteration
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class _SimulatedGoogleModels:
+    def __init__(self, stream: _IdleGoogleStream) -> None:
+        self.stream = stream
+
+    async def generate_content_stream(self, **_kwargs: Any) -> _IdleGoogleStream:
+        return self.stream
+
+
+class _SimulatedGoogleClient:
+    def __init__(self, stream: _IdleGoogleStream) -> None:
+        self.aio = type("_Aio", (), {"models": _SimulatedGoogleModels(stream)})()
+
+
+@pytest.mark.asyncio
+async def test_google_stream_enforces_between_event_idle_timeout() -> None:
+    harness = _GoogleReplayHarness()
+    stream = _IdleGoogleStream()
+
+    with pytest.raises(
+        StreamIdleTimeoutError,
+        match="No stream events were received for 0.01 seconds",
+    ):
+        await harness._stream_generate_content(
+            model="gemini-test",
+            contents=[],
+            config=google_types.GenerateContentConfig(),
+            client=cast("Any", _SimulatedGoogleClient(stream)),
+            timeout_seconds=0.01,
+        )
+
+    assert stream.closed
 
 
 def _google_chunk(
