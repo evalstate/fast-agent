@@ -650,6 +650,25 @@ async def test_minimal_bash_rejects_detachment_before_environment_execution(
 
 
 @pytest.mark.asyncio
+async def test_minimal_bash_accepts_bitwise_arithmetic() -> None:
+    environment = _RecordingShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+
+    result = await runtime.call_tool(
+        "Bash",
+        {"command": "echo $((3 & 1))"},
+    )
+
+    assert result.isError is False
+    assert [request.command for request in environment.requests] == ["echo $((3 & 1))"]
+
+
+@pytest.mark.asyncio
 async def test_direct_user_shell_bypasses_model_detachment_policy() -> None:
     environment = _DirectShellEnvironment(stream_output=False)
     runtime = ShellRuntime(
@@ -2305,6 +2324,41 @@ async def test_execute_retained_output_reports_quota(
     assert len(retained_files) == 1
     assert retained_files[0].stat().st_size == 128
     await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_remote_execute_does_not_advertise_host_retained_output(
+    tmp_path: Path,
+) -> None:
+    environment = _DirectShellEnvironment(
+        stream_output=True,
+        stdout="x" * 2000,
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        timeout_seconds=10,
+        output_byte_limit=80,
+        shell_environment=environment,
+        config=Settings(
+            shell_execution=ShellSettings(
+                show_bash=False,
+                retain_truncated_output=True,
+                retained_output_max_bytes=4096,
+                retained_output_temp_directory=tmp_path,
+            )
+        ),
+    )
+
+    result = await runtime.execute({"command": "produce-output"})
+
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "Increase shell_execution.output_byte_limit to retain more." in (
+        result.content[0].text
+    )
+    assert "Use read_text_file for selected line ranges" not in result.content[0].text
+    assert runtime._retained_output_directory is None
 
 
 def test_shell_output_retention_continues_after_result_consumption(

@@ -13,6 +13,7 @@ from shutil import rmtree
 from typing import BinaryIO, Protocol
 
 _FINAL_DRAIN_PAUSE_SECONDS = 0.05
+_FINAL_DRAIN_GRACE_SECONDS = 0.25
 
 
 class SpoolChunkReader(Protocol):
@@ -63,6 +64,7 @@ class ShellOutputSpoolTailer:
         process_exited: SpoolExitCheck,
         *,
         poll_interval: float,
+        final_grace_seconds: float = _FINAL_DRAIN_GRACE_SECONDS,
     ) -> None:
         while True:
             await self._emit_deltas()
@@ -70,9 +72,12 @@ class ShellOutputSpoolTailer:
                 break
             await asyncio.sleep(poll_interval)
 
+        # Give surviving descendants a bounded window to append after the
+        # tracked shell exits, then catch up without repeated empty remote reads.
+        await asyncio.sleep(final_grace_seconds)
         while not await self._emit_deltas():
-            # A surviving descendant may still be appending; yield between
-            # catch-up rounds instead of spinning at full read speed.
+            # A surviving descendant may still be appending; require a bounded
+            # grace period after tracked-process exit before closing the spool.
             await asyncio.sleep(_FINAL_DRAIN_PAUSE_SECONDS)
 
         stdout_tail = self._stdout_decoder.decode(b"", final=True)

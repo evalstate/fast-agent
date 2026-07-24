@@ -258,8 +258,18 @@ class _ManagedSandbox(_Sandbox):
 
 
 class _ManagedPollingFailureSandbox(_ManagedSandbox):
+    def __init__(self, *, auto_complete: bool) -> None:
+        super().__init__(auto_complete=auto_complete)
+        self.process = _ManagedProcessWithoutExitCode()
+
     def processes(self) -> list[_SandboxProcess]:
         raise RuntimeError("process listing failed")
+
+
+class _ManagedProcessWithoutExitCode(_ManagedProcess):
+    def kill(self) -> None:
+        self.kill_count += 1
+        self.running = False
 
 
 class _RecordingCallbacks:
@@ -560,6 +570,27 @@ async def test_managed_execute_polling_failure_kills_remote_process() -> None:
     assert sandbox.process.kill_count == 1
     assert sandbox.process.running is False
     assert sandbox.deleted_output_dirs
+
+
+@pytest.mark.asyncio
+async def test_persistent_managed_execution_failure_deletes_remote_output() -> None:
+    sandbox = _ManagedPollingFailureSandbox(auto_complete=False)
+    environment = HuggingFaceSandboxEnvironment(sandbox=sandbox, cwd="/workspace")
+    await environment.open()
+    request = ShellExecutionRequest(
+        command="sleep 60",
+        terminate_after_idle=False,
+        terminate_on_cancel=False,
+        detach=True,
+    )
+
+    with pytest.raises(RuntimeError, match="process listing failed"):
+        await environment.execute(request)
+
+    assert sandbox.process.kill_count == 1
+    assert sandbox.process.exit_code is None
+    assert sandbox.deleted_output_dirs
+    assert request.output_spool_path is None
 
 
 @pytest.mark.asyncio

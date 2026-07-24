@@ -93,12 +93,17 @@ async def test_persistent_background_output_reaches_poll_buffer(tmp_path: Path) 
     )
 
     try:
-        await runtime.execute(
+        started_result = await runtime.execute(
             {
                 "command": f'"{sys.executable}" "{script}"',
                 "background": True,
             }
         )
+        assert started_result.content
+        assert isinstance(started_result.content[0], TextContent)
+        started_metadata = shell_runtime_module.process_result_metadata(started_result)
+        assert started_metadata is not None
+        assert started_metadata["output_spool_path"] in started_result.content[0].text
         result = await runtime.poll_process(
             {
                 "process_id": "process-1",

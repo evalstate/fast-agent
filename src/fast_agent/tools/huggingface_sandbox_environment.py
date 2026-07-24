@@ -503,6 +503,7 @@ class HuggingFaceSandboxEnvironment:
             chunk_size=_MANAGED_OUTPUT_READ_CHUNK_BYTES,
             chunks_per_poll=_MANAGED_OUTPUT_CHUNKS_PER_POLL,
         )
+        delete_output = request.terminate_on_cancel
         try:
             if callbacks is not None:
                 await callbacks.on_started(process.pid)
@@ -524,10 +525,11 @@ class HuggingFaceSandboxEnvironment:
                 await self._kill_managed_process(sandbox, process)
             raise
         except BaseException:
+            delete_output = True
             await self._kill_managed_process(sandbox, process)
             raise
         finally:
-            if request.terminate_on_cancel or process.exit_code is not None:
+            if delete_output or process.exit_code is not None:
                 await self._delete_managed_output(sandbox, output_dir)
                 request.output_spool_path = None
 

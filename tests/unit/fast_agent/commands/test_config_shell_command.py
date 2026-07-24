@@ -1,9 +1,14 @@
+from pathlib import Path
+
+import pytest
+
+from fast_agent.cli.commands import config as config_command
 from fast_agent.cli.commands.config import (
     _build_shell_form,
     _normalize_shell_updates,
 )
 from fast_agent.config import ShellSettings
-from fast_agent.human_input.form_fields import IntegerField, StringField
+from fast_agent.human_input.form_fields import FormSchema, IntegerField, StringField
 
 
 def test_build_shell_form_uses_minus_one_sentinel_for_show_all_lines() -> None:
@@ -30,6 +35,17 @@ def test_build_shell_form_includes_write_text_file_mode_field() -> None:
     assert mode_field.default == "off"
     assert mode_field.description is not None
     assert "auto|on|off|apply_patch" in mode_field.description
+
+
+def test_build_shell_form_allows_default_retained_output_quota() -> None:
+    current = ShellSettings()
+    schema = _build_shell_form(current)
+
+    field = schema.fields["retained_output_max_bytes"]
+    assert isinstance(field, IntegerField)
+    assert field.default == current.retained_output_max_bytes
+    assert field.maximum is not None
+    assert field.maximum >= current.retained_output_max_bytes
 
 
 def test_normalize_shell_updates_supports_none_zero_and_positive_line_modes() -> None:
@@ -91,6 +107,55 @@ def test_normalize_shell_updates_persists_filesystem_toggles() -> None:
 
     assert updates["enable_read_text_file"] is False
     assert updates["write_text_file_mode"] == "off"
+
+
+def test_normalize_shell_updates_persists_retained_output_settings() -> None:
+    updates = _normalize_shell_updates(
+        {
+            "output_display_lines": -1,
+            "output_byte_limit": 0,
+            "retain_truncated_output": False,
+            "retained_output_max_bytes": 4 * 1024 * 1024,
+            "prefer_local_shell": True,
+        }
+    )
+
+    assert updates["retain_truncated_output"] is False
+    assert updates["retained_output_max_bytes"] == 4 * 1024 * 1024
+    assert updates["prefer_local_shell"] is True
+
+
+def test_shell_config_save_preserves_fields_omitted_from_form(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        """
+shell_execution:
+  tool_profile: native
+  retained_output_temp_directory: /private/spools
+  show_bash: false
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    def submit_defaults(schema: FormSchema, **kwargs: object) -> dict[str, object]:
+        del kwargs
+        return {
+            name: field.default
+            for name, field in schema.fields.items()
+        }
+
+    monkeypatch.setattr(config_command, "form_sync", submit_defaults)
+
+    config_command.config_shell(config_path)
+
+    saved, _ = config_command._load_config(config_path)
+    shell = saved["shell_execution"]
+    assert shell["tool_profile"] == "native"
+    assert shell["retained_output_temp_directory"] == "/private/spools"
+    assert shell["show_bash"] is False
 
 
 def test_normalize_shell_updates_uses_write_text_file_mode() -> None:

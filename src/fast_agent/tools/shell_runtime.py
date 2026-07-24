@@ -203,7 +203,10 @@ class ShellRuntime:
             self._max_process_poll_seconds = shell_config.process_poll_max_wait_seconds
             self._minimal_process_profile = shell_config.tool_profile == "minimal_process"
             self._retained_output_max_bytes = shell_config.retained_output_max_bytes
-            if shell_config.retain_truncated_output:
+            if (
+                shell_config.retain_truncated_output
+                and self.runtime_info().kind == "local"
+            ):
                 parent = shell_config.retained_output_temp_directory
                 if parent is not None:
                     parent.mkdir(mode=0o700, parents=True, exist_ok=True)

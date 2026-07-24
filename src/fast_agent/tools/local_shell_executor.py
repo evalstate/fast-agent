@@ -320,10 +320,14 @@ class LocalShellExecutor:
                     is_windows=plan.is_windows,
                 )
                 try:
-                    await self._drain_output_tasks(
-                        output_tasks,
-                        timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
-                    )
+                    if plan.output_spool is not None:
+                        for task in output_tasks:
+                            await self._cancel_task_if_running(task)
+                    else:
+                        await self._drain_output_tasks(
+                            output_tasks,
+                            timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
+                        )
                 finally:
                     if plan.output_spool is not None:
                         delete_local_output_spool(plan.output_spool)

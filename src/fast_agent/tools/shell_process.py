@@ -45,6 +45,7 @@ class ProcessResultMetadata(TypedDict, total=False):
     total_output_bytes: int
     stdout_bytes: int
     stderr_bytes: int
+    output_spool_path: str
     poll_wait_sec: int
     poll_wake_on_output: bool
     poll_elapsed_seconds: float
@@ -243,6 +244,9 @@ def build_managed_process_result(
     elapsed = time.monotonic() - process.started_at
     if yielded_reason == "background":
         sections.append(f"effective_lifecycle: {process.lifecycle}")
+    output_spool_path = process.request.output_spool_path
+    if output_spool_path is not None:
+        sections.append(f"output_spool_path: {output_spool_path}")
     if not process.task.done():
         if yielded_reason == "background":
             reason = "started in the background"
@@ -299,6 +303,11 @@ def build_managed_process_result(
                 "output_line_count": unread_output_line_count,
                 "total_output_bytes": process.output_state.lifetime_output_bytes,
                 **_process_stream_metadata(process),
+                **(
+                    {"output_spool_path": output_spool_path}
+                    if output_spool_path is not None
+                    else {}
+                ),
             },
         )
         cast("Any", result)._suppress_display = yielded_reason is not None or not output
@@ -324,6 +333,11 @@ def build_managed_process_result(
                 "output_line_count": unread_output_line_count,
                 "total_output_bytes": process.output_state.lifetime_output_bytes,
                 **_process_stream_metadata(process),
+                **(
+                    {"output_spool_path": output_spool_path}
+                    if output_spool_path is not None
+                    else {}
+                ),
             },
         )
 
@@ -347,6 +361,11 @@ def build_managed_process_result(
                 "output_line_count": unread_output_line_count,
                 "total_output_bytes": process.output_state.lifetime_output_bytes,
                 **_process_stream_metadata(process),
+                **(
+                    {"output_spool_path": output_spool_path}
+                    if output_spool_path is not None
+                    else {}
+                ),
             },
         )
 
@@ -375,5 +394,10 @@ def build_managed_process_result(
             "output_line_count": unread_output_line_count,
             "total_output_bytes": process.output_state.lifetime_output_bytes,
             **_process_stream_metadata(process),
+            **(
+                {"output_spool_path": output_spool_path}
+                if output_spool_path is not None
+                else {}
+            ),
         },
     )
