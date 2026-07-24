@@ -148,6 +148,15 @@ class ShellRuntimeCallbacks:
         if self.process is not None:
             self.progress.emit_process_output(self.process)
 
+    async def on_output_activity(self, *, is_stderr: bool) -> None:
+        del is_stderr
+        self.output_state.had_stream_output = True
+        self.output_state.unread_output_activity = True
+        self.last_output_time = time.monotonic()
+        self.activity_event.set()
+        if self.process is not None:
+            self.progress.emit_process_output(self.process)
+
     async def on_idle_warning(self, elapsed: float, remaining: float) -> None:
         if self.display_state.use_live_shell_display:
             console.console.print(

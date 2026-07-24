@@ -27,6 +27,8 @@ from fast_agent.tools.shell_command import classify_shell_detachment
         ("((flags & mask))", False, "none"),
         ("echo $(((3 & 1) | 4))", False, "none"),
         ("echo $(( $(sleep 100 &) + 1 ))", False, "ambiguous"),
+        ('echo "$(server >/dev/null 2>&1 &)"', False, "ambiguous"),
+        ('echo "value: $((3 & 1))"', False, "none"),
         ("echo one && echo two", True, "none"),
         ("echo 'A&B' 2>&1", True, "none"),
         ("curl 'https://example.test/?a=1&b=2'", True, "none"),

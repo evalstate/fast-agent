@@ -25,6 +25,10 @@ class SpoolOutputHandler(Protocol):
     async def __call__(self, text: str) -> None: ...
 
 
+class SpoolOutputActivityHandler(Protocol):
+    async def __call__(self) -> None: ...
+
+
 class SpoolExitCheck(Protocol):
     async def __call__(self) -> bool: ...
 
@@ -46,6 +50,8 @@ class ShellOutputSpoolTailer:
         read_chunk: SpoolChunkReader,
         on_stdout: SpoolOutputHandler,
         on_stderr: SpoolOutputHandler,
+        on_stdout_activity: SpoolOutputActivityHandler | None = None,
+        on_stderr_activity: SpoolOutputActivityHandler | None = None,
         chunk_size: int = 1024 * 1024,
         chunks_per_poll: int = 4,
     ) -> None:
@@ -53,6 +59,8 @@ class ShellOutputSpoolTailer:
         self._read_chunk = read_chunk
         self._on_stdout = on_stdout
         self._on_stderr = on_stderr
+        self._on_stdout_activity = on_stdout_activity
+        self._on_stderr_activity = on_stderr_activity
         self._chunk_size = chunk_size
         self._chunks_per_poll = chunks_per_poll
         self._stdout_offset = 0
@@ -103,15 +111,18 @@ class ShellOutputSpoolTailer:
 
         stdout = self._stdout_decoder.decode(stdout_payload, final=False)
         stderr = self._stderr_decoder.decode(stderr_payload, final=False)
-        if stdout:
-            await self._emit_text(stdout, is_stderr=False)
-        if stderr:
-            await self._emit_text(stderr, is_stderr=True)
+        stdout_emitted = await self._emit_text(stdout, is_stderr=False)
+        stderr_emitted = await self._emit_text(stderr, is_stderr=True)
+        if stdout_payload and not stdout_emitted and self._on_stdout_activity is not None:
+            await self._on_stdout_activity()
+        if stderr_payload and not stderr_emitted and self._on_stderr_activity is not None:
+            await self._on_stderr_activity()
         return stdout_caught_up and stderr_caught_up
 
-    async def _emit_text(self, text: str, *, is_stderr: bool) -> None:
+    async def _emit_text(self, text: str, *, is_stderr: bool) -> bool:
         pending = (self._stderr_pending if is_stderr else self._stdout_pending) + text
         handler = self._on_stderr if is_stderr else self._on_stdout
+        emitted = False
 
         while pending:
             newline_index = pending.find("\n")
@@ -119,17 +130,20 @@ class ShellOutputSpoolTailer:
                 line = pending[: newline_index + 1]
                 pending = pending[newline_index + 1 :]
                 await handler(line)
+                emitted = True
                 continue
             if len(pending) < _MAX_PENDING_LINE_CHARACTERS:
                 break
             line = pending[:_MAX_PENDING_LINE_CHARACTERS]
             pending = pending[_MAX_PENDING_LINE_CHARACTERS:]
             await handler(line)
+            emitted = True
 
         if is_stderr:
             self._stderr_pending = pending
         else:
             self._stdout_pending = pending
+        return emitted
 
     async def _flush_pending(self) -> None:
         if self._stdout_pending:

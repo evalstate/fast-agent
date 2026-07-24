@@ -678,6 +678,7 @@ class ShellRuntime:
         is_stderr: bool,
     ) -> None:
         output_state.had_stream_output = True
+        output_state.unread_output_activity = True
         output_state.output_line_count += 1
         output_state.unread_output_line_count += 1
         output_state.append_stream(text, is_stderr=is_stderr)
@@ -1240,7 +1241,10 @@ class ShellRuntime:
                 return False
 
             process.callbacks.activity_event.clear()
-            pending_output = process.output_state.total_output_bytes > 0
+            pending_output = (
+                process.output_state.total_output_bytes > 0
+                or process.output_state.unread_output_activity
+            )
             seconds_since_last_output = max(
                 now - process.callbacks.last_output_time,
                 0.0,

@@ -25,6 +25,7 @@ class ShellOutputBuffer:
     output_truncated: bool = False
     truncation_notice_printed: bool = False
     had_stream_output: bool = False
+    unread_output_activity: bool = False
     output_line_count: int = 0
     unread_output_line_count: int = 0
     lifetime_output_bytes: int = 0
@@ -111,6 +112,7 @@ class ShellOutputBuffer:
         self.total_output_bytes = 0
         self.output_truncated = False
         self.truncation_notice_printed = False
+        self.unread_output_activity = False
         self.unread_output_line_count = 0
         return combined_output
 

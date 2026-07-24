@@ -163,7 +163,15 @@ def classify_shell_detachment(
     has_background_job = False
     token: list[str] = []
     command_position = True
-    contexts: list[Literal["arithmetic", "arithmetic_group", "shell"]] = []
+    contexts: list[
+        Literal[
+            "arithmetic",
+            "arithmetic_group",
+            "quoted_arithmetic",
+            "quoted_shell",
+            "shell",
+        ]
+    ] = []
     quote: str | None = None
     escaped = False
     index = 0
@@ -186,6 +194,19 @@ def classify_shell_detachment(
         if quote is not None:
             if char == "\\" and quote == '"':
                 escaped = True
+            elif quote == '"' and source.startswith("$((", index):
+                token.append("$((")
+                contexts.append("quoted_arithmetic")
+                quote = None
+                index += 3
+                continue
+            elif quote == '"' and source.startswith("$(", index):
+                finish_word()
+                contexts.append("quoted_shell")
+                quote = None
+                command_position = True
+                index += 2
+                continue
             elif char == quote:
                 quote = None
             else:
@@ -205,7 +226,7 @@ def classify_shell_detachment(
             index = len(source) if newline < 0 else newline
             continue
         context = contexts[-1] if contexts else None
-        if context in {"arithmetic", "arithmetic_group"}:
+        if context in {"arithmetic", "arithmetic_group", "quoted_arithmetic"}:
             if source.startswith("$((", index):
                 token.append("$((")
                 contexts.append("arithmetic")
@@ -223,9 +244,13 @@ def classify_shell_detachment(
                 index += 1
                 continue
             if char == ")":
-                if context == "arithmetic" and source.startswith("))", index):
+                if context in {"arithmetic", "quoted_arithmetic"} and source.startswith(
+                    "))", index
+                ):
                     token.append("))")
                     contexts.pop()
+                    if context == "quoted_arithmetic":
+                        quote = '"'
                     index += 2
                 else:
                     token.append(char)
@@ -256,8 +281,10 @@ def classify_shell_detachment(
             finish_word()
             if char == "(":
                 contexts.append("shell")
-            elif contexts and contexts[-1] == "shell":
-                contexts.pop()
+            elif contexts and contexts[-1] in {"shell", "quoted_shell"}:
+                closed_context = contexts.pop()
+                if closed_context == "quoted_shell":
+                    quote = '"'
             command_position = char == "("
             index += 1
             continue

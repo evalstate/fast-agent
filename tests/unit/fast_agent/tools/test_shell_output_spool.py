@@ -84,6 +84,40 @@ async def test_tailer_emits_complete_lines_across_read_boundaries() -> None:
     assert stderr == ["error one\n", "error two\n"]
 
 
+@pytest.mark.asyncio
+async def test_tailer_notifies_activity_for_partial_output() -> None:
+    contents = {
+        "stdout": bytearray(b"partial"),
+        "stderr": bytearray(),
+    }
+    stdout: list[str] = []
+    activity: list[str] = []
+
+    async def read_chunk(path: str, offset: int, size: int) -> bytes:
+        return bytes(contents[path][offset : offset + size])
+
+    tailer = ShellOutputSpoolTailer(
+        ShellOutputSpoolPaths(
+            directory="spool",
+            stdout="stdout",
+            stderr="stderr",
+        ),
+        read_chunk=read_chunk,
+        on_stdout=lambda text: _append_output(stdout, text),
+        on_stderr=lambda text: _append_output([], text),
+        on_stdout_activity=lambda: _append_output(activity, "stdout"),
+    )
+
+    await tailer.tail_until(
+        lambda: _process_exited(),
+        poll_interval=0,
+        final_grace_seconds=0,
+    )
+
+    assert activity == ["stdout"]
+    assert stdout == ["partial"]
+
+
 async def _append_output(output: list[str], text: str) -> None:
     output.append(text)
 

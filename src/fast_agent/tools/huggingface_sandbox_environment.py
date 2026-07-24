@@ -23,6 +23,7 @@ from fast_agent.tools.execution_environment import (
     ShellExecutionOptions,
     ShellExecutionRequest,
     ShellExecutionResult,
+    ShellOutputActivityCallbacks,
     ShellRuntimeInfo,
 )
 from fast_agent.tools.shell_output_spool import (
@@ -458,6 +459,11 @@ class HuggingFaceSandboxEnvironment:
 
         retained_stdout: list[str] = []
         retained_stderr: list[str] = []
+        activity_callbacks = (
+            callbacks
+            if isinstance(callbacks, ShellOutputActivityCallbacks)
+            else None
+        )
         discovery_deadline = (
             time.monotonic() + _MANAGED_PROCESS_DISCOVERY_TIMEOUT_SECONDS
         )
@@ -473,6 +479,14 @@ class HuggingFaceSandboxEnvironment:
                 retained_stderr.append(text)
             if callbacks is not None:
                 await callbacks.on_stderr(text)
+
+        async def on_stdout_activity() -> None:
+            if activity_callbacks is not None:
+                await activity_callbacks.on_output_activity(is_stderr=False)
+
+        async def on_stderr_activity() -> None:
+            if activity_callbacks is not None:
+                await activity_callbacks.on_output_activity(is_stderr=True)
 
         async def process_exited() -> bool:
             nonlocal process
@@ -500,6 +514,8 @@ class HuggingFaceSandboxEnvironment:
             ),
             on_stdout=on_stdout,
             on_stderr=on_stderr,
+            on_stdout_activity=on_stdout_activity,
+            on_stderr_activity=on_stderr_activity,
             chunk_size=_MANAGED_OUTPUT_READ_CHUNK_BYTES,
             chunks_per_poll=_MANAGED_OUTPUT_CHUNKS_PER_POLL,
         )
@@ -522,6 +538,7 @@ class HuggingFaceSandboxEnvironment:
             )
         except asyncio.CancelledError:
             if request.terminate_on_cancel:
+                delete_output = True
                 await self._kill_managed_process(sandbox, process)
             raise
         except BaseException:

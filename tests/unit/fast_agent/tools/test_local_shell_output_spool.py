@@ -135,6 +135,55 @@ async def test_persistent_background_output_reaches_poll_buffer(tmp_path: Path) 
 
 
 @pytest.mark.asyncio
+async def test_partial_spool_output_wakes_poll_without_counting_a_line(
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "partial.py"
+    script.write_text(
+        "\n".join(
+            [
+                "import sys, time",
+                "time.sleep(0.3)",
+                "sys.stdout.write('partial output')",
+                "sys.stdout.flush()",
+                "time.sleep(30)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger(__name__),
+        working_directory=tmp_path,
+        config=Settings(shell_execution=ShellSettings(show_bash=False)),
+    )
+
+    try:
+        await runtime.execute(
+            {
+                "command": f'"{sys.executable}" "{script}"',
+                "background": True,
+            }
+        )
+        result = await runtime.poll_process(
+            {
+                "process_id": "process-1",
+                "wait_sec": 5,
+                "wake_on_output": True,
+            }
+        )
+
+        metadata = shell_runtime_module.process_result_metadata(result)
+        assert metadata is not None
+        assert metadata["process_yield_reason"] == "output"
+        assert metadata["has_observed_output"] is True
+        assert metadata["output_line_count"] == 0
+    finally:
+        await runtime.terminate_process({"process_id": "process-1"})
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.skipif(platform.system() == "Windows", reason="Unix process groups")
 async def test_cancelling_persistent_execution_leaves_child_and_spool_running(
     tmp_path: Path,

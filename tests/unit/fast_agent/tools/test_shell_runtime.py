@@ -625,6 +625,7 @@ def test_shell_output_retention_product_defaults() -> None:
     [
         "nohup service >service.log 2>&1 &",
         "service &",
+        'echo "$(service >/dev/null 2>&1 &)"',
     ],
 )
 async def test_minimal_bash_rejects_detachment_before_environment_execution(
