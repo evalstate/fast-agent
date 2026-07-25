@@ -508,9 +508,7 @@ class FastAgentReflectionLM:
                     continue
                 for attempt in report.provider_attempts:
                     accumulator.add_turn(attempt)
-                turns.append(
-                    report.final_attempt.model_dump(mode="json", exclude={"raw_usage"})
-                )
+                turns.append(report.final_attempt.model_dump(mode="json", exclude={"raw_usage"}))
         return {
             "turns": turns,
             "summary": accumulator.summary.model_dump(mode="json"),
@@ -673,7 +671,9 @@ class FastAgentSingleTaskAdapter:
             return None
         return self._pending_gepa_eval_metrics.popleft()
 
-    def __call__(self, candidate: Mapping[str, str], example: Any | None = None) -> tuple[float, Any]:
+    def __call__(
+        self, candidate: Mapping[str, str], example: Any | None = None
+    ) -> tuple[float, Any]:
         self._evaluations += 1
         candidate_run = self.run.candidate()
         candidate_dict = dict(candidate)
@@ -681,7 +681,9 @@ class FastAgentSingleTaskAdapter:
 
         eval_dir = candidate_run.path
         built_input = self.input_builder(candidate_dict, example)
-        input_row = dict(built_input) if isinstance(built_input, Mapping) else {"prompt": str(built_input)}
+        input_row = (
+            dict(built_input) if isinstance(built_input, Mapping) else {"prompt": str(built_input)}
+        )
         input_path = eval_dir / "input.jsonl"
         _write_jsonl(input_path, [input_row])
 
@@ -912,7 +914,9 @@ class FastAgentGEPATrackioCallback:
         self._pending_gepa_eval_contexts: deque[dict[str, NumericMetric]] = deque()
 
     def on_evaluation_end(self, event: Mapping[str, Any]) -> None:
-        if self.eval_adapter is None or not callable(getattr(self.eval_adapter, "pop_pending_gepa_eval_metrics", None)):
+        if self.eval_adapter is None or not callable(
+            getattr(self.eval_adapter, "pop_pending_gepa_eval_metrics", None)
+        ):
             return
         context = _evaluation_event_metrics(event, include_context=self.include_gepa_context)
         if "gepa/total_metric_calls" in context:
@@ -1153,8 +1157,8 @@ def _row_wise_eval_metrics(
                             else duration_mean_ms
                         )
                         if generation_ms > 0:
-                            metrics["fast_agent/eval/usage/completion_tokens_per_second"] = output_tokens / (
-                                generation_ms / 1000
+                            metrics["fast_agent/eval/usage/completion_tokens_per_second"] = (
+                                output_tokens / (generation_ms / 1000)
                             )
     cache = batch_summary.get("cache")
     if isinstance(cache, Mapping):
@@ -1206,9 +1210,7 @@ def _reflection_usage_metrics(
                     value = completion.get(field)
                     if _is_numeric_metric(value):
                         name = "completion_tokens" if field == "total" else "reasoning_tokens"
-                        metrics[f"fast_agent/reflection/usage/{name}_per_turn"] = (
-                            value / turn_count
-                        )
+                        metrics[f"fast_agent/reflection/usage/{name}_per_turn"] = value / turn_count
     return metrics
 
 

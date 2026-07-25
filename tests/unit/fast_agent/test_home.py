@@ -34,9 +34,7 @@ def test_resolve_home_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert home == FastAgentHome((tmp_path / "from-cli").resolve(), "cli")
 
 
-def test_resolve_home_uses_fast_agent_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_resolve_home_uses_fast_agent_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FAST_AGENT_HOME", "from-fast-agent-home")
 
     home = resolve_fast_agent_home(cwd=tmp_path)

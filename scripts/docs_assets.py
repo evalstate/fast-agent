@@ -293,7 +293,9 @@ def _asciinema_index() -> dict[str, object]:
             if header and cols is not None and header.get("width") != cols:
                 problems.append(f"{embed['page']} cols {cols} != cast width {header.get('width')}")
             if header and rows is not None and header.get("height") != rows:
-                problems.append(f"{embed['page']} rows {rows} != cast height {header.get('height')}")
+                problems.append(
+                    f"{embed['page']} rows {rows} != cast height {header.get('height')}"
+                )
             if header and idle_time_limit is not None:
                 header_idle = header.get("idle_time_limit")
                 if header_idle is not None and float(header_idle) != float(idle_time_limit):
@@ -694,10 +696,7 @@ def list_assets() -> int:
         embedded_count = len(cast["embedded"]) if isinstance(cast["embedded"], list) else 0
         recorder = cast["recorder"] or "missing-recorder"
         status = "present" if cast["present"] else "missing"
-        print(
-            f"  {recorder:<32} {status:<7} embeds={embedded_count:<2} "
-            f"{cast['path']}"
-        )
+        print(f"  {recorder:<32} {status:<7} embeds={embedded_count:<2} {cast['path']}")
     print(f"\nIndex: {ASCIINEMA_INDEX.relative_to(ROOT)}")
     return 0
 

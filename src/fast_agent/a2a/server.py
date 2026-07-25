@@ -620,9 +620,7 @@ class AgentA2AServer:
         self._port = port
         self._oauth_provider = _get_a2a_oauth_provider()
         self._primary_agent_name = _select_primary_agent(primary_instance)
-        push_notifications_enabled = (
-            push_config_store is not None and push_sender is not None
-        )
+        push_notifications_enabled = push_config_store is not None and push_sender is not None
         self.agent_card = _build_agent_card(
             primary_instance=primary_instance,
             server_name=server_name,

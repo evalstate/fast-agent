@@ -106,8 +106,7 @@ def test_agent_plugin_command_overrides_global_completion() -> None:
 def test_plugin_argument_completion_resolves_agent_relative_completer(tmp_path) -> None:
     command_file = tmp_path / "commands.py"
     command_file.write_text(
-        "async def complete(ctx):\n"
-        "    return ['alpha']\n",
+        "async def complete(ctx):\n    return ['alpha']\n",
         encoding="utf-8",
     )
     cwd = tmp_path / "cwd"

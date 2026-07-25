@@ -197,8 +197,8 @@ def check() -> None:
         "[report.pdf](https://example.com/report.pdf) (application/pdf)\n"
         "```json\n"
         "{\n"
-        "  \"ok\": true,\n"
-        "  \"source\": \"fake-a2a-server\"\n"
+        '  "ok": true,\n'
+        '  "source": "fake-a2a-server"\n'
         "}\n"
         "```\n"
         "[note.txt: 3 bytes text/plain]\n"
@@ -213,7 +213,13 @@ def check() -> None:
         ASSETS / "a2a-server-card.cast",
         ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player" / "asciinema-player.css",
         ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player" / "catppuccin.css",
-        ROOT / "docs" / "docs" / "assets" / "vendor" / "asciinema-player" / "asciinema-player.min.js",
+        ROOT
+        / "docs"
+        / "docs"
+        / "assets"
+        / "vendor"
+        / "asciinema-player"
+        / "asciinema-player.min.js",
     ]
     for asset in required_assets:
         if not asset.exists():
@@ -245,9 +251,7 @@ def check() -> None:
         asset_page_text = asset_page.read_text(encoding="utf-8") if asset_page.exists() else ""
         for required_text in required_texts:
             if required_text not in asset_page_text:
-                missing_or_changed.append(
-                    f"{asset_page.relative_to(ROOT)} missing {required_text}"
-                )
+                missing_or_changed.append(f"{asset_page.relative_to(ROOT)} missing {required_text}")
         for stale_text in [
             "AsciinemaPlayer.create",
             "a2a-terminal-demo",

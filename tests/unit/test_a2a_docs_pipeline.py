@@ -23,7 +23,7 @@ def test_a2a_getting_started_includes_generated_snippets() -> None:
     for filename in [
         "start-fake-server.sh",
     ]:
-        assert f'docs/docs/a2a/snippets/{filename}' in text
+        assert f"docs/docs/a2a/snippets/{filename}" in text
 
 
 def test_a2a_client_includes_generated_snippets() -> None:
@@ -36,7 +36,7 @@ def test_a2a_client_includes_generated_snippets() -> None:
         "cli-files-command.sh",
         "cli-files-output.txt",
     ]:
-        assert f'docs/docs/a2a/snippets/{filename}' in text
+        assert f"docs/docs/a2a/snippets/{filename}" in text
 
 
 def test_a2a_client_server_cast_assets_are_present() -> None:
@@ -63,10 +63,7 @@ def test_a2a_getting_started_does_not_embed_stale_streaming_recording() -> None:
 def test_a2a_client_server_pages_embed_recordings() -> None:
     client = (ROOT / "docs" / "docs" / "a2a" / "client.md").read_text(encoding="utf-8")
     server = (ROOT / "docs" / "docs" / "a2a" / "server.md").read_text(encoding="utf-8")
-    assert (
-        'data-fa-asciinema-cast="../../assets/a2a/a2a-client-input-required.cast"'
-        in client
-    )
+    assert 'data-fa-asciinema-cast="../../assets/a2a/a2a-client-input-required.cast"' in client
     assert 'data-fa-asciinema-cast="../../assets/a2a/a2a-server-card.cast"' in server
     assert "AsciinemaPlayer.create" not in client
     assert "AsciinemaPlayer.create" not in server

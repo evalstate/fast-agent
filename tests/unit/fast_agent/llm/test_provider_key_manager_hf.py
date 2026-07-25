@@ -19,9 +19,7 @@ from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 
-class _HuggingFaceStubLLM(
-    FastAgentLLM[PromptMessageExtended, PromptMessageExtended]
-):
+class _HuggingFaceStubLLM(FastAgentLLM[PromptMessageExtended, PromptMessageExtended]):
     def __init__(self, *, api_key: str) -> None:
         super().__init__(provider=Provider.HUGGINGFACE, api_key=api_key)
 
@@ -220,9 +218,7 @@ def test_serve_oauth_guard_does_not_affect_other_providers():
     original_oauth = _set_serve_oauth("huggingface")
     os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test"
     try:
-        assert (
-            ProviderKeyManager.get_api_key("anthropic", Settings()) == "sk-ant-test"
-        )
+        assert ProviderKeyManager.get_api_key("anthropic", Settings()) == "sk-ant-test"
     finally:
         os.environ.pop("ANTHROPIC_API_KEY", None)
         _set_serve_oauth(original_oauth)

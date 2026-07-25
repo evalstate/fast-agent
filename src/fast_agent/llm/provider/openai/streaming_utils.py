@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
@@ -8,6 +9,58 @@ if TYPE_CHECKING:
     from fast_agent.core.logging.logger import Logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
+
+CompletedOutputItem = tuple[int | None, int, Any]
+"""An item observed on ``response.output_item.done``: (output_index, sequence, item)."""
+
+
+def record_completed_output_item(
+    completed_output_items: list[CompletedOutputItem],
+    event: Any,
+    *,
+    fallback_sequence: int,
+) -> None:
+    """Remember a completed output item so an empty terminal payload can be rebuilt.
+
+    ``output_index`` and ``sequence_number`` are both optional on the wire, so
+    ``fallback_sequence`` (a stream-position counter) keeps ordering deterministic
+    when the provider omits them.
+    """
+    item = getattr(event, "item", None)
+    if item is None:
+        return
+
+    output_index = getattr(event, "output_index", None)
+    sequence_number = getattr(event, "sequence_number", None)
+    completed_output_items.append(
+        (
+            output_index if isinstance(output_index, int) else None,
+            sequence_number if isinstance(sequence_number, int) else fallback_sequence,
+            item,
+        )
+    )
+
+
+def _reconstruct_empty_response_output(
+    final_response: Any,
+    completed_output_items: Sequence[CompletedOutputItem],
+) -> tuple[Any, bool]:
+    """Rebuild ``output`` from streamed items when the terminal payload arrives empty.
+
+    Returns the (possibly copied) response and whether reconstruction happened.
+    """
+    if getattr(final_response, "output", None) or not completed_output_items:
+        return final_response, False
+
+    reconstructed = copy.copy(final_response)
+    reconstructed.output = [
+        item
+        for _output_index, _sequence, item in sorted(
+            completed_output_items,
+            key=lambda entry: (entry[0] is None, entry[0] or 0, entry[1]),
+        )
+    ]
+    return reconstructed, True
 
 
 class ToolFallbackEmitter(Protocol):
@@ -93,6 +146,7 @@ async def fetch_and_finalize_stream_response(
     logger: Logger,
     notified_tool_indices: set[int],
     emit_tool_fallback: ToolFallbackEmitter,
+    completed_output_items: Sequence[CompletedOutputItem] = (),
 ) -> Any:
     if final_response is None:
         try:
@@ -103,6 +157,25 @@ async def fetch_and_finalize_stream_response(
             else:
                 logger.warning(fetch_failure_message, data={"error": str(exc)})
             raise
+
+    final_response, reconstructed_output = _reconstruct_empty_response_output(
+        final_response, completed_output_items
+    )
+    if reconstructed_output:
+        logger.warning(
+            "Reconstructed empty terminal Responses output from completed stream items",
+            data={
+                "model": model,
+                "terminal_status": getattr(final_response, "status", None),
+                "completed_output_item_count": len(completed_output_items),
+                "completed_output_item_types": sorted(
+                    {
+                        str(getattr(item, "type", "unknown"))
+                        for _output_index, _sequence, item in completed_output_items
+                    }
+                ),
+            },
+        )
 
     validate_incomplete_tool_entries(
         incomplete_entries=incomplete_entries,

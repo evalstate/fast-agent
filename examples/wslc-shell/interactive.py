@@ -32,7 +32,7 @@ fast = FastAgent(
     ),
     shell=True,
     default=True,
-    model="codexresponses.gpt-5.4"
+    model="codexresponses.gpt-5.4",
 )
 async def wslc_agent() -> None:
     pass

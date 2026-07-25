@@ -9,12 +9,13 @@ from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 if TYPE_CHECKING:
     from acp.schema import StopReason
 else:
-    StopReason = Literal["end_turn", "refusal", "max_tokens", "cancelled"]
+    StopReason = Literal["end_turn", "refusal", "max_tokens", "max_turn_requests", "cancelled"]
 
 
 END_TURN: StopReason = "end_turn"
 REFUSAL: StopReason = "refusal"
 MAX_TOKENS: StopReason = "max_tokens"
+MAX_TURN_REQUESTS: StopReason = "max_turn_requests"
 CANCELLED: StopReason = "cancelled"
 
 
@@ -66,6 +67,7 @@ def map_llm_stop_reason_to_acp(llm_stop_reason: LlmStopReason | None) -> StopRea
         LlmStopReason.TIMEOUT.value: REFUSAL,
         LlmStopReason.SAFETY.value: REFUSAL,
         LlmStopReason.CANCELLED.value: CANCELLED,
+        LlmStopReason.MAX_ITERATIONS.value: MAX_TURN_REQUESTS,
     }
 
     return mapping.get(key, END_TURN)

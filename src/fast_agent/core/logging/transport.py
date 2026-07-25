@@ -8,10 +8,10 @@ import asyncio
 import json
 import traceback
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Mapping
 from contextlib import suppress
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import aiohttp
 from opentelemetry import trace
@@ -25,6 +25,24 @@ from fast_agent.core.logging.json_serializer import JSONSerializer
 from fast_agent.core.logging.listeners import EventListener, LifecycleAwareListener
 from fast_agent.ui.console import console
 from fast_agent.utils.async_utils import ensure_event_loop, gather_with_cancel
+
+
+def flatten_event_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Lift a nested ``data=`` payload to the top level for serialization.
+
+    Callers log structured payloads as ``logger.error(msg, data={...})``, which the
+    Logger keeps nested under a ``data`` key so in-process listeners can continue to
+    match on it (see ``EventFilter`` progress detection). Sinks that serialize the
+    event for humans or external systems want the flat shape instead. Directly
+    supplied keys win over nested ones on collision.
+    """
+    nested = data.get("data")
+    if not isinstance(nested, Mapping):
+        return data
+
+    flattened = dict(nested)
+    flattened.update((key, value) for key, value in data.items() if key != "data")
+    return flattened
 
 
 class EventTransport(Protocol):
@@ -103,7 +121,7 @@ class ConsoleTransport(FilteredEventTransport):
 
         # Print additional data as JSON if available
         if event.data:
-            serialized_data = self._serializer(event.data)
+            serialized_data = self._serializer(flatten_event_data(event.data))
             output_console.print(JSON.from_data(serialized_data))
 
 
@@ -154,7 +172,7 @@ class FileTransport(FilteredEventTransport):
 
         # Add event data if present
         if event.data:
-            log_entry["data"] = self._serializer(event.data)
+            log_entry["data"] = self._serializer(flatten_event_data(event.data))
 
         try:
             with self.filepath.open(mode=self.mode, encoding=self.encoding) as f:
@@ -240,7 +258,7 @@ class HTTPTransport(FilteredEventTransport):
                     "name": event.name,
                     "namespace": event.namespace,
                     "message": event.message,
-                    "data": self._serializer(event.data),
+                    "data": self._serializer(flatten_event_data(event.data)),
                     "trace_id": event.trace_id,
                     "span_id": event.span_id,
                     "context": event.context.model_dump() if event.context else None,

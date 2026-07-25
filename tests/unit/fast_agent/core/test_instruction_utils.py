@@ -181,7 +181,10 @@ def test_enrich_environment_context_describes_active_execution_environment() -> 
     assert context["executionEnvironmentCwd"] == "/workspace"
     assert "Workspace root: /workspace" in context["env"]
     assert "/host/project" not in context["env"]
-    assert "Execution environment: hf-gpu remote huggingface (shell: sh, cwd: /workspace)" in context["env"]
+    assert (
+        "Execution environment: hf-gpu remote huggingface (shell: sh, cwd: /workspace)"
+        in context["env"]
+    )
     assert (
         f"Fast-agent runtime: {platform.python_implementation()} {platform.python_version()}"
         in context["env"]

@@ -19,7 +19,11 @@ from fast_agent.llm.provider.openai.responses_events import (
     is_responses_terminal_event,
     is_responses_text_delta_event,
 )
-from fast_agent.llm.provider.openai.streaming_utils import fetch_and_finalize_stream_response
+from fast_agent.llm.provider.openai.streaming_utils import (
+    CompletedOutputItem,
+    fetch_and_finalize_stream_response,
+    record_completed_output_item,
+)
 from fast_agent.llm.provider.openai.tool_event_helpers import (
     ResponsesLifecycleEventInfo,
     ToolStreamLifecycleEvent,
@@ -631,10 +635,19 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         notified_tool_indices: set[int] = set()
         notified_tool_use_ids: set[str] = set()
         final_response: Any | None = None
+        completed_output_items: list[CompletedOutputItem] = []
+        stream_event_index = 0
 
         async for event in stream:
             _save_stream_chunk(capture_filename, event)
             event_type = getattr(event, "type", None)
+            if event_type == "response.output_item.done":
+                record_completed_output_item(
+                    completed_output_items,
+                    event,
+                    fallback_sequence=stream_event_index,
+                )
+            stream_event_index += 1
 
             handled, reasoning_chars = await self._handle_responses_reasoning_delta(
                 event=event,
@@ -697,17 +710,14 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             logger=self.logger,
             notified_tool_indices=notified_tool_indices,
             emit_tool_fallback=emit_tool_fallback,
+            completed_output_items=completed_output_items,
         )
         self._emit_deferred_mcp_result_notifications(
             final_response=final_response,
             tool_state=tool_state,
             model=model,
         )
-        reasoning_parts = [
-            part.text()
-            for part in reasoning_summary_parts.values()
-            if part.text()
-        ]
+        reasoning_parts = [part.text() for part in reasoning_summary_parts.values() if part.text()]
         if reasoning_parts:
             summary_text = join_reasoning_summary_parts(reasoning_parts)
             return final_response, [summary_text] if summary_text else []

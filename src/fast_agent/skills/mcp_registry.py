@@ -991,4 +991,3 @@ def _safe_install_dir_name(name: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
         raise ValueError(f"Invalid MCP skill name for local install: {name}")
     return name
-

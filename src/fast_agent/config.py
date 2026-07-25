@@ -1875,7 +1875,9 @@ def load_layered_model_settings(
 
     resolved_home = resolve_fast_agent_home(cwd=start_path, cli_override=home)
     project_config = find_config_in_directory(start_path)
-    home_config = find_config_in_directory(resolved_home.path) if resolved_home is not None else None
+    home_config = (
+        find_config_in_directory(resolved_home.path) if resolved_home is not None else None
+    )
 
     config_paths: list[Path] = []
     for config_path in (project_config, home_config):
@@ -2195,7 +2197,10 @@ class Settings(BaseSettings):
             if not name.strip():
                 raise ValueError("Environment names must be non-empty.")
 
-        if self.default_environment != "local" and self.default_environment not in self.environments:
+        if (
+            self.default_environment != "local"
+            and self.default_environment not in self.environments
+        ):
             valid_names = sorted({"local", *self.environments})
             choices = ", ".join(valid_names)
             raise ValueError(
@@ -2203,6 +2208,7 @@ class Settings(BaseSettings):
                 f"Valid environments: {choices}"
             )
         return self
+
 
 # Global settings object
 _settings: Settings | None = None

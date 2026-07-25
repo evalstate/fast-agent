@@ -109,7 +109,9 @@ class LocalEnvironmentSpec(BaseModel):
 class DockerEnvironmentSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    type: Literal["docker"] = Field(description="Run shell commands in Docker or a Docker-compatible CLI.")
+    type: Literal["docker"] = Field(
+        description="Run shell commands in Docker or a Docker-compatible CLI."
+    )
     image: str | None = Field(
         default=None,
         description="Container image to start. Provide exactly one of `image` or `container`.",
@@ -177,7 +179,9 @@ class DockerEnvironmentSpec(BaseModel):
 class HuggingFaceEnvironmentSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    type: Literal["huggingface"] = Field(description="Run shell commands in a Hugging Face Sandbox.")
+    type: Literal["huggingface"] = Field(
+        description="Run shell commands in a Hugging Face Sandbox."
+    )
     image: str = Field(
         default="python:3.12",
         description="Sandbox container image.",
@@ -316,8 +320,7 @@ def _split_huggingface_mount_target(body: str) -> tuple[str, str, bool | None]:
     index = body.rfind(":/")
     if index == -1:
         raise ValueError(
-            "Hugging Face volume mount is missing a mount path; expected "
-            "'hf://...:/mount/path'."
+            "Hugging Face volume mount is missing a mount path; expected 'hf://...:/mount/path'."
         )
 
     location = body[:index]
@@ -335,7 +338,9 @@ def _split_huggingface_mount_type(
     prefix, separator, remainder = location.partition("/")
     if not separator:
         if prefix in _HF_VOLUME_TYPE_PREFIXES:
-            raise ValueError(f"Hugging Face volume mount is missing an identifier after '{prefix}'.")
+            raise ValueError(
+                f"Hugging Face volume mount is missing an identifier after '{prefix}'."
+            )
         if prefix in _HF_VOLUME_TYPE_SINGULARS:
             plural = _HF_VOLUME_TYPE_SINGULARS[prefix]
             raise ValueError(f"Hugging Face volume type must be plural; use 'hf://{plural}/...'.")
@@ -344,7 +349,9 @@ def _split_huggingface_mount_type(
     mount_type = _HF_VOLUME_TYPE_PREFIXES.get(prefix)
     if mount_type is not None:
         if not remainder:
-            raise ValueError(f"Hugging Face volume mount is missing an identifier after '{prefix}'.")
+            raise ValueError(
+                f"Hugging Face volume mount is missing an identifier after '{prefix}'."
+            )
         return mount_type, remainder
     if prefix in _HF_VOLUME_TYPE_SINGULARS:
         plural = _HF_VOLUME_TYPE_SINGULARS[prefix]

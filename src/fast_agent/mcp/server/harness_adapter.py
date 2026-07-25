@@ -409,7 +409,9 @@ class HarnessMCPAdapter:
         )
 
     def tool_description(self) -> str:
-        description = self._options.tool_description or "Send a message to the fast-agent application."
+        description = (
+            self._options.tool_description or "Send a message to the fast-agent application."
+        )
         return description.replace("{agent}", self._options.default_agent or "agent")
 
     @staticmethod

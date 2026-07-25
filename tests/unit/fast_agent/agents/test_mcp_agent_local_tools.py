@@ -1555,10 +1555,10 @@ async def test_shell_tool_use_turn_hides_bottom_bar_and_mentions_shell_access() 
 
     tool_calls = {
         "1": CallToolRequest(
-                params=CallToolRequestParams(
-                    name="Bash",
-                    arguments={"command": "pwd"},
-                )
+            params=CallToolRequestParams(
+                name="Bash",
+                arguments={"command": "pwd"},
+            )
         )
     }
     message = PromptMessageExtended(

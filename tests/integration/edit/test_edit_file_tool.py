@@ -89,9 +89,7 @@ async def test_edit_file_replaces_unique_multiline_match_and_returns_structured_
         payload = _result_payload(result)
 
         assert result.isError is False
-        assert _read_text(project_file) == (
-            'def hello():\n    print("hello")\n'
-        )
+        assert _read_text(project_file) == ('def hello():\n    print("hello")\n')
         assert payload["success"] is True
         assert payload["path"] == "src/utils.py"
         assert payload["line_start"] == 1

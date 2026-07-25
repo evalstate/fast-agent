@@ -36,11 +36,7 @@ def _poll_request(
 ) -> PromptMessageExtended:
     return PromptMessageExtended(
         role="assistant",
-        content=(
-            [TextContent(type="text", text=narration)]
-            if narration is not None
-            else []
-        ),
+        content=([TextContent(type="text", text=narration)] if narration is not None else []),
         tool_calls={
             f"call-{index}": CallToolRequest(
                 method="tools/call",
@@ -103,9 +99,7 @@ def _history_before_terminal(polls: int) -> list[PromptMessageExtended]:
         )
     ]
     for index in range(1, polls):
-        history.extend(
-            [_poll_request(index), _poll_result(index, output_line_count=0)]
-        )
+        history.extend([_poll_request(index), _poll_result(index, output_line_count=0)])
     history.append(_poll_request(polls))
     return history
 
@@ -248,11 +242,7 @@ def _add_usage(
         FAST_AGENT_USAGE: [
             TextContent(
                 type="text",
-                text=json.dumps(
-                    {
-                        "provider_attempts": [attempt]
-                    }
-                ),
+                text=json.dumps({"provider_attempts": [attempt]}),
             )
         ],
         FAST_AGENT_TIMING: [
@@ -349,9 +339,7 @@ def test_folds_successful_poll_suffix_and_retains_terminal_pair() -> None:
     removed_call_ids: list[object] = []
     for exchange in removed_exchanges:
         assert isinstance(exchange, dict)
-        exchange_mapping = {
-            str(key): value for key, value in exchange.items()
-        }
+        exchange_mapping = {str(key): value for key, value in exchange.items()}
         removed_call_ids.append(exchange_mapping["call_id"])
     assert removed_call_ids == [
         "call-1",
@@ -364,14 +352,10 @@ def test_folds_successful_poll_suffix_and_retains_terminal_pair() -> None:
     assert len(retained_exchanges) == 1
     retained_exchange = retained_exchanges[0]
     assert isinstance(retained_exchange, dict)
-    retained_exchange_mapping = {
-        str(key): value for key, value in retained_exchange.items()
-    }
+    retained_exchange_mapping = {str(key): value for key, value in retained_exchange.items()}
     assert retained_exchange_mapping["call_id"] == "call-5"
     metadata_without_audit = {
-        key: value
-        for key, value in folded.metadata.items()
-        if key not in {"audit", "folded_usage"}
+        key: value for key, value in folded.metadata.items() if key not in {"audit", "folded_usage"}
     }
     assert metadata_without_audit == {
         "process_id": "process-1",
@@ -391,9 +375,7 @@ def test_folds_successful_poll_suffix_and_retains_terminal_pair() -> None:
     # (poll counts and per-turn wait/yield data) and reports token fields as None.
     folded_usage = folded.metadata["folded_usage"]
     assert isinstance(folded_usage, dict)
-    folded_usage_mapping = {
-        str(key): value for key, value in folded_usage.items()
-    }
+    folded_usage_mapping = {str(key): value for key, value in folded_usage.items()}
     assert folded_usage_mapping["llm_calls"] == 4
     assert folded_usage_mapping["provider_attempts"] is None
     assert folded_usage_mapping["prompt_tokens"] is None
@@ -403,9 +385,7 @@ def test_folds_successful_poll_suffix_and_retains_terminal_pair() -> None:
     turn_mappings: list[dict[str, object]] = []
     for turn in turns:
         assert isinstance(turn, dict)
-        turn_mappings.append(
-            {str(key): value for key, value in turn.items()}
-        )
+        turn_mappings.append({str(key): value for key, value in turn.items()})
     assert all(turn["wait_sec"] == 30 for turn in turn_mappings)
     assert all(turn["prompt_tokens"] is None for turn in turn_mappings)
     summary_result = _summary_result(folded)
@@ -436,9 +416,7 @@ def test_folding_uses_effective_wait_when_poll_request_omits_wait() -> None:
     assert folded.metadata["requested_waits"] == {45: 3}
     folded_usage = folded.metadata["folded_usage"]
     assert isinstance(folded_usage, dict)
-    folded_usage_mapping = {
-        str(key): value for key, value in folded_usage.items()
-    }
+    folded_usage_mapping = {str(key): value for key, value in folded_usage.items()}
     turns = folded_usage_mapping["turns"]
     assert isinstance(turns, list)
     for turn in turns:
@@ -494,14 +472,11 @@ def test_failed_process_audit_restores_original_poll_order() -> None:
     poll_steps = [
         step
         for step in trajectory.steps
-        if step.tool_calls
-        and step.tool_calls[0].function_name == "poll_process"
+        if step.tool_calls and step.tool_calls[0].function_name == "poll_process"
     ]
-    assert [
-        step.tool_calls[0].tool_call_id
-        for step in poll_steps
-        if step.tool_calls
-    ] == [f"call-{index}" for index in range(1, 7)]
+    assert [step.tool_calls[0].tool_call_id for step in poll_steps if step.tool_calls] == [
+        f"call-{index}" for index in range(1, 7)
+    ]
     boundary = trajectory.steps[7]
     assert boundary.extra is not None
     context_management = boundary.extra["context_management"]
@@ -585,9 +560,7 @@ def test_quiet_polls_after_resource_observation_fold_without_removing_warning() 
         warning,
     ]
     for index in range(2, 5):
-        history.extend(
-            [_poll_request(index), _poll_result(index, output_line_count=0)]
-        )
+        history.extend([_poll_request(index), _poll_result(index, output_line_count=0)])
     history.append(_poll_request(5))
 
     folded = fold_completed_process_poll_history(
@@ -610,9 +583,7 @@ def test_narrated_poll_suffix_folds_and_preserves_removed_updates_exactly() -> N
         "This retained update must not be archived.",
     ]
     for index, narration in enumerate(narrations, start=1):
-        history[index * 2 - 1].content = [
-            TextContent(type="text", text=narration)
-        ]
+        history[index * 2 - 1].content = [TextContent(type="text", text=narration)]
 
     folded = fold_completed_process_poll_history(
         history,
@@ -641,14 +612,10 @@ def test_narrated_poll_suffix_folds_and_preserves_removed_updates_exactly() -> N
     removed_narrations: list[str] = []
     for exchange in removed_exchanges:
         assert isinstance(exchange, dict)
-        exchange_mapping = {
-            str(key): value for key, value in exchange.items()
-        }
+        exchange_mapping = {str(key): value for key, value in exchange.items()}
         request = exchange_mapping["request"]
         assert isinstance(request, dict)
-        request_mapping = {
-            str(key): value for key, value in request.items()
-        }
+        request_mapping = {str(key): value for key, value in request.items()}
         content = request_mapping["content"]
         assert isinstance(content, list)
         block = content[0]
@@ -854,9 +821,7 @@ def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
     assert first_turn_mapping["output_bytes_since_last_poll"] == 0
     assert first_turn_mapping["seconds_since_last_output"] == 30.0
     assert first_turn_mapping["has_observed_output"] is False
-    fold_blocks = (folded.tool_message.channels or {})[
-        FAST_AGENT_PROCESS_POLL_FOLD
-    ]
+    fold_blocks = (folded.tool_message.channels or {})[FAST_AGENT_PROCESS_POLL_FOLD]
     assert isinstance(fold_blocks[0], TextContent)
 
     final = PromptMessageExtended(role="assistant")
@@ -886,9 +851,7 @@ def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
         "process_poll_context_rewrites": 1,
     }
     assert len(trajectory.steps) == 7
-    step_metrics = [
-        step.metrics for step in trajectory.steps if step.metrics is not None
-    ]
+    step_metrics = [step.metrics for step in trajectory.steps if step.metrics is not None]
     assert sum(metric.prompt_tokens or 0 for metric in step_metrics) == 515
     assert sum(metric.completion_tokens or 0 for metric in step_metrics) == 65
     assert sum(metric.cached_tokens or 0 for metric in step_metrics) == 400
@@ -896,25 +859,18 @@ def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
     poll_steps = trajectory.steps[1:5]
     assert [step.llm_call_count for step in poll_steps] == [1, 1, 1, 1]
     assert [
-        step.metrics.prompt_tokens if step.metrics is not None else None
-        for step in poll_steps
+        step.metrics.prompt_tokens if step.metrics is not None else None for step in poll_steps
     ] == [101, 102, 103, 104]
     assert [
-        step.tool_calls[0].function_name if step.tool_calls else None
-        for step in poll_steps
+        step.tool_calls[0].function_name if step.tool_calls else None for step in poll_steps
     ] == ["poll_process"] * 4
     assert [
-        step.observation.results[0].content
-        if step.observation is not None
-        else None
+        step.observation.results[0].content if step.observation is not None else None
         for step in poll_steps
     ] == ["poll output 1", "poll output 2", "poll output 3", "poll output 4"]
     assert [
-        step.observation.results[0].extra["process_metadata"][
-            "process_yield_reason"
-        ]
-        if step.observation is not None
-        and step.observation.results[0].extra is not None
+        step.observation.results[0].extra["process_metadata"]["process_yield_reason"]
+        if step.observation is not None and step.observation.results[0].extra is not None
         else None
         for step in poll_steps
     ] == ["deadline", "deadline", "deadline", "completion"]
@@ -933,9 +889,7 @@ def test_fold_archives_exact_usage_and_atif_restores_totals() -> None:
     }
     assert boundary.observation is not None
     assert "3 earlier polls folded" in str(boundary.observation.results[0].content)
-    assert "No output observed for 120.0 seconds" in str(
-        boundary.observation.results[0].content
-    )
+    assert "No output observed for 120.0 seconds" in str(boundary.observation.results[0].content)
     assert trajectory.notes is not None
     assert "preserve every original LLM/tool step" in trajectory.notes
 
@@ -1010,9 +964,7 @@ def test_fold_keeps_partial_usage_when_one_poll_is_missing_usage() -> None:
     turn_mappings: list[dict[str, object]] = []
     for turn in turns:
         assert isinstance(turn, dict)
-        turn_mappings.append(
-            {str(key): value for key, value in turn.items()}
-        )
+        turn_mappings.append({str(key): value for key, value in turn.items()})
     assert [turn["prompt_tokens"] for turn in turn_mappings] == [101, None, 103]
     assert [turn["cost_usd"] for turn in turn_mappings] == [0.01, None, 0.03]
     assert [turn["provider_attempts"] for turn in turn_mappings] == [1, None, 1]
@@ -1030,9 +982,7 @@ def test_atif_rejects_fold_without_audit_archive() -> None:
     folded = fold_completed_process_poll_history(history, terminal)
     assert folded is not None
 
-    invalid_metadata = {
-        key: value for key, value in folded.metadata.items() if key != "audit"
-    }
+    invalid_metadata = {key: value for key, value in folded.metadata.items() if key != "audit"}
     channels = dict(folded.tool_message.channels or {})
     channels[FAST_AGENT_PROCESS_POLL_FOLD] = [
         TextContent(type="text", text=json.dumps(invalid_metadata, sort_keys=True))
@@ -1059,9 +1009,7 @@ def test_atif_rejects_context_rewrite_with_unknown_call_id() -> None:
     )
     assert folded is not None
     invalid_metadata = json.loads(json.dumps(folded.metadata))
-    invalid_metadata["audit"]["context_rewrites"][0][
-        "removed_call_ids"
-    ].append("unknown-call")
+    invalid_metadata["audit"]["context_rewrites"][0]["removed_call_ids"].append("unknown-call")
     channels = dict(folded.tool_message.channels or {})
     channels[FAST_AGENT_PROCESS_POLL_FOLD] = [
         TextContent(type="text", text=json.dumps(invalid_metadata, sort_keys=True))
@@ -1095,9 +1043,7 @@ def test_repeated_fold_requires_prior_audit_archive() -> None:
     first_fold = fold_completed_process_poll_history(history, running_three)
     assert first_fold is not None
 
-    invalid_metadata = {
-        key: value for key, value in first_fold.metadata.items() if key != "audit"
-    }
+    invalid_metadata = {key: value for key, value in first_fold.metadata.items() if key != "audit"}
     channels = dict(first_fold.tool_message.channels or {})
     channels[FAST_AGENT_PROCESS_POLL_FOLD] = [
         TextContent(type="text", text=json.dumps(invalid_metadata, sort_keys=True))
@@ -1171,9 +1117,7 @@ def test_repeated_folds_preserve_cumulative_narration_and_boundary_history() -> 
     update_mappings: list[dict[str, object]] = []
     for update in updates:
         assert isinstance(update, dict)
-        update_mappings.append(
-            {str(key): value for key, value in update.items()}
-        )
+        update_mappings.append({str(key): value for key, value in update.items()})
     assert [update["call_id"] for update in update_mappings] == [
         "call-1",
         "call-2",
@@ -1202,12 +1146,8 @@ def test_repeated_folds_preserve_cumulative_narration_and_boundary_history() -> 
     second_boundary = boundaries[1]
     assert isinstance(first_boundary, dict)
     assert isinstance(second_boundary, dict)
-    first_boundary_mapping = {
-        str(key): value for key, value in first_boundary.items()
-    }
-    second_boundary_mapping = {
-        str(key): value for key, value in second_boundary.items()
-    }
+    first_boundary_mapping = {str(key): value for key, value in first_boundary.items()}
+    second_boundary_mapping = {str(key): value for key, value in second_boundary.items()}
     first_summary = first_boundary_mapping["summary"]
     second_summary = second_boundary_mapping["summary"]
     assert isinstance(first_summary, str)
@@ -1327,9 +1267,7 @@ def test_repeated_running_folds_preserve_exact_cumulative_usage() -> None:
     assert final_fold.metadata["polls_folded"] == 5
     final_archived = final_fold.metadata["folded_usage"]
     assert isinstance(final_archived, dict)
-    final_archived_mapping = {
-        str(key): value for key, value in final_archived.items()
-    }
+    final_archived_mapping = {str(key): value for key, value in final_archived.items()}
     assert final_archived_mapping["llm_calls"] == 5
     assert final_archived_mapping["prompt_tokens"] == 515
 
@@ -1375,10 +1313,7 @@ def test_repeated_running_folds_preserve_exact_cumulative_usage() -> None:
         [7],
         [9],
     ]
-    assert all(
-        item["strategy"] == "managed_process_poll_fold"
-        for item in context_management
-    )
+    assert all(item["strategy"] == "managed_process_poll_fold" for item in context_management)
 
 
 def test_runner_style_repeated_folds_keep_audit_linear_and_lossless() -> None:
@@ -1420,22 +1355,16 @@ def test_runner_style_repeated_folds_keep_audit_linear_and_lossless() -> None:
     removed_total = 0
     for rewrite in rewrites:
         assert isinstance(rewrite, dict)
-        rewrite_mapping = {
-            str(key): value for key, value in rewrite.items()
-        }
+        rewrite_mapping = {str(key): value for key, value in rewrite.items()}
         removed_ids = rewrite_mapping["removed_call_ids"]
         assert isinstance(removed_ids, list)
         removed_total += len(removed_ids)
         fold_record = rewrite_mapping["fold"]
         assert isinstance(fold_record, dict)
-        fold_mapping = {
-            str(key): value for key, value in fold_record.items()
-        }
+        fold_mapping = {str(key): value for key, value in fold_record.items()}
         folded_usage = fold_mapping["folded_usage"]
         assert isinstance(folded_usage, dict)
-        folded_usage_mapping = {
-            str(key): value for key, value in folded_usage.items()
-        }
+        folded_usage_mapping = {str(key): value for key, value in folded_usage.items()}
         turns = folded_usage_mapping["turns"]
         assert isinstance(turns, list)
         per_rewrite_turns.append(len(turns))
@@ -1461,6 +1390,6 @@ def test_runner_style_repeated_folds_keep_audit_linear_and_lossless() -> None:
         for step in trajectory.steps
         if step.tool_calls and step.tool_calls[0].function_name == "poll_process"
     ]
-    assert [
-        step.tool_calls[0].tool_call_id for step in poll_steps if step.tool_calls
-    ] == [f"call-{index}" for index in range(1, polls + 1)]
+    assert [step.tool_calls[0].tool_call_id for step in poll_steps if step.tool_calls] == [
+        f"call-{index}" for index in range(1, polls + 1)
+    ]

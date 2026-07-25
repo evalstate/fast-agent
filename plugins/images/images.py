@@ -14,7 +14,9 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff")
 _MARKDOWN_IMAGE_RE = re.compile(r"!\[(?P<label>[^\]]*)\]\((?P<source>[^)\s]+)(?:\s+\"[^\"]*\")?\)")
-_MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[(?P<label>[^\]]+)\]\((?P<source>[^)\s]+)(?:\s+\"[^\"]*\")?\)")
+_MARKDOWN_LINK_RE = re.compile(
+    r"(?<!!)\[(?P<label>[^\]]+)\]\((?P<source>[^)\s]+)(?:\s+\"[^\"]*\")?\)"
+)
 _URL_RE = re.compile(r"https?://[^\s<>)\]]+")
 _FILE_URL_RE = re.compile(r"file://[^\s<>)\]]+")
 _PATH_RE = re.compile(r"(?<![\w:/.-])(?:~|\.|\.\.|/)[^\s<>)\]]+", re.MULTILINE)
@@ -154,7 +156,11 @@ def _select(items: list[ImageCandidate], selector: str) -> list[ImageCandidate]:
     if direct := _direct_source(normalized):
         return [direct]
     lowered = normalized.lower()
-    return [item for item in items if lowered in (item.label or "").lower() or lowered in item.source.lower()]
+    return [
+        item
+        for item in items
+        if lowered in (item.label or "").lower() or lowered in item.source.lower()
+    ]
 
 
 def _quote_if_needed(value: str) -> str:
@@ -236,7 +242,9 @@ async def complete_images(ctx):
     return []
 
 
-def _selector_completions(items: list[ImageCandidate], *, include_all: bool) -> list[PluginCommandCompletion]:
+def _selector_completions(
+    items: list[ImageCandidate], *, include_all: bool
+) -> list[PluginCommandCompletion]:
     completions = [PluginCommandCompletion("last", detail="newest discovered image")]
     if include_all:
         completions.append(PluginCommandCompletion("all", detail="render all discovered images"))

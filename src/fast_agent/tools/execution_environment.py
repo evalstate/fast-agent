@@ -312,6 +312,7 @@ async def execute_shell(
     )
     return execution.result
 
+
 __all__ = [
     "EnvironmentFileEntry",
     "EnvironmentFileKind",

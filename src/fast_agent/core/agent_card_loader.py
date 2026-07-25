@@ -1517,4 +1517,3 @@ def _serialize_skills(
                 serialized.append(item)
         return serialized if serialized else None
     return None
-

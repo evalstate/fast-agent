@@ -61,7 +61,9 @@ def test_only_update_available_is_applicable() -> None:
 
 def test_only_updated_is_applied() -> None:
     assert is_update_applied("updated") is True
-    non_applied_statuses = [status for status in KNOWN_MARKETPLACE_UPDATE_STATUSES if status != "updated"]
+    non_applied_statuses = [
+        status for status in KNOWN_MARKETPLACE_UPDATE_STATUSES if status != "updated"
+    ]
     for status in non_applied_statuses:
         assert is_update_applied(status) is False
 

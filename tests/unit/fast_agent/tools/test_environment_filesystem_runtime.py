@@ -31,8 +31,7 @@ from fast_agent.tools.local_shell_executor import LocalEnvironment
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
 
 _PNG_BYTES = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
-    "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
 
 
@@ -408,13 +407,7 @@ async def test_environment_filesystem_runtime_applies_patch_to_remote_files() ->
         "apply_patch",
         {
             "input": (
-                "*** Begin Patch\n"
-                "*** Update File: notes.txt\n"
-                "@@\n"
-                "-one\n"
-                "+ONE\n"
-                " two\n"
-                "*** End Patch\n"
+                "*** Begin Patch\n*** Update File: notes.txt\n@@\n-one\n+ONE\n two\n*** End Patch\n"
             )
         },
     )

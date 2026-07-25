@@ -25,3 +25,4 @@ class LlmStopReason(str, Enum):
 
     TIMEOUT = "timeout"  # Used when generation times out
     SAFETY = "safety"  # a safety or content warning was triggered
+    MAX_ITERATIONS = "maxIterations"  # the tool loop exhausted its turn budget

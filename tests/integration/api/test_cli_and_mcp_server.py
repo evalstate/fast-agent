@@ -180,9 +180,7 @@ async def test_agent_server_option_stdio(fast_agent):
     async def agent_function():
         async with fast_agent.run() as agent:
             assert "connected" == await agent.send("connected")
-            result = await agent.send(
-                '***CALL_TOOL test {"message": "stdio server test"}'
-            )
+            result = await agent.send('***CALL_TOOL test {"message": "stdio server test"}')
             assert "stdio server test" == result
 
     await agent_function()
@@ -197,13 +195,9 @@ async def test_agent_server_option_stdio_and_prompt_history(fast_agent):
     async def agent_function():
         async with fast_agent.run() as agent:
             assert "connected" == await agent.send("connected")
-            result = await agent.send(
-                '***CALL_TOOL test {"message": "message one"}'
-            )
+            result = await agent.send('***CALL_TOOL test {"message": "message one"}')
             assert "message one" == result
-            result = await agent.send(
-                '***CALL_TOOL test {"message": "message two"}'
-            )
+            result = await agent.send('***CALL_TOOL test {"message": "message two"}')
             assert "message two" == result
 
             prompts = await agent.list_prompts("std_io")

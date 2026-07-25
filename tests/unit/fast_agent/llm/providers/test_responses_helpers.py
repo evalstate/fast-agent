@@ -932,8 +932,7 @@ async def test_codexresponses_inlines_local_pdf_without_files_api(tmp_path: Path
     assert normalized == {
         "type": "input_file",
         "file_data": (
-            "data:application/pdf;base64,"
-            f"{base64.b64encode(pdf_path.read_bytes()).decode('ascii')}"
+            f"data:application/pdf;base64,{base64.b64encode(pdf_path.read_bytes()).decode('ascii')}"
         ),
         "filename": "sample.pdf",
     }
@@ -2119,9 +2118,7 @@ def test_request_service_tier_override_is_recorded_in_turn_usage() -> None:
         model_name="gpt-5.4",
         configured_service_tier="fast",
     )
-    context = llm._responses_completion_context(
-        RequestParams(model="gpt-5.4", service_tier="flex")
-    )
+    context = llm._responses_completion_context(RequestParams(model="gpt-5.4", service_tier="flex"))
     usage = ResponseUsage.model_validate(
         {
             "input_tokens": 12,

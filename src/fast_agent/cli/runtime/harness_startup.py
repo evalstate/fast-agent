@@ -135,7 +135,9 @@ def _disable_core_resume_for_harness_startup(fast: HarnessProvider) -> tuple[boo
     return True, original
 
 
-def _restore_core_resume_flag(fast: HarnessProvider, disabled: bool, original: object | None) -> None:
+def _restore_core_resume_flag(
+    fast: HarnessProvider, disabled: bool, original: object | None
+) -> None:
     if not disabled:
         return
     args = getattr(fast, "args", None)

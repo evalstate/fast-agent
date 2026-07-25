@@ -206,8 +206,7 @@ def _session_manager_resolver(
     def resolve(cwd: Path | None) -> SessionManager:
         if cwd is not None and cwd.resolve() != manager.workspace_dir:
             raise RuntimeError(
-                "Session history save requested a different cwd than the active "
-                "session manager."
+                "Session history save requested a different cwd than the active session manager."
             )
         return manager
 

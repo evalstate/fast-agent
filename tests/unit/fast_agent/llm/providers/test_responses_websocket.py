@@ -33,6 +33,7 @@ from fast_agent.llm.provider.openai.streaming_utils import (
 )
 from fast_agent.llm.provider.streaming_timeouts import (
     StreamIdleTimeoutError,
+    StreamTiming,
     with_stream_idle_timeout,
 )
 from fast_agent.llm.provider_types import Provider
@@ -182,6 +183,10 @@ class _CapturingLogger:
     def __init__(self) -> None:
         self.info_messages: list[str] = []
         self.info_data: list[dict[str, Any] | None] = []
+        self.warning_messages: list[str] = []
+        self.warning_data: list[dict[str, Any] | None] = []
+        self.error_messages: list[str] = []
+        self.error_data: list[dict[str, Any] | None] = []
 
     def info(self, message: str, data: dict[str, Any] | None = None) -> None:
         self.info_messages.append(message)
@@ -191,10 +196,13 @@ class _CapturingLogger:
         del message, data
 
     def warning(self, message: str, data: dict[str, Any] | None = None) -> None:
-        del message, data
+        self.warning_messages.append(message)
+        self.warning_data.append(data)
 
     def error(self, message: str, data: dict[str, Any] | None = None, exc_info: Any = None) -> None:
-        del message, data, exc_info
+        del exc_info
+        self.error_messages.append(message)
+        self.error_data.append(data)
 
 
 class _CapturingDisplay:
@@ -1389,7 +1397,7 @@ async def test_websocket_completion_ws_records_phase_diagnostics() -> None:
     )
     harness._last_transport_used = "websocket"
 
-    diagnostics = harness._websocket_diagnostics_payload()
+    diagnostics = harness._transport_diagnostics_payload()
     phase_timings = diagnostics.get("websocket_phase_ms")
 
     assert isinstance(phase_timings, dict)
@@ -1400,6 +1408,98 @@ async def test_websocket_completion_ws_records_phase_diagnostics() -> None:
     assert "send_request" in phase_timings
     assert "stream_total" in phase_timings
     assert "total" in phase_timings
+    assert diagnostics["stream_timing"] == {
+        "events_received": 0,
+        "first_event_wait_ms": None,
+        "max_inter_event_wait_ms": None,
+        "inter_event_waits_over_10s": 0,
+        "timed_out": False,
+    }
+
+
+def test_successful_sse_stream_timing_is_attached_to_diagnostics_channel() -> None:
+    harness = _TransportHarness(name="transport-harness", transport="sse")
+    harness._last_transport_used = "sse"
+    harness._record_successful_stream_timing(
+        StreamTiming(
+            events_received=3,
+            first_event_wait_seconds=1.25,
+            max_inter_event_wait_seconds=3.5,
+            inter_event_waits_over_threshold=0,
+            timed_out_wait_seconds=None,
+        ),
+        model="gpt-5.3-codex",
+        transport="sse",
+    )
+
+    channels = harness._responses_diagnostics_channels(None)
+
+    assert channels is not None
+    diagnostics_block = channels["fast-agent-provider-diagnostics"][0]
+    assert isinstance(diagnostics_block, TextContent)
+    payload = json.loads(diagnostics_block.text)
+    assert payload == {
+        "transport": "sse",
+        "stream_timing": {
+            "events_received": 3,
+            "first_event_wait_ms": 1250.0,
+            "max_inter_event_wait_ms": 3500.0,
+            "inter_event_waits_over_10s": 0,
+            "timed_out": False,
+        },
+    }
+
+
+def test_successful_stream_warns_once_for_exceptional_inter_event_gap() -> None:
+    harness = _ConnectionLifecycleHarness()
+    timing = StreamTiming(
+        events_received=4,
+        first_event_wait_seconds=1.0,
+        max_inter_event_wait_seconds=35.0,
+        inter_event_waits_over_threshold=1,
+        timed_out_wait_seconds=None,
+    )
+
+    harness._record_successful_stream_timing(
+        timing,
+        model="gpt-5.3-codex",
+        transport="websocket",
+    )
+
+    assert harness._capturing_logger.warning_messages == [
+        "Responses stream observed extended inter-event gap"
+    ]
+    assert harness._capturing_logger.warning_data == [
+        {
+            "model": "gpt-5.3-codex",
+            "transport": "websocket",
+            "stream_timing": {
+                "events_received": 4,
+                "first_event_wait_ms": 1000.0,
+                "max_inter_event_wait_ms": 35000.0,
+                "inter_event_waits_over_10s": 1,
+                "timed_out": False,
+            },
+        }
+    ]
+
+
+def test_slow_first_event_does_not_trigger_inter_event_gap_warning() -> None:
+    harness = _ConnectionLifecycleHarness()
+
+    harness._record_successful_stream_timing(
+        StreamTiming(
+            events_received=2,
+            first_event_wait_seconds=35.0,
+            max_inter_event_wait_seconds=1.0,
+            inter_event_waits_over_threshold=0,
+            timed_out_wait_seconds=None,
+        ),
+        model="gpt-5.3-codex",
+        transport="websocket",
+    )
+
+    assert harness._capturing_logger.warning_messages == []
 
 
 @pytest.mark.asyncio
@@ -1718,9 +1818,7 @@ async def test_retry_rolls_back_stream_and_records_completed_tool_boundary(
         PromptMessageExtended(
             role="user",
             tool_results={
-                "call_1": CallToolResult(
-                    content=[TextContent(type="text", text="completed")]
-                )
+                "call_1": CallToolResult(content=[TextContent(type="text", text="completed")])
             },
         )
     ]
@@ -1910,6 +2008,12 @@ async def test_websocket_streaming_timeout_releases_reusable_connection() -> Non
         )
 
     assert harness._release_manager.release_keep_values == [False]
+    timeout_data = harness._capturing_logger.error_data[-1]
+    assert timeout_data is not None
+    assert timeout_data["transport"] == "websocket"
+    assert timeout_data["stream_timing"]["events_received"] == 0
+    assert timeout_data["stream_timing"]["timed_out"] is True
+    assert timeout_data["stream_timing"]["timed_out_wait_ms"] >= 10.0
 
 
 @pytest.mark.asyncio

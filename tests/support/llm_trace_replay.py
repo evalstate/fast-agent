@@ -148,9 +148,7 @@ class ResponsesReplayStream:
     def __init__(self, payloads: list[dict[str, Any]]) -> None:
         self._events = [_to_attr_object(payload) for payload in payloads]
         self._index = 0
-        response_payload = normalize_responses_fixture_payload(
-            _final_responses_payload(payloads)
-        )
+        response_payload = normalize_responses_fixture_payload(_final_responses_payload(payloads))
         self._final_response = Response.model_validate(response_payload)
 
     def __aiter__(self) -> ResponsesReplayStream:

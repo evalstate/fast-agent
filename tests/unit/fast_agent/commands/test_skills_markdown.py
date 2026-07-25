@@ -259,4 +259,3 @@ def test_render_marketplace_skills_truncates_bundle_description_blockquote() -> 
 
     assert rendered.count("> ") == 5
     assert "> …" in rendered
-

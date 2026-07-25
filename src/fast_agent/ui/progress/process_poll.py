@@ -203,9 +203,7 @@ def render_process_monitor_stats(stats: ProcessMonitorStats) -> Text:
         style=_activity_style(stats.stderr_age_seconds, stream="stderr"),
     )
     elapsed = (
-        format_process_elapsed(stats.elapsed_seconds)
-        if stats.elapsed_seconds is not None
-        else "—"
+        format_process_elapsed(stats.elapsed_seconds) if stats.elapsed_seconds is not None else "—"
     )
     append_field("time", elapsed, width=_ELAPSED_WIDTH, align="<")
 

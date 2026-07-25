@@ -210,7 +210,9 @@ class RuntimeSkills:
         return manifests
 
     def _skill_target(self, agent: str | None) -> RuntimeSkillTarget:
-        target = self._env.agent_app.resolve_agent(agent or self._env.harness_session.default_agent_name)
+        target = self._env.agent_app.resolve_agent(
+            agent or self._env.harness_session.default_agent_name
+        )
         if not isinstance(target, RuntimeSkillTarget):
             target_name = agent or self._env.harness_session.default_agent_name or "<default>"
             raise TypeError(f"Agent {target_name!r} does not support runtime skills.")
@@ -239,7 +241,9 @@ class RuntimeSkills:
                     directory_entries.append(item)
             if directory_entries:
                 manifests.extend(
-                    SkillRegistry(base_dir=Path.cwd(), directories=directory_entries).load_manifests()
+                    SkillRegistry(
+                        base_dir=Path.cwd(), directories=directory_entries
+                    ).load_manifests()
                 )
             return manifests
         return []
@@ -372,8 +376,7 @@ def _load_harness_app_factory(entrypoint: str) -> HarnessAppFactory:
     module_name, separator, attribute_name = entrypoint.partition(":")
     if not separator or not module_name.strip() or not attribute_name.strip():
         raise ValueError(
-            "harness_app.entrypoint must use 'module:function' format, "
-            f"got {entrypoint!r}."
+            f"harness_app.entrypoint must use 'module:function' format, got {entrypoint!r}."
         )
 
     module = import_module(module_name.strip())

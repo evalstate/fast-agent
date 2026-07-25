@@ -412,9 +412,7 @@ async def begin_research(
         task_id=context.task_id,
         context_id=context.context_id,
     )
-    await updater.start_work(
-        message=updater.new_agent_message(parts=[Part(text=decision.message)])
-    )
+    await updater.start_work(message=updater.new_agent_message(parts=[Part(text=decision.message)]))
     await updater.add_artifact(
         parts=[Part(text="Research goal accepted.\n")],
         name="progress",
@@ -745,11 +743,8 @@ def _huggingface_research_environment_config_from_env() -> (
         bucket=bucket,
         image=os.environ.get("FAST_AGENT_RESEARCH_HF_IMAGE", "python:3.12").strip()
         or "python:3.12",
-        flavor=os.environ.get("FAST_AGENT_RESEARCH_HF_FLAVOR", "cpu-basic").strip()
-        or "cpu-basic",
-        token=os.environ.get("FAST_AGENT_RESEARCH_HF_TOKEN")
-        or os.environ.get("HF_TOKEN")
-        or None,
+        flavor=os.environ.get("FAST_AGENT_RESEARCH_HF_FLAVOR", "cpu-basic").strip() or "cpu-basic",
+        token=os.environ.get("FAST_AGENT_RESEARCH_HF_TOKEN") or os.environ.get("HF_TOKEN") or None,
         namespace=os.environ.get("FAST_AGENT_RESEARCH_HF_NAMESPACE") or None,
         forward_hf_token=_truthy_env("FAST_AGENT_RESEARCH_HF_FORWARD_TOKEN"),
         create_bucket=not _falsey_env("FAST_AGENT_RESEARCH_HF_CREATE_BUCKET"),

@@ -422,9 +422,7 @@ def _build_toolbar_agent_state_cache_key(
         model_name,
         history_len,
         last_message_id,
-        _safe_cache_value(
-            len(usage_accumulator.turns) if usage_accumulator is not None else None
-        ),
+        _safe_cache_value(len(usage_accumulator.turns) if usage_accumulator is not None else None),
         _safe_cache_value(
             usage_accumulator.current_context_tokens if usage_accumulator is not None else None
         ),
@@ -665,10 +663,7 @@ def _toolbar_style_segment(
     escaped_foreground = escape_html(foreground, quote=True)
     escaped_background = escape_html(background, quote=True)
     escaped_content = escape_html(content, quote=False)
-    return (
-        f"<style fg='{escaped_foreground}' bg='{escaped_background}'>"
-        f"{escaped_content}</style>"
-    )
+    return f"<style fg='{escaped_foreground}' bg='{escaped_background}'>{escaped_content}</style>"
 
 
 def _format_toolbar_mode_segment(mode_style: str, mode_text: str) -> str:
@@ -692,9 +687,7 @@ def _build_middle_segment(
 ) -> str:
     middle_segments: list[str] = []
     context_chip = _format_context_usage_percent_for_toolbar(agent_state.context_pct)
-    context_or_turns = (
-        context_chip if context_chip is not None else f"{agent_state.turn_count:03d}"
-    )
+    context_or_turns = context_chip if context_chip is not None else f"{agent_state.turn_count:03d}"
     if agent_state.model_display:
         model_prefix = ""
         if agent_state.is_codex_responses_model:
@@ -703,9 +696,7 @@ def _build_middle_segment(
             model_prefix = "▼"
         model_label = f"{model_prefix}{agent_state.model_display}"
         attachment_indicator = render_attachment_indicator(attachment_summary)
-        process_indicator = render_managed_process_indicator(
-            agent_state.active_process_count
-        )
+        process_indicator = render_managed_process_indicator(agent_state.active_process_count)
         model_chip = render_model_chip(
             model_label=model_label,
             web_search_indicator=agent_state.web_search_indicator,
@@ -720,9 +711,7 @@ def _build_middle_segment(
         if agent_state.model_gauges:
             prefix += agent_state.model_gauges
         model_segment = f"{prefix} {model_chip}" if prefix else model_chip
-        middle_segments.append(
-            f"{process_indicator}| {model_segment} {context_or_turns}"
-        )
+        middle_segments.append(f"{process_indicator}| {model_segment} {context_or_turns}")
     else:
         middle_segments.append(context_or_turns)
     if shortcut_text:

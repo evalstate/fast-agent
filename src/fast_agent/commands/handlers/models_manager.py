@@ -781,8 +781,7 @@ def _extend_markdown_doctor_overview(lines: list[str], report: _ModelsDoctorRepo
         f"- **FAST_AGENT_HOME**: {_markdown_code_or_placeholder(report.home_env, '<unset>')}"
     )
     lines.append(
-        "- **Effective home**: "
-        f"{_markdown_code_or_placeholder(report.effective_home, '<unset>')}"
+        f"- **Effective home**: {_markdown_code_or_placeholder(report.effective_home, '<unset>')}"
     )
     lines.append(
         f"- **FAST_AGENT_MODEL**: "

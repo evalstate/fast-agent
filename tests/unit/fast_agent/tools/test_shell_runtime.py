@@ -797,9 +797,7 @@ def test_minimal_process_metadata_matches_facade_operations() -> None:
         config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
     )
 
-    bash_metadata = runtime.metadata(
-        {"command": "service", "run_in_background": True}
-    )
+    bash_metadata = runtime.metadata({"command": "service", "run_in_background": True})
     assert bash_metadata["background"] is True
     assert bash_metadata["lifecycle"] == "persistent"
 
@@ -907,9 +905,7 @@ def test_poll_process_uses_model_default_wait_and_buffers_output() -> None:
     assert wait_schema["default"] == 30
     assert _parse_poll(runtime, {"process_id": "process-1"}).wait_sec == 30
     assert _parse_poll(runtime, {"process_id": "process-1"}).wake_on_output is False
-    metadata = runtime.process_tool_metadata(
-        "poll_process", {"process_id": "process-1"}
-    )
+    metadata = runtime.process_tool_metadata("poll_process", {"process_id": "process-1"})
     assert metadata["wait_sec"] == 30
 
 
@@ -949,18 +945,14 @@ def test_poll_process_updates_default_for_model_switch() -> None:
 
 @pytest.mark.asyncio
 async def test_poll_process_rejects_wait_above_configured_maximum() -> None:
-    settings = Settings(
-        shell_execution=ShellSettings(process_poll_max_wait_seconds=240)
-    )
+    settings = Settings(shell_execution=ShellSettings(process_poll_max_wait_seconds=240))
     runtime = ShellRuntime(
         activation_reason="test",
         logger=logging.getLogger("shell-runtime-test"),
         config=settings,
     )
 
-    result = await runtime.poll_process(
-        {"process_id": "process-1", "wait_sec": 241}
-    )
+    result = await runtime.poll_process({"process_id": "process-1", "wait_sec": 241})
 
     assert result.isError is True
     assert isinstance(result.content[0], TextContent)
@@ -1071,9 +1063,7 @@ async def test_terminate_process_returns_when_term_exits_process() -> None:
     try:
         await runtime.execute(
             {
-                "command": (
-                    f'exec "{sys.executable}" -c "import time; time.sleep(30)"'
-                ),
+                "command": (f'exec "{sys.executable}" -c "import time; time.sleep(30)"'),
                 "background": True,
             }
         )
@@ -1213,7 +1203,9 @@ async def test_shared_shell_environment_preserves_runtime_working_directory() ->
     await runtime.execute_shell("pwd")
 
     assert environment.cwd == "/workspace"
-    assert [(request.command, request.cwd) for request in environment.requests] == [("pwd", "/agent-cwd")]
+    assert [(request.command, request.cwd) for request in environment.requests] == [
+        ("pwd", "/agent-cwd")
+    ]
     assert [request.timeout for request in environment.requests] == [90]
 
 
@@ -1259,9 +1251,7 @@ async def test_execute_honors_per_call_cwd_and_yield_options() -> None:
     assert [
         (request.cwd, request.timeout, request.terminate_after_idle)
         for request in environment.requests
-    ] == [
-        ("/per-call-cwd", None, False)
-    ]
+    ] == [("/per-call-cwd", None, False)]
 
 
 @pytest.mark.asyncio
@@ -1315,9 +1305,7 @@ async def test_execute_rejects_idle_yield_over_thirty_seconds() -> None:
         shell_environment=environment,
     )
 
-    result = await runtime.execute(
-        {"command": "sleep 3600", "yield_after_idle_sec": 31}
-    )
+    result = await runtime.execute({"command": "sleep 3600", "yield_after_idle_sec": 31})
 
     assert result.isError is True
     assert environment.requests == []
@@ -1352,21 +1340,15 @@ async def test_silent_command_yields_alive_then_poll_reports_completion() -> Non
     assert isinstance(running_poll.content[0], TextContent)
     assert "Process is still running." in running_poll.content[0].text
     assert "because it is still running" not in running_poll.content[0].text
-    assert "output_activity: 0 lines / 0 bytes since last poll" in (
-        running_poll.content[0].text
-    )
+    assert "output_activity: 0 lines / 0 bytes since last poll" in (running_poll.content[0].text)
     assert "no output observed for" in running_poll.content[0].text
-    running_metadata = (running_poll.meta or {})[
-        FAST_AGENT_SHELL_PROCESS_METADATA
-    ]
+    running_metadata = (running_poll.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
     assert running_metadata["output_bytes_since_last_poll"] == 0
     assert running_metadata["seconds_since_last_output"] >= 0
     assert running_metadata["has_observed_output"] is False
 
     environment.release.set()
-    poll_result = await runtime.poll_process(
-        {"process_id": "process-1", "wait_sec": 1}
-    )
+    poll_result = await runtime.poll_process({"process_id": "process-1", "wait_sec": 1})
 
     assert poll_result.isError is False
     assert poll_result.content is not None
@@ -1583,9 +1565,7 @@ async def test_continuous_output_waits_until_poll_deadline(
 @pytest.mark.asyncio
 async def test_terminate_process_is_not_blocked_by_quiet_poll_wait() -> None:
     environment = _ManagedShellEnvironment()
-    settings = Settings(
-        shell_execution=ShellSettings(process_poll_max_wait_seconds=600)
-    )
+    settings = Settings(shell_execution=ShellSettings(process_poll_max_wait_seconds=600))
     runtime = ShellRuntime(
         activation_reason="test",
         logger=logging.getLogger("shell-runtime-test"),
@@ -1705,9 +1685,7 @@ async def test_poll_rejects_non_boolean_wake_on_output() -> None:
     assert result.isError is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
-    assert result.content[0].text == (
-        "Error: 'wake_on_output' argument must be a boolean"
-    )
+    assert result.content[0].text == ("Error: 'wake_on_output' argument must be a boolean")
 
 
 @pytest.mark.asyncio
@@ -1911,9 +1889,7 @@ async def test_active_poll_emits_throttled_output_progress() -> None:
         if isinstance(kwargs.get("data"), dict)
     ]
     output_updates = [
-        payload
-        for message, payload in progress_calls
-        if message == "Process output progress"
+        payload for message, payload in progress_calls if message == "Process output progress"
     ]
     assert len(output_updates) == 1
     update = output_updates[0]
@@ -1965,12 +1941,12 @@ async def test_chatty_poll_coalesces_output_progress_and_refreshes_totals() -> N
     output_updates = [
         kwargs["data"]
         for message, kwargs in logger.info_calls
-        if message == "Process output progress"
-        and isinstance(kwargs.get("data"), dict)
+        if message == "Process output progress" and isinstance(kwargs.get("data"), dict)
     ]
     assert 2 <= len(output_updates) <= 3
-    assert output_updates[-1]["process_total_output_bytes"] > (
-        output_updates[0]["process_total_output_bytes"]
+    assert (
+        output_updates[-1]["process_total_output_bytes"]
+        > (output_updates[0]["process_total_output_bytes"])
     )
     await runtime.close()
 
@@ -2092,9 +2068,7 @@ async def test_automatically_yielded_foreground_process_remains_session_scoped()
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "effective_lifecycle" not in result.content[0].text
-    assert "session-scoped and will be stopped when the agent finishes" in (
-        result.content[0].text
-    )
+    assert "session-scoped and will be stopped when the agent finishes" in (result.content[0].text)
     assert "relaunch with run_in_background=true" in result.content[0].text
     metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
     assert metadata["lifecycle"] == "session"
@@ -2220,9 +2194,7 @@ async def test_execute_rejects_invalid_argument_payloads() -> None:
     invalid_lifecycle = await runtime.execute(
         {"command": "server", "background": True, "lifecycle": "forever"}
     )
-    persistent_foreground = await runtime.execute(
-        {"command": "server", "lifecycle": "persistent"}
-    )
+    persistent_foreground = await runtime.execute({"command": "server", "lifecycle": "persistent"})
     assert invalid_lifecycle.content is not None
     assert persistent_foreground.content is not None
     assert isinstance(invalid_lifecycle.content[0], TextContent)
@@ -2275,9 +2247,7 @@ async def test_execute_retains_truncated_output_until_runtime_close(
         ),
     )
 
-    result = await runtime.execute(
-        {"command": f"{sys.executable} -c \"print('x' * 2000)\""}
-    )
+    result = await runtime.execute({"command": f"{sys.executable} -c \"print('x' * 2000)\""})
 
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
@@ -2312,9 +2282,7 @@ async def test_execute_retained_output_reports_quota(
         ),
     )
 
-    result = await runtime.execute(
-        {"command": f"{sys.executable} -c \"print('x' * 2000)\""}
-    )
+    result = await runtime.execute({"command": f"{sys.executable} -c \"print('x' * 2000)\""})
 
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
@@ -2356,9 +2324,7 @@ async def test_remote_execute_does_not_advertise_host_retained_output(
 
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
-    assert "Increase shell_execution.output_byte_limit to retain more." in (
-        result.content[0].text
-    )
+    assert "Increase shell_execution.output_byte_limit to retain more." in (result.content[0].text)
     assert "Use read_text_file for selected line ranges" not in result.content[0].text
     assert runtime._retained_output_directory is None
 
@@ -2734,9 +2700,7 @@ async def test_windows_termination_escalates_after_ctrl_break_grace(
     executor = LocalShellExecutor(logger=logging.getLogger("shell-runtime-test"))
     process = StagedTerminationProcess()
 
-    await executor._terminate_windows_process(
-        cast("asyncio.subprocess.Process", process)
-    )
+    await executor._terminate_windows_process(cast("asyncio.subprocess.Process", process))
 
     assert getattr(signal, "CTRL_BREAK_EVENT") in process.sent_signals
     assert process.terminated is True

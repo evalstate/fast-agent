@@ -999,9 +999,7 @@ async def test_parallel_atif_export_embeds_each_model_branch(tmp_path: Path) -> 
     request = _make_request(result_file=None, trajectory_output=output)
     messages = {
         name: [
-            PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="compare")]
-            ),
+            PromptMessageExtended(role="user", content=[TextContent(type="text", text="compare")]),
             PromptMessageExtended(
                 role="assistant", content=[TextContent(type="text", text=f"from {name}")]
             ),
@@ -1021,7 +1019,9 @@ async def test_parallel_atif_export_embeds_each_model_branch(tmp_path: Path) -> 
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["steps"][1]["llm_call_count"] == 0
     assert len(payload["steps"][1]["observation"]["results"]) == 2
-    assert [child["agent"]["extra"]["target_agent"] for child in payload["subagent_trajectories"]] == [
+    assert [
+        child["agent"]["extra"]["target_agent"] for child in payload["subagent_trajectories"]
+    ] == [
         "model-a",
         "model-b",
     ]

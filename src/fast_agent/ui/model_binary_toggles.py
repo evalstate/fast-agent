@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
     from fast_agent.interfaces import FastAgentLLMProtocol
 
+
 @dataclass(frozen=True, slots=True)
 class ModelBinaryToggle:
     shortcut_key: str

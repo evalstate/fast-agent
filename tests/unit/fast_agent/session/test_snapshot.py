@@ -108,6 +108,7 @@ class _Llm:
             selected_model_name=model_name,
         )
 
+
 class _UsageAccumulator(UsageAccumulator):
     def __init__(self, summary: dict[str, object]) -> None:
         from fast_agent.llm.provider_types import Provider
@@ -425,11 +426,11 @@ def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_pa
             ),
             overlay_manifest_path=tmp_path / "overlays" / "bar.yaml",
         ),
-            usage_summary={
-                "prompt": {"total": 100},
-                "completion": {"total": 25},
-                "provider_attempts": 1,
-                "tool_calls": 0,
+        usage_summary={
+            "prompt": {"total": 100},
+            "completion": {"total": 25},
+            "provider_attempts": 1,
+            "tool_calls": 0,
         },
         attached_mcp_servers=["zeta", "alpha"],
         child_agents={
@@ -603,7 +604,9 @@ def test_capture_session_snapshot_tracks_started_and_current_git_commits(
         home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
-    session = manager.create_session(metadata={"last_history_by_agent": {"foo": "history_foo.json"}})
+    session = manager.create_session(
+        metadata={"last_history_by_agent": {"foo": "history_foo.json"}}
+    )
     session.info.history_files = ["history_foo.json"]
     agent = _Agent(
         name="foo",
@@ -667,7 +670,9 @@ def test_capture_session_snapshot_checkpoint_reuses_captured_git_state(
         home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
-    session = manager.create_session(metadata={"last_history_by_agent": {"foo": "history_foo.json"}})
+    session = manager.create_session(
+        metadata={"last_history_by_agent": {"foo": "history_foo.json"}}
+    )
     session.info.history_files = ["history_foo.json"]
     agent = _Agent(
         name="foo",
@@ -759,7 +764,9 @@ def test_capture_session_snapshot_omits_git_when_config_disabled(tmp_path: Path)
         home_override=tmp_path / ".fast-agent",
         respect_env_override=False,
     )
-    session = manager.create_session(metadata={"last_history_by_agent": {"foo": "history_foo.json"}})
+    session = manager.create_session(
+        metadata={"last_history_by_agent": {"foo": "history_foo.json"}}
+    )
     session.info.history_files = ["history_foo.json"]
     agent = _Agent(
         name="foo",

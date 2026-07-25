@@ -24,7 +24,7 @@ jobs:
           uv sync --locked --group dev
 
       - name: Run ruff format check
-        run: uv run scripts/format.py
+        run: uv run scripts/format.py --check
 
   lint:
     runs-on: ubuntu-latest

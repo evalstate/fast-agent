@@ -1112,9 +1112,7 @@ def _resolve_agent_card_path(path_value: str, context: Context | None) -> Path:
         if cwd_candidate.exists():
             return cwd_candidate
 
-    home_paths = resolve_home_paths(
-        settings=context.config if context else None, cwd=Path.cwd()
-    )
+    home_paths = resolve_home_paths(settings=context.config if context else None, cwd=Path.cwd())
     for base in (home_paths.agent_cards, home_paths.tool_cards):
         env_candidate = (base / candidate).resolve()
         if env_candidate.exists():

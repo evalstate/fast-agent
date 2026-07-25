@@ -234,7 +234,5 @@ def test_cache_control_rejects_thinking_only_message():
 
     assert not AnthropicLLM._apply_cache_control_to_message(message)
     assert all(
-        "cache_control" not in block
-        for block in message["content"]
-        if isinstance(block, dict)
+        "cache_control" not in block for block in message["content"] if isinstance(block, dict)
     )

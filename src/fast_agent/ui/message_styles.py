@@ -58,9 +58,7 @@ def _format_items_with_highlight_jump(
     if not items:
         return Text()
 
-    valid_highlights = sorted(
-        {index for index in highlight_indexes if 0 <= index < len(items)}
-    )
+    valid_highlights = sorted({index for index in highlight_indexes if 0 <= index < len(items)})
 
     if not valid_highlights:
         return _render_items_normal(

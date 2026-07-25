@@ -1,0 +1,84 @@
+import pytest
+from mcp import CallToolRequest
+from mcp.types import CallToolRequestParams, Tool
+
+from fast_agent.acp.server.common import map_llm_stop_reason_to_acp
+from fast_agent.agents import tool_runner
+from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.tool_agent import ToolAgent
+from fast_agent.llm.internal.passthrough import PassthroughLLM
+from fast_agent.llm.request_params import RequestParams
+from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.types.llm_stop_reason import LlmStopReason
+
+
+def looping_tool() -> str:
+    return "tool-result"
+
+
+class AlwaysToolCallingLlm(PassthroughLLM):
+    """An LLM that never finishes - it requests the same tool on every turn."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.call_count = 0
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        self.call_count += 1
+        return PromptMessageExtended(
+            role="assistant",
+            content=[text_content("calling again")],
+            stop_reason=LlmStopReason.TOOL_USE,
+            tool_calls={
+                f"call_{self.call_count}": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="looping_tool", arguments={}),
+                )
+            },
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_exhausting_max_iterations_reports_a_stop_reason() -> None:
+    llm = AlwaysToolCallingLlm()
+    agent = ToolAgent(AgentConfig("looping"), [looping_tool])
+    agent._llm = llm
+
+    result = await agent.generate("go", RequestParams(max_iterations=3))
+
+    assert result.stop_reason == LlmStopReason.MAX_ITERATIONS
+    # The budget is spent before the loop notices it is exhausted.
+    assert llm.call_count == 4
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_exhausting_max_iterations_logs_a_warning(monkeypatch) -> None:
+    warnings: list[tuple[str, dict]] = []
+
+    def record_warning(message: str, data: dict | None = None, **_kwargs) -> None:
+        warnings.append((message, data or {}))
+
+    monkeypatch.setattr(tool_runner._logger, "warning", record_warning)
+
+    llm = AlwaysToolCallingLlm()
+    agent = ToolAgent(AgentConfig("looping"), [looping_tool])
+    agent._llm = llm
+
+    await agent.generate("go", RequestParams(max_iterations=2))
+
+    matching = [data for message, data in warnings if "maximum iterations reached" in message]
+    assert matching == [{"agent_name": "looping", "iterations": 3, "max_iterations": 2}]
+
+
+@pytest.mark.unit
+def test_max_iterations_maps_to_an_acp_stop_reason() -> None:
+    assert map_llm_stop_reason_to_acp(LlmStopReason.MAX_ITERATIONS) == "max_turn_requests"

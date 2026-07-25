@@ -277,6 +277,7 @@ class LoggingConfig:
         await bus.stop()
         cls._initialized = False
 
+
 _logger_lock = threading.Lock()
 _loggers: dict[str, Logger] = {}
 

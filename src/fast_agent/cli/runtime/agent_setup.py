@@ -393,7 +393,9 @@ def _live_atif_session_id(
     return f"run_{uuid.uuid4().hex}"
 
 
-def _live_atif_model_metadata(agent_obj: Any, request: AgentRunRequest) -> tuple[str | None, str | None]:
+def _live_atif_model_metadata(
+    agent_obj: Any, request: AgentRunRequest
+) -> tuple[str | None, str | None]:
     llm = agent_obj.llm
     if llm is None:
         return request.model, None
@@ -464,9 +466,7 @@ async def _export_live_atif_trajectory(
             provider=provider,
             history=messages,
             message_timestamps=tuple(message.timestamp for message in messages),
-            child_trajectory_dir=_live_child_trajectory_dir(
-                session_manager, harness_session
-            ),
+            child_trajectory_dir=_live_child_trajectory_dir(session_manager, harness_session),
             tool_definitions=await _live_atif_tool_definitions(agent_obj),
             extra=(
                 {
@@ -487,9 +487,7 @@ async def _export_live_atif_trajectory(
                 else None
             ),
             system_prompt=agent_obj.instruction,
-            reasoning_effort=(
-                reasoning_setting_telemetry_value(reasoning)
-            ),
+            reasoning_effort=(reasoning_setting_telemetry_value(reasoning)),
         )
     )
     write_atif_trajectory(trajectory, request.trajectory_output.expanduser().resolve())
@@ -533,14 +531,10 @@ async def _export_parallel_atif_trajectory(
                 provider=provider,
                 history=messages,
                 message_timestamps=tuple(message.timestamp for message in messages),
-                child_trajectory_dir=_live_child_trajectory_dir(
-                    session_manager, harness_session
-                ),
+                child_trajectory_dir=_live_child_trajectory_dir(session_manager, harness_session),
                 tool_definitions=await _live_atif_tool_definitions(agent_obj),
                 system_prompt=agent_obj.instruction,
-                reasoning_effort=(
-                    reasoning_setting_telemetry_value(reasoning)
-                ),
+                reasoning_effort=(reasoning_setting_telemetry_value(reasoning)),
             )
         )
     if not sources:
@@ -567,9 +561,7 @@ async def _export_failed_one_shot_atif(
 
     new_history = agent_obj.message_history[len(history_before) :]
     if isinstance(agent_obj, ToolAgent) and agent_obj.last_turn_messages:
-        messages = [
-            message.model_copy(deep=True) for message in agent_obj.last_turn_messages
-        ]
+        messages = [message.model_copy(deep=True) for message in agent_obj.last_turn_messages]
     else:
         messages = [
             *(
@@ -715,10 +707,7 @@ async def _run_cli_flow(
         session_manager=session_manager,
         harness_session=harness_session,
     )
-    if (
-        one_shot_response is not None
-        and one_shot_response.stop_reason == LlmStopReason.ERROR
-    ):
+    if one_shot_response is not None and one_shot_response.stop_reason == LlmStopReason.ERROR:
         raise typer.Exit(1)
 
 
@@ -831,9 +820,8 @@ async def _select_startup_model_if_needed(request: AgentRunRequest) -> str | Non
         model_references=settings.model_references,
     )
 
-    if (
-        not startup_model_defined_by_card
-        and _should_prompt_for_unpinned_system_default(settings, can_prompt=can_prompt_for_model)
+    if not startup_model_defined_by_card and _should_prompt_for_unpinned_system_default(
+        settings, can_prompt=can_prompt_for_model
     ):
         initial_selection = _resolve_model_picker_initial_selection(settings=settings)
         request.model = await _select_model_from_picker(

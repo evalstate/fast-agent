@@ -164,6 +164,7 @@ def test_join_reasoning_summary_parts_preserves_explicit_part_breaks() -> None:
 
 
 def test_join_reasoning_summary_parts_drops_placeholder_only_parts() -> None:
-    assert join_reasoning_summary_parts(
-        ["**Plan**\n\ndone", "**Checking tests**\n\n<!-- -->"]
-    ) == "**Plan**\n\ndone"
+    assert (
+        join_reasoning_summary_parts(["**Plan**\n\ndone", "**Checking tests**\n\n<!-- -->"])
+        == "**Plan**\n\ndone"
+    )

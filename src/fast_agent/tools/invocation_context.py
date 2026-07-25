@@ -48,4 +48,3 @@ def agent_tool_invocation_context(
         yield context
     finally:
         _agent_tool_invocation_context.reset(token)
-

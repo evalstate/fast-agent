@@ -177,6 +177,7 @@ def add_hf_auth_header(
         hub_token_provider,
     )
 
+
 def add_explicit_bearer_auth_header(
     url: str,
     headers: dict[str, str] | None,

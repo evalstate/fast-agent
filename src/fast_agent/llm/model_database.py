@@ -1181,9 +1181,7 @@ class ModelDatabase:
         "qwen3-max": ALIYUN_QWEN3_MODERN,
     }
     _PROVIDER_MODEL_OVERRIDES: ClassVar[dict[tuple[Provider, str], ModelParameters]] = {
-        (Provider.CODEX_RESPONSES, model): params.model_copy(
-            update={"context_window": 372_000}
-        )
+        (Provider.CODEX_RESPONSES, model): params.model_copy(update={"context_window": 372_000})
         for model, params in (
             ("gpt-5.6", OPENAI_GPT_56),
             ("gpt-5.6-sol", OPENAI_GPT_56),

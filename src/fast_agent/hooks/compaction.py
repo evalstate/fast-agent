@@ -50,6 +50,7 @@ async def auto_compact_history(ctx: "HookContext") -> None:
         return
     await _auto_compact_history(ctx, mid_turn=False)
 
+
 async def auto_compact_history_mid_turn(ctx: "HookContext") -> None:
     """Compact history during a tool loop while preserving recent tool exchanges."""
     if ctx.is_turn_complete:

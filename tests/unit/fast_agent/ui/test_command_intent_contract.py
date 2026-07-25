@@ -366,7 +366,9 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
         ),
         pytest.param(
             "!!",
-            ShellCommand(command=prompt_parser.default_shell_command(), local=True, interactive=True),
+            ShellCommand(
+                command=prompt_parser.default_shell_command(), local=True, interactive=True
+            ),
             id="local-interactive-shell",
         ),
         pytest.param(

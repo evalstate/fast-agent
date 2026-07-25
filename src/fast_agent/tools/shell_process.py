@@ -418,10 +418,6 @@ def build_managed_process_result(
             "output_line_count": unread_output_line_count,
             "total_output_bytes": process.output_state.lifetime_output_bytes,
             **_process_stream_metadata(process),
-            **(
-                {"output_spool_path": output_spool_path}
-                if output_spool_path is not None
-                else {}
-            ),
+            **({"output_spool_path": output_spool_path} if output_spool_path is not None else {}),
         },
     )

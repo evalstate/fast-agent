@@ -373,9 +373,7 @@ def build_snapshot(
         for provider in PICKER_PROVIDER_ORDER
     }
     active_providers = {
-        provider
-        for provider, summary in credential_by_provider.items()
-        if summary.active
+        provider for provider, summary in credential_by_provider.items() if summary.active
     }
     # Keep catalog-configured providers (env/config) even if they are not in the
     # picker order helper path above.

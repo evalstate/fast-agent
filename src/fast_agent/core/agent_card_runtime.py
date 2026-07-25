@@ -893,8 +893,8 @@ class AgentCardRuntimeMixin:
         effective_servers = self._effective_mcp_servers(
             self._preserved_runtime_mcp_servers(existing_registry)
         )
-        resolved_servers_by_agent, all_dynamic_server_names = self._resolve_agent_mcp_connect_servers(
-            effective_servers
+        resolved_servers_by_agent, all_dynamic_server_names = (
+            self._resolve_agent_mcp_connect_servers(effective_servers)
         )
 
         self._merge_agent_mcp_servers(resolved_servers_by_agent)

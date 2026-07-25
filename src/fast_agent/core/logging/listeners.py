@@ -200,7 +200,7 @@ def _target_and_details(
             action=action,
             tool_context=tool_context,
             raw_details=raw_details,
-        )
+        ),
     )
 
 
@@ -284,20 +284,12 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         tool_event=_optional_text_or_none(event_data.get("tool_event")),
         tool_state=_optional_text_or_none(event_data.get("tool_state")),
         tool_terminal=bool(event_data.get("tool_terminal", False)),
-        process_elapsed_seconds=_optional_float(
-            event_data.get("process_elapsed_seconds")
-        ),
+        process_elapsed_seconds=_optional_float(event_data.get("process_elapsed_seconds")),
         process_command=_optional_text_or_none(event_data.get("process_command")),
         process_id=_optional_text_or_none(event_data.get("process_id")),
-        process_wait_seconds=_optional_nonnegative_int(
-            event_data.get("process_wait_seconds")
-        ),
-        process_yield_reason=_optional_text_or_none(
-            event_data.get("process_yield_reason")
-        ),
-        process_has_observed_output=_optional_bool(
-            event_data.get("process_has_observed_output")
-        ),
+        process_wait_seconds=_optional_nonnegative_int(event_data.get("process_wait_seconds")),
+        process_yield_reason=_optional_text_or_none(event_data.get("process_yield_reason")),
+        process_has_observed_output=_optional_bool(event_data.get("process_has_observed_output")),
         process_seconds_since_last_output=_optional_float(
             event_data.get("process_seconds_since_last_output")
         ),
@@ -310,12 +302,8 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         process_seconds_since_last_stderr=_optional_float(
             event_data.get("process_seconds_since_last_stderr")
         ),
-        process_stdout_bytes=_optional_nonnegative_int(
-            event_data.get("process_stdout_bytes")
-        ),
-        process_stderr_bytes=_optional_nonnegative_int(
-            event_data.get("process_stderr_bytes")
-        ),
+        process_stdout_bytes=_optional_nonnegative_int(event_data.get("process_stdout_bytes")),
+        process_stderr_bytes=_optional_nonnegative_int(event_data.get("process_stderr_bytes")),
         streaming_tokens=_streaming_tokens(action, event_data),
         progress=progress,
         total=total,

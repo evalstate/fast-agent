@@ -1201,6 +1201,7 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         else:
             handle_error(e, error_type or "Error", "An unexpected error occurred.")
 
+
 @dataclass
 class AgentInstance:
     app: AgentApp

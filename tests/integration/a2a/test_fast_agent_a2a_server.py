@@ -255,7 +255,9 @@ class NoHistoryRecordingAgent(RecordingAgent):
         )
 
     async def generate(self, messages: Any, request_params: Any = None) -> PromptMessageExtended:
-        use_history = request_params.use_history if request_params is not None else self.config.use_history
+        use_history = (
+            request_params.use_history if request_params is not None else self.config.use_history
+        )
         if isinstance(messages, PromptMessageExtended):
             prompt = messages
         else:
@@ -1146,7 +1148,10 @@ async def test_fast_agent_a2a_server_cancel_task_cancels_running_agent(
 
     assert stream_error is None or isinstance(stream_error, asyncio.CancelledError)
     assert fetched.status.state == TaskState.TASK_STATE_CANCELED
-    assert any(task.id == task_id and task.status.state == TaskState.TASK_STATE_CANCELED for task in listed.tasks)
+    assert any(
+        task.id == task_id and task.status.state == TaskState.TASK_STATE_CANCELED
+        for task in listed.tasks
+    )
     assert disposed
 
 
@@ -1337,9 +1342,7 @@ def test_fast_agent_a2a_server_emits_json_text_resources_as_data_parts() -> None
     assert len(parts) == 1
     assert parts[0].HasField("data")
     assert parts[0].media_type == "application/json"
-    assert MessageToDict(parts[0])["data"] == {
-        "tickets": [{"id": "REQ123", "status": "open"}]
-    }
+    assert MessageToDict(parts[0])["data"] == {"tickets": [{"id": "REQ123", "status": "open"}]}
 
 
 @pytest.mark.integration
@@ -1435,7 +1438,9 @@ async def test_fast_agent_a2a_server_preserves_input_required_task_for_follow_up
     finally:
         await client.shutdown()
 
-    assert first.all_text() == "A2A task TASK_STATE_INPUT_REQUIRED: Please provide the missing value."
+    assert (
+        first.all_text() == "A2A task TASK_STATE_INPUT_REQUIRED: Please provide the missing value."
+    )
     assert first.stop_reason == LlmStopReason.PAUSE
     assert input_task_id
     assert "input received: blue" in second.all_text()

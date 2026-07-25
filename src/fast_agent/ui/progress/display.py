@@ -179,12 +179,8 @@ class DynamicDetailsColumn(ProgressColumn):
         elapsed_base = task.fields.get("process_elapsed_seconds")
         if is_process_poll:
             elapsed = self._numeric_field(elapsed_base)
-            stdout_age = self._numeric_field(
-                task.fields.get("process_seconds_since_last_stdout")
-            )
-            stderr_age = self._numeric_field(
-                task.fields.get("process_seconds_since_last_stderr")
-            )
+            stdout_age = self._numeric_field(task.fields.get("process_seconds_since_last_stdout"))
+            stderr_age = self._numeric_field(task.fields.get("process_seconds_since_last_stderr"))
             parts.append(
                 render_process_monitor_stats(
                     ProcessMonitorStats(
@@ -195,12 +191,8 @@ class DynamicDetailsColumn(ProgressColumn):
                         stderr_age_seconds=(
                             stderr_age + local_tick if stderr_age is not None else None
                         ),
-                        stdout_bytes=self._integer_field(
-                            task.fields.get("process_stdout_bytes")
-                        ),
-                        stderr_bytes=self._integer_field(
-                            task.fields.get("process_stderr_bytes")
-                        ),
+                        stdout_bytes=self._integer_field(task.fields.get("process_stdout_bytes")),
+                        stderr_bytes=self._integer_field(task.fields.get("process_stderr_bytes")),
                         total_output_bytes=self._integer_field(
                             task.fields.get("process_total_output_bytes")
                         ),
@@ -707,17 +699,13 @@ class RichProgressDisplay:
         if event.process_wait_seconds is not None:
             update_kwargs["process_wait_seconds"] = event.process_wait_seconds
         if event.process_has_observed_output is not None:
-            update_kwargs["process_has_observed_output"] = (
-                event.process_has_observed_output
-            )
+            update_kwargs["process_has_observed_output"] = event.process_has_observed_output
         if event.process_seconds_since_last_output is not None:
             update_kwargs["process_seconds_since_last_output"] = (
                 event.process_seconds_since_last_output
             )
         if event.process_total_output_bytes is not None:
-            update_kwargs["process_total_output_bytes"] = (
-                event.process_total_output_bytes
-            )
+            update_kwargs["process_total_output_bytes"] = event.process_total_output_bytes
         if event.process_seconds_since_last_stdout is not None:
             update_kwargs["process_seconds_since_last_stdout"] = (
                 event.process_seconds_since_last_stdout

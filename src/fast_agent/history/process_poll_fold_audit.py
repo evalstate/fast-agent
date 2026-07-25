@@ -63,9 +63,7 @@ class ProcessPollFoldAudit(BaseModel):
             }
             if not referenced_call_ids <= known_call_ids:
                 raise ValueError("Context rewrite references unknown call IDs")
-        retained_call_ids = [
-            exchange.call_id for exchange in self.retained_exchanges
-        ]
+        retained_call_ids = [exchange.call_id for exchange in self.retained_exchanges]
         latest_rewrite = self.context_rewrites[-1]
         if (
             latest_rewrite.after_call_id != retained_call_ids[-1]

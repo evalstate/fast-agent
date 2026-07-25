@@ -10,12 +10,15 @@ import subprocess
 import sys
 
 import typer
-from rich import print
 
 
-def main(path: str = None) -> None:
+def main(path: str = None, check: bool = False) -> None:
+    """Format with ruff, or with --check report unformatted files without writing."""
     try:
         command = ["ruff", "format"]
+
+        if check:
+            command.append("--check")
 
         if path:
             command.append(path)

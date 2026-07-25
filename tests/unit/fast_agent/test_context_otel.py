@@ -25,9 +25,7 @@ def test_context_import_does_not_emit_opentelemetry_deprecations() -> None:
 
 
 @pytest.mark.parametrize(("sample_rate", "span_exported"), [(1.0, True), (0.0, False)])
-def test_configure_otel_samples_and_flushes_spans(
-    sample_rate: float, span_exported: bool
-) -> None:
+def test_configure_otel_samples_and_flushes_spans(sample_rate: float, span_exported: bool) -> None:
     script = textwrap.dedent(
         f"""
         import asyncio

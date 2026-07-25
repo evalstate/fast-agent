@@ -63,9 +63,7 @@ def format_turn_usage(usage: TurnUsageDisplay) -> str:
     cache_info = f" [dim](cache {', '.join(cache_parts)})[/dim]" if cache_parts else ""
     details: list[str] = []
     if usage.tool_calls > 0:
-        details.append(
-            f"{usage.tool_calls} tool {'call' if usage.tool_calls == 1 else 'calls'}"
-        )
+        details.append(f"{usage.tool_calls} tool {'call' if usage.tool_calls == 1 else 'calls'}")
     if usage.context_percentage is not None:
         details.append(f"context {usage.context_percentage:.1f}%")
     if isinstance(usage.cache_ttl, CacheTTLExpiry):
@@ -115,9 +113,7 @@ def format_parallel_turn_usage(children: Sequence[NamedTurnUsageDisplay]) -> lis
     lines = [f"[dim]Last (parallel):[/dim] {format_turn_usage(total)}"]
     for index, child in enumerate(children):
         prefix = "└─" if index == len(children) - 1 else "├─"
-        lines.append(
-            f"[dim]  {prefix} {child.name}:[/dim] {format_turn_usage(child.usage)}"
-        )
+        lines.append(f"[dim]  {prefix} {child.name}:[/dim] {format_turn_usage(child.usage)}")
     return lines
 
 

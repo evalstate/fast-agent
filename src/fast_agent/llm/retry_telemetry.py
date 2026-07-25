@@ -63,7 +63,14 @@ def provider_retry(
     max_attempts: int,
     wait_seconds: float,
     boundary: RetryBoundary,
+    stream_events_received: int | None = None,
 ) -> ProviderRetry:
+    """Describe one provider retry.
+
+    ``stream_events_received`` lets non-idle mid-stream failures (a truncated
+    chunked response, for example) report how far the stream got; idle timeouts
+    carry that count on the error itself.
+    """
     idle_error = error if isinstance(error, StreamIdleTimeoutError) else None
     return ProviderRetry(
         attempt=attempt,
@@ -73,7 +80,9 @@ def provider_retry(
         error_message=str(error),
         reason="stream_idle" if idle_error else "provider_error",
         boundary=boundary,
-        stream_events_received=idle_error.events_received if idle_error else None,
+        stream_events_received=(
+            idle_error.events_received if idle_error else stream_events_received
+        ),
     )
 
 

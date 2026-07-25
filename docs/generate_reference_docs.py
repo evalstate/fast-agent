@@ -97,8 +97,7 @@ def _format_type(annotation: object) -> str:
     if origin is types.UnionType or str(origin) == "typing.Union":
         parts = [_format_type(arg) for arg in args]
         return " | ".join(
-            [part for part in parts if part != "None"]
-            + [part for part in parts if part == "None"]
+            [part for part in parts if part != "None"] + [part for part in parts if part == "None"]
         )
     if str(origin) == "typing.Literal":
         values = [repr(arg) if isinstance(arg, str) else _format_type(arg) for arg in args]
@@ -534,7 +533,9 @@ def generate_extension_reference() -> str:
     lines.append(
         _md_code(
             "python",
-            _format_method_signature("FastAgentSingleTaskAdapter.prompt", FastAgentSingleTaskAdapter.prompt),
+            _format_method_signature(
+                "FastAgentSingleTaskAdapter.prompt", FastAgentSingleTaskAdapter.prompt
+            ),
         )
     )
     lines.append(

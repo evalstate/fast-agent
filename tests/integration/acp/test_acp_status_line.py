@@ -58,6 +58,5 @@ async def test_acp_omits_status_line_without_token_usage(
     assert prompt_response.stop_reason == END_TURN
 
     assert not any(
-        _extract_status_line(notification.get("meta"))
-        for notification in client.notifications
+        _extract_status_line(notification.get("meta")) for notification in client.notifications
     )

@@ -692,8 +692,7 @@ async def test_install_strips_permission_widening_frontmatter(tmp_path) -> None:
     """allowed-tools / hooks are stripped from an installed MCP-origin SKILL.md so a remote
     server cannot self-grant host permissions; the skill still installs."""
     skill_text = (
-        "---\nname: demo\ndescription: Demo skill\n"
-        "allowed-tools:\n  - Bash\n  - Write\n---\nBody\n"
+        "---\nname: demo\ndescription: Demo skill\nallowed-tools:\n  - Bash\n  - Write\n---\nBody\n"
     )
     skill = McpRegistrySkill(
         name="demo",
@@ -813,9 +812,7 @@ async def test_archive_enforces_cumulative_per_server_budget(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_direct_skill_md_enforces_cumulative_per_server_budget(
-    tmp_path, monkeypatch
-) -> None:
+async def test_direct_skill_md_enforces_cumulative_per_server_budget(tmp_path, monkeypatch) -> None:
     """Direct SKILL.md installs are charged to the same cumulative server budget as archives,
     even when the server cannot provide supporting files."""
 
@@ -954,9 +951,7 @@ async def test_supporting_files_count_against_server_budget(tmp_path, monkeypatc
     monkeypatch.setattr(
         mcp_registry,
         "MAX_SERVER_UNPACKED_BYTES",
-        mcp_registry._server_unpacked_used(tmp_path, "srv")
-        + len(skill_text.encode("utf-8"))
-        + 64,
+        mcp_registry._server_unpacked_used(tmp_path, "srv") + len(skill_text.encode("utf-8")) + 64,
     )
     install_dir = await install_mcp_registry_skill(
         aggregator, demo_skill, destination_root=tmp_path
@@ -1044,9 +1039,7 @@ async def test_scan_rejects_no_authority_file_urls() -> None:
                 ]
             }
         )
-        aggregator = _Aggregator(
-            capabilities=_skills_capabilities(), responses={INDEX_URI: index}
-        )
+        aggregator = _Aggregator(capabilities=_skills_capabilities(), responses={INDEX_URI: index})
 
         registry = await scan_mcp_skill_registry(aggregator, "hf")
 

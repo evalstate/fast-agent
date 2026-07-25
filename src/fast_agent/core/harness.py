@@ -557,9 +557,7 @@ class AgentHarness:
             )
             await self._fast_agent._apply_environment_skills(self._shell_environment)
             if self._runtime.global_prompt_context is not None:
-                self._fast_agent._refresh_prompt_context_skills(
-                    self._runtime.global_prompt_context
-                )
+                self._fast_agent._refresh_prompt_context_skills(self._runtime.global_prompt_context)
             await self._local_environment.open()
             self._sessions = HarnessSessions(
                 instance_factory=CallableAgentInstanceFactory(

@@ -34,9 +34,7 @@ def test_usage_report_requires_provider_attempts_and_v2_schema() -> None:
         UsageReport(provider_attempts=[])
 
     with pytest.raises(ValidationError, match="schema"):
-        UsageReport.model_validate(
-            {"schema": "fast-agent.usage/v1", "provider_attempts": [{}]}
-        )
+        UsageReport.model_validate({"schema": "fast-agent.usage/v1", "provider_attempts": [{}]})
 
 
 def test_anthropic_translates_disjoint_prompt_partitions_and_thinking_subset() -> None:
@@ -361,14 +359,17 @@ def test_versioned_usage_payload_has_no_legacy_fields() -> None:
     assert payload is not None
     turn_payload = payload["provider_attempts"][0]
     assert isinstance(turn_payload, dict)
-    assert not {
-        "input_tokens",
-        "output_tokens",
-        "total_tokens",
-        "cache_usage",
-        "display_input_tokens",
-        "effective_input_tokens",
-    } & turn_payload.keys()
+    assert (
+        not {
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "cache_usage",
+            "display_input_tokens",
+            "effective_input_tokens",
+        }
+        & turn_payload.keys()
+    )
 
 
 def test_usage_payload_aggregates_provider_retries_for_one_outward_turn() -> None:

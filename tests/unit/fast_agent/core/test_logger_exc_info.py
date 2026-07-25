@@ -35,6 +35,22 @@ def test_error_removes_falsey_exc_info_from_event_data() -> None:
     assert logger.events[0]["data"] == {"detail": "kept"}
 
 
+def test_structured_data_remains_nested_for_event_listeners() -> None:
+    logger = _RecordingLogger()
+
+    logger.error(
+        "hello",
+        data={"model": "gpt-test", "stream_timing": {"events_received": 4}},
+    )
+
+    assert logger.events[0]["data"] == {
+        "data": {
+            "model": "gpt-test",
+            "stream_timing": {"events_received": 4},
+        }
+    }
+
+
 def test_error_formats_exception_object_in_event_data() -> None:
     logger = _RecordingLogger()
     error = RuntimeError("boom")

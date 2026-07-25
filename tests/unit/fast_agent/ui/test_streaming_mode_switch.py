@@ -68,8 +68,7 @@ def test_stream_rollback_restores_committed_text_and_tool_segments() -> None:
     )
     assembler.handle_stream_chunk(StreamChunk(event="commit"))
     committed_segments = [
-        (segment.kind, segment.text, segment.tool_completed)
-        for segment in assembler.segments
+        (segment.kind, segment.text, segment.tool_completed) for segment in assembler.segments
     ]
 
     assembler.handle_stream_chunk(StreamChunk("failed follow-up"))
@@ -80,8 +79,7 @@ def test_stream_rollback_restores_committed_text_and_tool_segments() -> None:
     assert assembler.handle_stream_chunk(StreamChunk(event="rollback"))
 
     assert [
-        (segment.kind, segment.text, segment.tool_completed)
-        for segment in assembler.segments
+        (segment.kind, segment.text, segment.tool_completed) for segment in assembler.segments
     ] == committed_segments
     assert "before tool" in "".join(segment.text for segment in assembler.segments)
     assert "failed follow-up" not in "".join(segment.text for segment in assembler.segments)

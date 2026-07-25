@@ -73,15 +73,12 @@ async def _scan_directory(
         except Exception as exc:
             warnings.append(f"Failed to read skill manifest {manifest_path}: {exc}")
             continue
-        manifest, error = SkillRegistry.parse_manifest_text(
-            manifest_text, path=Path(manifest_path)
-        )
+        manifest, error = SkillRegistry.parse_manifest_text(manifest_text, path=Path(manifest_path))
         if manifest is not None:
             manifests.append(manifest)
         else:
             warnings.append(
-                f"Failed to parse skill manifest {manifest_path}: "
-                f"{error or 'invalid manifest'}"
+                f"Failed to parse skill manifest {manifest_path}: {error or 'invalid manifest'}"
             )
     return manifests
 

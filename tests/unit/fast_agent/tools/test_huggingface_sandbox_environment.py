@@ -403,9 +403,7 @@ async def test_managed_execute_uses_cancellable_remote_process_and_streams_spool
     assert len(sandbox.deleted_output_dirs) == 1
     assert sandbox.managed_files.deleted == []
     deleted_dir = sandbox.deleted_output_dirs[0]
-    assert all(
-        not path.startswith(f"{deleted_dir}/") for path in sandbox.managed_files.contents
-    )
+    assert all(not path.startswith(f"{deleted_dir}/") for path in sandbox.managed_files.contents)
 
 
 @pytest.mark.asyncio
@@ -435,9 +433,7 @@ async def test_managed_execute_reads_remote_output_once_by_advancing_byte_offset
     assert "".join(text for event, text in callbacks.events if event == "stdout") == stdout
     assert sandbox.stdout_path is not None
     stdout_offsets = [
-        offset
-        for path, offset, _ in sandbox.output_read_requests
-        if path == sandbox.stdout_path
+        offset for path, offset, _ in sandbox.output_read_requests if path == sandbox.stdout_path
     ]
     assert stdout_offsets == [0, 0, chunk_size]
 

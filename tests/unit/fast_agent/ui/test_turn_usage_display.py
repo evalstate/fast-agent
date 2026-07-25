@@ -46,8 +46,7 @@ def test_regular_turn_usage_uses_compact_detail_hierarchy() -> None:
     )
 
     assert (
-        rendered
-        == "[dim]Last:[/dim] [blue]▶ 1.23M[/blue] input "
+        rendered == "[dim]Last:[/dim] [blue]▶ 1.23M[/blue] input "
         "[dim](cache 82%, wrote 1,200)[/dim]  "
         "[green]◀ 12,345[/green] output"
         " [dim]· 3 tool calls · context 14.2% · cache TTL 14:32[/dim]"

@@ -203,9 +203,7 @@ def managed_process_poll_cache_boundary(
 ) -> int | None:
     """Return the stable execute-result boundary for a contiguous polling suffix."""
     for result_index in range(len(messages) - 1, 0, -1):
-        process_id = _managed_process_start_id(
-            messages[result_index - 1], messages[result_index]
-        )
+        process_id = _managed_process_start_id(messages[result_index - 1], messages[result_index])
         if process_id is None:
             continue
 
@@ -255,9 +253,7 @@ def _json_channel(message: PromptMessageExtended, channel: str) -> object | None
 
 
 def _prior_fold_metadata(exchange: PollExchange) -> dict[str, object] | None:
-    payload = _string_mapping(
-        _json_channel(exchange.result_message, FAST_AGENT_PROCESS_POLL_FOLD)
-    )
+    payload = _string_mapping(_json_channel(exchange.result_message, FAST_AGENT_PROCESS_POLL_FOLD))
     if payload is None or payload.get("process_id") != exchange.process_id:
         return None
     return payload
@@ -367,8 +363,7 @@ def _folded_usage(exchanges: list[PollExchange]) -> dict[str, object]:
         raw_duration = timing.get("duration_ms") if timing is not None else None
         duration_ms = (
             float(raw_duration)
-            if isinstance(raw_duration, (int, float))
-            and not isinstance(raw_duration, bool)
+            if isinstance(raw_duration, (int, float)) and not isinstance(raw_duration, bool)
             else None
         )
         if duration_ms is None:
@@ -379,16 +374,10 @@ def _folded_usage(exchanges: list[PollExchange]) -> dict[str, object]:
         tool_timings = _string_mapping(
             _json_channel(exchange.result_message, FAST_AGENT_TOOL_TIMING)
         )
-        call_timing = (
-            tool_timings.get(exchange.call_id)
-            if tool_timings is not None
-            else None
-        )
+        call_timing = tool_timings.get(exchange.call_id) if tool_timings is not None else None
         call_timing_mapping = _string_mapping(call_timing)
         raw_tool_duration = (
-            call_timing_mapping.get("timing_ms")
-            if call_timing_mapping is not None
-            else None
+            call_timing_mapping.get("timing_ms") if call_timing_mapping is not None else None
         )
         tool_duration_ms = (
             float(raw_tool_duration)
@@ -426,21 +415,13 @@ def _folded_usage(exchanges: list[PollExchange]) -> dict[str, object]:
                 "output_bytes_since_last_poll": exchange.metadata.get(
                     "output_bytes_since_last_poll"
                 ),
-                "seconds_since_last_output": exchange.metadata.get(
-                    "seconds_since_last_output"
-                ),
-                "has_observed_output": exchange.metadata.get(
-                    "has_observed_output"
-                ),
+                "seconds_since_last_output": exchange.metadata.get("seconds_since_last_output"),
+                "has_observed_output": exchange.metadata.get("has_observed_output"),
                 "request_mode": mode,
                 "request_outcome": outcome,
                 "provider_attempts": turn_provider_attempts,
                 **{
-                    field: (
-                        None
-                        if field in turn_unknown_fields
-                        else turn_totals[field]
-                    )
+                    field: (None if field in turn_unknown_fields else turn_totals[field])
                     for field in _FOLDED_TOKEN_FIELDS
                 },
                 "cost_usd": None if turn_cost_unknown else turn_cost_usd,
@@ -451,9 +432,7 @@ def _folded_usage(exchanges: list[PollExchange]) -> dict[str, object]:
 
     folded_usage: dict[str, object] = {
         "llm_calls": len(exchanges),
-        "provider_attempts": (
-            None if provider_attempts_unknown else totals["provider_attempts"]
-        ),
+        "provider_attempts": (None if provider_attempts_unknown else totals["provider_attempts"]),
         **{
             field: None if field in unknown_fields else totals[field]
             for field in _FOLDED_TOKEN_FIELDS
@@ -591,22 +570,21 @@ def _fold_audit(
     folded_polls: int,
     prior_fold: dict[str, object] | None,
     prior_fold_exchange: PollExchange | None,
-) -> tuple[
-    list[ArchivedPollExchange],
-    list[ArchivedPollExchange],
-    list[str],
-    ProcessPollFoldAudit | None,
-] | None:
-    removed_exchanges: list[ArchivedPollExchange] = []
-    current_removed_call_ids = [
-        exchange.call_id for exchange in exchanges[:folded_polls]
+) -> (
+    tuple[
+        list[ArchivedPollExchange],
+        list[ArchivedPollExchange],
+        list[str],
+        ProcessPollFoldAudit | None,
     ]
+    | None
+):
+    removed_exchanges: list[ArchivedPollExchange] = []
+    current_removed_call_ids = [exchange.call_id for exchange in exchanges[:folded_polls]]
     prior_audit: ProcessPollFoldAudit | None = None
     if prior_fold is not None:
         try:
-            prior_audit = ProcessPollFoldAudit.model_validate(
-                prior_fold.get("audit")
-            )
+            prior_audit = ProcessPollFoldAudit.model_validate(prior_fold.get("audit"))
         except ValueError:
             return None
 
@@ -695,13 +673,9 @@ def _fold_metadata(
         "output_lines": output_lines,
         "terminal_status": process_status,
     }
-    if (
-        elapsed := _non_negative_float(terminal_extra.get("process_elapsed_seconds"))
-    ) is not None:
+    if (elapsed := _non_negative_float(terminal_extra.get("process_elapsed_seconds"))) is not None:
         metadata["elapsed_seconds"] = round(elapsed, 3)
-    if (
-        output_bytes := _non_negative_int(terminal_extra.get("total_output_bytes"))
-    ) is not None:
+    if (output_bytes := _non_negative_int(terminal_extra.get("total_output_bytes"))) is not None:
         metadata["output_bytes"] = output_bytes
     if (
         seconds_since_last_output := _non_negative_float(
@@ -720,9 +694,7 @@ def _fold_metadata(
         metadata["exit_code"] = exit_code
     current_usage = _folded_usage(exchanges[:folded_polls])
     prior_usage = (
-        _string_mapping(prior_fold.get("folded_usage"))
-        if prior_fold is not None
-        else None
+        _string_mapping(prior_fold.get("folded_usage")) if prior_fold is not None else None
     )
     metadata["folded_usage"] = _merge_folded_usage(prior_usage, current_usage)
     assistant_updates = _assistant_updates(
@@ -739,9 +711,7 @@ def _fold_metadata(
         if prior_audit is not None and prior_fold_exchange is not None
         else []
     )
-    retained_call_ids = [
-        exchange.call_id for exchange in retained_archive
-    ]
+    retained_call_ids = [exchange.call_id for exchange in retained_archive]
     # Each rewrite records only what this fold changed (its own usage and
     # narrations); the live channel keeps the cumulative view. Snapshotting
     # cumulative state per rewrite would make the audit quadratic in polls.
@@ -752,9 +722,7 @@ def _fold_metadata(
     }
     rewrite_fold["folded_usage"] = current_usage
     current_assistant_updates = [
-        update
-        for exchange in exchanges[:folded_polls]
-        if (update := _assistant_update(exchange))
+        update for exchange in exchanges[:folded_polls] if (update := _assistant_update(exchange))
     ]
     if current_assistant_updates:
         rewrite_fold["assistant_updates"] = current_assistant_updates
@@ -793,19 +761,11 @@ def _summary_text(metadata: dict[str, object]) -> str:
         f"Wake reasons: {_format_counts(wake_counts) or 'unavailable'}.",
         (
             f"Observed output: {metadata['output_lines']} lines"
-            + (
-                f" / {metadata['output_bytes']} bytes."
-                if "output_bytes" in metadata
-                else "."
-            )
+            + (f" / {metadata['output_bytes']} bytes." if "output_bytes" in metadata else ".")
         ),
         (
             f"Current status: {metadata['terminal_status']}"
-            + (
-                f", exit code {metadata['exit_code']}."
-                if "exit_code" in metadata
-                else "."
-            )
+            + (f", exit code {metadata['exit_code']}." if "exit_code" in metadata else ".")
         ),
     ]
     if "elapsed_seconds" in metadata:
@@ -814,10 +774,7 @@ def _summary_text(metadata: dict[str, object]) -> str:
         activity = (
             f"{metadata['seconds_since_last_output']} seconds since last output."
             if metadata.get("has_observed_output") is True
-            else (
-                "No output observed for "
-                f"{metadata['seconds_since_last_output']} seconds."
-            )
+            else (f"No output observed for {metadata['seconds_since_last_output']} seconds.")
         )
         lines.insert(
             3,
@@ -878,9 +835,7 @@ def fold_managed_process_poll_history(
         cursor -= 2
 
     exchanges = list(reversed(reverse_exchanges))
-    retained_polls = (
-        1 if process_status in _SINGLE_RETAINED_POLL_STATUSES else 2
-    )
+    retained_polls = 1 if process_status in _SINGLE_RETAINED_POLL_STATUSES else 2
     retained_polls = min(retained_polls, len(exchanges))
     folded_polls = len(exchanges) - retained_polls
     removed_exchanges = exchanges[:folded_polls]
@@ -891,16 +846,12 @@ def fold_managed_process_poll_history(
     ]
     if len(prior_folds) > 1:
         return None
-    prior_fold_exchange, prior_fold = (
-        prior_folds[0] if prior_folds else (None, None)
-    )
+    prior_fold_exchange, prior_fold = prior_folds[0] if prior_folds else (None, None)
     # A running process refolds only once another full fold's worth of quiet
     # polls has accumulated, amortizing the refold cost instead of paying it on
     # every poll; a terminal status compacts whatever remains.
     minimum_folded_polls = (
-        1
-        if prior_fold is not None and process_status != "running"
-        else _MIN_FOLDED_POLLS
+        1 if prior_fold is not None and process_status != "running" else _MIN_FOLDED_POLLS
     )
     if folded_polls < minimum_folded_polls:
         return None

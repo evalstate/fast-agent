@@ -267,9 +267,7 @@ class ChatDisplay(RichLog):
         for index, item in enumerate(items):
             sep = RichText(" | ", style="dim") if index > 0 else RichText()
             item_style = (
-                highlight_color
-                if highlight_indexes and index in highlight_indexes
-                else "dim"
+                highlight_color if highlight_indexes and index in highlight_indexes else "dim"
             )
             item_text = RichText(item, style=item_style)
 

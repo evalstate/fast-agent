@@ -776,7 +776,11 @@ def create_text_resource(
     uri = filename_or_uri
     if "://" not in filename_or_uri:
         normalized_path = filename_or_uri.replace("\\", "/")
-        uri = f"file://{normalized_path}" if normalized_path.startswith("/") else f"file:///{normalized_path}"
+        uri = (
+            f"file://{normalized_path}"
+            if normalized_path.startswith("/")
+            else f"file:///{normalized_path}"
+        )
 
     return TextResourceContents(uri=AnyUrl(uri), mimeType=mime_type, text=text)
 

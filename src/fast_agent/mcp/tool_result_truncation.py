@@ -23,9 +23,7 @@ def truncate_tool_result_for_llm(
     """Return a bounded copy when the canonical textual result exceeds the limit."""
 
     canonical = canonicalize_tool_result_content_for_llm(result)
-    text = "\n".join(
-        text for block in canonical if (text := get_text(block)) is not None
-    )
+    text = "\n".join(text for block in canonical if (text := get_text(block)) is not None)
     truncated = truncate_text_output(
         text,
         byte_limit=byte_limit,

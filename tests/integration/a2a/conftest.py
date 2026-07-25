@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from a2a.server.agent_execution.context import RequestContext
     from a2a.server.events.event_queue import EventQueue
 
+
 def _data_part(value: dict[str, object]) -> Part:
     part = Part()
     ParseDict(value, part.data)
@@ -153,9 +154,7 @@ class EchoAgentExecutor(AgentExecutor):
             task_id=context.task_id,
             context_id=context.context_id,
         )
-        await updater.start_work(
-            message=updater.new_agent_message(parts=[Part(text="working")])
-        )
+        await updater.start_work(message=updater.new_agent_message(parts=[Part(text="working")]))
 
         if _is_help_query(query):
             if context.task_id in self.pending_input_tasks:
@@ -165,8 +164,7 @@ class EchoAgentExecutor(AgentExecutor):
                         parts=[
                             Part(
                                 text=(
-                                    f"{FAKE_A2A_HELP}\n\n"
-                                    "Current task is still waiting for input."
+                                    f"{FAKE_A2A_HELP}\n\nCurrent task is still waiting for input."
                                 )
                             )
                         ]
@@ -270,7 +268,6 @@ class EchoAgentExecutor(AgentExecutor):
                 ),
             )
             return
-
 
 
 @pytest_asyncio.fixture

@@ -34,9 +34,7 @@ _EXECUTE_ARGUMENTS = frozenset(
         "output_byte_limit",
     }
 )
-_POLL_PROCESS_ARGUMENTS = frozenset(
-    {"process_id", "wait_sec", "wake_on_output"}
-)
+_POLL_PROCESS_ARGUMENTS = frozenset({"process_id", "wait_sec", "wake_on_output"})
 _TERMINATE_PROCESS_ARGUMENTS = frozenset({"process_id"})
 _MINIMAL_BASH_ARGUMENTS = frozenset({"command", "run_in_background"})
 _MINIMAL_PROCESS_ARGUMENTS = frozenset({"process_id", "action", "wait_sec"})
@@ -343,13 +341,9 @@ def parse_execute_arguments(
         payload.get("yield_after_idle_sec"),
         "yield_after_idle_sec",
     )
-    if (
-        yield_after_idle_sec is not None
-        and yield_after_idle_sec > MAX_IDLE_YIELD_SECONDS
-    ):
+    if yield_after_idle_sec is not None and yield_after_idle_sec > MAX_IDLE_YIELD_SECONDS:
         raise ValueError(
-            "Error: 'yield_after_idle_sec' argument must be at most "
-            f"{MAX_IDLE_YIELD_SECONDS}"
+            f"Error: 'yield_after_idle_sec' argument must be at most {MAX_IDLE_YIELD_SECONDS}"
         )
     background = payload.get("background", False)
     if type(background) is not bool:
@@ -359,9 +353,7 @@ def parse_execute_arguments(
         "persistent" if background else "session",
     )
     if lifecycle not in {"session", "persistent"}:
-        raise ValueError(
-            "Error: 'lifecycle' argument must be 'session' or 'persistent'"
-        )
+        raise ValueError("Error: 'lifecycle' argument must be 'session' or 'persistent'")
     if lifecycle == "persistent" and not background:
         raise ValueError("Error: lifecycle='persistent' requires background=true")
 
@@ -408,13 +400,9 @@ def parse_poll_process_arguments(
     )
     wait_sec = payload.get("wait_sec", default_wait_seconds)
     if type(wait_sec) is not int or wait_sec < 0:
-        raise ValueError(
-            "Error: 'wait_sec' argument must be a non-negative integer"
-        )
+        raise ValueError("Error: 'wait_sec' argument must be a non-negative integer")
     if wait_sec > max_wait_seconds:
-        raise ValueError(
-            f"Error: 'wait_sec' argument must be at most {max_wait_seconds}"
-        )
+        raise ValueError(f"Error: 'wait_sec' argument must be at most {max_wait_seconds}")
     wake_on_output = payload.get("wake_on_output", False)
     if type(wake_on_output) is not bool:
         raise ValueError("Error: 'wake_on_output' argument must be a boolean")
@@ -446,10 +434,13 @@ def parse_minimal_bash_arguments(
         "command",
         strip=True,
     )
-    if classify_shell_detachment(
-        command,
-        run_in_background=run_in_background,
-    ) != "none":
+    if (
+        classify_shell_detachment(
+            command,
+            run_in_background=run_in_background,
+        )
+        != "none"
+    ):
         raise ValueError(
             "Shell-level backgrounding was not executed.\n"
             "Submit only the long-running service command with "
@@ -484,13 +475,9 @@ def parse_minimal_process_arguments(
     wait_sec = payload.get("wait_sec")
     if action == "wait" and wait_sec is not None:
         if type(wait_sec) is not int or wait_sec < 0:
-            raise ValueError(
-                "Error: 'wait_sec' argument must be a non-negative integer"
-            )
+            raise ValueError("Error: 'wait_sec' argument must be a non-negative integer")
         if wait_sec > max_wait_seconds:
-            raise ValueError(
-                f"Error: 'wait_sec' argument must be at most {max_wait_seconds}"
-            )
+            raise ValueError(f"Error: 'wait_sec' argument must be at most {max_wait_seconds}")
         wait_sec = min(max(wait_sec, min_wait_seconds), max_wait_seconds)
     elif action != "wait":
         wait_sec = None

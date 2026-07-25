@@ -61,6 +61,7 @@ class AgentAuth:
             claims=claims or {},
         )
 
+
 @dataclass(slots=True)
 class AgentRequest:
     """An invocation request around a fast-agent prompt message."""

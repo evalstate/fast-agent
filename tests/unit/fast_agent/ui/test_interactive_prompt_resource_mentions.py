@@ -178,9 +178,7 @@ async def test_prompt_loop_resolves_attach_paths_from_shell_working_dir(
         return next_input
 
     monkeypatch.setattr(interactive_prompt, "get_enhanced_input", fake_get_enhanced_input)
-    monkeypatch.setattr(
-        prompt_input, "resolve_shell_working_dir", lambda **_kwargs: shell_dir
-    )
+    monkeypatch.setattr(prompt_input, "resolve_shell_working_dir", lambda **_kwargs: shell_dir)
 
     sent_payloads: list[str | PromptMessageExtended] = []
 
@@ -281,9 +279,7 @@ async def test_resolve_prompt_payload_uses_shell_working_dir_for_local_file_ment
     notes = shell_dir / "notes.txt"
     notes.write_text("hello", encoding="utf-8")
 
-    monkeypatch.setattr(
-        prompt_input, "resolve_shell_working_dir", lambda **_kwargs: shell_dir
-    )
+    monkeypatch.setattr(prompt_input, "resolve_shell_working_dir", lambda **_kwargs: shell_dir)
 
     prompt_ui = InteractivePrompt()
     app = _MentionAgentApp()

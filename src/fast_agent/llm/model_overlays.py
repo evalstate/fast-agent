@@ -140,9 +140,7 @@ class ModelOverlayDefaults(BaseModel):
         if value is None:
             return None
         if not isinstance(value, int | float | str):
-            raise ValueError(
-                "streaming_timeout must be a positive number of seconds or 'none'."
-            )
+            raise ValueError("streaming_timeout must be a positive number of seconds or 'none'.")
         try:
             timeout = float(value)
         except (TypeError, ValueError) as exc:
@@ -150,9 +148,7 @@ class ModelOverlayDefaults(BaseModel):
                 "streaming_timeout must be a positive number of seconds or 'none'."
             ) from exc
         if not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError(
-                "streaming_timeout must be a positive number of seconds or 'none'."
-            )
+            raise ValueError("streaming_timeout must be a positive number of seconds or 'none'.")
         return timeout
 
     def to_query_pairs(self) -> list[tuple[str, str]]:
@@ -385,9 +381,7 @@ class LoadedModelOverlay:
             tokenizes=self.manifest.metadata.tokenizes or list(ModelDatabase.TEXT_ONLY),
             json_mode=self._new_model_json_mode(),
             structured_tool_policy=self.manifest.metadata.structured_tool_policy,
-            managed_process_poll_folding=(
-                self.manifest.metadata.managed_process_poll_folding
-            ),
+            managed_process_poll_folding=(self.manifest.metadata.managed_process_poll_folding),
             process_poll_default_wait_seconds=(
                 self.manifest.metadata.process_poll_default_wait_seconds or 0
             ),
@@ -437,9 +431,7 @@ class LoadedModelOverlay:
         if metadata.structured_tool_policy is not None:
             update_payload["structured_tool_policy"] = metadata.structured_tool_policy
         if metadata.managed_process_poll_folding is not None:
-            update_payload["managed_process_poll_folding"] = (
-                metadata.managed_process_poll_folding
-            )
+            update_payload["managed_process_poll_folding"] = metadata.managed_process_poll_folding
         if metadata.process_poll_default_wait_seconds is not None:
             update_payload["process_poll_default_wait_seconds"] = (
                 metadata.process_poll_default_wait_seconds
@@ -779,9 +771,7 @@ def _settings_home_override(
         raw_config_file if isinstance(raw_config_file, str) and raw_config_file.strip() else None
     )
     home = getattr(settings, "home", None)
-    if home is None and (
-        os.getenv("FAST_AGENT_HOME") or os.getenv("FAST_AGENT_RUNTIME_HOME")
-    ):
+    if home is None and (os.getenv("FAST_AGENT_HOME") or os.getenv("FAST_AGENT_RUNTIME_HOME")):
         return None
     if home is None and not (start_path is None and config_file is not None):
         return None

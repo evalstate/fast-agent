@@ -140,8 +140,7 @@ def test_format_toolbar_prefix_escapes_mode_text_and_style() -> None:
     )
 
     assert prefix == (
-        " agent Mode: <style fg='ansiblack' bg='bad&#x27;color'>"
-        "mode&lt;draft&amp;1&gt;</style> | "
+        " agent Mode: <style fg='ansiblack' bg='bad&#x27;color'>mode&lt;draft&amp;1&gt;</style> | "
     )
 
 
@@ -244,9 +243,7 @@ def test_build_middle_segment_places_active_processes_before_attachments() -> No
         mode_style="ansigreen",
         mode_text="NRM",
     )
-    prefix_plain = "".join(
-        fragment[1] for fragment in to_formatted_text(HTML(prefix))
-    )
+    prefix_plain = "".join(fragment[1] for fragment in to_formatted_text(HTML(prefix)))
     assert "dev[S] ↻ |" in prefix_plain
     assert "dev[S]  ↻" not in prefix_plain
 

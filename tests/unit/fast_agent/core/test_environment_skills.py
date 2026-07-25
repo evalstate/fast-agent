@@ -71,9 +71,7 @@ class PosixFilesystemEnvironment(ShellOnlyEnvironment):
 
     async def exists(self, path: str) -> bool:
         resolved = self.resolve_path(path)
-        return resolved in self.files or any(
-            name.startswith(f"{resolved}/") for name in self.files
-        )
+        return resolved in self.files or any(name.startswith(f"{resolved}/") for name in self.files)
 
     async def list_dir(self, path: str) -> list[EnvironmentFileEntry]:
         resolved = self.resolve_path(path).rstrip("/")
@@ -198,9 +196,7 @@ async def test_local_environment_keeps_host_skill_discovery(
     host_manifest = _host_manifest()
     fast._apply_skills_to_agent_configs([host_manifest])
 
-    local_env = LocalEnvironment(
-        logger=logging.getLogger("test-local"), working_directory=tmp_path
-    )
+    local_env = LocalEnvironment(logger=logging.getLogger("test-local"), working_directory=tmp_path)
     await fast._apply_environment_skills(local_env)
 
     assert _agent_manifests(fast) == [host_manifest]

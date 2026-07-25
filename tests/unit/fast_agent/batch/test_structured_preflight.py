@@ -382,14 +382,14 @@ def test_extracts_timing_and_usage_channels() -> None:
         content=[],
         channels={
             FAST_AGENT_TIMING: [text_content('{"duration_ms": 12.5}')],
-                FAST_AGENT_USAGE: [
-                    text_content(
-                        '{"schema":"fast-agent.usage/v2","provider_attempts":[{"provider":"openai",'
-                        '"usage_schema":"openai-chat","model":"test",'
-                        '"prompt":{"total":40},"completion":{"total":2}}'
-                        ']}'
-                    )
-                ],
+            FAST_AGENT_USAGE: [
+                text_content(
+                    '{"schema":"fast-agent.usage/v2","provider_attempts":[{"provider":"openai",'
+                    '"usage_schema":"openai-chat","model":"test",'
+                    '"prompt":{"total":40},"completion":{"total":2}}'
+                    "]}"
+                )
+            ],
         },
     )
 

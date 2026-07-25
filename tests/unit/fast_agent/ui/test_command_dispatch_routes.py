@@ -121,9 +121,7 @@ async def test_parse_and_dispatch_use_route_registry_for_plain_outcome_commands(
         action: str | None,
         argument: str | None,
     ) -> CommandOutcome:
-        calls.append(
-            ("skills", {"agent": agent_name, "action": action, "argument": argument})
-        )
+        calls.append(("skills", {"agent": agent_name, "action": action, "argument": argument}))
         return CommandOutcome()
 
     async def fake_mcp_list(*, manager: object, agent_name: str) -> CommandOutcome:

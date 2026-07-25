@@ -371,9 +371,7 @@ class ToolRunner:
             config = context.config if context is not None else None
             if config is None:
                 return
-            policy = (
-                config.shell_execution.managed_process_poll_history_folding
-            )
+            policy = config.shell_execution.managed_process_poll_history_folding
             if policy == "off":
                 return
             if policy == "auto":
@@ -877,6 +875,16 @@ class ToolRunner:
             else DEFAULT_MAX_ITERATIONS
         )
         if self._iteration > max_iterations:
+            _logger.warning(
+                "Tool loop stopped: maximum iterations reached",
+                data={
+                    "agent_name": self._agent.name,
+                    "iterations": self._iteration,
+                    "max_iterations": max_iterations,
+                },
+            )
+            if self._last_message is not None:
+                self._last_message.stop_reason = LlmStopReason.MAX_ITERATIONS
             self._done = True
             return
 
