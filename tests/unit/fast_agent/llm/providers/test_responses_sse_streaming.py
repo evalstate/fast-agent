@@ -6,7 +6,12 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from openai.types.responses import ResponseTextDeltaEvent
+from openai.types.responses import (
+    Response,
+    ResponseOutputMessage,
+    ResponseOutputText,
+    ResponseTextDeltaEvent,
+)
 
 from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
@@ -30,15 +35,29 @@ class _DelayedResponsesSseStream:
     def __init__(self) -> None:
         self.release_terminal = asyncio.Event()
         self._index = 0
-        self.final_response = SimpleNamespace(
+        self.final_response = Response(
+            id="resp_1",
+            created_at=0.0,
+            model="gpt-test",
+            object="response",
             status="completed",
-            output=[
-                SimpleNamespace(
-                    type="message",
-                    content=[SimpleNamespace(type="output_text", text="hello world")],
+            output=[],
+            parallel_tool_calls=True,
+            tool_choice="auto",
+            tools=[],
+        )
+        self.completed_message = ResponseOutputMessage(
+            id="msg_1",
+            type="message",
+            role="assistant",
+            status="completed",
+            content=[
+                ResponseOutputText(
+                    annotations=[],
+                    text="hello world",
+                    type="output_text",
                 )
             ],
-            usage=None,
         )
 
     def __aiter__(self) -> _DelayedResponsesSseStream:
@@ -57,6 +76,15 @@ class _DelayedResponsesSseStream:
                 type="response.output_text.delta",
             )
         if self._index == 1:
+            self._index += 1
+            return SimpleNamespace(
+                type="response.output_item.done",
+                item=self.completed_message,
+                item_id="msg_1",
+                output_index=0,
+                sequence_number=2,
+            )
+        if self._index == 2:
             self._index += 1
             await self.release_terminal.wait()
             return SimpleNamespace(
@@ -156,4 +184,5 @@ async def test_sse_delta_reaches_listener_before_response_completes(
     harness.sse_stream.release_terminal.set()
     response, _summary, _input = await completion
 
-    assert response is harness.sse_stream.final_response
+    assert harness.sse_stream.final_response.output == []
+    assert response.output == [harness.sse_stream.completed_message]
