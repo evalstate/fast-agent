@@ -124,9 +124,9 @@ class ModelSelectionCatalog:
         ),
         Provider.XAI: (
             CatalogModelEntry(alias="Grok 4.5", model="xai.grok-4.5"),
+            CatalogModelEntry(alias="Grok 4.5 (X Search)", model="xai.grok-4.5?x_search=true"),
             CatalogModelEntry(alias="Grok 4.3", model="xai.grok-4.3"),
             CatalogModelEntry(alias="Grok 4.3 (instant)", model="xai.grok-4.3?reasoning=none"),
-            CatalogModelEntry(alias="Grok 4.3 (X Search)", model="xai.grok-4.3?x_search=true"),
         ),
         Provider.META_AI: (
             CatalogModelEntry(alias="Muse Spark 1.1", model="metaai.muse-spark-1.1"),
