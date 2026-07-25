@@ -12,7 +12,6 @@ import logging
 import sys
 import threading
 import traceback
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -125,15 +124,6 @@ class Logger:
             details=_exception_details(exc_info),
         )
 
-    @classmethod
-    def _prepare_event_data(cls, data: dict[str, Any]) -> dict[str, Any]:
-        nested = data.get("data")
-        if isinstance(nested, Mapping):
-            flattened = dict(nested)
-            flattened.update((key, value) for key, value in data.items() if key != "data")
-            data = flattened
-        return cls._coerce_exc_info(data)
-
     def event(
         self,
         etype: EventType,
@@ -161,7 +151,7 @@ class Logger:
         **data,
     ) -> None:
         """Log a debug message."""
-        self.event("debug", name, message, context, self._prepare_event_data(data))
+        self.event("debug", name, message, context, self._coerce_exc_info(data))
 
     def info(
         self,
@@ -171,7 +161,7 @@ class Logger:
         **data,
     ) -> None:
         """Log an info message."""
-        self.event("info", name, message, context, self._prepare_event_data(data))
+        self.event("info", name, message, context, self._coerce_exc_info(data))
 
     def warning(
         self,
@@ -181,7 +171,7 @@ class Logger:
         **data,
     ) -> None:
         """Log a warning message."""
-        self.event("warning", name, message, context, self._prepare_event_data(data))
+        self.event("warning", name, message, context, self._coerce_exc_info(data))
 
     def error(
         self,
@@ -191,7 +181,7 @@ class Logger:
         **data,
     ) -> None:
         """Log an error message."""
-        self.event("error", name, message, context, self._prepare_event_data(data))
+        self.event("error", name, message, context, self._coerce_exc_info(data))
 
     def exception(
         self,
@@ -207,7 +197,7 @@ class Logger:
         if exc_info[0] is not None:
             tb_str = "".join(traceback.format_exception(*exc_info))
             data["exception"] = tb_str
-        self.event("error", name, message, context, self._prepare_event_data(data))
+        self.event("error", name, message, context, self._coerce_exc_info(data))
 
     def progress(
         self,
@@ -219,7 +209,7 @@ class Logger:
     ) -> None:
         """Log a progress message."""
         merged_data = dict(percentage=percentage, **data)
-        self.event("progress", name, message, context, self._prepare_event_data(merged_data))
+        self.event("progress", name, message, context, merged_data)
 
 
 class LoggingConfig:

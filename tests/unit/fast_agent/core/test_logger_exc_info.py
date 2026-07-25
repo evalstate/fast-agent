@@ -35,7 +35,7 @@ def test_error_removes_falsey_exc_info_from_event_data() -> None:
     assert logger.events[0]["data"] == {"detail": "kept"}
 
 
-def test_error_flattens_structured_data_payload() -> None:
+def test_structured_data_remains_nested_for_event_listeners() -> None:
     logger = _RecordingLogger()
 
     logger.error(
@@ -44,26 +44,11 @@ def test_error_flattens_structured_data_payload() -> None:
     )
 
     assert logger.events[0]["data"] == {
-        "model": "gpt-test",
-        "stream_timing": {"events_received": 4},
+        "data": {
+            "model": "gpt-test",
+            "stream_timing": {"events_received": 4},
+        }
     }
-
-
-def test_direct_fields_override_nested_data_fields() -> None:
-    logger = _RecordingLogger()
-
-    logger.info("hello", data={"model": "nested"}, model="direct")
-
-    assert logger.events[0]["data"] == {"model": "direct"}
-
-
-def test_non_mapping_data_remains_under_data_field() -> None:
-    logger = _RecordingLogger()
-    payload = object()
-
-    logger.debug("hello", data=payload)
-
-    assert logger.events[0]["data"] == {"data": payload}
 
 
 def test_error_formats_exception_object_in_event_data() -> None:

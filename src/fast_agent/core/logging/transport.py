@@ -8,7 +8,7 @@ import asyncio
 import json
 import traceback
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Mapping
 from contextlib import suppress
 from pathlib import Path
 from typing import Protocol
@@ -154,7 +154,14 @@ class FileTransport(FilteredEventTransport):
 
         # Add event data if present
         if event.data:
-            log_entry["data"] = self._serializer(event.data)
+            event_data = event.data
+            nested = event_data.get("data")
+            if isinstance(nested, Mapping):
+                event_data = dict(nested)
+                event_data.update(
+                    (key, value) for key, value in event.data.items() if key != "data"
+                )
+            log_entry["data"] = self._serializer(event_data)
 
         try:
             with self.filepath.open(mode=self.mode, encoding=self.encoding) as f:
