@@ -55,10 +55,10 @@ def should_parallelize_tool_calls(tool_call_count: int) -> bool:
 
 
 # should we have MAX_TOOL_CALLS instead to constrain by number of tools rather than turns...?
-DEFAULT_MAX_ITERATIONS = 199
+DEFAULT_MAX_ITERATIONS = 9999
 """Maximum number of User/Assistant turns to take"""
 
-DEFAULT_STREAMING_TIMEOUT = 120.0
+DEFAULT_STREAMING_TIMEOUT = 90.0
 """Default idle timeout in seconds between provider streaming events."""
 
 DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 8192
