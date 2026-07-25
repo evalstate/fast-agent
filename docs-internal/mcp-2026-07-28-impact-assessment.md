@@ -17,6 +17,25 @@ The checked-out Python SDK `main` is still based on v1.24 and has local changes.
 The v2 assessment therefore uses `upstream/main` and the `v2.0.0b2` tag without
 altering the checkout.
 
+## Implementation outcome
+
+Fast-agent now owns configured server runtimes while the public
+`mcp.client.Client` owns protocol behavior:
+
+- `Client(mode="auto")` performs discovery and legacy fallback;
+- high-level tool, prompt, and resource methods drive MRTR;
+- attached runtimes use the SDK response cache;
+- on-demand, request-authenticated clients disable caching;
+- `Client.listen()` owns modern subscription demultiplexing and cache eviction;
+- fast-agent callbacks are composed in `MCPClientCallbackRuntime` rather than
+  attached to a `ClientSession` subclass;
+- the custom `MCPAgentClientSession`, session factory, manual negotiation, and
+  private input-required driver have been removed.
+
+`MCPConnectionManager` remains as a product runtime owner for attach/detach,
+stdio processes, OAuth UX, startup budgets, replacement, and status. It no
+longer represents a pool or durable protocol-session identity.
+
 ## Executive assessment
 
 Supporting MCP 2026-07-28 is a protocol-era migration, not a version constant

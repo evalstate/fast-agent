@@ -2,7 +2,19 @@ import os
 
 from mcp.server.mcpserver import Context, MCPServer
 
-server = MCPServer("modern-subscriptions")
+
+class CachingMCPServer(MCPServer):
+    list_tools_calls = 0
+
+    async def _handle_list_tools(self, ctx, params):  # noqa: ANN001, ANN201
+        self.list_tools_calls += 1
+        result = await super()._handle_list_tools(ctx, params)
+        result.ttl_ms = 60_000
+        result.cache_scope = "private"
+        return result
+
+
+server = CachingMCPServer("modern-subscriptions")
 
 
 @server.tool()
@@ -15,6 +27,11 @@ async def add_dynamic_tool(ctx: Context) -> str:
 
     await ctx.notify_tools_changed()
     return "added"
+
+
+@server.tool()
+def list_tools_call_count() -> int:
+    return server.list_tools_calls
 
 
 if __name__ == "__main__":

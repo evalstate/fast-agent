@@ -2,12 +2,13 @@
 Manages the lifecycle of multiple MCP server connections.
 """
 
+from __future__ import annotations
+
 import asyncio
 import threading
 import time
 import traceback
 from collections import deque
-from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -17,30 +18,25 @@ from urllib.parse import urlsplit
 
 import httpx2
 from anyio import CancelScope, Event, Lock, create_task_group
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx2 import HTTPStatusError
-from mcp import ClientSession
-from mcp.client._probe import negotiate_auto
 from mcp.client.sse import sse_client
 from mcp.client.stdio import (
     StdioServerParameters,
     get_default_environment,
 )
 from mcp.client.streamable_http import streamable_http_client
-from mcp.client.subscriptions import SubscriptionLost, listen
+from mcp.client.subscriptions import SubscriptionLost
 from mcp.shared.exceptions import MCPError
-from mcp_types import Implementation, JSONRPCMessage, ServerCapabilities
 
-from fast_agent.config import MCPServerSettings
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import ServerInitializationError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.home import build_child_environment
+from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
+from fast_agent.mcp.client_connection import MCPClientConnection, MCPTransportAdapter
 from fast_agent.mcp.hf_auth import add_forwarded_hf_auth_header
-from fast_agent.mcp.interfaces import ClientSessionFactory
 from fast_agent.mcp.logger_textio import get_stderr_handler
-from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.oauth_client import (
     OAuthEvent,
     OAuthEventHandler,
@@ -55,8 +51,13 @@ from fast_agent.utils.text import strip_casefold
 from fast_agent.utils.transports import is_mcp_client_transport, uses_mcp_remote_transport
 
 if TYPE_CHECKING:
-    from mcp.client.auth import OAuthClientProvider
+    from collections.abc import Callable
 
+    from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+    from mcp.client.auth import OAuthClientProvider
+    from mcp_types import Implementation, JSONRPCMessage, ServerCapabilities
+
+    from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
     from fast_agent.mcp_server_registry import ServerRegistry
 
@@ -66,14 +67,14 @@ OAuthMode = str
 
 
 @runtime_checkable
-class PingableClientSession(Protocol):
-    """Client session capability used by the optional keepalive loop."""
+class PingableMCPClient(Protocol):
+    """High-level client capability used by the optional legacy keepalive loop."""
 
     async def ping(self, read_timeout_seconds: float | None = None) -> object: ...
 
 
-def _pingable_session(session: object | None) -> PingableClientSession | None:
-    return session if isinstance(session, PingableClientSession) else None
+def _pingable_client(client: object | None) -> PingableMCPClient | None:
+    return client if isinstance(client, PingableMCPClient) else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,18 +302,18 @@ def create_transport_context(
     Create a transport context manager for the given server configuration.
 
     Handles stdio/sse/http transport creation and header preparation, but NOT
-    lifecycle management, task groups, or connection persistence. Used by
-    ServerRegistry.initialize_server() for non-persistent connections.
+    lifecycle management, task groups, or attached-runtime ownership. Used by
+    ServerRegistry.initialize_server() for on-demand clients.
 
     Note: OAuth event handlers (oauth_event_handler, oauth_abort_event) and
     transport_metrics (channel_hook) are intentionally omitted. This function
     creates short-lived probe connections where full lifecycle tracking is
-    unnecessary. The persistent path in MCPConnectionManager.launch_server()
+    unnecessary. The attached path in MCPConnectionManager.launch_server()
     uses its own transport_context_factory closure with those features.
     """
     # Short-lived probe connections intentionally avoid speculative OAuth startup.
     # Plain local HTTP/SSE servers can hang if we begin an auth flow before the
-    # server has actually challenged the request; higher-level non-persistent
+    # server has actually challenged the request; higher-level on-demand
     # callers may still retry with OAuth enabled after a 401 challenge.
     oauth_mode = _resolve_oauth_mode(config, trigger_oauth=trigger_oauth)
     prepared_auth = _prepare_headers_and_auth(
@@ -380,9 +381,7 @@ def create_transport_context(
 
 class ServerConnection:
     """
-    Represents a long-lived MCP server connection, including:
-    - The ClientSession to the server
-    - The transport streams (via stdio/sse, etc.)
+    Represents an attached local MCP client runtime and its product status.
     """
 
     def __init__(
@@ -399,14 +398,14 @@ class ServerConnection:
                 ]
             ],
         ],
-        client_session_factory: ClientSessionFactory,
+        callback_runtime: MCPClientCallbackRuntime,
     ) -> None:
         self.server_name = server_name
         self.server_config = server_config
-        self.session: ClientSession | None = None
-        self._client_session_factory = client_session_factory
+        self.client: MCPClientConnection | None = None
+        self._callback_runtime = callback_runtime
         self._transport_context_factory = transport_context_factory
-        # Signal that session is fully up and initialized
+        # Signal that the runtime is fully up and negotiated.
         self._initialized_event = Event()
 
         # Signal we want to shut down
@@ -425,13 +424,11 @@ class ServerConnection:
         self.supported_protocol_versions: tuple[str, ...] = ()
         self.negotiation: str | None = None
         self.subscription_state: str | None = None
-        self.client_capabilities: dict | None = None
         self.server_instructions_available: bool = False
         self.server_instructions_enabled: bool = (
             server_config.include_instructions if server_config else True
         )
         self.session_id: str | None = None
-        self._get_session_id_cb: Callable[[], str | None] | None = None
         self.transport_metrics: TransportChannelMetrics | None = None
         self._ping_ok_count = 0
         self._ping_fail_count = 0
@@ -444,13 +441,14 @@ class ServerConnection:
         self._oauth_wait_started_at: float | None = None
         self._oauth_wait_accumulated_seconds = 0.0
         self._oauth_callback_timed_out = False
+        self._auth_challenge_received = False
         self._oauth_abort_event = threading.Event()
         self._stdio_stderr_lines: deque[str] = deque(maxlen=STDIO_STDERR_BUFFER_LINES)
         self._lifecycle_cancel_scope: CancelScope | None = None
 
     def is_healthy(self) -> bool:
         """Check if the server connection is healthy and ready to use."""
-        return self.session is not None and not self._error_occurred
+        return self.client is not None and not self._error_occurred
 
     def request_shutdown(self) -> None:
         """
@@ -471,24 +469,23 @@ class ServerConnection:
         """
         await self._shutdown_event.wait()
 
-    async def initialize_session(self) -> None:
+    async def initialize_client(self) -> None:
         """
-        Initializes the server connection and session.
+        Capture negotiated peer metadata from the entered SDK client.
         Must be called within an async context.
         """
-        assert self.session, "Session must be created before initialization"
-        await negotiate_auto(self.session)
-        self.protocol_version = self.session.protocol_version
-        discover_result = self.session.discover_result
+        assert self.client, "Client must be entered before initialization"
+        self.protocol_version = self.client.protocol_version
+        discover_result = self.client.discover_result
         self.protocol_era = "modern" if discover_result is not None else "legacy"
         self.negotiation = "discover" if discover_result is not None else "initialize"
         self.supported_protocol_versions = (
             tuple(discover_result.supported_versions) if discover_result is not None else ()
         )
-        self.server_capabilities = self.session.server_capabilities
-        self.server_implementation = self.session.server_info
+        self.server_capabilities = self.client.server_capabilities
+        self.server_implementation = self.client.server_info
 
-        raw_instructions = self.session.instructions
+        raw_instructions = self.client.instructions
         self.server_instructions_available = bool(raw_instructions)
 
         # Store instructions if provided by the server and enabled in config
@@ -511,12 +508,12 @@ class ServerConnection:
 
         # If there's an init hook, run it
 
-        # Now the session is ready for use
+        # The runtime is ready for use.
         self._initialized_event.set()
 
     async def wait_for_initialized(self) -> None:
         """
-        Wait until the session is fully initialized.
+        Wait until the client runtime is fully initialized.
         """
         await self._initialized_event.wait()
 
@@ -557,6 +554,11 @@ class ServerConnection:
     def recent_stdio_stderr_lines(self) -> tuple[str, ...]:
         return tuple(self._stdio_stderr_lines)
 
+    async def capture_http_response(self, response: httpx2.Response) -> None:
+        """Record an OAuth challenge before the SDK normalizes the transport error."""
+        if response.status_code == 401:
+            self._auth_challenge_received = True
+
     def record_ping_event(self, state: str) -> None:
         self._ping_history.append((datetime.now(timezone.utc), state))
 
@@ -594,30 +596,6 @@ class ServerConnection:
 
         return buckets
 
-    def create_session(
-        self,
-        read_stream: MemoryObjectReceiveStream,
-        send_stream: MemoryObjectSendStream,
-    ) -> ClientSession:
-        """
-        Create a new session instance for this server connection.
-        """
-
-        read_timeout = self.server_config.read_timeout_seconds
-
-        session = self._client_session_factory(
-            read_stream,
-            send_stream,
-            read_timeout,
-            server_config=self.server_config,
-            transport_metrics=self.transport_metrics,
-        )
-
-        self.session = session
-        self.client_capabilities = getattr(session, "client_capabilities", None)
-
-        return session
-
 
 async def _run_ping_loop(server_conn: ServerConnection) -> None:
     interval = server_conn.server_config.ping_interval_seconds
@@ -634,9 +612,8 @@ async def _run_ping_loop(server_conn: ServerConnection) -> None:
         await asyncio.sleep(interval)
         if server_conn._shutdown_event.is_set():
             break
-        session = server_conn.session
-        pingable_session = _pingable_session(session)
-        if pingable_session is None:
+        client = _pingable_client(server_conn.client)
+        if client is None:
             return
         try:
             from fast_agent.human_input.elicitation_state import elicitation_state
@@ -646,7 +623,7 @@ async def _run_ping_loop(server_conn: ServerConnection) -> None:
         except Exception:
             pass
         try:
-            await pingable_session.ping(read_timeout_seconds=read_timeout)
+            await client.ping(read_timeout_seconds=read_timeout)
             missed = 0
             server_conn._ping_ok_count += 1
             server_conn._ping_consecutive_failures = 0
@@ -742,34 +719,25 @@ async def _run_server_lifecycle(server_conn: ServerConnection) -> None:
     """Run the server lifecycle inside the connection-owned cancellation scope."""
     try:
         transport_context = server_conn._transport_context_factory()
-
+        connection = MCPClientConnection(
+            MCPTransportAdapter(transport_context),
+            server_conn._callback_runtime,
+            read_timeout_seconds=server_conn.server_config.read_timeout_seconds,
+        )
+        server_conn.client = connection
         try:
-            async with transport_context as (read_stream, write_stream, get_session_id_cb):
-                server_conn._get_session_id_cb = get_session_id_cb
-                _refresh_server_session_id(server_conn, get_session_id_cb)
-
-                server_conn.create_session(read_stream, write_stream)
-                assert server_conn.session is not None
-
-                try:
-                    async with server_conn.session:
-                        await server_conn.initialize_session()
-                        _refresh_server_session_id(server_conn, get_session_id_cb)
-                        await _wait_for_shutdown_with_optional_ping(server_conn)
-                except Exception as session_exit_exc:
-                    if not _handle_shutdown_cleanup_error(
-                        server_conn,
-                        session_exit_exc,
-                        cleanup_scope="session",
-                    ):
-                        raise
-        except Exception as transport_exit_exc:
+            async with connection:
+                await server_conn.initialize_client()
+                await _wait_for_shutdown_with_optional_ping(server_conn)
+        except Exception as client_exit_exc:
             if not _handle_shutdown_cleanup_error(
                 server_conn,
-                transport_exit_exc,
-                cleanup_scope="transport",
+                client_exit_exc,
+                cleanup_scope="client",
             ):
                 raise
+        finally:
+            server_conn.client = None
 
     except HTTPStatusError as http_exc:
         _record_http_lifecycle_error(server_conn, http_exc)
@@ -782,20 +750,6 @@ async def _run_server_lifecycle(server_conn: ServerConnection) -> None:
 
         _record_lifecycle_error(server_conn, exc)
         # No raise - allow graceful exit
-
-
-def _refresh_server_session_id(
-    server_conn: ServerConnection,
-    get_session_id_cb: Callable[[], str | None] | None,
-) -> None:
-    if get_session_id_cb is not None:
-        try:
-            server_conn.session_id = get_session_id_cb() or server_conn.session_id
-        except Exception:
-            logger.debug(f"{server_conn.server_name}: Unable to retrieve session id from transport")
-        return
-    if server_conn.server_config.transport == "stdio":
-        server_conn.session_id = "local"
 
 
 async def _wait_for_shutdown_with_optional_ping(server_conn: ServerConnection) -> None:
@@ -824,23 +778,23 @@ async def _wait_for_shutdown_with_optional_ping(server_conn: ServerConnection) -
 
 
 async def _run_subscription_loop(server_conn: ServerConnection) -> None:
-    session = server_conn.session
-    if not isinstance(session, MCPAgentClientSession):
+    client = server_conn.client
+    if client is None:
         server_conn.subscription_state = "unsupported"
         return
     delay = 0.25
     while not server_conn._shutdown_event.is_set():
         try:
-            async with listen(
-                session,
+            subscription_context = client.listen(
                 tools_list_changed=True,
                 prompts_list_changed=True,
                 resources_list_changed=True,
-            ) as subscription:
+            )
+            async with subscription_context as subscription:
                 server_conn.subscription_state = "open"
                 delay = 0.25
                 async for event in subscription:
-                    await session.handle_subscription_event(event)
+                    await client.callbacks.handle_subscription_event(event)
             server_conn.subscription_state = "closed"
         except SubscriptionLost:
             server_conn.subscription_state = "error"
@@ -1186,8 +1140,8 @@ class MCPConnectionManager(ContextDependent):
     async def launch_server(
         self,
         server_name: str,
-        client_session_factory: ClientSessionFactory,
         *,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
@@ -1228,7 +1182,7 @@ class MCPConnectionManager(ContextDependent):
                 allow_oauth_paste_fallback=allow_oauth_paste_fallback,
                 transport_metrics=transport_metrics,
             ),
-            client_session_factory=client_session_factory,
+            callback_runtime=callback_runtime,
         )
         server_conn_holder.append(server_conn)
 
@@ -1246,7 +1200,7 @@ class MCPConnectionManager(ContextDependent):
             assert self._tg is not None
             self._tg.start_soon(_server_lifecycle_task, server_conn)
 
-        logger.info(f"{server_name}: Up and running with a persistent connection!")
+        logger.info(f"{server_name}: Attached MCP client runtime is ready")
         return server_conn
 
     async def _ensure_task_group(self, server_name: str) -> None:
@@ -1457,6 +1411,7 @@ class MCPConnectionManager(ContextDependent):
             auth=oauth_auth,
             timeout=self._http_timeout(config),
             follow_redirects=True,
+            event_hooks={"response": [server_conn.capture_http_response]},
         )
         return _managed_http_transport_context(
             http_client,
@@ -1511,7 +1466,7 @@ class MCPConnectionManager(ContextDependent):
         self,
         *,
         server_name: str,
-        client_session_factory: ClientSessionFactory,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None,
         trigger_oauth: bool | None,
         oauth_event_handler: OAuthEventHandler | None,
@@ -1521,7 +1476,7 @@ class MCPConnectionManager(ContextDependent):
         """Launch a server connection and wait for initialization to complete."""
         server_conn = await self.launch_server(
             server_name=server_name,
-            client_session_factory=client_session_factory,
+            callback_runtime=callback_runtime,
             startup_timeout_seconds=startup_timeout_seconds,
             trigger_oauth=trigger_oauth,
             oauth_event_handler=oauth_event_handler,
@@ -1578,7 +1533,7 @@ class MCPConnectionManager(ContextDependent):
         *,
         server_name: str,
         server_conn: ServerConnection,
-        client_session_factory: ClientSessionFactory,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None,
         oauth_event_handler: OAuthEventHandler | None,
         allow_oauth_paste_fallback: bool,
@@ -1593,7 +1548,7 @@ class MCPConnectionManager(ContextDependent):
         await asyncio.sleep(0.1)
         return await self._launch_and_wait_for_server(
             server_name=server_name,
-            client_session_factory=client_session_factory,
+            callback_runtime=callback_runtime,
             startup_timeout_seconds=startup_timeout_seconds,
             trigger_oauth=True,
             oauth_event_handler=oauth_event_handler,
@@ -1602,17 +1557,21 @@ class MCPConnectionManager(ContextDependent):
         )
 
     def should_retry_server_with_oauth(self, server_name: str, error: object) -> bool:
+        server_conn = self.running_servers.get(server_name)
         return (
             self._server_oauth_mode.get(server_name) == "auto"
             and not self._server_oauth_active.get(server_name, False)
-            and _is_http_auth_challenge_error(error)
+            and (
+                bool(server_conn and server_conn._auth_challenge_received)
+                or _is_http_auth_challenge_error(error)
+            )
         )
 
     async def get_server(
         self,
         server_name: str,
-        client_session_factory: ClientSessionFactory,
         *,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
@@ -1626,7 +1585,7 @@ class MCPConnectionManager(ContextDependent):
 
         server_conn = await self._launch_and_wait_for_server(
             server_name=server_name,
-            client_session_factory=client_session_factory,
+            callback_runtime=callback_runtime,
             startup_timeout_seconds=startup_timeout_seconds,
             trigger_oauth=trigger_oauth,
             oauth_event_handler=oauth_event_handler,
@@ -1637,7 +1596,7 @@ class MCPConnectionManager(ContextDependent):
         return await self._healthy_or_retry_server(
             server_name=server_name,
             server_conn=server_conn,
-            client_session_factory=client_session_factory,
+            callback_runtime=callback_runtime,
             startup_timeout_seconds=startup_timeout_seconds,
             oauth_event_handler=oauth_event_handler,
             allow_oauth_paste_fallback=allow_oauth_paste_fallback,
@@ -1662,7 +1621,7 @@ class MCPConnectionManager(ContextDependent):
         *,
         server_name: str,
         server_conn: ServerConnection,
-        client_session_factory: ClientSessionFactory,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None,
         oauth_event_handler: OAuthEventHandler | None,
         allow_oauth_paste_fallback: bool,
@@ -1674,7 +1633,7 @@ class MCPConnectionManager(ContextDependent):
             retried_conn = await self._retry_server_with_oauth(
                 server_name=server_name,
                 server_conn=server_conn,
-                client_session_factory=client_session_factory,
+                callback_runtime=callback_runtime,
                 startup_timeout_seconds=startup_timeout_seconds,
                 oauth_event_handler=oauth_event_handler,
                 allow_oauth_paste_fallback=allow_oauth_paste_fallback,
@@ -1729,8 +1688,16 @@ class MCPConnectionManager(ContextDependent):
 
     async def get_server_capabilities(self, server_name: str) -> ServerCapabilities | None:
         """Get the capabilities of a specific server."""
+        config = self.server_registry.get_server_config(server_name)
+        if config is None:
+            return None
         server_conn = await self.get_server(
-            server_name, client_session_factory=MCPAgentClientSession
+            server_name,
+            callback_runtime=MCPClientCallbackRuntime(
+                server_name=server_name,
+                server_config=config,
+                context=self.context,
+            ),
         )
         return server_conn.server_capabilities if server_conn else None
 
@@ -1738,7 +1705,7 @@ class MCPConnectionManager(ContextDependent):
         """
         Disconnect a specific server if it's running under this connection manager.
         """
-        logger.info(f"{server_name}: Disconnecting persistent connection to server...")
+        logger.info(f"{server_name}: Detaching MCP client runtime...")
 
         async with self._lock:
             server_conn = self.running_servers.pop(server_name, None)
@@ -1748,27 +1715,26 @@ class MCPConnectionManager(ContextDependent):
             server_conn.request_shutdown()
             logger.info(f"{server_name}: Shutdown signal sent (lifecycle task will exit).")
         else:
-            logger.info(f"{server_name}: No persistent connection found. Skipping server shutdown")
+            logger.info(f"{server_name}: No attached runtime found. Skipping shutdown")
 
     async def reconnect_server(
         self,
         server_name: str,
-        client_session_factory: ClientSessionFactory,
         *,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
         allow_oauth_paste_fallback: bool = True,
     ) -> "ServerConnection":
         """
-        Force reconnection to a server by disconnecting and re-establishing the connection.
+        Replace a server runtime after a transport or legacy-session failure.
 
-        This is used when a session has been terminated (e.g., 404 from server restart)
-        and we need to create a fresh connection with a new session.
+        Modern MCP has no durable protocol session; reconnecting replaces local
+        client and transport resources.
 
         Args:
             server_name: Name of the server to reconnect
-            client_session_factory: Factory function to create client sessions
 
         Returns:
             The new ServerConnection instance
@@ -1783,7 +1749,7 @@ class MCPConnectionManager(ContextDependent):
 
         server_conn = await self._launch_and_wait_for_server(
             server_name=server_name,
-            client_session_factory=client_session_factory,
+            callback_runtime=callback_runtime,
             startup_timeout_seconds=startup_timeout_seconds,
             trigger_oauth=trigger_oauth,
             oauth_event_handler=oauth_event_handler,
@@ -1797,7 +1763,7 @@ class MCPConnectionManager(ContextDependent):
                 server_conn = await self._retry_server_with_oauth(
                     server_name=server_name,
                     server_conn=server_conn,
-                    client_session_factory=client_session_factory,
+                    callback_runtime=callback_runtime,
                     startup_timeout_seconds=startup_timeout_seconds,
                     oauth_event_handler=oauth_event_handler,
                     allow_oauth_paste_fallback=allow_oauth_paste_fallback,

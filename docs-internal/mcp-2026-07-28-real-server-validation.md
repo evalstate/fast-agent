@@ -34,6 +34,11 @@ Streamable HTTP:
 - legacy server-initiated form elicitation through a deterministic callback;
 - legacy sampling through the passthrough model callback.
 
+The legacy sampling probe was repeated after replacing the custom
+`ClientSession` boundary with public `mcp.client.Client`: the
+`trigger-sampling-request` tool completed successfully through the SDK callback
+table on negotiated `2025-11-25`.
+
 Both transports correctly negotiated the real server as:
 
 ```text
@@ -61,12 +66,14 @@ Verified behaviors:
   `Resolve(Elicit(...))`;
 - automatic client callback dispatch and retry to a complete tool result;
 - HTTP `subscriptions/listen`;
-- tool-list change delivery and fast-agent cache refresh.
+- SDK response-cache hits on repeated `tools/list` calls;
+- tool-list change delivery with SDK cache eviction before fast-agent refresh.
 
 The external `server-everything` and Hugging Face checks above are manual
 network/process probes. Durable SDK-v2 integration coverage under
 `tests/integration/mcp_2026/` covers modern negotiation, tool/prompt/resource
-operations, no legacy ping activity, MRTR, and HTTP tool-list subscriptions.
+operations, no legacy ping activity, MRTR, response caching, and HTTP
+tool-list subscriptions.
 
 ## Hugging Face MCP
 

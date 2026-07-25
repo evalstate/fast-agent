@@ -7,8 +7,6 @@ from mcp.shared.exceptions import MCPError as McpError
 from mcp_types import (
     CallToolResult,
     ErrorData,
-    Implementation,
-    InitializeResult,
     ListPromptsResult,
     ListToolsResult,
     Prompt,
@@ -34,8 +32,6 @@ from fast_agent.mcp.skybridge import SkybridgeServerConfig
 from fast_agent.mcp_server_registry import ServerRegistry
 
 if TYPE_CHECKING:
-    from mcp.client.session import ClientSession
-
     from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
 
 
@@ -43,37 +39,6 @@ def _build_context(configs: dict[str, MCPServerSettings]) -> Context:
     registry = ServerRegistry()
     registry.registry = configs
     return Context(server_registry=registry)
-
-
-class _DummySession:
-    """Minimal stub that records initialize() calls."""
-
-    def __init__(self) -> None:
-        self.initialized = False
-        self.closed = False
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        self.closed = True
-        return None
-
-    async def initialize(self):
-        self.initialized = True
-        return InitializeResult(
-            protocol_version="2025-03-26",
-            capabilities=ServerCapabilities(tools=ToolsCapability()),
-            server_info=Implementation(name="stub", version="0.1"),
-        )
-
-    async def send_discover(self, version: str):
-        del version
-        raise McpError(-32601, "Method not found")
-
-    @property
-    def server_capabilities(self) -> ServerCapabilities | None:
-        return ServerCapabilities(tools=ToolsCapability()) if self.initialized else None
 
 
 def _make_stub_aggregator(
@@ -117,50 +82,85 @@ def _make_stub_aggregator(
 
 
 @pytest.mark.asyncio
-async def test_initialize_server_creates_and_tears_down_session(monkeypatch) -> None:
+async def test_initialize_server_uses_public_client_and_two_stream_transport(monkeypatch) -> None:
     registry = ServerRegistry()
-    registry.registry = {
-        "demo": MCPServerSettings(name="demo", transport="stdio", command="echo"),
-    }
+    server_config = MCPServerSettings(name="demo", transport="stdio", command="echo")
+    registry.registry = {"demo": server_config}
 
-    session = _DummySession()
-    transport_entered = False
-    transport_exited = False
+    entered_streams: tuple[object, object] | None = None
+    session = object()
+    capabilities = ServerCapabilities(tools=ToolsCapability())
+    tool_result = CallToolResult(content=[TextContent(type="text", text="ok")])
+    call_tool_args: tuple[object, ...] | None = None
 
     @asynccontextmanager
     async def _fake_transport(server_name, config, trigger_oauth=None, **kwargs):
-        del kwargs
-        del trigger_oauth
-        nonlocal transport_entered, transport_exited
-        transport_entered = True
-        yield (object(), object(), None)
-        transport_exited = True
+        del server_name, config, trigger_oauth, kwargs
+        yield (object(), object(), lambda: "legacy-session-id")
+
+    class _FakeConnection:
+        def __init__(self, transport, callbacks, **kwargs) -> None:
+            self._transport = transport
+            self.callbacks = callbacks
+            self.kwargs = kwargs
+
+        async def __aenter__(self):
+            nonlocal entered_streams
+            entered_streams = await self._transport.__aenter__()
+            return self
+
+        async def __aexit__(self, exc_type, exc_value, traceback) -> None:
+            await self._transport.__aexit__(exc_type, exc_value, traceback)
+
+        @property
+        def session(self):
+            return session
+
+        @property
+        def server_capabilities(self):
+            return capabilities
+
+        async def call_tool(
+            self,
+            name,
+            arguments=None,
+            read_timeout_seconds=None,
+            progress_callback=None,
+            *,
+            meta=None,
+        ):
+            nonlocal call_tool_args
+            call_tool_args = (
+                name,
+                arguments,
+                read_timeout_seconds,
+                progress_callback,
+                meta,
+            )
+            return tool_result
 
     monkeypatch.setattr(
         "fast_agent.mcp.mcp_connection_manager.create_transport_context",
         _fake_transport,
     )
+    monkeypatch.setattr("fast_agent.mcp_server_registry.MCPClientConnection", _FakeConnection)
 
-    def _fake_factory(read_stream, write_stream, read_timeout, **kwargs):
-        return session
+    async with registry.initialize_server("demo") as connection:
+        assert connection.session is session
+        assert connection.server_capabilities is capabilities
+        assert entered_streams is not None
+        assert len(entered_streams) == 2
+        assert await connection.call_tool("echo", {"value": "test"}) is tool_result
 
-    async with registry.initialize_server(
-        "demo", client_session_factory=_fake_factory
-    ) as yielded_session:
-        assert yielded_session is session
-        assert session.initialized is True
-        assert transport_entered is True
-
-    assert session.closed is True
-    assert transport_exited is True
-    assert registry.get_server_capabilities("demo") is not None
+    assert call_tool_args == ("echo", {"value": "test"}, None, None, None)
+    assert registry.get_server_capabilities("demo") is capabilities
 
 
 @pytest.mark.asyncio
 async def test_handle_auth_challenge_reports_retry_failure() -> None:
     class _FailingManager:
-        async def reconnect_server(self, server_name, client_session_factory, trigger_oauth=None):
-            del server_name, client_session_factory, trigger_oauth
+        async def reconnect_server(self, server_name, callback_runtime, trigger_oauth=None):
+            del server_name, callback_runtime, trigger_oauth
             raise RuntimeError("OAuth callback timed out")
 
     aggregator = MCPAggregator(
@@ -186,40 +186,6 @@ async def test_handle_auth_challenge_reports_retry_failure() -> None:
 
 
 @pytest.mark.asyncio
-async def test_initialize_server_forwards_server_config_to_custom_factory(monkeypatch) -> None:
-    registry = ServerRegistry()
-    server_config = MCPServerSettings(name="demo", transport="stdio", command="echo")
-    registry.registry = {"demo": server_config}
-
-    session = _DummySession()
-    captured_server_config = None
-
-    @asynccontextmanager
-    async def _fake_transport(server_name, config, trigger_oauth=None, **kwargs):
-        del kwargs
-        del trigger_oauth
-        yield (object(), object(), None)
-
-    monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.create_transport_context",
-        _fake_transport,
-    )
-
-    def _fake_factory(read_stream, write_stream, read_timeout, **kwargs):
-        del read_stream, write_stream, read_timeout
-        nonlocal captured_server_config
-        captured_server_config = kwargs.get("server_config")
-        return session
-
-    async with registry.initialize_server(
-        "demo", client_session_factory=_fake_factory
-    ) as yielded_session:
-        assert yielded_session is session
-
-    assert captured_server_config is server_config
-
-
-@pytest.mark.asyncio
 async def test_initialize_server_retries_with_oauth_after_401(monkeypatch) -> None:
     registry = ServerRegistry()
     registry.registry = {
@@ -240,26 +206,31 @@ async def test_initialize_server_retries_with_oauth_after_401(monkeypatch) -> No
         _fake_transport,
     )
 
-    class _ChallengeSession(_DummySession):
-        def __init__(self, oauth_enabled: bool) -> None:
-            super().__init__()
-            self._oauth_enabled = oauth_enabled
+    class _ChallengeConnection:
+        def __init__(self, transport, callbacks, **kwargs) -> None:
+            del callbacks, kwargs
+            self._transport = transport
 
-        async def initialize(self):
-            if not self._oauth_enabled:
+        async def __aenter__(self):
+            await self._transport.__aenter__()
+            if not trigger_history[-1]:
                 raise RuntimeError("401 Unauthorized")
-            return await super().initialize()
+            return self
 
-    def _fake_factory(read_stream, write_stream, read_timeout, **kwargs):
-        del read_stream, write_stream, read_timeout, kwargs
-        return _ChallengeSession(oauth_enabled=bool(trigger_history[-1]))
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            return await self._transport.__aexit__(exc_type, exc_value, traceback)
 
-    async with registry.initialize_server(
-        "demo", client_session_factory=_fake_factory
-    ) as session:
-        assert isinstance(session, _ChallengeSession)
-        assert session.initialized is True
+        @property
+        def server_capabilities(self):
+            return ServerCapabilities(tools=ToolsCapability())
 
+    monkeypatch.setattr(
+        "fast_agent.mcp_server_registry.MCPClientConnection",
+        _ChallengeConnection,
+    )
+
+    async with registry.initialize_server("demo"):
+        pass
     assert trigger_history == [False, True]
 
 
@@ -295,11 +266,11 @@ async def test_execute_on_server_nonpersistent_retries_with_oauth_after_401(
     async def _fake_gen_client(
         server_name,
         server_registry,
-        client_session_factory=_DummySession,
         *,
+        callback_runtime=None,
         trigger_oauth=None,
     ):
-        del server_name, server_registry, client_session_factory
+        del server_name, server_registry, callback_runtime
         trigger_history.append(trigger_oauth)
         yield _RetryClient(trigger_oauth)
 
@@ -347,12 +318,10 @@ async def test_execute_on_server_uses_request_scoped_connection_for_forwarded_hf
             del kwargs
             return CallToolResult(content=[TextContent(type="text", text="ok")])
 
-        call_tool_complete = call_tool
-
-        async def read_resource_complete(self, **kwargs):  # noqa: ANN003
+        async def read_resource(self, **kwargs):  # noqa: ANN003
             raise AssertionError(kwargs)
 
-        async def get_prompt_complete(self, **kwargs):  # noqa: ANN003
+        async def get_prompt(self, **kwargs):  # noqa: ANN003
             raise AssertionError(kwargs)
 
     gen_client_calls: list[str] = []
@@ -361,11 +330,11 @@ async def test_execute_on_server_uses_request_scoped_connection_for_forwarded_hf
     async def _fake_gen_client(
         server_name,
         server_registry,
-        client_session_factory=_DummySession,
         *,
+        callback_runtime=None,
         trigger_oauth=None,
     ):
-        del server_registry, client_session_factory, trigger_oauth
+        del server_registry, callback_runtime, trigger_oauth
         gen_client_calls.append(server_name)
         yield _RequestClient()
 
@@ -387,34 +356,6 @@ async def test_execute_on_server_uses_request_scoped_connection_for_forwarded_hf
     assert isinstance(result, CallToolResult)
     assert gen_client_calls == ["hf"]
 
-
-@pytest.mark.asyncio
-async def test_execute_session_method_rejects_session_without_completed_mrtr_operations() -> None:
-    aggregator = MCPAggregator(
-        server_names=[],
-        connection_persistence=False,
-        context=_build_context({}),
-    )
-
-    class _IncompleteSession:
-        async def call_tool(self, **kwargs):  # noqa: ANN003
-            raise AssertionError(kwargs)
-
-    with pytest.raises(
-        TypeError,
-        match="MCP session factory must provide completed MRTR operations",
-    ):
-        await aggregator._execute_session_method(
-            cast("ClientSession", _IncompleteSession()),
-            server_name="alpha",
-            operation_name="echo",
-            method_name="call_tool",
-            method_args={"name": "echo", "arguments": {}},
-            error_factory=None,
-            progress_callback=None,
-        )
-
-
 # ---------------------------------------------------------------------------
 # get_capabilities (non-persistent path)
 # ---------------------------------------------------------------------------
@@ -431,10 +372,12 @@ async def test_get_capabilities_nonpersistent_returns_real_capabilities(
     expected_caps = ServerCapabilities(tools=ToolsCapability(), prompts=PromptsCapability())
 
     @asynccontextmanager
-    async def _fake_initialize_server(self, server_name, client_session_factory=None, trigger_oauth=None):
-        del trigger_oauth
+    async def _fake_initialize_server(
+        self, server_name, callback_runtime=None, trigger_oauth=None
+    ):
+        del callback_runtime, trigger_oauth
         self._capabilities[server_name] = expected_caps
-        yield _DummySession()
+        yield object()
 
     monkeypatch.setattr(
         ServerRegistry,
@@ -462,12 +405,14 @@ async def test_get_capabilities_nonpersistent_caches_result(monkeypatch) -> None
     init_count = 0
 
     @asynccontextmanager
-    async def _counting_initialize(self, server_name, client_session_factory=None, trigger_oauth=None):
-        del trigger_oauth
+    async def _counting_initialize(
+        self, server_name, callback_runtime=None, trigger_oauth=None
+    ):
+        del callback_runtime, trigger_oauth
         nonlocal init_count
         init_count += 1
         self._capabilities[server_name] = expected_caps
-        yield _DummySession()
+        yield object()
 
     monkeypatch.setattr(
         ServerRegistry,
@@ -504,8 +449,8 @@ async def test_get_capabilities_returns_none_when_initialize_raises(monkeypatch)
             del exc_type, exc, tb
             return False
 
-    def _exploding_initialize(self, server_name, client_session_factory=None, trigger_oauth=None):
-        del self, server_name, client_session_factory, trigger_oauth
+    def _exploding_initialize(self, server_name, callback_runtime=None, trigger_oauth=None):
+        del self, server_name, callback_runtime, trigger_oauth
         return _ExplodingInitialize()
 
     monkeypatch.setattr(
@@ -635,10 +580,9 @@ class _DummyInitializer:
     """Stub implementing only ServerInitializerProtocol, not the full registry protocol."""
 
     @asynccontextmanager
-    async def initialize_server(self, server_name, client_session_factory=None, trigger_oauth=None):
-        del trigger_oauth
-        session = _DummySession()
-        yield session
+    async def initialize_server(self, server_name, callback_runtime=None, trigger_oauth=None):
+        del server_name, callback_runtime, trigger_oauth
+        yield object()
 
     def get_server_capabilities(self, server_name):
         return None
@@ -712,10 +656,12 @@ async def test_detach_server_clears_capabilities_cache(monkeypatch) -> None:
     expected_caps = ServerCapabilities(tools=ToolsCapability())
 
     @asynccontextmanager
-    async def _fake_initialize_server(self, server_name, client_session_factory=None, trigger_oauth=None):
-        del trigger_oauth
+    async def _fake_initialize_server(
+        self, server_name, callback_runtime=None, trigger_oauth=None
+    ):
+        del callback_runtime, trigger_oauth
         self._capabilities[server_name] = expected_caps
-        yield _DummySession()
+        yield object()
 
     monkeypatch.setattr(
         ServerRegistry,
@@ -777,14 +723,14 @@ async def test_attach_server_force_reconnect_refreshes_capabilities_cache() -> N
         async def initialize_server(
             self,
             server_name,
-            client_session_factory=None,
+            callback_runtime=None,
             trigger_oauth=None,
         ):
-            del client_session_factory, trigger_oauth
+            del callback_runtime, trigger_oauth
             capabilities = capability_generations[min(self.initialize_count, 1)]
             self.initialize_count += 1
             self._capabilities[server_name] = capabilities
-            yield _DummySession()
+            yield object()
 
     registry = _SequencedRegistry()
     context = Context(server_registry=registry)

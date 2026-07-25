@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from mcp_types import (
     ElicitRequestFormParams,
@@ -17,18 +17,29 @@ from mcp_types import (
 )
 
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.helpers.server_config_helpers import get_server_config
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from mcp.client.session import ClientRequestContext
+    from mcp.client.session import ClientRequestContext, ElicitationFnT
 
     from fast_agent.human_input.types import HumanInputResponse
-    from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
 ElicitationContent = dict[str, str | int | float | bool | list[str] | None]
+
+
+class URLElicitationQueue(Protocol):
+    """Accept URL elicitation details for deferred request-result display."""
+
+    def __call__(
+        self,
+        *,
+        message: str,
+        url: str,
+        elicitation_id: str | None,
+    ) -> bool: ...
+
 
 logger = get_logger(__name__)
 _BOOLEAN_RESPONSE_VALUES = {
@@ -48,7 +59,7 @@ class _ElicitationContextInfo:
     agent_name: str
     server_name: str
     server_info: dict[str, str] | None
-    session: MCPAgentClientSession | None
+    queue_url_elicitation: URLElicitationQueue | None
 
 
 def _required_schema_fields(requested_schema: dict[str, Any]) -> list[str]:
@@ -162,32 +173,18 @@ async def auto_cancel_elicitation_handler(
     return ElicitResult(action="cancel")
 
 
-def _mcp_agent_session(
-    context: ClientRequestContext,
-) -> MCPAgentClientSession | None:
-    from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
-
-    session = context.session
-    if isinstance(session, MCPAgentClientSession):
-        return session
-    return None
-
-
 def _elicitation_context_info(
-    context: ClientRequestContext,
+    *,
+    agent_name: str,
+    server_name: str,
+    server_info: dict[str, str] | None = None,
+    queue_url_elicitation: URLElicitationQueue | None = None,
 ) -> _ElicitationContextInfo:
-    server_config = get_server_config(context)
-    session = _mcp_agent_session(context)
-    server_name = server_config.name if server_config and server_config.name else "Unknown Server"
-    server_info = (
-        {"command": server_config.command} if server_config and server_config.command else None
-    )
-    agent_name = session.agent_name if session and session.agent_name else "Unknown Agent"
     return _ElicitationContextInfo(
         agent_name=agent_name,
         server_name=server_name,
         server_info=server_info,
-        session=session,
+        queue_url_elicitation=queue_url_elicitation,
     )
 
 
@@ -202,8 +199,8 @@ def _handle_url_elicitation(
     )
 
     queued = False
-    if context_info.session is not None:
-        queued = context_info.session.queue_url_elicitation_for_active_request(
+    if context_info.queue_url_elicitation is not None:
+        queued = context_info.queue_url_elicitation(
             message=params.message,
             url=url,
             elicitation_id=elicitation_id,
@@ -291,21 +288,48 @@ async def _handle_form_elicitation(
     return ElicitResult(action="accept", content=content)
 
 
+def make_forms_elicitation_handler(
+    *,
+    agent_name: str,
+    server_name: str,
+    server_info: dict[str, str] | None = None,
+    queue_url_elicitation: URLElicitationQueue | None = None,
+) -> "ElicitationFnT":
+    """Build a forms handler without relying on SDK session-attached state."""
+    context_info = _elicitation_context_info(
+        agent_name=agent_name,
+        server_name=server_name,
+        server_info=server_info,
+        queue_url_elicitation=queue_url_elicitation,
+    )
+
+    async def handler(
+        context: ClientRequestContext,
+        params: ElicitRequestParams,
+    ) -> ElicitResult | ErrorData:
+        del context
+        logger.info(f"Eliciting response for params: {params}")
+        if isinstance(params, ElicitRequestURLParams):
+            return _handle_url_elicitation(params, context_info)
+
+        try:
+            return await _handle_form_elicitation(params, context_info)
+        except (KeyboardInterrupt, EOFError, TimeoutError):
+            return ElicitResult(action="cancel")
+
+    return handler
+
+
 async def forms_elicitation_handler(
     context: ClientRequestContext, params: ElicitRequestParams
-) -> ElicitResult:
+) -> ElicitResult | ErrorData:
     """
     Combined elicitation handler supporting both form and URL modes.
 
     For form mode: Uses interactive forms-based UI for data collection.
     For URL mode: Displays the URL inline for out-of-band user interaction.
     """
-    logger.info(f"Eliciting response for params: {params}")
-    context_info = _elicitation_context_info(context)
-    if isinstance(params, ElicitRequestURLParams):
-        return _handle_url_elicitation(params, context_info)
-
-    try:
-        return await _handle_form_elicitation(params, context_info)
-    except (KeyboardInterrupt, EOFError, TimeoutError):
-        return ElicitResult(action="cancel")
+    return await make_forms_elicitation_handler(
+        agent_name="Unknown Agent",
+        server_name="Unknown Server",
+    )(context, params)

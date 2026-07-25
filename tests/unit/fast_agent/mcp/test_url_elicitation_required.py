@@ -1,9 +1,5 @@
 """Tests for URL elicitation required error handling helpers."""
 
-from mcp.shared.exceptions import MCPError as McpError
-from mcp_types import URL_ELICITATION_REQUIRED, ErrorData
-
-from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.url_elicitation_required import parse_url_elicitation_required_data
 
 
@@ -127,38 +123,3 @@ class TestParseUrlElicitationRequiredData:
         assert parsed.elicitations == []
         assert len(parsed.issues) == 1
         assert "error.data.elicitations[0] is invalid" in parsed.issues[0]
-
-
-class TestUrlElicitationRequiredErrorDetection:
-    def _make_session(self) -> MCPAgentClientSession:
-        session = object.__new__(MCPAgentClientSession)
-        session.session_server_name = "test"
-        return session
-
-    def test_detects_mcp_error_code_32042(self) -> None:
-        error = McpError.from_error_data(
-            ErrorData(
-                code=URL_ELICITATION_REQUIRED,
-                message="URL elicitation required",
-                data={
-                    "elicitations": [
-                        {
-                            "mode": "url",
-                            "message": "Authorize",
-                            "url": "https://example.com/auth",
-                            "elicitationId": "auth-1",
-                        }
-                    ]
-                },
-            )
-        )
-
-        assert self._make_session()._is_url_elicitation_required_error(error) is True
-
-    def test_ignores_other_mcp_error_codes(self) -> None:
-        error = McpError.from_error_data(ErrorData(code=-32601, message="Method not found"))
-
-        assert self._make_session()._is_url_elicitation_required_error(error) is False
-
-    def test_ignores_non_mcp_exceptions(self) -> None:
-        assert self._make_session()._is_url_elicitation_required_error(ValueError("x")) is False

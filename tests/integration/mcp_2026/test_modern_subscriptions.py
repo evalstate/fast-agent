@@ -3,6 +3,14 @@ import os
 import subprocess
 
 import pytest
+from mcp_types import TextContent
+
+
+async def _list_tools_call_count(client) -> int:
+    result = await client.call_tool("list_tools_call_count")
+    content = result.content[0]
+    assert isinstance(content, TextContent)
+    return int(content.text)
 
 
 @pytest.mark.integration
@@ -28,6 +36,15 @@ async def test_modern_tool_subscription_refreshes_cache(
             async with fast_agent.run() as app:
                 before = {tool.name for tool in (await app.probe.list_tools()).tools}
                 assert "modern_http__dynamic_echo" not in before
+
+                manager = app.probe._aggregator._persistent_connection_manager
+                assert manager is not None
+                connection = manager.running_servers["modern_http"]
+                assert connection.client is not None
+                list_count = await _list_tools_call_count(connection.client)
+                await connection.client.list_tools()
+                await connection.client.list_tools()
+                assert await _list_tools_call_count(connection.client) == list_count
 
                 status = (await app.probe.get_server_status())["modern_http"]
                 assert status.protocol_era == "modern"

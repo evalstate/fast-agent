@@ -275,8 +275,7 @@ async def _run_login_session(
         # Use appropriate transport; connect and initialize a minimal session.
         if resolved_transport == "http":
             import httpx2
-            from mcp.client._probe import negotiate_auto
-            from mcp.client.session import ClientSession
+            from mcp.client import Client
             from mcp.client.streamable_http import streamable_http_client
 
             async with (
@@ -285,27 +284,22 @@ async def _run_login_session(
                     auth=provider,
                     follow_redirects=True,
                 ) as http_client,
-                streamable_http_client(cfg.url or "", http_client=http_client) as (
-                    read_stream,
-                    write_stream,
+                Client(
+                    streamable_http_client(cfg.url or "", http_client=http_client),
+                    mode="auto",
+                    cache=False,
                 ),
-                ClientSession(read_stream, write_stream) as session,
             ):
-                await negotiate_auto(session)
                 return True
         if resolved_transport == "sse":
-            from mcp.client._probe import negotiate_auto
-            from mcp.client.session import ClientSession
+            from mcp.client import Client
             from mcp.client.sse import sse_client
 
-            async with (
-                sse_client(cfg.url or "", cfg.headers, auth=provider) as (
-                    read_stream,
-                    write_stream,
-                ),
-                ClientSession(read_stream, write_stream) as session,
+            async with Client(
+                sse_client(cfg.url or "", cfg.headers, auth=provider),
+                mode="auto",
+                cache=False,
             ):
-                await negotiate_auto(session)
                 return True
         return False
     except Exception as e:
