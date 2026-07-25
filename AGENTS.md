@@ -2,6 +2,7 @@
 ## fast-agent contributor notes
 
 - Use `uv run` for repo scripts and examples.
+- Use the fast-agent CLI to start sub-agent tasks. Use gpt-5.6-terra?reasoning=high as the primary model for this. Escalate to the user if you want bigger or smaller models.
 - Always run `uv run scripts/lint.py` and `uv run scripts/typecheck.py` after code changes.
 - Check the type safety rules in `typesafe.md` and avoid hasattr/getattr style checks
 - Avoid unnecessary defensive programming. Validate at boundaries and use static analysis and type safety rules to write concise code. Do not caveat without good cause (external data processing for example).
