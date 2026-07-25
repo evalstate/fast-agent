@@ -2,7 +2,6 @@ import subprocess
 import sys
 
 import typer
-from rich import print
 
 TYPECHECK_TARGETS = [
     "./tests",
