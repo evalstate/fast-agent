@@ -8,6 +8,7 @@ from openai.types.responses import (
     ResponseTextDeltaEvent,
 )
 
+from fast_agent.core.exceptions import ProviderSafetyBufferingError
 from fast_agent.core.logging.json_serializer import snapshot_json_value
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
@@ -63,6 +64,10 @@ _ARGUMENT_DELTA_EVENT_TYPES = {
 }
 type _ResponsesToolKind = Literal["tool", "server_tool", "web_search"]
 _DEFAULT_TOOL_KIND: _ResponsesToolKind = "tool"
+_SAFETY_BUFFERING_NOTICE = (
+    "Codex is safety-buffering this request. Fast-agent stopped the turn instead of "
+    "waiting or retrying the same request.\n\n"
+)
 _TOOL_KIND_BY_ACTIVITY_FAMILY: dict[ToolActivityFamily, _ResponsesToolKind] = {
     "web_search": "web_search",
     "remote_tool": "server_tool",
@@ -140,6 +145,50 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
     def _is_provider_managed_function_call(self, name: str) -> bool:
         del name
         return False
+
+    def _handle_safety_buffering_event(
+        self,
+        event: Any,
+        *,
+        model: str,
+    ) -> None:
+        buffering = snapshot_json_value(getattr(event, "safety_buffering", None))
+        if not isinstance(buffering, dict) or not buffering:
+            return
+
+        reasons = buffering.get("reasons")
+        use_cases = buffering.get("use_cases")
+        retry_model = buffering.get("retry_model") or buffering.get("faster_model")
+        normalized_reasons = (
+            [reason for reason in reasons if isinstance(reason, str)]
+            if isinstance(reasons, list)
+            else None
+        )
+        normalized_use_cases = (
+            [use_case for use_case in use_cases if isinstance(use_case, str)]
+            if isinstance(use_cases, list)
+            else None
+        )
+        self.logger.warning(
+            "Codex response is safety buffered",
+            data={
+                "model": model,
+                "agent_name": self.name,
+                "chat_turn": self.chat_turn(),
+                "reasons": normalized_reasons,
+                "use_cases": normalized_use_cases,
+                "retry_model": retry_model if isinstance(retry_model, str) else None,
+            },
+        )
+        self._notify_stream_listeners(
+            StreamChunk(text=_SAFETY_BUFFERING_NOTICE, is_reasoning=True)
+        )
+        raise ProviderSafetyBufferingError(
+            model,
+            retry_model=retry_model if isinstance(retry_model, str) else None,
+            reasons=normalized_reasons,
+            use_cases=normalized_use_cases,
+        )
 
     def _tool_family_for_responses_item(
         self,
@@ -641,6 +690,10 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         async for event in stream:
             _save_stream_chunk(capture_filename, event)
             event_type = getattr(event, "type", None)
+            self._handle_safety_buffering_event(
+                event,
+                model=model,
+            )
             if event_type == "response.output_item.done":
                 record_completed_output_item(
                     completed_output_items,

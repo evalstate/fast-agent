@@ -54,6 +54,29 @@ class ProviderKeyError(FastAgentError):
         super().__init__(message, details)
 
 
+class ProviderSafetyBufferingError(FastAgentError):
+    """Raised when a provider withholds a response for additional safety checks."""
+
+    def __init__(
+        self,
+        model: str,
+        retry_model: str | None = None,
+        *,
+        reasons: list[str] | None = None,
+        use_cases: list[str] | None = None,
+    ) -> None:
+        self.model = model
+        self.retry_model = retry_model
+        self.reasons = reasons
+        self.use_cases = use_cases
+        retry_hint = (
+            f"Retry with the suggested faster model '{retry_model}' or choose another model."
+            if retry_model
+            else "Retry with another model."
+        )
+        super().__init__(f"Codex safety-buffered the request for model '{model}'. {retry_hint}")
+
+
 class ServerInitializationError(FastAgentError):
     """Raised when a server fails to initialize properly."""
 
