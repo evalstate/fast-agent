@@ -54,7 +54,9 @@ from fast_agent.llm.provider.openai.structured_output import OpenAIStructuredOut
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider.reasoning_config import reasoning_setting_from_config
 from fast_agent.llm.provider.streaming_timeouts import (
+    StreamTiming,
     await_stream_start,
+    stream_timing_payload,
     with_stream_idle_timeout,
 )
 from fast_agent.llm.provider_types import Provider
@@ -1168,6 +1170,7 @@ class OpenAILLM(
             )
             streamed_reasoning = []
         except TimeoutError:
+            self._record_stream_failure(timed_stream.timing)
             if timeout is None:
                 raise
             self.logger.error(
@@ -1175,10 +1178,29 @@ class OpenAILLM(
                 data={
                     "model": request.model_name,
                     "timeout_seconds": timeout,
+                    "stream_timing": stream_timing_payload(timed_stream.timing, timed_out=True),
                 },
             )
             raise
+        except Exception:
+            # Mid-stream failures (truncated chunked responses, resets) restart the
+            # whole turn, so record how far this attempt got for retry telemetry.
+            self._record_stream_failure(timed_stream.timing)
+            raise
+        else:
+            self._record_stream_gap_observation(timed_stream.timing, model=request.model_name)
         return _OpenAICompletionResponse(response, streamed_reasoning)
+
+    def _record_stream_gap_observation(self, timing: StreamTiming, *, model: str) -> None:
+        if not timing.inter_event_waits_over_threshold:
+            return
+        self.logger.warning(
+            "OpenAI stream observed extended inter-event gap",
+            data={
+                "model": model,
+                "stream_timing": stream_timing_payload(timing, timed_out=False),
+            },
+        )
 
     async def _run_openai_completion_request(
         self,

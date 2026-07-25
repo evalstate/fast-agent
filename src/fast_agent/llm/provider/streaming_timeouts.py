@@ -24,6 +24,28 @@ class StreamTiming:
     timed_out_wait_seconds: float | None
 
 
+def stream_timing_payload(
+    timing: StreamTiming,
+    *,
+    timed_out: bool,
+) -> dict[str, int | float | bool | None]:
+    """Render stream timing for structured logs and diagnostics channels."""
+
+    def milliseconds(seconds: float | None) -> float | None:
+        return round(seconds * 1000.0, 2) if seconds is not None else None
+
+    payload: dict[str, int | float | bool | None] = {
+        "events_received": timing.events_received,
+        "first_event_wait_ms": milliseconds(timing.first_event_wait_seconds),
+        "max_inter_event_wait_ms": milliseconds(timing.max_inter_event_wait_seconds),
+        "inter_event_waits_over_10s": timing.inter_event_waits_over_threshold,
+        "timed_out": timed_out,
+    }
+    if timed_out:
+        payload["timed_out_wait_ms"] = milliseconds(timing.timed_out_wait_seconds)
+    return payload
+
+
 class StreamIdleTimeoutError(TimeoutError):
     """Raised when an established provider stream stops producing events."""
 

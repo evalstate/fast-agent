@@ -40,6 +40,7 @@ from fast_agent.interfaces import (
 )
 from fast_agent.llm.memory import Memory, SimpleMemory
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
+from fast_agent.llm.provider.streaming_timeouts import StreamTiming
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     ReasoningEffortSetting,
@@ -205,6 +206,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self._model_name: str | None = self.default_request_params.model
         self._ensure_resolved_model_spec(provider)
 
+        # Set by providers when a streaming attempt fails part-way through, so
+        # retry telemetry can report how far the stream got (provider-neutral).
+        self._stream_failure_events_received: int | None = None
+
         # Reasoning effort configuration (provider-neutral)
         self._reasoning_effort: ReasoningEffortSetting | None = None
         self._reasoning_effort_spec: ReasoningEffortSpec | None = (
@@ -368,16 +373,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self,
         request_params: RequestParams,
     ) -> bool:
-        model_name = (
-            request_params.model
-            or self.default_request_params.model
-            or self._model_name
-        )
+        model_name = request_params.model or self.default_request_params.model or self._model_name
         params = self._get_model_params(model_name)
-        return (
-            params is not None
-            and params.managed_process_poll_folding is True
-        )
+        return params is not None and params.managed_process_poll_folding is True
 
     def _should_defer_structured_schema_for_tools(
         self,
@@ -690,6 +688,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         boundary = retry_boundary(args[0] if args else None)
 
         for attempt in range(retries + 1):
+            self._stream_failure_events_received = None
             try:
                 result = await func(*args, **kwargs)
             except Exception as e:
@@ -707,6 +706,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                             max_attempts=retries + 1,
                             wait_seconds=wait_seconds,
                             boundary=boundary,
+                            stream_events_received=self._stream_failure_events_received,
                         )
                     )
                     await self._wait_before_retry(e, attempt=attempt, retries=retries)
@@ -723,6 +723,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         # This line satisfies Pylance that we never implicitly return None
         raise RuntimeError("Retry loop finished without success or exception")
+
+    def _record_stream_failure(self, timing: StreamTiming) -> None:
+        """Record how far a failed provider stream got, for retry telemetry."""
+        self._stream_failure_events_received = timing.events_received
 
     @staticmethod
     def _append_retry_telemetry(result: Any, retries: list[ProviderRetry]) -> None:
@@ -777,7 +781,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         with self._paused_progress_display():
             error_console.print(f"\n[yellow]▲ Provider Error: {str(error)[:300]}...[/yellow]")
             error_console.print(
-                f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})[/dim]"
+                f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries + 1})[/dim]"
             )
 
         await asyncio.sleep(wait_time)
@@ -1632,9 +1636,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if self.provider is not None:
             from fast_agent.llm.provider_key_manager import ProviderKeyManager
 
-            if ProviderKeyManager.serve_oauth_requires_request_token(
-                self.provider.config_name
-            ):
+            if ProviderKeyManager.serve_oauth_requires_request_token(self.provider.config_name):
                 return self._provider_api_key()
 
         if self._init_api_key is not None:
@@ -1647,9 +1649,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if self.provider is not None:
             from fast_agent.llm.provider_key_manager import ProviderKeyManager
 
-            if ProviderKeyManager.serve_oauth_requires_request_token(
-                self.provider.config_name
-            ):
+            if ProviderKeyManager.serve_oauth_requires_request_token(self.provider.config_name):
                 # Credentials are supplied per-request via the caller's forwarded
                 # OAuth token; there is no local credential source to validate and
                 # a request-time call would (correctly) fail closed here.

@@ -58,6 +58,7 @@ from fast_agent.llm.provider.streaming_timeouts import (
     StreamIdleTimeoutError,
     StreamTiming,
     enter_stream_with_timeout,
+    stream_timing_payload,
     with_stream_idle_timeout,
 )
 from fast_agent.llm.provider_types import Provider
@@ -322,26 +323,6 @@ class ResponsesLLM(
             payload["websocket_phase_ms"] = self._last_ws_phase_timings_ms
         return payload
 
-    @staticmethod
-    def _stream_timing_payload(
-        timing: StreamTiming,
-        *,
-        timed_out: bool,
-    ) -> dict[str, int | float | bool | None]:
-        def milliseconds(seconds: float | None) -> float | None:
-            return round(seconds * 1000.0, 2) if seconds is not None else None
-
-        payload: dict[str, int | float | bool | None] = {
-            "events_received": timing.events_received,
-            "first_event_wait_ms": milliseconds(timing.first_event_wait_seconds),
-            "max_inter_event_wait_ms": milliseconds(timing.max_inter_event_wait_seconds),
-            "inter_event_waits_over_10s": timing.inter_event_waits_over_threshold,
-            "timed_out": timed_out,
-        }
-        if timed_out:
-            payload["timed_out_wait_ms"] = milliseconds(timing.timed_out_wait_seconds)
-        return payload
-
     def _record_successful_stream_timing(
         self,
         timing: StreamTiming,
@@ -349,7 +330,7 @@ class ResponsesLLM(
         model: str,
         transport: ResponsesActiveTransport,
     ) -> None:
-        payload = self._stream_timing_payload(timing, timed_out=False)
+        payload = stream_timing_payload(timing, timed_out=False)
         self._last_stream_timing = payload
         if timing.inter_event_waits_over_threshold:
             self.logger.warning(
@@ -1222,8 +1203,7 @@ class ResponsesLLM(
             )
         else:
             error = RuntimeError(
-                "OpenAI Responses retry after an empty response failed: "
-                f"{retry_error}"
+                f"OpenAI Responses retry after an empty response failed: {retry_error}"
             )
         self.logger.error(
             str(error),
@@ -1318,18 +1298,22 @@ class ResponsesLLM(
                             timed_stream, model_name, capture_filename
                         )
                     except StreamIdleTimeoutError:
+                        self._record_stream_failure(timed_stream.timing)
                         self.logger.error(
                             "Streaming idle timeout while waiting for Responses",
                             data={
                                 "model": model_name,
                                 "transport": RESPONSES_TRANSPORT_SSE,
                                 "timeout_seconds": timeout,
-                                "stream_timing": self._stream_timing_payload(
+                                "stream_timing": stream_timing_payload(
                                     timed_stream.timing,
                                     timed_out=True,
                                 ),
                             },
                         )
+                        raise
+                    except Exception:
+                        self._record_stream_failure(timed_stream.timing)
                         raise
                     self._record_successful_stream_timing(
                         timed_stream.timing,
@@ -1492,18 +1476,22 @@ class ResponsesLLM(
                 timed_stream, context.model_name, context.capture_filename
             )
         except StreamIdleTimeoutError:
+            self._record_stream_failure(timed_stream.timing)
             self.logger.error(
                 "Streaming idle timeout while waiting for Responses websocket",
                 data={
                     "model": context.model_name,
                     "transport": RESPONSES_TRANSPORT_WEBSOCKET,
                     "timeout_seconds": context.timeout,
-                    "stream_timing": self._stream_timing_payload(
+                    "stream_timing": stream_timing_payload(
                         timed_stream.timing,
                         timed_out=True,
                     ),
                 },
             )
+            raise
+        except Exception:
+            self._record_stream_failure(timed_stream.timing)
             raise
         self._record_successful_stream_timing(
             timed_stream.timing,
