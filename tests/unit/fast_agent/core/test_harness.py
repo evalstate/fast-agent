@@ -95,11 +95,7 @@ def test_environments_prefer_explicit_workspace_to_external_home(
     home = tmp_path / "logs" / "fast-agent-home"
     home.mkdir(parents=True)
     (home / "fast-agent.yaml").write_text(
-        "default_model: passthrough\n"
-        "environments:\n"
-        "  nested:\n"
-        "    type: local\n"
-        "    cwd: subdir\n",
+        "default_model: passthrough\nenvironments:\n  nested:\n    type: local\n    cwd: subdir\n",
         encoding="utf-8",
     )
     subdir = workspace / "subdir"

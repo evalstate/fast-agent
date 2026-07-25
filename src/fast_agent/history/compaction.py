@@ -477,7 +477,9 @@ def _archive_history(
         return None
 
 
-def _resolve_active_session_manager(manager: "SessionManager", cwd: Path | None) -> "SessionManager":
+def _resolve_active_session_manager(
+    manager: "SessionManager", cwd: Path | None
+) -> "SessionManager":
     if cwd is not None and cwd.resolve() != manager.workspace_dir:
         raise RuntimeError(
             "Compaction archive requested a different cwd than the active session manager."

@@ -1465,8 +1465,7 @@ class AgentCompleter(Completer):
             return []
         result = await agent.list_tools()
         return [
-            (tool.name, tool.description or "View complete JSON schema")
-            for tool in result.tools
+            (tool.name, tool.description or "View complete JSON schema") for tool in result.tools
         ]
 
     @staticmethod

@@ -235,6 +235,7 @@ class TestInstructionBuilderInternalPatterns:
         with pytest.raises(AgentConfigError, match="Unknown internal resource"):
             await builder.build()
 
+
 class TestInstructionBuilderUrlPatterns:
     """Tests for URL pattern resolution."""
 

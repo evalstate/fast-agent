@@ -1892,11 +1892,7 @@ def model_setup(
         Path(env) if env is not None else None,
     )
     resolved_target = _normalize_write_target(target)
-    settings = (
-        Settings(home=str(resolved_home))
-        if resolved_home is not None
-        else Settings()
-    )
+    settings = Settings(home=str(resolved_home)) if resolved_home is not None else Settings()
 
     try:
         run_coroutine(

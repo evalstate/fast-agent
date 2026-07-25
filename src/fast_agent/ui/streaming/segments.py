@@ -1045,7 +1045,9 @@ class StreamSegmentAssembler:
         self._last_tool_id = None
         self._committed_state = self._capture_state()
 
-    def _capture_state(self) -> tuple[
+    def _capture_state(
+        self,
+    ) -> tuple[
         StreamSegmentBuffer,
         ReasoningStreamParser,
         bool,

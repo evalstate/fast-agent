@@ -62,9 +62,12 @@ def test_docker_shell_environment_builds_bash_exec_argv() -> None:
         "-lc",
         "pwd",
     ]
-    assert environment._exec_process_env(  # noqa: SLF001
-        ShellExecutionRequest(command="pwd", cwd="/work", env={"TOKEN": "value"})
-    )["TOKEN"] == "value"
+    assert (
+        environment._exec_process_env(  # noqa: SLF001
+            ShellExecutionRequest(command="pwd", cwd="/work", env={"TOKEN": "value"})
+        )["TOKEN"]
+        == "value"
+    )
 
 
 def test_docker_shell_environment_builds_powershell_exec_argv() -> None:
@@ -254,9 +257,7 @@ def test_shell_runtime_resolves_relative_cwd_before_docker_exec() -> None:
     )
 
     cwd = runtime._resolve_managed_working_directory("subdir")
-    argv = environment._exec_argv(
-        ShellExecutionRequest(command="pwd", cwd=cwd)
-    )
+    argv = environment._exec_argv(ShellExecutionRequest(command="pwd", cwd=cwd))
 
     assert cwd == "/workspace/subdir"
     assert argv[argv.index("-w") + 1] == "/workspace/subdir"
@@ -331,7 +332,9 @@ async def test_docker_shell_environment_writes_bytes_to_container_stdin(
 async def test_docker_shell_environment_lists_container_directory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    payload = b"d\0/workspace/pkg\0pkg\0f\0/workspace/README.md\0README.md\0l\0/workspace/link\0link\0"
+    payload = (
+        b"d\0/workspace/pkg\0pkg\0f\0/workspace/README.md\0README.md\0l\0/workspace/link\0link\0"
+    )
 
     async def create_process(*args: object, **kwargs: object) -> _DockerFsProcess:
         del args, kwargs

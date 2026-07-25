@@ -190,8 +190,7 @@ async def test_acp_prompt_saves_session_history_in_configured_home(
 
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
-        (TEST_DIR / "fastagent.config.yaml").read_text()
-        + '\nhome: ".custom-fast-agent"\n'
+        (TEST_DIR / "fastagent.config.yaml").read_text() + '\nhome: ".custom-fast-agent"\n'
     )
 
     cmd = [

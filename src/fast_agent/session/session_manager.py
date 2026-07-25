@@ -102,11 +102,7 @@ def _session_home_override(
     if home_override is not None:
         return home_override
 
-    if (
-        explicit_cwd
-        and settings.home is None
-        and settings._fast_agent_home_source == "default"
-    ):
+    if explicit_cwd and settings.home is None and settings._fast_agent_home_source == "default":
         return DEFAULT_HOME_DIR
 
     return None

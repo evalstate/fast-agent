@@ -402,9 +402,7 @@ def test_gpt5_poll_folding_is_independent_of_reasoning_level(
     provider: str,
     reasoning: str,
 ) -> None:
-    resolved = ModelFactory.resolve_model_spec(
-        f"{provider}.gpt-5.6?reasoning={reasoning}"
-    )
+    resolved = ModelFactory.resolve_model_spec(f"{provider}.gpt-5.6?reasoning={reasoning}")
 
     assert resolved.model_params is not None
     assert resolved.model_params.managed_process_poll_folding is True

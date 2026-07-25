@@ -129,9 +129,7 @@ def test_background_shell_tool_call_header_shows_background() -> None:
 
 
 def test_process_lifecycle_tool_calls_use_compact_display() -> None:
-    display = ConsoleDisplay(
-        config=Settings(logger=LoggerSettings(progress_display=False))
-    )
+    display = ConsoleDisplay(config=Settings(logger=LoggerSettings(progress_display=False)))
 
     with console.console.capture() as capture:
         display.show_tool_call(
@@ -162,8 +160,7 @@ def test_process_lifecycle_tool_calls_use_compact_display() -> None:
     rendered = capture.get()
     compact_rendered = " ".join(rendered.split())
     assert (
-        "dev monitoring · process-3 · out — · err — · time 1m05s · size 0B"
-        " · uv run worker.py"
+        "dev monitoring · process-3 · out — · err — · time 1m05s · size 0B · uv run worker.py"
     ) in compact_rendered
     assert "pid 4321" not in rendered
     assert "terminate process-4" in rendered

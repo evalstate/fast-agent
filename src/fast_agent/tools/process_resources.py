@@ -145,8 +145,8 @@ def _cpu_capacity(pid: int) -> float:
     if cgroup_path is not None:
         try:
             quota_text, period_text = (
-                cgroup_path / "cpu.max"
-            ).read_text(encoding="utf-8").split(maxsplit=1)
+                (cgroup_path / "cpu.max").read_text(encoding="utf-8").split(maxsplit=1)
+            )
             if quota_text != "max":
                 quota = int(quota_text)
                 period = int(period_text)
@@ -438,9 +438,7 @@ def _rss_observation(
     if growth < _LARGE_BYTE_CHANGE:
         return None
     process_label = (
-        f", {snapshot.process_count} processes"
-        if snapshot.process_count is not None
-        else ""
+        f", {snapshot.process_count} processes" if snapshot.process_count is not None else ""
     )
     return f"process tree RSS {_gib(rss)} (up {_gib(growth)}{process_label})"
 
@@ -472,9 +470,7 @@ def _cpu_observation(
     if not newly_high:
         return None
     process_label = (
-        f", {snapshot.process_count} processes"
-        if snapshot.process_count is not None
-        else ""
+        f", {snapshot.process_count} processes" if snapshot.process_count is not None else ""
     )
     return (
         f"process tree CPU {cpu_ratio:.0%} of {snapshot.cpu_capacity:.1f}-core capacity"

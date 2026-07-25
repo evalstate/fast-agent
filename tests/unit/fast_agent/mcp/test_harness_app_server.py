@@ -54,7 +54,9 @@ class RecordingAppSession:
     async def invoke(self, request: AgentRequest) -> AgentResponse:
         self.requests.append(request)
         await request.report("working", progress=1, total=2)
-        return AgentResponse.text(f"{request.session_id}:{request.agent}:{request.message.all_text()}")
+        return AgentResponse.text(
+            f"{request.session_id}:{request.agent}:{request.message.all_text()}"
+        )
 
 
 class RecordingApp:

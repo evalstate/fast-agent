@@ -120,8 +120,7 @@ def provider_status(provider: str) -> ProviderAuthStatus:
         source=source_value if isinstance(source_value, str) else None,
         expires_at=(
             float(expires_value)
-            if isinstance(expires_value, (int, float))
-            and not isinstance(expires_value, bool)
+            if isinstance(expires_value, (int, float)) and not isinstance(expires_value, bool)
             else None
         ),
         expired=bool(status.get("expired")),

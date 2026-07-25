@@ -132,7 +132,4 @@ def test_pure_addition_chunk_followed_by_removal() -> None:
 
         assert stdout == f"Success. Updated the following files:\nM {path}\n"
         assert stderr == ""
-        assert (
-            _read_text(path)
-            == "line1\nline2-replacement\nafter-context\nsecond-line\n"
-        )
+        assert _read_text(path) == "line1\nline2-replacement\nafter-context\nsecond-line\n"

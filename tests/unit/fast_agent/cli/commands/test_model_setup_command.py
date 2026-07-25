@@ -95,9 +95,7 @@ def _read_yaml(path: Path) -> dict:
 
 
 def test_common_setup_items_treat_last_used_as_default_alias_present() -> None:
-    items = model_command._build_common_setup_items(
-        {"system": {"last_used": "claude-haiku-4-5"}}
-    )
+    items = model_command._build_common_setup_items({"system": {"last_used": "claude-haiku-4-5"}})
 
     assert "$system.default" not in {item.token for item in items}
 

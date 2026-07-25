@@ -401,9 +401,7 @@ def _preserve_unedited_section_values(
     current_section = config_data.get(section_name)
     if not isinstance(current_section, dict):
         return updates
-    preserved = {
-        key: value for key, value in current_section.items() if key not in edited_fields
-    }
+    preserved = {key: value for key, value in current_section.items() if key not in edited_fields}
     preserved.update(updates)
     return preserved
 

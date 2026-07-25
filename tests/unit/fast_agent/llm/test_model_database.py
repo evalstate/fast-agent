@@ -70,9 +70,7 @@ def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
     assert grok_45 is not None
     assert grok_45.managed_process_poll_folding is True
 
-    anthropic_models = [
-        model for model in ModelDatabase.MODELS if model.startswith("claude-")
-    ]
+    anthropic_models = [model for model in ModelDatabase.MODELS if model.startswith("claude-")]
     assert anthropic_models
     for model in anthropic_models:
         params = ModelDatabase.get_model_params(
@@ -96,9 +94,7 @@ def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
 
 
 def test_anthropic_catalog_uses_posix_file_creation_guidance() -> None:
-    anthropic_models = [
-        model for model in ModelDatabase.MODELS if model.startswith("claude-")
-    ]
+    anthropic_models = [model for model in ModelDatabase.MODELS if model.startswith("claude-")]
 
     assert anthropic_models
     for model in anthropic_models:
@@ -127,10 +123,7 @@ def test_model_database_long_context_listing_matches_lookup() -> None:
     models = ModelDatabase.list_long_context_models()
 
     assert models
-    assert all(
-        ModelDatabase.get_long_context_window(model) is not None
-        for model in models
-    )
+    assert all(ModelDatabase.get_long_context_window(model) is not None for model in models)
     assert ModelDatabase.get_long_context_window("unknown-model") is None
 
 

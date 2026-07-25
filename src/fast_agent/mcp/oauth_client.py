@@ -136,8 +136,7 @@ def _trace_oauth_http(
     status = str(response.status_code) if response is not None else "sending"
     content_type = response.headers.get("content-type", "-") if response is not None else "-"
     print(
-        f"[MCP OAuth] {phase}: {request.method} {url} "
-        f"status={status} content-type={content_type}",
+        f"[MCP OAuth] {phase}: {request.method} {url} status={status} content-type={content_type}",
         file=sys.stderr,
         flush=True,
     )
@@ -1334,7 +1333,9 @@ def build_oauth_provider(
             "MCP OAuth provider configured",
             persistence=settings.persist_mode,
             client_id_mode=(
-                "metadata-url" if settings.client_metadata_url is not None else "dynamic-registration"
+                "metadata-url"
+                if settings.client_metadata_url is not None
+                else "dynamic-registration"
             ),
         )
 

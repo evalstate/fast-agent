@@ -206,9 +206,7 @@ def save_oauth_credential(
         return "file"
 
     if source == "file":
-        _modify_file_credential(
-            default_auth_path(), provider, credential, private_parent=True
-        )
+        _modify_file_credential(default_auth_path(), provider, credential, private_parent=True)
         return "file"
 
     status = get_keyring_status()

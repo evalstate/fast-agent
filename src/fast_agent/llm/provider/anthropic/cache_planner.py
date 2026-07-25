@@ -57,9 +57,7 @@ class AnthropicCachePlanner:
 
         if cache_mode in ("prompt", "auto") and template_prefix:
             template_indices = [
-                index
-                for index in range(template_prefix)
-                if index != process_poll_boundary
+                index for index in range(template_prefix) if index != process_poll_boundary
             ][: max(0, budget - conversation_reserve)]
             budget -= len(template_indices)
 

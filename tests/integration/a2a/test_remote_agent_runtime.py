@@ -168,7 +168,9 @@ async def test_a2a_remote_agent_preserves_input_required_task_for_follow_up(
     finally:
         await agent.shutdown()
 
-    assert first.all_text() == "A2A task TASK_STATE_INPUT_REQUIRED: Please provide the missing value."
+    assert (
+        first.all_text() == "A2A task TASK_STATE_INPUT_REQUIRED: Please provide the missing value."
+    )
     assert first.stop_reason == LlmStopReason.PAUSE
     assert input_task_id
     assert "input received: blue" in second.all_text()

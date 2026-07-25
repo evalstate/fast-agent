@@ -336,7 +336,12 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
                 {"name": name, "summary": summary}
                 for name, summary in HISTORY_COMMAND_COMPLETION_DESCRIPTIONS.items()
             ],
-            "examples": ["/history", "/history 3", "/history detail 3", "/history save history.json"],
+            "examples": [
+                "/history",
+                "/history 3",
+                "/history detail 3",
+                "/history save history.json",
+            ],
         },
         _simple_command_entry(
             "load",

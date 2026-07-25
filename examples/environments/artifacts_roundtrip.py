@@ -44,7 +44,9 @@ async def main() -> None:
 
     async with fast.harness(environment=args.environment) as harness:
         await copy_tree(harness.local, "inputs", harness.environment, "work/input")
-        await harness.shell("mkdir -p work/output && tr a-z A-Z < work/input/message.txt > work/output/message.txt")
+        await harness.shell(
+            "mkdir -p work/output && tr a-z A-Z < work/input/message.txt > work/output/message.txt"
+        )
         await copy_tree(harness.environment, "work/output", harness.local, "outputs")
 
     print((OUTPUTS / "message.txt").read_text(encoding="utf-8").strip())

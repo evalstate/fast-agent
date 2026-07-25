@@ -116,7 +116,9 @@ def _format_registry_set_success(
         content.append("\n")
     content.append_text(Text(f"Registry set to: {display_name}", style="green"))
     content.append("\n")
-    content.append_text(Text(f"Skills discovered: {skill_count}. Use /skills add to list.", style="dim"))
+    content.append_text(
+        Text(f"Skills discovered: {skill_count}. Use /skills add to list.", style="dim")
+    )
     return content
 
 

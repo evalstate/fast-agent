@@ -212,9 +212,7 @@ def load_skills_for_context(
         settings = get_settings()
         settings_for_skills = (
             settings
-            if no_home
-            or settings.home is not None
-            or settings._fast_agent_home_source != "default"
+            if no_home or settings.home is not None or settings._fast_agent_home_source != "default"
             else None
         )
         override_dirs = default_skill_paths(

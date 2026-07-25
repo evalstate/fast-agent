@@ -62,9 +62,7 @@ def _process_tool_use_message(action: str | None = None) -> PromptMessageExtende
         content=[],
         stop_reason=LlmStopReason.TOOL_USE,
         tool_calls={
-            "1": CallToolRequest(
-                params=CallToolRequestParams(name="Process", arguments=arguments)
-            )
+            "1": CallToolRequest(params=CallToolRequestParams(name="Process", arguments=arguments))
         },
     )
 

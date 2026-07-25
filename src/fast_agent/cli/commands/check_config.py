@@ -1295,10 +1295,7 @@ def _collect_environment_rows(
             detail = runtime_info.provider or runtime_info.kind
             status = f"[green]valid[/green] ({detail})"
         except Exception as exc:
-            status = (
-                f"[orange_red1]{exc}[/orange_red1] "
-                f"[dim]Valid names: {valid_names}[/dim]"
-            )
+            status = f"[orange_red1]{exc}[/orange_red1] [dim]Valid names: {valid_names}[/dim]"
         rows.append((name, spec.type, default_marker, status))
     return tuple(rows)
 
@@ -2171,9 +2168,7 @@ def _render_agent_card_panel(context: _CheckSummaryContext) -> None:
         console.print(f"[yellow]{warning}[/yellow]")
 
     if not found_card_dir:
-        console.print(
-            "[dim]No local AgentCard directories found in the fast-agent home.[/dim]"
-        )
+        console.print("[dim]No local AgentCard directories found in the fast-agent home.[/dim]")
 
 
 def _render_check_summary_guidance(context: _CheckSummaryContext) -> None:
@@ -2481,9 +2476,7 @@ def _run_structured_output_probe(
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    home: Path | None = typer.Option(
-        None, "--home", help="Override the base fast-agent home"
-    ),
+    home: Path | None = typer.Option(None, "--home", help="Override the base fast-agent home"),
 ) -> None:
     """Check and diagnose FastAgent configuration."""
     home = resolve_home_option(ctx, home)

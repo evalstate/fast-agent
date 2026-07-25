@@ -86,6 +86,7 @@ _MCP_RUNTIME_HANDLERS_COMPAT = mcp_runtime_handlers
 SendFunc = Callable[[str | PromptMessage | PromptMessageExtended, str], Awaitable[str]]
 type PromptLoopResult = str | ShellExecutionResult
 
+
 @runtime_checkable
 class DisplayCapable(Protocol):
     @property

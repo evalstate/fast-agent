@@ -20,8 +20,7 @@ from fast_agent.tools.attach_media import _classify_source
 from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
 
 _PNG_BYTES = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
-    "+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
 
 

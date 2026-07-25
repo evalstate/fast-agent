@@ -34,9 +34,7 @@ class _Agent:
     acp_commands: dict[str, object] = {}
 
     def __init__(self, session_manager: object | None = None) -> None:
-        self.context = SimpleNamespace(
-            session_manager=session_manager or _DefaultSessionManager()
-        )
+        self.context = SimpleNamespace(session_manager=session_manager or _DefaultSessionManager())
 
 
 class _App:
@@ -276,8 +274,8 @@ async def test_handle_session_export_leaves_agent_unset_for_latest_target(
         *,
         target: str | None,
         agent_name: str | None,
-            output_path: str | None,
-            export_format: str = "codex",
+        output_path: str | None,
+        export_format: str = "codex",
         hf_url: str | None,
         hf_dataset: str | None,
         hf_dataset_path: str | None,
@@ -291,8 +289,8 @@ async def test_handle_session_export_leaves_agent_unset_for_latest_target(
         error: str | None = None,
     ) -> CommandOutcome:
         del (
-                ctx,
-                export_format,
+            ctx,
+            export_format,
             hf_url,
             privacy_filter,
             privacy_filter_path,
@@ -370,8 +368,8 @@ async def test_handle_session_export_defaults_agent_only_with_current_session(
         *,
         target: str | None,
         agent_name: str | None,
-            output_path: str | None,
-            export_format: str = "codex",
+        output_path: str | None,
+        export_format: str = "codex",
         hf_url: str | None,
         hf_dataset: str | None,
         hf_dataset_path: str | None,
@@ -385,8 +383,8 @@ async def test_handle_session_export_defaults_agent_only_with_current_session(
         error: str | None = None,
     ) -> CommandOutcome:
         del (
-                ctx,
-                export_format,
+            ctx,
+            export_format,
             output_path,
             hf_url,
             hf_dataset,
@@ -461,8 +459,8 @@ async def test_handle_session_export_uses_handler_session_when_manager_current_i
         *,
         target: str | None,
         agent_name: str | None,
-            output_path: str | None,
-            export_format: str = "codex",
+        output_path: str | None,
+        export_format: str = "codex",
         hf_url: str | None,
         hf_dataset: str | None,
         hf_dataset_path: str | None,
@@ -476,8 +474,8 @@ async def test_handle_session_export_uses_handler_session_when_manager_current_i
         error: str | None = None,
     ) -> CommandOutcome:
         del (
-                ctx,
-                export_format,
+            ctx,
+            export_format,
             output_path,
             hf_url,
             hf_dataset,

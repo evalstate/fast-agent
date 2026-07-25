@@ -2,6 +2,7 @@
 XML formatting utilities for consistent prompt engineering across components.
 """
 
+
 def format_xml_tag(
     tag_name: str,
     content: str | None = None,
@@ -49,4 +50,3 @@ def format_fastagent_tag(
         Formatted fastagent XML tag as string
     """
     return format_xml_tag(f"fastagent:{tag_type}", content, attributes)
-

@@ -110,12 +110,7 @@ def test_atif_embedded_subagent_reference_must_resolve() -> None:
 
 
 def test_harbor_multiagent_golden_fixture_is_valid_atif_v17() -> None:
-    fixture = (
-        Path(__file__).parents[3]
-        / "fixtures"
-        / "atif"
-        / "harbor_multiagent_v1_7.json"
-    )
+    fixture = Path(__file__).parents[3] / "fixtures" / "atif" / "harbor_multiagent_v1_7.json"
     trajectory = AtifTrajectory.model_validate_json(fixture.read_text(encoding="utf-8"))
 
     assert trajectory.schema_version == "ATIF-v1.7"

@@ -106,4 +106,3 @@ async def ask(
         result = await ask(schema, "What's your info?")
     """
     return await form(schema, message)
-

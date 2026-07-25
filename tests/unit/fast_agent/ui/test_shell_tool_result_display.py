@@ -179,8 +179,7 @@ def test_managed_process_poll_uses_shared_elapsed_format() -> None:
     rendered = " ".join(capture.get().split())
     assert "dev" not in rendered
     assert (
-        "process-2 · out — · err — · time 2h · size 12.5KB"
-        " · uv run worker.py · id: call_…456789"
+        "process-2 · out — · err — · time 2h · size 12.5KB · uv run worker.py · id: call_…456789"
     ) in rendered
 
 

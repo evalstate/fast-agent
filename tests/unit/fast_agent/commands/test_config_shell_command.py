@@ -142,10 +142,7 @@ shell_execution:
 
     def submit_defaults(schema: FormSchema, **kwargs: object) -> dict[str, object]:
         del kwargs
-        return {
-            name: field.default
-            for name, field in schema.fields.items()
-        }
+        return {name: field.default for name, field in schema.fields.items()}
 
     monkeypatch.setattr(config_command, "form_sync", submit_defaults)
 

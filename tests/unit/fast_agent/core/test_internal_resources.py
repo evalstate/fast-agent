@@ -99,7 +99,9 @@ def test_execution_environment_internal_resource_covers_schema_fields() -> None:
 def test_execution_environment_internal_resource_matches_generator() -> None:
     repo_root = Path(__file__).resolve().parents[4]
     generator_path = repo_root / "docs" / "generate_reference_docs.py"
-    spec = importlib.util.spec_from_file_location("generate_reference_docs_for_test", generator_path)
+    spec = importlib.util.spec_from_file_location(
+        "generate_reference_docs_for_test", generator_path
+    )
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -107,8 +109,8 @@ def test_execution_environment_internal_resource_matches_generator() -> None:
 
     generator = getattr(module, "generate_execution_environments_internal_resource")
     generated = generator()
-    checked_in = (
-        repo_root / "resources" / "shared" / "execution_environments.md"
-    ).read_text(encoding="utf-8")
+    checked_in = (repo_root / "resources" / "shared" / "execution_environments.md").read_text(
+        encoding="utf-8"
+    )
 
     assert checked_in == generated

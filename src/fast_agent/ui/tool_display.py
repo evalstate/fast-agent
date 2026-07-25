@@ -708,9 +708,7 @@ class ToolDisplay:
         if normalize_tool_name(tool_name) != POLL_PROCESS_TOOL_NAME:
             if normalize_tool_name(tool_name) != normalize_tool_name(PROCESS_TOOL_NAME):
                 return False
-            process_metadata = (result.meta or {}).get(
-                FAST_AGENT_SHELL_PROCESS_METADATA
-            )
+            process_metadata = (result.meta or {}).get(FAST_AGENT_SHELL_PROCESS_METADATA)
             if not isinstance(process_metadata, dict) or "poll_wait_sec" not in process_metadata:
                 return False
         content = result.content
@@ -1441,10 +1439,7 @@ class ToolDisplay:
         try:
             tool_args = tool_args or {}
             metadata = metadata or {}
-            if (
-                metadata.get("variant") == "shell_process"
-                and metadata.get("action") == "poll"
-            ):
+            if metadata.get("variant") == "shell_process" and metadata.get("action") == "poll":
                 if self._display.logger_settings.progress_display:
                     return
                 elapsed = metadata.get("elapsed_seconds")
@@ -1464,15 +1459,13 @@ class ToolDisplay:
                     ),
                     elapsed_seconds=(
                         float(elapsed)
-                        if isinstance(elapsed, (int, float))
-                        and not isinstance(elapsed, bool)
+                        if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool)
                         else None
                     ),
                     wait_sec=wait_sec if type(wait_sec) is int else None,
                     has_observed_output=(
-                        observed if isinstance(
-                            observed := metadata.get("has_observed_output"), bool
-                        )
+                        observed
+                        if isinstance(observed := metadata.get("has_observed_output"), bool)
                         else None
                     ),
                     seconds_since_last_output=(
@@ -1486,10 +1479,7 @@ class ToolDisplay:
                     ),
                     total_output_bytes=(
                         total_output_bytes
-                        if type(
-                            total_output_bytes := metadata.get("total_output_bytes")
-                        )
-                        is int
+                        if type(total_output_bytes := metadata.get("total_output_bytes")) is int
                         and total_output_bytes >= 0
                         else None
                     ),

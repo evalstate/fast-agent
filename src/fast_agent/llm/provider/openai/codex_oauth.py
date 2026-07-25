@@ -330,7 +330,9 @@ def _load_codex_tokens_with_source() -> tuple[CodexOAuthTokens | None, str | Non
     # silently fall back to a developer's local Codex CLI account when it is set.
     if configured_auth_path() is not None:
         stored = load_oauth_credential("codex")
-        return (_tokens_from_credential(stored.credential), stored.source) if stored else (None, None)
+        return (
+            (_tokens_from_credential(stored.credential), stored.source) if stored else (None, None)
+        )
 
     # Codex CLI credentials are external and read-only. Prefer them before touching
     # the fast-agent credential store so an existing auth.json is sufficient on its own.

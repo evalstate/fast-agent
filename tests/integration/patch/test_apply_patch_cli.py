@@ -84,9 +84,7 @@ def test_apply_patch_cli_applies_multiple_operations() -> None:
             "Success. Updated the following files:\nA nested/new.txt\nM modify.txt\nD delete.txt\n"
         )
 
-        assert _read_text(tmp_path / "nested/new.txt") == (
-            "created\n"
-        )
+        assert _read_text(tmp_path / "nested/new.txt") == ("created\n")
         assert _read_text(modify_path) == "line1\nchanged\n"
         assert not delete_path.exists()
 
@@ -113,10 +111,7 @@ def test_apply_patch_cli_applies_multiple_chunks() -> None:
         result = _run_cli(patch, tmp_path)
         assert result.returncode == 0
         assert result.stdout == "Success. Updated the following files:\nM multi.txt\n"
-        assert (
-            _read_text(target_path)
-            == "line1\nchanged2\nline3\nchanged4\n"
-        )
+        assert _read_text(target_path) == "line1\nchanged2\nline3\nchanged4\n"
 
 
 @pytest.mark.integration

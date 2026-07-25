@@ -264,9 +264,7 @@ def _tool_result_extra(
     extra: dict[str, object] = {"is_error": bool(result.isError)}
     timing = (_json_channel_mapping(message, FAST_AGENT_TOOL_TIMING) or {}).get(call_id)
     if isinstance(timing, dict):
-        timing_mapping: dict[str, object] = {
-            str(key): value for key, value in timing.items()
-        }
+        timing_mapping: dict[str, object] = {str(key): value for key, value in timing.items()}
         for key in ("timing_ms", "transport_channel"):
             value = timing_mapping.get(key)
             if value is not None:
@@ -326,9 +324,7 @@ def _parse_process_poll_fold_audit(
     try:
         return ProcessPollFoldAudit.model_validate(fold.get("audit"))
     except ValueError as exc:
-        raise ValueError(
-            "Managed-process poll fold audit archive is invalid"
-        ) from exc
+        raise ValueError("Managed-process poll fold audit archive is invalid") from exc
 
 
 def _context_rewrite(
@@ -358,9 +354,7 @@ def _reconstruct_process_poll_audit_items(
     ]
     for index, exchange in enumerate(exchanges):
         next_request_timestamp = (
-            exchanges[index + 1].request.timestamp
-            if index + 1 < len(exchanges)
-            else None
+            exchanges[index + 1].request.timestamp if index + 1 < len(exchanges) else None
         )
         request_timestamp = exchange.request.timestamp or fallback_timestamp
         result_timestamp = (
@@ -381,11 +375,9 @@ def _reconstruct_process_poll_audit_items(
                 timestamp=result_timestamp,
             )
         )
-        if (
-            rewrite_index < len(audit.context_rewrites)
-            and audit.context_rewrites[rewrite_index].after_call_id
-            in (exchange.result.tool_results or {})
-        ):
+        if rewrite_index < len(audit.context_rewrites) and audit.context_rewrites[
+            rewrite_index
+        ].after_call_id in (exchange.result.tool_results or {}):
             items.append(
                 _context_rewrite(
                     audit.context_rewrites[rewrite_index],
@@ -394,9 +386,7 @@ def _reconstruct_process_poll_audit_items(
             )
             rewrite_index += 1
     if rewrite_index != len(audit.context_rewrites):
-        raise ValueError(
-            "Managed-process poll fold context rewrite placement is inconsistent"
-        )
+        raise ValueError("Managed-process poll fold context rewrite placement is inconsistent")
     return items
 
 
@@ -422,13 +412,10 @@ def _expand_process_poll_folds(
             index += 1
             continue
         audit = _parse_process_poll_fold_audit(fold)
-        retained_call_ids = [
-            exchange.call_id for exchange in audit.retained_exchanges
-        ]
+        retained_call_ids = [exchange.call_id for exchange in audit.retained_exchanges]
         retained_call_id = retained_call_ids[-1]
-        if (
-            retained_call_id not in (message.tool_calls or {})
-            or retained_call_id not in (result_message.tool_results or {})
+        if retained_call_id not in (message.tool_calls or {}) or retained_call_id not in (
+            result_message.tool_results or {}
         ):
             raise ValueError("Managed-process poll fold retained exchange is invalid")
 
@@ -445,9 +432,7 @@ def _expand_process_poll_folds(
                 for call_id in (archived_item.message.tool_calls or {})
             ]
             if suffix_call_ids != earlier_retained_call_ids:
-                raise ValueError(
-                    "Managed-process poll fold retained call IDs are inconsistent"
-                )
+                raise ValueError("Managed-process poll fold retained call IDs are inconsistent")
             del items[-retained_suffix_items:]
 
         fallback_timestamp = result_message.timestamp or source.message_timestamps[index + 1]
@@ -469,8 +454,7 @@ def _resolve_call_step_ids(
     missing = [call_id for call_id in call_ids if call_id not in call_step_ids]
     if missing:
         raise ValueError(
-            "Managed-process context rewrite references unknown tool calls: "
-            + ", ".join(missing)
+            "Managed-process context rewrite references unknown tool calls: " + ", ".join(missing)
         )
     return [call_step_ids[call_id] for call_id in call_ids]
 
@@ -511,9 +495,7 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
             if retained_step_ids:
                 context_management["retained_step_ids"] = retained_step_ids
             timestamp_text = (
-                item.timestamp.isoformat().replace("+00:00", "Z")
-                if item.timestamp
-                else None
+                item.timestamp.isoformat().replace("+00:00", "Z") if item.timestamp else None
             )
             context_boundary_count += 1
             steps.append(
@@ -583,9 +565,7 @@ def build_atif_trajectory(source: AtifRunSource) -> AtifTrajectory:
     if not steps:
         raise ValueError("ATIF trajectories require at least one interaction step")
     metrics = [
-        step.metrics
-        for step in steps
-        if step.source == "agent" and step.llm_call_count != 0
+        step.metrics for step in steps if step.source == "agent" and step.llm_call_count != 0
     ]
     total_reasoning_tokens = _sum_optional_int(
         _metric_extra_int(item, "reasoning_tokens") if item is not None else None
@@ -852,7 +832,7 @@ def _final_metrics_from_usage_summary(
                 "total_tool_use_tokens": usage.prompt.tool_use,
             }.items()
             if value is not None
-        }
+        },
     )
 
 
@@ -874,25 +854,17 @@ def _include_subagent_metrics(
         root_metrics,
         "total_tool_use_tokens",
     )
-    subagent_prompt_tokens = _sum_optional_int(
-        item.total_prompt_tokens for item in child_metrics
-    )
+    subagent_prompt_tokens = _sum_optional_int(item.total_prompt_tokens for item in child_metrics)
     subagent_completion_tokens = _sum_optional_int(
         item.total_completion_tokens for item in child_metrics
     )
-    subagent_cached_tokens = _sum_optional_int(
-        item.total_cached_tokens for item in child_metrics
-    )
-    subagent_cost_usd = _sum_optional_float(
-        item.total_cost_usd for item in child_metrics
-    )
+    subagent_cached_tokens = _sum_optional_int(item.total_cached_tokens for item in child_metrics)
+    subagent_cost_usd = _sum_optional_float(item.total_cost_usd for item in child_metrics)
     subagent_reasoning_tokens = _sum_optional_int(
-        _final_metric_extra_int(item, "total_reasoning_tokens")
-        for item in child_metrics
+        _final_metric_extra_int(item, "total_reasoning_tokens") for item in child_metrics
     )
     subagent_tool_use_tokens = _sum_optional_int(
-        _final_metric_extra_int(item, "total_tool_use_tokens")
-        for item in child_metrics
+        _final_metric_extra_int(item, "total_tool_use_tokens") for item in child_metrics
     )
     root_metrics.total_prompt_tokens = _sum_optional_int(
         (root_prompt_tokens, subagent_prompt_tokens)
@@ -903,15 +875,9 @@ def _include_subagent_metrics(
     root_metrics.total_cached_tokens = _sum_optional_int(
         (root_cached_tokens, subagent_cached_tokens)
     )
-    root_metrics.total_cost_usd = _sum_optional_float(
-        (root_cost_usd, subagent_cost_usd)
-    )
-    total_reasoning_tokens = _sum_optional_int(
-        (root_reasoning_tokens, subagent_reasoning_tokens)
-    )
-    total_tool_use_tokens = _sum_optional_int(
-        (root_tool_use_tokens, subagent_tool_use_tokens)
-    )
+    root_metrics.total_cost_usd = _sum_optional_float((root_cost_usd, subagent_cost_usd))
+    total_reasoning_tokens = _sum_optional_int((root_reasoning_tokens, subagent_reasoning_tokens))
+    total_tool_use_tokens = _sum_optional_int((root_tool_use_tokens, subagent_tool_use_tokens))
     root_metrics.extra = {
         key: value
         for key, value in {
@@ -1017,10 +983,7 @@ def _sanitize_value(
     if isinstance(value, list):
         return [_sanitize_value(item, sanitizer, redactions) for item in value]
     if isinstance(value, dict):
-        return {
-            key: _sanitize_value(item, sanitizer, redactions)
-            for key, item in value.items()
-        }
+        return {key: _sanitize_value(item, sanitizer, redactions) for key, item in value.items()}
     return value
 
 
@@ -1047,9 +1010,7 @@ def _sanitize_trajectory(
     for step in trajectory.steps:
         step.message = _sanitize_content(step.message, sanitizer, redactions)
         if step.reasoning_content is not None:
-            step.reasoning_content = _sanitize_text(
-                step.reasoning_content, sanitizer, redactions
-            )
+            step.reasoning_content = _sanitize_text(step.reasoning_content, sanitizer, redactions)
         for call in step.tool_calls or []:
             call.arguments = {
                 key: _sanitize_value(value, sanitizer, redactions)

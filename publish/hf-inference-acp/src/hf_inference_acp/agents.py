@@ -484,6 +484,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             )
         return created
 
+
 class HuggingFaceAgent(ACPAwareMixin, McpAgent):
     """
     Main Hugging Face inference agent.

@@ -20,9 +20,7 @@ def test_normalize_a2a_base_url() -> None:
 
 
 def test_normalize_a2a_agent_card_url() -> None:
-    url, card_path, error = normalize_a2a_url(
-        "http://127.0.0.1:41241/.well-known/agent-card.json"
-    )
+    url, card_path, error = normalize_a2a_url("http://127.0.0.1:41241/.well-known/agent-card.json")
     assert url == "http://127.0.0.1:41241"
     assert card_path == "/.well-known/agent-card.json"
     assert error is None

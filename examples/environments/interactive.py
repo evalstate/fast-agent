@@ -25,7 +25,7 @@ fast = FastAgent(
     ),
     shell=True,
     default=True,
-    model="codexplan"
+    model="codexplan",
 )
 async def workspace_agent() -> None:
     pass

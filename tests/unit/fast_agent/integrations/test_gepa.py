@@ -653,11 +653,22 @@ def test_trackio_callback_adds_monotonic_fast_agent_eval_step(monkeypatch):
 
     callback = FastAgentGEPATrackioCallback(eval_adapter=Adapter())
     callback.on_valset_evaluated(
-        {"iteration": 0, "candidate_idx": 0, "metric_calls_before": 0, "metric_calls_delta": 1, "metric_calls_after": 1}
+        {
+            "iteration": 0,
+            "candidate_idx": 0,
+            "metric_calls_before": 0,
+            "metric_calls_delta": 1,
+            "metric_calls_after": 1,
+        }
     )
     callback.on_evaluation_end({"iteration": 1, "candidate_idx": 1})
     callback.on_budget_updated(
-        {"iteration": 1, "metric_calls_used": 2, "metric_calls_delta": 1, "metric_calls_remaining": None}
+        {
+            "iteration": 1,
+            "metric_calls_used": 2,
+            "metric_calls_delta": 1,
+            "metric_calls_remaining": None,
+        }
     )
 
     eval_rows = [row for row in logged if "fast_agent/eval/step" in row]

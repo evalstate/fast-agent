@@ -69,11 +69,7 @@ class CompletionTokenUsage(BaseModel):
 
     @model_validator(mode="after")
     def validate_subsets(self) -> CompletionTokenUsage:
-        if (
-            self.total is not None
-            and self.reasoning is not None
-            and self.reasoning > self.total
-        ):
+        if self.total is not None and self.reasoning is not None and self.reasoning > self.total:
             raise ValueError("completion.reasoning exceeds completion.total")
         return self
 
@@ -240,9 +236,7 @@ def usage_from_anthropic(
         ),
         completion=CompletionTokenUsage(
             total=usage.output_tokens,
-            reasoning=(
-                output_details.thinking_tokens if output_details is not None else None
-            ),
+            reasoning=(output_details.thinking_tokens if output_details is not None else None),
         ),
         service_tier=usage.service_tier,
         raw_usage=snapshot_json_value(usage),
@@ -274,16 +268,12 @@ def usage_from_openai_chat(
         prompt=PromptTokenUsage(
             total=usage.prompt_tokens,
             cache_read=prompt_details.cached_tokens if prompt_details is not None else None,
-            cache_write=(
-                prompt_details.cache_write_tokens if prompt_details is not None else None
-            ),
+            cache_write=(prompt_details.cache_write_tokens if prompt_details is not None else None),
         ),
         completion=CompletionTokenUsage(
             total=usage.completion_tokens,
             reasoning=(
-                completion_details.reasoning_tokens
-                if completion_details is not None
-                else None
+                completion_details.reasoning_tokens if completion_details is not None else None
             ),
         ),
         raw_usage=snapshot_json_value(usage),
@@ -542,9 +532,7 @@ def usage_from_bedrock(
     input_value = usage.get("input_tokens")
     output_value = usage.get("output_tokens")
     input_tokens = (
-        input_value
-        if isinstance(input_value, int) and not isinstance(input_value, bool)
-        else None
+        input_value if isinstance(input_value, int) and not isinstance(input_value, bool) else None
     )
     output_tokens = (
         output_value

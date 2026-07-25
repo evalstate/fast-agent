@@ -203,10 +203,7 @@ class ShellRuntime:
             self._max_process_poll_seconds = shell_config.process_poll_max_wait_seconds
             self._minimal_process_profile = shell_config.tool_profile == "minimal_process"
             self._retained_output_max_bytes = shell_config.retained_output_max_bytes
-            if (
-                shell_config.retain_truncated_output
-                and self.runtime_info().kind == "local"
-            ):
+            if shell_config.retain_truncated_output and self.runtime_info().kind == "local":
                 parent = shell_config.retained_output_temp_directory
                 if parent is not None:
                     parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -399,9 +396,7 @@ class ShellRuntime:
             parsed = None
         command = parsed.command if parsed is not None else arguments.get("command")
         working_dir = Path(
-            self._resolve_managed_working_directory(
-                parsed.cwd if parsed is not None else None
-            )
+            self._resolve_managed_working_directory(parsed.cwd if parsed is not None else None)
         )
         idle_yield_seconds = (
             parsed.yield_after_idle_sec
@@ -446,11 +441,7 @@ class ShellRuntime:
             "wait_sec": operation.wait_sec,
         }
         process_id = operation.process_id
-        process = (
-            self._managed_processes.get(process_id)
-            if isinstance(process_id, str)
-            else None
-        )
+        process = self._managed_processes.get(process_id) if isinstance(process_id, str) else None
         if process is None:
             return metadata
 
@@ -608,11 +599,7 @@ class ShellRuntime:
 
     @staticmethod
     def _truncation_notice_style(output_state: ShellOutputBuffer) -> str:
-        return (
-            "black on blue"
-            if output_state.output_byte_limit_requested
-            else "black on red"
-        )
+        return "black on blue" if output_state.output_byte_limit_requested else "black on red"
 
     def _print_timeout_notice(
         self,
@@ -726,7 +713,10 @@ class ShellRuntime:
                 markup=False,
             )
         for buffered_index, buffered_text, buffered_style in display_state.display_tail_buffer:
-            if display_state.display_overflowed and buffered_index <= display_state.display_line_limit:
+            if (
+                display_state.display_overflowed
+                and buffered_index <= display_state.display_line_limit
+            ):
                 continue
             console.console.print(
                 self._render_display_line(buffered_text, buffered_style),
@@ -777,9 +767,7 @@ class ShellRuntime:
     ) -> _ShellRuntimeExecution:
         output_state = ShellOutputBuffer(
             output_byte_limit=(
-                self._output_byte_limit
-                if output_byte_limit is None
-                else output_byte_limit
+                self._output_byte_limit if output_byte_limit is None else output_byte_limit
             ),
             output_byte_limit_requested=output_byte_limit is not None,
             retained_output_path=self._next_retained_output_path(),
@@ -843,10 +831,7 @@ class ShellRuntime:
                 for process_id, process in self._managed_processes.items()
                 if process.task.done()
             ]
-            while (
-                len(self._managed_processes) >= MAX_MANAGED_SHELL_PROCESSES
-                and completed_ids
-            ):
+            while len(self._managed_processes) >= MAX_MANAGED_SHELL_PROCESSES and completed_ids:
                 self._managed_processes.pop(completed_ids.pop(0))
             if len(self._managed_processes) >= MAX_MANAGED_SHELL_PROCESSES:
                 raise RuntimeError(
@@ -912,9 +897,7 @@ class ShellRuntime:
             else:
                 requested_path = Path(requested_cwd)
                 candidate = str(
-                    requested_path
-                    if requested_path.is_absolute()
-                    else base_path / requested_path
+                    requested_path if requested_path.is_absolute() else base_path / requested_path
                 )
         else:
             resolved_base = (
@@ -941,9 +924,7 @@ class ShellRuntime:
     def _next_retained_output_path(self) -> Path | None:
         if self._retained_output_directory is None:
             return None
-        path = self._retained_output_directory / (
-            f"output-{self._retained_output_next_id}.log"
-        )
+        path = self._retained_output_directory / (f"output-{self._retained_output_next_id}.log")
         self._retained_output_next_id += 1
         return path
 
@@ -1116,10 +1097,7 @@ class ShellRuntime:
 
         async with process.poll_lock:
             async with process.lock:
-                should_wait = (
-                    parsed.wait_sec > 0
-                    and not process.task.done()
-                )
+                should_wait = parsed.wait_sec > 0 and not process.task.done()
 
             waited = False
             output_wake = False
@@ -1173,28 +1151,18 @@ class ShellRuntime:
                 else:
                     poll_yield_reason = "nonblocking"
                 self._record_buffered_process_result(process)
-                output_bytes_since_last_poll = (
-                    process.output_state.total_output_bytes
-                )
-                output_lines_since_last_poll = (
-                    process.output_state.unread_output_line_count
-                )
+                output_bytes_since_last_poll = process.output_state.total_output_bytes
+                output_lines_since_last_poll = process.output_state.unread_output_line_count
                 seconds_since_last_output = max(
                     time.monotonic() - process.callbacks.last_output_time,
                     0.0,
                 )
                 output_observed = process.output_state.had_stream_output
                 result = self._managed_process_result(process)
-                metadata = cast(
-                    "ProcessResultMetadata", process_result_metadata(result)
-                )
+                metadata = cast("ProcessResultMetadata", process_result_metadata(result))
                 metadata["process_yield_reason"] = poll_yield_reason
-                metadata["output_bytes_since_last_poll"] = (
-                    output_bytes_since_last_poll
-                )
-                metadata["seconds_since_last_output"] = (
-                    seconds_since_last_output
-                )
+                metadata["output_bytes_since_last_poll"] = output_bytes_since_last_poll
+                metadata["seconds_since_last_output"] = seconds_since_last_output
                 metadata["has_observed_output"] = output_observed
                 metadata["poll_wait_sec"] = parsed.wait_sec
                 metadata["poll_wake_on_output"] = parsed.wake_on_output
@@ -1254,10 +1222,7 @@ class ShellRuntime:
                 now - process.callbacks.last_output_time,
                 0.0,
             )
-            if (
-                pending_output
-                and seconds_since_last_output >= _PROCESS_OUTPUT_DEBOUNCE_SECONDS
-            ):
+            if pending_output and seconds_since_last_output >= _PROCESS_OUTPUT_DEBOUNCE_SECONDS:
                 return True
 
             quiet_wait = (
@@ -1265,9 +1230,7 @@ class ShellRuntime:
                 if pending_output
                 else remaining
             )
-            activity_task = asyncio.create_task(
-                process.callbacks.activity_event.wait()
-            )
+            activity_task = asyncio.create_task(process.callbacks.activity_event.wait())
             try:
                 await asyncio.wait(
                     (process.task, activity_task),
@@ -1453,9 +1416,7 @@ class ShellRuntime:
             process_command=command if isinstance(command, str) else None,
             process_id=str(process_metadata.get("process_id") or "process"),
             process_wait_seconds=(
-                wait_sec
-                if name == POLL_PROCESS_TOOL_NAME and type(wait_sec) is int
-                else None
+                wait_sec if name == POLL_PROCESS_TOOL_NAME and type(wait_sec) is int else None
             ),
             process_has_observed_output=(
                 has_observed_output if isinstance(has_observed_output, bool) else None
@@ -1493,9 +1454,7 @@ class ShellRuntime:
         result = await operation
         metadata = process_result_metadata(result)
         status = metadata.get("process_status") if metadata is not None else None
-        yield_reason = (
-            metadata.get("process_yield_reason") if metadata is not None else None
-        )
+        yield_reason = metadata.get("process_yield_reason") if metadata is not None else None
         details = f"{process_id}: {status}" if process_id and status else status
         self._progress.emit(
             action=ProgressAction.TOOL_PROGRESS,
@@ -1523,9 +1482,7 @@ class ShellRuntime:
             )
             for process in running:
                 os_pid = process.callbacks.os_process_id
-                pid_details = (
-                    f", os_pid={os_pid}" if os_pid is not None else ""
-                )
+                pid_details = f", os_pid={os_pid}" if os_pid is not None else ""
                 console.console.print(
                     f"  {process.process_id}{pid_details}, "
                     f"lifecycle={process.lifecycle}"
@@ -1668,9 +1625,7 @@ class ShellRuntime:
                     defer_display_to_tool_result=defer_display_to_tool_result,
                 )
                 if parsed.background:
-                    started_task = asyncio.create_task(
-                        process.callbacks.started_event.wait()
-                    )
+                    started_task = asyncio.create_task(process.callbacks.started_event.wait())
                     try:
                         await asyncio.wait(
                             (process.task, started_task),
@@ -1719,9 +1674,7 @@ class ShellRuntime:
                             os_process_id=process.callbacks.os_process_id,
                         )
 
-                metadata = cast(
-                    "ProcessResultMetadata", process_result_metadata(result)
-                )
+                metadata = cast("ProcessResultMetadata", process_result_metadata(result))
                 process_status = metadata["process_status"]
                 if process_status == "running":
                     completion_details = f"running ({process.process_id})"
@@ -1737,8 +1690,7 @@ class ShellRuntime:
                     and process.task.exception() is None
                 ):
                     completion_details = (
-                        f"{process_status} (exit "
-                        f"{process.task.result().result.exit_code})"
+                        f"{process_status} (exit {process.task.result().result.exit_code})"
                     )
                 else:
                     completion_details = process_status

@@ -2160,14 +2160,10 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
     ) -> None:
         system_cache_applied = self._apply_system_cache(arguments, cache_mode)
 
-        planner = AnthropicCachePlanner(
-            max_conversation_blocks=self.MAX_CONVERSATION_CACHE_BLOCKS
-        )
+        planner = AnthropicCachePlanner(max_conversation_blocks=self.MAX_CONVERSATION_CACHE_BLOCKS)
         plan_messages: list[PromptMessageExtended] = []
         converted_history_count = (
-            history_message_count
-            if history_message_count is not None
-            else len(history or [])
+            history_message_count if history_message_count is not None else len(history or [])
         )
         include_current = not params.use_history or converted_history_count == 0
         if params.use_history and history and converted_history_count > 0:
@@ -2640,9 +2636,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                     "kind": "anthropic_cache_diagnosis",
                     "response_id": response.id,
                     "status": (
-                        "pending"
-                        if diagnostics["cache_miss_reason"] is None
-                        else "cache_miss"
+                        "pending" if diagnostics["cache_miss_reason"] is None else "cache_miss"
                     ),
                 }
             )
@@ -2836,9 +2830,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         # Get cache mode configuration
         cache_mode = self._get_cache_mode()
         logger.debug(f"Anthropic cache_mode: {cache_mode}")
-        cache_diagnostics_enabled = (
-            cache_mode != "off" and self._cache_diagnostics_enabled()
-        )
+        cache_diagnostics_enabled = cache_mode != "off" and self._cache_diagnostics_enabled()
 
         model = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
 
@@ -2885,9 +2877,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 if history and any(message.role == "assistant" for message in history)
                 else None
             )
-            base_args["diagnostics"] = {
-                "previous_message_id": previous_message_id
-            }
+            base_args["diagnostics"] = {"previous_message_id": previous_message_id}
         if provider_mcp_payload.servers:
             base_args["mcp_servers"] = provider_mcp_payload.servers
 

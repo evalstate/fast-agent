@@ -200,9 +200,7 @@ class LocalShellExecutor:
                 timeout=timeout,
             )
         options = ShellExecutionOptions(
-            timeout_seconds=(
-                self._timeout_seconds if request.timeout is None else request.timeout
-            )
+            timeout_seconds=(self._timeout_seconds if request.timeout is None else request.timeout)
             if request.terminate_after_idle
             else None,
             warning_interval_seconds=self._warning_interval_seconds,
@@ -256,9 +254,7 @@ class LocalShellExecutor:
 
         if plan.output_spool is not None:
             activity_callbacks = (
-                callbacks
-                if isinstance(callbacks, ShellOutputActivityCallbacks)
-                else None
+                callbacks if isinstance(callbacks, ShellOutputActivityCallbacks) else None
             )
 
             async def on_stdout(text: str) -> None:
@@ -406,25 +402,15 @@ class LocalShellExecutor:
         output_spool = create_local_output_spool() if detach else None
         try:
             output_files = (
-                open_local_output_spool(output_spool)
-                if output_spool is not None
-                else None
+                open_local_output_spool(output_spool) if output_spool is not None else None
             )
         except BaseException:
             if output_spool is not None:
                 delete_local_output_spool(output_spool)
             raise
         process_kwargs: dict[str, Any] = {
-            "stdout": (
-                output_files[0]
-                if output_files is not None
-                else asyncio.subprocess.PIPE
-            ),
-            "stderr": (
-                output_files[1]
-                if output_files is not None
-                else asyncio.subprocess.PIPE
-            ),
+            "stdout": (output_files[0] if output_files is not None else asyncio.subprocess.PIPE),
+            "stderr": (output_files[1] if output_files is not None else asyncio.subprocess.PIPE),
             "cwd": working_dir,
             "env": child_env,
         }

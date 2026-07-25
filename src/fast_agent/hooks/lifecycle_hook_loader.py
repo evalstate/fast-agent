@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
     from fast_agent.hooks.lifecycle_hook_context import AgentLifecycleContext
 
+
 @dataclass(frozen=True)
 class AgentLifecycleHooks:
     on_start: Callable[[AgentLifecycleContext], Awaitable[None]] | None = None

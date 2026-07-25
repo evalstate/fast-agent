@@ -16,9 +16,7 @@ def test_resolve_codex_cli_auth_path_defaults_to_user_home(monkeypatch, tmp_path
     assert codex_oauth._resolve_codex_cli_auth_path() == tmp_path / ".codex" / "auth.json"
 
 
-def test_explicit_auth_json_path_overrides_fast_agent_store(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_explicit_auth_json_path_overrides_fast_agent_store(monkeypatch, tmp_path: Path) -> None:
     auth_path = tmp_path / "local-auth.json"
     auth_path.write_text(
         json.dumps(
@@ -104,9 +102,7 @@ def test_codex_cli_credential_precedes_fast_agent_owned_credential(monkeypatch) 
     assert tokens.access_token == "cli-token"
 
 
-def test_fast_agent_auth_file_is_authoritative_over_codex_cli(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_fast_agent_auth_file_is_authoritative_over_codex_cli(monkeypatch, tmp_path: Path) -> None:
     portable_auth_path = tmp_path / "fast-agent-auth.json"
     cli_auth_path = tmp_path / "codex-auth.json"
     cli_auth_path.write_text(json.dumps({"tokens": {"access_token": "cli-token"}}))
@@ -121,9 +117,7 @@ def test_fast_agent_auth_file_is_authoritative_over_codex_cli(
     assert tokens.access_token == "portable-token"
 
 
-def test_fast_agent_auth_file_does_not_fall_back_to_codex_cli(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_fast_agent_auth_file_does_not_fall_back_to_codex_cli(monkeypatch, tmp_path: Path) -> None:
     portable_auth_path = tmp_path / "fast-agent-auth.json"
     cli_auth_path = tmp_path / "codex-auth.json"
     cli_auth_path.write_text(json.dumps({"tokens": {"access_token": "cli-token"}}))
@@ -133,9 +127,7 @@ def test_fast_agent_auth_file_does_not_fall_back_to_codex_cli(
     assert codex_oauth._load_codex_tokens_with_source() == (None, None)
 
 
-def test_save_codex_tokens_prefers_fast_agent_auth_file(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_save_codex_tokens_prefers_fast_agent_auth_file(monkeypatch, tmp_path: Path) -> None:
     portable_auth_path = tmp_path / "fast-agent-auth.json"
     cli_auth_path = tmp_path / "codex-auth.json"
     cli_auth_path.write_text(json.dumps({"tokens": {"access_token": "cli-token"}}))

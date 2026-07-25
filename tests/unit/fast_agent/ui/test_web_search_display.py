@@ -13,10 +13,15 @@ def test_render_web_search_indicator_hidden_when_unsupported() -> None:
 def test_render_web_search_indicator_dim_when_disabled() -> None:
     indicator = render_web_search_indicator(supported=True, enabled=False)
 
-    assert indicator == f"<style bg='{TOOLBAR_BINARY_DISABLED_COLOR}'>{WEB_SEARCH_TOGGLE.glyph}</style>"
+    assert (
+        indicator
+        == f"<style bg='{TOOLBAR_BINARY_DISABLED_COLOR}'>{WEB_SEARCH_TOGGLE.glyph}</style>"
+    )
 
 
 def test_render_web_search_indicator_green_when_enabled() -> None:
     indicator = render_web_search_indicator(supported=True, enabled=True)
 
-    assert indicator == f"<style bg='{TOOLBAR_BINARY_ENABLED_COLOR}'>{WEB_SEARCH_TOGGLE.glyph}</style>"
+    assert (
+        indicator == f"<style bg='{TOOLBAR_BINARY_ENABLED_COLOR}'>{WEB_SEARCH_TOGGLE.glyph}</style>"
+    )

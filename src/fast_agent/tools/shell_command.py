@@ -43,12 +43,8 @@ def _heredoc_declarations(
         if char == "<" and (index == 0 or line[index - 1] != "<"):
             match = _HEREDOC_PATTERN.match(line, index)
             if match is not None:
-                delimiter = next(
-                    group for group in match.groups() if group is not None
-                )
-                declarations.append(
-                    (delimiter, match.group(0).startswith("<<-"))
-                )
+                delimiter = next(group for group in match.groups() if group is not None)
+                declarations.append((delimiter, match.group(0).startswith("<<-")))
                 index = match.end()
                 continue
         index += 1

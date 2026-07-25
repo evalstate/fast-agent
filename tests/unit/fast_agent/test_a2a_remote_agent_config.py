@@ -605,9 +605,7 @@ def _oauth_agent_card() -> AgentCard:
                 url="https://agent.example.com/a2a/jsonrpc",
             )
         ],
-        security_requirements=[
-            SecurityRequirement(schemes={"oauth": StringList(list=["openid"])})
-        ],
+        security_requirements=[SecurityRequirement(schemes={"oauth": StringList(list=["openid"])})],
         security_schemes={
             "oauth": SecurityScheme(
                 oauth2_security_scheme=OAuth2SecurityScheme(
@@ -653,9 +651,7 @@ def _hf_bearer_agent_card() -> AgentCard:
                 url="https://demo.hf.space/a2a/jsonrpc",
             )
         ],
-        security_requirements=[
-            SecurityRequirement(schemes={"hf_bearer": StringList(list=[])})
-        ],
+        security_requirements=[SecurityRequirement(schemes={"hf_bearer": StringList(list=[])})],
         security_schemes={
             "hf_bearer": SecurityScheme(
                 http_auth_security_scheme=HTTPAuthSecurityScheme(

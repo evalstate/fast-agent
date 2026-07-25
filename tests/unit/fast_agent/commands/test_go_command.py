@@ -719,7 +719,9 @@ def test_go_quiet_skips_update_notice(monkeypatch: pytest.MonkeyPatch) -> None:
     def _unexpected_update_check(*, home: Path | None) -> str | None:
         raise AssertionError(f"quiet mode should not check for updates: {home}")
 
-    monkeypatch.setattr("fast_agent.cli.update_check.check_for_update_notice", _unexpected_update_check)
+    monkeypatch.setattr(
+        "fast_agent.cli.update_check.check_for_update_notice", _unexpected_update_check
+    )
     monkeypatch.setattr(
         "fast_agent.ui.enhanced_prompt.queue_startup_notice",
         lambda *_args: (_ for _ in ()).throw(

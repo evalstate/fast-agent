@@ -156,9 +156,7 @@ async def test_startup_model_selection_skipped_when_resuming(monkeypatch) -> Non
     async def _fail(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise AssertionError("model picker must not run during resume")
 
-    monkeypatch.setattr(
-        "fast_agent.cli.runtime.agent_setup._select_model_from_picker", _fail
-    )
+    monkeypatch.setattr("fast_agent.cli.runtime.agent_setup._select_model_from_picker", _fail)
     request = _make_request(resume="__latest__")
 
     assert await _select_startup_model_if_needed(request) == "session resumption"
@@ -172,9 +170,7 @@ async def test_startup_model_selection_skipped_when_resuming_named_session(
     async def _fail(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise AssertionError("model picker must not run during resume")
 
-    monkeypatch.setattr(
-        "fast_agent.cli.runtime.agent_setup._select_model_from_picker", _fail
-    )
+    monkeypatch.setattr("fast_agent.cli.runtime.agent_setup._select_model_from_picker", _fail)
     request = _make_request(resume="session-123")
 
     assert await _select_startup_model_if_needed(request) == "session resumption"

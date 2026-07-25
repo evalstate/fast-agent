@@ -952,8 +952,7 @@ async def test_models_aliases_set_can_choose_existing_alias_by_number(tmp_path: 
     assert saved["model_references"]["system"]["fast"] == "gpt-4.1-mini"
     assert io.emitted_messages
     assert (
-        _message_text(io.emitted_messages[0]).find(str((home / "fast-agent.yaml").resolve()))
-        != -1
+        _message_text(io.emitted_messages[0]).find(str((home / "fast-agent.yaml").resolve())) != -1
     )
 
     rendered = str(outcome.messages[0].text)

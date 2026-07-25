@@ -16,9 +16,7 @@ from types import SimpleNamespace
 import pytest
 from mcp.types import TextContent
 
-_PLUGIN_SOURCE = (
-    Path(__file__).resolve().parents[4] / "plugins" / "images" / "images.py"
-)
+_PLUGIN_SOURCE = Path(__file__).resolve().parents[4] / "plugins" / "images" / "images.py"
 
 
 @pytest.fixture(scope="module")
@@ -68,9 +66,7 @@ def test_rejects_non_image_text(plugin) -> None:
 
 
 def test_still_accepts_gradio_file_payloads(plugin) -> None:
-    assert plugin._looks_like_image_source(
-        "http://host/gradio_api/file=/tmp/x/y.tiff"
-    )
+    assert plugin._looks_like_image_source("http://host/gradio_api/file=/tmp/x/y.tiff")
 
 
 def test_scan_filters_false_positives_keeps_real_path(plugin) -> None:

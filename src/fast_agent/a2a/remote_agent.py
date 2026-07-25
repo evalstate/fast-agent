@@ -260,9 +260,7 @@ class A2ARemoteAgent(LlmDecorator):
         finished = sum(1 for state in self.task_states.values() if state in _FINISHED_STATES)
         pending = len(self.task_states) - finished
         pending_task_ids = tuple(
-            task_id
-            for task_id, state in self.task_states.items()
-            if state not in _FINISHED_STATES
+            task_id for task_id, state in self.task_states.items() if state not in _FINISHED_STATES
         )
         return A2ATaskStatusSummary(
             context_id=self.context_id,

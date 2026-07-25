@@ -1136,7 +1136,7 @@ def _render_server_status_block(
     _render_server_state(status, indent=indent, template_expected=template_expected)
     _render_server_calls(status, indent=indent)
     _render_channel_summary(status, indent, total_width)
-    _render_mcp_skills_hint(server,status, indent=indent)
+    _render_mcp_skills_hint(server, status, indent=indent)
     _render_capability_banner(
         primary_caps + secondary_caps,
         indent=indent,

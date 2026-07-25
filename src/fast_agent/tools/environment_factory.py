@@ -37,7 +37,9 @@ def build_environment(
     if workspace_root is None:
         workspace_root = resolve_settings_start_path(settings)
 
-    environment = _build_unwrapped_environment(spec, settings=settings, workspace_root=workspace_root)
+    environment = _build_unwrapped_environment(
+        spec, settings=settings, workspace_root=workspace_root
+    )
     validate_environment_type(environment, name=name)
     return environment
 
@@ -76,7 +78,9 @@ def _build_local_environment(
 ) -> ShellEnvironment:
     from fast_agent.tools.local_shell_executor import LocalEnvironment
 
-    working_directory = _resolve_workspace_path(spec.cwd, workspace_root) if spec.cwd else workspace_root
+    working_directory = (
+        _resolve_workspace_path(spec.cwd, workspace_root) if spec.cwd else workspace_root
+    )
     shell_settings = settings.shell_execution if settings is not None else None
     return LocalEnvironment(
         logger=get_logger(__name__),
@@ -122,11 +126,7 @@ def _build_docker_environment(
         )
         for mount in spec.mounts
     ]
-    if (
-        len(mounts) == 1
-        and mounts[0].target == spec.cwd
-        and mounts[0].mode == "rw"
-    ):
+    if len(mounts) == 1 and mounts[0].target == spec.cwd and mounts[0].mode == "rw":
         return DockerMountedEnvironment(
             image=spec.image,
             container_cli=spec.container_cli,
@@ -215,6 +215,8 @@ def _resolve_workspace_path(path: str, workspace_root: Path) -> Path:
     if candidate.is_absolute():
         return candidate.resolve()
     return (workspace_root / candidate).resolve()
+
+
 __all__ = [
     "EnvironmentConfigError",
     "build_environment",

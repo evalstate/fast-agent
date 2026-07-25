@@ -1818,9 +1818,7 @@ async def test_retry_rolls_back_stream_and_records_completed_tool_boundary(
         PromptMessageExtended(
             role="user",
             tool_results={
-                "call_1": CallToolResult(
-                    content=[TextContent(type="text", text="completed")]
-                )
+                "call_1": CallToolResult(content=[TextContent(type="text", text="completed")])
             },
         )
     ]

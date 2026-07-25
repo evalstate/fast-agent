@@ -60,7 +60,9 @@ class _Display:
 
 
 @pytest.mark.asyncio
-async def test_environment_shell_command_uses_active_shell_runtime(capsys: pytest.CaptureFixture[str]) -> None:
+async def test_environment_shell_command_uses_active_shell_runtime(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     runtime = _ShellRuntime()
     display = _Display()
 

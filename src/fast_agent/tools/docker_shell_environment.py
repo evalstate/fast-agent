@@ -210,9 +210,7 @@ class DockerShellEnvironment:
                 "container-side process termination is unavailable."
             )
         options = ShellExecutionOptions(
-            timeout_seconds=(
-                self._timeout_seconds if request.timeout is None else request.timeout
-            )
+            timeout_seconds=(self._timeout_seconds if request.timeout is None else request.timeout)
             if request.terminate_after_idle
             else None,
             warning_interval_seconds=self._warning_interval_seconds,
@@ -223,9 +221,7 @@ class DockerShellEnvironment:
             else None
         )
         managed_pid_file = (
-            f"{managed_output_dir}/process.pid"
-            if managed_output_dir is not None
-            else None
+            f"{managed_output_dir}/process.pid" if managed_output_dir is not None else None
         )
         output_spool = (
             ShellOutputSpoolPaths(
@@ -273,9 +269,7 @@ class DockerShellEnvironment:
         container_process_id: int | None = None
         if managed_pid_file is not None:
             try:
-                container_process_id = await self._discover_managed_process_id(
-                    managed_pid_file
-                )
+                container_process_id = await self._discover_managed_process_id(managed_pid_file)
             except asyncio.CancelledError:
                 if request.terminate_on_cancel:
                     await self._cancel_managed_execution(
@@ -298,9 +292,7 @@ class DockerShellEnvironment:
         output = _DockerOutputCapture.create(retain_output=request.retain_output)
         if output_spool is not None:
             activity_callbacks = (
-                callbacks
-                if isinstance(callbacks, ShellOutputActivityCallbacks)
-                else None
+                callbacks if isinstance(callbacks, ShellOutputActivityCallbacks) else None
             )
 
             async def on_stdout(text: str) -> None:
@@ -599,8 +591,7 @@ class DockerShellEnvironment:
 
         await self._signal_container_process_group(process_id, signal_name="KILL")
         deadline = time.monotonic() + (
-            _MANAGED_PROCESS_TERMINATION_TIMEOUT_SECONDS
-            - _MANAGED_PROCESS_TERM_GRACE_SECONDS
+            _MANAGED_PROCESS_TERMINATION_TIMEOUT_SECONDS - _MANAGED_PROCESS_TERM_GRACE_SECONDS
         )
         while await self._container_process_is_running(process_id):
             if time.monotonic() >= deadline:

@@ -334,7 +334,7 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
                 ),
                 call_id: CallToolResult(
                     content=[TextContent(type="text", text="/workspace")], isError=False
-                )
+                ),
             },
             channels={
                 FAST_AGENT_TOOL_TIMING: [
@@ -400,9 +400,7 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
     trajectory_dir = session_dir / "trajectories"
     trajectory_dir.mkdir()
     child_messages = [
-        PromptMessageExtended(
-            role="user", content=[TextContent(type="text", text="inspect cwd")]
-        ),
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="inspect cwd")]),
         PromptMessageExtended(
             role="assistant", content=[TextContent(type="text", text="child complete")]
         ),
@@ -420,11 +418,11 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
                 "use_history": False,
                 "started_at": "2026-04-20T13:03:01Z",
                 "completed_at": "2026-04-20T13:03:02Z",
-                    "usage_summary": {
-                        "prompt": {"total": 11, "cache_read": 3, "tool_use": 1},
-                        "completion": {"total": 4, "reasoning": 2},
-                        "provider_attempts": 1,
-                        "tool_calls": 0,
+                "usage_summary": {
+                    "prompt": {"total": 11, "cache_read": 3, "tool_use": 1},
+                    "completion": {"total": 4, "reasoning": 2},
+                    "provider_attempts": 1,
+                    "tool_calls": 0,
                 },
                 "messages": [message.model_dump(mode="json") for message in child_messages],
             }
@@ -521,10 +519,10 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
         "model": "gpt-5.4",
         "reasoning_tokens": 3,
         "tool_use_prompt_tokens": 2,
-            "tool_calls": 2,
-            "cache_write_tokens": 0,
-            "raw_usage": [{}, {}],
-        }
+        "tool_calls": 2,
+        "cache_write_tokens": 0,
+        "raw_usage": [{}, {}],
+    }
     assert payload["final_metrics"] == {
         "total_prompt_tokens": 46,
         "total_completion_tokens": 12,
@@ -662,9 +660,7 @@ def test_atif_records_provider_retry_and_clean_boundary() -> None:
     message = PromptMessageExtended(
         role="assistant",
         content=[TextContent(type="text", text="recovered")],
-        channels={
-            FAST_AGENT_RETRY: [TextContent(type="text", text=json.dumps(retry))]
-        },
+        channels={FAST_AGENT_RETRY: [TextContent(type="text", text=json.dumps(retry))]},
     )
 
     trajectory = build_atif_trajectory(
@@ -700,9 +696,7 @@ def test_atif_final_metrics_require_complete_llm_step_usage() -> None:
     }
     known = PromptMessageExtended(
         role="assistant",
-        channels={
-            FAST_AGENT_USAGE: [TextContent(type="text", text=json.dumps(usage))]
-        },
+        channels={FAST_AGENT_USAGE: [TextContent(type="text", text=json.dumps(usage))]},
     )
     unknown = PromptMessageExtended(role="assistant")
 
@@ -752,11 +746,7 @@ def test_atif_fanout_totals_include_all_model_routes() -> None:
             PromptMessageExtended(
                 role="assistant",
                 content=[TextContent(type="text", text=f"done {index}")],
-                channels={
-                    FAST_AGENT_USAGE: [
-                        TextContent(type="text", text=json.dumps(usage))
-                    ]
-                },
+                channels={FAST_AGENT_USAGE: [TextContent(type="text", text=json.dumps(usage))]},
             ),
         ]
         return AtifRunSource(
@@ -871,7 +861,9 @@ def test_session_trace_exporter_includes_git_metadata(tmp_path: Path) -> None:
         )
     )
 
-    first_record = json.loads((tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    first_record = json.loads(
+        (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    )
     git = first_record["payload"]["git"]
     assert git["started"]["commit"] == "a" * 40
     assert git["started"]["github_repository"] == "fast-agent-ai/fast-agent"

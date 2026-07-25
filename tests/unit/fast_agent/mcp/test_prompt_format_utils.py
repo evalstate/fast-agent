@@ -121,9 +121,7 @@ class TestPromptFormatUtils:
         unconditionally, so a leading ---ASSISTANT never set a role and everything
         up to the next delimiter was dropped.
         """
-        messages = delimited_format_to_extended_messages(
-            "---ASSISTANT\nhello\n---USER\nhi back"
-        )
+        messages = delimited_format_to_extended_messages("---ASSISTANT\nhello\n---USER\nhi back")
 
         assert [m.role for m in messages] == ["assistant", "user"]
         assert _text(messages[0].content[0]).text == "hello"
@@ -135,9 +133,7 @@ class TestPromptFormatUtils:
             PromptMessageExtended(
                 role="assistant", content=[TextContent(type="text", text="hello")]
             ),
-            PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="hi back")]
-            ),
+            PromptMessageExtended(role="user", content=[TextContent(type="text", text="hi back")]),
         ]
 
         reloaded = delimited_format_to_extended_messages(

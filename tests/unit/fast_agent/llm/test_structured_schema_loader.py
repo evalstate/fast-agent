@@ -44,4 +44,3 @@ def test_resolve_local_ref_handles_escaped_keys_and_missing_paths() -> None:
     assert resolve_local_ref(root, "#/$defs/path~1with~0tilde") == {"type": "string"}
     assert resolve_local_ref(root, "#/$defs/nullable") is None
     assert resolve_local_ref(root, "#/$defs/missing") is None
-

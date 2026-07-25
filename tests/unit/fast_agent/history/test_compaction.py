@@ -546,7 +546,9 @@ class TestCompactConversation:
         agent = _FakeAgent(_turn("one", "1") + _turn("two", "2"))
 
         def fail_session_persistence_enabled(_agent: object) -> bool:
-            raise AssertionError("session persistence should not be checked in explicit no_home mode")
+            raise AssertionError(
+                "session persistence should not be checked in explicit no_home mode"
+            )
 
         monkeypatch.setattr(
             "fast_agent.history.compaction._session_persistence_enabled",

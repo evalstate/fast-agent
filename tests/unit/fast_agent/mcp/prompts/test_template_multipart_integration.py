@@ -40,16 +40,10 @@ I'd be happy to help you learn about {{topic}}!
 
         assert len(sections) == 2
         assert sections[0].role == "user"
-        assert (
-            "Hello, I'm trying to learn about Python programming."
-            in sections[0].text
-        )
+        assert "Hello, I'm trying to learn about Python programming." in sections[0].text
 
         assert sections[1].role == "assistant"
-        assert (
-            "I'd be happy to help you learn about Python programming!"
-            in sections[1].text
-        )
+        assert "I'd be happy to help you learn about Python programming!" in sections[1].text
 
     @pytest.fixture
     def temp_delimited_file(self):

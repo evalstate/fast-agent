@@ -94,26 +94,30 @@ class BatchUsageTotals:
             self.rows_with_cache_activity += 1
 
     def usage_block(self, *, processed_rows: int) -> dict[str, Any]:
-        return _without_none({
-            "prompt_tokens": self.prompt_tokens,
-            "completion_tokens": self.completion_tokens,
-            "total_tokens": self.total_tokens,
-            "reasoning_tokens": self.reasoning_tokens,
-            "tool_use_prompt_tokens": self.tool_use_prompt_tokens,
-            "tool_calls": self.tool_calls,
-            "rows_with_usage": self.rows_with_usage,
-            "usage_coverage_percent": _percent(self.rows_with_usage, processed_rows),
-        })
+        return _without_none(
+            {
+                "prompt_tokens": self.prompt_tokens,
+                "completion_tokens": self.completion_tokens,
+                "total_tokens": self.total_tokens,
+                "reasoning_tokens": self.reasoning_tokens,
+                "tool_use_prompt_tokens": self.tool_use_prompt_tokens,
+                "tool_calls": self.tool_calls,
+                "rows_with_usage": self.rows_with_usage,
+                "usage_coverage_percent": _percent(self.rows_with_usage, processed_rows),
+            }
+        )
 
     def cache_block(self) -> dict[str, Any]:
-        return _without_none({
-            "read_tokens": self.cache_read_tokens,
-            "write_tokens": self.cache_write_tokens,
-            "rows_with_cache_activity": self.rows_with_cache_activity,
-            "row_cache_activity_percent": _percent(
-                self.rows_with_cache_activity, self.rows_with_usage
-            ),
-        })
+        return _without_none(
+            {
+                "read_tokens": self.cache_read_tokens,
+                "write_tokens": self.cache_write_tokens,
+                "rows_with_cache_activity": self.rows_with_cache_activity,
+                "row_cache_activity_percent": _percent(
+                    self.rows_with_cache_activity, self.rows_with_usage
+                ),
+            }
+        )
 
 
 class BatchMonitor(Protocol):

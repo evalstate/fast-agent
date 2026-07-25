@@ -790,9 +790,7 @@ class McpAgent(ABC, ToolAgent):
             timeout_seconds=timeout_seconds,
             warning_interval_seconds=warning_interval_seconds,
             output_byte_limit=output_byte_limit,
-            process_poll_default_wait_seconds=(
-                self._model_process_poll_default_wait_seconds()
-            ),
+            process_poll_default_wait_seconds=(self._model_process_poll_default_wait_seconds()),
         )
 
     def _model_process_poll_default_wait_seconds(
@@ -1092,9 +1090,7 @@ class McpAgent(ABC, ToolAgent):
             warning_interval_seconds=shell_settings.warning_interval_seconds,
             working_directory=working_directory,
             output_byte_limit=shell_settings.output_byte_limit,
-            process_poll_default_wait_seconds=(
-                shell_settings.process_poll_default_wait_seconds
-            ),
+            process_poll_default_wait_seconds=(shell_settings.process_poll_default_wait_seconds),
             config=self._context.config if self._context else None,
             agent_name=self._name,
             shell_environment=self._shell_environment,
@@ -2097,10 +2093,7 @@ class McpAgent(ABC, ToolAgent):
         is_external_runtime_tool: bool,
         is_filesystem_runtime_tool: bool,
     ) -> bool:
-        is_shell_tool = bool(
-            self._shell_runtime
-            and self._shell_runtime.owns_tool(tool_name)
-        )
+        is_shell_tool = bool(self._shell_runtime and self._shell_runtime.owns_tool(tool_name))
         is_skill_reader_tool = bool(
             self._skill_reader and self._skill_reader.enabled and tool_name == READ_SKILL_TOOL_NAME
         )

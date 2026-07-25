@@ -232,9 +232,7 @@ class HuggingFaceSandboxEnvironment:
 
     async def open(self) -> None:
         if self._sandbox is None:
-            self._emit_startup_stage(
-                f"creating sandbox image={self._image} flavor={self._flavor}"
-            )
+            self._emit_startup_stage(f"creating sandbox image={self._image} flavor={self._flavor}")
             self._sandbox = await asyncio.to_thread(self._create_sandbox)
             self._owns_sandbox = True
         else:
@@ -404,9 +402,7 @@ class HuggingFaceSandboxEnvironment:
                 stderr=result.stderr if request.retain_output else "",
                 exit_code=result.exit_code if result.exit_code is not None else 1,
             ),
-            options=ShellExecutionOptions(
-                timeout_seconds=request.timeout
-            ),
+            options=ShellExecutionOptions(timeout_seconds=request.timeout),
             timed_out=bool(result.timed_out),
         )
 
@@ -460,13 +456,9 @@ class HuggingFaceSandboxEnvironment:
         retained_stdout: list[str] = []
         retained_stderr: list[str] = []
         activity_callbacks = (
-            callbacks
-            if isinstance(callbacks, ShellOutputActivityCallbacks)
-            else None
+            callbacks if isinstance(callbacks, ShellOutputActivityCallbacks) else None
         )
-        discovery_deadline = (
-            time.monotonic() + _MANAGED_PROCESS_DISCOVERY_TIMEOUT_SECONDS
-        )
+        discovery_deadline = time.monotonic() + _MANAGED_PROCESS_DISCOVERY_TIMEOUT_SECONDS
 
         async def on_stdout(text: str) -> None:
             if request.retain_output:
@@ -591,9 +583,7 @@ class HuggingFaceSandboxEnvironment:
                 ),
             )
             if result.exit_code not in {0, None}:
-                raise RuntimeError(
-                    f"Could not read managed Hugging Face output file {path}"
-                )
+                raise RuntimeError(f"Could not read managed Hugging Face output file {path}")
             return base64.b64decode(result.stdout)
 
         return await asyncio.to_thread(read_chunk)
@@ -629,8 +619,7 @@ class HuggingFaceSandboxEnvironment:
             signal_name="KILL",
         )
         deadline = time.monotonic() + (
-            _MANAGED_PROCESS_TERMINATION_TIMEOUT_SECONDS
-            - _MANAGED_PROCESS_TERM_GRACE_SECONDS
+            _MANAGED_PROCESS_TERMINATION_TIMEOUT_SECONDS - _MANAGED_PROCESS_TERM_GRACE_SECONDS
         )
         while True:
             current = await asyncio.shield(

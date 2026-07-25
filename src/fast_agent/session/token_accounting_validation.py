@@ -203,9 +203,7 @@ def validate_session(session_dir: Path) -> tuple[SessionReport, list[UsageSignat
                         attempt.completion.reasoning,
                     )
                     if canonical_signature != raw_signature:
-                        _fail(
-                            f"{history_path}: canonical usage disagrees with raw provider usage"
-                        )
+                        _fail(f"{history_path}: canonical usage disagrees with raw provider usage")
                 consumed = report.consumed
                 raw_signatures.append(
                     (

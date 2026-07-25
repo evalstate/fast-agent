@@ -71,12 +71,8 @@ async def test_process_poll_folding_context_failure_does_not_abort_tool_loop() -
 def test_llm_resolves_managed_process_poll_folding_from_model_metadata() -> None:
     llm = FakeLLM()
 
-    assert llm.resolve_managed_process_poll_folding(
-        RequestParams(model="grok-4.5")
-    )
-    assert not llm.resolve_managed_process_poll_folding(
-        RequestParams(model="unknown-model")
-    )
+    assert llm.resolve_managed_process_poll_folding(RequestParams(model="grok-4.5"))
+    assert not llm.resolve_managed_process_poll_folding(RequestParams(model="unknown-model"))
 
 
 @pytest.mark.asyncio

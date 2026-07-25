@@ -542,9 +542,7 @@ async def test_show_assistant_message_places_websocket_indicator_before_context_
     llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
     llm._record_ws_turn_outcome("reused")
     llm.usage_accumulator.set_context_window_size(1000)
-    llm.usage_accumulator.add_turn(
-        _usage_turn(90, 10)
-    )
+    llm.usage_accumulator.add_turn(_usage_turn(90, 10))
     agent._llm = llm
 
     tool_call = CallToolRequest(
@@ -574,9 +572,7 @@ async def test_show_assistant_message_uses_compact_context_format_for_low_usage(
     llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
     llm._record_ws_turn_outcome("reused")
     llm.usage_accumulator.set_context_window_size(1000)
-    llm.usage_accumulator.add_turn(
-        _usage_turn(9, 1)
-    )
+    llm.usage_accumulator.add_turn(_usage_turn(9, 1))
     agent._llm = llm
 
     tool_call = CallToolRequest(

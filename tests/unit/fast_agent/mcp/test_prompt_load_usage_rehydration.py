@@ -221,9 +221,7 @@ def test_rehydrated_retry_usage_keeps_final_request_context() -> None:
         },
         *attempts,
     ]
-    assistant.channels = {
-        FAST_AGENT_USAGE: [TextContent(type="text", text=json.dumps(payload))]
-    }
+    assistant.channels = {FAST_AGENT_USAGE: [TextContent(type="text", text=json.dumps(payload))]}
 
     agent = LlmAgent(AgentConfig("rehydrate-retry"))
     llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")

@@ -9,9 +9,7 @@ from fast_agent.auth.credentials import (
 )
 
 
-def test_auth_file_can_be_read_without_creating_a_sibling_lock(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_auth_file_can_be_read_without_creating_a_sibling_lock(monkeypatch, tmp_path: Path) -> None:
     auth_path = tmp_path / "mounted-secret" / "auth.json"
     monkeypatch.setenv("FAST_AGENT_AUTH_FILE", str(auth_path))
     save_oauth_credential("codex", OAuthCredential(access_token="mounted-secret-token"))

@@ -151,21 +151,30 @@ def test_process_poll_countdown_track_is_always_three_cells_wide() -> None:
 
 def test_process_poll_countdown_blinks_toward_next_state() -> None:
     assert format_process_poll_countdown_track(wait_seconds=240, elapsed_seconds=0) == "⣿⣿⣿"
-    assert format_process_poll_countdown_track(
-        wait_seconds=240,
-        elapsed_seconds=1,
-        blink_next=True,
-    ) == "⣿⣿⡿"
-    assert format_process_poll_countdown_track(
-        wait_seconds=240,
-        elapsed_seconds=2,
-        blink_next=False,
-    ) == "⣿⣿⣿"
-    assert format_process_poll_countdown_track(
-        wait_seconds=240,
-        elapsed_seconds=10,
-        blink_next=False,
-    ) == "⣿⣿⡿"
+    assert (
+        format_process_poll_countdown_track(
+            wait_seconds=240,
+            elapsed_seconds=1,
+            blink_next=True,
+        )
+        == "⣿⣿⡿"
+    )
+    assert (
+        format_process_poll_countdown_track(
+            wait_seconds=240,
+            elapsed_seconds=2,
+            blink_next=False,
+        )
+        == "⣿⣿⣿"
+    )
+    assert (
+        format_process_poll_countdown_track(
+            wait_seconds=240,
+            elapsed_seconds=10,
+            blink_next=False,
+        )
+        == "⣿⣿⡿"
+    )
 
 
 def test_process_poll_countdown_scales_track_to_wait_budget() -> None:
@@ -201,10 +210,13 @@ def test_step_timing_uses_adaptive_dots_with_10s_cap_and_rotation() -> None:
     assert _remaining_slots_for_wait(wait_seconds=27, elapsed_seconds=0) == 8
     assert _remaining_slots_for_wait(wait_seconds=27, elapsed_seconds=26) == 1
     assert _remaining_slots_for_wait(wait_seconds=27, elapsed_seconds=27) == 0
-    assert format_process_poll_countdown_track(
-        wait_seconds=27,
-        elapsed_seconds=26,
-    ) == f"{_cell_glyph(1)}  "
+    assert (
+        format_process_poll_countdown_track(
+            wait_seconds=27,
+            elapsed_seconds=26,
+        )
+        == f"{_cell_glyph(1)}  "
+    )
     assert format_process_poll_countdown_track(wait_seconds=27, elapsed_seconds=27) == "   "
 
     assert _remaining_units_for_wait(wait_seconds=600, elapsed_seconds=0) == 24

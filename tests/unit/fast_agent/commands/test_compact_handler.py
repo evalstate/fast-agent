@@ -23,7 +23,9 @@ class _IO(NonInteractiveCommandIOBase):
 
 @pytest.mark.asyncio
 async def test_compact_prompt_emits_prompt_and_guidance_as_markdown() -> None:
-    settings = Settings(compaction=CompactionSettings(prompt="## Custom compact prompt\n\nSummarize."))
+    settings = Settings(
+        compaction=CompactionSettings(prompt="## Custom compact prompt\n\nSummarize.")
+    )
     ctx = CommandContext(
         agent_provider=StaticAgentProvider(),
         current_agent_name="main",

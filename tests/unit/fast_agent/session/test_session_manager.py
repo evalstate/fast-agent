@@ -139,10 +139,7 @@ def test_get_session_manager_returns_registered_manager_for_matching_context(tmp
     manager = _registered_manager(tmp_path)
 
     try:
-        assert (
-            get_session_manager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")
-            is manager
-        )
+        assert get_session_manager(cwd=tmp_path, home_override=tmp_path / ".fast-agent") is manager
     finally:
         reset_session_manager()
 
@@ -153,10 +150,7 @@ def test_get_session_manager_rejects_workspace_switch_for_registered_store(tmp_p
     other_cwd.mkdir()
 
     try:
-        assert (
-            get_session_manager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")
-            is manager
-        )
+        assert get_session_manager(cwd=tmp_path, home_override=tmp_path / ".fast-agent") is manager
         with pytest.raises(RuntimeError, match="workspace does not match"):
             get_session_manager(cwd=other_cwd, home_override=tmp_path / ".fast-agent")
         assert manager.workspace_dir == tmp_path.resolve()
@@ -544,9 +538,7 @@ def test_empty_sessions_are_hidden_and_pruned_but_titled_sessions_remain(tmp_pat
     titled._save_metadata()
     manager.set_current_session(titled)
 
-    assert [info.name for info in manager.list_sessions(include_empty=False)] == [
-        titled.info.name
-    ]
+    assert [info.name for info in manager.list_sessions(include_empty=False)] == [titled.info.name]
     assert manager.prune_empty_sessions() == 1
     assert not abandoned.directory.exists()
     assert titled.directory.exists()

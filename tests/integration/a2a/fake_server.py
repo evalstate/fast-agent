@@ -107,8 +107,7 @@ class FakeAgentExecutor(AgentExecutor):
             return
 
         taskless_query = not any(
-            marker in query.lower()
-            for marker in ["long stream", "stream", "files", "need input"]
+            marker in query.lower() for marker in ["long stream", "stream", "files", "need input"]
         )
         if context.task_id not in self.pending_input_tasks and taskless_query:
             kinds = ",".join(
@@ -148,8 +147,7 @@ class FakeAgentExecutor(AgentExecutor):
                         parts=[
                             Part(
                                 text=(
-                                    f"{FAKE_A2A_HELP}\n\n"
-                                    "Current task is still waiting for input."
+                                    f"{FAKE_A2A_HELP}\n\nCurrent task is still waiting for input."
                                 )
                             )
                         ]
@@ -218,7 +216,6 @@ class FakeAgentExecutor(AgentExecutor):
             return
 
 
-
 def build_app(host: str, port: int) -> FastAPI:
     base_url = f"http://{host}:{port}"
     card = AgentCard(
@@ -260,7 +257,9 @@ def build_app(host: str, port: int) -> FastAPI:
     )
     app = FastAPI()
     app.routes.extend(create_agent_card_routes(agent_card=card))
-    app.routes.extend(create_jsonrpc_routes(request_handler=request_handler, rpc_url="/a2a/jsonrpc"))
+    app.routes.extend(
+        create_jsonrpc_routes(request_handler=request_handler, rpc_url="/a2a/jsonrpc")
+    )
     app.routes.extend(create_rest_routes(request_handler=request_handler, path_prefix="/a2a/rest"))
     return app
 

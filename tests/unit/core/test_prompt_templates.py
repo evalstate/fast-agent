@@ -77,7 +77,7 @@ def test_enrich_with_environment_context_formats_model_references():
                 "fast": "codexspark",
             },
             "research": {"preferred": "GLM5.2"},
-        }
+        },
     )
 
     try:
@@ -87,9 +87,7 @@ def test_enrich_with_environment_context_formats_model_references():
         update_global_settings(previous_settings)
 
     assert context["modelReferences"] == (
-        "$research.preferred=GLM5.2\n"
-        "$system.default=codexspark\n"
-        "$system.fast=codexspark"
+        "$research.preferred=GLM5.2\n$system.default=codexspark\n$system.fast=codexspark"
     )
 
 
