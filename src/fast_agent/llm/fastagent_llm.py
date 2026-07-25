@@ -755,8 +755,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         ):
             return True
 
-        if isinstance(error, OpenAIAPIError):
-            code = casefold_text(error.code or "")
+        if isinstance(error, OpenAIAPIError) and isinstance(error.code, str):
+            code = casefold_text(error.code)
             if code in _NON_RETRYABLE_CONTEXT_ERROR_CODES:
                 return True
 
