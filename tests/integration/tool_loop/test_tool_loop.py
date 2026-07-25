@@ -63,7 +63,7 @@ async def test_tool_loop_construction():
     tool_llm = ToolGeneratingLlm()
     tool_agent = ToolAgent(AgentConfig("tool_calling"), [tool_function])
     tool_agent._llm = tool_llm
-    result = await tool_agent.generate("test")
+    result = await tool_agent.generate("test", RequestParams(max_iterations=0))
     assert "Another turn" == result.last_text()
 
 
