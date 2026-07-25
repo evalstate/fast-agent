@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import json
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -20,7 +19,11 @@ from fast_agent.llm.provider.openai.responses_events import (
     is_responses_terminal_event,
     is_responses_text_delta_event,
 )
-from fast_agent.llm.provider.openai.streaming_utils import fetch_and_finalize_stream_response
+from fast_agent.llm.provider.openai.streaming_utils import (
+    CompletedOutputItem,
+    fetch_and_finalize_stream_response,
+    record_completed_output_item,
+)
 from fast_agent.llm.provider.openai.tool_event_helpers import (
     ResponsesLifecycleEventInfo,
     ToolStreamLifecycleEvent,
@@ -66,28 +69,6 @@ _TOOL_KIND_BY_ACTIVITY_FAMILY: dict[ToolActivityFamily, _ResponsesToolKind] = {
     "remote_tool_listing": "server_tool",
     "remote_tool_search": "server_tool",
 }
-
-
-def _reconstruct_empty_response_output(
-    final_response: Any,
-    completed_output_items: list[tuple[int | None, int, Any]],
-) -> tuple[Any, bool]:
-    if getattr(final_response, "output", None) or not completed_output_items:
-        return final_response, False
-
-    reconstructed = copy.copy(final_response)
-    reconstructed.output = [
-        item
-        for _output_index, _sequence_number, item in sorted(
-            completed_output_items,
-            key=lambda entry: (
-                entry[0] is None,
-                -1 if entry[0] is None else entry[0],
-                entry[1],
-            ),
-        )
-    ]
-    return reconstructed, True
 
 
 def _preview_json_like(value: Any) -> str | None:
@@ -654,28 +635,18 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         notified_tool_indices: set[int] = set()
         notified_tool_use_ids: set[str] = set()
         final_response: Any | None = None
-        completed_output_items: list[tuple[int | None, int, Any]] = []
+        completed_output_items: list[CompletedOutputItem] = []
         stream_event_index = 0
 
         async for event in stream:
             _save_stream_chunk(capture_filename, event)
             event_type = getattr(event, "type", None)
             if event_type == "response.output_item.done":
-                item = getattr(event, "item", None)
-                if item is not None:
-                    output_index = getattr(event, "output_index", None)
-                    sequence_number = getattr(event, "sequence_number", None)
-                    completed_output_items.append(
-                        (
-                            output_index if isinstance(output_index, int) else None,
-                            (
-                                sequence_number
-                                if isinstance(sequence_number, int)
-                                else stream_event_index
-                            ),
-                            item,
-                        )
-                    )
+                record_completed_output_item(
+                    completed_output_items,
+                    event,
+                    fallback_sequence=stream_event_index,
+                )
             stream_event_index += 1
 
             handled, reasoning_chars = await self._handle_responses_reasoning_delta(
@@ -727,28 +698,6 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 notified_tool_use_ids=notified_tool_use_ids,
             )
 
-        reconstructed_output = False
-        if final_response is not None:
-            final_response, reconstructed_output = _reconstruct_empty_response_output(
-                final_response,
-                completed_output_items,
-            )
-        if reconstructed_output:
-            self.logger.warning(
-                "Reconstructed empty terminal Responses output from completed stream items",
-                data={
-                    "model": model,
-                    "terminal_status": getattr(final_response, "status", None),
-                    "completed_output_item_count": len(completed_output_items),
-                    "completed_output_item_types": sorted(
-                        {
-                            str(getattr(item, "type", "unknown"))
-                            for _output_index, _sequence_number, item in completed_output_items
-                        }
-                    ),
-                },
-            )
-
         final_response = await fetch_and_finalize_stream_response(
             stream=stream,
             final_response=final_response,
@@ -761,17 +710,14 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             logger=self.logger,
             notified_tool_indices=notified_tool_indices,
             emit_tool_fallback=emit_tool_fallback,
+            completed_output_items=completed_output_items,
         )
         self._emit_deferred_mcp_result_notifications(
             final_response=final_response,
             tool_state=tool_state,
             model=model,
         )
-        reasoning_parts = [
-            part.text()
-            for part in reasoning_summary_parts.values()
-            if part.text()
-        ]
+        reasoning_parts = [part.text() for part in reasoning_summary_parts.values() if part.text()]
         if reasoning_parts:
             summary_text = join_reasoning_summary_parts(reasoning_parts)
             return final_response, [summary_text] if summary_text else []

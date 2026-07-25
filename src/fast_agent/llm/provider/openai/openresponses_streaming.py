@@ -15,7 +15,11 @@ from fast_agent.llm.provider.openai.responses_events import (
     is_responses_terminal_event,
     is_responses_text_delta_event,
 )
-from fast_agent.llm.provider.openai.streaming_utils import fetch_and_finalize_stream_response
+from fast_agent.llm.provider.openai.streaming_utils import (
+    CompletedOutputItem,
+    fetch_and_finalize_stream_response,
+    record_completed_output_item,
+)
 from fast_agent.llm.provider.openai.tool_event_helpers import (
     ToolStreamLifecycleEvent,
     fallback_tool_spec,
@@ -68,6 +72,8 @@ class _OpenResponsesStreamState:
     notified_tool_use_ids: set[str] = field(default_factory=set)
     final_response: Any | None = None
     anonymous_tool_counter: int = 0
+    completed_output_items: list[CompletedOutputItem] = field(default_factory=list)
+    stream_event_index: int = 0
 
 
 class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
@@ -509,6 +515,14 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
     ) -> None:
         event_type = getattr(event, "type", None)
         delta = getattr(event, "delta", None)
+        if event_type == "response.output_item.done":
+            record_completed_output_item(
+                state.completed_output_items,
+                event,
+                fallback_sequence=state.stream_event_index,
+            )
+        state.stream_event_index += 1
+
         handled = await self._handle_openresponses_content_part_added(event, model, state)
         if not handled:
             handled = await self._handle_openresponses_reasoning_event(
@@ -573,6 +587,7 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
             logger=self.logger,
             notified_tool_indices=state.notified_tool_indices,
             emit_tool_fallback=emit_tool_fallback,
+            completed_output_items=state.completed_output_items,
         )
         return final_response, state.reasoning_segments.parts()
 

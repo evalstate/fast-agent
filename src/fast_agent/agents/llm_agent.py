@@ -97,6 +97,11 @@ STOP_REASON_ADDITIONAL_MESSAGES: tuple[tuple[LlmStopReason, str, str], ...] = (
         "\n\nGeneration cancelled by user.",
         "dim yellow italic",
     ),
+    (
+        LlmStopReason.MAX_ITERATIONS,
+        "\n\nMaximum tool loop iterations reached - generation stopped.",
+        "dim red italic",
+    ),
 )
 
 
