@@ -161,13 +161,6 @@ class _StubAgent:
         self.agent_type = agent_type
 
 
-def test_format_toolbar_agent_identity_includes_smart_badge() -> None:
-    identity = _format_toolbar_agent_identity("agent", "ansiblue", _StubAgent(AgentType.SMART))
-
-    assert "[S]" in identity
-    assert "agent[S]" in identity
-
-
 def test_format_toolbar_agent_identity_escapes_prompt_toolkit_html() -> None:
     identity = _format_toolbar_agent_identity("research<draft&1>", "bad'color", None)
 

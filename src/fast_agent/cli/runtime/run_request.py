@@ -69,7 +69,6 @@ class AgentRunRequest:
     skills_directory: Path | None
     home: Path | None
     no_home: bool
-    force_smart: bool
     shell_runtime: bool
     no_shell: bool
     mode: Mode
@@ -96,6 +95,8 @@ class AgentRunRequest:
     workspace: Path | None = None
     trajectory_output: Path | None = None
     trajectory_format: Literal["atif"] = "atif"
+    subagents: bool | None = None
+    subagent_model: str | None = None
 
     def __post_init__(self) -> None:
         self._validate_environment_options()
@@ -110,6 +111,10 @@ class AgentRunRequest:
             raise ValueError("--no-home cannot be combined with --resume")
         if self.shell_runtime and self.no_shell:
             raise ValueError("--shell cannot be combined with --no-shell")
+        if self.subagents is False and self.subagent_model is not None:
+            raise ValueError("--subagent-model cannot be combined with --no-subagents")
+        if self.subagent_model is not None:
+            self.subagents = True
 
     def _validate_timeout(self) -> None:
         if self.timeout_seconds is not None and self.timeout_seconds < 1:
@@ -191,9 +196,10 @@ class AgentRunRequest:
             "home": self.home,
             "workspace": self.workspace,
             "no_home": self.no_home,
-            "force_smart": self.force_smart,
             "shell_runtime": self.shell_runtime,
             "no_shell": self.no_shell,
+            "subagents": self.subagents,
+            "subagent_model": self.subagent_model,
             "prefer_local_shell": self.prefer_local_shell,
             "mode": self.mode,
             "transport": self.transport,

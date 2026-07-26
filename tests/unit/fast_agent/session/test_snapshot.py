@@ -21,8 +21,10 @@ from fast_agent.session import (
     SessionAnalysisSnapshot,
     SessionAttachmentRef,
     SessionCardProvenanceRef,
+    SessionChildLinkSnapshot,
     SessionContinuationSnapshot,
     SessionDiagnosticSnapshot,
+    SessionExecutionSnapshot,
     SessionGitSnapshot,
     SessionGitStateSnapshot,
     SessionLineageSnapshot,
@@ -202,7 +204,7 @@ def test_legacy_session_synthesizes_into_typed_snapshot() -> None:
     assert agent_snapshot.model_overlay_refs == []
 
 
-def test_session_snapshot_v3_round_trips_unchanged() -> None:
+def test_session_snapshot_v4_round_trips_unchanged() -> None:
     snapshot = SessionSnapshot(
         session_id="2604141705-AbCd12",
         created_at=datetime(2026, 4, 14, 17, 5, 0),
@@ -269,6 +271,17 @@ def test_session_snapshot_v3_round_trips_unchanged() -> None:
                 SessionDiagnosticSnapshot(message="transport ok", details={"kind": "info"})
             ],
         ),
+        execution=SessionExecutionSnapshot(
+            resumable=False,
+            child_link=SessionChildLinkSnapshot(
+                parent_session_id="2604141600-ZzYyXx",
+                parent_agent_name="parent",
+                parent_tool_call_id="tool-123",
+            ),
+            status="completed",
+            started_at=datetime(2026, 4, 14, 17, 5, 0),
+            completed_at=datetime(2026, 4, 14, 17, 9, 0),
+        ),
     )
 
     payload = snapshot.model_dump(mode="json")
@@ -277,7 +290,7 @@ def test_session_snapshot_v3_round_trips_unchanged() -> None:
     assert reloaded == snapshot
 
 
-def test_load_session_rewrites_legacy_file_as_v3_snapshot(tmp_path) -> None:
+def test_load_session_rewrites_legacy_file_as_v4_snapshot(tmp_path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
         home_override=tmp_path / ".fast-agent",
@@ -304,7 +317,7 @@ def test_load_session_rewrites_legacy_file_as_v3_snapshot(tmp_path) -> None:
 
     assert session is not None
     rewritten = json.loads(metadata_path.read_text(encoding="utf-8"))
-    assert rewritten["schema_version"] == 3
+    assert rewritten["schema_version"] == 4
     assert rewritten["session_id"] == session_id
     assert rewritten["created_at"] == payload["created_at"]
     assert rewritten["last_activity"] != payload["last_activity"]
@@ -359,6 +372,23 @@ def test_v2_snapshot_imports_usage_summary() -> None:
         completion_tokens=25,
         total_tokens=125,
     )
+
+
+def test_v3_snapshot_migrates_execution_metadata() -> None:
+    payload = {
+        "schema_version": 3,
+        "session_id": "2604141705-AbCd12",
+        "created_at": "2026-04-14T17:05:00",
+        "last_activity": "2026-04-14T17:09:00",
+        "metadata": {},
+        "continuation": {},
+        "analysis": {},
+    }
+
+    snapshot = load_session_snapshot(payload)
+
+    assert snapshot.schema_version == 4
+    assert snapshot.execution == SessionExecutionSnapshot()
 
 
 def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_path: Path) -> None:
@@ -523,7 +553,7 @@ def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_pa
     )
 
 
-def test_capture_session_snapshot_preserves_existing_v3_fallback_values(tmp_path: Path) -> None:
+def test_capture_session_snapshot_preserves_existing_execution_metadata(tmp_path: Path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
         home_override=tmp_path / ".fast-agent",
@@ -548,6 +578,17 @@ def test_capture_session_snapshot_preserves_existing_v3_fallback_values(tmp_path
                     resolved_prompt="persisted bar prompt",
                 ),
             },
+        ),
+        execution=SessionExecutionSnapshot(
+            resumable=False,
+            child_link=SessionChildLinkSnapshot(
+                parent_session_id="2604141600-ZzYyXx",
+                parent_agent_name="parent",
+                parent_tool_call_id="tool-123",
+            ),
+            status="failed",
+            started_at=datetime(2026, 4, 14, 17, 5, 0),
+            completed_at=datetime(2026, 4, 14, 17, 9, 0),
         ),
     )
     (session.directory / "session.json").write_text(
@@ -588,6 +629,7 @@ def test_capture_session_snapshot_preserves_existing_v3_fallback_values(tmp_path
     assert foo_snapshot.provider == "persisted-provider"
     assert bar_snapshot.history_file == "history_bar.json"
     assert bar_snapshot.resolved_prompt == "persisted bar prompt"
+    assert snapshot.execution == persisted.execution
 
 
 def test_capture_session_snapshot_tracks_started_and_current_git_commits(
@@ -869,7 +911,7 @@ async def test_save_history_writes_captured_snapshot_payload(tmp_path: Path) -> 
     await session.save_history(cast("AgentProtocol", agent))
 
     payload = json.loads((session.directory / "session.json").read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 3
+    assert payload["schema_version"] == 4
     assert payload["continuation"]["active_agent"] == "main"
     assert payload["metadata"]["first_user_preview"] == "hello save path"
 

@@ -31,7 +31,6 @@ def _request(
         skills_directory=None,
         home=None,
         no_home=False,
-        force_smart=False,
         shell_runtime=False,
         no_shell=False,
         mode="interactive",

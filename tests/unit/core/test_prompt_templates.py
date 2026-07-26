@@ -23,7 +23,7 @@ def test_enrich_with_environment_context_populates_env_block():
     assert "Host platform:" in env_text
     assert context["modelReferences"].startswith("$system.default=")
     assert "agentInternalResources" in context
-    assert "internal://fast-agent/smart-agent-cards" in context["agentInternalResources"]
+    assert "internal://fast-agent/agent-cards" in context["agentInternalResources"]
     assert "internal://fast-agent/model-overlays" in context["agentInternalResources"]
 
 

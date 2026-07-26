@@ -13,7 +13,7 @@ import typer.main
 from typer.core import TyperGroup
 
 from fast_agent.cli.command_support import ensure_context_object
-from fast_agent.cli.constants import normalize_resume_flag_args
+from fast_agent.cli.constants import normalize_convenience_flag_args, normalize_resume_flag_args
 from fast_agent.cli.display import print_section_header
 from fast_agent.cli.home_helpers import resolve_home_option
 from fast_agent.cli.terminal import Application
@@ -62,6 +62,7 @@ class LazyGroup(TyperGroup):
     lazy_subcommands: ClassVar[dict[str, str]] = {}
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        normalize_convenience_flag_args(args)
         if _first_root_command(args) == "go":
             normalize_resume_flag_args(args)
         return super().parse_args(ctx, args)

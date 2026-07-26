@@ -2,24 +2,15 @@
 Unit tests for agent types and their interactions with the interactive prompt.
 """
 
-from dataclasses import dataclass
-from typing import Any, cast
-
 import pytest
 
 from fast_agent.agents import McpAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
-from fast_agent.agents.smart_agent import (
-    SmartAgent,
-    _apply_runtime_mcp_connections,
-    _resolve_default_agent_name,
-)
 from fast_agent.config import MCPServerSettings, MCPSettings, Settings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider_types import Provider
-from fast_agent.mcp.mcp_aggregator import MCPAttachResult
 from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.types import RequestParams
 
@@ -30,13 +21,18 @@ def test_agent_type_default():
     assert agent.agent_type == AgentType.BASIC
 
 
-def test_agent_type_smart_enum():
-    assert AgentType.SMART.value == "smart"
+def test_agent_config_subagent_controls_default_and_preserve_explicit_values() -> None:
+    default = AgentConfig(name="default")
+    configured = AgentConfig(
+        name="configured",
+        subagents=False,
+        subagent_model="passthrough",
+    )
 
-
-def test_smart_agent_type():
-    agent = SmartAgent(config=AgentConfig(name="smart_agent"))
-    assert agent.agent_type == AgentType.SMART
+    assert default.subagents is None
+    assert default.subagent_model is None
+    assert configured.subagents is False
+    assert configured.subagent_model == "passthrough"
 
 
 def test_instruction_propagates_to_default_request_params():
@@ -215,95 +211,3 @@ def test_instruction_takes_precedence_over_systemPrompt():
         f"RequestParams.systemPrompt ('{original_system_prompt}'), "
         f"but got {config.default_request_params.systemPrompt}"
     )
-
-
-class _FakeMcpAgent:
-    def __init__(self, *, default: bool = False, fail: bool = False) -> None:
-        self.config = AgentConfig(name="fake", default=default)
-        self._fail = fail
-        self.attached: list[str] = []
-
-    async def attach_mcp_server(self, *, server_name: str, server_config=None, options=None):
-        del server_config, options
-        if self._fail:
-            raise RuntimeError("boom")
-        self.attached.append(server_name)
-        return MCPAttachResult(
-            server_name=server_name,
-            transport="stdio",
-            attached=True,
-            already_attached=False,
-            tools_added=[],
-            prompts_added=[],
-            warnings=[],
-        )
-
-    async def detach_mcp_server(self, server_name: str):
-        detached = server_name in self.attached
-        if detached:
-            self.attached.remove(server_name)
-
-        @dataclass
-        class _DetachResult:
-            detached: bool
-            tools_removed: list[str]
-            prompts_removed: list[str]
-
-        return _DetachResult(detached=detached, tools_removed=[], prompts_removed=[])
-
-    def list_attached_mcp_servers(self) -> list[str]:
-        return list(self.attached)
-
-
-def test_resolve_default_agent_name_prefers_non_tool_default() -> None:
-    tool_default = _FakeMcpAgent(default=True)
-    non_tool_default = _FakeMcpAgent(default=True)
-    agents = {
-        "tool": tool_default,
-        "main": non_tool_default,
-    }
-
-    resolved = _resolve_default_agent_name(
-        cast("Any", agents),
-        tool_only_agents={"tool"},
-    )
-    assert resolved == "main"
-
-
-@pytest.mark.asyncio
-async def test_apply_runtime_mcp_connections_attaches_servers() -> None:
-    agent = _FakeMcpAgent(default=True)
-    summary = await _apply_runtime_mcp_connections(
-        context=None,
-        agents_map=cast("Any", {"main": agent}),
-        target_agent_name="main",
-        mcp_connect=["--name demo npx demo-server"],
-    )
-
-    assert summary.connected == ["demo"]
-    assert summary.warnings == []
-    assert agent.attached == ["demo"]
-
-
-@pytest.mark.asyncio
-async def test_apply_runtime_mcp_connections_raises_on_connect_error() -> None:
-    failing = _FakeMcpAgent(default=True, fail=True)
-    with pytest.raises(AgentConfigError, match="Failed to connect MCP server"):
-        await _apply_runtime_mcp_connections(
-            context=None,
-            agents_map=cast("Any", {"main": failing}),
-            target_agent_name="main",
-            mcp_connect=["--name demo npx demo-server"],
-        )
-
-
-@pytest.mark.asyncio
-async def test_apply_runtime_mcp_connections_wraps_parse_errors() -> None:
-    agent = _FakeMcpAgent(default=True)
-    with pytest.raises(AgentConfigError, match="Failed to connect MCP server for smart tool call"):
-        await _apply_runtime_mcp_connections(
-            context=None,
-            agents_map=cast("Any", {"main": agent}),
-            target_agent_name="main",
-            mcp_connect=["--timeout 0 npx demo-server"],
-        )

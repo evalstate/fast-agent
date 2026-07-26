@@ -136,7 +136,7 @@ def _ensure_basic_only_agents(agents_dict: AgentConfigDict) -> None:
         agent_type = agent_data.get("type") if isinstance(agent_data, Mapping) else None
         if not is_basic_like_agent_type(agent_type):
             raise AgentConfigError(
-                "Smart tool only supports 'agent' cards",
+                "Basic agent creation only supports 'agent' cards",
                 f"Card '{name}' has unsupported type '{agent_type}'",
             )
 
@@ -729,62 +729,6 @@ async def _create_basic_agent(
     )
 
 
-async def _create_smart_agent(
-    name: str,
-    agent_data: Mapping[str, Any],
-    build_ctx: AgentBuildContext,
-    result_agents: AgentDict,
-) -> None:
-    config = cast("AgentConfig", agent_data["config"])
-    child_names = cast("Sequence[str]", agent_data.get("child_agents", []) or [])
-    if child_names:
-        inputs = _build_agents_as_tools_inputs(name, agent_data, build_ctx)
-
-        from fast_agent.agents.smart_agent import SmartAgentsAsToolsAgent
-
-        agent = SmartAgentsAsToolsAgent(
-            config=inputs.config,
-            context=build_ctx.app_instance.context,
-            agents=cast("list[LlmAgent]", inputs.child_agents),
-            options=inputs.options,
-            tools=inputs.function_tools,
-            child_message_files=inputs.child_message_files,
-            shell_environment=build_ctx.shell_environment,
-        )
-    else:
-        function_tools = _resolve_function_tools_with_globals(config, agent_data, build_ctx)
-
-        from fast_agent.agents.smart_agent import SmartAgent, SmartAgentWithUI
-
-        settings = build_ctx.app_instance.context.config if build_ctx.app_instance.context else None
-        ui_mode = _resolve_mcp_ui_mode(settings)
-        if ui_mode != "disabled":
-            agent = SmartAgentWithUI(
-                config=config,
-                context=build_ctx.app_instance.context,
-                ui_mode=ui_mode,
-                tools=function_tools,
-                shell_environment=build_ctx.shell_environment,
-            )
-        else:
-            agent = SmartAgent(
-                config=config,
-                context=build_ctx.app_instance.context,
-                tools=function_tools,
-                shell_environment=build_ctx.shell_environment,
-            )
-
-    await _finalize_agent(
-        agent,
-        name,
-        config,
-        agent_data,
-        build_ctx.model_factory_func,
-        result_agents,
-        build_ctx.session_history_enabled,
-    )
-
-
 async def _create_custom_agent(
     name: str,
     agent_data: Mapping[str, Any],
@@ -1079,7 +1023,6 @@ async def _create_a2a_agent(
 _AGENT_TYPE_BUILDERS: dict[AgentType, AgentTypeBuilder] = {
     AgentType.LLM: _create_basic_agent,
     AgentType.BASIC: _create_basic_agent,
-    AgentType.SMART: _create_smart_agent,
     AgentType.CUSTOM: _create_custom_agent,
     AgentType.ORCHESTRATOR: _create_planner_agent,
     AgentType.ITERATIVE_PLANNER: _create_planner_agent,

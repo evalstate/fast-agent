@@ -22,7 +22,7 @@ from fast_agent.agents.agent_types import (
 )
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
 from fast_agent.config import MCPServerAuthSettings, MCPServerSettings, resolve_env_vars
-from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.core.agent_card_paths import (
     is_agent_card_path,
     is_markdown_agent_card_path,
@@ -228,14 +228,11 @@ def _build_card_from_data(
         raise AgentConfigError(f"'schema_version' must be an integer in {path}")
 
     name = _resolve_name(raw.get("name"), path)
-    default_instruction = (
-        SMART_AGENT_INSTRUCTION if type_key == "smart" else DEFAULT_AGENT_INSTRUCTION
-    )
     instruction = _resolve_instruction_field(
         raw.get("instruction"),
         body,
         path,
-        default_instruction=default_instruction,
+        default_instruction=DEFAULT_AGENT_INSTRUCTION,
     )
     description = _ensure_optional_str(raw.get("description"), "description", path)
 
@@ -457,12 +454,22 @@ def _build_agent_data(
     request_params = _ensure_request_params(raw.get("request_params"), path)
     human_input = _ensure_bool(raw.get("human_input"), "human_input", path, default=False)
     default, tool_only = _ensure_default_flags(raw, name, path)
+    subagents_value = raw.get("subagents")
+    if "subagents" in raw and not isinstance(subagents_value, bool):
+        raise AgentConfigError(f"'subagents' must be a boolean in {path}")
+    subagents = subagents_value if isinstance(subagents_value, bool) else None
+    subagent_model = (
+        _ensure_optional_str(raw["subagent_model"], "subagent_model", path)
+        if "subagent_model" in raw
+        else None
+    )
+    if "subagent_model" in raw and subagent_model is None:
+        raise AgentConfigError(f"'subagent_model' must be a non-empty string in {path}")
 
     api_key = raw.get("api_key")
     tool_input_schema = _ensure_tool_input_schema(raw.get("tool_input_schema"), path)
     function_tools = _ensure_function_tools(raw.get("function_tools"), path)
-    shell_default = type_key == "smart"
-    shell = _ensure_bool(raw.get("shell"), "shell", path, default=shell_default)
+    shell = _ensure_bool(raw.get("shell"), "shell", path, default=False)
     cwd = _ensure_cwd(raw.get("cwd"), path)
     tool_hooks = _ensure_hook_map(raw.get("tool_hooks"), "tool_hooks", path)
     lifecycle_hooks = _ensure_lifecycle_hooks(raw.get("lifecycle_hooks"), path)
@@ -486,6 +493,8 @@ def _build_agent_data(
         human_input=human_input,
         default=default,
         tool_only=tool_only,
+        subagents=subagents,
+        subagent_model=subagent_model,
         api_key=api_key,
         function_tools=function_tools,
         shell=shell,
@@ -709,7 +718,6 @@ def _apply_a2a_data(
 
 _CARD_TYPE_DATA_HANDLERS: dict[CardType, CardTypeDataHandler] = {
     "agent": _apply_basic_agent_data,
-    "smart": _apply_basic_agent_data,
     "chain": _apply_chain_data,
     "parallel": _apply_parallel_data,
     "evaluator_optimizer": _apply_evaluator_optimizer_data,
@@ -1170,6 +1178,20 @@ def _serialize_optional_common_fields(
     _set_allowed(
         card,
         allowed_fields,
+        "subagents",
+        config.subagents,
+        when=config.subagents is not None,
+    )
+    _set_allowed(
+        card,
+        allowed_fields,
+        "subagent_model",
+        config.subagent_model,
+        when=config.subagent_model is not None,
+    )
+    _set_allowed(
+        card,
+        allowed_fields,
         "description",
         config.description,
         when=bool(config.description),
@@ -1460,7 +1482,6 @@ def _serialize_a2a_fields(
 
 _CARD_SERIALIZERS: dict[CardType, CardTypeSerializer] = {
     "agent": _serialize_agent_like_fields,
-    "smart": _serialize_agent_like_fields,
     "chain": _serialize_chain_fields,
     "parallel": _serialize_parallel_fields,
     "evaluator_optimizer": _serialize_evaluator_optimizer_fields,

@@ -185,11 +185,19 @@ class CommonAgentOptions:
         )
 
     @staticmethod
-    def smart():
+    def subagents():
         return typer.Option(
-            False,
-            "--smart",
-            help="Prefer a smart default agent when fast-agent creates the default agent.",
+            None,
+            "--subagents/--no-subagents",
+            help="Enable or disable the built-in one-shot subagent tool.",
+        )
+
+    @staticmethod
+    def subagent_model():
+        return typer.Option(
+            None,
+            "--subagent-model",
+            help="Use a fixed model for built-in subagent runs (also enables subagents).",
         )
 
     @staticmethod

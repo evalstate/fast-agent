@@ -203,11 +203,21 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._llm_factory_ref: LLMFactoryProtocol | None = None
         self._llm_attach_kwargs: dict[str, Any] | None = None
         self._lifecycle_hooks: "AgentLifecycleHooks | None" = None
+        self._session_history_persistence_enabled = True
 
     @property
     def context(self) -> Context | None:
         """Optional execution context supplied at construction time."""
         return self._context
+
+    @property
+    def session_history_persistence_enabled(self) -> bool:
+        """Whether this agent may write to its context's resumable session."""
+        return self._session_history_persistence_enabled
+
+    def set_session_history_persistence_enabled(self, enabled: bool) -> None:
+        """Enable or disable resumable session persistence for this instance."""
+        self._session_history_persistence_enabled = enabled
 
     @property
     def initialized(self) -> bool:
@@ -446,6 +456,33 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         return {}
 
     async def spawn_detached_instance(self, *, name: str | None = None) -> Self:
+        """Create a detached agent that preserves the current clone behavior."""
+        return await self._spawn_detached_instance(
+            name=name,
+            model=None,
+            copy_hooks=True,
+        )
+
+    async def spawn_isolated_instance(
+        self,
+        *,
+        name: str | None = None,
+        model: str | None = None,
+    ) -> Self:
+        """Create a detached agent with an optional model and no parent hooks."""
+        return await self._spawn_detached_instance(
+            name=name,
+            model=model,
+            copy_hooks=False,
+        )
+
+    async def _spawn_detached_instance(
+        self,
+        *,
+        name: str | None,
+        model: str | None,
+        copy_hooks: bool,
+    ) -> Self:
         """Create a fresh agent instance with its own MCP/LLM stack."""
 
         new_config = deepcopy(self.config)
@@ -454,36 +491,62 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         constructor_kwargs = self._clone_constructor_kwargs()
         clone = type(self)(config=new_config, context=self.context, **constructor_kwargs)
-        await clone.initialize()
+        try:
+            await clone.initialize()
 
-        if self._agent_registry is not None:
-            clone.set_agent_registry(self._agent_registry)
+            if self._agent_registry is not None:
+                clone.set_agent_registry(self._agent_registry)
 
-        # Copy tool_runner_hooks if present
-        hooks: ToolRunnerHooks | None = None
-        if isinstance(self, ToolRunnerHookCapable):
-            hooks = self.tool_runner_hooks
-        if hooks is not None and isinstance(clone, ToolRunnerHookCapable):
-            clone.tool_runner_hooks = hooks
+            if copy_hooks:
+                hooks: ToolRunnerHooks | None = None
+                if isinstance(self, ToolRunnerHookCapable):
+                    hooks = self.tool_runner_hooks
+                if hooks is not None and isinstance(clone, ToolRunnerHookCapable):
+                    clone.tool_runner_hooks = hooks
 
-        if self._llm_factory_ref is not None:
-            if self._llm_attach_kwargs is None:
-                raise RuntimeError(
-                    "LLM attachment parameters missing despite factory being available"
+            if self._llm_factory_ref is not None:
+                if self._llm_attach_kwargs is None:
+                    raise RuntimeError(
+                        "LLM attachment parameters missing despite factory being available"
+                    )
+
+                attach_kwargs = dict(self._llm_attach_kwargs)
+                request_params = attach_kwargs.pop("request_params", None)
+                if request_params is not None:
+                    request_params = deepcopy(request_params)
+
+                llm_factory = self._llm_factory_ref
+                wire_model = None
+                if model is not None:
+                    from fast_agent.llm.model_factory import ModelFactory
+
+                    model_with_aliases = resolve_model_reference(
+                        model,
+                        get_context_model_references(self._context),
+                    )
+                    resolved_model = ModelFactory.resolve_model_spec(model_with_aliases)
+                    llm_factory = ModelFactory.create_factory(model_with_aliases)
+                    wire_model = resolved_model.wire_model_name
+                    if request_params is not None:
+                        request_params.model = wire_model
+
+                await clone.attach_llm(
+                    llm_factory,
+                    model=wire_model,
+                    request_params=request_params,
+                    **attach_kwargs,
                 )
 
-            attach_kwargs = dict(self._llm_attach_kwargs)
-            request_params = attach_kwargs.pop("request_params", None)
-            if request_params is not None:
-                request_params = deepcopy(request_params)
-
-            await clone.attach_llm(
-                self._llm_factory_ref,
-                request_params=request_params,
-                **attach_kwargs,
-            )
-
-        return clone
+            return clone
+        except BaseException:
+            try:
+                await clone.shutdown()
+            except BaseException as shutdown_exc:
+                logger.warning(
+                    "Failed to shut down incomplete detached agent",
+                    data={"agent_name": clone.name, "error": str(shutdown_exc)},
+                )
+            raise
 
     def merge_usage_from(self, other: "LlmAgent") -> None:
         """Merge LLM usage metrics from another agent instance into this one."""

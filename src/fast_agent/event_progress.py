@@ -18,6 +18,8 @@ class ProgressAction(str, Enum):
     COMPACTING = "Compacting"
     ROUTING = "Routing"
     PLANNING = "Planning"
+    MONITORING = "Monitoring"
+    RUNNING = "Subagent Running"
     READY = "Ready"
     CALLING_TOOL = "Calling Tool"
     READING_RESOURCE = "Reading Resource"

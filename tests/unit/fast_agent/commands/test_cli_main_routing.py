@@ -128,6 +128,22 @@ def test_root_resume_auto_routes_to_go_and_adds_sentinel(
     assert captured == ["fast-agent", "go", "--resume", "__latest__"]
 
 
+def test_root_xx_expands_shell_and_subagents_then_routes_to_go(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[str] = []
+
+    def capture_app() -> None:
+        captured.extend(sys.argv)
+
+    monkeypatch.setattr(sys, "argv", ["fast-agent", "-xx", "--help"])
+    monkeypatch.setattr(cli_main, "app", capture_app)
+
+    cli_main.main()
+
+    assert captured == ["fast-agent", "go", "--shell", "--subagents", "--help"]
+
+
 def test_root_serve_mcp_routes_to_serve_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

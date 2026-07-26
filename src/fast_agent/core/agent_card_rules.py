@@ -9,7 +9,6 @@ from fast_agent.utils.action_normalization import normalize_action_token
 
 CardType = Literal[
     "agent",
-    "smart",
     "chain",
     "parallel",
     "evaluator_optimizer",
@@ -22,7 +21,6 @@ CardType = Literal[
 
 CARD_TYPE_TO_AGENT_TYPE: dict[CardType, AgentType] = {
     "agent": AgentType.BASIC,
-    "smart": AgentType.SMART,
     "chain": AgentType.CHAIN,
     "parallel": AgentType.PARALLEL,
     "evaluator_optimizer": AgentType.EVALUATOR_OPTIMIZER,
@@ -44,6 +42,8 @@ COMMON_CARD_FIELDS = {
     "description",
     "default",
     "tool_only",
+    "subagents",
+    "subagent_model",
     "schema_version",
 }
 
@@ -81,7 +81,6 @@ AGENT_CARD_FIELDS = {
 
 ALLOWED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
     "agent": set(AGENT_CARD_FIELDS),
-    "smart": set(AGENT_CARD_FIELDS),
     "chain": {
         *COMMON_CARD_FIELDS,
         "sequence",
@@ -164,7 +163,6 @@ ALLOWED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
 
 REQUIRED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
     "agent": set(),
-    "smart": set(),
     "chain": {"sequence"},
     "parallel": {"fan_out"},
     "evaluator_optimizer": {"generator", "evaluator"},
@@ -177,7 +175,6 @@ REQUIRED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
 
 DEFAULT_USE_HISTORY_BY_TYPE: dict[CardType, bool] = {
     "agent": True,
-    "smart": True,
     "chain": True,
     "parallel": True,
     "evaluator_optimizer": True,

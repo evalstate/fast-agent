@@ -10,7 +10,7 @@ social:
 
 # Connect to MCP Servers
 
-For convenience, **`fast-agent`** lets you connect to MCP Servers with command line switches or the `/connect` TUI command. Smart agents have the ability to connect to MCP Servers themselves. 
+For convenience, **`fast-agent`** lets you connect to MCP Servers with command line switches or the `/connect` TUI command.
 
 From the command line:
 

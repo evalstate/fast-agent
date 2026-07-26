@@ -693,7 +693,7 @@ class McpAgent(ABC, ToolAgent):
 
         # Warn when skills are configured but not surfaced in the final instruction.
         # This check must use the rendered instruction to account for internal
-        # templates like {{internal:smart_prompt}} that include {{agentSkills}}.
+        # internal templates may include {{agentSkills}}.
         if self._skill_manifests and "{{agentSkills}}" not in self._instruction_template:
             formatted_skills = format_agent_skills(
                 self._skill_manifests,
@@ -1674,8 +1674,6 @@ class McpAgent(ABC, ToolAgent):
         tool_call_items = list(request.tool_calls.items())
         should_parallel = should_parallelize_tool_calls(len(tool_call_items))
         self._maybe_close_display_for_parallel_subagent_tools(tool_call_items, should_parallel)
-        smart_parallel_calls = self._smart_parallel_call_count(tool_call_items)
-
         planned_calls, tool_loop_error = self._plan_mcp_tool_calls(
             tool_call_items=tool_call_items,
             namespaced_tools=namespaced_tools,
@@ -1689,7 +1687,6 @@ class McpAgent(ABC, ToolAgent):
             await self._run_parallel_planned_tool_calls(
                 planned_calls,
                 request_params=request_params,
-                smart_parallel_calls=smart_parallel_calls,
                 tool_results=tool_results,
                 tool_timings=tool_timings,
             )
@@ -1744,11 +1741,6 @@ class McpAgent(ABC, ToolAgent):
                 subagent_call_count=subagent_calls,
             )
 
-    def _smart_parallel_call_count(self, tool_call_items: list[tuple[str, Any]]) -> int:
-        if self.agent_type != AgentType.SMART:
-            return 0
-        return sum(1 for _, tool_request in tool_call_items if tool_request.params.name == "smart")
-
     def _plan_mcp_tool_calls(
         self,
         *,
@@ -1790,23 +1782,13 @@ class McpAgent(ABC, ToolAgent):
         planned_calls: list[_PlannedMcpToolCall],
         *,
         request_params: RequestParams | None,
-        smart_parallel_calls: int,
         tool_results: dict[str, CallToolResult],
         tool_timings: dict[str, ToolTimingInfo],
     ) -> None:
-        smart_parallel_active = smart_parallel_calls > 1
         previous_shell_tool_call_id_setting = self._show_shell_tool_call_id
         previous_shell_display_setting = self._defer_shell_display_to_tool_result
         self._show_shell_tool_call_id = True
         self._defer_shell_display_to_tool_result = True
-        if smart_parallel_active:
-            self.parallel_smart_tool_calls = True
-            self.logger.info(
-                "Parallel smart tool calls detected",
-                agent_name=self._name,
-                tool_call_count=len(planned_calls),
-                smart_call_count=smart_parallel_calls,
-            )
         try:
             results = await gather_with_cancel(
                 self._execute_mcp_planned_tool_call(call, request_params=request_params)
@@ -1815,8 +1797,6 @@ class McpAgent(ABC, ToolAgent):
         finally:
             self._show_shell_tool_call_id = previous_shell_tool_call_id_setting
             self._defer_shell_display_to_tool_result = previous_shell_display_setting
-            if smart_parallel_active:
-                self.parallel_smart_tool_calls = False
 
         for call, item in zip(planned_calls, results, strict=True):
             if isinstance(item, BaseException):
@@ -1866,11 +1846,13 @@ class McpAgent(ABC, ToolAgent):
                     content=[TextContent(type="text", text=f"Error: {e!s}")],
                     isError=True,
                 )
-                tool_results[call.correlation_id] = error_result
-                self.display.show_tool_result(
-                    name=self._name,
-                    result=error_result,
-                    show_hook_indicator=self.has_after_tool_call_hook,
+                await self._record_planned_tool_result(
+                    call,
+                    error_result,
+                    duration_ms=0.0,
+                    tool_results=tool_results,
+                    tool_timings=tool_timings,
+                    parallel=False,
                 )
 
     async def _execute_mcp_planned_tool_call(
@@ -1919,6 +1901,9 @@ class McpAgent(ABC, ToolAgent):
         )
 
         if getattr(result, "_suppress_display", False):
+            return
+        if self._is_builtin_subagent_tool(call.metadata):
+            await self._show_subagent_result(result)
             return
 
         result_tool_call_id = None
@@ -2155,6 +2140,9 @@ class McpAgent(ABC, ToolAgent):
             fallback_order=self._unique_preserving_order(available_tools),
         )
         if self._is_read_text_file_tool_name(display_tool_name):
+            return display_tool_name
+        if self._is_builtin_subagent_tool(metadata):
+            self._show_subagent_message(tool_args)
             return display_tool_name
 
         self.display.show_tool_call(

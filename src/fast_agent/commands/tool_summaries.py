@@ -20,7 +20,6 @@ from fast_agent.interfaces import (
     CardToolProvider,
     FastAgentLLMProtocol,
     LlmCapableProtocol,
-    SmartToolingCapable,
 )
 from fast_agent.mcp.common import is_namespaced_name
 from fast_agent.tools.tool_sources import TOOL_SOURCE_LABELS, ToolSource, tool_source
@@ -63,12 +62,10 @@ class ProviderToolSummary:
 @dataclass(frozen=True, slots=True)
 class _ToolNameSets:
     card: set[str]
-    smart: set[str]
     agent_backed: set[str]
 
     def classification_candidates(self) -> tuple[tuple[set[str], str], ...]:
         return (
-            (self.smart, "(Smart)"),
             (self.card, "(Card Function)"),
             (self.agent_backed, "(Subagent)"),
         )
@@ -295,17 +292,12 @@ def _tool_meta(tool: "Tool") -> JsonObject:
 
 def _collect_tool_name_sets(agent: object) -> _ToolNameSets:
     card_tool_names = set(agent.card_tool_names) if isinstance(agent, CardToolProvider) else set()
-    smart_tool_names = (
-        set(agent.smart_tool_names) if isinstance(agent, SmartToolingCapable) else set()
-    )
     agent_tool_names = (
         set(agent.agent_backed_tools.keys())
         if isinstance(agent, AgentBackedToolProvider)
         else set()
     )
-    return _ToolNameSets(
-        card=card_tool_names, smart=smart_tool_names, agent_backed=agent_tool_names
-    )
+    return _ToolNameSets(card=card_tool_names, agent_backed=agent_tool_names)
 
 
 def _classify_tool(

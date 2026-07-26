@@ -280,7 +280,7 @@ def render_prompt(screenshots: list[Path], deterministic: dict[str, Any]) -> str
 def render_card(model: str) -> str:
     model_id = MODEL_IDS.get(model, model)
     return f"""---
-type: smart
+type: agent
 name: docs_visual_judge
 model: {model_id}
 shell: false

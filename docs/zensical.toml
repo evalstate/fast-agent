@@ -19,6 +19,7 @@ nav = [
   { "fast-agent" = "index.md" },
   { "Guides" = [
     { "Core Concepts" = "guides/core-concepts.md" },
+    { "Migrating to 0.10" = "guides/migrating-to-0-10.md" },
     "guides/tui.md",
     "guides/codex.md",
     "guides/hf-dev.md",

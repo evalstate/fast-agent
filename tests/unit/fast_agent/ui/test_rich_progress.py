@@ -11,6 +11,7 @@ from rich.live import Live
 from rich.text import Text
 
 from fast_agent.event_progress import ProgressAction, ProgressEvent
+from fast_agent.ui.display_suppression import suppress_interactive_display
 from fast_agent.ui.progress.display import (
     DynamicDetailsColumn,
     RichProgressDisplay,
@@ -1070,6 +1071,172 @@ class TestAgentLifecycleRows:
         display.stop()
 
 
+class TestSubagentMonitoringRows:
+    """Built-in subagent monitoring stays visible while a parent awaits children."""
+
+    def test_monitor_only_scope_folds_generic_child_progress(self) -> None:
+        display = _make_display()
+        display.start()
+
+        with suppress_interactive_display("monitor_only"):
+            display.update(
+                _make_event(
+                    action=ProgressAction.CALLING_TOOL,
+                    agent_name="parent",
+                    target="parent",
+                    tool_name="agent__ripgrep_spark",
+                    correlation_id="inner-call",
+                )
+            )
+            display.update(
+                _make_event(
+                    action=ProgressAction.RUNNING,
+                    agent_name="parent[reviewer]",
+                    target="reviewer",
+                    instance_name="parent::subagent::outer-call",
+                    tool_name="subagent",
+                    tool_event="subagent_monitor",
+                )
+            )
+
+        assert set(display._taskmap) == {"parent::subagent::outer-call"}
+        display.stop()
+
+    def test_paused_parallel_children_restore_running_row_and_clean_up(self) -> None:
+        display = _make_display()
+        display.start()
+        display.pause()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.MONITORING,
+                agent_name="parent",
+                target="parent",
+                details="1 subagent · scout",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.RUNNING,
+                agent_name="parent[scout]",
+                target="scout",
+                details="turn 1 · in 3 out 2 cache 1 · tools 0",
+                instance_name="parent::subagent::scout-call",
+                tool_event="subagent_monitor",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.MONITORING,
+                agent_name="parent",
+                target="parent",
+                details="2 subagents · scout, verifier",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.RUNNING,
+                agent_name="parent[verifier]",
+                target="verifier",
+                details="turn 1 · in 5 out 3 cache 0 · tools 1 (lookup)",
+                instance_name="parent::subagent::verifier-call",
+                tool_event="subagent_monitor",
+            )
+        )
+
+        assert set(display._taskmap) == {
+            "parent",
+            "parent::subagent::scout-call",
+            "parent::subagent::verifier-call",
+        }
+        assert _task_fields(display, "parent")["details"] == "2 subagents · scout, verifier"
+
+        # Clone initialization owns the logical agent row, not the durable
+        # subagent monitor row.
+        display.update(
+            _make_event(
+                action=ProgressAction.READY,
+                agent_name="parent[scout]",
+                target="scout",
+            )
+        )
+        assert "parent::subagent::scout-call" in display._taskmap
+
+        display.resume()
+        display.update(
+            _make_event(
+                action=ProgressAction.STREAMING,
+                agent_name="parent[scout]",
+                target="scout",
+                streaming_tokens="18",
+                instance_name="parent::subagent::scout-call",
+                tool_event="subagent_monitor",
+            )
+        )
+        assert "18" in next(
+            task.description
+            for task in display._progress.tasks
+            if task.id == display._taskmap["parent::subagent::scout-call"]
+        )
+
+        display.update(
+            _make_event(
+                action=ProgressAction.RUNNING,
+                agent_name="parent[scout]",
+                target="scout",
+                details="turn 1 · in 3 out 2 cache 1 · tools 0",
+                instance_name="parent::subagent::scout-call",
+                tool_event="subagent_monitor",
+            )
+        )
+        assert "Running" in next(
+            task.description
+            for task in display._progress.tasks
+            if task.id == display._taskmap["parent::subagent::scout-call"]
+        )
+
+        display.update(
+            _make_event(
+                action=ProgressAction.READY,
+                agent_name="parent[scout]",
+                target="scout",
+                details="completed",
+                instance_name="parent::subagent::scout-call",
+                tool_event="subagent_monitor",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.MONITORING,
+                agent_name="parent",
+                target="parent",
+                details="1 subagent · verifier",
+            )
+        )
+        assert set(display._taskmap) == {"parent", "parent::subagent::verifier-call"}
+        assert _task_fields(display, "parent")["details"] == "1 subagent · verifier"
+
+        display.update(
+            _make_event(
+                action=ProgressAction.READY,
+                agent_name="parent[verifier]",
+                target="verifier",
+                details="completed",
+                instance_name="parent::subagent::verifier-call",
+                tool_event="subagent_monitor",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.READY,
+                agent_name="parent",
+                target="parent",
+            )
+        )
+        assert display._taskmap == {}
+        display.stop()
+
+
 class TestAgentTaskClearing:
     """Interrupted sends should be able to clear stale rows for one agent."""
 
@@ -1100,15 +1267,24 @@ class TestAgentTaskClearing:
                 target="agent-b",
             )
         )
+        display.update(
+            _make_event(
+                action=ProgressAction.SENDING,
+                agent_name="agent-a[old-clone]",
+                target="old-clone",
+            )
+        )
 
         assert "agent-a" in display._taskmap
         assert "agent-a::tool-a-1" in display._taskmap
+        assert "agent-a[old-clone]" in display._taskmap
         assert "agent-b" in display._taskmap
 
         display.clear_agent_tasks("agent-a")
 
         assert "agent-a" not in display._taskmap
         assert "agent-a::tool-a-1" not in display._taskmap
+        assert "agent-a[old-clone]" not in display._taskmap
         assert "agent-a::tool-a-1" not in display._task_kind
         assert "agent-b" in display._taskmap
 

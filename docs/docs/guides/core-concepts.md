@@ -96,14 +96,15 @@ agent from the command-line options you provide.
 
 The built-in default prompt is already practical: it includes `AGENTS.md` from
 the current project when that file exists, so project conventions are picked up
-without making an AgentCard first. If you want a more capable generated default,
-run:
+without making an AgentCard first. To let the generated default delegate
+focused work to built-in subagents, run:
 
 ```bash
-fast-agent go --smart
+fast-agent go -xx
 ```
 
-`--smart` asks **fast-agent** to use a _smart_ default agent. A smart agent has extra guidance for working with fast-agent concepts, including creating and delegating to sub-agents.
+`-xx` combines shell access (`-x`) with `--subagents`. For a persistent agent,
+set `subagents: true` on its AgentCard instead.
 
 Home directories can be distributed as "packs" - simplifying sharing, installation and version management.
 
@@ -120,10 +121,10 @@ mkdir -p .fast-agent/agent-cards
 ```md title=".fast-agent/agent-cards/dev.md"
 ---
 name: dev
-type: smart
 default: true
 model: $system.default
 shell: true
+subagents: true
 ---
 
 You help with software development. Be direct, make small changes, and explain
@@ -278,6 +279,18 @@ model: $system.default
 You are a concise software reviewer. Focus on correctness, maintainability and
 test coverage.
 ```
+
+Use ToolCards for configured specialists with stable prompts, tools, or models.
+For temporary task delegation, enable the built-in `subagent` tool on the
+parent card:
+
+```yaml
+subagents: true
+subagent_model: $system.fast
+```
+
+`subagent_model` makes every built-in child use that model. From the CLI, use
+`--subagents` or `-xx`; `-xx` also enables shell access.
 
 For a plain Python function, add it to an agent with `function_tools`:
 
@@ -553,7 +566,7 @@ fast-agent go --pack coding-local --pack-registry ./marketplace.json
 <article class="fa-card" markdown="1">
 <h3>Coding</h3>
 
-- `dev` is the default smart agent.
+- `dev` is the default coding agent.
 - `planner` turns issues into implementation plans.
 - `reviewer` checks patches and test strategy.
 - MCP servers provide filesystem, shell, docs search, or project-specific tools.

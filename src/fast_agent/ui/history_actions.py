@@ -10,8 +10,14 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 from mcp.types import TextContent
 from rich.text import Text
 
-from fast_agent.constants import FAST_AGENT_TOOL_METADATA
+from fast_agent.agents.subagent_labels import requested_subagent_display_label
+from fast_agent.constants import (
+    BUILTIN_SUBAGENT_TOOL_NAME,
+    FAST_AGENT_SUBAGENT_RESULT_METADATA,
+    FAST_AGENT_TOOL_METADATA,
+)
 from fast_agent.history.tool_activities import display_remote_tool_activities
+from fast_agent.mcp.helpers.content_helpers import tool_result_text_for_llm
 from fast_agent.ui.citation_display import (
     render_sources_pre_content,
     web_tool_badges,
@@ -21,7 +27,7 @@ from fast_agent.utils.tool_names import (
 )
 
 if TYPE_CHECKING:
-    from mcp.types import CallToolRequest
+    from mcp.types import CallToolRequest, CallToolResult
 
     from fast_agent.config import Settings
     from fast_agent.types import PromptMessageExtended
@@ -130,7 +136,7 @@ class _HistoryTurnDisplayContext:
         self.flush_user_group()
         if message.role == "assistant":
             await self._display_assistant_message(message)
-        self._display_tool_results(message)
+        await self._display_tool_results(message)
 
     async def _display_assistant_message(self, message: "PromptMessageExtended") -> None:
         rendered_remote_activities = display_remote_tool_activities(
@@ -220,20 +226,38 @@ class _HistoryTurnDisplayContext:
             tool_name = self.tool_name_lookup.get(call_id, call_id)
             if is_read_text_file_tool_name_shared(tool_name):
                 continue
+            metadata = self.tool_metadata_lookup.get(call_id)
+            if _is_builtin_subagent_tool(metadata):
+                self._display_subagent_message(call_id, call)
+                continue
             self.display.show_tool_call(
                 tool_name=tool_name,
                 tool_args=_tool_args_from_call(call),
                 name=self.agent_name,
-                metadata=self.tool_metadata_lookup.get(call_id),
+                metadata=metadata,
                 tool_call_id=call_id,
             )
 
-    def _display_tool_results(self, message: "PromptMessageExtended") -> None:
+    def _display_subagent_message(self, _call_id: str, call: "CallToolRequest") -> None:
+        arguments = _tool_args_from_call(call)
+        message = None if arguments is None else arguments.get("message")
+        if not isinstance(message, str):
+            return
+        label = None if arguments is None else arguments.get("label")
+        self.display.show_user_message(
+            message=message,
+            name=f"{self.agent_name} → {requested_subagent_display_label(label)}",
+        )
+
+    async def _display_tool_results(self, message: "PromptMessageExtended") -> None:
         tool_results = message.tool_results
         if not tool_results:
             return
 
         for call_id, result in tool_results.items():
+            if _is_builtin_subagent_tool(self.tool_metadata_lookup.get(call_id)):
+                await self._display_subagent_result(result)
+                continue
             self.display.show_tool_result(
                 result=result,
                 name=self.agent_name,
@@ -241,6 +265,41 @@ class _HistoryTurnDisplayContext:
                 tool_call_id=call_id,
                 truncate_content=False,
             )
+
+    async def _display_subagent_result(self, result: "CallToolResult") -> None:
+        details = _subagent_result_details(result)
+        label = details.get("label")
+        child_name = details.get("child_agent_name")
+        model_spec = details.get("model_spec")
+        child_session_id = details.get("child_session_id")
+        display_label = label if isinstance(label, str) else child_name
+        name = f"subagent: {display_label}" if isinstance(display_label, str) else "subagent"
+        model = model_spec if isinstance(model_spec, str) else None
+        bottom_items = (
+            [f"session {child_session_id}"] if isinstance(child_session_id, str) else None
+        )
+        await self.display.show_assistant_message(
+            message_text=tool_result_text_for_llm(result),
+            name=name,
+            model=model,
+            bottom_items=bottom_items,
+            highlight_indexes=[0] if bottom_items else None,
+        )
+
+
+def _is_builtin_subagent_tool(metadata: JsonObject | None) -> bool:
+    if metadata is None:
+        return False
+    builtin = _json_object(metadata.get("fast_agent"))
+    return builtin is not None and builtin.get("builtin") == BUILTIN_SUBAGENT_TOOL_NAME
+
+
+def _subagent_result_details(result: "CallToolResult") -> JsonObject:
+    meta = result.meta
+    if not isinstance(meta, Mapping):
+        return {}
+    details = _json_object(meta.get(FAST_AGENT_SUBAGENT_RESULT_METADATA))
+    return {} if details is None else details
 
 
 def _append_web_activity_badges(additional_message: Text | None, badges: list[str]) -> Text | None:

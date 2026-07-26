@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import typer
 
 from fast_agent.cli.commands import serve
+from fast_agent.cli.constants import normalize_convenience_flag_args
 from fast_agent.cli.home_helpers import resolve_home_option
 from fast_agent.cli.runtime.request_builders import build_command_run_request
 from fast_agent.cli.runtime.runner import run_request
@@ -51,7 +52,6 @@ def _build_run_request(
     model: str | None,
     home: Path | None,
     no_home: bool,
-    force_smart: bool,
     skills_dir: Path | None,
     npx: str | None,
     uvx: str | None,
@@ -68,6 +68,8 @@ def _build_run_request(
     missing_shell_cwd: serve.MissingShellCwdPolicy | None = None,
     no_shell: bool = False,
     workspace: Path | None = None,
+    subagents: bool | None = None,
+    subagent_model: str | None = None,
 ) -> AgentRunRequest:
     resolved_workspace = resolve_workspace_option(ctx, workspace)
     home_option = home
@@ -97,9 +99,10 @@ def _build_run_request(
         home=resolved_home,
         workspace=resolved_workspace,
         no_home=no_home,
-        force_smart=force_smart,
         shell_enabled=shell,
         no_shell=no_shell,
+        subagents=subagents,
+        subagent_model=subagent_model,
         prefer_local_shell=prefer_local_shell,
         mode="serve",
         transport=serve.ServeTransport.ACP.value,
@@ -123,7 +126,6 @@ def run_acp(
     config_path: str | None = CommonAgentOptions.config_path(),
     servers: str | None = CommonAgentOptions.servers(),
     model: str | None = CommonAgentOptions.model(),
-    smart: bool = CommonAgentOptions.smart(),
     agent_cards: list[str] | None = CommonAgentOptions.agent_cards(),
     card_tools: list[str] | None = CommonAgentOptions.card_tools(),
     urls: str | None = CommonAgentOptions.urls(),
@@ -154,6 +156,8 @@ def run_acp(
     ),
     shell: bool = CommonAgentOptions.shell(),
     no_shell: bool = CommonAgentOptions.no_shell(),
+    subagents: bool | None = CommonAgentOptions.subagents(),
+    subagent_model: str | None = CommonAgentOptions.subagent_model(),
     prefer_local_shell: bool = typer.Option(
         False,
         "--prefer-local-shell",
@@ -196,7 +200,6 @@ def run_acp(
         workspace=workspace,
         home=home,
         no_home=no_home,
-        force_smart=smart,
         skills_dir=skills_dir,
         npx=npx,
         uvx=uvx,
@@ -206,6 +209,8 @@ def run_acp(
         port=port,
         shell=shell,
         no_shell=no_shell,
+        subagents=subagents,
+        subagent_model=subagent_model,
         prefer_local_shell=prefer_local_shell,
         no_permissions=no_permissions,
         resume=resume,
@@ -222,6 +227,7 @@ def main() -> None:
 
     click.exceptions.UsageError.exit_code = 1
 
+    normalize_convenience_flag_args(sys.argv, start_index=1)
     args = sys.argv[1:]
     if args and args[0] in ROOT_SUBCOMMANDS:
         from fast_agent.cli.__main__ import main as root_cli_main

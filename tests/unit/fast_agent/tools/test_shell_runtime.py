@@ -37,7 +37,10 @@ from fast_agent.tools.shell_output import ShellOutputBuffer
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.tools.shell_tool_definitions import parse_poll_process_arguments
 from fast_agent.ui import console
-from fast_agent.ui.display_suppression import suppress_interactive_display
+from fast_agent.ui.display_suppression import (
+    InteractiveDisplayMode,
+    suppress_interactive_display,
+)
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.shell_output_truncation import SHELL_OUTPUT_TRUNCATION_MARKER
 
@@ -2881,13 +2884,16 @@ async def test_execute_deferred_display_suppresses_live_console_output() -> None
     assert "exit code" not in rendered
 
 
+@pytest.mark.parametrize("mode", ["progress_only", "monitor_only"])
 @pytest.mark.asyncio
-async def test_execute_progress_only_mode_suppresses_live_console_output() -> None:
-    """Progress-only display mode should suppress streamed shell output."""
+async def test_suppressed_display_mode_hides_live_console_output(
+    mode: InteractiveDisplayMode,
+) -> None:
+    """Nested display modes should suppress streamed shell output."""
     logger = logging.getLogger("shell-runtime-test")
     runtime = ShellRuntime(activation_reason="test", logger=logger, timeout_seconds=10)
 
-    with suppress_interactive_display():
+    with suppress_interactive_display(mode):
         with console.console.capture() as capture:
             result = await runtime.execute({"command": "echo hello"})
 

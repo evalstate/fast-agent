@@ -7,8 +7,9 @@ from typing import Any
 from fastmcp.tools import FunctionTool, ToolResult
 from mcp.types import CallToolResult, ContentBlock, ListToolsResult, Tool
 
-from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.subagent_labels import requested_subagent_display_label
 from fast_agent.agents.tool_call_planning import (
     PlannedToolCall,
     execute_planned_tool_call,
@@ -18,6 +19,8 @@ from fast_agent.agents.tool_loop_progress import ToolLoopProgressEmitter
 from fast_agent.agents.tool_result_channels import build_tool_result_message
 from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks, _ToolLoopAgent
 from fast_agent.constants import (
+    BUILTIN_SUBAGENT_TOOL_NAME,
+    FAST_AGENT_SUBAGENT_RESULT_METADATA,
     HUMAN_INPUT_TOOL_NAME,
     should_parallelize_tool_calls,
 )
@@ -26,7 +29,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import LlmAgentProtocol, ToolRunnerHookCapable
 from fast_agent.llm.structured_schema import validate_json_schema_definition
-from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.mcp.helpers.content_helpers import get_text, text_content, tool_result_text_for_llm
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 from fast_agent.mcp.tool_result_metadata import (
@@ -35,6 +38,7 @@ from fast_agent.mcp.tool_result_metadata import (
 )
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.tools.function_tool_loader import build_default_function_tool
+from fast_agent.tools.invocation_context import local_tool_invocation_context
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams, ToolTimingInfo
 from fast_agent.ui.message_display_helpers import resolve_highlight_indexes
 from fast_agent.utils.async_utils import gather_with_cancel
@@ -81,8 +85,6 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         self._tool_schemas: list[Tool] = []
         self._agent_tools: dict[str, LlmAgent] = {}
         self._card_tool_names: set[str] = set()
-        self._smart_tool_names: set[str] = set()
-        self._parallel_smart_tool_calls = False
         self.last_turn_messages: list[PromptMessageExtended] = []
 
         # Build a working list of tools and auto-inject human-input tool if missing
@@ -135,6 +137,12 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             )
         )
 
+    def remove_tool(self, name: str) -> None:
+        """Remove a local execution tool and its model-visible schema."""
+        self._execution_tools.pop(name, None)
+        self._tool_schemas = [schema for schema in self._tool_schemas if schema.name != name]
+        self._card_tool_names.discard(name)
+
     def _tool_display_metadata(self, tool_name: str) -> dict[str, Any] | None:
         tool = self._execution_tools.get(tool_name)
         if tool is None or not isinstance(tool.meta, Mapping):
@@ -181,24 +189,6 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         """Return the public view of card-sourced tool names."""
         return self._card_tool_names
 
-    @property
-    def smart_tool_names(self) -> Collection[str]:
-        """Return the public view of smart tool names."""
-        return self._smart_tool_names
-
-    @smart_tool_names.setter
-    def smart_tool_names(self, value: Collection[str]) -> None:
-        self._smart_tool_names = set(value)
-
-    @property
-    def parallel_smart_tool_calls(self) -> bool:
-        """Return whether a parallel smart-tool batch is active."""
-        return self._parallel_smart_tool_calls
-
-    @parallel_smart_tool_calls.setter
-    def parallel_smart_tool_calls(self, value: bool) -> None:
-        self._parallel_smart_tool_calls = value
-
     def _card_tools_label(self) -> str | None:
         if not self._card_tool_names:
             return None
@@ -216,8 +206,6 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         if not tool_call_items:
             return 0
         agent_tool_names = set(self._agent_tools.keys())
-        if self.config.agent_type == AgentType.SMART:
-            agent_tool_names.add("smart")
         if not agent_tool_names:
             return 0
         return sum(
@@ -637,6 +625,10 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         if metadata:
             tool_metadata[planned_call.correlation_id] = metadata
 
+        if self._is_builtin_subagent_tool(metadata):
+            self._show_subagent_message(planned_call.arguments)
+            return
+
         self.display.show_tool_call(
             name=self.name,
             tool_args=planned_call.arguments,
@@ -648,6 +640,75 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             tool_call_id=planned_call.correlation_id if parallel else None,
             show_hook_indicator=self.has_before_tool_call_hook,
         )
+
+    @staticmethod
+    def _is_builtin_subagent_tool(metadata: Mapping[str, Any] | None) -> bool:
+        if metadata is None:
+            return False
+        builtin = metadata.get("fast_agent")
+        return isinstance(builtin, Mapping) and builtin.get("builtin") == BUILTIN_SUBAGENT_TOOL_NAME
+
+    def _show_subagent_message(self, arguments: Mapping[str, Any]) -> None:
+        """Render a built-in subagent request as an ordinary user message."""
+        message = arguments.get("message")
+        if not isinstance(message, str):
+            return
+        self.display.show_user_message(
+            message,
+            name=f"{self.name} → {requested_subagent_display_label(arguments.get('label'))}",
+        )
+
+    async def _show_tool_result(
+        self,
+        planned_call: PlannedToolCall,
+        result: CallToolResult,
+        *,
+        duration_ms: float,
+        tool_call_id: str | None,
+    ) -> None:
+        metadata = self._tool_display_metadata(planned_call.name)
+        if self._is_builtin_subagent_tool(metadata):
+            await self._show_subagent_result(result)
+            return
+        self.display.show_tool_result(
+            name=self.name,
+            result=result,
+            tool_name=planned_call.name,
+            timing_ms=duration_ms,
+            tool_call_id=tool_call_id,
+            show_hook_indicator=self.has_after_tool_call_hook,
+        )
+
+    async def _show_subagent_result(
+        self,
+        result: CallToolResult,
+    ) -> None:
+        details = self._subagent_result_details(result)
+        label = details.get("label")
+        child_name = details.get("child_agent_name")
+        model_spec = details.get("model_spec")
+        child_session_id = details.get("child_session_id")
+        display_label = label if isinstance(label, str) else child_name
+        name = f"subagent: {display_label}" if isinstance(display_label, str) else "subagent"
+        model = model_spec if isinstance(model_spec, str) else None
+        bottom_items = (
+            [f"session {child_session_id}"] if isinstance(child_session_id, str) else None
+        )
+        await self.display.show_assistant_message(
+            message_text=tool_result_text_for_llm(result),
+            name=name,
+            model=model,
+            bottom_items=bottom_items,
+            highlight_indexes=[0] if bottom_items else None,
+        )
+
+    @staticmethod
+    def _subagent_result_details(result: CallToolResult) -> Mapping[str, Any]:
+        meta = result.meta
+        if not isinstance(meta, Mapping):
+            return {}
+        details = meta.get(FAST_AGENT_SUBAGENT_RESULT_METADATA)
+        return details if isinstance(details, Mapping) else {}
 
     async def _execute_planned_tool_call(
         self,
@@ -664,13 +725,13 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
 
     async def _execute_tool_for_plan(
         self,
-        name: str,
-        arguments: dict[str, Any],
+        planned_call: PlannedToolCall,
         request_params: RequestParams | None,
     ) -> CallToolResult:
         return await self.call_tool(
-            name,
-            arguments,
+            planned_call.name,
+            planned_call.arguments,
+            planned_call.correlation_id,
             request_params=request_params,
         )
 
@@ -707,13 +768,11 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 timing_ms=duration_ms,
                 transport_channel=None,
             )
-            self.display.show_tool_result(
-                name=self.name,
-                result=result,
-                tool_name=planned_call.name,
-                timing_ms=duration_ms,
+            await self._show_tool_result(
+                planned_call,
+                result,
+                duration_ms=duration_ms,
                 tool_call_id=planned_call.correlation_id,
-                show_hook_indicator=self.has_after_tool_call_hook,
             )
         return tool_results, tool_timings
 
@@ -735,12 +794,11 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 timing_ms=duration_ms,
                 transport_channel=None,
             )
-            self.display.show_tool_result(
-                name=self.name,
-                result=result,
-                tool_name=planned_call.name,
-                timing_ms=duration_ms,
-                show_hook_indicator=self.has_after_tool_call_hook,
+            await self._show_tool_result(
+                planned_call,
+                result,
+                duration_ms=duration_ms,
+                tool_call_id=None,
             )
         return tool_results, tool_timings
 
@@ -890,12 +948,26 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             token = _tool_progress_context.set((tool_handler, tool_call_id))
 
         try:
-            native_result = await fast_tool.run(arguments or {})
+            with local_tool_invocation_context(
+                tool_name=name,
+                arguments=arguments or {},
+                tool_use_id=tool_use_id,
+            ):
+                native_result = await fast_tool.run(arguments or {})
             tool_result = self._native_tool_result_to_mcp_result(native_result)
             if tool_handler and tool_call_id:
                 with suppress(Exception):
+                    content = tool_result.content or None
+                    error = None
+                    if tool_result.isError:
+                        text_parts = [text for block in content or [] if (text := get_text(block))]
+                        error = "\n".join(text_parts) if text_parts else None
+                        content = None
                     await tool_handler.on_tool_complete(
-                        tool_call_id, True, tool_result.content, None
+                        tool_call_id,
+                        not tool_result.isError,
+                        content,
+                        error,
                     )
             return tool_result
         except Exception as e:
@@ -935,5 +1007,5 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             content=result.content,
             structuredContent=result.structured_content,
             _meta=result.meta,
-            isError=False,
+            isError=result.is_error,
         )

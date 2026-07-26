@@ -36,7 +36,7 @@ The easiest way to configure environments is to prompt **`fast-agent`**:
 
 ```bash
 # container
-fast-agent -x --smart \
+fast-agent -xx \
 -m "configure a docker execution environment (ubuntu) named docker-env " \
 " with a read only mount of the current working directory. make it the default" \
 --model codexplan
@@ -44,10 +44,10 @@ fast-agent -x --smart \
 
 ```bash
 # hf sandbox
-fast-agent -x --smart --url https://huggingface.co/mcp?bouquet=files \ 
+fast-agent -xx --url https://huggingface.co/mcp?bouquet=files \
 -m "i want to set up an execution environment (hf sandbox) with my most " \
-" recent dataset attached" 
-\ --model codexplan 
+" recent dataset attached" \
+--model codexplan
 ```
 
 ## Named environments

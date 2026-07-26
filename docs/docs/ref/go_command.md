@@ -67,13 +67,15 @@ not need to inspect Fast-Agent session files or private message channels.
 - `--home <path>`: Use `<path>` as the `.fast-agent` home itself (cards load from `<path>/agent-cards/`); relative paths resolve under the selected workspace
 - `--no-home`: Run in ephemeral mode (disable implicit home card loading, session persistence/resume, and permission-store side effects)
 - `--resume <id|latest>`: Resume the latest session (or a specific session id)
-- `--smart`: Prefer a smart default agent when fast-agent creates the default agent
+- `--subagents`: Enable the built-in `subagent` tool for the selected or generated agent
+- `--subagent-model <model_string>`: Enable built-in subagents and force every one to use this model
 - `--prompt-file`, `-p <path or uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to a prompt file to use (either text or JSON)
 - `--skills-dir`, `--skills <path>`: Override the default skills directory
 - `--stdio "<command> <options>"`: Run the command to attach a STDIO server (enclose arguments in quotes)
 - `--npx "@package/name <options>"`: Run an NPX package as a STDIO server (enclose arguments in quotes)
 - `--uvx "@package/name <options>"`: Run an UVX package as a STDIO server (enclose arguments in quotes)
 - `--shell`, `-x`: Enable a local shell runtime and expose the execute tool (bash or pwsh)
+- `-xx`: Enable both local shell access and built-in subagents
 - `--no-shell`: Disable local shell/filesystem tools, even when skills or agent config request them
 - `--reload`: Enable manual AgentCard reloads with `/reload`
 - `--watch`: Watch AgentCard paths and reload automatically
@@ -104,8 +106,8 @@ fast-agent go --pack analyst --agent planner --model haiku
 # Basic usage with interactive mode (go omitted)
 fast-agent --model haiku
 
-# Use smart default agent (go omitted)
-fast-agent --smart --model haiku
+# Use shell access and built-in subagents (go omitted)
+fast-agent -xx --subagent-model haiku
 
 # Compare responses across multiple models (comparison mode)
 fast-agent --models "kimi,gpt-5-mini?reasoning=low"
@@ -199,8 +201,6 @@ How it works:
 - Each model string becomes a separate agent name in the output.
 - Interactive mode (default): every prompt is sent to all models and results are shown in a comparison view.
 - Non-interactive: use `--message` or `--prompt-file` to run once and print results for each model.
-- `--smart` is ignored when multiple models are provided.
-
 ```bash
 fast-agent go --models "sonnet,gpt-5-mini?reasoning=low"
 

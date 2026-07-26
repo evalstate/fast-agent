@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from fast_agent import config
+from fast_agent.agents.subagent_tool import install_subagent_tool
 from fast_agent.core.agent_app import AgentApp, AgentCardLoadResult, AgentRefreshResult
 from fast_agent.core.card_tool_attachment import load_and_attach_card_tool_agents
 from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
@@ -208,6 +209,9 @@ class ManagedRuntimeMixin:
                 )
                 app_override.no_home_mode = runtime.no_home_mode
                 app = app_override
+
+            for agent_name in app.visible_agent_names():
+                install_subagent_tool(agents_map[agent_name])
 
             instance = AgentInstance(
                 app,

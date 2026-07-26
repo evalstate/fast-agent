@@ -7,7 +7,6 @@ from mcp.types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
-from fast_agent.constants import SMART_AGENT_INSTRUCTION
 from fast_agent.context import Context
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
@@ -340,7 +339,7 @@ async def test_agent_skills_missing_placeholder_warns(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_skills_internal_smart_prompt_does_not_warn(tmp_path: Path) -> None:
+async def test_agent_skills_placeholder_does_not_warn(tmp_path: Path) -> None:
     skills_root = tmp_path / "skills"
     create_skill(skills_root, "delta", description="Delta desc")
 
@@ -349,7 +348,7 @@ async def test_agent_skills_internal_smart_prompt_does_not_warn(tmp_path: Path) 
 
     config = AgentConfig(
         name="test",
-        instruction=SMART_AGENT_INSTRUCTION,
+        instruction="Skills:\n{{agentSkills}}",
         servers=[],
         skills=skills_root,
     )

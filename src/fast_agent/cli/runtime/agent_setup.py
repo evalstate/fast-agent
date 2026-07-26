@@ -65,7 +65,7 @@ from .model_bootstrap import (
     system_default_reference_is_missing as _system_default_reference_is_missing,
 )
 from .one_shot import run_one_shot_payload as _run_one_shot_payload
-from .request_builders import resolve_default_instruction, resolve_smart_agent_enabled
+from .request_builders import resolve_default_instruction
 from .session_resume import (
     find_last_assistant_text as _find_last_assistant_text,
 )
@@ -402,16 +402,16 @@ def _live_atif_model_metadata(
     return llm.model_name or request.model, llm.provider.config_name
 
 
-def _live_child_trajectory_dir(
+def _live_atif_session_dir(
     session_manager: SessionManager | None,
     harness_session: HarnessSession | None,
 ) -> Path | None:
     if harness_session is not None and harness_session.session_manager is not None:
         session = harness_session.session_manager.current_session
-        return None if session is None else session.directory / "trajectories"
+        return None if session is None else session.directory
     if session_manager is None or session_manager.current_session is None:
         return None
-    return session_manager.current_session.directory / "trajectories"
+    return session_manager.current_session.directory
 
 
 async def _live_atif_tool_definitions(agent_obj: Any) -> list[dict[str, object]] | None:
@@ -466,7 +466,7 @@ async def _export_live_atif_trajectory(
             provider=provider,
             history=messages,
             message_timestamps=tuple(message.timestamp for message in messages),
-            child_trajectory_dir=_live_child_trajectory_dir(session_manager, harness_session),
+            parent_session_dir=_live_atif_session_dir(session_manager, harness_session),
             tool_definitions=await _live_atif_tool_definitions(agent_obj),
             extra=(
                 {
@@ -531,7 +531,7 @@ async def _export_parallel_atif_trajectory(
                 provider=provider,
                 history=messages,
                 message_timestamps=tuple(message.timestamp for message in messages),
-                child_trajectory_dir=_live_child_trajectory_dir(session_manager, harness_session),
+                parent_session_dir=_live_atif_session_dir(session_manager, harness_session),
                 tool_definitions=await _live_atif_tool_definitions(agent_obj),
                 system_prompt=agent_obj.instruction,
                 reasoning_effort=(reasoning_setting_telemetry_value(reasoning)),
@@ -872,14 +872,6 @@ def _request_instruction(request: AgentRunRequest) -> str | None:
     return resolve_default_instruction(
         request.model,
         request.mode,
-        force_smart=request.force_smart,
-    )
-
-
-def _smart_unavailable_warning() -> str:
-    return (
-        "Warning: --smart requested, but smart defaults are unavailable when using "
-        "multiple models. Continuing with non-smart defaults."
     )
 
 
@@ -888,6 +880,23 @@ def _configure_stdio_server_console(request: AgentRunRequest) -> None:
         from fast_agent.ui.console import configure_console_stream
 
         configure_console_stream("stderr")
+
+
+def _apply_cli_subagent_overrides(fast: Any, request: AgentRunRequest) -> None:
+    """Apply CLI subagent policy after every generated or card agent is registered."""
+    from fast_agent.agents.agent_types import AgentConfig
+
+    for agent_data in fast.agents.values():
+        config = agent_data.get("config")
+        if not isinstance(config, AgentConfig):
+            continue
+        if config.tool_only or agent_data.get("tool_only", False):
+            config.subagents = False
+            continue
+        if request.subagents is not None:
+            config.subagents = request.subagents
+        if request.subagent_model is not None:
+            config.subagent_model = request.subagent_model
 
 
 def _build_fast_agent(request: AgentRunRequest):
@@ -969,34 +978,12 @@ def _card_defined_default_type(fast: Any) -> str | None:
     return None
 
 
-def _warn_if_card_default_overrides_smart(
-    request: AgentRunRequest,
-    explicit_default_type: str | None,
-    smart_agent_enabled: bool,
-    smart_unavailable_warning: str,
-) -> None:
-    if explicit_default_type is not None and request.force_smart:
-        from fast_agent.agents.agent_types import AgentType
-
-        if explicit_default_type != AgentType.SMART.value:
-            typer.echo(
-                "Warning: --smart requested, but loaded AgentCards already define a "
-                "non-smart default agent. Keeping the card-defined default.",
-                err=True,
-            )
-    elif request.force_smart and not smart_agent_enabled:
-        typer.echo(smart_unavailable_warning, err=True)
-
-
 def _define_card_fallback_agent(
     fast: Any,
     request: AgentRunRequest,
     instruction: str | None,
-    smart_agent_enabled: bool,
 ) -> None:
-    agent_decorator = fast.smart if smart_agent_enabled else fast.agent
-
-    @agent_decorator(
+    @fast.agent(
         name="agent",
         instruction=instruction,
         servers=request.server_list or [],
@@ -1011,8 +998,6 @@ def _configure_card_agents(
     fast: Any,
     request: AgentRunRequest,
     instruction: str | None,
-    smart_agent_enabled: bool,
-    smart_unavailable_warning: str,
 ) -> None:
     try:
         loaded_agent_names: list[str] = []
@@ -1023,13 +1008,6 @@ def _configure_card_agents(
             request.managed_mcp_agent_names = list(dict.fromkeys(loaded_agent_names))
 
         explicit_default_type = _card_defined_default_type(fast)
-        _warn_if_card_default_overrides_smart(
-            request,
-            explicit_default_type,
-            smart_agent_enabled,
-            smart_unavailable_warning,
-        )
-
         selected_loaded_agent = _select_loaded_card_agent(
             fast,
             request,
@@ -1043,7 +1021,6 @@ def _configure_card_agents(
                 fast,
                 request,
                 instruction,
-                smart_agent_enabled,
             )
 
         load_and_attach_card_tool_agents(
@@ -1074,15 +1051,11 @@ def _build_card_cli_agent(
     fast: Any,
     request: AgentRunRequest,
     instruction: str | None,
-    smart_agent_enabled: bool,
-    smart_unavailable_warning: str,
 ) -> Callable[[], Awaitable[None]]:
     _configure_card_agents(
         fast,
         request,
         instruction,
-        smart_agent_enabled,
-        smart_unavailable_warning,
     )
 
     async def cli_agent() -> None:
@@ -1280,12 +1253,7 @@ def _build_multi_model_cli_agent(
     fast: Any,
     request: AgentRunRequest,
     instruction: str | None,
-    smart_agent_enabled: bool,
-    smart_unavailable_warning: str,
 ) -> Callable[[], Awaitable[None]]:
-    if request.force_smart and not smart_agent_enabled:
-        typer.echo(smart_unavailable_warning, err=True)
-
     assert request.model is not None
     fan_out_agents = _define_model_fanout_agents(
         fast,
@@ -1313,12 +1281,6 @@ async def run_agent_request(request: AgentRunRequest) -> None:
     startup_model_source_override = await _select_startup_model_if_needed(request)
     serve_permissions_enabled = _serve_permissions_enabled(request)
     instruction = _request_instruction(request)
-    smart_agent_enabled = resolve_smart_agent_enabled(
-        request.model,
-        request.mode,
-        force_smart=request.force_smart,
-    )
-    smart_unavailable_warning = _smart_unavailable_warning()
     _configure_stdio_server_console(request)
 
     fast = _build_fast_agent(request)
@@ -1335,8 +1297,6 @@ async def run_agent_request(request: AgentRunRequest) -> None:
             fast,
             request,
             instruction,
-            smart_agent_enabled,
-            smart_unavailable_warning,
         )
 
     elif request.model and "," in request.model:
@@ -1344,14 +1304,10 @@ async def run_agent_request(request: AgentRunRequest) -> None:
             fast,
             request,
             instruction,
-            smart_agent_enabled,
-            smart_unavailable_warning,
         )
 
     else:
-        agent_decorator = fast.smart if smart_agent_enabled else fast.agent
-
-        @agent_decorator(
+        @fast.agent(
             name=request.agent_name or "agent",
             instruction=instruction,
             servers=request.server_list or [],
@@ -1366,6 +1322,8 @@ async def run_agent_request(request: AgentRunRequest) -> None:
             )
 
         _validate_target_agent_name(fast, request)
+
+    _apply_cli_subagent_overrides(fast, request)
 
     if request.mode == "serve":
         if request.managed_mcp_agent_names is None:

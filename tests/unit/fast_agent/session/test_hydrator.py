@@ -13,8 +13,10 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import (
+    NonResumableSessionError,
     SessionAgentSnapshot,
     SessionAttachmentRef,
+    SessionChildLinkSnapshot,
     SessionContinuationSnapshot,
     SessionGitSnapshot,
     SessionGitStateSnapshot,
@@ -169,6 +171,31 @@ def _write_snapshot(session: Session, snapshot: SessionSnapshot) -> None:
         json.dumps(snapshot.model_dump(mode="json"), indent=2),
         encoding="utf-8",
     )
+
+
+@pytest.mark.asyncio
+async def test_hydrator_rejects_non_resumable_execution_session(tmp_path: Path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    parent = manager.create_session()
+    child = manager.create_child_session(
+        parent,
+        SessionChildLinkSnapshot(
+            parent_session_id=parent.info.name,
+            parent_agent_name="parent",
+        ),
+    )
+    agent = _Agent(name="child", instruction="runtime")
+
+    with pytest.raises(NonResumableSessionError, match="not resumable"):
+        await SessionHydrator().hydrate_session(
+            session=child,
+            agents={"child": cast("AgentProtocol", agent)},
+            fallback_agent_name="child",
+        )
 
 
 def _git(workspace: Path, *args: str) -> str:

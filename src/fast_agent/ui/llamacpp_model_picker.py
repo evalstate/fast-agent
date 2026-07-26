@@ -28,7 +28,6 @@ StyleFragments = list[tuple[str, str]]
 type LlamaCppPickerAction = Literal[
     "start_now",
     "start_now_with_shell",
-    "start_now_smart",
     "generate_overlay",
 ]
 
@@ -72,11 +71,6 @@ class _LlamaCppModelPicker:
             key="start_now_with_shell",
             label="Start now (with shell) ",
             summary="Write the overlay and immediately launch fast-agent go -x.",
-        ),
-        _PickerActionOption(
-            key="start_now_smart",
-            label="Start now (Smart) ",
-            summary="Write the overlay and immediately launch fast-agent go --smart -x.",
         ),
         _PickerActionOption(
             key="generate_overlay",

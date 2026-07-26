@@ -13,6 +13,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import (
+    SessionChildLinkSnapshot,
     SessionManager,
     apply_session_window,
     get_session_history_window,
@@ -542,6 +543,39 @@ def test_empty_sessions_are_hidden_and_pruned_but_titled_sessions_remain(tmp_pat
     assert manager.prune_empty_sessions() == 1
     assert not abandoned.directory.exists()
     assert titled.directory.exists()
+
+
+def test_child_sessions_are_nested_discoverable_and_do_not_change_current_session(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    parent = manager.create_session()
+    child = manager.create_child_session(
+        parent,
+        SessionChildLinkSnapshot(
+            parent_session_id=parent.info.name,
+            parent_agent_name="parent",
+            parent_tool_call_id="tool-123",
+        ),
+    )
+
+    assert manager.current_session is parent
+    assert child.directory == parent.directory / "children" / child.info.name
+    assert [info.name for info in manager.list_sessions()] == [parent.info.name]
+    assert parent.has_persisted_content()
+
+    children = manager.list_child_sessions(parent)
+
+    assert [session.info.name for session in children] == [child.info.name]
+    snapshot = load_session_snapshot(json.loads((child.directory / "session.json").read_text()))
+    assert snapshot.execution.resumable is False
+    assert snapshot.execution.child_link is not None
+    assert snapshot.execution.child_link.parent_tool_call_id == "tool-123"
+    assert snapshot.execution.status == "running"
+    assert snapshot.execution.started_at is not None
+    assert snapshot.execution.completed_at is None
 
 
 def test_resume_session_includes_hydrator_warnings_in_notices(tmp_path) -> None:

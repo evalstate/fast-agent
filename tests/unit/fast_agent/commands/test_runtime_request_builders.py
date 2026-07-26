@@ -11,10 +11,8 @@ from fast_agent.cli.runtime.request_builders import (
     resolve_default_instruction,
     resolve_instance_scope,
     resolve_instruction_option,
-    resolve_smart_agent_enabled,
 )
 from fast_agent.cli.runtime.run_request import AgentRunRequest
-from fast_agent.constants import SMART_AGENT_INSTRUCTION
 
 
 def test_card_source_helpers_deduplicate_preserving_order(tmp_path: Path) -> None:
@@ -578,37 +576,6 @@ def test_build_command_run_request_accepts_json_schema_for_prompt_file_mode() ->
     assert request.quiet is True
 
 
-def test_build_command_run_request_smart_flag_uses_smart_instruction() -> None:
-    request = build_command_run_request(
-        name="cli",
-        instruction_option=None,
-        config_path=None,
-        servers=None,
-        urls=None,
-        auth=None,
-        client_metadata_url=None,
-        agent_cards=None,
-        card_tools=None,
-        model=None,
-        message=None,
-        prompt_file=None,
-        result_file=None,
-        resume=None,
-        npx=None,
-        uvx=None,
-        stdio=None,
-        target_agent_name=None,
-        skills_directory=None,
-        home=None,
-        force_smart=True,
-        shell_enabled=False,
-        mode="interactive",
-    )
-
-    assert request.force_smart is True
-    assert request.instruction == SMART_AGENT_INSTRUCTION
-
-
 def test_build_command_run_request_accepts_missing_shell_cwd_override() -> None:
     request = build_command_run_request(
         name="cli",
@@ -885,17 +852,6 @@ def test_build_command_run_request_rejects_invalid_structured_tool_policy() -> N
         )
 
 
-def test_resolve_smart_agent_enabled_disables_smart_for_multi_model_even_when_forced() -> None:
-    assert (
-        resolve_smart_agent_enabled(
-            "gpt-4.1,claude-sonnet-4-5",
-            "interactive",
-            force_smart=True,
-        )
-        is False
-    )
-
-
 def test_build_agent_run_request_rejects_multi_model_with_explicit_cards() -> None:
     with pytest.raises(typer.BadParameter, match="Cannot use multiple models with AgentCards"):
         build_agent_run_request(
@@ -1129,7 +1085,6 @@ def test_agent_run_request_rejects_no_home_with_resume_at_boundary() -> None:
             skills_directory=None,
             home=None,
             no_home=True,
-            force_smart=False,
             shell_runtime=False,
             no_shell=False,
             mode="interactive",

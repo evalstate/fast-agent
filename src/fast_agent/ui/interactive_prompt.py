@@ -1178,6 +1178,7 @@ class InteractivePrompt:
     ) -> PromptLoopResult | None:
         emit_prompt_mark("C")
         write_interactive_trace("prompt.send.start", agent=agent_name)
+        self._clear_progress_for_agent(agent_name)
         progress_display.resume()
         try:
             result = await send_func(prompt_payload, agent_name)

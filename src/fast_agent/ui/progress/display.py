@@ -20,6 +20,7 @@ from fast_agent.tools.tool_sources import ACP_TERMINAL_TOOL_SOURCE
 from fast_agent.ui.agent_identity import is_default_agent_name
 from fast_agent.ui.console import console as default_console
 from fast_agent.ui.console import ensure_blocking_console
+from fast_agent.ui.display_suppression import interactive_display_mode
 from fast_agent.ui.progress.process_poll import (
     ProcessMonitorStats,
     format_process_poll_countdown_track,
@@ -88,6 +89,8 @@ _ACTION_STYLES = {
     ProgressAction.COMPACTING: "cyan",
     ProgressAction.ROUTING: "blue",
     ProgressAction.PLANNING: "blue",
+    ProgressAction.MONITORING: "blue",
+    ProgressAction.RUNNING: "bold green",
     ProgressAction.READY: "dim green",
     ProgressAction.CALLING_TOOL: "magenta",
     ProgressAction.READING_RESOURCE: "magenta",
@@ -450,12 +453,15 @@ class RichProgressDisplay:
         if not normalized_agent:
             return
 
-        prefix = f"{normalized_agent}::"
+        correlated_prefix = f"{normalized_agent}::"
+        clone_prefix = f"{normalized_agent}["
         with self._lock:
             task_names = [
                 task_name
                 for task_name in list(self._taskmap)
-                if task_name == normalized_agent or task_name.startswith(prefix)
+                if task_name == normalized_agent
+                or task_name.startswith(correlated_prefix)
+                or task_name.startswith(clone_prefix)
             ]
             if not task_names:
                 return
@@ -590,6 +596,8 @@ class RichProgressDisplay:
         *,
         is_correlated_tool_event: bool,
     ) -> str:
+        if event.tool_event == "subagent_monitor" and event.instance_name:
+            return event.instance_name
         task_name = event.agent_name or "default"
         if is_correlated_tool_event and event.correlation_id:
             return f"{task_name}::{event.correlation_id}"
@@ -639,6 +647,8 @@ class RichProgressDisplay:
     def _action_label(cls, event: ProgressEvent) -> str:
         if cls._is_process_poll_event(event):
             return "Monitoring"
+        if event.action == ProgressAction.RUNNING:
+            return "Running"
         return event.action.value.strip()
 
     @staticmethod
@@ -843,6 +853,11 @@ class RichProgressDisplay:
 
     def update(self, event: ProgressEvent) -> None:
         """Update the progress display with a new event."""
+        if (
+            interactive_display_mode() == "monitor_only"
+            and event.tool_event != "subagent_monitor"
+        ):
+            return
         with self._lock:
             # Skip updates when display is stopped
             if self._stopped:

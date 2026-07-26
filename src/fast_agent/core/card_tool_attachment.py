@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from fast_agent.core.agent_card_types import AgentCardData
 
-_CARD_TOOL_ATTACHABLE_TYPES = frozenset({"basic", "smart", "custom"})
+_CARD_TOOL_ATTACHABLE_TYPES = frozenset({"basic", "custom"})
 
 
 class CardToolAttachTarget(Protocol):

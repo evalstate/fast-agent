@@ -87,6 +87,29 @@ or as YAML-only files:
 Markdown cards are usually easier to read because the frontmatter contains
 configuration and the body contains the instruction prompt.
 
+## Configure built-in subagents
+
+The built-in `subagent` tool is disabled unless the card sets
+`subagents: true`. Tool-only agents and children created by the built-in tool
+always keep it disabled.
+
+Pin all built-in child runs to a model with `subagent_model`:
+
+```md
+---
+name: coordinator
+model: sonnet
+subagents: true
+subagent_model: gpt-oss
+---
+
+Delegate focused tasks to subagents.
+```
+
+With `subagent_model`, the model-visible `subagent` tool schema has no `model`
+argument and every child uses the configured model. `subagent_model` has no
+effect unless `subagents: true`.
+
 ## Add Python function tools
 
 Cards can expose local Python functions as tools with `function_tools`. This is

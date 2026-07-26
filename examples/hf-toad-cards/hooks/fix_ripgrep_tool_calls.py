@@ -1,4 +1,4 @@
-"""Lightweight guard for the smart card-pack ripgrep helper."""
+"""Lightweight guard for the ripgrep helper card pack."""
 
 from __future__ import annotations
 

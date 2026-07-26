@@ -115,17 +115,6 @@ fast-agent model llamacpp import \
   --with-shell
 ```
 
-Add `--smart` for smart mode:
-
-```bash
-fast-agent model llamacpp import \
-  --url http://localhost:8080 \
-  unsloth/Qwen3.5-9B-GGUF \
-  --name qwen-local \
-  --start-now \
-  --smart
-```
-
 ## Authenticated llama.cpp endpoints
 
 For local servers, no persisted auth is usually needed. For authenticated or remote

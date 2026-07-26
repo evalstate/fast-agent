@@ -762,7 +762,7 @@ def _environment_model_fields_table(title: str, model: Any) -> str:
 
 
 def generate_execution_environments_internal_resource() -> str:
-    """Generate smart-agent guidance for execution environment config from schema annotations."""
+    """Generate internal-resource guidance for execution environment config from schema annotations."""
     from fast_agent.tools.environment_config import (
         CustomEnvironmentSpec,
         DockerEnvironmentSpec,

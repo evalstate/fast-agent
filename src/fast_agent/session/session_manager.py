@@ -27,6 +27,8 @@ from fast_agent.constants import DEFAULT_HOME_DIR
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.paths import resolve_home_paths
 from fast_agent.session.snapshot import (
+    SessionChildLinkSnapshot,
+    SessionExecutionStatus,
     SessionSnapshot,
     capture_session_snapshot,
     clone_session_snapshot_for_fork,
@@ -480,7 +482,28 @@ class Session:
         trajectory_dir = self.directory / TRAJECTORIES_DIR
         if trajectory_dir.is_dir() and any(trajectory_dir.iterdir()):
             return True
+        children_dir = self.directory / "children"
+        if children_dir.is_dir() and any(children_dir.iterdir()):
+            return True
         return any(self.directory.glob(f"{HISTORY_PREFIX}*{HISTORY_SUFFIX}"))
+
+    def set_execution_status(self, status: SessionExecutionStatus) -> None:
+        """Record the terminal lifecycle state for an execution session."""
+        snapshot = self._load_snapshot_or_compatibility()
+        now = datetime.now()
+        snapshot.last_activity = now
+        snapshot.execution.status = status
+        snapshot.execution.completed_at = now if status != "running" else None
+        self.info.last_activity = now
+        self._save_snapshot(snapshot)
+
+    def _load_snapshot_or_compatibility(self) -> SessionSnapshot:
+        metadata_file = self.directory / "session.json"
+        try:
+            with metadata_file.open(encoding="utf-8") as handle:
+                return load_session_snapshot(json.load(handle))
+        except Exception:
+            return snapshot_from_session_info(self.info)
 
     def is_user_visible(self) -> bool:
         """Return whether this session should appear in interactive session surfaces."""
@@ -753,6 +776,80 @@ class SessionManager:
         self._prune_sessions()
         logger.info(f"Created new session: {requested_id}")
         return session
+
+    def create_child_session(
+        self,
+        parent: Session,
+        child_link: SessionChildLinkSnapshot,
+    ) -> Session:
+        """Create a detached, non-resumable child below an existing session."""
+        if parent.manager is not self:
+            raise ValueError("Parent session is not owned by this SessionManager")
+        if child_link.parent_session_id != parent.info.name:
+            raise ValueError("Child link parent_session_id does not match parent session")
+
+        children_dir = parent.directory / "children"
+        children_dir.mkdir(parents=True, exist_ok=True)
+        while True:
+            child_id = self._generate_session_id()
+            child_dir = children_dir / child_id
+            try:
+                child_dir.mkdir()
+            except FileExistsError:
+                continue
+            break
+
+        now = datetime.now()
+        child = Session(
+            SessionInfo(
+                name=child_id,
+                created_at=now,
+                last_activity=now,
+                history_files=[],
+                metadata={},
+            ),
+            child_dir,
+            manager=self,
+        )
+        snapshot = snapshot_from_session_info(child.info)
+        snapshot.execution.resumable = False
+        snapshot.execution.child_link = child_link
+        snapshot.execution.status = "running"
+        snapshot.execution.started_at = now
+        child._save_snapshot(snapshot)
+        logger.info(
+            "Created child session",
+            data={"parent_session": parent.info.name, "child_session": child_id},
+        )
+        return child
+
+    def list_child_sessions(self, parent: Session) -> list[Session]:
+        """Return child sessions without changing the active root session."""
+        if parent.manager is not self:
+            raise ValueError("Parent session is not owned by this SessionManager")
+
+        children_dir = parent.directory / "children"
+        if not children_dir.is_dir():
+            return []
+
+        children: list[Session] = []
+        for child_dir in children_dir.iterdir():
+            metadata_file = child_dir / "session.json"
+            if not child_dir.is_dir() or not metadata_file.exists():
+                continue
+            try:
+                with metadata_file.open(encoding="utf-8") as handle:
+                    info = session_info_from_snapshot(load_session_snapshot(json.load(handle)))
+            except Exception as exc:
+                logger.warning(
+                    "Failed to load child session metadata",
+                    data={"parent_session": parent.info.name, "path": str(metadata_file), "error": str(exc)},
+                )
+                continue
+            children.append(Session(info, child_dir, manager=self))
+
+        children.sort(key=lambda child: child.info.last_activity, reverse=True)
+        return children
 
     def list_sessions(self, *, include_empty: bool = True) -> list[SessionInfo]:
         """List all available sessions."""
@@ -1208,4 +1305,11 @@ def get_session_manager(
             "Active session manager workspace does not match the requested cwd. Pass the "
             "correct SessionManager explicitly instead of switching the global manager."
         )
+    return _session_manager
+
+
+def get_active_session_manager() -> SessionManager:
+    """Return the process-level session manager without resolving a store."""
+    if _session_manager is None:
+        raise RuntimeError("No active session manager has been registered")
     return _session_manager

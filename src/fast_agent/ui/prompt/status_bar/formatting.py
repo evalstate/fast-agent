@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import shutil
 from html import escape as escape_html
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING
 
 from prompt_toolkit.application.current import get_app_or_none
 from prompt_toolkit.formatted_text import HTML, to_formatted_text
 from prompt_toolkit.formatted_text.utils import fragment_list_width
 
-from fast_agent.agents.agent_types import AgentType
-from fast_agent.core.validation import normalize_agent_type_value
 from fast_agent.ui.context_usage_display import format_compact_context_usage_percent
 from fast_agent.ui.gauge_glyph_palette import (
     PAIRED_REASONING_GAUGE_GLYPHS,
@@ -32,12 +30,6 @@ if TYPE_CHECKING:
     from fast_agent.llm.text_verbosity import TextVerbosityLevel, TextVerbositySpec
 
 _ELLIPSIS = "…"
-
-
-@runtime_checkable
-class _AgentTypeProvider(Protocol):
-    @property
-    def agent_type(self) -> AgentType | str | None: ...
 
 
 def _format_context_usage_percent_for_toolbar(pct: float | None) -> str | None:
@@ -140,18 +132,11 @@ def _render_model_gauges(
     return "".join(gauge for gauge in (reasoning_gauge, verbosity_gauge) if gauge is not None)
 
 
-def _is_smart_agent(agent: object | None) -> bool:
-    """Return True when the provided agent instance is a smart agent."""
-    if not isinstance(agent, _AgentTypeProvider):
-        return False
-    return normalize_agent_type_value(agent.agent_type) == AgentType.SMART.value
-
-
 def _format_toolbar_agent_identity(
     agent_name: str, toolbar_color: str, agent: object | None
 ) -> str:
-    """Render toolbar agent identity, suffixing [S] for smart agents."""
-    label = f"{agent_name}[S]" if _is_smart_agent(agent) else agent_name
+    """Render toolbar agent identity."""
+    del agent
     color = escape_html(toolbar_color, quote=True)
-    escaped_label = escape_html(label, quote=False)
+    escaped_label = escape_html(agent_name, quote=False)
     return f" <style fg='{color}' bg='ansiblack'> {escaped_label} </style>"

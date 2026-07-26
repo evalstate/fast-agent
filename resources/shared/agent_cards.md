@@ -1,7 +1,7 @@
 <AgentCards>
 ---
 
-# Agent Card (type: `agent`)
+# AgentCard
 
 ## Format
 - **Markdown** with YAML frontmatter + body, or **YAML** only.
@@ -46,8 +46,27 @@
   - `selectable` means that, when this agent is exposed as a tool, callers can choose per invocation with `response_mode: inherit | postprocess | passthrough`.
 - `human_input` — bool (enable human input tool).
 - `shell` — bool (enable shell); `cwd` optional.
-- `default` — marks this agent as the `smart` tool target when the path resolves multiple cards. First `default: true` non-`tool_only` agent wins; if none, the first non-`tool_only` agent is used.
+- `default` — marks this agent as the default runnable card when the path resolves multiple cards. First `default: true` non-`tool_only` agent wins; if none, the first non-`tool_only` agent is used.
 - `tool_only` — excludes this agent from default selection; it can only be invoked by other agents as a tool.
+- `subagents` — optional bool controlling the built-in `subagent` tool. Set
+  `true` to enable it. Tool-only agents and built-in subagent children always
+  disable it.
+- `subagent_model` — optional non-empty model spec that every built-in
+  subagent run must use.
+
+---
+
+## Built-in subagent controls
+
+```yaml
+subagents: true
+subagent_model: passthrough
+```
+
+When `subagent_model` is set, the `subagent` tool does not expose a `model`
+argument and every child uses that model. Otherwise, a tool-call `model`
+override wins; if omitted, the child inherits its parent's current model.
+`subagent_model` has no effect when `subagents: false`.
 
 ---
 

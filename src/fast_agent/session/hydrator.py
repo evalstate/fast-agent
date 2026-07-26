@@ -68,6 +68,13 @@ class SessionHydrationResult:
     active_agent: str | None = None
 
 
+class NonResumableSessionError(RuntimeError):
+    """Raised when attempting to hydrate an execution-only session."""
+
+    def __init__(self, session_id: str) -> None:
+        super().__init__(f"Session {session_id!r} is not resumable")
+
+
 @dataclass(slots=True)
 class _HydrationState:
     loaded_agents: dict[str, Path] = field(default_factory=dict)
@@ -151,6 +158,8 @@ class SessionHydrator:
     ) -> SessionHydrationResult:
         warnings: list[SessionHydrationWarning] = []
         snapshot = self._load_snapshot(session=session, warnings=warnings)
+        if not snapshot.execution.resumable:
+            raise NonResumableSessionError(snapshot.session_id)
         warnings.extend(self._git_state_warnings(snapshot))
         agent_snapshots = self._select_agent_snapshots(
             session=session,

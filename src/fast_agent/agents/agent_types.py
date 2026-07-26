@@ -26,7 +26,6 @@ class AgentType(StrEnum):
 
     LLM = auto()
     BASIC = auto()
-    SMART = auto()
     CUSTOM = auto()
     ORCHESTRATOR = auto()
     PARALLEL = auto()
@@ -120,6 +119,8 @@ class AgentConfig:
     agent_type: AgentType = AgentType.BASIC
     default: bool = False
     tool_only: bool = False
+    subagents: bool | None = None
+    subagent_model: str | None = None
     elicitation_handler: ElicitationFnT | None = None
     api_key: str | None = None
     function_tools: FunctionToolsConfig = None  # Local Python function tools

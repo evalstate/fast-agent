@@ -593,7 +593,7 @@ async def test_load_card_tools_attaches_to_registry_before_refresh(
     fast.args = argparse.Namespace(card_tools=["tool-cards"], agent="main")
     fast.agents = {
         "main": {
-            "type": AgentType.SMART.value,
+            "type": AgentType.BASIC.value,
             "config": AgentConfig(name="main", default=True),
         },
         "tool": {

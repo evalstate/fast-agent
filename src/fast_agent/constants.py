@@ -35,6 +35,10 @@ FAST_AGENT_URL_ELICITATION_CHANNEL = "fast-agent-url-elicitation"
 FAST_AGENT_TIMING = "fast-agent-timing"
 FAST_AGENT_TOOL_METADATA = "fast-agent-tool-metadata"
 FAST_AGENT_TOOL_TIMING = "fast-agent-tool-timing"
+BUILTIN_SUBAGENT_TOOL_NAME = "subagent"
+"""Reserved name of the built-in one-shot subagent tool."""
+FAST_AGENT_SUBAGENT_RESULT_METADATA = "fast-agent-subagent"
+"""Tool-result ``_meta`` key for built-in subagent execution details."""
 FAST_AGENT_SHELL_PROCESS_METADATA = "fast-agent-shell-process-metadata"
 FAST_AGENT_PROCESS_POLL_FOLD = "fast-agent-process-poll-fold"
 FAST_AGENT_USAGE = "fast-agent-usage"
@@ -95,15 +99,6 @@ Mermaid diagrams between code fences are supported.
 {{model_specific}}
 
 The current date is {{currentDate}}."""
-
-
-SMART_AGENT_INSTRUCTION = "{{internal:smart_prompt}}"
-
-DEFAULT_GO_AGENT_TYPE = "agent"
-"""Default agent type for CLI single-model runs ("smart" or "agent")."""
-
-DEFAULT_SERVE_AGENT_TYPE = "agent"
-"""Default agent type for CLI serve/acp single-model runs ("smart" or "agent")."""
 
 
 DEFAULT_HOME_DIR = ".fast-agent"

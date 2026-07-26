@@ -72,6 +72,14 @@ class TestResolveName:
             _resolve_name("   ", dummy_path)
 
 
+def test_load_agent_card_rejects_removed_smart_type(tmp_path: Path) -> None:
+    card_path = tmp_path / "removed.md"
+    card_path.write_text("---\ntype: smart\nname: removed\n---\n", encoding="utf-8")
+
+    with pytest.raises(AgentConfigError, match="Unsupported agent type 'smart'"):
+        load_agent_cards(card_path)
+
+
 def test_load_agent_card_parses_mcp_connect_entries(tmp_path: Path) -> None:
     card_path = tmp_path / "mcp_agent.yaml"
     card_path.write_text(
@@ -121,6 +129,72 @@ def test_load_agent_card_normalizes_padded_instruction(tmp_path: Path) -> None:
     loaded = load_agent_cards(card_path)
 
     assert loaded[0].agent_data["config"].instruction == "Be helpful."
+
+
+@pytest.mark.parametrize(
+    ("suffix", "content"),
+    [
+        (
+            ".md",
+            "\n".join(
+                [
+                    "---",
+                    "name: markdown_agent",
+                    "subagents: true",
+                    "subagent_model: '  passthrough  '",
+                    "---",
+                    "Be helpful.",
+                ]
+            ),
+        ),
+        (
+            ".yaml",
+            "\n".join(
+                [
+                    "name: yaml_agent",
+                    "subagents: false",
+                    "subagent_model: passthrough",
+                ]
+            ),
+        ),
+    ],
+)
+def test_load_agent_card_parses_subagent_controls(
+    tmp_path: Path,
+    suffix: str,
+    content: str,
+) -> None:
+    card_path = tmp_path / f"agent{suffix}"
+    card_path.write_text(content, encoding="utf-8")
+
+    config = load_agent_cards(card_path)[0].agent_data["config"]
+
+    assert config.subagents is (suffix == ".md")
+    assert config.subagent_model == "passthrough"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("subagents", "not-a-bool", "subagents.*boolean"),
+        ("subagents", "1", "subagents.*boolean"),
+        ("subagents", "null", "subagents.*boolean"),
+        ("subagent_model", "''", "subagent_model.*non-empty string"),
+        ("subagent_model", "'   '", "subagent_model.*non-empty string"),
+        ("subagent_model", "null", "subagent_model.*non-empty string"),
+    ],
+)
+def test_load_agent_card_rejects_invalid_subagent_controls(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(f"name: agent\n{field}: {value}\n", encoding="utf-8")
+
+    with pytest.raises(AgentConfigError, match=message):
+        load_agent_cards(card_path)
 
 
 def test_load_agent_card_accepts_declared_variables_metadata(tmp_path: Path) -> None:

@@ -112,7 +112,6 @@ _AGENT_DEPENDENCY_FIELD_SPECS: dict[str, tuple[DependencyFieldSpec, ...]] = {
     AgentType.ITERATIVE_PLANNER.value: (DependencyFieldSpec("child_agents", multiple=True),),
     AgentType.MAKER.value: (DependencyFieldSpec("worker", multiple=False),),
     AgentType.ORCHESTRATOR.value: (DependencyFieldSpec("child_agents", multiple=True),),
-    AgentType.SMART.value: (DependencyFieldSpec("child_agents", multiple=True),),
     AgentType.PARALLEL.value: (
         DependencyFieldSpec("fan_out", multiple=True),
         DependencyFieldSpec("fan_in", multiple=False),
@@ -123,7 +122,6 @@ _AGENT_DEPENDENCY_FIELD_SPECS: dict[str, tuple[DependencyFieldSpec, ...]] = {
 
 _CARD_DEPENDENCY_FIELD_SPECS: dict[str, tuple[DependencyFieldSpec, ...]] = {
     "agent": (DependencyFieldSpec("agents", multiple=True),),
-    "smart": (DependencyFieldSpec("agents", multiple=True),),
     "chain": (DependencyFieldSpec("sequence", multiple=True),),
     "parallel": (
         DependencyFieldSpec("fan_out", multiple=True),
@@ -258,10 +256,7 @@ def _validate_planner_children(
     for agent_name in child_agents:
         child_data = agents[agent_name]
         child_type = normalize_agent_type_value(child_data.get("type"))
-        if is_basic_like_agent_type(child_type) or child_type in {
-            AgentType.SMART.value,
-            AgentType.CUSTOM.value,
-        }:
+        if is_basic_like_agent_type(child_type) or child_type == AgentType.CUSTOM.value:
             continue
 
         func = child_data["func"]
