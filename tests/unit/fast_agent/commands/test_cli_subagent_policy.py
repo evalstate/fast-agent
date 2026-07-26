@@ -67,7 +67,7 @@ def test_cli_subagents_enable_a_generated_no_card_agent(tmp_path) -> None:
 
 
 @pytest.mark.unit
-def test_cli_subagent_precedence_overrides_card_settings(tmp_path) -> None:
+def test_cli_no_subagents_overrides_enabled_card(tmp_path) -> None:
     card = tmp_path / "card.yaml"
     card.write_text(
         "type: agent\nname: card\nmodel: passthrough\nsubagents: true\n",
@@ -81,17 +81,29 @@ def test_cli_subagent_precedence_overrides_card_settings(tmp_path) -> None:
 
     _apply_cli_subagent_overrides(fast, _request(tmp_path, subagents=False))
     assert config.subagents is False
+    assert config.subagent_activation_source == "cli"
     assert install_subagent_tool(ToolAgent(config)) is False
 
+@pytest.mark.unit
+def test_card_disable_overrides_positive_cli_activation(tmp_path) -> None:
+    card = tmp_path / "card.yaml"
+    card.write_text(
+        "type: agent\nname: card\nmodel: passthrough\nsubagents: false\n",
+        encoding="utf-8",
+    )
+    fast = FastAgent("test", parse_cli_args=False)
+    fast.load_agents(str(card))
+
+    config = fast.agents["card"]["config"]
     _apply_cli_subagent_overrides(
         fast,
         _request(tmp_path, subagent_model="child-model"),
     )
-    assert config.subagents is True
-    assert config.subagent_model == "child-model"
-    agent = ToolAgent(config)
-    assert install_subagent_tool(agent) is True
-    assert "model" not in agent._execution_tools[SUBAGENT_TOOL_NAME].parameters["properties"]
+
+    assert config.subagents is False
+    assert config.subagent_activation_source == "configuration"
+    assert config.subagent_model is None
+    assert install_subagent_tool(ToolAgent(config)) is False
 
 
 @pytest.mark.unit

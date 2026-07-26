@@ -74,6 +74,12 @@ the parent's instruction and available capabilities except the built-in
 as a nested non-resumable session. Parallel calls run concurrently while the
 parent waits for all results.
 
+An exact standalone `fast-agent-subagents` line or
+`<!-- fast-agent-subagents -->` comment in the resolved system instruction
+enables the tool only when `subagents` is unset. The directive is stripped
+before the model sees the instruction. Explicit `--no-subagents` and
+`subagents: false` settings always win.
+
 ---
 
 ## Instruction templates (placeholders)

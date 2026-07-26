@@ -298,6 +298,11 @@ tool, so delegation cannot recurse. Multiple calls can run concurrently while
 the parent waits, and each complete child transcript is saved as a nested,
 non-resumable session.
 
+Repositories can opt in without changing an AgentCard by adding the exact
+standalone directive `<!-- fast-agent-subagents -->` to `AGENTS.md`. fast-agent
+strips the directive before calling the model. Explicit `--no-subagents` or
+`subagents: false` settings still disable the tool.
+
 For a plain Python function, add it to an agent with `function_tools`:
 
 ```python title="tools.py"

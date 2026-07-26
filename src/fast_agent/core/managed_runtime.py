@@ -210,9 +210,6 @@ class ManagedRuntimeMixin:
                 app_override.no_home_mode = runtime.no_home_mode
                 app = app_override
 
-            for agent_name in app.visible_agent_names():
-                install_subagent_tool(agents_map[agent_name])
-
             instance = AgentInstance(
                 app,
                 agents_map,
@@ -255,6 +252,9 @@ class ManagedRuntimeMixin:
     ) -> AgentRefreshResult:
         if runtime.global_prompt_context:
             await self._apply_instruction_context(instance, runtime.global_prompt_context)
+
+        for agent in instance.agents.values():
+            install_subagent_tool(agent)
 
         restore_result = None
         if runtime.resume_requested:
@@ -380,6 +380,9 @@ class ManagedRuntimeMixin:
 
         if runtime.global_prompt_context:
             await apply_instruction_context(updated_agents.values(), runtime.global_prompt_context)
+
+        for agent in updated_agents.values():
+            install_subagent_tool(agent)
 
         if not runtime.is_acp_server_mode:
             validate_final_provider_state(updated_agents)

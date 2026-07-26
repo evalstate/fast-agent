@@ -892,9 +892,17 @@ def _apply_cli_subagent_overrides(fast: Any, request: AgentRunRequest) -> None:
             continue
         if config.tool_only or agent_data.get("tool_only", False):
             config.subagents = False
+            config.subagent_activation_source = None
             continue
+        configuration_disables_subagents = (
+            config.subagents is False
+            and config.subagent_activation_source == "configuration"
+        )
         if request.subagents is not None:
+            if request.subagents and configuration_disables_subagents:
+                continue
             config.subagents = request.subagents
+            config.subagent_activation_source = "cli"
         if request.subagent_model is not None:
             config.subagent_model = request.subagent_model
 

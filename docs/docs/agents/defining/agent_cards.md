@@ -124,6 +124,17 @@ The model calls `subagent(message, model?, label?)`. Each call:
 The tool returns only the child's final response to the parent. Child tool and
 reasoning details stay folded into the subagent progress row in the terminal.
 
+For repository-level opt-in without editing an AgentCard, add this exact
+standalone directive to the system prompt or an embedded `AGENTS.md`:
+
+```md
+<!-- fast-agent-subagents -->
+```
+
+fast-agent removes the directive before sending the instruction to the model.
+It only enables subagents when the AgentCard leaves `subagents` unset.
+`--no-subagents` and `subagents: false` always win.
+
 ## Add Python function tools
 
 Cards can expose local Python functions as tools with `function_tools`. This is

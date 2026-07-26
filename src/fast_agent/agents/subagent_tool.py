@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Protocol, cast
 from fastmcp.tools import ToolResult
 from pydantic import Field
 
+from fast_agent.agents.subagent_directive import resolve_subagent_directive
 from fast_agent.agents.subagent_labels import (
     SubagentLabel,
     generate_subagent_label,
@@ -263,6 +264,13 @@ def install_subagent_tool(
     """Install the built-in subagent tool on a compatible top-level agent."""
     if not isinstance(agent, ToolAgent):
         return False
+    directive = resolve_subagent_directive(agent.instruction)
+    if directive.found:
+        agent.set_instruction(directive.instruction)
+        agent.config.instruction = directive.instruction
+        if agent.config.subagents is None and not agent.config.tool_only:
+            agent.config.subagents = True
+            agent.config.subagent_activation_source = "instruction"
     if agent.config.tool_only or agent.config.subagents is not True:
         existing = agent._execution_tools.get(SUBAGENT_TOOL_NAME)
         if existing is not None and existing.meta == SUBAGENT_TOOL_METADATA:
@@ -274,6 +282,14 @@ def install_subagent_tool(
         if existing.meta == SUBAGENT_TOOL_METADATA:
             return True
         raise AgentConfigError(f"Tool name '{SUBAGENT_TOOL_NAME}' is reserved by fast-agent")
+
+    logger.info(
+        "Enabled built-in subagent tool",
+        data={
+            "agent_name": agent.name,
+            "activation_source": agent.config.subagent_activation_source or "configuration",
+        },
+    )
 
     used_labels: set[str] = set()
     generate_label = label_generator or generate_subagent_label
@@ -335,6 +351,7 @@ def install_subagent_tool(
                 model=model,
             )
             clone.config.subagents = False
+            clone.config.subagent_activation_source = None
             clone.set_session_history_persistence_enabled(False)
             clone.remove_tool(SUBAGENT_TOOL_NAME)
             clone.load_message_history([])

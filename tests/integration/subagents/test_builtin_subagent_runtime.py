@@ -59,3 +59,31 @@ async def test_managed_runtime_respects_subagent_activation_controls(fast_agent)
             }
 
     await run_scenario()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_managed_runtime_activates_from_hidden_instruction_directive(fast_agent) -> None:
+    instruction = "<!-- fast-agent-subagents -->\nComplete the requested task."
+
+    @fast_agent.agent(name="directive", instruction=instruction, model="passthrough")
+    @fast_agent.agent(
+        name="disabled",
+        instruction=instruction,
+        model="passthrough",
+        subagents=False,
+    )
+    async def run_scenario() -> None:
+        async with fast_agent.run() as app:
+            assert SUBAGENT_TOOL_NAME in {
+                tool.name for tool in (await app.directive.list_tools()).tools
+            }
+            assert app.directive.config.subagent_activation_source == "instruction"
+            assert "fast-agent-subagents" not in app.directive.instruction
+
+            assert SUBAGENT_TOOL_NAME not in {
+                tool.name for tool in (await app.disabled.list_tools()).tools
+            }
+            assert "fast-agent-subagents" not in app.disabled.instruction
+
+    await run_scenario()

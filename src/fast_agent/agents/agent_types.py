@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from mcp.client.session import ElicitationFnT
 
@@ -65,6 +65,7 @@ FunctionToolConfig: TypeAlias = (
 )
 
 FunctionToolsConfig: TypeAlias = list[FunctionToolConfig] | None
+SubagentActivationSource: TypeAlias = Literal["configuration", "cli", "instruction"]
 
 
 # Tool hooks config maps hook type to function spec string
@@ -121,6 +122,10 @@ class AgentConfig:
     tool_only: bool = False
     subagents: bool | None = None
     subagent_model: str | None = None
+    subagent_activation_source: SubagentActivationSource | None = field(
+        default=None,
+        init=False,
+    )
     elicitation_handler: ElicitationFnT | None = None
     api_key: str | None = None
     function_tools: FunctionToolsConfig = None  # Local Python function tools
@@ -135,6 +140,8 @@ class AgentConfig:
 
     def __post_init__(self):
         """Ensure default_request_params exists with proper history setting"""
+        if self.subagents is not None:
+            self.subagent_activation_source = "configuration"
         if self.save_trajectory and self.use_history:
             raise AgentConfigError("save_trajectory requires use_history=False")
         if self.default_request_params is None:

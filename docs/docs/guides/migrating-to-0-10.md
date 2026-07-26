@@ -47,6 +47,17 @@ fast-agent go -xx --subagent-model '$system.fast'
 
 Use `-x` alone when shell access is needed without delegation.
 
+For repository-level activation, add an exact standalone directive to
+`AGENTS.md`:
+
+```md
+<!-- fast-agent-subagents -->
+```
+
+The directive is removed from the model-visible instruction. It only applies
+when `subagents` is unset; `--no-subagents` and `subagents: false` take
+precedence.
+
 ## Update cards and automation
 
 For every former Smart card:
