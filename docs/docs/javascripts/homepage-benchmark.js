@@ -208,10 +208,6 @@
 
       var body = element("div", "fa-benchmark__body");
       var chartArea = element("div", "fa-benchmark__chart-area");
-      var chartHeading = element("div", "fa-benchmark__chart-heading");
-      chartHeading.appendChild(element("span", "", data.title + " score (%) →"));
-      chartHeading.appendChild(element("span", "", "Costlier ↑"));
-      chartArea.appendChild(chartHeading);
 
       var svg = svgElement("svg", {
         "class": "fa-benchmark__chart",
@@ -287,11 +283,11 @@
           "text-anchor": labelPlacement.anchor,
         });
         pointLabel.appendChild(svgElement("tspan", {
-          x: labelPlacement.x, "class": "fa-benchmark__point-model",
-        }, entry.model));
-        pointLabel.appendChild(svgElement("tspan", {
-          x: labelPlacement.x, dy: 11, "class": "fa-benchmark__point-harness",
+          x: labelPlacement.x, "class": "fa-benchmark__point-harness",
         }, entry.harness));
+        pointLabel.appendChild(svgElement("tspan", {
+          x: labelPlacement.x, dy: 11, "class": "fa-benchmark__point-model",
+        }, entry.model));
         group.appendChild(pointLabel);
 
         var tooltipX = pointX > plot.right - 210 ? pointX - 202 : pointX + 12;
@@ -327,6 +323,16 @@
       detailMain.appendChild(element("strong", "", result.harness));
       detailMain.appendChild(element("span", "", result.model));
       detailMain.appendChild(element("span", "", result.date + " · " + result.attempts));
+      if (result.disclaimer) {
+        var badge = element(
+          "span",
+          "fa-benchmark__status-badge",
+          result.disclaimerLabel || "Adjusted"
+        );
+        badge.title = result.disclaimer;
+        badge.setAttribute("aria-label", badge.textContent + ": " + result.disclaimer);
+        detailMain.appendChild(badge);
+      }
       var runLink = element("a", "", "View run ↗");
       runLink.href = result.url || data.sourceUrl;
       runLink.target = "_blank";
@@ -344,19 +350,12 @@
         " · " + result.tokensIn + " tokens in · " + result.tokensOut + " tokens out"
       ));
       detail.appendChild(metrics);
-      if (result.note) detail.appendChild(element("p", "fa-benchmark__note", result.note));
-      if (result.disclaimer) {
-        var disclaimer = element("p", "fa-benchmark__disclaimer");
-        disclaimer.appendChild(element("span", "", result.disclaimerLabel || "Adjusted"));
-        disclaimer.appendChild(document.createTextNode(result.disclaimer));
-        detail.appendChild(disclaimer);
-      }
       chartArea.appendChild(detail);
       body.appendChild(chartArea);
 
       var results = element("div", "fa-benchmark__results");
       var resultHeader = element("div", "fa-benchmark__result fa-benchmark__result--header");
-      ["Harness · model", "Score", "$/task", "Run"].forEach(function (label) {
+      ["Harness", "Score", "$/task", "Run"].forEach(function (label) {
         resultHeader.appendChild(element("span", "", label));
       });
       results.appendChild(resultHeader);
