@@ -18,8 +18,8 @@ social:
   <div class="fa-home-splash__heading">
     <div>
       <span class="fa-home-splash__brand" aria-label="fast-agent">
-        <img class="fa-home-splash__wordmark fa-home-splash__wordmark--dark" src="assets/brand/fast-agent-anim-dark.svg" alt="fast-agent">
-        <img class="fa-home-splash__wordmark fa-home-splash__wordmark--light" src="assets/brand/fast-agent-anim-light.svg" alt="fast-agent">
+        <img class="fa-home-splash__wordmark fa-home-splash__wordmark--dark" src="assets/brand/fast-agent-anim-dark.svg" width="720" height="200" alt="fast-agent">
+        <img class="fa-home-splash__wordmark fa-home-splash__wordmark--light" src="assets/brand/fast-agent-anim-light.svg" width="720" height="200" alt="fast-agent">
       </span>
       <h1>The harness your model deserves.</h1>
     </div>
@@ -38,6 +38,7 @@ social:
   <div class="fa-benchmark" data-fa-benchmark>
     <div class="fa-benchmark__loading">Loading Terminal-Bench comparisons…</div>
   </div>
+  <div class="fa-benchmark-stats" data-fa-benchmark-stats aria-live="polite" aria-label="Selected comparison summary"></div>
 </section>
 
 <section class="fa-product-intro">

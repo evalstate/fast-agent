@@ -172,10 +172,6 @@
     }
 
     function draw() {
-      var existingStats = root.nextElementSibling;
-      if (existingStats && existingStats.classList.contains("fa-benchmark-stats")) {
-        existingStats.remove();
-      }
       var comparison = data.comparisons[selectedComparison];
       var result = comparison.results[selectedResult] || comparison.results[0];
       var score = scoreDomain(comparison.results, comparison.axes && comparison.axes.score);
@@ -186,12 +182,17 @@
 
       var toolbar = element("div", "fa-benchmark__toolbar");
       toolbar.appendChild(element("span", "fa-benchmark__eyebrow", "Accuracy vs cost"));
+      toolbar.appendChild(element("p", "fa-benchmark__claim", comparison.claim));
+
+      var comparisonBar = element("div", "fa-benchmark__comparison-bar");
+      comparisonBar.appendChild(element("span", "fa-benchmark__comparison-label", "Choose comparison"));
       var tabs = element("div", "fa-benchmark__tabs");
       tabs.setAttribute("role", "tablist");
       tabs.setAttribute("aria-label", "Benchmark comparison");
       data.comparisons.forEach(function (item, index) {
         var tab = element("button", "fa-benchmark__tab", item.label);
         tab.type = "button";
+        tab.title = "Show the " + item.label + " comparison";
         tab.setAttribute("role", "tab");
         tab.setAttribute("aria-selected", String(index === selectedComparison));
         tab.addEventListener("click", function () {
@@ -202,9 +203,9 @@
         });
         tabs.appendChild(tab);
       });
-      toolbar.appendChild(tabs);
+      comparisonBar.appendChild(tabs);
       root.appendChild(toolbar);
-      root.appendChild(element("p", "fa-benchmark__claim", comparison.claim));
+      root.appendChild(comparisonBar);
 
       var body = element("div", "fa-benchmark__body");
       var chartArea = element("div", "fa-benchmark__chart-area");
@@ -255,18 +256,36 @@
             (index === selectedResult ? " is-selected" : ""),
           "role": "button",
           "tabindex": "0",
+          "data-result-index": index,
           "aria-label": entry.model + " on " + entry.harness + ", score " + entry.score +
             " percent, $" + entry.cost.toFixed(2) + " per task",
         });
         var activate = function () { selectResult(index); };
+        var previewRow = function (active) {
+          root.classList.toggle("is-point-previewing", active);
+          root.querySelectorAll(".fa-benchmark__result[data-result-index]").forEach(function (row) {
+            row.classList.toggle(
+              "is-preview",
+              active && Number(row.getAttribute("data-result-index")) === index
+            );
+          });
+        };
         var promote = function () {
           if (!group.parentNode || group.parentNode.lastElementChild === group) return;
           var restoreFocus = document.activeElement === group;
           group.parentNode.appendChild(group);
           if (restoreFocus) group.focus({ preventScroll: true });
         };
-        group.addEventListener("mouseenter", promote);
-        group.addEventListener("focus", promote);
+        group.addEventListener("mouseenter", function () {
+          promote();
+          previewRow(true);
+        });
+        group.addEventListener("mouseleave", function () { previewRow(false); });
+        group.addEventListener("focus", function () {
+          promote();
+          previewRow(true);
+        });
+        group.addEventListener("blur", function () { previewRow(false); });
         group.addEventListener("click", activate);
         group.addEventListener("keydown", function (event) {
           if (event.key === "Enter" || event.key === " ") {
@@ -364,6 +383,7 @@
           (entry.fastAgent ? " fa-benchmark__result--fast-agent" : "") +
           (index === selectedResult ? " is-selected" : ""));
         row.type = "button";
+        row.setAttribute("data-result-index", String(index));
         var name = element("span", "fa-benchmark__result-name");
         name.appendChild(element("strong", "", entry.harness));
         name.appendChild(element("small", "", entry.model));
@@ -397,14 +417,19 @@
       footer.appendChild(methodology);
       root.appendChild(footer);
 
-      var stats = element("div", "fa-benchmark-stats");
+      var stats = document.querySelector("[data-fa-benchmark-stats]");
+      if (!stats) {
+        stats = element("div", "fa-benchmark-stats");
+        stats.setAttribute("data-fa-benchmark-stats", "");
+        root.insertAdjacentElement("afterend", stats);
+      }
+      stats.replaceChildren();
       comparison.stats.forEach(function (stat) {
         var item = element("div", "fa-benchmark-stats__item");
         item.appendChild(element("strong", "", stat.value));
         item.appendChild(element("span", "", stat.label));
         stats.appendChild(item);
       });
-      root.insertAdjacentElement("afterend", stats);
     }
 
     draw();
@@ -412,8 +437,6 @@
 
   function start() {
     var root = document.querySelector("[data-fa-benchmark]");
-    var previousStats = document.querySelector(".fa-benchmark-stats");
-    if (previousStats) previousStats.remove();
     if (root && window.fastAgentBenchmark) render(root, window.fastAgentBenchmark);
   }
 
