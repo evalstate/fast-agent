@@ -184,6 +184,7 @@
 
     convertButton.addEventListener("click", function () {
       try {
+        if (!input.value.trim()) input.value = input.placeholder;
         var result = convert(input.value);
         output.textContent = result.command;
         copyButton.disabled = false;
