@@ -1798,6 +1798,59 @@ table.fa-table {
   .fa-benchmark__footer a { width: 100%; margin-left: 0; }
 }
 
+/* ── MIGRATION COMMAND CONVERTER ───────────────────────────────────── */
+.fa-command-converter {
+  margin: var(--sp-5) 0 var(--sp-7);
+  padding: var(--sp-5);
+  border: var(--bw) solid var(--b-1);
+  border-radius: var(--r-2);
+  background: var(--s-1);
+}
+.fa-command-converter label {
+  display: block;
+  margin-bottom: var(--sp-2);
+  color: var(--fg-0);
+  font-size: var(--t-small);
+  font-weight: var(--w-3);
+}
+.fa-command-converter textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  padding: var(--sp-3);
+  border: var(--bw) solid var(--b-2);
+  border-radius: var(--r-1);
+  background: var(--s-0);
+  color: var(--fg-0);
+  font: var(--t-small)/var(--lh-body) var(--mono);
+}
+.fa-command-converter textarea:focus {
+  border-color: var(--a-0);
+  outline: 2px solid var(--a-line);
+  outline-offset: 1px;
+}
+.fa-command-converter__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+.fa-command-converter__actions span {
+  margin-left: var(--sp-1);
+  color: var(--fg-2);
+  font-size: var(--t-micro);
+}
+.md-typeset .fa-command-converter pre {
+  margin: var(--sp-4) 0 0;
+}
+.md-typeset .fa-command-converter pre code {
+  min-height: 54px;
+  color: var(--fg-0);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Existing index.md hero — restyled to use system tokens */
 .fa-hero h1 { color: var(--fg-0); font-size: clamp(2.5rem, 6vw, 5rem); }
 .fa-kicker {

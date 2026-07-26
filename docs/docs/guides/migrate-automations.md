@@ -1,6 +1,6 @@
 ---
 title: Migrate Your Automations
-description: Move scripted agent work to fast-agent with stable inputs, structured outputs, reusable agents, and portable configuration.
+description: Convert common Claude Code, Codex, and OpenCode one-shot commands to fast-agent.
 social:
   title: Migrate Your Automations
   tagline: Move existing agent scripts to fast-agent.
@@ -10,195 +10,127 @@ social:
 
 # Migrate Your Automations
 
-Move an existing agent script, scheduled task, or CI workflow to **fast-agent**
-without rewriting everything at once. Start with the same prompt and model,
-establish a machine-readable output contract, then move tools and instructions
-into reusable AgentCards when the workflow is stable.
-
-The smallest useful migration is a one-shot command:
+Replace a one-shot coding-agent command with:
 
 ```bash
-fast-agent go \
+uvx fast-agent-mcp@latest go --no-home --shell ...
+```
+
+`--no-home` keeps the run isolated. `--shell` provides local shell and
+filesystem tools.
+
+## Claude Code
+
+[Claude Code CLI reference](https://docs.anthropic.com/en/docs/claude-code/cli-usage)
+
+```bash title="Claude Code"
+claude -p "Review the current changes" --model sonnet
+```
+
+```bash title="fast-agent"
+uvx fast-agent-mcp@latest go \
   --no-home \
+  --shell \
+  --model sonnet \
+  --message "Review the current changes"
+```
+
+Claude Code `--output-format json` does not define the output shape. For
+validated JSON from fast-agent, add a schema:
+
+```bash
+uvx fast-agent-mcp@latest go \
+  --no-home \
+  --shell \
+  --model sonnet \
+  --json-schema ./result.schema.json \
+  --message "Review the current changes"
+```
+
+## Codex
+
+[Codex non-interactive mode](https://developers.openai.com/codex/noninteractive)
+uses `codex exec` for non-interactive runs.
+
+```bash title="Codex"
+codex exec --ephemeral --model gpt-5.5 "Review the current changes"
+```
+
+```bash title="fast-agent"
+uvx fast-agent-mcp@latest go \
+  --no-home \
+  --shell \
+  --model responses.gpt-5.5 \
+  --message "Review the current changes"
+```
+
+Codex `--output-schema ./schema.json` maps to
+`--json-schema ./schema.json`.
+
+## OpenCode
+
+[OpenCode CLI reference](https://dev.opencode.ai/docs/cli/)
+
+```bash title="OpenCode"
+opencode run \
+  --model openai/gpt-5.5 \
+  --variant high \
+  --file report.pdf \
+  "Review this report"
+```
+
+```bash title="fast-agent"
+uvx fast-agent-mcp@latest go \
+  --no-home \
+  --shell \
   --model "responses.gpt-5.5?reasoning=high" \
-  --message "Summarize the incidents opened in the last 24 hours."
+  --attach report.pdf \
+  --message "Review this report"
 ```
 
-`--no-home` keeps automation isolated from user-level fast-agent files. It is a
-good default for CI, containers, and scheduled jobs where all inputs should be
-explicit.
+OpenCode `--dir PATH` maps to `--workspace PATH`.
 
-## 1. Inventory the existing contract
+## Convert a command
 
-Before changing runtimes, record what the current automation depends on:
+This converter runs in your browser. It does not use an LLM or send the command
+to a server.
 
-- The user prompt and system instructions
-- Model and reasoning settings
-- Files, URLs, and environment variables used as input
-- Tools or remote services the agent can call
-- Expected stdout, files, or API payloads
-- Timeout, retry, and scheduling behavior
-- Secrets supplied by CI or the host environment
+<div class="fa-command-converter" data-fa-command-converter>
+  <label for="fa-command-input">Claude Code, Codex, or OpenCode command</label>
+  <textarea id="fa-command-input" data-fa-command-input rows="4" spellcheck="false" placeholder='claude -p "Review the current changes" --model sonnet'></textarea>
+  <div class="fa-command-converter__actions">
+    <button type="button" class="fa-btn fa-btn--primary fa-btn--sm" data-fa-command-convert>Convert</button>
+    <button type="button" class="fa-btn fa-btn--sm" data-fa-command-copy disabled>Copy</button>
+    <span data-fa-command-status aria-live="polite"></span>
+  </div>
+  <pre><code data-fa-command-output>Paste a command above.</code></pre>
+</div>
 
-Keep those boundaries stable during the first migration. Change the harness
-before changing the workflow.
+The converter handles the common one-shot flags shown on this page. Review the
+result before running commands that contain custom permission, session, or
+server options.
 
-## 2. Move prompts out of shell quoting
+## Load an AgentCard from a URI
 
-Inline `--message` input is convenient for short jobs. For longer instructions,
-store the prompt in a versioned file:
-
-```text title="prompts/daily-review.md"
-Review the attached operational report.
-
-Identify:
-- customer-impacting incidents
-- unresolved actions
-- owners and due dates
-
-Return only the requested structured result.
-```
-
-Run it with:
+`--card` accepts a local path, HTTP(S) URL, `file://` URI, or `hf://` URI. It is
+repeatable.
 
 ```bash
-fast-agent go \
+uvx fast-agent-mcp@latest go \
   --no-home \
-  --model "responses.gpt-5.5?reasoning=high" \
-  --prompt-file prompts/daily-review.md \
-  --attach reports/latest.pdf
+  --card https://example.com/agents/reviewer.md \
+  --agent reviewer \
+  --message "Review the current changes"
 ```
-
-`--attach` accepts local files and HTTP(S) URLs and can be repeated.
-
-## 3. Make stdout a stable API
-
-Do not parse prose in production automation. Define a JSON Schema for the
-result your next step expects:
-
-```json title="schemas/incident-review.json"
-{
-  "type": "object",
-  "properties": {
-    "summary": {"type": "string"},
-    "incidents": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "title": {"type": "string"},
-          "owner": {"type": "string"},
-          "due": {"type": ["string", "null"]}
-        },
-        "required": ["title", "owner", "due"],
-        "additionalProperties": false
-      }
-    }
-  },
-  "required": ["summary", "incidents"],
-  "additionalProperties": false
-}
-```
-
-Then request machine-readable output:
 
 ```bash
-fast-agent go \
+uvx fast-agent-mcp@latest go \
   --no-home \
-  --model "responses.gpt-5.5?reasoning=high" \
-  --prompt-file prompts/daily-review.md \
-  --attach reports/latest.pdf \
-  --json-schema schemas/incident-review.json \
-  > build/incident-review.json
+  --card hf://buckets/your-name/agents/reviewer.md \
+  --agent reviewer \
+  --message "Review the current changes"
 ```
 
-In structured one-shot mode, stdout contains the validated JSON document while
-diagnostics go to stderr. See [Structured Outputs](structured-outputs.md) for
-provider behavior and tool policies.
-
-## 4. Move tools into explicit configuration
-
-If the existing automation calls MCP servers, pass them explicitly while
-prototyping:
-
-```bash
-fast-agent go \
-  --no-home \
-  --url https://example.com/mcp \
-  --auth "$EXAMPLE_MCP_TOKEN" \
-  --prompt-file prompts/daily-review.md \
-  --json-schema schemas/incident-review.json
-```
-
-For repeatable workflows, move server definitions, instructions, model
-selection, and tool policy into an
-[AgentCard](../agents/defining/agent_cards.md). Run one named agent with:
-
-```bash
-fast-agent go \
-  --no-home \
-  --agent-cards ./agents \
-  --agent incident-review \
-  --prompt-file prompts/daily-review.md \
-  --json-schema schemas/incident-review.json
-```
-
-This keeps shell scripts focused on orchestration while the agent definition
-remains reusable from the CLI, Python, ACP, and other harness surfaces.
-
-## 5. Supply secrets at the boundary
-
-Keep credentials in the scheduler, CI secret store, or deployment environment.
-Do not commit tokens to prompt files, AgentCards, or `fast-agent.yaml`.
-
-```bash
-export OPENAI_API_KEY="..."
-export EXAMPLE_MCP_TOKEN="..."
-fast-agent go --no-home --agent-cards ./agents --agent incident-review \
-  --message "Run the daily review"
-```
-
-Configuration values can reference environment variables with `${NAME}` where
-supported. See the [configuration reference](../ref/config_file.md) for the
-available settings.
-
-## 6. Add CI or scheduler controls
-
-Keep the host responsible for scheduling and process-level policy. Use
-fast-agent for the agent turn, tools, structured output, and trajectory.
-
-```bash title="scripts/daily-review.sh"
-#!/usr/bin/env bash
-set -euo pipefail
-
-mkdir -p build
-
-fast-agent go \
-  --no-home \
-  --timeout 900 \
-  --agent-cards ./agents \
-  --agent incident-review \
-  --prompt-file prompts/daily-review.md \
-  --attach reports/latest.pdf \
-  --json-schema schemas/incident-review.json \
-  --trajectory-output build/incident-review.atif.json \
-  > build/incident-review.json
-```
-
-The same script can run from cron, a systemd timer, a container job, or a CI
-runner. Pin the fast-agent version in production and update it deliberately.
-
-## 7. Migrate in stages
-
-Use a small set of representative inputs before switching production traffic:
-
-1. Run the old and new automation against the same inputs.
-2. Compare structured fields rather than prose formatting.
-3. Check tool permissions and external side effects.
-4. Confirm timeout and failure behavior in the host environment.
-5. Record cost, token usage, and output quality.
-6. Keep the old path available for rollback during the first scheduled runs.
-
-For row-oriented workloads, use [Batch Processing](batch-processing.md) instead
-of wrapping hundreds of one-shot commands in a shell loop. For the complete
-one-shot command surface, see [`fast-agent go`](../ref/go_command.md).
+Prompt files, instructions, configuration files, card registries, and JSON
+schemas can also be loaded from supported URIs. See
+[`fast-agent go`](../ref/go_command.md) for the complete option list.

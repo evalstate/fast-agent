@@ -16,6 +16,7 @@ extra_javascript = [
   "javascripts/asciinema-demos.js",
   "javascripts/homepage-benchmark-data.js",
   "javascripts/homepage-benchmark.js",
+  "javascripts/migration-command-converter.js",
 ]
 nav = [
   { "fast-agent" = "index.md" },
