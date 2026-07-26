@@ -110,6 +110,20 @@ With `subagent_model`, the model-visible `subagent` tool schema has no `model`
 argument and every child uses the configured model. `subagent_model` has no
 effect unless `subagents: true`.
 
+The model calls `subagent(message, model?, label?)`. Each call:
+
+- starts a one-shot child with a clean conversation context;
+- inherits the parent's instruction and available capabilities, except the
+  built-in `subagent` tool, so children cannot recursively delegate;
+- accepts an optional model override and short display label when
+  `subagent_model` is not fixed;
+- can run concurrently with other subagent calls while the parent waits for
+  all results; and
+- persists its complete transcript as a nested, non-resumable child session.
+
+The tool returns only the child's final response to the parent. Child tool and
+reasoning details stay folded into the subagent progress row in the terminal.
+
 ## Add Python function tools
 
 Cards can expose local Python functions as tools with `function_tools`. This is

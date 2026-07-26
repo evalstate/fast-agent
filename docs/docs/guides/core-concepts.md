@@ -292,6 +292,12 @@ subagent_model: $system.fast
 `subagent_model` makes every built-in child use that model. From the CLI, use
 `--subagents` or `-xx`; `-xx` also enables shell access.
 
+Each invocation is a one-shot child with a clean conversation context. It
+inherits the parent's instruction and tools except for the built-in `subagent`
+tool, so delegation cannot recurse. Multiple calls can run concurrently while
+the parent waits, and each complete child transcript is saved as a nested,
+non-resumable session.
+
 For a plain Python function, add it to an agent with `function_tools`:
 
 ```python title="tools.py"

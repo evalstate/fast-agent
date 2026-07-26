@@ -1,6 +1,6 @@
 ---
 title: Migrating to 0.10
-description: Update Smart agent configurations for fast-agent 0.10.
+description: Migrate from removed Smart agents to opt-in built-in subagents in fast-agent 0.10.
 ---
 
 # Migrating to 0.10
@@ -42,7 +42,7 @@ subagents, and `--subagent-model <model>` enables subagents while forcing the
 child model:
 
 ```bash
-fast-agent go -xx --subagent-model $system.fast
+fast-agent go -xx --subagent-model '$system.fast'
 ```
 
 Use `-x` alone when shell access is needed without delegation.

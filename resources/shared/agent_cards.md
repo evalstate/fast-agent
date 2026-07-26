@@ -68,6 +68,12 @@ argument and every child uses that model. Otherwise, a tool-call `model`
 override wins; if omitted, the child inherits its parent's current model.
 `subagent_model` has no effect when `subagents: false`.
 
+Each invocation runs once in a clean conversation context. The child inherits
+the parent's instruction and available capabilities except the built-in
+`subagent` tool, cannot recursively delegate, and persists its full transcript
+as a nested non-resumable session. Parallel calls run concurrently while the
+parent waits for all results.
+
 ---
 
 ## Instruction templates (placeholders)

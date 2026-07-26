@@ -50,8 +50,8 @@ It's recommended to install **`fast-agent`** to set up the shell aliases and oth
 # Install fast-agent
 uv tool install -U fast-agent-mcp
 
-# Run fast-agent with opus, shell support and subagent/smart mode
-fast-agent --model opus -x --smart
+# Run fast-agent with opus, shell support and built-in subagents
+fast-agent --model opus -xx
 ```
 
 Use local models with the generic provider, or automatically create the correct configuration for `llama.cpp`:
