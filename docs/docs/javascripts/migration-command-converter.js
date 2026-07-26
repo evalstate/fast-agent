@@ -139,7 +139,9 @@
   }
 
   function convert(command) {
-    var tokens = tokenize(command.trim());
+    var multiline = /\\\s*\r?\n/.test(command);
+    var normalized = command.replace(/\\\s*\r?\n/g, " ");
+    var tokens = tokenize(normalized.trim());
     if (tokens.length === 0) throw new Error("Paste a command first.");
 
     var executable = tokens[0].split("/").pop().toLowerCase();
@@ -152,18 +154,21 @@
       throw new Error("Expected a claude, codex, or opencode command.");
     }
 
-    var parts = ["uvx", "fast-agent-mcp@latest", "go", "--no-home", "--shell"];
+    var parts = ["uvx fast-agent-mcp@latest go", "--no-home", "--shell"];
     var model = parsed.model || "";
-    if (model) parts.push("--model", shellQuote(model));
-    if (parsed.workspace) parts.push("--workspace", shellQuote(parsed.workspace));
-    if (parsed.agent) parts.push("--agent", shellQuote(parsed.agent));
+    if (model) parts.push("--model " + shellQuote(model));
+    if (parsed.workspace) parts.push("--workspace " + shellQuote(parsed.workspace));
+    if (parsed.agent) parts.push("--agent " + shellQuote(parsed.agent));
     parsed.attachments.forEach(function (attachment) {
-      parts.push("--attach", shellQuote(attachment));
+      parts.push("--attach " + shellQuote(attachment));
     });
-    if (parsed.schema) parts.push("--json-schema", shellQuote(parsed.schema));
-    if (parsed.prompt) parts.push("--message", shellQuote(parsed.prompt));
+    if (parsed.schema) parts.push("--json-schema " + shellQuote(parsed.schema));
+    if (parsed.prompt) parts.push("--message " + shellQuote(parsed.prompt));
 
-    return { command: parts.join(" "), source: parsed.source };
+    return {
+      command: multiline ? parts.join(" \\\n  ") : parts.join(" "),
+      source: parsed.source,
+    };
   }
 
   function start() {
