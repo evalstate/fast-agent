@@ -14,6 +14,8 @@ extra_css = [
 extra_javascript = [
   "assets/vendor/asciinema-player/asciinema-player.min.js",
   "javascripts/asciinema-demos.js",
+  "javascripts/homepage-benchmark-data.js",
+  "javascripts/homepage-benchmark.js",
 ]
 nav = [
   { "fast-agent" = "index.md" },
@@ -21,6 +23,7 @@ nav = [
     { "Core Concepts" = "guides/core-concepts.md" },
     "guides/tui.md",
     "guides/codex.md",
+    { "Migrate Automations" = "guides/migrate-automations.md" },
     "guides/hf-dev.md",
     { "Agent Skills" = "guides/skills.md" },
     "guides/batch-processing.md",
