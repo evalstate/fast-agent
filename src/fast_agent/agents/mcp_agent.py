@@ -40,6 +40,7 @@ from pydantic import BaseModel
 
 from fast_agent.agents.agent_card import build_fast_agent_card
 from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.agents.subagent_directive import resolve_subagent_directive
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.commands.model_capabilities import (
     resolve_model_name,
@@ -230,6 +231,7 @@ class McpAgent(ABC, ToolAgent):
         # Store the original template - resolved instruction set after build()
         self._instruction_template = self.config.instruction
         self._instruction = self.config.instruction  # Will be replaced by builder output
+        self._subagent_directive_found = False
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
         manifests = self._initial_skill_manifests(context)
@@ -577,6 +579,16 @@ class McpAgent(ABC, ToolAgent):
         """Replace this instance's source instruction template."""
         self._instruction_template = instruction
 
+    @property
+    def subagent_directive_found(self) -> bool:
+        return self._subagent_directive_found
+
+    def process_rendered_instruction(self, instruction: str) -> str:
+        """Record and hide built-in subagent directives after rendering."""
+        directive = resolve_subagent_directive(instruction)
+        self._subagent_directive_found |= directive.found
+        return directive.instruction
+
     def _clone_config(self) -> AgentConfig:
         config = super()._clone_config()
         config.instruction = self.instruction_template
@@ -698,6 +710,7 @@ class McpAgent(ABC, ToolAgent):
             context=self._instruction_context,
             source=self._name,
         )
+        new_instruction = self.process_rendered_instruction(new_instruction)
         self.set_instruction(new_instruction)
 
         # Warn when skills are configured but not surfaced in the final instruction.

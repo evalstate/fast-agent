@@ -272,16 +272,16 @@ def install_subagent_tool(
     """Install the built-in subagent tool on a compatible top-level agent."""
     if not isinstance(agent, ToolAgent):
         return False
-    rendered_directive = resolve_subagent_directive(agent.instruction)
-    source_directive_found = False
     if isinstance(agent, McpAgent):
-        source_directive = resolve_subagent_directive(agent.instruction_template)
-        source_directive_found = source_directive.found
-        if source_directive_found:
-            agent.set_instruction_template(source_directive.instruction)
-    if rendered_directive.found:
-        agent.set_instruction(rendered_directive.instruction)
-    if rendered_directive.found or source_directive_found:
+        source_instruction = agent.process_rendered_instruction(agent.instruction_template)
+        agent.set_instruction_template(source_instruction)
+        agent.set_instruction(agent.process_rendered_instruction(agent.instruction))
+        directive_found = agent.subagent_directive_found
+    else:
+        directive = resolve_subagent_directive(agent.instruction)
+        agent.set_instruction(directive.instruction)
+        directive_found = directive.found
+    if directive_found:
         if agent.config.subagents is None and not agent.config.tool_only:
             agent.config.subagents = True
             agent.config.subagent_activation_source = "instruction"

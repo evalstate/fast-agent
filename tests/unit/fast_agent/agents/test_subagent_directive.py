@@ -116,3 +116,32 @@ async def test_mcp_directive_is_removed_from_source_template_and_clones() -> Non
     finally:
         await clone.shutdown()
         await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_mcp_directive_from_include_is_stripped_after_every_render(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text(
+        "fast-agent-subagents\nIncluded rules.",
+        encoding="utf-8",
+    )
+    template = "Project rules:\n{{file_silent:AGENTS.md}}"
+    agent = McpAgent(AgentConfig("dev", instruction=template))
+    agent.set_instruction_context({"workspaceRoot": str(tmp_path)})
+    await agent.initialize()
+
+    assert install_subagent_tool(agent) is True
+    assert agent.instruction_template == template
+    assert SUBAGENT_DIRECTIVE not in agent.instruction
+    assert "Included rules." in agent.instruction
+
+    await rebuild_agent_instruction(agent)
+    assert SUBAGENT_DIRECTIVE not in agent.instruction
+
+    clone = await agent.spawn_isolated_instance()
+    try:
+        assert clone.instruction_template == template
+        assert SUBAGENT_DIRECTIVE not in clone.instruction
+        assert "Included rules." in clone.instruction
+    finally:
+        await clone.shutdown()
+        await agent.shutdown()
