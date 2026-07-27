@@ -794,9 +794,7 @@ class McpAgent(ABC, ToolAgent):
             max_output_tokens = (
                 ModelDatabase.get_max_output_tokens(model_name) if model_name else None
             )
-            output_byte_limit = calculate_terminal_output_limit_for_max_tokens(
-                max_output_tokens
-            )
+            output_byte_limit = calculate_terminal_output_limit_for_max_tokens(max_output_tokens)
         else:
             model_override = (
                 ModelDatabase.get_shell_output_byte_limit(model_name) if model_name else None
@@ -1085,8 +1083,7 @@ class McpAgent(ABC, ToolAgent):
             else None
         )
         automatic_sizing = (
-            shell_config is None
-            or shell_config.output_byte_limit_selection == "auto"
+            shell_config is None or shell_config.output_byte_limit_selection == "auto"
         )
         if resolved_model is not None:
             if automatic_sizing:

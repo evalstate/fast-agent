@@ -1683,9 +1683,7 @@ async def test_explicit_null_shell_output_limit_uses_automatic_model_sizing() ->
 async def test_explicit_shell_output_limit_overrides_grok_catalog(
     configured_limit: int,
 ) -> None:
-    settings = Settings(
-        shell_execution=ShellSettings(output_byte_limit=configured_limit)
-    )
+    settings = Settings(shell_execution=ShellSettings(output_byte_limit=configured_limit))
     config = AgentConfig(
         name="test",
         instruction="Instruction",
