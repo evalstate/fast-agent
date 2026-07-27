@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.utils.action_normalization import normalize_action_token
@@ -18,6 +18,12 @@ CardType = Literal[
     "MAKER",
     "a2a",
 ]
+
+LEGACY_SMART_TYPE_WARNING = (
+    "AgentCard type 'smart' is deprecated in fast-agent 0.10 and will be removed in 0.11. "
+    "Treating it as type 'agent' and defaulting subagents and harness_tools to true. "
+    "The legacy Smart tool and mutation commands are not restored."
+)
 
 CARD_TYPE_TO_AGENT_TYPE: dict[CardType, AgentType] = {
     "agent": AgentType.BASIC,
@@ -211,3 +217,15 @@ def normalize_card_type(raw_type: str | None) -> CardType | None:
         return None
 
     return normalized
+
+
+def apply_legacy_smart_defaults(raw: dict[str, Any]) -> bool:
+    """Normalize the 0.10 compatibility alias without restoring a Smart agent type."""
+    raw_type = raw.get("type")
+    if not isinstance(raw_type, str) or normalize_action_token(raw_type) != "smart":
+        return False
+
+    raw["type"] = "agent"
+    raw.setdefault("subagents", True)
+    raw.setdefault("harness_tools", True)
+    return True

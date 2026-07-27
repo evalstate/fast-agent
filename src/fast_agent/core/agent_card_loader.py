@@ -33,9 +33,11 @@ from fast_agent.core.agent_card_rules import (
     ALLOWED_FIELDS_BY_TYPE,
     CARD_TYPE_TO_AGENT_TYPE,
     DEFAULT_USE_HISTORY_BY_TYPE,
+    LEGACY_SMART_TYPE_WARNING,
     MCP_CONNECT_ALLOWED_KEYS,
     REQUIRED_FIELDS_BY_TYPE,
     CardType,
+    apply_legacy_smart_defaults,
     normalize_card_type,
 )
 from fast_agent.core.agent_card_types import AgentCardData
@@ -206,6 +208,12 @@ def _build_card_from_data(
     body: str | None,
 ) -> LoadedAgentCard:
     raw = dict(raw)
+    if apply_legacy_smart_defaults(raw):
+        warnings.warn(
+            f"{path}: {LEGACY_SMART_TYPE_WARNING}",
+            UserWarning,
+            stacklevel=3,
+        )
     card_type_raw = raw.get("type")
     if card_type_raw is not None and not isinstance(card_type_raw, str):
         raise AgentConfigError(f"'type' must be a string in {path}")

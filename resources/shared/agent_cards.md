@@ -18,6 +18,8 @@
 - `name` — string; defaults to file stem.
 - `description` — optional summary.
 - `type` — `"agent"` (default if omitted).
+- `type: smart` — deprecated 0.10 compatibility alias for `type: agent` with
+  `subagents: true` and `harness_tools: true`; remove it before 0.11.
 - `model` — model ID.
 - `instruction` — system/developer prompt string (mutually exclusive with body).
 - `skills` — list of skills. **Disable all skills:** `skills: []`.

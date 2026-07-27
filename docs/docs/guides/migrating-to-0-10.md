@@ -7,9 +7,19 @@ description: Migrate from removed Smart agents to opt-in built-in subagents in f
 
 ## Breaking change: Smart agents are removed
 
-fast-agent 0.10 removes Smart agents, the model-visible `smart` tool, the
-`--smart` flag, and `type: smart`. Remove Smart prompts and card-pack examples
-instead of treating them as compatibility configuration.
+fast-agent 0.10 removes Smart agents, the model-visible `smart` tool, and the
+`--smart` flag. `type: smart` remains as a deprecated 0.10 compatibility alias
+and will be removed in 0.11. It is treated as:
+
+```yaml
+type: agent
+subagents: true
+harness_tools: true
+```
+
+Loading the alias emits a warning. Explicit `subagents` or `harness_tools`
+values take precedence, which supports incremental migration. The alias does
+not restore the legacy Smart tool or its mutation commands.
 
 AgentCards and ToolCards remain the way to define configured specialists.
 Use a ToolCard when a parent should have a stable specialist with its own
@@ -73,7 +83,8 @@ precedence.
 
 For every former Smart card:
 
-1. Delete `type: smart`.
+1. Replace `type: smart` with `type: agent` before the compatibility alias is
+   removed in 0.11.
 2. Keep `shell: true`, function tools, MCP servers, skills, and other normal
    AgentCard fields as needed.
 3. Add `subagents: true` only when the former agent needs temporary delegation.
@@ -82,5 +93,5 @@ For every former Smart card:
 5. Move durable specialist definitions into AgentCards or ToolCards rather than
    creating them dynamically.
 
-This is a breaking 0.10 migration; do not retain `--smart`, `type: smart`, or
-Smart prompt resources in scripts, cards, or documentation.
+Do not retain `--smart` or Smart prompt resources. Migrate deprecated
+`type: smart` cards during the 0.10 release series.

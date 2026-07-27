@@ -564,6 +564,17 @@ def test_scan_agent_cards_accepts_subagent_fields_for_basic_agents(tmp_path: Pat
     assert result.errors == []
 
 
+def test_scan_agent_cards_normalizes_deprecated_smart_type(tmp_path: Path) -> None:
+    card_path = tmp_path / "smart.yaml"
+    card_path.write_text("name: legacy\ntype: smart\n", encoding="utf-8")
+
+    with pytest.warns(UserWarning, match="type 'smart' is deprecated"):
+        result = scan_agent_card_directory(tmp_path)[0]
+
+    assert result.type == "agent"
+    assert result.errors == []
+
+
 def test_scan_agent_cards_accepts_agent_variables_metadata(tmp_path: Path) -> None:
     card_path = tmp_path / "classifier.md"
     card_path.write_text(

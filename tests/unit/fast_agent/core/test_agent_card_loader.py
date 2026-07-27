@@ -73,12 +73,33 @@ class TestResolveName:
             _resolve_name("   ", dummy_path)
 
 
-def test_load_agent_card_rejects_removed_smart_type(tmp_path: Path) -> None:
+def test_load_agent_card_normalizes_deprecated_smart_type(tmp_path: Path) -> None:
     card_path = tmp_path / "removed.md"
     card_path.write_text("---\ntype: smart\nname: removed\n---\n", encoding="utf-8")
 
-    with pytest.raises(AgentConfigError, match="Unsupported agent type 'smart'"):
-        load_agent_cards(card_path)
+    with pytest.warns(UserWarning, match="type 'smart' is deprecated"):
+        loaded = load_agent_cards(card_path)[0]
+
+    assert loaded.agent_data["type"] == "basic"
+    assert loaded.agent_data["config"].subagents is True
+    assert loaded.agent_data["config"].harness_tools is True
+    dumped = dump_agent_to_string("removed", loaded.agent_data, as_yaml=True)
+    assert "type: agent" in dumped
+    assert "type: smart" not in dumped
+
+
+def test_load_deprecated_smart_type_preserves_explicit_overrides(tmp_path: Path) -> None:
+    card_path = tmp_path / "overrides.yaml"
+    card_path.write_text(
+        "type: smart\nname: overrides\nsubagents: false\nharness_tools: false\n",
+        encoding="utf-8",
+    )
+
+    with pytest.warns(UserWarning, match="type 'smart' is deprecated"):
+        config = load_agent_cards(card_path)[0].agent_data["config"]
+
+    assert config.subagents is False
+    assert config.harness_tools is False
 
 
 def test_load_agent_card_parses_mcp_connect_entries(tmp_path: Path) -> None:
