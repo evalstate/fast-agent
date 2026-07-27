@@ -6,7 +6,7 @@ import json
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
-from mcp.client import Client, Transport
+from mcp.client import CacheConfig, Client, Transport
 from mcp.shared.exceptions import MCPError
 from mcp_types import (
     CallToolResult,
@@ -83,7 +83,7 @@ class MCPClientConnection:
             elicitation_callback=callbacks.elicitation_callback,
             message_handler=callbacks.message_handler,
             client_info=callbacks.client_info,
-            cache=None if cache else False,
+            cache=CacheConfig() if cache else None,
         )
 
     async def __aenter__(self) -> MCPClientConnection:

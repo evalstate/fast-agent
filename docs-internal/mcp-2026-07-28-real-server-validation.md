@@ -77,27 +77,38 @@ tool-list subscriptions.
 
 ## Hugging Face MCP
 
-Anonymous discovery against `https://huggingface.co/mcp` succeeded when run
-with an isolated `HF_HOME` so a developer credential could not affect the
-probe:
+Anonymous discovery against `https://huggingface.co/mcp` succeeded with MCP
+Python SDK `2.0.0rc1` and an isolated `HF_HOME` so a developer credential could
+not affect the probe:
 
 ```bash
 HF_HOME=/tmp/empty-hf-home uv run --project . python /tmp/fa-hf-probe/probe.py
 ```
 
-Observed:
+Observed on 27 July 2026:
 
 ```text
-server=@huggingface/mcp-services 0.3.35
-protocol_version=2025-11-25
-protocol_era=legacy
-negotiation=initialize
+server=@huggingface/mcp-services 0.4.1
+protocol_version=2026-07-28
+protocol_era=modern
+supported_protocol_versions=(2026-07-28,)
+negotiation=discover
 ```
 
-Anonymous `tools/list` returned the public Hugging Face tool surface. A local
-cached Hugging Face token is automatically forwarded by fast-agent; an invalid
-cached token can make this probe fail, which is why the validation isolates
-`HF_HOME`.
+Anonymous `tools/list` returned the four-tool public Hugging Face surface and
+`hf_whoami` completed successfully. Server identity is stamped in
+`result._meta["io.modelcontextprotocol/serverInfo"]`, matching the final
+post-specification-PR-3002 discover schema.
+
+The earlier beta2 validation incorrectly reported this endpoint as legacy:
+`mcp-types==2.0.0b2` still required the removed top-level
+`DiscoverResult.serverInfo`, so `mode="auto"` silently fell back to
+`initialize`. The final-schema contract is covered by
+`tests/unit/fast_agent/mcp/test_discover_contract.py`.
+
+A local cached Hugging Face token is automatically forwarded by fast-agent; an
+invalid cached token can make this probe fail, which is why the validation
+isolates `HF_HOME`.
 
 ## Existing examples
 

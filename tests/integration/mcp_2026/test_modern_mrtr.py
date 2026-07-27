@@ -45,7 +45,7 @@ async def test_modern_negotiation_and_mrtr(fast_agent) -> None:
             assert status.protocol_era == "modern"
             assert status.supported_protocol_versions == ("2026-07-28",)
             assert status.negotiation == "discover"
-            assert status.subscription_state == "unsupported"
+            assert status.subscription_state == "open"
             assert status.ping_ok_count == 0
             assert status.ping_fail_count == 0
 

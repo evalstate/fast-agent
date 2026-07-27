@@ -754,10 +754,8 @@ async def _run_server_lifecycle(server_conn: ServerConnection) -> None:
 
 async def _wait_for_shutdown_with_optional_ping(server_conn: ServerConnection) -> None:
     subscription_task: asyncio.Task[None] | None = None
-    if server_conn.protocol_era == "modern" and server_conn.server_config.transport == "http":
+    if server_conn.protocol_era == "modern":
         subscription_task = asyncio.create_task(_run_subscription_loop(server_conn))
-    elif server_conn.protocol_era == "modern":
-        server_conn.subscription_state = "unsupported"
     if not _ping_loop_enabled(server_conn):
         ping_task = None
     else:

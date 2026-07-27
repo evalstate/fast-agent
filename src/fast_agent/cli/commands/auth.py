@@ -287,7 +287,7 @@ async def _run_login_session(
                 Client(
                     streamable_http_client(cfg.url or "", http_client=http_client),
                     mode="auto",
-                    cache=False,
+                    cache=None,
                 ),
             ):
                 return True
@@ -298,7 +298,7 @@ async def _run_login_session(
             async with Client(
                 sse_client(cfg.url or "", cfg.headers, auth=provider),
                 mode="auto",
-                cache=False,
+                cache=None,
             ):
                 return True
         return False

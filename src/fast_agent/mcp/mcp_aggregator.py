@@ -15,8 +15,8 @@ from typing import (
 )
 
 from mcp import GetPromptResult, ReadResourceResult
+from mcp.shared.dispatcher import ProgressFnT
 from mcp.shared.exceptions import MCPError
-from mcp.shared.session import ProgressFnT
 from mcp_types import (
     CallToolResult,
     CompleteResult,

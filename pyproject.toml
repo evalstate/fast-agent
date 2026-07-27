@@ -15,9 +15,9 @@ classifiers = [
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "fastapi==0.136.3",
-    "fastmcp==4.0.0a2",
-    "mcp==2.0.0b2",
-    "mcp-types==2.0.0b2",
+    "fastmcp-slim[server] @ git+https://github.com/evalstate/fastmcp.git@0a771b0a5e3e52202f2d4d941ae50f43610b8882#subdirectory=fastmcp_slim",
+    "mcp==2.0.0rc1",
+    "mcp-types==2.0.0rc1",
     "pydantic-settings==2.14.2",
     "pydantic==2.13.4",
     "pyyaml==6.0.3",
@@ -205,9 +205,8 @@ ignore=["E501"]
 
 [tool.uv]
 constraint-dependencies = [
-    "fastmcp-slim==4.0.0a2",
-    "mcp==2.0.0b2",
-    "mcp-types==2.0.0b2",
+    "mcp==2.0.0rc1",
+    "mcp-types==2.0.0rc1",
 ]
 
 [tool.uv.workspace]

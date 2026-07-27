@@ -17,9 +17,8 @@ members = [
     "hf-inference-acp",
 ]
 constraints = [
-    { name = "fastmcp-slim", specifier = "==4.0.0a2" },
-    { name = "mcp", specifier = "==2.0.0b2" },
-    { name = "mcp-types", specifier = "==2.0.0b2" },
+    { name = "mcp", specifier = "==2.0.0rc1" },
+    { name = "mcp-types", specifier = "==2.0.0rc1" },
 ]
 
 [[package]]
@@ -891,7 +890,7 @@ dependencies = [
     { name = "deprecated" },
     { name = "email-validator" },
     { name = "fastapi" },
-    { name = "fastmcp" },
+    { name = "fastmcp-slim", extra = ["server"] },
     { name = "filelock" },
     { name = "google-genai" },
     { name = "huggingface-hub" },
@@ -998,15 +997,15 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'parquet'", specifier = ">=1.4" },
     { name = "email-validator", specifier = "==2.3.0" },
     { name = "fastapi", specifier = "==0.136.3" },
-    { name = "fastmcp", specifier = "==4.0.0a2" },
+    { name = "fastmcp-slim", extras = ["server"], git = "https://github.com/evalstate/fastmcp.git?subdirectory=fastmcp_slim&rev=0a771b0a5e3e52202f2d4d941ae50f43610b8882" },
     { name = "filelock", specifier = "==3.29.1" },
     { name = "gepa", marker = "extra == 'gepa'", specifier = ">=0.1.1" },
     { name = "google-genai", specifier = "==2.10.0" },
     { name = "huggingface-hub", specifier = "==1.24.0" },
     { name = "jsonschema", specifier = "==4.26.0" },
     { name = "keyring", specifier = "==25.7.0" },
-    { name = "mcp", specifier = "==2.0.0b2" },
-    { name = "mcp-types", specifier = "==2.0.0b2" },
+    { name = "mcp", specifier = "==2.0.0rc1" },
+    { name = "mcp-types", specifier = "==2.0.0rc1" },
     { name = "mslex", specifier = "==1.3.0" },
     { name = "numpy", marker = "extra == 'privacy'", specifier = ">=2" },
     { name = "numpy", marker = "extra == 'privacy-gpu'", specifier = ">=2" },
@@ -1078,21 +1077,9 @@ wheels = [
 ]
 
 [[package]]
-name = "fastmcp"
-version = "4.0.0a2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "fastmcp-slim", extra = ["client", "server"] },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/15/e4/03878943f2308e391cb6fa644e9731ae667a43fdd10e943f49bcb212a119/fastmcp-4.0.0a2.tar.gz", hash = "sha256:85400ada91a87c3c31796b7deb3592a055d1623ef7f5417c05ff11688bbc4f3c", size = 41970107, upload-time = "2026-07-24T01:02:41.868Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b4/03/5de3e24041f7ae3b7b98a6c4756c42af862ea6dd8a7b46a8cd2dca0055c4/fastmcp-4.0.0a2-py3-none-any.whl", hash = "sha256:4c66d02688330bc84a106b3b944b71cf4943d5cf1e009413d2c3195dac3ed376", size = 8037, upload-time = "2026-07-24T01:02:38.049Z" },
-]
-
-[[package]]
 name = "fastmcp-slim"
-version = "4.0.0a2"
-source = { registry = "https://pypi.org/simple" }
+version = "4.0.0a2.post1"
+source = { git = "https://github.com/evalstate/fastmcp.git?subdirectory=fastmcp_slim&rev=0a771b0a5e3e52202f2d4d941ae50f43610b8882#0a771b0a5e3e52202f2d4d941ae50f43610b8882" }
 dependencies = [
     { name = "mcp-types" },
     { name = "platformdirs" },
@@ -1102,21 +1089,8 @@ dependencies = [
     { name = "rich" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4e/26/cc9a459f6abf5321eb73959c5cbc9884893eace1b855173c9832c9fa73a3/fastmcp_slim-4.0.0a2.tar.gz", hash = "sha256:9486717b1de8ddc624b48bc2bf66a9c451ad04052429b14b5a2add6c987e27cd", size = 649518, upload-time = "2026-07-24T01:01:12.134Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f3/87/d62fc901f167237e6266156031b790c36f848d5038ad268fabc35b2957c9/fastmcp_slim-4.0.0a2-py3-none-any.whl", hash = "sha256:325ae95e311f07a759a699aef5fb43b2c217f02e947f680ab6f928d4764edf56", size = 819056, upload-time = "2026-07-24T01:01:10.551Z" },
-]
 
 [package.optional-dependencies]
-client = [
-    { name = "authlib" },
-    { name = "exceptiongroup" },
-    { name = "httpx2" },
-    { name = "mcp" },
-    { name = "opentelemetry-api" },
-    { name = "py-key-value-aio", extra = ["filetree", "keyring", "memory"] },
-    { name = "starlette" },
-]
 server = [
     { name = "authlib" },
     { name = "cyclopts" },
@@ -1961,7 +1935,7 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "2.0.0b2"
+version = "2.0.0rc1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1970,7 +1944,6 @@ dependencies = [
     { name = "mcp-types" },
     { name = "opentelemetry-api" },
     { name = "pydantic" },
-    { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "python-multipart" },
     { name = "pywin32", marker = "sys_platform == 'win32'" },
@@ -1980,22 +1953,22 @@ dependencies = [
     { name = "typing-inspection" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a1/aa/c5d38e0199304494be6370667d04d93d8681d9bdc864d56678250dbd3f3b/mcp-2.0.0b2.tar.gz", hash = "sha256:0528d0d38ae798fbff251616ec687faaaa8f5309571e0b2bc553c530fa10b8b1", size = 1590650, upload-time = "2026-07-14T16:47:57.897Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d1/ea/aa22bd3a6056fc9fb183ddb245545684cca2391286e1eb67946ab3ef418f/mcp-2.0.0rc1.tar.gz", hash = "sha256:664f719ea0ba33fa6a697fa1e32cadca6b6f7d7f958a8a8cda59622a0172d835", size = 1619591, upload-time = "2026-07-27T13:35:17.166Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a7/90/187d6283a304acc6954987992ef17e2515739a649f148dc8b67b302e1bbd/mcp-2.0.0b2-py3-none-any.whl", hash = "sha256:9c50ae5afa08960ab76d50aa3adab3184952d9bea7ef87f4a4a5ba68bdefcf0a", size = 334286, upload-time = "2026-07-14T16:47:54.768Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/4c/02657d8e70dc828089e1a0f1326c44c3a1f9aba2d7b22df61feda71111fa/mcp-2.0.0rc1-py3-none-any.whl", hash = "sha256:43d8c181d3dac50aaa310e16fa14dae92ac844ffa3fcc3363b6a93d8b088ea0d", size = 340369, upload-time = "2026-07-27T13:35:13.997Z" },
 ]
 
 [[package]]
 name = "mcp-types"
-version = "2.0.0b2"
+version = "2.0.0rc1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ad/21/db529130ac8edd1d844fc322862afeceaf2b7f610a591fa528002b022e07/mcp_types-2.0.0b2.tar.gz", hash = "sha256:094fa7160106819ab39a1586179c3a9f070bfd833d0a6f8fcb30a54a986cc402", size = 65877, upload-time = "2026-07-14T16:47:59.198Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/7b/a405786c8ec58f40769fb27b4131edc6f175b407be73a821eff446568ead/mcp_types-2.0.0rc1.tar.gz", hash = "sha256:3c9ec7d0e356d9c73023c53b418179801257869d2f1647cb6d19a9072831cfcd", size = 66486, upload-time = "2026-07-27T13:35:18.386Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1e/e1/c466ceacdaa929396d35ad45176398acd0c416fead0970d3ad22618a19d7/mcp_types-2.0.0b2-py3-none-any.whl", hash = "sha256:35c9c33abb90a77dc6ad1daecaa6407c788c2f32d14d52dad8f843c4f008eae2", size = 68944, upload-time = "2026-07-14T16:47:56.493Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/01/c18c6c37df2ca487113e76b5a0fb001b285482b28dbde6488a832209ff68/mcp_types-2.0.0rc1-py3-none-any.whl", hash = "sha256:b40ce464006aacd6682049f6f3b573a2ce04af203fddd1716e8e1ae9226779bb", size = 69518, upload-time = "2026-07-27T13:35:15.598Z" },
 ]
 
 [[package]]
