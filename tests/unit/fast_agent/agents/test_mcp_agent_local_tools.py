@@ -31,6 +31,11 @@ from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
+from fast_agent.utils.tool_names import (
+    BASH_TOOL_NAME,
+    EXECUTE_TOOL_NAME,
+    PROCESS_TOOL_NAME,
+)
 
 
 class _DisplayCall(TypedDict):
@@ -1632,6 +1637,49 @@ async def test_grok_catalog_shell_output_limit_applies_when_setting_is_omitted()
     assert shell_runtime.output_byte_limit == 16_000
 
     await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_grok_uses_minimal_process_default_and_preserves_native_override() -> None:
+    minimal_agent = McpAgent(
+        config=AgentConfig(
+            name="minimal",
+            instruction="Instruction",
+            servers=[],
+            shell=True,
+            model="xai/grok-4.5?reasoning=high",
+        ),
+        context=Context(config=Settings(shell_execution=ShellSettings())),
+    )
+    minimal_runtime = minimal_agent.shell_runtime
+    assert minimal_runtime is not None
+    assert {tool.name for tool in minimal_runtime.tools} == {
+        BASH_TOOL_NAME,
+        PROCESS_TOOL_NAME,
+    }
+
+    native_agent = McpAgent(
+        config=AgentConfig(
+            name="native",
+            instruction="Instruction",
+            servers=[],
+            shell=True,
+            model="xai/grok-4.5?reasoning=high",
+        ),
+        context=Context(
+            config=Settings(
+                shell_execution=ShellSettings(tool_profile="native"),
+            )
+        ),
+    )
+    native_runtime = native_agent.shell_runtime
+    assert native_runtime is not None
+    assert native_runtime.owns_tool(EXECUTE_TOOL_NAME)
+    assert not native_runtime.owns_tool(BASH_TOOL_NAME)
+    assert not native_runtime.owns_tool(PROCESS_TOOL_NAME)
+
+    await minimal_agent._aggregator.close()
+    await native_agent._aggregator.close()
 
 
 @pytest.mark.asyncio
