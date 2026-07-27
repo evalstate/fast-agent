@@ -22,6 +22,7 @@ from fast_agent.commands.model_capabilities import (
     resolve_x_search_supported,
 )
 from fast_agent.constants import TERMINAL_BYTES_PER_TOKEN
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_display_name import (
     resolve_llm_display_name,
     resolve_resolved_model_display_name,
@@ -29,7 +30,6 @@ from fast_agent.llm.model_display_name import (
 from fast_agent.llm.task_budget import format_task_budget_tokens
 from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_max_tokens,
-    calculate_terminal_output_limit_for_model,
 )
 from fast_agent.llm.text_verbosity import format_text_verbosity
 from fast_agent.utils.action_normalization import (
@@ -336,22 +336,29 @@ def _resolve_shell_budget_line(
     settings = ctx.resolve_settings()
     shell_config = settings.shell_execution
     config_limit = positive_int_or_none(shell_config.output_byte_limit)
-    if config_limit is not None:
+    if shell_config.output_byte_limit_selection == "explicit" and config_limit is not None:
         return format_shell_budget(config_limit, "config override")
 
-    max_output_tokens = positive_int_or_none(max_output_tokens)
-    if max_output_tokens is not None:
+    if shell_config.output_byte_limit_selection == "auto":
+        max_output_tokens = positive_int_or_none(max_output_tokens)
+        if max_output_tokens is None:
+            return None
         return format_shell_budget(
             calculate_terminal_output_limit_for_max_tokens(max_output_tokens),
             "auto from model",
         )
 
-    if wire_model_name:
+    model_override = (
+        ModelDatabase.get_shell_output_byte_limit(wire_model_name) if wire_model_name else None
+    )
+    if model_override is not None:
         return format_shell_budget(
-            calculate_terminal_output_limit_for_model(wire_model_name),
-            "auto from model",
+            model_override,
+            "model catalog",
         )
 
+    if config_limit is not None:
+        return format_shell_budget(config_limit, "global default")
     return None
 
 

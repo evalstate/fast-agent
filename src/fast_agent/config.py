@@ -306,6 +306,11 @@ class ShellSettings(BaseModel):
         default=8192,
         description="Model-facing shell output preview bytes (None = model-based auto)",
     )
+    output_byte_limit_selection: Literal["default", "explicit", "auto"] = Field(
+        default="default",
+        repr=False,
+        json_schema_extra={"internal": True},
+    )
     retain_truncated_output: bool = Field(
         default=True,
         description=(
@@ -423,6 +428,19 @@ class ShellSettings(BaseModel):
         if isinstance(value, str):
             return int(value.strip())
         return int(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _capture_output_byte_limit_selection(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        if "output_byte_limit_selection" in value or "output_byte_limit" not in value:
+            return value
+        updated = dict(value)
+        updated["output_byte_limit_selection"] = (
+            "auto" if value["output_byte_limit"] is None else "explicit"
+        )
+        return updated
 
     @field_validator("retained_output_max_bytes", mode="before")
     @classmethod

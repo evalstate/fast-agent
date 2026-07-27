@@ -17,6 +17,10 @@ def test_default_terminal_output_limit_falls_back_for_unknown_model() -> None:
     )
 
 
+def test_grok_45_uses_catalog_shell_output_limit() -> None:
+    assert calculate_terminal_output_limit_for_model("xai/grok-4.5") == 16_000
+
+
 def test_default_terminal_output_limit_scaled_for_large_output_models() -> None:
     # gpt-4.1 is defined in ModelDatabase with max_output_tokens=32768.
     # With the current budgeting constants this reaches the conservative hard cap.

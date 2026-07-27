@@ -69,6 +69,7 @@ def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
     )
     assert grok_45 is not None
     assert grok_45.managed_process_poll_folding is True
+    assert grok_45.shell_output_byte_limit == 16_000
 
     anthropic_models = [model for model in ModelDatabase.MODELS if model.startswith("claude-")]
     assert anthropic_models

@@ -9,6 +9,7 @@ from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
+from fast_agent.constants import MAX_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.llm.model_mime_support import ResourceSource, tokenizes_support_mime
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
@@ -44,6 +45,13 @@ class ModelParameters(BaseModel):
 
     process_poll_default_wait_seconds: int = Field(default=0, ge=0, le=600)
     """Default poll_process wait when the model omits wait_sec."""
+
+    shell_output_byte_limit: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
+    )
+    """Optional model-specific default for model-facing shell output previews."""
 
     reasoning: None | str = None
     """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
@@ -827,6 +835,7 @@ class ModelDatabase:
         response_websocket_providers=(Provider.XAI,),
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=240,
+        shell_output_byte_limit=16_000,
     )
 
     MUSE_SPARK_11 = ModelParameters(
@@ -1306,6 +1315,17 @@ class ModelDatabase:
         """Get maximum output tokens for a model"""
         params = cls.get_model_params(model, provider=provider)
         return params.max_output_tokens if params else None
+
+    @classmethod
+    def get_shell_output_byte_limit(
+        cls,
+        model: str,
+        *,
+        provider: Provider | None = None,
+    ) -> int | None:
+        """Get a model-specific shell output preview default."""
+        params = cls.get_model_params(model, provider=provider)
+        return params.shell_output_byte_limit if params else None
 
     @classmethod
     def get_tokenizes(cls, model: str, *, provider: Provider | None = None) -> list[str] | None:

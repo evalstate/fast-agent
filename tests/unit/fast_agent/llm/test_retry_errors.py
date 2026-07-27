@@ -48,6 +48,17 @@ def test_openai_bad_request_is_fatal() -> None:
     assert FastAgentLLM._is_fatal_retry_error(error) is True
 
 
+def test_openai_api_error_with_non_string_code_is_not_fatal() -> None:
+    error = OpenAIAPIError(
+        "rate limited",
+        httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions"),
+        body={"code": 429},
+    )
+
+    assert error.code == 429
+    assert FastAgentLLM._is_fatal_retry_error(error) is False
+
+
 def test_anthropic_bad_request_is_fatal() -> None:
     request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     response = httpx.Response(400, request=request)

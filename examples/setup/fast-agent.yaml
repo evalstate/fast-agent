@@ -97,7 +97,8 @@ anthropic:
 #  output_display_lines: 5  # default
 # show shell command output in console (false to suppress bash output)
 #  show_bash: true
-# model-facing shell output preview size in bytes (null = model-specific automatic)
+# model-facing shell output preview bytes; omitted uses a catalog override (Grok
+# 4.5: 16000) or the 8192 global default; null uses automatic model sizing
 #  output_byte_limit: 8192
 # retain complete truncated output in private session-scoped temporary files
 #  retain_truncated_output: true
