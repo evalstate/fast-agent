@@ -48,6 +48,7 @@ from fast_agent.commands.model_capabilities import (
 )
 from fast_agent.config import MCPServerSettings
 from fast_agent.constants import (
+    DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     HUMAN_INPUT_TOOL_NAME,
     should_parallelize_tool_calls,
 )
@@ -57,6 +58,7 @@ from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.terminal_output_limits import (
+    calculate_terminal_output_limit_for_max_tokens,
     calculate_terminal_output_limit_for_model,
     calculate_terminal_output_limit_for_resolved_model,
 )
@@ -779,13 +781,29 @@ class McpAgent(ABC, ToolAgent):
             warning_interval_seconds = shell_config.warning_interval_seconds
             config_output_byte_limit = shell_config.output_byte_limit
 
-        if config_output_byte_limit is not None:
+        output_limit_selection = (
+            shell_config.output_byte_limit_selection if shell_config is not None else "auto"
+        )
+        model_name = self.config.model
+        if not model_name and self._context and self._context.config:
+            model_name = self._context.config.default_model
+
+        if output_limit_selection == "explicit" and config_output_byte_limit is not None:
             output_byte_limit = config_output_byte_limit
+        elif output_limit_selection == "auto":
+            max_output_tokens = (
+                ModelDatabase.get_max_output_tokens(model_name) if model_name else None
+            )
+            output_byte_limit = calculate_terminal_output_limit_for_max_tokens(max_output_tokens)
         else:
-            model_name = self.config.model
-            if not model_name and self._context and self._context.config:
-                model_name = self._context.config.default_model
-            output_byte_limit = calculate_terminal_output_limit_for_model(model_name)
+            model_override = (
+                ModelDatabase.get_shell_output_byte_limit(model_name) if model_name else None
+            )
+            output_byte_limit = (
+                model_override
+                if model_override is not None
+                else config_output_byte_limit or DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+            )
         return _ShellRuntimeSettings(
             timeout_seconds=timeout_seconds,
             warning_interval_seconds=warning_interval_seconds,
@@ -999,7 +1017,8 @@ class McpAgent(ABC, ToolAgent):
         """Return True when shell output byte limit is explicitly configured."""
         if not self._context or not self._context.config:
             return False
-        return self._context.config.shell_execution.output_byte_limit is not None
+        shell_config = self._context.config.shell_execution
+        return shell_config.output_byte_limit_selection == "explicit"
 
     def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
         super()._on_llm_attached(llm)
@@ -1058,14 +1077,42 @@ class McpAgent(ABC, ToolAgent):
     ) -> int:
         active_llm = llm or self._llm
         resolved_model = resolve_resolved_model(active_llm) if active_llm is not None else None
+        shell_config = (
+            self._context.config.shell_execution
+            if self._context is not None and self._context.config is not None
+            else None
+        )
+        automatic_sizing = (
+            shell_config is None or shell_config.output_byte_limit_selection == "auto"
+        )
         if resolved_model is not None:
-            return calculate_terminal_output_limit_for_resolved_model(resolved_model)
+            if automatic_sizing:
+                return calculate_terminal_output_limit_for_max_tokens(
+                    resolved_model.max_output_tokens
+                )
+            model_override = (
+                resolved_model.model_params.shell_output_byte_limit
+                if resolved_model.model_params is not None
+                else None
+            )
+            if model_override is not None:
+                return calculate_terminal_output_limit_for_resolved_model(resolved_model)
         model_name = (
             resolve_model_name(active_llm)
             if active_llm is not None
             else self._resolve_shell_tool_model_name()
         )
-        return calculate_terminal_output_limit_for_model(model_name)
+        model_override = (
+            ModelDatabase.get_shell_output_byte_limit(model_name) if model_name else None
+        )
+        if automatic_sizing:
+            max_output_tokens = (
+                ModelDatabase.get_max_output_tokens(model_name) if model_name else None
+            )
+            return calculate_terminal_output_limit_for_max_tokens(max_output_tokens)
+        if model_override is not None:
+            return calculate_terminal_output_limit_for_model(model_name)
+        return shell_config.output_byte_limit or DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 
     def _activate_shell_runtime(
         self,

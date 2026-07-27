@@ -168,6 +168,32 @@ metadata:
     assert resolved.model_params.process_poll_default_wait_seconds == 30
 
 
+def test_overlay_configures_shell_output_byte_limit(tmp_path: Path) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "shell-output.yaml",
+        """
+name: shell-output
+provider: openresponses
+model: overlay-tests/Shell-Output
+connection:
+  base_url: http://localhost:8080/v1
+  auth: none
+metadata:
+  context_window: 65536
+  max_output_tokens: 4096
+  shell_output_byte_limit: 12000
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        resolved = ModelFactory.resolve_model_spec("shell-output")
+
+    assert resolved.model_params is not None
+    assert resolved.model_params.shell_output_byte_limit == 12_000
+
+
 def test_same_provider_overlays_create_distinct_openresponses_clients(tmp_path: Path) -> None:
     home = tmp_path / ".fast-agent"
     _write_overlay(
