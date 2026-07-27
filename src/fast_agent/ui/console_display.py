@@ -506,6 +506,7 @@ class ConsoleDisplay:
         render_markdown: bool | None = None,
         show_hook_indicator: bool = False,
         header_rule_fill: bool = False,
+        show_reprint_banner: bool = False,
     ) -> None:
         """
         Unified method to display formatted messages to the console.
@@ -526,6 +527,7 @@ class ConsoleDisplay:
             render_markdown: Force markdown rendering (True) or plain rendering (False)
             show_hook_indicator: Whether to show the hook indicator glyph (◆)
             header_rule_fill: Whether to extend the header with a dim rule to the right edge
+            show_reprint_banner: Whether to emit the bright banner before the main content
         """
         console.ensure_blocking_console()
 
@@ -545,6 +547,9 @@ class ConsoleDisplay:
         )
 
         self._print_pre_content(pre_content, skip_empty_content=skip_empty_content)
+
+        if show_reprint_banner:
+            self.show_stream_reprint_banner()
 
         if not skip_empty_content:
             self._display_content(
@@ -1330,9 +1335,6 @@ class ConsoleDisplay:
         display_model = resolve_model_display_name(model)
         right_info = f"[dim]{display_model}[/dim]" if display_model else ""
 
-        if show_reprint_banner:
-            self.show_stream_reprint_banner()
-
         # Display main message using unified method
         self.display_message(
             content=display_text,
@@ -1348,6 +1350,7 @@ class ConsoleDisplay:
             post_content=post_content,
             render_markdown=render_markdown,
             show_hook_indicator=show_hook_indicator,
+            show_reprint_banner=show_reprint_banner,
         )
 
         # Handle mermaid diagrams separately (after the main message)

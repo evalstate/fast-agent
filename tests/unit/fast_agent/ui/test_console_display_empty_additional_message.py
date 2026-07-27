@@ -7,7 +7,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from fast_agent.config import LoggerSettings, Settings
-from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS
+from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS, REASONING
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import console
@@ -141,6 +141,7 @@ def test_assistant_reprint_banner_is_rendered_with_final_assistant_message() -> 
     message = PromptMessageExtended(
         role="assistant",
         content=[TextContent(type="text", text="Final answer")],
+        channels={REASONING: [TextContent(type="text", text="Considering the answer")]},
         stop_reason=LlmStopReason.END_TURN,
     )
 
@@ -156,8 +157,9 @@ def test_assistant_reprint_banner_is_rendered_with_final_assistant_message() -> 
 
     rendered = asyncio.run(_render())
     assert "FINAL RESPONSE" in rendered
-    assert rendered.index("FINAL RESPONSE") < rendered.index("▎◀ dev")
-    assert rendered.index("▎◀ dev") < rendered.index("Final answer")
+    assert rendered.index("▎◀ dev") < rendered.index("Considering the answer")
+    assert rendered.index("Considering the answer") < rendered.index("FINAL RESPONSE")
+    assert rendered.index("FINAL RESPONSE") < rendered.index("Final answer")
 
 
 def test_assistant_reprint_banner_can_be_disabled_in_logger_settings() -> None:
