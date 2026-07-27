@@ -463,6 +463,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """Return the instance-local config used to construct a clone."""
         return deepcopy(self.config)
 
+    async def _configure_cloned_instance(self, clone: "LlmDecorator") -> None:
+        """Apply runtime state that is not represented in the clone config."""
+
     async def spawn_detached_instance(self, *, name: str | None = None) -> Self:
         """Create a detached agent that preserves the current clone behavior."""
         return await self._spawn_detached_instance(
@@ -503,6 +506,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         clone = type(self)(config=new_config, context=self.context, **constructor_kwargs)
         try:
             await clone.initialize()
+            await self._configure_cloned_instance(clone)
 
             if self._agent_registry is not None:
                 clone.set_agent_registry(self._agent_registry)

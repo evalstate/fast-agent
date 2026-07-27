@@ -2,7 +2,7 @@ import asyncio
 import io
 import json
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import pytest
 from fastmcp.exceptions import ValidationError
@@ -22,6 +22,7 @@ from fast_agent.agents.subagent_tool import (
 )
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks
+from fast_agent.config import MCPServerSettings
 from fast_agent.constants import FAST_AGENT_SUBAGENT_RESULT_METADATA, FAST_AGENT_TOOL_METADATA
 from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
@@ -37,6 +38,7 @@ from fast_agent.llm.usage_tracking import (
     UsageSchema,
 )
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.session import (
     Session,
@@ -54,6 +56,7 @@ from fast_agent.ui.progress_display import progress_display
 
 if TYPE_CHECKING:
     from fast_agent.mcp.skybridge import SkybridgeServerConfig
+    from fast_agent.tools.execution_environment import ShellEnvironment
     from fast_agent.ui.terminal_images.renderer import ImageRenderItem
 
 
@@ -344,6 +347,33 @@ class TrackingToolAgent(ToolAgent):
         await super().shutdown()
 
 
+class RecordingAttachmentMcpAgent(McpAgent):
+    def __init__(self, config: AgentConfig, **kwargs: Any) -> None:
+        super().__init__(config, **kwargs)
+        self.attachment_calls: list[str] = []
+
+    async def attach_mcp_server(
+        self,
+        *,
+        server_name: str,
+        server_config: MCPServerSettings | None = None,
+        options: MCPAttachOptions | None = None,
+    ) -> MCPAttachResult:
+        del server_config, options
+        self.attachment_calls.append(server_name)
+        if server_name not in self.aggregator._attached_server_names:
+            self.aggregator._attached_server_names.append(server_name)
+        return MCPAttachResult(
+            server_name=server_name,
+            transport="stdio",
+            attached=True,
+            already_attached=False,
+            tools_added=[],
+            prompts_added=[],
+            warnings=[],
+        )
+
+
 class SlowSaveSession(Session):
     async def save_history(self, *args: Any, **kwargs: Any) -> str:
         del args, kwargs
@@ -422,6 +452,27 @@ async def test_detached_instance_accepts_model_override() -> None:
         assert clone.llm.resolved_model.selected_model_name == "playback"
     finally:
         await clone.shutdown()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_isolated_clone_preserves_environment_and_runtime_mcp_attachments() -> None:
+    environment = cast("ShellEnvironment", object())
+    parent = RecordingAttachmentMcpAgent(
+        AgentConfig("parent"),
+        shell_environment=environment,
+    )
+    await parent.initialize()
+    await parent.attach_mcp_server(server_name="runtime")
+
+    clone = await parent.spawn_isolated_instance()
+    try:
+        assert clone._shell_environment is environment
+        assert clone.attachment_calls == ["runtime"]
+        assert clone.list_attached_mcp_servers() == ["runtime"]
+    finally:
+        await clone.shutdown()
+        await parent.shutdown()
 
 
 @pytest.mark.unit

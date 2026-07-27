@@ -183,6 +183,7 @@ class _ManagedMcpSetup:
 if TYPE_CHECKING:
     from rich.text import Text
 
+    from fast_agent.agents.llm_decorator import LlmDecorator
     from fast_agent.context import Context
     from fast_agent.llm.usage_tracking import UsageAccumulator
     from fast_agent.tools.execution_environment import ShellEnvironment
@@ -593,6 +594,19 @@ class McpAgent(ABC, ToolAgent):
         config = super()._clone_config()
         config.instruction = self.instruction_template
         return config
+
+    def _clone_constructor_kwargs(self) -> dict[str, Any]:
+        kwargs = super()._clone_constructor_kwargs()
+        kwargs["shell_environment"] = self._shell_environment
+        return kwargs
+
+    async def _configure_cloned_instance(self, clone: "LlmDecorator") -> None:
+        await super()._configure_cloned_instance(clone)
+        mcp_clone = cast("McpAgent", clone)
+        attached = set(mcp_clone.list_attached_mcp_servers())
+        for server_name in self.list_attached_mcp_servers():
+            if server_name not in attached:
+                await mcp_clone.attach_mcp_server(server_name=server_name)
 
     @property
     def instruction_context(self) -> dict[str, str]:
