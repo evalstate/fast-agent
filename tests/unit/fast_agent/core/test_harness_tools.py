@@ -21,7 +21,7 @@ def _tool_names(agent: ToolAgent) -> set[str]:
 
 @pytest.mark.asyncio
 async def test_harness_tools_install_execute_and_disable() -> None:
-    agent = ToolAgent(AgentConfig("dev", harness_tools=True))
+    agent = ToolAgent(AgentConfig("dev", instruction="System details", harness_tools=True))
 
     assert set_harness_tools(agent, True)
     assert HARNESS_TOOL_NAMES <= _tool_names(agent)
@@ -44,6 +44,17 @@ async def test_harness_tools_install_execute_and_disable() -> None:
     assert resource_text is not None
     assert "/usage" in commands_text
     assert "AgentCard" in resource_text
+
+    for command, expected in (
+        ("/usage", "No usage data available."),
+        ("/system", "System details"),
+        ("/status", "No MCP status is available for this agent."),
+    ):
+        result = await agent.call_tool(SLASH_COMMAND_TOOL_NAME, {"command": command})
+        result_text = get_text(result.content[0])
+        assert not result.isError
+        assert result_text is not None
+        assert expected in result_text
 
     rejected = await agent.call_tool(
         SLASH_COMMAND_TOOL_NAME,

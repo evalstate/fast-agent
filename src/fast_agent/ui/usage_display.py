@@ -312,6 +312,28 @@ def _usage_table(
     return table
 
 
+def _markdown_table_row(cells: tuple[Text, ...]) -> str:
+    values = (cell.plain.replace("|", "\\|").replace("\n", " ") for cell in cells)
+    return "| " + " | ".join(values) + " |"
+
+
+def format_usage_markdown(agents: Mapping[str, object]) -> str:
+    """Render model-visible usage data without terminal styling."""
+    usage_data = _collect_usage_display_data(agents)
+    if usage_data is None:
+        return "No usage data available."
+
+    lines = [
+        "| Agent | Input | Cache hit | Output | Tool calls | Last context | Model |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
+    ]
+    for row in usage_data.rows:
+        lines.append(_markdown_table_row(_usage_cells(row)))
+    if len(usage_data.rows) > 1:
+        lines.append(_markdown_table_row(_total_cells(usage_data)))
+    return "\n".join(lines)
+
+
 def display_usage_report(
     agents: Mapping[str, object],
     show_if_progress_disabled: bool = False,

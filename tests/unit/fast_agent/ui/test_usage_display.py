@@ -14,6 +14,7 @@ from fast_agent.ui.usage_display import (
     _collect_usage_display_data,
     _format_cache_percentage,
     _usage_table,
+    format_usage_markdown,
 )
 
 
@@ -154,3 +155,22 @@ def test_usage_table_compacts_large_token_counts_to_four_significant_digits() ->
     assert "21.52M" in rendered
     assert "21,524,724" not in rendered
     assert "51,651" in rendered
+
+
+def test_usage_markdown_contains_model_visible_values() -> None:
+    total = UsageAccumulator()
+    total.add_turn(
+        _turn(
+            input_tokens=1_000,
+            cache_read_tokens=850,
+            output_tokens=20,
+            tool_calls=3,
+            model="gpt-test",
+        )
+    )
+    agent = SimpleNamespace(usage_accumulator=total, llm=None)
+
+    rendered = format_usage_markdown({"dev": agent})
+
+    assert "| Agent | Input | Cache hit | Output | Tool calls | Last context | Model |" in rendered
+    assert "| dev | 1,000 | 85% | 20 | 3 | - | unknown |" in rendered
