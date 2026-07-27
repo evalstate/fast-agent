@@ -4,7 +4,7 @@ import unittest
 from collections.abc import Iterable, Mapping
 from typing import cast
 
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     CallToolRequest,
     CallToolRequestParams,
@@ -15,7 +15,6 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
-from pydantic import AnyUrl
 
 from fast_agent.constants import (
     ANTHROPIC_ASSISTANT_RAW_CONTENT,
@@ -59,8 +58,8 @@ def block_content(block: dict[str, object]) -> list[dict[str, object]]:
 
 def create_pdf_resource(pdf_base64) -> EmbeddedResource:
     pdf_resource: BlobResourceContents = BlobResourceContents(
-        uri=AnyUrl("test://example.com/document.pdf"),
-        mimeType="application/pdf",
+        uri="test://example.com/document.pdf",
+        mime_type="application/pdf",
         blob=pdf_base64,
     )
     return EmbeddedResource(type="resource", resource=pdf_resource)
@@ -93,7 +92,7 @@ class TestAnthropicUserConverter(unittest.TestCase):
         """Test conversion of ImageContent to Anthropic image block."""
         # Create an image content message
         image_content = ImageContent(
-            type="image", data=self.sample_image_base64, mimeType="image/jpeg"
+            type="image", data=self.sample_image_base64, mime_type="image/jpeg"
         )
         multipart = PromptMessageExtended(role="user", content=[image_content])
 
@@ -114,8 +113,8 @@ class TestAnthropicUserConverter(unittest.TestCase):
         """Test conversion of text-based EmbeddedResource to Anthropic document block."""
         # Create a text resource
         text_resource = TextResourceContents(
-            uri=AnyUrl("test://example.com/document.txt"),
-            mimeType="text/plain",
+            uri="test://example.com/document.txt",
+            mime_type="text/plain",
             text=self.sample_text,
         )
         embedded_resource = EmbeddedResource(type="resource", resource=text_resource)
@@ -156,8 +155,8 @@ class TestAnthropicUserConverter(unittest.TestCase):
         """Test conversion of image URL in EmbeddedResource to Anthropic image block."""
         # Create an image resource with URL
         image_resource = BlobResourceContents(
-            uri=AnyUrl("https://example.com/image.jpg"),
-            mimeType="image/jpeg",
+            uri="https://example.com/image.jpg",
+            mime_type="image/jpeg",
             blob=self.sample_image_base64,  # This should be ignored for URL
         )
         embedded_resource = EmbeddedResource(type="resource", resource=image_resource)
@@ -180,8 +179,8 @@ class TestAnthropicUserConverter(unittest.TestCase):
         """Test conversion of image ResourceLink to Anthropic image block."""
         resource = ResourceLink(
             type="resource_link",
-            uri=AnyUrl("https://example.com/image.jpg"),
-            mimeType="image/jpeg",
+            uri="https://example.com/image.jpg",
+            mime_type="image/jpeg",
             name="image.jpg",
         )
         multipart = PromptMessageExtended(role="user", content=[resource])
@@ -200,8 +199,8 @@ class TestAnthropicUserConverter(unittest.TestCase):
     def test_embedded_resource_office_document_uses_uploaded_file_source(self):
         """Test office documents use Anthropic file document source when pre-uploaded."""
         resource = BlobResourceContents(
-            uri=AnyUrl("file:///tmp/report.docx"),
-            mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            uri="file:///tmp/report.docx",
+            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             blob=PDF_BASE64,
         )
         resource.meta = {ANTHROPIC_FILE_ID_META_KEY: "file_abc123"}
@@ -221,7 +220,7 @@ class TestAnthropicUserConverter(unittest.TestCase):
         # Create mixed content for assistant
         text_content = TextContent(type="text", text=self.sample_text)
         image_content = ImageContent(
-            type="image", data=self.sample_image_base64, mimeType="image/jpeg"
+            type="image", data=self.sample_image_base64, mime_type="image/jpeg"
         )
         multipart = PromptMessageExtended(role="assistant", content=[text_content, image_content])
 
@@ -239,7 +238,7 @@ class TestAnthropicUserConverter(unittest.TestCase):
         # Create multiple content blocks
         text_content1 = TextContent(type="text", text="First text")
         image_content = ImageContent(
-            type="image", data=self.sample_image_base64, mimeType="image/jpeg"
+            type="image", data=self.sample_image_base64, mime_type="image/jpeg"
         )
         text_content2 = TextContent(type="text", text="Second text")
 
@@ -265,7 +264,7 @@ class TestAnthropicUserConverter(unittest.TestCase):
         image_content = ImageContent(
             type="image",
             data=self.sample_image_base64,
-            mimeType="image/bmp",  # Unsupported in Anthropic API
+            mime_type="image/bmp",  # Unsupported in Anthropic API
         )
         text_content = TextContent(type="text", text="This is some text")
         multipart = PromptMessageExtended(role="user", content=[text_content, image_content])
@@ -288,8 +287,8 @@ class TestAnthropicUserConverter(unittest.TestCase):
         # Create an embedded SVG resource
         svg_content = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"></svg>'
         svg_resource = TextResourceContents(
-            uri=AnyUrl("test://example.com/image.svg"),
-            mimeType="image/svg+xml",
+            uri="test://example.com/image.svg",
+            mime_type="image/svg+xml",
             text=svg_content,
         )
         embedded_resource = EmbeddedResource(type="resource", resource=svg_resource)
@@ -322,8 +321,8 @@ class TestAnthropicUserConverter(unittest.TestCase):
         """Test conversion of PDF URL in EmbeddedResource to Anthropic document block."""
         # Create a PDF resource with URL
         pdf_resource = BlobResourceContents(
-            uri=AnyUrl("https://example.com/document.pdf"),
-            mimeType="application/pdf",
+            uri="https://example.com/document.pdf",
+            mime_type="application/pdf",
             blob=base64.b64encode(b"fake_pdf_data").decode("utf-8"),
         )
         embedded_resource = EmbeddedResource(type="resource", resource=pdf_resource)
@@ -347,12 +346,12 @@ class TestAnthropicUserConverter(unittest.TestCase):
         unsupported_image = ImageContent(
             type="image",
             data=self.sample_image_base64,
-            mimeType="image/bmp",  # Unsupported
+            mime_type="image/bmp",  # Unsupported
         )
         supported_image = ImageContent(
             type="image",
             data=self.sample_image_base64,
-            mimeType="image/jpeg",  # Supported
+            mime_type="image/jpeg",  # Supported
         )
 
         multipart = PromptMessageExtended(
@@ -376,7 +375,7 @@ class TestAnthropicUserConverter(unittest.TestCase):
         """Test conversion of PromptMessageExtended with both tool_results and content."""
         # Create tool results
         tool_result = CallToolResult(
-            content=[TextContent(type="text", text="Tool execution result")], isError=False
+            content=[TextContent(type="text", text="Tool execution result")], is_error=False
         )
 
         # Create additional content
@@ -454,8 +453,8 @@ class TestAnthropicUserConverter(unittest.TestCase):
         # Create an embedded resource with binary data
         binary_data = base64.b64encode(b"This is binary data").decode("utf-8")  # 20 bytes of data
         binary_resource = BlobResourceContents(
-            uri=AnyUrl("test://example.com/data.bin"),
-            mimeType="application/octet-stream",
+            uri="test://example.com/data.bin",
+            mime_type="application/octet-stream",
             blob=binary_data,
         )
         embedded_resource = EmbeddedResource(type="resource", resource=binary_resource)
@@ -492,7 +491,7 @@ class TestAnthropicToolConverter(unittest.TestCase):
         # Create a tool result with text and PDF content
         text_content = TextContent(type="text", text=self.sample_text)
         pdf_content = create_pdf_resource(PDF_BASE64)
-        tool_result = CallToolResult(content=[text_content, pdf_content], isError=False)
+        tool_result = CallToolResult(content=[text_content, pdf_content], is_error=False)
 
         # Convert to Anthropic format
         anthropic_msg = AnthropicConverter.create_tool_results_message(
@@ -530,7 +529,7 @@ class TestAnthropicToolConverter(unittest.TestCase):
         """Binary-only tool result should be a single tool_result with a document inside."""
         # Create a PDF embedded resource with no text content
         pdf_content = create_pdf_resource(PDF_BASE64)
-        tool_result = CallToolResult(content=[pdf_content], isError=False)
+        tool_result = CallToolResult(content=[pdf_content], is_error=False)
 
         # Test the message creation with this result
         anthropic_msg = AnthropicConverter.create_tool_results_message(
@@ -548,11 +547,11 @@ class TestAnthropicToolConverter(unittest.TestCase):
         """Image ResourceLinks in tool results become Anthropic URL image blocks."""
         resource = ResourceLink(
             type="resource_link",
-            uri=AnyUrl("https://example.com/image.jpg"),
-            mimeType="image/jpeg",
+            uri="https://example.com/image.jpg",
+            mime_type="image/jpeg",
             name="image.jpg",
         )
-        tool_result = CallToolResult(content=[resource], isError=False)
+        tool_result = CallToolResult(content=[resource], is_error=False)
 
         anthropic_msg = AnthropicConverter.create_tool_results_message(
             [(self.tool_use_id, tool_result)]
@@ -567,11 +566,11 @@ class TestAnthropicToolConverter(unittest.TestCase):
         """PDF ResourceLinks in tool results become Anthropic URL document blocks."""
         resource = ResourceLink(
             type="resource_link",
-            uri=AnyUrl("https://example.com/document.pdf"),
-            mimeType="application/pdf",
+            uri="https://example.com/document.pdf",
+            mime_type="application/pdf",
             name="document.pdf",
         )
-        tool_result = CallToolResult(content=[resource], isError=False)
+        tool_result = CallToolResult(content=[resource], is_error=False)
 
         anthropic_msg = AnthropicConverter.create_tool_results_message(
             [(self.tool_use_id, tool_result)]
@@ -586,11 +585,11 @@ class TestAnthropicToolConverter(unittest.TestCase):
         """Unsupported ResourceLinks in tool results remain visible as text."""
         resource = ResourceLink(
             type="resource_link",
-            uri=AnyUrl("https://example.com/archive.zip"),
-            mimeType="application/zip",
+            uri="https://example.com/archive.zip",
+            mime_type="application/zip",
             name="archive.zip",
         )
-        tool_result = CallToolResult(content=[resource], isError=False)
+        tool_result = CallToolResult(content=[resource], is_error=False)
 
         anthropic_msg = AnthropicConverter.create_tool_results_message(
             [(self.tool_use_id, tool_result)]
@@ -605,12 +604,12 @@ class TestAnthropicToolConverter(unittest.TestCase):
         # Create two tool results
         text_content = TextContent(type="text", text=self.sample_text)
         image_content = ImageContent(
-            type="image", data=self.sample_image_base64, mimeType="image/jpeg"
+            type="image", data=self.sample_image_base64, mime_type="image/jpeg"
         )
 
-        tool_result1 = CallToolResult(content=[text_content], isError=False)
+        tool_result1 = CallToolResult(content=[text_content], is_error=False)
 
-        tool_result2 = CallToolResult(content=[image_content], isError=False)
+        tool_result2 = CallToolResult(content=[image_content], is_error=False)
 
         tool_use_id1 = "tool_id_1"
         tool_use_id2 = "tool_id_2"
@@ -642,7 +641,7 @@ class TestAnthropicToolConverter(unittest.TestCase):
         """Test creation of tool results message with error flag."""
         # Create a tool result with error flag set
         error_content = TextContent(type="text", text="Error: Something went wrong")
-        tool_result = CallToolResult(content=[error_content], isError=True)
+        tool_result = CallToolResult(content=[error_content], is_error=True)
         tool_use_id = "tool_error_id"
 
         # Convert to Anthropic message
@@ -663,7 +662,7 @@ class TestAnthropicToolConverter(unittest.TestCase):
     def test_create_tool_results_message_with_empty_content(self):
         """Test creation of tool results message with empty content."""
         # Create a tool result with no content
-        tool_result = CallToolResult(content=[], isError=False)
+        tool_result = CallToolResult(content=[], is_error=False)
         tool_use_id = "tool_empty_id"
 
         # Convert to Anthropic message
@@ -687,9 +686,9 @@ class TestAnthropicToolConverter(unittest.TestCase):
         unsupported_image = ImageContent(
             type="image",
             data=self.sample_image_base64,
-            mimeType="image/bmp",  # Unsupported
+            mime_type="image/bmp",  # Unsupported
         )
-        tool_result = CallToolResult(content=[unsupported_image], isError=False)
+        tool_result = CallToolResult(content=[unsupported_image], is_error=False)
         tool_use_id = "tool_unsupported_id"
 
         # Convert to Anthropic message
@@ -711,9 +710,9 @@ class TestAnthropicToolConverter(unittest.TestCase):
         # Create a tool result with text and image content
         text_content = TextContent(type="text", text=self.sample_text)
         image_content = ImageContent(
-            type="image", data=self.sample_image_base64, mimeType="image/jpeg"
+            type="image", data=self.sample_image_base64, mime_type="image/jpeg"
         )
-        tool_result = CallToolResult(content=[text_content, image_content], isError=False)
+        tool_result = CallToolResult(content=[text_content, image_content], is_error=False)
         tool_use_id = "tool_mixed_id"
 
         # Convert to Anthropic message
@@ -736,12 +735,12 @@ class TestAnthropicToolConverter(unittest.TestCase):
         markdown_content = EmbeddedResource(
             type="resource",
             resource=TextResourceContents(
-                uri=AnyUrl("resource://test/content"),
-                mimeType="text/markdown",
+                uri="resource://test/content",
+                mime_type="text/markdown",
                 text="markdown text",
             ),
         )
-        tool_result = CallToolResult(content=[markdown_content], isError=False)
+        tool_result = CallToolResult(content=[markdown_content], is_error=False)
         tool_use_id = "tool_markdown_id"
 
         # Convert to Anthropic message
@@ -782,7 +781,7 @@ def create_text_resource(
             else f"file:///{normalized_path}"
         )
 
-    return TextResourceContents(uri=AnyUrl(uri), mimeType=mime_type, text=text)
+    return TextResourceContents(uri=uri, mime_type=mime_type, text=text)
 
 
 class TestAnthropicAssistantConverter(unittest.TestCase):
@@ -823,7 +822,7 @@ class TestAnthropicAssistantConverter(unittest.TestCase):
     def test_single_image_content_conversion(self):
         """Test conversion of a single ImageContent item to Anthropic format."""
         image_base64 = base64.b64encode(b"fake_image_data").decode("utf-8")
-        image_content = ImageContent(type="image", data=image_base64, mimeType="image/jpeg")
+        image_content = ImageContent(type="image", data=image_base64, mime_type="image/jpeg")
         multipart = PromptMessageExtended(role="user", content=[image_content])
 
         anthropic_msg = AnthropicConverter.convert_to_anthropic(multipart)
@@ -839,8 +838,8 @@ class TestAnthropicAssistantConverter(unittest.TestCase):
     def test_single_embedded_resource_conversion(self):
         """Test conversion of a single embedded resource item to Anthropic format."""
         text_resource = TextResourceContents(
-            uri=AnyUrl("test://example.com/document.txt"),
-            mimeType="text/plain",
+            uri="test://example.com/document.txt",
+            mime_type="text/plain",
             text="This is a text resource",
         )
         embedded_resource = EmbeddedResource(type="resource", resource=text_resource)
@@ -1294,7 +1293,7 @@ class TestAnthropicAssistantConverter(unittest.TestCase):
         image_content = ImageContent(
             type="image",
             data=base64.b64encode(b"fake_image_data").decode("utf-8"),
-            mimeType="image/jpeg",
+            mime_type="image/jpeg",
         )
 
         multipart = PromptMessageExtended(role="assistant", content=[text_content, image_content])
@@ -1314,8 +1313,8 @@ class TestAnthropicAssistantConverter(unittest.TestCase):
         text_content = TextContent(type="text", text=self.sample_text)
 
         resource_content = TextResourceContents(
-            uri=AnyUrl("test://example.com/document.txt"),
-            mimeType="text/plain",
+            uri="test://example.com/document.txt",
+            mime_type="text/plain",
             text="Some document content",
         )
         embedded_resource = EmbeddedResource(type="resource", resource=resource_content)

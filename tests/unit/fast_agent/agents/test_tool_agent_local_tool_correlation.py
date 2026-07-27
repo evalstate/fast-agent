@@ -3,8 +3,7 @@ from typing import Any
 
 import pytest
 from fastmcp.tools import ToolResult
-from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, ContentBlock, Tool
+from mcp_types import CallToolRequest, CallToolRequestParams, ContentBlock, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
@@ -96,7 +95,7 @@ async def test_sequential_local_tools_receive_correlation_context_and_reset() ->
     agent._llm = LocalToolCallSimulator({"sequential-id": _tool_call("local_tool")})
 
     schemas = await agent.list_tools()
-    assert schemas.tools[0].inputSchema["properties"] == {}
+    assert schemas.tools[0].input_schema["properties"] == {}
 
     result = await agent.generate(
         "run",
@@ -186,6 +185,6 @@ async def test_native_error_result_reports_failed_tool_completion() -> None:
         request_params=RequestParams(tool_execution_handler=handler),
     )
 
-    assert result.isError is True
+    assert result.is_error is True
     assert handler.starts == [("error_tool", "error-call")]
     assert handler.completions == [("local-error_tool", False, None, "simulated tool failure")]

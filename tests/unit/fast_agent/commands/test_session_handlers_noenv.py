@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import sessions as session_handlers

@@ -320,7 +320,7 @@ The following models are recommended for single-pass Tools + Structured output.
 | xAI       | `grok`         | `grok-4.3`               | `auto` |   10 |    0 |           0% |
 | Google    | `gemini3flash` | `gemini-3-flash-preview` | `auto` |   10 |    0 |           0% |
 
-`opus` currently resolves to Claude Opus 4.8 in fast-agent and should be validated with your own
+`opus` currently resolves to Claude Opus 5 in fast-agent and should be validated with your own
 schemas before you promote it into a single-pass Tools + Structured policy. `claude-sonnet-4-6`,
 `gemini-3.1-flash-lite-preview` and `gemini-3.1-pro-preview` show elevated failure rates, so conduct
 your testing with your own schemas before finalizing a policy.

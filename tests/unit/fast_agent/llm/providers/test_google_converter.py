@@ -1,14 +1,13 @@
 import base64
 
 from google.genai import types
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     CallToolResult,
     EmbeddedResource,
     TextContent,
     TextResourceContents,
 )
-from pydantic import AnyUrl
 
 from fast_agent.llm.provider.google.google_converter import GoogleConverter
 from fast_agent.types import (
@@ -25,7 +24,7 @@ def test_convert_function_results_to_google_text_only():
 
     # Create a simple text-only tool result
     result = CallToolResult(
-        content=[TextContent(type="text", text="Weather is sunny")], isError=False
+        content=[TextContent(type="text", text="Weather is sunny")], is_error=False
     )
 
     contents = converter.convert_function_results_to_google([("weather", "call_123", result)])
@@ -117,7 +116,7 @@ def test_convert_video_resource():
     resource = EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri=AnyUrl("file:///path/to/video.mp4"), mimeType="video/mp4", blob=encoded_video
+            uri="file:///path/to/video.mp4", mime_type="video/mp4", blob=encoded_video
         ),
     )
 
@@ -153,7 +152,7 @@ def test_convert_mixed_content_video_text():
     video_resource = EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri=AnyUrl("file:///video.mp4"), mimeType="video/mp4", blob=encoded_video
+            uri="file:///video.mp4", mime_type="video/mp4", blob=encoded_video
         ),
     )
 
@@ -189,8 +188,8 @@ def test_convert_audio_blob_resource():
     audio_resource = EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri=AnyUrl("file:///audio.mp3"),
-            mimeType="audio/mpeg",
+            uri="file:///audio.mp3",
+            mime_type="audio/mpeg",
             blob=encoded_audio,
         ),
     )
@@ -215,8 +214,8 @@ def test_convert_youtube_url_video():
     youtube_resource = EmbeddedResource(
         type="resource",
         resource=TextResourceContents(
-            uri=AnyUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
-            mimeType="video/mp4",
+            uri="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            mime_type="video/mp4",
             text="YouTube video",
         ),
     )
@@ -344,7 +343,7 @@ def test_convert_resource_link_in_tool_result():
     # Create a tool result with a video ResourceLink
     link = video_link("https://storage.example.com/output.mp4", name="generated_video")
 
-    result = CallToolResult(content=[link], isError=False)
+    result = CallToolResult(content=[link], is_error=False)
 
     contents = converter.convert_function_results_to_google([("video_generator", None, result)])
 
@@ -376,12 +375,12 @@ def test_convert_video_blob_in_tool_result():
     resource = EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri=AnyUrl("file:///video.mp4"),
-            mimeType="video/mp4",
+            uri="file:///video.mp4",
+            mime_type="video/mp4",
             blob=encoded_video,
         ),
     )
-    result = CallToolResult(content=[resource], isError=False)
+    result = CallToolResult(content=[resource], is_error=False)
 
     contents = converter.convert_function_results_to_google([("attach_media", None, result)])
 
@@ -407,12 +406,12 @@ def test_convert_audio_blob_in_tool_result():
     resource = EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri=AnyUrl("file:///audio.mp3"),
-            mimeType="audio/mpeg",
+            uri="file:///audio.mp3",
+            mime_type="audio/mpeg",
             blob=encoded_audio,
         ),
     )
-    result = CallToolResult(content=[resource], isError=False)
+    result = CallToolResult(content=[resource], is_error=False)
 
     contents = converter.convert_function_results_to_google([("attach_media", None, result)])
 
@@ -440,7 +439,7 @@ def test_convert_resource_link_text_in_tool_result():
         mime_type="application/yaml",
     )
 
-    result = CallToolResult(content=[link], isError=False)
+    result = CallToolResult(content=[link], is_error=False)
 
     contents = converter.convert_function_results_to_google([("config_reader", None, result)])
 
@@ -491,8 +490,8 @@ def test_convert_multiple_function_results_into_single_content():
     """Test that multiple tool results are combined into a single Content object."""
     converter = GoogleConverter()
 
-    result1 = CallToolResult(content=[TextContent(type="text", text="Output 1")], isError=False)
-    result2 = CallToolResult(content=[TextContent(type="text", text="Output 2")], isError=False)
+    result1 = CallToolResult(content=[TextContent(type="text", text="Output 1")], is_error=False)
+    result2 = CallToolResult(content=[TextContent(type="text", text="Output 2")], is_error=False)
 
     contents = converter.convert_function_results_to_google(
         [

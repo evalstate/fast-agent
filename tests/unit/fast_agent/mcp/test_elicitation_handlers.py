@@ -2,15 +2,17 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from mcp.types import CallToolResult, ElicitRequestURLParams
+from mcp_types import ElicitRequestURLParams, ElicitResult
 
 from fast_agent.human_input.types import HumanInputResponse
+from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 from fast_agent.mcp.elicitation_handlers import (
     _parse_elicitation_content,
-    forms_elicitation_handler,
 )
-from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
-from fast_agent.mcp.tool_result_metadata import set_url_elicitation_required_payload
+from fast_agent.mcp.tool_result_metadata import (
+    set_url_elicitation_required_payload,
+    url_elicitation_required_payload,
+)
 from fast_agent.mcp.url_elicitation_required import (
     URLElicitationDisplayItem,
     URLElicitationRequiredDisplayPayload,
@@ -19,7 +21,7 @@ from fast_agent.mcp.url_elicitation_required import (
 
 @dataclass
 class _ContextWithSession:
-    session: MCPAgentClientSession
+    session: object
 
 
 def _response(value: str) -> HumanInputResponse:
@@ -52,7 +54,7 @@ def test_url_elicitation_payload_round_trips_on_builtin_exception() -> None:
 
     set_url_elicitation_required_payload(exc, payload)
 
-    assert MCPAgentClientSession.get_url_elicitation_required_payload(exc) is payload
+    assert url_elicitation_required_payload(exc) is payload
 
 
 @pytest.mark.parametrize("payload", ['["Ada"]', '"Ada"', "42", "true"])
@@ -131,37 +133,31 @@ def test_parse_elicitation_content_keeps_unknown_single_field_type_as_text() -> 
 
 @pytest.mark.asyncio
 async def test_forms_handler_defers_url_elicitation_to_result_payload(capsys) -> None:
-    session = object.__new__(MCPAgentClientSession)
-    session.session_server_name = "session-server"
-    session.server_config = None
-    session.agent_name = "test-agent"
-    session._pending_url_elicitations = []
+    runtime = MCPClientCallbackRuntime(
+        server_name="session-server",
+        server_config=None,
+        agent_name="test-agent",
+    )
 
-    context: Any = _ContextWithSession(session=session)
+    context: Any = _ContextWithSession(session=object())
     params = ElicitRequestURLParams(
         mode="url",
         message="Open browser to continue",
         url="https://example.com/continue",
-        elicitationId="form-url-1",
+        elicitation_id="form-url-1",
     )
 
-    result = await forms_elicitation_handler(context, params)
+    callback = runtime.elicitation_callback
+    assert callback is not None
+    result = await callback(context, params)
+    assert isinstance(result, ElicitResult)
     assert result.action == "accept"
 
     captured = capsys.readouterr()
     assert captured.out.strip() == ""
 
-    tool_result = CallToolResult(content=[], isError=False)
-    session._attach_pending_url_elicitation_payload_for_request(
-        tool_result,
-        request_method="tools/call",
-    )
-
-    payload = MCPAgentClientSession.get_url_elicitation_required_payload(tool_result)
-    assert payload is not None
-    assert payload.server_name == "session-server"
-    assert payload.request_method == "tools/call"
-    assert len(payload.elicitations) == 1
-    assert payload.elicitations[0].message == "Open browser to continue"
-    assert payload.elicitations[0].url == "https://example.com/continue"
-    assert payload.elicitations[0].elicitation_id == "form-url-1"
+    items = runtime.consume_pending_url_elicitations()
+    assert len(items) == 1
+    assert items[0].message == "Open browser to continue"
+    assert items[0].url == "https://example.com/continue"
+    assert items[0].elicitation_id == "form-url-1"

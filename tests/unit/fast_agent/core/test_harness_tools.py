@@ -52,7 +52,7 @@ async def test_harness_tools_install_execute_and_disable() -> None:
     ):
         result = await agent.call_tool(SLASH_COMMAND_TOOL_NAME, {"command": command})
         result_text = get_text(result.content[0])
-        assert not result.isError
+        assert not result.is_error
         assert result_text is not None
         assert expected in result_text
 
@@ -61,7 +61,7 @@ async def test_harness_tools_install_execute_and_disable() -> None:
         {"command": "/mcp connect https://example.com/mcp"},
     )
     rejected_text = get_text(rejected.content[0])
-    assert rejected.isError
+    assert rejected.is_error
     assert rejected_text is not None
     assert "Unsupported harness command" in rejected_text
 

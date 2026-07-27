@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Final, Literal
 
 if TYPE_CHECKING:
-    from mcp.types import Tool
+    from mcp_types import Tool
 
 FAST_AGENT_TOOL_SOURCE_META: Final = "fast-agent/toolSource"
 

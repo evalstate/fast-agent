@@ -8,8 +8,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from mcp.types import Completion as MCPCompletion
-from mcp.types import ListToolsResult, ResourceTemplate, TextContent, Tool
+from mcp_types import Completion as MCPCompletion
+from mcp_types import ListToolsResult, ResourceTemplate, TextContent, Tool
 from prompt_toolkit.completion import CompleteEvent, Completion
 from prompt_toolkit.document import Document
 
@@ -83,9 +83,9 @@ class _ToolAgentStub:
                 Tool(
                     name="search",
                     description="Search indexed documents",
-                    inputSchema={"type": "object"},
+                    input_schema={"type": "object"},
                 ),
-                Tool(name="read_file", inputSchema={"type": "object"}),
+                Tool(name="read_file", input_schema={"type": "object"}),
             ]
         )
 
@@ -126,12 +126,12 @@ class _MentionAggregatorStub:
     def __init__(self) -> None:
         self._templates = {
             "demo": [
-                ResourceTemplate(name="repo", uriTemplate="repo://items/{id}"),
-                ResourceTemplate(name="repo_pair", uriTemplate="repo://items/{owner}/{repo}"),
-                ResourceTemplate(name="repo_resource", uriTemplate="repo://items/{resourceId}"),
+                ResourceTemplate(name="repo", uri_template="repo://items/{id}"),
+                ResourceTemplate(name="repo_pair", uri_template="repo://items/{owner}/{repo}"),
+                ResourceTemplate(name="repo_resource", uri_template="repo://items/{resourceId}"),
                 ResourceTemplate(
                     name="repo_contents",
-                    uriTemplate="repo://{owner}/{repo}/contents{/path*}",
+                    uri_template="repo://{owner}/{repo}/contents{/path*}",
                 ),
             ]
         }

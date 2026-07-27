@@ -14,7 +14,7 @@ that behavior belongs in provider/converter tests.
 """
 
 import pytest
-from mcp.types import CallToolResult, ImageContent, TextContent
+from mcp_types import CallToolResult, ImageContent, TextContent
 
 
 def _require_tool_result(value: CallToolResult | BaseException, label: str) -> CallToolResult:

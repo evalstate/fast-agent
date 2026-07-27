@@ -14,10 +14,10 @@ async def main():
     agent: LlmAgent = LlmAgent(test, context=core.context)
     await agent.attach_llm(ModelFactory.create_factory("haiku"))
     await agent.send("hello world, render some xml tags both inside and outside of code fences")
-    await agent.generate("write a 200 word story", RequestParams(maxTokens=50))
+    await agent.generate("write a 200 word story", RequestParams(max_tokens=50))
     await agent.generate(
         "repeat after me: `one, two, three, four`",
-        RequestParams(stopSequences=[" two,"]),
+        RequestParams(stop_sequences=[" two,"]),
     )
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from mcp.types import ElicitRequestURLParams
+from mcp_types import ElicitRequestURLParams
 from pydantic import ValidationError
 
 from fast_agent.utils.text import strip_str_to_none
@@ -99,6 +99,12 @@ def parse_url_elicitation_required_data(data: object) -> ParsedURLElicitationErr
             issues.append(f"error.data.elicitations[{index}] is invalid: {details}")
             continue
 
+        if strip_str_to_none(elicitation.elicitation_id) is None:
+            issues.append(
+                f"error.data.elicitations[{index}] is invalid: elicitationId must not be blank"
+            )
+            continue
+
         elicitations.append(elicitation)
 
     return ParsedURLElicitationErrorData(elicitations=elicitations, issues=issues)
@@ -115,8 +121,8 @@ def build_url_elicitation_required_display_payload(
     items = [
         URLElicitationDisplayItem(
             message=item.message,
-            url=item.url,
-            elicitation_id=item.elicitationId,
+            url=str(item.url),
+            elicitation_id=item.elicitation_id or "",
         )
         for item in parsed.elicitations
     ]

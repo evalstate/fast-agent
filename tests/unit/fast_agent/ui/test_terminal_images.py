@@ -2,7 +2,7 @@ import base64
 from types import SimpleNamespace
 
 import pytest
-from mcp.types import ImageContent, TextContent
+from mcp_types import ImageContent, TextContent
 
 from fast_agent.command_actions.models import PluginCommandActionImage
 from fast_agent.config import LoggerSettings, Settings, TerminalImageSettings
@@ -30,7 +30,7 @@ def _image_content() -> ImageContent:
     return ImageContent(
         type="image",
         data=base64.b64encode(_PNG_BYTES).decode("ascii"),
-        mimeType="image/png",
+        mime_type="image/png",
     )
 
 
@@ -82,11 +82,11 @@ def test_tool_result_images_render_without_console_display_state() -> None:
 
 
 def test_tool_result_media_preview_is_display_only() -> None:
-    from mcp.types import CallToolResult
+    from mcp_types import CallToolResult
 
     result = CallToolResult(
         content=[TextContent(type="text", text="Staged image for the next model call.")],
-        isError=False,
+        is_error=False,
     )
 
     set_tool_result_media_preview(result, [_image_content()])

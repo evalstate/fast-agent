@@ -1,4 +1,4 @@
-from mcp.types import (
+from mcp_types import (
     AudioContent,
     CallToolRequest,
     CallToolRequestParams,
@@ -56,7 +56,7 @@ class TestSamplingConverter:
         """Test converting an image SamplingMessage to PromptMessageExtended"""
         # Create a SamplingMessage with image content
         image_content = ImageContent(
-            type="image", data="base64_encoded_image_data", mimeType="image/png"
+            type="image", data="base64_encoded_image_data", mime_type="image/png"
         )
         sampling_message = SamplingMessage(role="user", content=image_content)
 
@@ -69,7 +69,7 @@ class TestSamplingConverter:
         image_block = _image(prompt_message.content[0])
         assert image_block.type == "image"
         assert image_block.data == "base64_encoded_image_data"
-        assert image_block.mimeType == "image/png"
+        assert image_block.mime_type == "image/png"
 
     def test_convert_messages(self):
         """Test converting multiple SamplingMessages to PromptMessageExtended objects"""
@@ -107,7 +107,7 @@ class TestSamplingConverter:
             SamplingMessage(
                 role="user",
                 content=ImageContent(
-                    type="image", data="base64_encoded_image_data", mimeType="image/png"
+                    type="image", data="base64_encoded_image_data", mime_type="image/png"
                 ),
             ),
         ]
@@ -128,47 +128,47 @@ class TestSamplingConverter:
         image_block = _image(prompt_messages[1].content[0])
         assert image_block.type == "image"
         assert image_block.data == "base64_encoded_image_data"
-        assert image_block.mimeType == "image/png"
+        assert image_block.mime_type == "image/png"
 
     def test_extract_request_params_full(self):
         """Test extracting RequestParams from CreateMessageRequestParams with all fields"""
         # Create a CreateMessageRequestParams with all fields
         request_params = CreateMessageRequestParams(
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Hello"))],
-            maxTokens=1000,
-            systemPrompt="You are a helpful assistant",
+            max_tokens=1000,
+            system_prompt="You are a helpful assistant",
             temperature=0.7,
-            stopSequences=["STOP", "\n\n"],
-            includeContext="none",
+            stop_sequences=["STOP", "\n\n"],
+            include_context="none",
         )
 
         # Extract parameters using our converter
         llm_params = SamplingConverter.extract_request_params(request_params)
 
         # Verify parameters
-        assert llm_params.maxTokens == 1000
-        assert llm_params.systemPrompt == "You are a helpful assistant"
+        assert llm_params.max_tokens == 1000
+        assert llm_params.system_prompt == "You are a helpful assistant"
         assert llm_params.temperature == 0.7
-        assert llm_params.stopSequences == ["STOP", "\n\n"]
-        assert llm_params.modelPreferences == request_params.modelPreferences
+        assert llm_params.stop_sequences == ["STOP", "\n\n"]
+        assert llm_params.model_preferences == request_params.model_preferences
 
     def test_extract_request_params_minimal(self):
         """Test extracting RequestParams from CreateMessageRequestParams with minimal fields"""
         # Create a CreateMessageRequestParams with minimal fields
         request_params = CreateMessageRequestParams(
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Hello"))],
-            maxTokens=100,  # Only required field besides messages
+            max_tokens=100,  # Only required field besides messages
         )
 
         # Extract parameters using our converter
         llm_params = SamplingConverter.extract_request_params(request_params)
 
         # Verify parameters
-        assert llm_params.maxTokens == 100
-        assert llm_params.systemPrompt is None
+        assert llm_params.max_tokens == 100
+        assert llm_params.system_prompt is None
         assert llm_params.temperature is None
-        assert llm_params.stopSequences is None
-        assert llm_params.modelPreferences is None
+        assert llm_params.stop_sequences is None
+        assert llm_params.model_preferences is None
 
     def test_error_result(self):
         """Test creating an error result"""
@@ -185,7 +185,7 @@ class TestSamplingConverter:
         assert _text(result.content).type == "text"
         assert _text(result.content).text == "Error in sampling: Test error"
         assert result.model == model
-        assert result.stopReason == "error"
+        assert result.stop_reason == "error"
 
     def test_error_result_no_model(self):
         """Test creating an error result without a model"""
@@ -194,14 +194,14 @@ class TestSamplingConverter:
 
         # Verify the default model value is used
         assert result.model == "unknown"
-        assert result.stopReason == "error"
+        assert result.stop_reason == "error"
 
     def test_sampling_message_with_tool_result(self):
         """Test converting a SamplingMessage with ToolResultContent"""
         # Create a SamplingMessage with tool result content
         tool_result = ToolResultContent(
             type="tool_result",
-            toolUseId="call_123",
+            tool_use_id="call_123",
             content=[TextContent(type="text", text="Tool result: 42")],
         )
         sampling_message = SamplingMessage(role="user", content=tool_result)
@@ -244,12 +244,12 @@ class TestSamplingConverter:
         tool_results = _sampling_content(
             ToolResultContent(
                 type="tool_result",
-                toolUseId="call_1",
+                tool_use_id="call_1",
                 content=[TextContent(type="text", text="Result 1")],
             ),
             ToolResultContent(
                 type="tool_result",
-                toolUseId="call_2",
+                tool_use_id="call_2",
                 content=[TextContent(type="text", text="Result 2")],
             ),
         )

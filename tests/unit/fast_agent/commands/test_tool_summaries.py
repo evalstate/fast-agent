@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from mcp.types import Tool
+from mcp_types import Tool
 
 from fast_agent.commands import tool_summaries
 from fast_agent.commands.tool_summaries import (
@@ -48,7 +48,7 @@ def _tool(
         title=None,
         description=description,
         _meta=meta or {},
-        inputSchema=input_schema or {},
+        input_schema=input_schema or {},
     )
 
 

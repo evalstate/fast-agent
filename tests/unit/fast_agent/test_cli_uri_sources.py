@@ -1,5 +1,5 @@
 from click.utils import strip_ansi
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.cli.command_support import get_settings_or_exit
 from fast_agent.llm.structured_schema import load_json_schema_file

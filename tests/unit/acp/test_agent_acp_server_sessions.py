@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 import pytest
 from acp.exceptions import RequestError
 from acp.schema import AgentMessageChunk, SessionModeState, UserMessageChunk
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.acp.server.agent_acp_server import ACPSessionState, AgentACPServer
 from fast_agent.acp.server.session_store import ACPServerSessionStore, SessionStoreHost

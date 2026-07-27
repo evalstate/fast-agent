@@ -16,7 +16,7 @@ from typing import Protocol, cast
 
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_context
-from mcp.types import ElicitResult
+from mcp_types import ElicitResult
 
 # Configure logging
 logging.basicConfig(

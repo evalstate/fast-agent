@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 from rich.console import Group
 from rich.syntax import Syntax
 from rich.text import Text
@@ -218,7 +218,7 @@ def test_reasoning_only_turn_does_not_emit_extra_gap_before_tool_result() -> Non
         },
         stop_reason=LlmStopReason.TOOL_USE,
     )
-    tool_result = CallToolResult(content=[TextContent(type="text", text="ok")], isError=False)
+    tool_result = CallToolResult(content=[TextContent(type="text", text="ok")], is_error=False)
 
     async def _render() -> str:
         with console.console.capture() as capture:

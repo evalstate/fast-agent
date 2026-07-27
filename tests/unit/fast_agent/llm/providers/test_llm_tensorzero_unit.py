@@ -54,7 +54,7 @@ def test_initialize_default_params_sets_defaults(t0_llm):
     t0_llm.instruction = "Test System Prompt"
     params = t0_llm._initialize_default_params({"model": "test_chat"})
     assert params.model == "tensorzero::function_name::test_chat"
-    assert params.systemPrompt == "Test System Prompt"
+    assert params.system_prompt == "Test System Prompt"
     assert params.parallel_tool_calls is True
     assert params.max_iterations == DEFAULT_MAX_ITERATIONS
     assert params.use_history is True

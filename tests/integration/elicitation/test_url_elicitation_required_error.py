@@ -19,7 +19,7 @@ async def test_url_elicitation_required_error_displays_required_elicitations(fas
     async def agent_function():
         async with fast.run() as agent:
             result = await agent["url_required_valid_agent"].call_tool("url_required_valid_tool")
-            assert result.isError is True
+            assert result.is_error is True
             payload = url_elicitation_required_payload(result)
             assert payload is not None
             assert len(payload.elicitations) == 2
@@ -43,7 +43,7 @@ async def test_url_elicitation_required_error_reports_malformed_data(fast_agent,
             result = await agent["url_required_malformed_agent"].call_tool(
                 "url_required_malformed_tool"
             )
-            assert result.isError is True
+            assert result.is_error is True
             payload = url_elicitation_required_payload(result)
             assert payload is not None
             assert len(payload.elicitations) == 0

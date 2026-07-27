@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 import fast_agent.tools.local_shell_executor as local_shell_executor
 import fast_agent.tools.shell_runtime as shell_runtime_module
@@ -23,6 +23,7 @@ from fast_agent.constants import (
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
 from fast_agent.event_progress import ProgressAction
+from fast_agent.mcp.tool_result_metadata import tool_result_display_metadata
 from fast_agent.tools.execution_environment import (
     ShellExecution,
     ShellExecutionCallbacks,
@@ -549,7 +550,7 @@ def test_execute_tool_schema_declares_per_call_options() -> None:
     assert "keeps running and returns a process ID" in runtime.tool.description
     assert "Do not append '&'" in runtime.tool.description
     assert "lifecycle='persistent'" in runtime.tool.description
-    assert set(runtime.tool.inputSchema["properties"]) == {
+    assert set(runtime.tool.input_schema["properties"]) == {
         "command",
         "cwd",
         "background",
@@ -557,24 +558,24 @@ def test_execute_tool_schema_declares_per_call_options() -> None:
         "yield_after_idle_sec",
         "output_byte_limit",
     }
-    lifecycle_schema = runtime.tool.inputSchema["properties"]["lifecycle"]
+    lifecycle_schema = runtime.tool.input_schema["properties"]["lifecycle"]
     assert lifecycle_schema["enum"] == ["session", "persistent"]
     assert lifecycle_schema["default"] == "persistent"
-    assert runtime.tool.inputSchema["required"] == ["command"]
-    assert runtime.tool.inputSchema["additionalProperties"] is False
+    assert runtime.tool.input_schema["required"] == ["command"]
+    assert runtime.tool.input_schema["additionalProperties"] is False
     assert {tool.name for tool in runtime.tools} == {
         "execute",
         "poll_process",
         "terminate_process",
     }
     poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
-    assert set(poll_tool.inputSchema["properties"]) == {
+    assert set(poll_tool.input_schema["properties"]) == {
         "process_id",
         "wait_sec",
         "wake_on_output",
     }
-    assert poll_tool.inputSchema["properties"]["wait_sec"]["maximum"] == 250
-    wake_schema = poll_tool.inputSchema["properties"]["wake_on_output"]
+    assert poll_tool.input_schema["properties"]["wait_sec"]["maximum"] == 250
+    wake_schema = poll_tool.input_schema["properties"]["wake_on_output"]
     assert wake_schema["default"] is False
     assert "quiet for 2 seconds" in wake_schema["description"]
     assert "does not end the wait by default" in (poll_tool.description or "")
@@ -590,22 +591,22 @@ def test_minimal_process_profile_exposes_only_bash_and_process() -> None:
 
     assert [tool.name for tool in runtime.tools] == ["Bash", "Process"]
     assert runtime.tool is not None
-    assert set(runtime.tool.inputSchema["properties"]) == {
+    assert set(runtime.tool.input_schema["properties"]) == {
         "command",
         "run_in_background",
     }
     process_tool = runtime.tools[1]
-    assert set(process_tool.inputSchema["properties"]) == {
+    assert set(process_tool.input_schema["properties"]) == {
         "process_id",
         "action",
         "wait_sec",
     }
-    assert process_tool.inputSchema["properties"]["action"]["enum"] == [
+    assert process_tool.input_schema["properties"]["action"]["enum"] == [
         "status",
         "wait",
         "stop",
     ]
-    wait_schema = process_tool.inputSchema["properties"]["wait_sec"]
+    wait_schema = process_tool.input_schema["properties"]["wait_sec"]
     assert "default" not in wait_schema
     assert wait_schema["maximum"] == 250
     assert "Values below 10 are clamped to 10" in wait_schema["description"]
@@ -648,7 +649,7 @@ async def test_minimal_bash_rejects_detachment_before_environment_execution(
         {"command": command},
     )
 
-    assert result.isError is True
+    assert result.is_error is True
     assert environment.requests == []
     assert isinstance(result.content[0], TextContent)
     assert "run_in_background=true" in result.content[0].text
@@ -669,7 +670,7 @@ async def test_minimal_bash_accepts_bitwise_arithmetic() -> None:
         {"command": "echo $((3 & 1))"},
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert [request.command for request in environment.requests] == ["echo $((3 & 1))"]
 
 
@@ -889,7 +890,7 @@ def test_poll_process_schema_uses_configured_maximum_wait() -> None:
     )
 
     poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
-    wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
+    wait_schema = poll_tool.input_schema["properties"]["wait_sec"]
     assert wait_schema["maximum"] == 240
     assert "through 240" in wait_schema["description"]
     assert "Routine stdout/stderr is buffered" in (poll_tool.description or "")
@@ -904,7 +905,7 @@ def test_poll_process_uses_model_default_wait_and_buffers_output() -> None:
     )
 
     poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
-    wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
+    wait_schema = poll_tool.input_schema["properties"]["wait_sec"]
     assert wait_schema["default"] == 30
     assert _parse_poll(runtime, {"process_id": "process-1"}).wait_sec == 30
     assert _parse_poll(runtime, {"process_id": "process-1"}).wake_on_output is False
@@ -926,7 +927,7 @@ def test_poll_process_clamps_model_default_to_configured_maximum() -> None:
     )
 
     poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
-    wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
+    wait_schema = poll_tool.input_schema["properties"]["wait_sec"]
     assert wait_schema["default"] == 50
     assert _parse_poll(runtime, {"process_id": "process-1"}).wait_sec == 50
 
@@ -941,7 +942,7 @@ def test_poll_process_updates_default_for_model_switch() -> None:
     runtime.set_process_poll_default_wait_seconds(25)
 
     poll_tool = next(tool for tool in runtime.tools if tool.name == "poll_process")
-    wait_schema = poll_tool.inputSchema["properties"]["wait_sec"]
+    wait_schema = poll_tool.input_schema["properties"]["wait_sec"]
     assert wait_schema["default"] == 25
     assert _parse_poll(runtime, {"process_id": "process-1"}).wait_sec == 25
 
@@ -957,7 +958,7 @@ async def test_poll_process_rejects_wait_above_configured_maximum() -> None:
 
     result = await runtime.poll_process({"process_id": "process-1", "wait_sec": 241})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert isinstance(result.content[0], TextContent)
     assert "'wait_sec' argument must be at most 240" in result.content[0].text
 
@@ -1081,7 +1082,7 @@ async def test_terminate_process_returns_when_term_exits_process() -> None:
         result = await runtime.terminate_process({"process_id": "process-1"})
         elapsed = time.monotonic() - started
 
-        assert result.isError is False
+        assert result.is_error is False
         assert elapsed < 1.5
     finally:
         await runtime.close()
@@ -1113,7 +1114,7 @@ async def test_execute_simple_command() -> None:
     # Use 'echo' which works on Windows, Linux, macOS
     result = await runtime.execute({"command": "echo hello"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -1135,7 +1136,7 @@ async def test_execute_command_with_exit_code() -> None:
         # Unix shells
         result = await runtime.execute({"command": "false"})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -1224,7 +1225,7 @@ async def test_execute_tool_uses_runtime_working_directory_with_shared_environme
 
     result = await runtime.execute({"command": "pwd"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert environment.cwd == "/workspace"
     assert [request.cwd for request in environment.requests] == ["/agent-cwd"]
     assert [request.timeout for request in environment.requests] == [None]
@@ -1250,7 +1251,7 @@ async def test_execute_honors_per_call_cwd_and_yield_options() -> None:
         }
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert [
         (request.cwd, request.timeout, request.terminate_after_idle)
         for request in environment.requests
@@ -1274,7 +1275,7 @@ async def test_execute_resolves_relative_per_call_cwd_against_active_working_dir
         }
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert environment.resolved_paths[-1] == "/agent-cwd/subdir"
     assert environment.requests[0].cwd == "/agent-cwd/subdir"
 
@@ -1291,8 +1292,8 @@ async def test_execute_rejects_unknown_arguments_without_running() -> None:
     timeout_result = await runtime.execute({"command": "touch /tmp/nope", "timeout": 120000})
     unknown_result = await runtime.execute({"command": "touch /tmp/nope", "stream": True})
 
-    assert timeout_result.isError is True
-    assert unknown_result.isError is True
+    assert timeout_result.is_error is True
+    assert unknown_result.is_error is True
     assert environment.requests == []
     assert timeout_result.content is not None
     assert isinstance(timeout_result.content[0], TextContent)
@@ -1310,7 +1311,7 @@ async def test_execute_rejects_idle_yield_over_thirty_seconds() -> None:
 
     result = await runtime.execute({"command": "sleep 3600", "yield_after_idle_sec": 31})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert environment.requests == []
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
@@ -1330,7 +1331,7 @@ async def test_silent_command_yields_alive_then_poll_reports_completion() -> Non
 
     result = await runtime.execute({"command": "slow-build"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "Process is still running" in result.content[0].text
@@ -1353,12 +1354,12 @@ async def test_silent_command_yields_alive_then_poll_reports_completion() -> Non
     environment.release.set()
     poll_result = await runtime.poll_process({"process_id": "process-1", "wait_sec": 1})
 
-    assert poll_result.isError is False
+    assert poll_result.is_error is False
     assert poll_result.content is not None
     assert isinstance(poll_result.content[0], TextContent)
     assert "managed complete" in poll_result.content[0].text
     assert "process exit code was 0" in poll_result.content[0].text
-    assert getattr(poll_result, "output_line_count", None) == 1
+    assert tool_result_display_metadata(poll_result).get("output_line_count") == 1
 
 
 @pytest.mark.asyncio
@@ -1430,7 +1431,7 @@ async def test_resource_sampler_timeout_and_error_do_not_delay_poll(
 
     result = await runtime.poll_process({"process_id": "process-1"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert time.monotonic() - started < 0.2
     metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
     assert "resource_snapshot" not in metadata
@@ -1450,7 +1451,7 @@ async def test_continuous_output_still_yields_at_foreground_ceiling() -> None:
 
     result = await runtime.execute({"command": "chatty-build"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     text = result.content[0].text
@@ -1479,7 +1480,7 @@ async def test_running_poll_with_new_output_is_not_suppressed() -> None:
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "still working" in result.content[0].text
-    assert getattr(result, "_suppress_display", True) is False
+    assert tool_result_display_metadata(result).get("suppress_display") is False
     process_metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
     assert process_metadata["process_yield_reason"] == "nonblocking"
     await runtime.terminate_process({"process_id": "process-1"})
@@ -1593,7 +1594,7 @@ async def test_terminate_process_is_not_blocked_by_quiet_poll_wait() -> None:
     )
     poll_result = await asyncio.wait_for(poll_task, timeout=0.5)
 
-    assert terminate_result.isError is False
+    assert terminate_result.is_error is False
     assert environment.cancelled is True
     process_metadata = (poll_result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
     assert process_metadata["process_status"] == "terminated"
@@ -1685,7 +1686,7 @@ async def test_poll_rejects_non_boolean_wake_on_output() -> None:
         }
     )
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == ("Error: 'wake_on_output' argument must be a boolean")
@@ -1717,7 +1718,7 @@ async def test_background_command_returns_handle_and_terminate_cancels_job() -> 
 
     terminate_result = await runtime.terminate_process({"process_id": "process-1"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "os_pid: 4321" in result.content[0].text
@@ -1725,7 +1726,7 @@ async def test_background_command_returns_handle_and_terminate_cancels_job() -> 
     assert result_metadata is not None
     assert result_metadata["os_process_id"] == 4321
     assert result_metadata["process_status"] == "running"
-    assert terminate_result.isError is False
+    assert terminate_result.is_error is False
     terminate_metadata = shell_runtime_module.process_result_metadata(terminate_result)
     assert terminate_metadata == {
         "process_id": "process-1",
@@ -1785,7 +1786,7 @@ async def test_background_deferred_display_exposes_ordered_result() -> None:
         defer_display_to_tool_result=True,
     )
 
-    assert getattr(result, "_suppress_display", True) is False
+    assert tool_result_display_metadata(result).get("suppress_display") is False
     await runtime.close()
 
 
@@ -1801,7 +1802,7 @@ async def test_terminate_process_reports_environment_cancellation_failure() -> N
 
     result = await runtime.terminate_process({"process_id": "process-1"})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "outcome: termination_failed" in result.content[0].text
@@ -1831,7 +1832,7 @@ async def test_lifecycle_tool_calls_emit_correlated_progress() -> None:
         tool_use_id="call-poll",
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     progress_payloads = _extract_progress_payloads(logger)
     assert [payload["tool_name"] for payload in progress_payloads] == [
         "poll_process",
@@ -2180,7 +2181,7 @@ async def test_execute_rejects_invalid_argument_payloads() -> None:
         await runtime.execute({"command": 123}),  # type: ignore[dict-item]
     ]
 
-    assert [result.isError for result in invalid_results] == [True, True, True, True]
+    assert [result.is_error for result in invalid_results] == [True, True, True, True]
     messages: list[str] = []
     for result in invalid_results:
         assert result.content is not None
@@ -2425,7 +2426,7 @@ async def test_execute_honors_per_call_output_byte_limit() -> None:
         }
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     text = result.content[0].text
@@ -2450,7 +2451,7 @@ async def test_execute_clamps_oversized_per_call_output_byte_limit() -> None:
         }
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     text = result.content[0].text
@@ -2473,7 +2474,7 @@ async def test_execute_handles_overlong_output_lines_without_timeout() -> None:
     command = f'"{sys.executable}" -c "print(\'x\' * 70000)"'
     result = await runtime.execute({"command": command})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     text = result.content[0].text
@@ -2523,7 +2524,7 @@ async def test_execute_returns_when_descendant_keeps_pipe_open(
     elapsed = time.monotonic() - started
 
     assert elapsed < 1
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     text = result.content[0].text
@@ -2606,7 +2607,7 @@ async def test_execute_huge_output_exits_cleanly_with_low_byte_limit() -> None:
     command = f'"{sys.executable}" -c "import sys; sys.stdout.buffer.write(b\'x\' * 5_000_000)"'
     result = await runtime.execute({"command": command})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     text = result.content[0].text
@@ -2630,7 +2631,7 @@ async def test_execute_with_missing_working_directory_returns_actionable_error(
 
     result = await runtime.execute({"command": "pwd"})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "Shell working directory does not exist" in result.content[0].text
@@ -2653,7 +2654,7 @@ async def test_execute_with_file_working_directory_returns_actionable_error(
 
     result = await runtime.execute({"command": "pwd"})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "Shell working directory is not a directory" in result.content[0].text
@@ -2725,7 +2726,7 @@ async def test_execute_no_output_shows_compact_exit_banner_detail() -> None:
             show_tool_call_id=True,
         )
 
-    assert result.isError is False
+    assert result.is_error is False
     rendered = capture.get()
     assert "exit code 0" in rendered
     assert "(no output)" in rendered
@@ -2842,7 +2843,7 @@ async def test_execute_live_display_truncates_with_head_and_tail_windows() -> No
     with console.console.capture() as capture:
         result = await runtime.execute({"command": command})
 
-    assert result.isError is False
+    assert result.is_error is False
     rendered = capture.get()
     assert "out-01" in rendered
     assert "out-02" in rendered
@@ -2872,13 +2873,14 @@ async def test_execute_deferred_display_suppresses_live_console_output() -> None
             defer_display_to_tool_result=True,
         )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "hello" in result.content[0].text
     assert "process exit code was 0" in result.content[0].text
-    assert getattr(result, "_suppress_display", True) is False
-    assert getattr(result, "output_line_count", None) == 1
+    metadata = tool_result_display_metadata(result)
+    assert metadata.get("suppress_display") is False
+    assert metadata.get("output_line_count") == 1
     rendered = capture.get()
     assert "hello" not in rendered
     assert "exit code" not in rendered
@@ -2897,7 +2899,7 @@ async def test_suppressed_display_mode_hides_live_console_output(
         with console.console.capture() as capture:
             result = await runtime.execute({"command": "echo hello"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "hello" in result.content[0].text
@@ -2938,7 +2940,7 @@ async def test_execute_emits_shell_lifecycle_progress_events(
     monkeypatch.setattr(progress_display, "paused", _no_progress)
 
     result = await runtime.execute({"command": "echo hello"}, tool_use_id="call-123")
-    assert result.isError is False
+    assert result.is_error is False
 
     progress_payloads = _extract_progress_payloads(logger)
     assert len(progress_payloads) == 2
@@ -2986,7 +2988,7 @@ async def test_execute_emits_terminal_failed_progress_when_subprocess_start_fail
 
     result = await runtime.execute({"command": "echo hello"}, tool_use_id="call-456")
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "Command execution failed" in result.content[0].text

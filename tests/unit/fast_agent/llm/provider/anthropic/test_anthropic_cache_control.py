@@ -6,7 +6,7 @@ from anthropic.types.beta import (
     BetaTextBlockParam,
     BetaThinkingBlockParam,
 )
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM

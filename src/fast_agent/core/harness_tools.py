@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 
-from mcp.types import BlobResourceContents, ReadResourceResult, TextResourceContents
+from mcp_types import BlobResourceContents, ReadResourceResult, TextResourceContents
 
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.commands.harness import execute_harness_command
@@ -33,7 +33,7 @@ def _resource_text(result: ReadResourceResult, *, max_chars: int = 4000) -> str:
     lines: list[str] = []
     for index, content in enumerate(result.contents, start=1):
         if isinstance(content, TextResourceContents):
-            lines.extend((f"[{index}] text ({content.mimeType or 'unknown'})", content.text))
+            lines.extend((f"[{index}] text ({content.mime_type or 'unknown'})", content.text))
         elif isinstance(content, BlobResourceContents):
             try:
                 decoded = base64.b64decode(content.blob)
@@ -42,7 +42,7 @@ def _resource_text(result: ReadResourceResult, *, max_chars: int = 4000) -> str:
                 preview = "<binary blob>"
             lines.extend(
                 (
-                    f"[{index}] blob ({content.mimeType or 'unknown'}, {len(content.blob)} b64 chars)",
+                    f"[{index}] blob ({content.mime_type or 'unknown'}, {len(content.blob)} b64 chars)",
                     preview,
                 )
             )

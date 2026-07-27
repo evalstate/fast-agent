@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from mcp.types import ContentBlock, EmbeddedResource, ReadResourceResult, TextContent
+from mcp_types import ContentBlock, EmbeddedResource, ReadResourceResult, TextContent
 from uritemplate import URITemplate
 
 from fast_agent.mcp.helpers.content_helpers import image_link, resource_link
@@ -319,7 +319,7 @@ def _resolve_local_content_block(path_text: str) -> ContentBlock:
 
 def _resolve_remote_content_block(url: str) -> ContentBlock:
     inferred = resource_link(url)
-    mime_type = inferred.mimeType or "application/octet-stream"
+    mime_type = inferred.mime_type or "application/octet-stream"
     if mime_type.startswith("image/"):
         return image_link(url, mime_type=mime_type)
     return inferred

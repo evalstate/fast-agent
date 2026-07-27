@@ -12,7 +12,7 @@ import httpx
 from a2a.client import A2ACardResolver, ClientConfig, create_client
 from a2a.types import Message, Part, Role, SendMessageRequest, TaskState
 from google.protobuf.json_format import MessageToDict
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.a2a.content import part_from_content
 from fast_agent.agents.agent_types import AgentConfig, AgentType

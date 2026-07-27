@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 from rich.text import Text
 
 from fast_agent.agents.subagent_labels import requested_subagent_display_label
@@ -27,7 +27,7 @@ from fast_agent.utils.tool_names import (
 )
 
 if TYPE_CHECKING:
-    from mcp.types import CallToolRequest, CallToolResult
+    from mcp_types import CallToolRequest, CallToolResult
 
     from fast_agent.config import Settings
     from fast_agent.types import PromptMessageExtended

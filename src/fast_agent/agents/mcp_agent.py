@@ -23,9 +23,9 @@ from typing import (
     cast,
 )
 
-import mcp
+import mcp_types
 from a2a.types import AgentCard, AgentSkill
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     ContentBlock,
     EmbeddedResource,
@@ -83,6 +83,11 @@ from fast_agent.mcp.provider_management import (
     ProviderManagedMCPState,
     build_provider_managed_mcp_state,
     split_managed_server_names,
+)
+from fast_agent.mcp.tool_result_metadata import (
+    ToolResultDisplayMetadata,
+    tool_result_display_metadata,
+    update_tool_result_display_metadata,
 )
 from fast_agent.mcp.tool_result_truncation import truncate_tool_result_for_llm
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
@@ -1511,19 +1516,19 @@ class McpAgent(ABC, ToolAgent):
             resp_text = await run_elicitation_form(arguments or {}, agent_name=self._name)
             if resp_text == "__DECLINED__":
                 return CallToolResult(
-                    isError=False,
+                    is_error=False,
                     content=[TextContent(type="text", text="The Human declined the input request")],
                 )
             if resp_text in ("__CANCELLED__", "__DISABLE_SERVER__"):
                 return CallToolResult(
-                    isError=False,
+                    is_error=False,
                     content=[
                         TextContent(type="text", text="The Human cancelled the input request")
                     ],
                 )
             # Success path: return the (JSON) response as-is
             return CallToolResult(
-                isError=False,
+                is_error=False,
                 content=[TextContent(type="text", text=resp_text)],
             )
 
@@ -1531,7 +1536,7 @@ class McpAgent(ABC, ToolAgent):
             raise
         except asyncio.TimeoutError as e:
             return CallToolResult(
-                isError=True,
+                is_error=True,
                 content=[
                     TextContent(
                         type="text",
@@ -1544,7 +1549,7 @@ class McpAgent(ABC, ToolAgent):
 
             print(f"Error in _call_human_input_tool: {traceback.format_exc()}")
             return CallToolResult(
-                isError=True,
+                is_error=True,
                 content=[TextContent(type="text", text=f"Error requesting human input: {e!s}")],
             )
 
@@ -1886,7 +1891,7 @@ class McpAgent(ABC, ToolAgent):
                 self.logger.error(f"MCP tool {call.display_tool_name} failed: {item}")
                 result = CallToolResult(
                     content=[TextContent(type="text", text=f"Error: {item!s}")],
-                    isError=True,
+                    is_error=True,
                 )
                 duration_ms = 0.0
             else:
@@ -1927,7 +1932,7 @@ class McpAgent(ABC, ToolAgent):
                 self.logger.error(f"MCP tool {call.display_tool_name} failed: {e}")
                 error_result = CallToolResult(
                     content=[TextContent(type="text", text=f"Error: {e!s}")],
-                    isError=True,
+                    is_error=True,
                 )
                 await self._record_planned_tool_result(
                     call,
@@ -1974,16 +1979,14 @@ class McpAgent(ABC, ToolAgent):
             display_tool_name=call.display_tool_name,
             tool_args=call.tool_args,
         )
-        result_meta = cast("Any", result)
-        result_meta.tool_name = call.display_tool_name
-
         tool_results[call.correlation_id] = result
+        display_metadata = tool_result_display_metadata(result)
         tool_timings[call.correlation_id] = ToolTimingInfo(
             timing_ms=duration_ms,
-            transport_channel=getattr(result, "transport_channel", None),
+            transport_channel=display_metadata.get("transport_channel"),
         )
 
-        if getattr(result, "_suppress_display", False):
+        if display_metadata.get("suppress_display", False):
             return
         if self._is_builtin_subagent_tool(call.metadata):
             await self._show_subagent_result(result)
@@ -2335,10 +2338,12 @@ class McpAgent(ABC, ToolAgent):
         line_value = positive_int_or_none(tool_args.get("line"))
         limit_value = positive_int_or_none(tool_args.get("limit"))
 
-        result_meta = cast("Any", result)
-        result_meta.read_text_file_path = stripped
-        result_meta.read_text_file_line = line_value
-        result_meta.read_text_file_limit = limit_value
+        metadata: ToolResultDisplayMetadata = {"read_text_file_path": stripped}
+        if line_value is not None:
+            metadata["read_text_file_line"] = line_value
+        if limit_value is not None:
+            metadata["read_text_file_limit"] = limit_value
+        update_tool_result_display_metadata(result, metadata)
 
     @classmethod
     def _tool_result_type_label(cls, display_tool_name: str) -> str | None:
@@ -2406,7 +2411,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def list_prompts(
         self, namespace: str | None = None, server_name: str | None = None
-    ) -> Mapping[str, list[mcp.types.Prompt]]:
+    ) -> Mapping[str, list[mcp_types.Prompt]]:
         """
         List all prompts available to this agent, filtered by configuration.
 

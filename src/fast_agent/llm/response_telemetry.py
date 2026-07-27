@@ -4,7 +4,7 @@ import json
 import time
 from typing import TYPE_CHECKING, Any, Protocol
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_USAGE
 

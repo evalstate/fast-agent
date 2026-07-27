@@ -3,7 +3,7 @@ Simplified converter between MCP sampling types and PromptMessageExtended.
 This replaces the more complex provider-specific converters with direct conversions.
 """
 
-from mcp.types import (
+from mcp_types import (
     AudioContent,
     CallToolRequest,
     CallToolRequestParams,
@@ -81,10 +81,10 @@ class SamplingConverter:
                 # Extract text from content list if present
                 result_content = item.content if item.content else []
                 # isError can be None, so we need to handle that
-                is_error = getattr(item, "isError", None)
-                tool_results[item.toolUseId] = CallToolResult(
+                is_error = getattr(item, "is_error", None)
+                tool_results[item.tool_use_id] = CallToolResult(
                     content=result_content,
-                    isError=is_error if is_error is not None else False,
+                    is_error=is_error if is_error is not None else False,
                 )
 
         return PromptMessageExtended(
@@ -106,11 +106,11 @@ class SamplingConverter:
             RequestParams suitable for use with LLM.generate_prompt
         """
         return RequestParams(
-            maxTokens=params.maxTokens,
-            systemPrompt=params.systemPrompt,
+            max_tokens=params.max_tokens,
+            system_prompt=params.system_prompt,
             temperature=params.temperature,
-            stopSequences=params.stopSequences,
-            modelPreferences=params.modelPreferences,
+            stop_sequences=params.stop_sequences,
+            model_preferences=params.model_preferences,
             # Add any other parameters needed
         )
 
@@ -130,7 +130,7 @@ class SamplingConverter:
             role="assistant",
             content=TextContent(type="text", text=error_message),
             model=model or "unknown",
-            stopReason=LlmStopReason.ERROR.value,
+            stop_reason=LlmStopReason.ERROR.value,
         )
 
     @staticmethod

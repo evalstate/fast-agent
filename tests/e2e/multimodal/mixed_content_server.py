@@ -14,7 +14,7 @@ import base64
 import logging
 
 from fastmcp import FastMCP
-from mcp.types import ImageContent, TextContent
+from mcp_types import ImageContent, TextContent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -56,7 +56,7 @@ def take_screenshot() -> list[TextContent | ImageContent]:
 
         return [
             TextContent(type="text", text="Screenshot captured successfully"),
-            ImageContent(type="image", data=fake_image_data, mimeType="image/png"),
+            ImageContent(type="image", data=fake_image_data, mime_type="image/png"),
         ]
     except Exception as e:
         logger.exception(f"Error creating screenshot: {e}")
@@ -83,7 +83,7 @@ def get_both_data() -> list[TextContent | ImageContent]:
         return [
             TextContent(type="text", text="Combined data: Page loaded, screenshot taken"),
             TextContent(type="text", text="Navigation state: Ready"),
-            ImageContent(type="image", data=fake_image_data, mimeType="image/png"),
+            ImageContent(type="image", data=fake_image_data, mime_type="image/png"),
         ]
     except Exception as e:
         logger.exception(f"Error getting combined data: {e}")

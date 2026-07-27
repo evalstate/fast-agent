@@ -22,7 +22,7 @@ from typing import (
 from anthropic import BadRequestError as AnthropicBadRequestError
 from anthropic import RequestTooLargeError as AnthropicRequestTooLargeError
 from mcp import Tool
-from mcp.types import GetPromptResult
+from mcp_types import GetPromptResult
 from openai import APIError as OpenAIAPIError
 from openai import BadRequestError as OpenAIBadRequestError
 from pydantic_core import from_json
@@ -115,9 +115,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     # Common parameter names used across providers
     PARAM_MESSAGES = "messages"
     PARAM_MODEL = "model"
-    PARAM_MAX_TOKENS = "maxTokens"
-    PARAM_SYSTEM_PROMPT = "systemPrompt"
-    PARAM_STOP_SEQUENCES = "stopSequences"
+    PARAM_MAX_TOKENS = "max_tokens"
+    PARAM_SYSTEM_PROMPT = "system_prompt"
+    PARAM_STOP_SEQUENCES = "stop_sequences"
     PARAM_PARALLEL_TOOL_CALLS = "parallel_tool_calls"
     PARAM_METADATA = "metadata"
     PARAM_USE_HISTORY = "use_history"

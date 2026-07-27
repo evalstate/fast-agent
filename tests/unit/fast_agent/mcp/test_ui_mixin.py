@@ -1,22 +1,12 @@
-from collections.abc import Iterable
-
 import pytest
-from mcp.types import (
-    CallToolResult,
-    ContentBlock,
-    EmbeddedResource,
-    TextContent,
-    TextResourceContents,
-)
-from pydantic import AnyUrl
+from mcp_types import CallToolResult, EmbeddedResource, TextContent, TextResourceContents
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.constants import MCP_UI
 from fast_agent.mcp.ui_mixin import McpUIMixin
-from fast_agent.mcp.ui_modes import McpUIMode, is_mcp_ui_mode, normalize_mcp_ui_mode
+from fast_agent.mcp.ui_modes import is_mcp_ui_mode, normalize_mcp_ui_mode
 from fast_agent.types import PromptMessageExtended
-from fast_agent.ui.mcp_ui_utils import UILink
 
 
 class StubDisplay:
@@ -57,7 +47,7 @@ class StubAgent:
         model: str | None = None,
         additional_message: Text | None = None,
         render_markdown: bool | None = None,
-        show_hook_indicator: bool | None = None,
+        show_hook_indicator: bool = False,
         render_message: bool = True,
         show_reprint_banner: bool = False,
     ) -> None:
@@ -116,7 +106,7 @@ def create_ui_resource(uri: str = "ui://test/component", text: str = "<html>Test
     """Helper to create a UI embedded resource."""
     return EmbeddedResource(
         type="resource",
-        resource=TextResourceContents(uri=AnyUrl(uri), mimeType="text/html", text=text),
+        resource=TextResourceContents(uri=uri, mime_type="text/html", text=text),
     )
 
 
@@ -132,7 +122,7 @@ async def test_ui_mixin_extracts_ui_resources(ui_agent):
     ui_resource = create_ui_resource()
     text_block = create_non_ui_resource()
 
-    tool_results = {"tool1": CallToolResult(content=[ui_resource, text_block], isError=False)}
+    tool_results = {"tool1": CallToolResult(content=[ui_resource, text_block], is_error=False)}
 
     # Create a request with tool results
     request = PromptMessageExtended(
@@ -159,7 +149,7 @@ async def test_ui_mixin_respects_disabled_mode(mock_config, mock_context):
 
     # Create tool results with UI content
     ui_resource = create_ui_resource()
-    tool_results = {"tool1": CallToolResult(content=[ui_resource], isError=False)}
+    tool_results = {"tool1": CallToolResult(content=[ui_resource], is_error=False)}
 
     request = PromptMessageExtended(
         role="user", content=[TextContent(type="text", text="test")], tool_results=tool_results
@@ -180,7 +170,7 @@ async def test_ui_mixin_auto_mode_only_acts_with_ui_content(mock_config, mock_co
 
     # Test with no UI content
     text_block = create_non_ui_resource()
-    tool_results = {"tool1": CallToolResult(content=[text_block], isError=False)}
+    tool_results = {"tool1": CallToolResult(content=[text_block], is_error=False)}
 
     request = PromptMessageExtended(
         role="user", content=[TextContent(type="text", text="test")], tool_results=tool_results
@@ -201,7 +191,7 @@ async def test_ui_mixin_preserves_error_status(ui_agent):
     tool_results = {
         "tool1": CallToolResult(
             content=[ui_resource],
-            isError=True,  # Error result
+            is_error=True,  # Error result
         )
     }
 
@@ -212,7 +202,7 @@ async def test_ui_mixin_preserves_error_status(ui_agent):
     result = await ui_agent.run_tools(request)
 
     # Check that error status is preserved
-    assert result.tool_results["tool1"].isError is True
+    assert result.tool_results["tool1"].is_error is True
 
 
 @pytest.mark.asyncio
@@ -222,7 +212,7 @@ async def test_ui_mixin_enabled_mode_processes_all_content(mock_config, mock_con
 
     # Test with only regular content
     text_block = create_non_ui_resource()
-    tool_results = {"tool1": CallToolResult(content=[text_block], isError=False)}
+    tool_results = {"tool1": CallToolResult(content=[text_block], is_error=False)}
 
     request = PromptMessageExtended(
         role="user", content=[TextContent(type="text", text="test")], tool_results=tool_results
@@ -239,6 +229,8 @@ async def test_ui_mixin_enabled_mode_processes_all_content(mock_config, mock_con
 @pytest.mark.asyncio
 async def test_show_assistant_message_displays_ui_resources(ui_agent):
     """Test that show_assistant_message triggers UI resource display."""
+    ui_agent._ui_mode = "enabled"
+
     # Set up message history with UI resources
     user_msg = PromptMessageExtended(
         role="user",
@@ -252,33 +244,10 @@ async def test_show_assistant_message_displays_ui_resources(ui_agent):
     # Set the message history
     ui_agent.message_history = [user_msg, assistant_msg]
 
-    # Stub the UI utility functions
-    import fast_agent.mcp.ui_mixin as ui_mixin_module
+    await ui_agent.show_assistant_message(assistant_msg)
 
-    original_ui_links_from_channel = ui_mixin_module.ui_links_from_channel
-    original_open_links_in_browser = ui_mixin_module.open_links_in_browser
-
-    try:
-
-        def stub_ui_links(resources: Iterable[ContentBlock]) -> list[UILink]:
-            return [UILink(title="Test UI", file_path="ui://test")] if list(resources) else []
-
-        def stub_open_browser(links: Iterable[UILink], mcp_ui_mode: McpUIMode = "auto") -> None:
-            del links, mcp_ui_mode
-
-        setattr(ui_mixin_module, "ui_links_from_channel", stub_ui_links)  # noqa: B010
-        setattr(ui_mixin_module, "open_links_in_browser", stub_open_browser)  # noqa: B010
-
-        await ui_agent.show_assistant_message(assistant_msg)
-
-        # Check that UI links were displayed using our stub
-        assert ui_agent.display.show_mcp_ui_links_called
-        assert ui_agent.display.show_mcp_ui_links_args is not None
-
-    finally:
-        # Restore original functions
-        ui_mixin_module.ui_links_from_channel = original_ui_links_from_channel
-        ui_mixin_module.open_links_in_browser = original_open_links_in_browser
+    assert ui_agent.display.show_mcp_ui_links_called
+    assert ui_agent.display.show_mcp_ui_links_args is not None
 
 
 @pytest.mark.asyncio
@@ -303,7 +272,7 @@ def test_is_ui_embedded_resource(ui_agent):
     non_ui = EmbeddedResource(
         type="resource",
         resource=TextResourceContents(
-            uri=AnyUrl("http://example.com"), mimeType="text/html", text="content"
+            uri="http://example.com", mime_type="text/html", text="content"
         ),
     )
     assert ui_agent._is_ui_embedded_resource(non_ui) is False
@@ -366,7 +335,7 @@ async def test_extract_ui_from_tool_results_handles_exceptions(ui_agent):
     # Create a malformed result that might cause exceptions
     class BrokenResult:
         def __init__(self):
-            self.isError = False
+            self.is_error = False
 
         @property
         def content(self):

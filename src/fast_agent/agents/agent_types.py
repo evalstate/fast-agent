@@ -147,10 +147,10 @@ class AgentConfig:
             raise AgentConfigError("save_trajectory requires use_history=False")
         if self.default_request_params is None:
             self.default_request_params = RequestParams(
-                use_history=self.use_history, systemPrompt=self.instruction
+                use_history=self.use_history, system_prompt=self.instruction
             )
         else:
             # Override the request params history setting if explicitly configured
             self.default_request_params.use_history = self.use_history
             # Ensure instruction takes precedence over any existing systemPrompt
-            self.default_request_params.systemPrompt = self.instruction
+            self.default_request_params.system_prompt = self.instruction

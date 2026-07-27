@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
-from mcp.types import (
+from mcp_types import (
     AudioContent,
     EmbeddedResource,
     ImageContent,
@@ -37,7 +37,6 @@ from fast_agent.mcp.prompts.prompt_constants import (
     RESOURCE_DELIMITER,
     USER_DELIMITER,
 )
-from fast_agent.mcp.resource_utils import to_any_url
 from fast_agent.types import PromptMessageExtended
 from fast_agent.utils.text import strip_casefold
 
@@ -455,8 +454,8 @@ def _legacy_resource_from_line(line_stripped: str) -> EmbeddedResource | None:
     return EmbeddedResource(
         type="resource",
         resource=TextResourceContents(
-            uri=to_any_url(resource_uri),
-            mimeType="text/plain",
+            uri=resource_uri,
+            mime_type="text/plain",
             text="",
         ),
     )

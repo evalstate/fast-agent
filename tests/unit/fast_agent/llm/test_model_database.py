@@ -240,7 +240,7 @@ def test_huggingface_qwen35_structured_output_uses_prompted_json_object_mode() -
     tool = Tool(
         name="lookup",
         description="Lookup data.",
-        inputSchema={"type": "object", "properties": {}},
+        input_schema={"type": "object", "properties": {}},
     )
     llm = _make_hf_llm("Qwen/Qwen3.5-397B-A17B")
 
@@ -529,20 +529,20 @@ def test_llm_uses_model_database_for_max_tokens():
     factory = ModelFactory.create_factory("claude-sonnet-4-0")
     llm = factory(agent=agent)
     assert isinstance(llm, FastAgentLLM)
-    assert llm.default_request_params.maxTokens == 64000
+    assert llm.default_request_params.max_tokens == 64000
 
     # Test with a model that has high max_output_tokens (should get full amount)
     factory2 = ModelFactory.create_factory("o1")
     llm2 = factory2(agent=agent)
     assert isinstance(llm2, FastAgentLLM)
-    assert llm2.default_request_params.maxTokens == 100000
+    assert llm2.default_request_params.max_tokens == 100000
 
     # Test with passthrough model (should get its configured max tokens)
     factory3 = ModelFactory.create_factory("passthrough")
     llm3 = factory3(agent=agent)
     assert isinstance(llm3, FastAgentLLM)
     expected_max_tokens = ModelDatabase.get_default_max_tokens("passthrough")
-    assert llm3.default_request_params.maxTokens == expected_max_tokens
+    assert llm3.default_request_params.max_tokens == expected_max_tokens
     assert llm3.default_request_params.temperature is None
 
 
@@ -559,7 +559,7 @@ def test_llm_usage_tracking_uses_model_database():
     assert usage_accumulator is not None
     usage_accumulator.model = "claude-sonnet-4-0"
     assert usage_accumulator.context_window_size == 200000
-    assert llm.default_request_params.maxTokens == 64000  # Should match ModelDatabase default
+    assert llm.default_request_params.max_tokens == 64000  # Should match ModelDatabase default
 
     # Test with unknown model
     usage_accumulator.model = "unknown-model"
@@ -582,9 +582,9 @@ def test_openai_provider_preserves_all_settings():
         params.max_iterations == DEFAULT_MAX_ITERATIONS
     )  # Should come from default setting    assert params.use_history  # Should come from base
     assert (
-        params.systemPrompt == "You are a helpful assistant"
+        params.system_prompt == "You are a helpful assistant"
     )  # Should come from base (self.instruction)
-    assert params.maxTokens == 16384  # Model-aware from ModelDatabase (gpt-4o)
+    assert params.max_tokens == 16384  # Model-aware from ModelDatabase (gpt-4o)
 
 
 def test_model_database_stream_modes():
@@ -1013,7 +1013,7 @@ def test_huggingface_deepseek_v4_pro_uses_reasoning_content_streaming_metadata()
     llm = _make_hf_llm("deepseek-ai/DeepSeek-V4-Pro:fireworks-ai")
 
     assert llm.default_request_params.model == "deepseek-ai/DeepSeek-V4-Pro"
-    assert llm.default_request_params.maxTokens == 393_216
+    assert llm.default_request_params.max_tokens == 393_216
     assert getattr(llm, "_reasoning_mode", None) == "reasoning_content"
 
     args = _hf_request_args(llm)

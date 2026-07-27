@@ -1,6 +1,6 @@
 from typing import Any
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.mcp.helpers.content_helpers import (
     canonicalize_tool_result_content_for_llm,
@@ -46,7 +46,7 @@ class BedrockConverter:
                     result_text = tool_result_text_for_llm(tool_result, source="bedrock.static")
                     result_payload = {
                         "tool_name": tool_id,
-                        "status": "error" if tool_result.isError else "success",
+                        "status": "error" if tool_result.is_error else "success",
                         "result": result_text,
                     }
                     tool_result_parts.append(json.dumps(result_payload))
@@ -74,7 +74,7 @@ class BedrockConverter:
                             "type": "tool_result",
                             "tool_use_id": tool_id,
                             "content": result_content_blocks,
-                            "status": "error" if tool_result.isError else "success",
+                            "status": "error" if tool_result.is_error else "success",
                         }
                     )
 

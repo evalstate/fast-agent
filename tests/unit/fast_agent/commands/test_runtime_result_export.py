@@ -10,7 +10,7 @@ from typing import Any, cast
 import pytest
 import typer
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, ListToolsResult, TextContent
+from mcp_types import CallToolRequestParams, ListToolsResult, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent

@@ -141,7 +141,7 @@ async def test_google_completion_injects_search_tool_with_custom_tools() -> None
     custom_tool = MagicMock()
     custom_tool.name = "my_tool"
     custom_tool.description = "custom tool"
-    custom_tool.inputSchema = {}
+    custom_tool.input_schema = {}
 
     with (
         patch.object(llm, "_initialize_google_client", return_value=mock_client),

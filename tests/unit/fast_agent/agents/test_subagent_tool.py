@@ -6,8 +6,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import pytest
 from fastmcp.exceptions import ValidationError
-from mcp import CallToolRequest, Tool
-from mcp.types import CallToolRequestParams, CallToolResult
+from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, Tool
 from rich.console import Console, Group
 from rich.text import Text
 
@@ -898,7 +897,7 @@ async def test_subagent_persists_last_turn_when_history_is_disabled(tmp_path) ->
         tool_use_id="tool-transient",
     )
 
-    assert not result.isError
+    assert not result.is_error
     clone = created[-1].agent
     assert clone.message_history == []
     assert clone.last_turn_messages
@@ -1019,7 +1018,7 @@ async def test_isolated_subagent_does_not_persist_to_parent_session(tmp_path) ->
 
     result = await parent.call_tool(SUBAGENT_TOOL_NAME, {"message": "persist only as a child"})
 
-    assert not result.isError
+    assert not result.is_error
     clone = instances[-1]
     assert clone.session_history_persistence_enabled is False
 
@@ -1062,7 +1061,7 @@ async def test_subagent_persists_terminal_failure_and_cancellation(tmp_path) -> 
             {"message": "fail"},
             tool_use_id="tool-failed",
         )
-        assert failed.isError
+        assert failed.is_error
         failed_child_events = [
             event for event in failed_progress.events if event.agent_name == "failing[brisk-otter]"
         ]
@@ -1300,7 +1299,7 @@ async def test_mcp_subagent_live_display_uses_chat_panels_for_supplied_label(tmp
 
         assert result_message.tool_results is not None
         result = result_message.tool_results["call-1"]
-        assert result.isError is False
+        assert result.is_error is False
         assert result.meta is not None
         details = result.meta[FAST_AGENT_SUBAGENT_RESULT_METADATA]
         assert details["label"] == "research-pal"
@@ -1439,7 +1438,7 @@ async def test_mcp_subagent_error_result_uses_assistant_panel(tmp_path) -> None:
 
         assert result_message.tool_results is not None
         result = result_message.tool_results["call-error"]
-        assert result.isError is True
+        assert result.is_error is True
         assert result.meta is not None
         details = result.meta[FAST_AGENT_SUBAGENT_RESULT_METADATA]
         assert details["status"] == "failed"

@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
-from mcp.types import PromptMessage
+from mcp_types import PromptMessage
 from rich import print as rich_print
 from rich.text import Text
 

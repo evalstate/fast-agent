@@ -33,7 +33,7 @@ from fastmcp.server.elicitation import (
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from mcp.types import ElicitResult
+    from mcp_types import ElicitResult
 
 # Configure detailed logging
 logging.basicConfig(
@@ -131,7 +131,7 @@ async def deploy_dissociated() -> str:
 
     result: ElicitResult = await session.elicit_form(
         message="Confirm deployment configuration (dissociated - via GET stream)",
-        requestedSchema=requested_schema,
+        requested_schema=requested_schema,
         related_request_id=None,  # <-- KEY: No related_request_id = routes to GET stream
     )
 

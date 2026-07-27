@@ -1,6 +1,6 @@
 import pytest
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, ContentBlock, ImageContent, Tool
+from mcp_types import CallToolRequestParams, ContentBlock, ImageContent, Tool
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -157,7 +157,7 @@ class MediaStagingLlm(PassthroughLLM):
 
 class MediaStagingToolAgent(ToolAgent):
     def _consume_pending_media_attachments(self) -> list[ContentBlock]:
-        return [ImageContent(type="image", data="abcd", mimeType="image/png")]
+        return [ImageContent(type="image", data="abcd", mime_type="image/png")]
 
 
 @pytest.mark.unit

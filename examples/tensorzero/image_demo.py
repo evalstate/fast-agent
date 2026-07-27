@@ -3,7 +3,7 @@ import base64
 import mimetypes
 from pathlib import Path
 
-from mcp.types import ImageContent, TextContent
+from mcp_types import ImageContent, TextContent
 
 from fast_agent import FastAgent
 from fast_agent.llm.request_params import RequestParams
@@ -54,7 +54,7 @@ async def main():
         image_bytes = await run_in_thread(file_path.read_bytes)
 
         encoded_data = base64.b64encode(image_bytes).decode("utf-8")
-        content_parts.append(ImageContent(type="image", mimeType=mime_type, data=encoded_data))
+        content_parts.append(ImageContent(type="image", mime_type=mime_type, data=encoded_data))
 
     message = Prompt.user(*content_parts)
     async with fast.run() as agent_app:

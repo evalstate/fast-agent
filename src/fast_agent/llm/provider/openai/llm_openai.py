@@ -8,7 +8,7 @@ from typing import Any, ClassVar, Protocol, cast, runtime_checkable
 
 import httpx
 from mcp import Tool
-from mcp.types import (
+from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     ContentBlock,
@@ -1108,8 +1108,8 @@ class OpenAILLM(
         messages = self._openai_completion_messages(message, params)
         available_tools = self._openai_completion_tools(tools, model_name)
         arguments = self._prepare_api_request(messages, available_tools, params)
-        if not self._reasoning and params.stopSequences:
-            arguments["stop"] = params.stopSequences
+        if not self._reasoning and params.stop_sequences:
+            arguments["stop"] = params.stop_sequences
         return _OpenAICompletionRequest(
             params=params,
             model_name=model_name,
@@ -1123,7 +1123,7 @@ class OpenAILLM(
         request_params: RequestParams,
     ) -> list[ChatCompletionMessageParam]:
         messages: list[ChatCompletionMessageParam] = []
-        system_prompt = self.instruction or request_params.systemPrompt
+        system_prompt = self.instruction or request_params.system_prompt
         if system_prompt:
             messages.append(ChatCompletionSystemMessageParam(role="system", content=system_prompt))
         if message:
@@ -1143,7 +1143,7 @@ class OpenAILLM(
                     "function": {
                         "name": tool.name,
                         "description": tool.description if tool.description else "",
-                        "parameters": self.adjust_schema(tool.inputSchema, model_name=model_name),
+                        "parameters": self.adjust_schema(tool.input_schema, model_name=model_name),
                     },
                 }
                 for tool in tools or []
@@ -1475,13 +1475,13 @@ class OpenAILLM(
 
         if self._reasoning:
             effort = self._resolve_reasoning_effort()
-            if request_params.maxTokens is not None:
-                base_args["max_completion_tokens"] = request_params.maxTokens
+            if request_params.max_tokens is not None:
+                base_args["max_completion_tokens"] = request_params.max_tokens
             if effort:
                 base_args["reasoning_effort"] = effort
         else:
-            if request_params.maxTokens is not None:
-                base_args["max_tokens"] = request_params.maxTokens
+            if request_params.max_tokens is not None:
+                base_args["max_tokens"] = request_params.max_tokens
             if tools:
                 base_args["parallel_tool_calls"] = request_params.parallel_tool_calls
 
@@ -1582,12 +1582,12 @@ class OpenAILLM(
 
         return converted
 
-    def adjust_schema(self, inputSchema: dict, model_name: str | None = None) -> dict:
+    def adjust_schema(self, input_schema: dict, model_name: str | None = None) -> dict:
         effective_model = model_name or self.default_request_params.model
         result = (
-            sanitize_tool_input_schema(inputSchema)
+            sanitize_tool_input_schema(input_schema)
             if should_strip_tool_schema_defaults(effective_model)
-            else inputSchema
+            else input_schema
         )
 
         if self.provider not in [Provider.OPENAI, Provider.AZURE]:

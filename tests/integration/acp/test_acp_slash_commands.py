@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.acp import ACPCommand
 from fast_agent.acp.slash_commands import SlashCommandHandler
@@ -979,7 +979,7 @@ async def test_slash_command_history_show_turn_summary() -> None:
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="result")],
-                    isError=False,
+                    is_error=False,
                 )
             },
             channels={

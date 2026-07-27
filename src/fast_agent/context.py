@@ -150,13 +150,11 @@ async def configure_otel(config: "Settings") -> None:
         )
         from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
         from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
-        from opentelemetry.instrumentation.mcp import McpInstrumentor
         from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 
         OpenAIInstrumentor().instrument(tracer_provider=tracer_provider)
         GoogleGenAiSdkInstrumentor().instrument(tracer_provider=tracer_provider)
         AnthropicInstrumentor().instrument(tracer_provider=tracer_provider)
-        McpInstrumentor().instrument(tracer_provider=tracer_provider)
 
 
 async def configure_logger(config: "Settings") -> None:

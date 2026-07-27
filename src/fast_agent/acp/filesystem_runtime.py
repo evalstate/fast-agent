@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from acp.helpers import tool_diff_content
 from acp.schema import ToolCallProgress
-from mcp.types import CallToolResult, Tool
+from mcp_types import CallToolResult, Tool
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
@@ -50,7 +50,7 @@ _PERMISSION_ACTION_LOG_LABELS = {
 
 
 def _error_result(message: str) -> CallToolResult:
-    return CallToolResult(content=[text_content(message)], isError=True)
+    return CallToolResult(content=[text_content(message)], is_error=True)
 
 
 def _fatal_error_result(message: str) -> CallToolResult:
@@ -59,7 +59,7 @@ def _fatal_error_result(message: str) -> CallToolResult:
 
 
 def _success_result(message: str) -> CallToolResult:
-    return CallToolResult(content=[text_content(message)], isError=False)
+    return CallToolResult(content=[text_content(message)], is_error=False)
 
 
 def _write_display_arguments(path: str, content: str) -> dict[str, Any]:

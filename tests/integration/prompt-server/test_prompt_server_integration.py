@@ -7,7 +7,7 @@ from fast_agent.mcp.helpers.content_helpers import get_image_data, get_text, is_
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 if TYPE_CHECKING:
-    from mcp.types import GetPromptResult, Prompt
+    from mcp_types import GetPromptResult, Prompt
 
 
 @pytest.mark.integration

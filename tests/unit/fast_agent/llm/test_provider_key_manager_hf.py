@@ -8,7 +8,7 @@ import os
 from types import SimpleNamespace
 
 import pytest
-from mcp.types import Tool
+from mcp_types import Tool
 
 from fast_agent.config import HuggingFaceSettings, Settings
 from fast_agent.core.exceptions import ProviderKeyError

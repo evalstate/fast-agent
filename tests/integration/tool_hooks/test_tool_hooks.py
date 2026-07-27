@@ -2,7 +2,7 @@
 
 import pytest
 from mcp import CallToolRequest, Tool
-from mcp.types import CallToolRequestParams
+from mcp_types import CallToolRequestParams
 
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.request_params import RequestParams

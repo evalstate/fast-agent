@@ -1,7 +1,7 @@
 import unittest
 from typing import Any, cast
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import AnthropicConverter
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended

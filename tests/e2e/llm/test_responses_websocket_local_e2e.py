@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import pytest_asyncio
 from aiohttp import WSMsgType, web
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
 from fast_agent.llm.provider.openai.responses import RESPONSES_DIAGNOSTICS_CHANNEL

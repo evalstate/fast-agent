@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Never
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.constants import FAST_AGENT_USAGE
 from fast_agent.llm.usage_tracking import UsageReport

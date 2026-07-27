@@ -7,7 +7,7 @@ import sys
 
 from fastmcp import Context, FastMCP
 from fastmcp.tools import ToolResult
-from mcp.types import SamplingMessage, TextContent
+from mcp_types import SamplingMessage, TextContent
 
 # Configure detailed logging
 logging.basicConfig(
@@ -32,7 +32,7 @@ async def sample(ctx: Context, to_sample: str | None = "hello, world") -> ToolRe
 
         # Send message to LLM but we don't use the response
         # This creates the sampling context
-        await ctx.session.create_message(
+        await ctx.session.create_message(  # ty: ignore[deprecated]
             max_tokens=1024,
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=value))],
         )
@@ -49,7 +49,7 @@ async def sample(ctx: Context, to_sample: str | None = "hello, world") -> ToolRe
 async def sample_many(ctx: Context) -> ToolResult:
     """Tool that echoes back the input parameter"""
 
-    result = await ctx.session.create_message(
+    result = await ctx.session.create_message(  # ty: ignore[deprecated]
         max_tokens=1024,
         messages=[
             SamplingMessage(role="user", content=TextContent(type="text", text="message 1")),
@@ -71,7 +71,7 @@ async def sample_parallel(ctx: Context, count: int = 5) -> ToolResult:
         import asyncio
 
         async def _send_sampling(request: int):
-            return await ctx.session.create_message(
+            return await ctx.session.create_message(  # ty: ignore[deprecated]
                 max_tokens=100,
                 messages=[
                     SamplingMessage(

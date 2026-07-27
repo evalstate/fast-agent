@@ -1008,7 +1008,7 @@ def _request_settings_snapshot_from_params(
         return None
 
     snapshot = SessionRequestSettingsSnapshot(
-        max_tokens=params.maxTokens,
+        max_tokens=params.max_tokens,
         temperature=params.temperature,
         top_p=params.top_p,
         top_k=params.top_k,

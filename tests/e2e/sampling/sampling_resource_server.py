@@ -1,7 +1,7 @@
 from fastmcp import Context, FastMCP
 from fastmcp.server.dependencies import get_context
 from fastmcp.utilities.types import Image
-from mcp.types import SamplingMessage, TextContent
+from mcp_types import SamplingMessage, TextContent
 
 from fast_agent.mcp.helpers.content_helpers import get_text
 
@@ -14,7 +14,7 @@ async def generate_short_story(topic: str):
     prompt = f"Please write a short story on the topic of {topic}."
 
     # Make a sampling request to the client
-    result = await get_context().session.create_message(
+    result = await get_context().session.create_message(  # ty: ignore[deprecated]
         max_tokens=1024,
         messages=[SamplingMessage(role="user", content=TextContent(type="text", text=prompt))],
     )
@@ -24,7 +24,7 @@ async def generate_short_story(topic: str):
 
 @mcp.tool()
 async def sample_with_image(ctx: Context):
-    result = await ctx.session.create_message(
+    result = await ctx.session.create_message(  # ty: ignore[deprecated]
         max_tokens=1024,
         messages=[
             SamplingMessage(

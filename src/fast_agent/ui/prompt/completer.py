@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar, cast, runtime_checkable
 from urllib.parse import unquote
 
-from mcp.types import ResourceTemplate
+from mcp_types import ResourceTemplate
 from prompt_toolkit.completion import Completer, Completion
 
 from fast_agent.agents.agent_types import AgentType
@@ -64,7 +64,7 @@ from fast_agent.utils.text import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterable, Iterator, Sequence
 
-    from mcp.types import ListToolsResult
+    from mcp_types import ListToolsResult
 
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.interfaces import FastAgentLLMProtocol
@@ -1940,13 +1940,13 @@ class AgentCompleter(Completer):
         ]
         completions.extend(
             Completion(
-                f"{template.uriTemplate}{{",
+                f"{template.uri_template}{{",
                 start_position=-len(context.partial),
-                display=template.uriTemplate,
+                display=template.uri_template,
                 display_meta="resource template",
             )
             for template in templates
-            if not context.partial or starts_with_casefold(template.uriTemplate, context.partial)
+            if not context.partial or starts_with_casefold(template.uri_template, context.partial)
         )
 
         self._completion_cache_put(cache_key, completions)

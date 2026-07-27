@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from mcp.types import (
-    AnyUrl,
+from mcp_types import (
     AudioContent,
     BlobResourceContents,
     CallToolRequest,
@@ -23,7 +22,6 @@ from mcp.types import (
 from fast_agent.constants import (
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
     FAST_AGENT_RETRY,
-    FAST_AGENT_SUBAGENT_RESULT_METADATA,
     FAST_AGENT_TIMING,
     FAST_AGENT_TOOL_METADATA,
     FAST_AGENT_TOOL_TIMING,
@@ -35,22 +33,16 @@ from fast_agent.mcp.prompt_serialization import save_json
 from fast_agent.privacy.sanitizer import PrivacyFilterModelInfo, RedactionSpan, SanitizedText
 from fast_agent.session import (
     SessionAgentSnapshot,
-    SessionAnalysisSnapshot,
-    SessionChildLinkSnapshot,
     SessionContinuationSnapshot,
-    SessionExecutionSnapshot,
     SessionGitSnapshot,
     SessionGitStateSnapshot,
     SessionRequestSettingsSnapshot,
     SessionSnapshot,
     SessionTraceExporter,
-    SessionUsageSummarySnapshot,
 )
-from fast_agent.session.atif_models import AtifAgent, AtifFinalMetrics, AtifStep, AtifTrajectory
 from fast_agent.session.session_manager import SessionManager
 from fast_agent.session.trace_export_atif import (
     AtifRunSource,
-    _include_subagent_metrics,
     _package_version,
     build_atif_fanout_trajectory,
     build_atif_trajectory,
@@ -63,55 +55,6 @@ from fast_agent.session.trace_export_errors import (
 )
 from fast_agent.session.trace_export_models import DatasetUploadResult, ExportRequest
 from fast_agent.types import COMMENTARY_PHASE, FINAL_ANSWER_PHASE, LlmStopReason
-
-
-def test_atif_subagent_metrics_preserve_known_values_without_claiming_complete_total() -> None:
-    root = AtifTrajectory(
-        session_id="parent",
-        trajectory_id="root",
-        agent=AtifAgent(name="parent", version="test"),
-        steps=[AtifStep(step_id=1, source="agent", message="parent")],
-        final_metrics=AtifFinalMetrics(
-            total_prompt_tokens=100,
-            total_completion_tokens=10,
-            total_cached_tokens=80,
-            total_steps=1,
-        ),
-    )
-    complete = AtifTrajectory(
-        session_id="complete",
-        trajectory_id="complete",
-        agent=AtifAgent(name="complete", version="test"),
-        steps=[AtifStep(step_id=1, source="agent", message="complete")],
-        final_metrics=AtifFinalMetrics(
-            total_prompt_tokens=20,
-            total_completion_tokens=2,
-            total_cached_tokens=16,
-            total_steps=1,
-        ),
-    )
-    incomplete = AtifTrajectory(
-        session_id="cancelled",
-        trajectory_id="cancelled",
-        agent=AtifAgent(name="cancelled", version="test"),
-        steps=[AtifStep(step_id=1, source="agent", message="cancelled")],
-        final_metrics=AtifFinalMetrics(total_steps=1),
-    )
-
-    _include_subagent_metrics(root, [complete, incomplete])
-
-    assert root.final_metrics is not None
-    assert root.final_metrics.total_prompt_tokens is None
-    assert root.final_metrics.total_completion_tokens is None
-    assert root.final_metrics.total_cached_tokens is None
-    assert root.final_metrics.extra == {
-        "root_prompt_tokens": 100,
-        "root_completion_tokens": 10,
-        "root_cached_tokens": 80,
-        "subagent_prompt_tokens": 20,
-        "subagent_completion_tokens": 2,
-        "subagent_cached_tokens": 16,
-    }
 
 
 def _write_session_snapshot(
@@ -313,7 +256,7 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
             role="user",
             content=[
                 TextContent(type="text", text="check Alice's directory"),
-                ImageContent(type="image", data="aW1hZ2U=", mimeType="image/png"),
+                ImageContent(type="image", data="aW1hZ2U=", mime_type="image/png"),
             ],
         ),
         PromptMessageExtended(
@@ -388,10 +331,10 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
             role="user",
             tool_results={
                 error_call_id: CallToolResult(
-                    content=[TextContent(type="text", text="command not found")], isError=True
+                    content=[TextContent(type="text", text="command not found")], is_error=True
                 ),
                 call_id: CallToolResult(
-                    content=[TextContent(type="text", text="/workspace")], isError=False
+                    content=[TextContent(type="text", text="/workspace")], is_error=False
                 ),
             },
             channels={
@@ -618,285 +561,6 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
     )
     assert private_result.redaction is not None
     assert private_result.redaction.total == 1
-
-
-def test_atif_embeds_nested_subagent_child_session_with_tool_linkage(tmp_path: Path) -> None:
-    manager = _build_manager(tmp_path)
-    parent_session_id = "2604201303-parent"
-    parent_dir = manager.base_dir / parent_session_id
-    parent_dir.mkdir(parents=True)
-    call_id = "call_subagent_1"
-    parent_usage = {
-        "schema": "fast-agent.usage/v2",
-        "provider_attempts": [
-            {
-                "provider": "openai",
-                "usage_schema": "openai-chat",
-                "model": "gpt-5.4",
-                "prompt": {"total": 10, "cache_read": 1, "tool_use": 1},
-                "completion": {"total": 2, "reasoning": 1},
-                "tool_calls": 1,
-                "cost_usd": 0.01,
-                "raw_usage": {},
-            }
-        ],
-    }
-    save_json(
-        [
-            PromptMessageExtended(
-                role="user",
-                content=[TextContent(type="text", text="delegate the inspection")],
-            ),
-            PromptMessageExtended(
-                role="assistant",
-                content=[TextContent(type="text", text="I'll delegate this.")],
-                tool_calls={
-                    call_id: CallToolRequest(
-                        params=CallToolRequestParams(
-                            name="subagent",
-                            arguments={"message": "inspect the repository"},
-                        )
-                    )
-                },
-                channels={
-                    FAST_AGENT_USAGE: [TextContent(type="text", text=json.dumps(parent_usage))]
-                },
-            ),
-            PromptMessageExtended(
-                role="user",
-                tool_results={
-                    call_id: CallToolResult(
-                        content=[TextContent(type="text", text="inspection complete")],
-                        _meta={
-                            FAST_AGENT_SUBAGENT_RESULT_METADATA: {"label": "repository-inspector"}
-                        },
-                    )
-                },
-            ),
-        ],
-        str(parent_dir / "history_parent.json"),
-    )
-    _write_session_snapshot(
-        parent_dir,
-        session_id=parent_session_id,
-        active_agent="parent",
-        agents={
-            "parent": SessionAgentSnapshot(
-                history_file="history_parent.json",
-                resolved_prompt="You delegate focused inspections.",
-                model="gpt-5.4",
-                provider="openai",
-            )
-        },
-    )
-
-    child_session_id = "2604201304-child"
-    child_dir = parent_dir / "children" / child_session_id
-    child_dir.mkdir(parents=True)
-    child_usage = {
-        "schema": "fast-agent.usage/v2",
-        "provider_attempts": [
-            {
-                "provider": "anthropic",
-                "usage_schema": "anthropic",
-                "model": "claude-sonnet-5",
-                "prompt": {"total": 7, "cache_read": 2, "tool_use": 0},
-                "completion": {"total": 3, "reasoning": 2},
-                "tool_calls": 0,
-                "cost_usd": 0.02,
-                "raw_usage": {},
-            }
-        ],
-    }
-    save_json(
-        [
-            PromptMessageExtended(
-                role="user",
-                content=[TextContent(type="text", text="inspect the repository")],
-            ),
-            PromptMessageExtended(
-                role="assistant",
-                content=[TextContent(type="text", text="The repository is healthy.")],
-                channels={
-                    FAST_AGENT_USAGE: [TextContent(type="text", text=json.dumps(child_usage))]
-                },
-            ),
-        ],
-        str(child_dir / "history_worker.json"),
-    )
-    child_snapshot = SessionSnapshot(
-        session_id=child_session_id,
-        created_at=datetime(2026, 4, 20, 13, 4, 0, tzinfo=timezone.utc),
-        last_activity=datetime(2026, 4, 20, 13, 5, 0, tzinfo=timezone.utc),
-        continuation=SessionContinuationSnapshot(
-            active_agent="worker",
-            agents={
-                "worker": SessionAgentSnapshot(
-                    history_file="history_worker.json",
-                    resolved_prompt="You are a repository inspector.",
-                    model_spec="anthropic.claude-sonnet-5",
-                    provider="anthropic",
-                )
-            },
-        ),
-        analysis=SessionAnalysisSnapshot(
-            usage_summary=SessionUsageSummarySnapshot(
-                prompt_tokens=7,
-                completion_tokens=3,
-                total_tokens=10,
-            )
-        ),
-        execution=SessionExecutionSnapshot(
-            resumable=False,
-            child_link=SessionChildLinkSnapshot(
-                parent_session_id=parent_session_id,
-                parent_agent_name="parent",
-                parent_tool_call_id=call_id,
-            ),
-            status="completed",
-            started_at=datetime(2026, 4, 20, 13, 4, 1, tzinfo=timezone.utc),
-            completed_at=datetime(2026, 4, 20, 13, 4, 2, tzinfo=timezone.utc),
-        ),
-    )
-    (child_dir / "session.json").write_text(
-        json.dumps(child_snapshot.model_dump(mode="json"), indent=2),
-        encoding="utf-8",
-    )
-    legacy_trajectory_dir = parent_dir / "trajectories"
-    legacy_trajectory_dir.mkdir()
-    (legacy_trajectory_dir / "same-child.json").write_text(
-        json.dumps(
-            {
-                "session_id": parent_session_id,
-                "trajectory_id": "legacy_same_child",
-                "parent_agent_name": "parent",
-                "agent_name": "worker",
-                "parent_tool_call_id": call_id,
-                "messages": [
-                    PromptMessageExtended(
-                        role="user",
-                        content=[TextContent(type="text", text="legacy duplicate")],
-                    ).model_dump(mode="json")
-                ],
-                "usage_summary": {
-                    "prompt": {"total": 100, "cache_read": 0, "tool_use": 0},
-                    "completion": {"total": 100, "reasoning": 0},
-                    "provider_attempts": 1,
-                    "tool_calls": 0,
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    result = SessionTraceExporter(session_manager=manager).export(
-        ExportRequest(
-            target=parent_dir,
-            agent_name="parent",
-            output_path=tmp_path / "parent-atif.json",
-            format="atif",
-        )
-    )
-
-    payload = json.loads(result.output_path.read_text(encoding="utf-8"))
-    embedded = payload["subagent_trajectories"]
-    assert len(embedded) == 1
-    child = embedded[0]
-    assert child["session_id"] == child_session_id
-    assert child["agent"] == {
-        "name": "worker",
-        "version": _package_version(),
-        "model_name": "anthropic.claude-sonnet-5",
-        "extra": {"target_agent": "worker", "provider": "anthropic"},
-    }
-    assert [step["message"] for step in child["steps"]] == [
-        "You are a repository inspector.",
-        "inspect the repository",
-        "The repository is healthy.",
-    ]
-    assert child["extra"] == {
-        "parent_session_id": parent_session_id,
-        "parent_agent_name": "parent",
-        "parent_tool_call_id": call_id,
-        "tool_name": "subagent",
-        "resumable": False,
-        "status": "completed",
-        "started_at": "2026-04-20T13:04:01Z",
-        "completed_at": "2026-04-20T13:04:02Z",
-        "model": "anthropic.claude-sonnet-5",
-        "provider": "anthropic",
-        "usage_summary": {
-            "prompt_tokens": 7,
-            "completion_tokens": 3,
-            "total_tokens": 10,
-        },
-        "subagent_label": "repository-inspector",
-    }
-    assert child["final_metrics"]["total_prompt_tokens"] == 7
-    assert child["final_metrics"]["total_completion_tokens"] == 3
-    parent_result = payload["steps"][2]["observation"]["results"][0]
-    assert parent_result["source_call_id"] == call_id
-    assert parent_result["extra"]["subagent_label"] == "repository-inspector"
-    assert child["extra"]["subagent_label"] == "repository-inspector"
-    assert (
-        parent_result["subagent_trajectory_ref"][0]["extra"]["subagent_label"]
-        == "repository-inspector"
-    )
-    assert parent_result["subagent_trajectory_ref"] == [
-        {
-            "trajectory_id": child["trajectory_id"],
-            "session_id": child_session_id,
-            "extra": {
-                "agent_name": "worker",
-                "subagent_label": "repository-inspector",
-            },
-        }
-    ]
-    assert payload["final_metrics"]["total_prompt_tokens"] == 17
-    assert payload["final_metrics"]["total_completion_tokens"] == 5
-    assert payload["final_metrics"]["total_cached_tokens"] == 3
-    assert payload["final_metrics"]["extra"]["subagent_prompt_tokens"] == 7
-    assert payload["final_metrics"]["extra"]["subagent_completion_tokens"] == 3
-
-    (legacy_trajectory_dir / "same-child.json").unlink()
-    child_link = child_snapshot.execution.child_link
-    assert child_link is not None
-    child_link.parent_tool_call_id = None
-    (child_dir / "session.json").write_text(
-        json.dumps(child_snapshot.model_dump(mode="json"), indent=2),
-        encoding="utf-8",
-    )
-    unlinked_result = SessionTraceExporter(session_manager=manager).export(
-        ExportRequest(
-            target=parent_dir,
-            agent_name="parent",
-            output_path=tmp_path / "parent-unlinked-atif.json",
-            format="atif",
-        )
-    )
-    unlinked_payload = json.loads(unlinked_result.output_path.read_text(encoding="utf-8"))
-    assert len(unlinked_payload["subagent_trajectories"]) == 1
-    assert (
-        "subagent_trajectory_ref" not in unlinked_payload["steps"][2]["observation"]["results"][0]
-    )
-
-    child_link.parent_tool_call_id = "stale-call"
-    (child_dir / "session.json").write_text(
-        json.dumps(child_snapshot.model_dump(mode="json"), indent=2),
-        encoding="utf-8",
-    )
-    stale_result = SessionTraceExporter(session_manager=manager).export(
-        ExportRequest(
-            target=parent_dir,
-            agent_name="parent",
-            output_path=tmp_path / "parent-stale-child-atif.json",
-            format="atif",
-        )
-    )
-    stale_payload = json.loads(stale_result.output_path.read_text(encoding="utf-8"))
-    assert not stale_payload.get("subagent_trajectories")
-    assert stale_payload["final_metrics"]["total_prompt_tokens"] == 10
-    assert stale_payload["final_metrics"]["total_completion_tokens"] == 2
 
 
 def test_atif_package_version_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1719,7 +1383,7 @@ def test_session_trace_exporter_writes_native_codex_tool_items(tmp_path: Path) -
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="process exit code was 0")],
-                    isError=False,
+                    is_error=False,
                 )
             },
         ),
@@ -1814,7 +1478,7 @@ def test_session_trace_exporter_applies_privacy_sanitizer_to_codex_text(
             tool_results={
                 "call_Alice": CallToolResult(
                     content=[TextContent(type="text", text="Alice result")],
-                    isError=False,
+                    is_error=False,
                 )
             },
         ),
@@ -2039,7 +1703,7 @@ def test_session_trace_exporter_marks_tool_errors_in_codex_output(tmp_path: Path
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="process exit code was 1")],
-                    isError=True,
+                    is_error=True,
                 )
             },
         ),
@@ -2293,26 +1957,26 @@ def test_session_trace_exporter_preserves_user_attachment_content(tmp_path: Path
                 EmbeddedResource(
                     type="resource",
                     resource=TextResourceContents(
-                        uri=AnyUrl("file:///tmp/example.py"),
-                        mimeType="text/x-python",
+                        uri="file:///tmp/example.py",
+                        mime_type="text/x-python",
                         text="print('hello')",
                     ),
                 ),
                 EmbeddedResource(
                     type="resource",
                     resource=BlobResourceContents(
-                        uri=AnyUrl("file:///tmp/report.pdf"),
-                        mimeType="application/pdf",
+                        uri="file:///tmp/report.pdf",
+                        mime_type="application/pdf",
                         blob="cGRm",
                     ),
                 ),
                 ResourceLink(
                     type="resource_link",
-                    uri=AnyUrl("https://example.com/audio.mp3"),
-                    mimeType="audio/mpeg",
+                    uri="https://example.com/audio.mp3",
+                    mime_type="audio/mpeg",
                     name="audio.mp3",
                 ),
-                AudioContent(type="audio", data="d2F2", mimeType="audio/wav"),
+                AudioContent(type="audio", data="d2F2", mime_type="audio/wav"),
             ],
         ),
         PromptMessageExtended(
@@ -2403,20 +2067,20 @@ def test_session_trace_exporter_preserves_non_text_tool_outputs(tmp_path: Path) 
                         EmbeddedResource(
                             type="resource",
                             resource=BlobResourceContents(
-                                uri=AnyUrl("file:///tmp/report.pdf"),
-                                mimeType="application/pdf",
+                                uri="file:///tmp/report.pdf",
+                                mime_type="application/pdf",
                                 blob="cGRm",
                             ),
                         ),
                         ResourceLink(
                             type="resource_link",
-                            uri=AnyUrl("https://example.com/audio.mp3"),
-                            mimeType="audio/mpeg",
+                            uri="https://example.com/audio.mp3",
+                            mime_type="audio/mpeg",
                             name="audio.mp3",
                         ),
-                        AudioContent(type="audio", data="d2F2", mimeType="audio/wav"),
+                        AudioContent(type="audio", data="d2F2", mime_type="audio/wav"),
                     ],
-                    isError=False,
+                    is_error=False,
                 )
             },
         ),
@@ -2497,20 +2161,20 @@ def test_session_trace_exporter_preserves_tool_output_item_order(tmp_path: Path)
                         EmbeddedResource(
                             type="resource",
                             resource=BlobResourceContents(
-                                uri=AnyUrl("file:///tmp/report-a.pdf"),
-                                mimeType="application/pdf",
+                                uri="file:///tmp/report-a.pdf",
+                                mime_type="application/pdf",
                                 blob="YQ==",
                             ),
                         ),
                         TextContent(type="text", text="Fetched audio"),
                         ResourceLink(
                             type="resource_link",
-                            uri=AnyUrl("https://example.com/audio.mp3"),
-                            mimeType="audio/mpeg",
+                            uri="https://example.com/audio.mp3",
+                            mime_type="audio/mpeg",
                             name="audio.mp3",
                         ),
                     ],
-                    isError=False,
+                    is_error=False,
                 )
             },
         ),
@@ -2586,7 +2250,7 @@ def test_session_trace_exporter_preserves_user_content_alongside_tool_outputs(
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="process exit code was 0")],
-                    isError=False,
+                    is_error=False,
                 )
             },
         ),
@@ -2642,22 +2306,22 @@ def test_session_trace_exporter_preserves_assistant_attachment_content(tmp_path:
             role="assistant",
             content=[
                 TextContent(type="text", text="Here they are"),
-                ImageContent(type="image", data="aW1hZ2U=", mimeType="image/png"),
+                ImageContent(type="image", data="aW1hZ2U=", mime_type="image/png"),
                 EmbeddedResource(
                     type="resource",
                     resource=BlobResourceContents(
-                        uri=AnyUrl("file:///tmp/report.pdf"),
-                        mimeType="application/pdf",
+                        uri="file:///tmp/report.pdf",
+                        mime_type="application/pdf",
                         blob="cGRm",
                     ),
                 ),
                 ResourceLink(
                     type="resource_link",
-                    uri=AnyUrl("https://example.com/audio.mp3"),
-                    mimeType="audio/mpeg",
+                    uri="https://example.com/audio.mp3",
+                    mime_type="audio/mpeg",
                     name="audio.mp3",
                 ),
-                AudioContent(type="audio", data="d2F2", mimeType="audio/wav"),
+                AudioContent(type="audio", data="d2F2", mime_type="audio/wav"),
             ],
             stop_reason=LlmStopReason.END_TURN,
         ),

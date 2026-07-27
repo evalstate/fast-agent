@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Callable, ClassVar
 
-from mcp.types import ElicitRequestedSchema
+from mcp_types import ElicitRequestedSchema
 from prompt_toolkit import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.filters import Condition

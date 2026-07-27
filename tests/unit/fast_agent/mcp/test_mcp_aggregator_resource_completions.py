@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from mcp.types import CompleteResult, Completion, ResourceTemplate
+from mcp_types import CompleteResult, Completion, ResourceTemplate
 
 import fast_agent.mcp.mcp_aggregator as aggregator_module
 from fast_agent.context import Context
@@ -40,7 +40,7 @@ async def test_list_resource_templates_uses_server_execution() -> None:
             del operation_type, operation_name, method_args, error_factory, progress_callback
             assert method_name == "list_resource_templates"
             return SimpleNamespace(
-                resourceTemplates=[ResourceTemplate(name="repo", uriTemplate="repo://{id}")]
+                resource_templates=[ResourceTemplate(name="repo", uri_template="repo://{id}")]
             )
 
     aggregator = _TemplatesAggregator(
@@ -52,7 +52,7 @@ async def test_list_resource_templates_uses_server_execution() -> None:
     result = await aggregator.list_resource_templates("demo")
 
     assert list(result.keys()) == ["demo"]
-    assert result["demo"][0].uriTemplate == "repo://{id}"
+    assert result["demo"][0].uri_template == "repo://{id}"
 
 
 @pytest.mark.asyncio

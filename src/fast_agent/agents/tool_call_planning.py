@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable, Collection, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from mcp.types import CallToolResult
+from mcp_types import CallToolResult
 
 from fast_agent.types import RequestParams
 

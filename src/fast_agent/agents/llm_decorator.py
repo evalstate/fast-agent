@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 from a2a.types import AgentCard
 from mcp import ListToolsResult, Tool
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     ContentBlock,
     EmbeddedResource,
@@ -333,10 +333,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """Set the agent's instruction/system prompt."""
         self._instruction = instruction
         if self._default_request_params:
-            self._default_request_params.systemPrompt = instruction
+            self._default_request_params.system_prompt = instruction
         if self._llm is not None:
             self._llm.instruction = instruction
-            self._llm.default_request_params.systemPrompt = instruction
+            self._llm.default_request_params.system_prompt = instruction
 
     async def set_model(self, model: str | None) -> None:
         """Set the default model for this agent and reattach the LLM if needed."""
@@ -1104,7 +1104,8 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
                         updated_result = tool_result.model_copy(update={"content": filtered_blocks})
                     except AttributeError:
                         updated_result = CallToolResult(
-                            content=filtered_blocks, isError=getattr(tool_result, "isError", False)
+                            content=filtered_blocks,
+                            is_error=getattr(tool_result, "is_error", False),
                         )
                 else:
                     updated_result = tool_result
@@ -1200,7 +1201,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             return self._embedded_resource_metadata(block)
 
         if isinstance(block, ResourceLink):
-            mime = getattr(block, "mimeType", None)
+            mime = getattr(block, "mime_type", None)
             return mime, self._category_from_mime(mime)
 
         return None, "document"
@@ -1213,11 +1214,11 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             return "text/plain", "text"
 
         if isinstance(block, TextResourceContents):
-            mime = getattr(block, "mimeType", None) or "text/plain"
+            mime = getattr(block, "mime_type", None) or "text/plain"
             return mime, "text"
 
         if isinstance(block, ImageContent):
-            mime = getattr(block, "mimeType", None) or "image/*"
+            mime = getattr(block, "mime_type", None) or "image/*"
             return mime, "vision"
 
         return None
@@ -1227,7 +1228,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         block: EmbeddedResource,
     ) -> tuple[str | None, str]:
         resource = getattr(block, "resource", None)
-        mime = getattr(resource, "mimeType", None)
+        mime = getattr(resource, "mime_type", None)
         if isinstance(resource, TextResourceContents):
             return mime or "text/plain", "text"
         return mime, self._category_from_mime(mime)

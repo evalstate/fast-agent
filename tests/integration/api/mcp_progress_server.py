@@ -25,7 +25,7 @@ async def progress_task(steps: int = 5) -> str:
     assert request_context is not None
 
     # Get the progress token from the request metadata
-    progress_token = request_context.meta.progressToken if request_context.meta else None
+    progress_token = request_context.meta.get("progress_token") if request_context.meta else None
 
     if progress_token is None:
         # Client didn't request progress updates
@@ -86,7 +86,7 @@ async def progress_task_no_message(steps: int = 3) -> str:
     assert request_context is not None
 
     # Get the progress token from the request metadata
-    progress_token = request_context.meta.progressToken if request_context.meta else None
+    progress_token = request_context.meta.get("progress_token") if request_context.meta else None
 
     if progress_token is None:
         # Client didn't request progress updates
@@ -119,7 +119,7 @@ async def send_progress(
     """Helper function that correctly sends progress with related_request_id."""
     request_context = context.request_context
     assert request_context is not None
-    progress_token = request_context.meta.progressToken if request_context.meta else None
+    progress_token = request_context.meta.progress_token if request_context.meta else None
 
     if progress_token is None:
         return

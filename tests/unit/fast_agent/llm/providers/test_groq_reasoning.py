@@ -59,7 +59,7 @@ def test_resolve_reasoning_effort_maps_to_groq_wire_values() -> None:
 
 def test_prepare_api_request_thinking_on_sends_parsed_format() -> None:
     llm = _groq_llm("qwen/qwen3.6-27b")
-    args = llm._prepare_api_request([], None, RequestParams(maxTokens=512))
+    args = llm._prepare_api_request([], None, RequestParams(max_tokens=512))
     assert args["reasoning_effort"] == "default"
     assert args["extra_body"]["reasoning_format"] == "parsed"
 
@@ -67,7 +67,7 @@ def test_prepare_api_request_thinking_on_sends_parsed_format() -> None:
 def test_prepare_api_request_thinking_off_omits_format() -> None:
     llm = _groq_llm("qwen/qwen3.6-27b")
     llm.set_reasoning_effort(ReasoningEffortSetting(kind="toggle", value=False))
-    args = llm._prepare_api_request([], None, RequestParams(maxTokens=512))
+    args = llm._prepare_api_request([], None, RequestParams(max_tokens=512))
     assert args["reasoning_effort"] == "none"
     assert "reasoning_format" not in (args.get("extra_body") or {})
 
@@ -77,6 +77,6 @@ def test_tag_mode_groq_reasoner_is_unshaped() -> None:
     # shaping (no reasoning_effort / reasoning_format injection).
     llm = _groq_llm("qwen/qwen3-32b")
     assert llm._reasoning_mode == "tags"
-    args = llm._prepare_api_request([], None, RequestParams(maxTokens=512))
+    args = llm._prepare_api_request([], None, RequestParams(max_tokens=512))
     assert "reasoning_effort" not in args
     assert "reasoning_format" not in (args.get("extra_body") or {})

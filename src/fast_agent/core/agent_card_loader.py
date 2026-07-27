@@ -436,7 +436,7 @@ def _apply_request_params_defaults(
     if request_params is None:
         return
     config.default_request_params = request_params
-    config.default_request_params.systemPrompt = config.instruction
+    config.default_request_params.system_prompt = config.instruction
     config.default_request_params.use_history = config.use_history
 
 

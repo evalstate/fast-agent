@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from mcp.types import (
+from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -54,7 +54,7 @@ def _user(text: str, *, template: bool = False) -> PromptMessageExtended:
 def _tool_result(text: str) -> PromptMessageExtended:
     msg = PromptMessageExtended(role="user", content=[])
     msg.tool_results = {
-        "call_1": CallToolResult(content=[TextContent(type="text", text=text)], isError=False)
+        "call_1": CallToolResult(content=[TextContent(type="text", text=text)], is_error=False)
     }
     return msg
 
@@ -360,7 +360,7 @@ class TestEstimateTokens:
     def test_counts_non_text_content_and_channels(self):
         plain = estimate_tokens([_user("hello")])
         msg = _user("hello")
-        msg.content.append(ImageContent(type="image", data="x" * 20_000, mimeType="image/png"))
+        msg.content.append(ImageContent(type="image", data="x" * 20_000, mime_type="image/png"))
         msg.channels = {"diagnostics": [TextContent(type="text", text="y" * 20_000)]}
 
         assert estimate_tokens([msg]) > plain + 5_000
@@ -514,7 +514,7 @@ class TestCompactConversation:
     async def test_reduces_retained_tail_when_tail_exceeds_budget(self):
         huge_tail = _user("latest huge artifact")
         huge_tail.content.append(
-            ImageContent(type="image", data="x" * 300_000, mimeType="image/png")
+            ImageContent(type="image", data="x" * 300_000, mime_type="image/png")
         )
         history = _turn("one", "1") + _turn("two", "2") + [huge_tail, _assistant("after huge")]
         agent = _FakeAgent(history, summary="summary including huge artifact")

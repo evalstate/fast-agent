@@ -24,7 +24,7 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from mcp.types import PromptMessage
+    from mcp_types import PromptMessage
 
 
 class RecordingSchemaAgent(LlmAgent):

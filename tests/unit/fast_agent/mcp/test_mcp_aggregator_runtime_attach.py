@@ -1,14 +1,13 @@
 from types import SimpleNamespace
 
 import pytest
-from mcp.types import (
+from mcp_types import (
     ListToolsResult,
     ReadResourceResult,
     ServerCapabilities,
     TextResourceContents,
     Tool,
 )
-from pydantic import AnyUrl
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.context import Context
@@ -87,7 +86,7 @@ async def test_detach_server_removes_runtime_indexes() -> None:
     )
 
     namespaced_tool = NamespacedTool(
-        tool=Tool(name="demo", inputSchema={"type": "object"}),
+        tool=Tool(name="demo", input_schema={"type": "object"}),
         server_name="alpha",
         namespaced_tool_name="alpha.demo",
     )
@@ -182,7 +181,7 @@ async def test_fetch_server_tools_optimistic_fallback_when_capability_missing() 
                 error_factory,
                 progress_callback,
             )
-            return ListToolsResult(tools=[Tool(name="echo", inputSchema={"type": "object"})])
+            return ListToolsResult(tools=[Tool(name="echo", input_schema={"type": "object"})])
 
     aggregator = _FallbackAggregator(
         server_names=["alpha"],
@@ -222,7 +221,7 @@ async def test_attach_server_registers_runtime_server_before_prompt_discovery() 
                 progress_callback,
             )
             if method_name == "list_tools":
-                return ListToolsResult(tools=[Tool(name="echo", inputSchema={"type": "object"})])
+                return ListToolsResult(tools=[Tool(name="echo", input_schema={"type": "object"})])
             if method_name == "list_prompts":
                 return SimpleNamespace(prompts=[SimpleNamespace(name="demo-prompt")])
             raise AssertionError(f"Unexpected MCP method: {method_name}")
@@ -319,12 +318,12 @@ async def test_refresh_attached_server_cache_discovers_mcp_skill_registry() -> N
             if method_name == "list_prompts":
                 return SimpleNamespace(prompts=[])
             if method_name == "read_resource":
-                assert method_args == {"uri": AnyUrl(index_uri)}
+                assert method_args == {"uri": index_uri}
                 return ReadResourceResult(
                     contents=[
                         TextResourceContents(
-                            uri=AnyUrl(index_uri),
-                            mimeType="application/json",
+                            uri=index_uri,
+                            mime_type="application/json",
                             text=index_text,
                         )
                     ]

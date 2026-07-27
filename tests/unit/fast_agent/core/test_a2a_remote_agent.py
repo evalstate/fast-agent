@@ -12,7 +12,7 @@ def test_a2a_use_history_falls_back_to_agent_config_when_request_defaulted() -> 
         a2a_config=A2AAgentConfig(url="http://example.test"),
     )
 
-    assert agent._resolve_turn_use_history(RequestParams(maxTokens=100)) is False
+    assert agent._resolve_turn_use_history(RequestParams(max_tokens=100)) is False
 
 
 def test_a2a_use_history_respects_explicit_request_override() -> None:

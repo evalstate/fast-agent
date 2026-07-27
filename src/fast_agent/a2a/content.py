@@ -9,7 +9,7 @@ from urllib.parse import unquote, urlparse
 
 from a2a.types import Part
 from google.protobuf.json_format import ParseDict
-from mcp.types import (
+from mcp_types import (
     AudioContent,
     BlobResourceContents,
     ContentBlock,
@@ -28,12 +28,12 @@ def part_from_content(content: ContentBlock) -> Part | None:
     if isinstance(content, ImageContent | AudioContent):
         return Part(
             raw=base64.b64decode(content.data),
-            media_type=content.mimeType,
+            media_type=content.mime_type,
         )
     if isinstance(content, ResourceLink):
         return Part(
             url=str(content.uri),
-            media_type=content.mimeType or "",
+            media_type=content.mime_type or "",
             filename=content.name,
         )
     if not isinstance(content, EmbeddedResource):
@@ -43,16 +43,16 @@ def part_from_content(content: ContentBlock) -> Part | None:
     if isinstance(resource, BlobResourceContents):
         return Part(
             raw=base64.b64decode(resource.blob),
-            media_type=resource.mimeType or "",
+            media_type=resource.mime_type or "",
             filename=filename_from_uri(str(resource.uri)),
         )
     if isinstance(resource, TextResourceContents):
-        data_part = json_data_part(resource.text, media_type=resource.mimeType)
+        data_part = json_data_part(resource.text, media_type=resource.mime_type)
         if data_part is not None:
             return data_part
         return Part(
             text=resource.text,
-            media_type=resource.mimeType or "text/plain",
+            media_type=resource.mime_type or "text/plain",
             filename=filename_from_uri(str(resource.uri)),
         )
     return None

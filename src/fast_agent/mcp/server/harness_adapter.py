@@ -11,7 +11,7 @@ from uuid import uuid4
 from fastmcp import Context as MCPContext  # noqa: TC002 - FastMCP inspects tool annotations.
 from fastmcp.server.dependencies import get_access_token, get_context
 from fastmcp.tools import Tool
-from mcp.types import TextContent
+from mcp_types import TextContent
 from pydantic import PrivateAttr
 
 from fast_agent.core.agent_tool_shape import (

@@ -35,14 +35,13 @@ from a2a.types import (
 )
 from fastapi import FastAPI
 from google.protobuf.json_format import MessageToDict
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     EmbeddedResource,
     ImageContent,
     ResourceLink,
     TextContent,
 )
-from pydantic import AnyUrl
 from starlette.responses import JSONResponse
 
 from fast_agent.a2a.content import part_from_content
@@ -852,8 +851,8 @@ def _content_from_part(part: Part) -> list[Any]:
                 ResourceLink(
                     type="resource_link",
                     name=label,
-                    uri=AnyUrl(part.url),
-                    mimeType=part.media_type or None,
+                    uri=part.url,
+                    mime_type=part.media_type or None,
                 )
             ]
         except ValueError:
@@ -861,14 +860,14 @@ def _content_from_part(part: Part) -> list[Any]:
     if part.HasField("raw"):
         data = base64.b64encode(part.raw).decode("ascii")
         if part.media_type.startswith("image/"):
-            return [ImageContent(type="image", data=data, mimeType=part.media_type)]
+            return [ImageContent(type="image", data=data, mime_type=part.media_type)]
         label = part.filename or "attachment"
         return [
             EmbeddedResource(
                 type="resource",
                 resource=BlobResourceContents(
-                    uri=AnyUrl(f"attachment:///{quote(label)}"),
-                    mimeType=part.media_type or "application/octet-stream",
+                    uri=f"attachment:///{quote(label)}",
+                    mime_type=part.media_type or "application/octet-stream",
                     blob=data,
                 ),
             )

@@ -524,7 +524,7 @@ class ACPServerSessionRuntime:
                 return None
             if session_state is not None:
                 session_state.resolved_instructions[agent_name] = resolved
-        return RequestParams(systemPrompt=resolved)
+        return RequestParams(system_prompt=resolved)
 
     async def resolve_instruction_for_session(
         self,

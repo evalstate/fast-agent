@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mcp.types import EmbeddedResource, TextResourceContents
-from pydantic import AnyUrl
+from mcp_types import EmbeddedResource, TextResourceContents
 
 from fast_agent.ui import mcp_ui_utils
 
@@ -91,8 +90,8 @@ def test_remote_dom_placeholder_escapes_resource_fields(
     resource = EmbeddedResource(
         type="resource",
         resource=TextResourceContents(
-            uri=AnyUrl("ui://card/<unsafe>"),
-            mimeType="application/vnd.mcp-ui.remote-dom",
+            uri="ui://card/<unsafe>",
+            mime_type="application/vnd.mcp-ui.remote-dom",
             text="<script>alert(1)</script>",
         ),
     )

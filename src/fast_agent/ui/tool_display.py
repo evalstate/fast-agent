@@ -13,7 +13,10 @@ from rich.text import Text
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.constants import FAST_AGENT_SHELL_PROCESS_METADATA
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.tool_result_metadata import get_tool_result_media_preview
+from fast_agent.mcp.tool_result_metadata import (
+    get_tool_result_media_preview,
+    tool_result_display_metadata,
+)
 from fast_agent.tools.apply_patch_tool import extract_apply_patch_input, is_apply_patch_tool_name
 from fast_agent.ui import console
 from fast_agent.ui.apply_patch_preview import (
@@ -46,7 +49,7 @@ from fast_agent.utils.tool_names import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from mcp.types import CallToolResult
+    from mcp_types import CallToolResult
     from rich.console import RenderableType
 
     from fast_agent.mcp.skybridge import SkybridgeServerConfig
@@ -342,7 +345,7 @@ class ToolDisplay:
         tool_call_id: str | None,
         output_line_count: int | None = None,
     ):
-        from mcp.types import TextContent
+        from mcp_types import TextContent
 
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
 
@@ -405,7 +408,7 @@ class ToolDisplay:
         return "\n".join(output_lines)
 
     def _limit_shell_output_content(self, content, line_limit: int):
-        from mcp.types import TextContent
+        from mcp_types import TextContent
 
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
 
@@ -444,7 +447,7 @@ class ToolDisplay:
         )
 
     def _limit_read_text_output_content(self, content, line_limit: int):
-        from mcp.types import TextContent
+        from mcp_types import TextContent
 
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
 
@@ -625,7 +628,7 @@ class ToolDisplay:
     @staticmethod
     def _compact_managed_process_result(content, *, tool_name: str | None):
         """Hide model-oriented process metadata in favor of one lifecycle line."""
-        from mcp.types import TextContent
+        from mcp_types import TextContent
 
         if normalize_tool_name(tool_name) not in SHELL_EXECUTION_TOOL_NAMES:
             return content
@@ -703,7 +706,7 @@ class ToolDisplay:
         tool_name: str | None,
     ) -> bool:
         """Return whether a poll result contains liveness metadata but no new output."""
-        from mcp.types import TextContent
+        from mcp_types import TextContent
 
         if normalize_tool_name(tool_name) != POLL_PROCESS_TOOL_NAME:
             if normalize_tool_name(tool_name) != normalize_tool_name(PROCESS_TOOL_NAME):
@@ -727,7 +730,7 @@ class ToolDisplay:
         content,
         structured_content: object = None,
     ):
-        from mcp.types import TextContent
+        from mcp_types import TextContent
 
         from fast_agent.mcp.helpers.content_helpers import is_text_content
 
@@ -773,9 +776,9 @@ class ToolDisplay:
 
         content = self._structured_tool_result_display_content(
             content=result.content,
-            structured_content=getattr(result, "structuredContent", None),
+            structured_content=getattr(result, "structured_content", None),
         )
-        if result.isError:
+        if result.is_error:
             return "ERROR"
 
         if not content:
@@ -793,20 +796,20 @@ class ToolDisplay:
         return format_count(len(content), "Content Block", "Content Blocks")
 
     @staticmethod
-    def _optional_string_attribute(result: "CallToolResult", name: str) -> str | None:
-        value = getattr(result, name, None)
+    def _optional_string_metadata(metadata: dict[str, object], name: str) -> str | None:
+        value = metadata.get(name)
         return strip_str_to_none(value)
 
     @staticmethod
-    def _optional_int_attribute(result: "CallToolResult", name: str) -> int | None:
-        return positive_int_or_none(getattr(result, name, None))
+    def _optional_int_metadata(metadata: dict[str, object], name: str) -> int | None:
+        return positive_int_or_none(metadata.get(name))
 
     @staticmethod
     def _optional_nonnegative_int_attribute(
-        result: "CallToolResult",
+        metadata: dict[str, object],
         name: str,
     ) -> int | None:
-        value = getattr(result, name, None)
+        value = metadata.get(name)
         if type(value) is not int or value < 0:
             return None
         return value
@@ -816,13 +819,14 @@ class ToolDisplay:
         cls,
         result: "CallToolResult",
     ) -> ToolResultDisplayMetadata:
+        metadata = dict(tool_result_display_metadata(result))
         return ToolResultDisplayMetadata(
-            read_text_file_path=cls._optional_string_attribute(result, "read_text_file_path"),
-            read_text_file_line=cls._optional_int_attribute(result, "read_text_file_line"),
-            read_text_file_limit=cls._optional_int_attribute(result, "read_text_file_limit"),
-            transport_channel=cls._optional_string_attribute(result, "transport_channel"),
+            read_text_file_path=cls._optional_string_metadata(metadata, "read_text_file_path"),
+            read_text_file_line=cls._optional_int_metadata(metadata, "read_text_file_line"),
+            read_text_file_limit=cls._optional_int_metadata(metadata, "read_text_file_limit"),
+            transport_channel=cls._optional_string_metadata(metadata, "transport_channel"),
             output_line_count=cls._optional_nonnegative_int_attribute(
-                result,
+                metadata,
                 "output_line_count",
             ),
         )
@@ -834,7 +838,7 @@ class ToolDisplay:
         tool_name: str | None,
         metadata: ToolResultDisplayMetadata,
     ) -> str:
-        if is_read_text_file_tool_name(tool_name) and not result.isError:
+        if is_read_text_file_tool_name(tool_name) and not result.is_error:
             return self._read_text_file_header_status(
                 metadata.read_text_file_path,
                 line_value=metadata.read_text_file_line,
@@ -876,7 +880,7 @@ class ToolDisplay:
     def _has_structured_text_content_mismatch(result: "CallToolResult") -> bool:
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
 
-        structured_content = getattr(result, "structuredContent", None)
+        structured_content = getattr(result, "structured_content", None)
         content = getattr(result, "content", None)
         if not (
             isinstance(structured_content, (dict, list))
@@ -914,7 +918,7 @@ class ToolDisplay:
         display_content,
         read_omitted_line_count: int,
     ) -> PreparedReadTextFileResultDisplay:
-        if not is_read_text_file_tool_name(tool_name) or result.isError:
+        if not is_read_text_file_tool_name(tool_name) or result.is_error:
             return PreparedReadTextFileResultDisplay(display_content=display_content)
 
         render_markdown: bool | None = None
@@ -1003,7 +1007,7 @@ class ToolDisplay:
         post_content: RenderableType | None = None,
     ) -> None:
         config_map = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
-        block_color = "red" if result.isError else config_map["block_color"]
+        block_color = "red" if result.is_error else config_map["block_color"]
         arrow = config_map["arrow"]
         arrow_style = config_map["arrow_style"]
 
@@ -1012,7 +1016,7 @@ class ToolDisplay:
             arrow=arrow,
             arrow_style=arrow_style,
             name=name,
-            is_error=result.isError,
+            is_error=result.is_error,
             show_hook_indicator=show_hook_indicator,
         )
 
@@ -1020,7 +1024,7 @@ class ToolDisplay:
         self._display._display_content(
             display_content,
             truncate_content,
-            result.isError,
+            result.is_error,
             MessageType.TOOL_RESULT,
             check_markdown_markers=False,
         )
@@ -1063,7 +1067,7 @@ class ToolDisplay:
 
         try:
             metadata = self._tool_result_display_metadata(result)
-            structured_content = getattr(result, "structuredContent", None)
+            structured_content = getattr(result, "structured_content", None)
             has_structured = structured_content is not None
             prepared_content = self._prepare_tool_result_content(
                 content=result.content,
@@ -1149,7 +1153,7 @@ class ToolDisplay:
                     name=name,
                     right_info=right_info,
                     bottom_metadata=bottom_metadata,
-                    is_error=result.isError,
+                    is_error=result.is_error,
                     truncate_content=truncate_content,
                     additional_message=additional_message,
                     post_content=post_content,
@@ -1161,7 +1165,7 @@ class ToolDisplay:
                 "Tool result display failed",
                 tool_name=tool_name,
                 agent_name=name,
-                is_error=result.isError,
+                is_error=result.is_error,
             )
 
     def _shell_tool_call_content(

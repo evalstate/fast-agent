@@ -1,7 +1,7 @@
 from typing import Any, cast
 
 import pytest
-from mcp.types import GetPromptResult, PromptMessage, TextContent
+from mcp_types import GetPromptResult, PromptMessage, TextContent
 from pydantic import BaseModel
 
 from fast_agent.llm.fastagent_llm import FastAgentLLM, _mcp_metadata_var
@@ -156,7 +156,7 @@ class TestRequestParamsInLLM:
 
         # Test with exclusions
         base_args = {"model": "test-model"}
-        params = RequestParams(model="different-model", temperature=0.7, maxTokens=1000)
+        params = RequestParams(model="different-model", temperature=0.7, max_tokens=1000)
 
         # Exclude model and maxTokens fields
         exclude_fields = {FastAgentLLM.PARAM_MODEL, FastAgentLLM.PARAM_MAX_TOKENS}
@@ -254,8 +254,8 @@ class TestRequestParamsInLLM:
         params = RequestParams(
             model="gpt-4.1",
             temperature=0.7,
-            maxTokens=2000,  # This should be excluded and not conflict with max_tokens
-            systemPrompt="You are a helpful assistant",  # This should be excluded
+            max_tokens=2000,  # This should be excluded and not conflict with max_tokens
+            system_prompt="You are a helpful assistant",  # This should be excluded
             response_format={"type": "json_object"},
             use_history=True,  # This should be excluded
             max_iterations=5,  # This should be excluded
@@ -318,8 +318,8 @@ class TestRequestParamsInLLM:
         params = RequestParams(
             model="claude-3-7-sonnet",
             temperature=0.7,
-            maxTokens=2000,  # This should be excluded
-            systemPrompt="You are a helpful assistant",  # This should be excluded
+            max_tokens=2000,  # This should be excluded
+            system_prompt="You are a helpful assistant",  # This should be excluded
             use_history=True,  # This should be excluded
             max_iterations=5,  # This should be excluded
             parallel_tool_calls=True,  # This should be excluded

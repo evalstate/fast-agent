@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from mcp.types import ListToolsResult, Tool
+from mcp_types import ListToolsResult, Tool
 
 from fast_agent.interfaces import AgentProtocol
 from fast_agent.ui.prompt import agent_info
@@ -179,8 +179,8 @@ def test_mcp_resource_counts_use_aggregator_only() -> None:
         async def list_tools(self) -> ListToolsResult:
             return ListToolsResult(
                 tools=[
-                    Tool(name="hf.tool_1", inputSchema={}),
-                    Tool(name="hf.tool_2", inputSchema={}),
+                    Tool(name="hf.tool_1", input_schema={}),
+                    Tool(name="hf.tool_2", input_schema={}),
                 ]
             )
 

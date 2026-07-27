@@ -281,12 +281,12 @@ def _format_capability_shorthand(
     experimental_caps = caps.experimental if caps else None
 
     entries: list[tuple[str, CapabilityState, bool]] = [
-        ("To", bool(tools), bool(tools and tools.listChanged)),
-        ("Pr", bool(prompts), bool(prompts and prompts.listChanged)),
+        ("To", bool(tools), bool(tools and tools.list_changed)),
+        ("Pr", bool(prompts), bool(prompts and prompts.list_changed)),
         (
             "Re",
             bool(resources),
-            bool(resources and resources.listChanged),
+            bool(resources and resources.list_changed),
         ),
         ("Rs", bool(resources and resources.subscribe), bool(resources and resources.subscribe)),
         ("Lo", bool(logging_caps), False),
@@ -1007,7 +1007,20 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
     console.console.print(meta_line)
 
     session_line = Text(indent + "  ")
-    session_line.append_text(_build_aligned_field("session", _format_session_id(status.session_id)))
+    protocol = status.protocol_version or "unknown"
+    if status.protocol_era:
+        protocol += f" ({status.protocol_era}"
+        if status.negotiation:
+            protocol += f", {status.negotiation}"
+        protocol += ")"
+    session_line.append_text(_build_aligned_field("protocol", protocol))
+    session_line.append("  ", style="dim")
+    if status.protocol_era == "modern":
+        session_line.append_text(_build_aligned_field("session", "none (sessionless)"))
+    else:
+        session_line.append_text(
+            _build_aligned_field("session", _format_session_id(status.session_id))
+        )
     console.console.print(session_line)
 
     health_text = _build_health_text(status)

@@ -5,12 +5,11 @@ from typing import Any, cast
 
 import pytest
 from anyio import create_task_group
-from mcp import ClientSession
 
 from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
 from fast_agent.core.exceptions import ServerInitializationError
 from fast_agent.mcp.auth.context import request_bearer_token
-from fast_agent.mcp.interfaces import ClientSessionFactory
+from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 from fast_agent.mcp.mcp_connection_manager import (
     MCPConnectionManager,
     ServerConnection,
@@ -247,24 +246,11 @@ async def test_server_lifecycle_sets_initialized_on_startup_failure():
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-    class DummySession:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return None
-
-        async def initialize(self):
-            raise RuntimeError("boom")
-
-    def session_factory(*_args, **_kwargs):
-        return DummySession()
-
     server_conn = ServerConnection(
         server_name="test-server",
         server_config=MCPServerSettings(name="test-server", url="http://example.com/mcp"),
         transport_context_factory=DummyTransportContext,
-        client_session_factory=session_factory,
+        callback_runtime=_callback_runtime(),
     )
 
     lifecycle_task = asyncio.create_task(_server_lifecycle_task(server_conn))
@@ -284,29 +270,19 @@ def _make_server_connection() -> ServerConnection:
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-    class DummySession:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return None
-
-        async def initialize(self):
-            return None
-
-    def session_factory(*_args, **_kwargs):
-        return DummySession()
-
     return ServerConnection(
         server_name="test-server",
         server_config=MCPServerSettings(name="test-server", url="http://example.com/mcp"),
         transport_context_factory=DummyTransportContext,
-        client_session_factory=session_factory,
+        callback_runtime=_callback_runtime(),
     )
 
 
-def _dummy_client_session_factory(*_args: Any, **_kwargs: Any) -> ClientSession:
-    return cast("ClientSession", object())
+def _callback_runtime() -> MCPClientCallbackRuntime:
+    return MCPClientCallbackRuntime(
+        server_name="test-server",
+        server_config=MCPServerSettings(name="test-server", url="http://example.com/mcp"),
+    )
 
 
 @pytest.mark.asyncio
@@ -390,13 +366,13 @@ async def test_get_server_cancellation_cleans_up_pending_connection(
     async def _fake_launch_server(
         *,
         server_name: str,
-        client_session_factory: ClientSessionFactory,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
         allow_oauth_paste_fallback: bool = True,
     ) -> ServerConnection:
-        del server_name, client_session_factory, startup_timeout_seconds
+        del server_name, callback_runtime, startup_timeout_seconds
         del trigger_oauth, oauth_event_handler, allow_oauth_paste_fallback
         manager.running_servers["demo"] = server_conn
         return server_conn
@@ -406,7 +382,7 @@ async def test_get_server_cancellation_cleans_up_pending_connection(
     task = asyncio.create_task(
         manager.get_server(
             "demo",
-            client_session_factory=_dummy_client_session_factory,
+            callback_runtime=_callback_runtime(),
             startup_timeout_seconds=10.0,
         )
     )
@@ -450,19 +426,19 @@ async def test_get_server_startup_timeout_cancels_blocked_lifecycle(
             url="http://127.0.0.1:9/mcp",
         ),
         transport_context_factory=HangingTransportContext,
-        client_session_factory=_dummy_client_session_factory,
+        callback_runtime=_callback_runtime(),
     )
 
     async def _fake_launch_server(
         *,
         server_name: str,
-        client_session_factory: ClientSessionFactory,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
         allow_oauth_paste_fallback: bool = True,
     ) -> ServerConnection:
-        del server_name, client_session_factory, startup_timeout_seconds
+        del server_name, callback_runtime, startup_timeout_seconds
         del trigger_oauth, oauth_event_handler, allow_oauth_paste_fallback
         manager.running_servers["demo"] = server_conn
         asyncio.create_task(_server_lifecycle_task(server_conn))
@@ -474,7 +450,7 @@ async def test_get_server_startup_timeout_cancels_blocked_lifecycle(
     with pytest.raises(ServerInitializationError):
         await manager.get_server(
             "demo",
-            client_session_factory=_dummy_client_session_factory,
+            callback_runtime=_callback_runtime(),
             startup_timeout_seconds=0.01,
         )
 
@@ -494,21 +470,21 @@ async def test_get_server_retries_with_oauth_after_401_startup(
     unhealthy._error_message = "HTTP Error: 401 Unauthorized for URL: http://example.com/mcp"
 
     healthy = _make_server_connection()
-    healthy.session = cast("Any", object())
+    healthy.client = cast("Any", object())
 
     calls: list[bool | None] = []
 
     async def _fake_launch_and_wait_for_server(
         *,
         server_name: str,
-        client_session_factory: ClientSessionFactory,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None,
         trigger_oauth: bool | None,
         oauth_event_handler: OAuthEventHandler | None,
         allow_oauth_paste_fallback: bool,
         timeout_action: str,
     ) -> ServerConnection:
-        del server_name, client_session_factory, startup_timeout_seconds
+        del server_name, callback_runtime, startup_timeout_seconds
         del oauth_event_handler, allow_oauth_paste_fallback, timeout_action
         trigger = trigger_oauth
         calls.append(trigger)
@@ -520,13 +496,13 @@ async def test_get_server_retries_with_oauth_after_401_startup(
         *,
         server_name: str,
         server_conn: ServerConnection,
-        client_session_factory: ClientSessionFactory,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None,
         oauth_event_handler: OAuthEventHandler | None,
         allow_oauth_paste_fallback: bool,
         timeout_action: str,
     ) -> ServerConnection:
-        del server_name, server_conn, client_session_factory, startup_timeout_seconds
+        del server_name, server_conn, callback_runtime, startup_timeout_seconds
         del oauth_event_handler, allow_oauth_paste_fallback, timeout_action
         calls.append(True)
         manager._server_oauth_mode["demo"] = "force"
@@ -538,7 +514,7 @@ async def test_get_server_retries_with_oauth_after_401_startup(
 
     server_conn = await manager.get_server(
         "demo",
-        client_session_factory=_dummy_client_session_factory,
+        callback_runtime=_callback_runtime(),
     )
 
     assert server_conn is healthy
@@ -583,7 +559,7 @@ async def test_get_server_formats_stdio_missing_executable_without_traceback(
         with pytest.raises(ServerInitializationError) as exc_info:
             await manager.get_server(
                 "demo",
-                client_session_factory=_dummy_client_session_factory,
+                callback_runtime=_callback_runtime(),
                 startup_timeout_seconds=1.0,
             )
 
@@ -635,7 +611,7 @@ async def test_get_server_formats_stdio_missing_cwd_without_traceback(
         with pytest.raises(ServerInitializationError) as exc_info:
             await manager.get_server(
                 "demo",
-                client_session_factory=_dummy_client_session_factory,
+                callback_runtime=_callback_runtime(),
                 startup_timeout_seconds=1.0,
             )
 
@@ -661,7 +637,7 @@ async def test_get_server_stdio_timeout_includes_recent_stderr(
         server_name="demo",
         server_config=config,
         transport_context_factory=lambda: cast("Any", object()),
-        client_session_factory=_dummy_client_session_factory,
+        callback_runtime=_callback_runtime(),
     )
     server_conn.record_stdio_stderr("npm notice downloading desktop-commander")
     server_conn.record_stdio_stderr("npm warn request took longer than expected")
@@ -669,13 +645,13 @@ async def test_get_server_stdio_timeout_includes_recent_stderr(
     async def _fake_launch_server(
         *,
         server_name: str,
-        client_session_factory: ClientSessionFactory,
+        callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
         allow_oauth_paste_fallback: bool = True,
     ) -> ServerConnection:
-        del server_name, client_session_factory, startup_timeout_seconds
+        del server_name, callback_runtime, startup_timeout_seconds
         del trigger_oauth, oauth_event_handler, allow_oauth_paste_fallback
         manager.running_servers["demo"] = server_conn
         return server_conn
@@ -685,7 +661,7 @@ async def test_get_server_stdio_timeout_includes_recent_stderr(
     with pytest.raises(ServerInitializationError) as exc_info:
         await manager.get_server(
             "demo",
-            client_session_factory=_dummy_client_session_factory,
+            callback_runtime=_callback_runtime(),
             startup_timeout_seconds=0.01,
         )
 

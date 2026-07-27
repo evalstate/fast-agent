@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.tool_runner import HistoryRollbackState
@@ -657,7 +657,7 @@ async def test_cancelled_turn_reports_interrupted_tool_marker(monkeypatch, capsy
                                     text="**The user interrupted this tool call**",
                                 )
                             ],
-                            isError=True,
+                            is_error=True,
                         )
                     },
                 ),

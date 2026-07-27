@@ -3,15 +3,11 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, TextIO
+from typing import TextIO
 
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from fast_agent.mcp.transport_tracking import ChannelEvent, EventType
-
-if TYPE_CHECKING:
-    from anyio.abc import ObjectReceiveStream, ObjectSendStream
-    from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +20,7 @@ async def tracking_stdio_client(
     *,
     channel_hook: ChannelHook | None = None,
     errlog: TextIO | None = None,
-) -> AsyncGenerator[
-    tuple[ObjectReceiveStream[SessionMessage | Exception], ObjectSendStream[SessionMessage]], None
-]:
+) -> AsyncGenerator[tuple[object, object], None]:
     """Context manager for stdio client with basic connection tracking."""
 
     def emit_channel_event(event_type: EventType, detail: str | None = None) -> None:

@@ -4,7 +4,7 @@ from typing import Any, TypeAlias, cast
 # Import necessary types from google.genai
 from google.genai import types
 from mcp import Tool
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     CallToolRequestParams,
     CallToolResult,
@@ -174,15 +174,15 @@ class GoogleConverter:
     @staticmethod
     def _image_content_to_google_part(content: ImageContent) -> types.Part:
         image_bytes = base64.b64decode(get_image_data(content) or "")
-        return types.Part.from_bytes(mime_type=content.mimeType, data=image_bytes)
+        return types.Part.from_bytes(mime_type=content.mime_type, data=image_bytes)
 
     def _embedded_resource_to_google_part(self, content: EmbeddedResource) -> types.Part:
         resource = content.resource
-        mime_type = getattr(resource, "mimeType", None)
+        mime_type = getattr(resource, "mime_type", None)
         if mime_type == "application/pdf" and isinstance(resource, BlobResourceContents):
             pdf_bytes = base64.b64decode(resource.blob)
             return types.Part.from_bytes(
-                mime_type=resource.mimeType or "application/pdf",
+                mime_type=resource.mime_type or "application/pdf",
                 data=pdf_bytes,
             )
 
@@ -193,7 +193,7 @@ class GoogleConverter:
             return types.Part.from_text(text=resource.text)
 
         uri_str = getattr(resource, "uri", "unknown_uri")
-        mime_str = getattr(resource, "mimeType", "unknown_mime")
+        mime_str = getattr(resource, "mime_type", "unknown_mime")
         return types.Part.from_text(text=f"[Resource: {uri_str}, MIME: {mime_str}]")
 
     @staticmethod
@@ -203,7 +203,7 @@ class GoogleConverter:
             return types.Part.from_bytes(mime_type=mime_type, data=media_bytes)
 
         uri_str = getattr(resource, "uri", None)
-        mime_str = getattr(resource, "mimeType", "application/octet-stream")
+        mime_str = getattr(resource, "mime_type", "application/octet-stream")
         if uri_str:
             return types.Part.from_uri(file_uri=str(uri_str), mime_type=mime_str)
 
@@ -211,7 +211,7 @@ class GoogleConverter:
 
     @staticmethod
     def _resource_link_to_google_part(content: ResourceLink) -> types.Part | None:
-        mime = content.mimeType
+        mime = content.mime_type
         uri_str = str(content.uri) if content.uri else None
         if uri_str and mime and mime.startswith(("video/", "audio/", "image/")):
             return types.Part.from_uri(file_uri=uri_str, mime_type=mime)
@@ -227,7 +227,7 @@ class GoogleConverter:
         """
         google_tools: list[types.Tool] = []
         for tool in tools:
-            cleaned_input_schema = self._clean_schema_for_google(tool.inputSchema)
+            cleaned_input_schema = self._clean_schema_for_google(tool.input_schema)
             function_declaration = types.FunctionDeclaration(
                 name=tool.name,
                 description=tool.description if tool.description else "",
@@ -284,7 +284,7 @@ class GoogleConverter:
             output_text = "\n".join(textual_outputs)
             function_response_payload: dict[str, Any] = (
                 {"error": output_text or "Tool execution failed."}
-                if tool_result.isError
+                if tool_result.is_error
                 else {"result": output_text}
             )
             fn_response_part = types.Part(
@@ -340,7 +340,7 @@ class GoogleConverter:
             image_bytes = base64.b64decode(get_image_data(item) or "")
             return None, self._function_response_inline_part(
                 data=image_bytes,
-                mime_type=item.mimeType,
+                mime_type=item.mime_type,
             )
         except Exception as e:
             return f"[Error processing image from tool result: {e}]", None
@@ -349,7 +349,7 @@ class GoogleConverter:
         self, item: EmbeddedResource
     ) -> tuple[str | None, types.FunctionResponsePart | None]:
         resource = item.resource
-        mime_type = getattr(resource, "mimeType", None)
+        mime_type = getattr(resource, "mime_type", None)
         if mime_type == "application/pdf" and isinstance(resource, BlobResourceContents):
             return self._blob_tool_result_part(
                 resource,
@@ -366,7 +366,7 @@ class GoogleConverter:
             return resource.text, None
 
         uri_str = getattr(resource, "uri", "unknown_uri")
-        mime_str = getattr(resource, "mimeType", "unknown_mime")
+        mime_str = getattr(resource, "mime_type", "unknown_mime")
         return f"[Unhandled Resource in Tool: {uri_str}, MIME: {mime_str}]", None
 
     def _blob_tool_result_part(
@@ -388,7 +388,7 @@ class GoogleConverter:
     def _resource_link_tool_result_part(
         self, item: ResourceLink
     ) -> tuple[str | None, types.FunctionResponsePart | None]:
-        mime = item.mimeType
+        mime = item.mime_type
         uri_str = str(item.uri) if item.uri else None
         if uri_str and mime and mime.startswith(("video/", "audio/", "image/")):
             return None, self._function_response_file_part(file_uri=uri_str, mime_type=mime)
@@ -501,10 +501,10 @@ class GoogleConverter:
 
     def _google_base_config_args(self, request_params: RequestParams) -> dict[str, Any]:
         config_args: dict[str, Any] = {}
-        if request_params.maxTokens is not None:
-            config_args["max_output_tokens"] = request_params.maxTokens
+        if request_params.max_tokens is not None:
+            config_args["max_output_tokens"] = request_params.max_tokens
 
-        stop_sequences = getattr(request_params, "stopSequences", None)
+        stop_sequences = getattr(request_params, "stop_sequences", None)
         if stop_sequences is not None:
             config_args["stop_sequences"] = stop_sequences
 
@@ -520,8 +520,8 @@ class GoogleConverter:
         if frequency_penalty is not None:
             config_args["frequency_penalty"] = frequency_penalty
 
-        if request_params.systemPrompt is not None:
-            config_args["system_instruction"] = request_params.systemPrompt
+        if request_params.system_prompt is not None:
+            config_args["system_instruction"] = request_params.system_prompt
         return config_args
 
     @staticmethod

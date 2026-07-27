@@ -31,7 +31,7 @@ PROVIDER_MANAGED_CONNECTOR_SUFFIX = "provider-managed connector"
 PROVIDER_MANAGED_MCP_SUFFIX = "provider-managed MCP"
 
 if TYPE_CHECKING:
-    from mcp.types import Tool
+    from mcp_types import Tool
 
     from fast_agent.interfaces import FastAgentLLMProtocol
     from fast_agent.mcp.provider_management import (
@@ -343,7 +343,7 @@ def build_tool_summaries(agent: object, tools: list[Tool]) -> list[ToolSummary]:
         suffix = classification.suffix
         suffix = _append_app_tool_suffixes(suffix, meta)
 
-        args = _format_tool_args(tool.inputSchema)
+        args = _format_tool_args(tool.input_schema)
         template = optional_string(meta.get("ui/appTemplate")) or optional_string(
             meta.get("openai/skybridgeTemplate")
         )

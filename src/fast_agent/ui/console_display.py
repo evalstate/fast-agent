@@ -6,7 +6,7 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
-from mcp.types import CallToolResult, ContentBlock
+from mcp_types import CallToolResult, ContentBlock
 from rich.console import Group, RenderableType
 from rich.markdown import Markdown
 from rich.markup import escape as escape_markup

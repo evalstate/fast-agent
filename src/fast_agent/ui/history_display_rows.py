@@ -21,7 +21,7 @@ from fast_agent.utils.text import collapse_whitespace, strip_casefold
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from mcp.types import CallToolRequest, CallToolResult
+    from mcp_types import CallToolRequest, CallToolResult
 
     from fast_agent.types import PromptMessageExtended
 
@@ -249,7 +249,7 @@ def _tool_result_rows(
         result_summary = _extract_tool_result_summary(result)
         total_chars += result_summary.chars
         has_non_text = has_non_text or result_summary.non_text
-        is_error = result.isError
+        is_error = result.is_error
         has_error = has_error or is_error
         tool_timing_info = tool_timings.get(call_id)
         last_timing_ms = tool_timing_info.get("timing_ms") if tool_timing_info else None

@@ -9,7 +9,7 @@ import sys
 
 from fastmcp import Context, FastMCP
 from fastmcp.tools import ToolResult
-from mcp.types import (
+from mcp_types import (
     AudioContent,
     ImageContent,
     SamplingMessage,
@@ -44,7 +44,7 @@ TEST_TOOLS = [
     Tool(
         name="echo",
         description="Echo back the input",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "message": {"type": "string", "description": "Message to echo"},
@@ -67,7 +67,7 @@ async def test_sampling_with_tools(ctx: Context, message: str) -> ToolResult:
     logger.info(f"test_sampling_with_tools called with message: {message}")
 
     # Send sampling request with tools
-    result = await ctx.session.create_message(
+    result = await ctx.session.create_message(  # ty: ignore[deprecated]
         max_tokens=256,
         messages=[
             SamplingMessage(
@@ -79,10 +79,10 @@ async def test_sampling_with_tools(ctx: Context, message: str) -> ToolResult:
         tool_choice=ToolChoice(mode="auto"),
     )
 
-    logger.info(f"Received result: stopReason={result.stopReason}")
+    logger.info(f"Received result: stopReason={result.stop_reason}")
 
     # Return info about what we received
-    info = f"stopReason={result.stopReason}, model={result.model}"
+    info = f"stopReason={result.stop_reason}, model={result.model}"
     return ToolResult(content=[TextContent(type="text", text=f"Sampling completed: {info}")])
 
 
@@ -93,7 +93,7 @@ async def test_sampling_without_tools(ctx: Context, message: str) -> ToolResult:
     """
     logger.info(f"test_sampling_without_tools called with message: {message}")
 
-    result = await ctx.session.create_message(
+    result = await ctx.session.create_message(  # ty: ignore[deprecated]
         max_tokens=256,
         messages=[
             SamplingMessage(
@@ -103,7 +103,7 @@ async def test_sampling_without_tools(ctx: Context, message: str) -> ToolResult:
         ],
     )
 
-    logger.info(f"Received result: stopReason={result.stopReason}")
+    logger.info(f"Received result: stopReason={result.stop_reason}")
 
     # Extract text from result
     if isinstance(result.content, TextContent):
@@ -127,7 +127,7 @@ async def test_tool_result_handling(ctx: Context) -> ToolResult:
     logger.info("test_tool_result_handling called")
 
     # First request - ask for tool use
-    result = await ctx.session.create_message(
+    result = await ctx.session.create_message(  # ty: ignore[deprecated]
         max_tokens=256,
         messages=[
             SamplingMessage(
@@ -139,11 +139,11 @@ async def test_tool_result_handling(ctx: Context) -> ToolResult:
         tool_choice=ToolChoice(mode="required"),  # Force tool use
     )
 
-    logger.info(f"First result: stopReason={result.stopReason}")
+    logger.info(f"First result: stopReason={result.stop_reason}")
 
     # With passthrough model, we might not get a tool use response
     # Just verify we got a response
-    if result.stopReason == "toolUse":
+    if result.stop_reason == "toolUse":
         # Extract tool uses
         tool_uses = []
         if isinstance(result.content, list):
@@ -157,7 +157,7 @@ async def test_tool_result_handling(ctx: Context) -> ToolResult:
                 *(
                     ToolResultContent(
                         type="tool_result",
-                        toolUseId=tu.id,
+                        tool_use_id=tu.id,
                         content=[TextContent(type="text", text="echo: hello")],
                     )
                     for tu in tool_uses
@@ -165,7 +165,7 @@ async def test_tool_result_handling(ctx: Context) -> ToolResult:
             )
 
             # Second request with tool results
-            final_result = await ctx.session.create_message(
+            final_result = await ctx.session.create_message(  # ty: ignore[deprecated]
                 max_tokens=256,
                 messages=[
                     SamplingMessage(
@@ -182,14 +182,14 @@ async def test_tool_result_handling(ctx: Context) -> ToolResult:
                 content=[
                     TextContent(
                         type="text",
-                        text=f"Multi-turn completed: first={result.stopReason}, final={final_result.stopReason}",
+                        text=f"Multi-turn completed: first={result.stop_reason}, final={final_result.stop_reason}",
                     )
                 ]
             )
 
     # Single turn response
     return ToolResult(
-        content=[TextContent(type="text", text=f"Single turn: stopReason={result.stopReason}")]
+        content=[TextContent(type="text", text=f"Single turn: stopReason={result.stop_reason}")]
     )
 
 

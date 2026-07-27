@@ -750,7 +750,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         self.config.model = new_model
         if self.config.default_request_params is not None:
             params_without_model = self.config.default_request_params.model_dump(
-                exclude={"model", "maxTokens"}
+                exclude={"model", "max_tokens"}
             )
             self.config.default_request_params = RequestParams(**params_without_model)
 

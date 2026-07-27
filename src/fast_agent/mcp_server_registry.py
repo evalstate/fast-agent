@@ -7,22 +7,21 @@ supports dynamic registration of initialization hooks, and provides methods for
 server initialization.
 """
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from datetime import timedelta
-from typing import TYPE_CHECKING
+from __future__ import annotations
 
-from mcp import ClientSession
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from typing import TYPE_CHECKING, Any, cast
 
-from fast_agent.config import (
-    MCPServerSettings,
-    Settings,
-)
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.interfaces import ClientSessionFactory
+from fast_agent.mcp.client_connection import MCPClientConnection, MCPTransportAdapter
 
 if TYPE_CHECKING:
-    from mcp.types import InitializeResult, ServerCapabilities
+    from collections.abc import AsyncIterator
+
+    from mcp_types import ServerCapabilities
+
+    from fast_agent.config import MCPServerSettings, Settings
+    from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 
 logger = get_logger(__name__)
 
@@ -49,7 +48,7 @@ class ServerRegistry:
             config (Settings): The Settings object containing the server configurations.
             config_path (str): Path to the YAML configuration file.
         """
-        self._init_results: dict[str, InitializeResult] = {}
+        self._capabilities: dict[str, ServerCapabilities] = {}
         self._config = config
         self.registry = config.mcp.servers if config is not None and config.mcp is not None else {}
 
@@ -74,16 +73,15 @@ class ServerRegistry:
 
     def get_server_capabilities(self, server_name: str) -> "ServerCapabilities | None":
         """Return cached capabilities for a server, or None if not yet initialized."""
-        init_result = self._init_results.get(server_name)
-        return init_result.capabilities if init_result else None
+        return self._capabilities.get(server_name)
 
     @asynccontextmanager
     async def initialize_server(
         self,
         server_name: str,
-        client_session_factory: ClientSessionFactory | None = None,
+        callback_runtime: MCPClientCallbackRuntime | None = None,
         trigger_oauth: bool | None = None,
-    ) -> AsyncIterator[ClientSession]:
+    ) -> AsyncIterator[MCPClientConnection]:
         """
         Create a temporary connection to a server, initialize the session, and yield it.
 
@@ -95,9 +93,8 @@ class ServerRegistry:
 
         Args:
             server_name: Name of the server to initialize.
-            client_session_factory: Optional factory for creating the ClientSession.
+            callback_runtime: Optional fast-agent callback configuration.
         """
-        from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
         from fast_agent.mcp.mcp_connection_manager import (
             _is_http_auth_challenge_error,
             _resolve_oauth_mode,
@@ -111,8 +108,10 @@ class ServerRegistry:
         oauth_mode = _resolve_oauth_mode(config, trigger_oauth=trigger_oauth)
 
         @asynccontextmanager
-        async def _initialized_session(oauth_enabled: bool) -> AsyncIterator[ClientSession]:
-            transport_context = create_transport_context(
+        async def _initialized_session(
+            oauth_enabled: bool,
+        ) -> AsyncIterator[MCPClientConnection]:
+            legacy_transport = create_transport_context(
                 server_name=server_name,
                 config=config,
                 trigger_oauth=oauth_enabled,
@@ -120,28 +119,25 @@ class ServerRegistry:
                 no_home=bool(getattr(self._config, "_fast_agent_no_home", False)),
             )
 
-            async with transport_context as (read_stream, write_stream, _get_session_id_cb):
-                read_timeout = (
-                    timedelta(seconds=config.read_timeout_seconds)
-                    if config.read_timeout_seconds
-                    else None
-                )
-                if client_session_factory is not None:
-                    session = client_session_factory(
-                        read_stream,
-                        write_stream,
-                        read_timeout,
-                        server_config=config,
-                    )
-                else:
-                    session = MCPAgentClientSession(
-                        read_stream, write_stream, read_timeout, server_config=config
-                    )
+            # Import lazily to keep the registry usable while Context is being
+            # constructed; the callback runtime depends on agent configuration.
+            from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 
-                async with session:
-                    result: InitializeResult = await session.initialize()
-                    self._init_results[server_name] = result
-                    yield session
+            callbacks = callback_runtime or MCPClientCallbackRuntime(
+                server_name=server_name, server_config=config
+            )
+            connection = MCPClientConnection(
+                MCPTransportAdapter(
+                    cast("AbstractAsyncContextManager[tuple[Any, Any, Any]]", legacy_transport)
+                ),
+                callbacks,
+                read_timeout_seconds=config.read_timeout_seconds,
+                cache=False,
+            )
+            async with connection:
+                if connection.server_capabilities is not None:
+                    self._capabilities[server_name] = connection.server_capabilities
+                yield connection
 
         try:
             async with _initialized_session(oauth_mode == "force") as session:

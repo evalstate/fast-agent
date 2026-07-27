@@ -85,7 +85,7 @@ from .shell_cwd_preflight import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
-    from mcp.types import ContentBlock
+    from mcp_types import ContentBlock
 
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.harness import HarnessSession
@@ -261,7 +261,7 @@ async def _build_cli_message_payload(
     if not blocks:
         return message
 
-    from mcp.types import TextContent
+    from mcp_types import TextContent
 
     from fast_agent.types import PromptMessageExtended
 
@@ -424,7 +424,7 @@ async def _live_atif_tool_definitions(agent_obj: Any) -> list[dict[str, object]]
             "function": {
                 "name": tool.name,
                 "description": tool.description or "",
-                "parameters": tool.inputSchema,
+                "parameters": tool.input_schema,
             },
         }
         for tool in listed.tools

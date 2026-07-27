@@ -17,7 +17,7 @@ from typing import (
 
 from a2a.types import AgentCard
 from mcp import Tool
-from mcp.types import GetPromptResult, ListToolsResult, Prompt, PromptMessage, ReadResourceResult
+from mcp_types import GetPromptResult, ListToolsResult, Prompt, PromptMessage, ReadResourceResult
 from pydantic import BaseModel
 from rich.text import Text
 

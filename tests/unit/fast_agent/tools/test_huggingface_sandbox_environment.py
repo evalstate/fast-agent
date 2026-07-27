@@ -637,8 +637,8 @@ async def test_shell_runtime_terminate_process_kills_huggingface_remote_process(
     )
     terminated = await runtime.terminate_process({"process_id": "process-1"})
 
-    assert started.isError is False
-    assert terminated.isError is False
+    assert started.is_error is False
+    assert terminated.is_error is False
     assert sandbox.process.kill_count == 1
     assert sandbox.process.running is False
     await runtime.close()

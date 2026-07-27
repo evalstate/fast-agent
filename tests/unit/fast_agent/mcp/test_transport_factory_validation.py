@@ -79,11 +79,6 @@ def test_nonpersistent_transport_avoids_speculative_oauth(monkeypatch: pytest.Mo
         "fast_agent.mcp.mcp_connection_manager._prepare_headers_and_auth",
         _fake_prepare_headers_and_auth,
     )
-    monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.tracking_sse_client",
-        lambda *args, **kwargs: object(),
-    )
-
     server_config = MCPServerSettings(transport="sse", url="http://example.com/sse")
     ctx = create_transport_context(server_name="test_server", config=server_config)
 
@@ -105,11 +100,6 @@ def test_nonpersistent_transport_honors_explicit_oauth_config(
         "fast_agent.mcp.mcp_connection_manager._prepare_headers_and_auth",
         _fake_prepare_headers_and_auth,
     )
-    monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.tracking_sse_client",
-        lambda *args, **kwargs: object(),
-    )
-
     server_config = MCPServerSettings(
         transport="sse",
         url="http://example.com/sse",

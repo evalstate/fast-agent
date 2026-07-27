@@ -9,7 +9,7 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
-from mcp.types import PromptMessage
+from mcp_types import PromptMessage
 from pydantic import BaseModel
 
 from fast_agent.core.agent_instance_factory import (

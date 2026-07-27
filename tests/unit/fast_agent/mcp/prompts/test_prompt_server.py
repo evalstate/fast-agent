@@ -2,7 +2,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.mcp.prompts import prompt_server
 

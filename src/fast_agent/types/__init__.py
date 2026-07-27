@@ -8,7 +8,7 @@ Goals:
 # Re-export common enums/types
 # Public request parameters used to configure LLM calls
 # Re-export ResourceLink from MCP for convenience
-from mcp.types import ResourceLink
+from mcp_types import ResourceLink
 
 from fast_agent.llm.request_params import (
     RequestParams,

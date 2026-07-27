@@ -10,17 +10,14 @@ from typing import (
     Any,
     Generic,
     Literal,
-    Protocol,
     TypeVar,
     cast,
-    runtime_checkable,
 )
 
 from mcp import GetPromptResult, ReadResourceResult
-from mcp.client.session import ClientSession
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.session import ProgressFnT
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     CompleteResult,
     Completion,
@@ -51,11 +48,12 @@ from fast_agent.core.model_resolution import (
 )
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.auth.context import request_bearer_token
+from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
+from fast_agent.mcp.client_connection import MCPClientConnection
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
-from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.mcp_connection_manager import (
     MCPConnectionManager,
     ServerConnection,
@@ -78,7 +76,10 @@ from fast_agent.mcp.tool_permission_handler import (
     ToolPermissionHandler,
     ToolPermissionResult,
 )
-from fast_agent.mcp.tool_result_metadata import set_url_elicitation_required_payload
+from fast_agent.mcp.tool_result_metadata import (
+    set_url_elicitation_required_payload,
+    url_elicitation_required_payload,
+)
 from fast_agent.mcp.transport_tracking import TransportSnapshot
 from fast_agent.skills.mcp_registry import (
     McpSkillRegistry,
@@ -97,6 +98,8 @@ if TYPE_CHECKING:
 
 
 logger = get_logger(__name__)  # This will be replaced per-instance when agent_name is available
+
+type MCPOperationClient = MCPClientConnection
 
 
 def _display_tool_id(tool_id: str | None) -> str:
@@ -162,35 +165,18 @@ METHOD_NOT_FOUND_ERROR_CODE = -32601
 METHOD_NOT_FOUND_MESSAGE = "method not found"
 
 
-@runtime_checkable
-class ElicitationModeCapable(Protocol):
-    effective_elicitation_mode: str | None
-
-
-@runtime_checkable
-class ClientInfoLike(Protocol):
-    name: str | None
-    version: str | None
-
-
-@runtime_checkable
-class SessionClientInfoCapable(Protocol):
-    client_info: ClientInfoLike | None
-
-
 def _is_capability_probe_error(exc: Exception) -> bool:
     """Return True when exc indicates a server does not support a probed method."""
     if isinstance(exc, NotImplementedError):
         return True
-    if isinstance(exc, McpError):
-        code = exc.error.code
+    if isinstance(exc, MCPError):
+        code = exc.code
         if code == METHOD_NOT_FOUND_ERROR_CODE:
             return True
         # Only fall back to message matching when the server omitted the error code;
         # if a different code is set, trust the code over the message text.
         if code is None:
-            message = exc.error.message
-            if isinstance(message, str) and METHOD_NOT_FOUND_MESSAGE in strip_casefold(message):
+            if METHOD_NOT_FOUND_MESSAGE in strip_casefold(exc.message):
                 return True
     return False
 
@@ -228,6 +214,10 @@ class ServerStatus(BaseModel):
     server_name: str
     implementation_name: str | None = None
     implementation_version: str | None = None
+    protocol_version: str | None = None
+    protocol_era: str | None = None
+    supported_protocol_versions: tuple[str, ...] = ()
+    negotiation: str | None = None
     server_capabilities: ServerCapabilities | None = None
     client_capabilities: Mapping[str, Any] | None = None
     client_info_name: str | None = None
@@ -248,6 +238,7 @@ class ServerStatus(BaseModel):
     sampling_mode: str | None = None
     spoofing_enabled: bool | None = None
     session_id: str | None = None
+    subscription_state: str | None = None
     transport_channels: TransportSnapshot | None = None
     skybridge: SkybridgeServerConfig | None = None
     mcp_skills_enabled: bool | None = None
@@ -309,7 +300,7 @@ class MCPAggregator(ContextDependent):
     """Whether the aggregator has been initialized with tools and resources from all servers."""
 
     connection_persistence: bool = False
-    """Whether to maintain a persistent connection to the server."""
+    """Whether to retain an attached local client runtime for the server."""
 
     server_names: list[str]
     """A list of server names to connect to."""
@@ -324,7 +315,7 @@ class MCPAggregator(ContextDependent):
         if self.initialized:
             return self
 
-        # Keep a connection manager to manage persistent connections for this aggregator
+        # Keep a runtime manager for attached clients owned by this aggregator.
         if self.connection_persistence:
             context = self._require_context()
             # Try to get existing connection manager from context
@@ -364,7 +355,7 @@ class MCPAggregator(ContextDependent):
     ) -> None:
         """
         :param server_names: A list of server names to connect to.
-        :param connection_persistence: Whether to maintain persistent connections to servers (default: True).
+        :param connection_persistence: Whether to retain attached client runtimes (default: True).
         :param config: Optional agent config containing elicitation_handler and other settings.
         :param tool_handler: Optional handler for tool execution lifecycle events (e.g., for ACP notifications).
         :param permission_handler: Optional handler for tool permission checks (e.g., for ACP permissions).
@@ -381,7 +372,7 @@ class MCPAggregator(ContextDependent):
         self._supplemental_attached_server_names: list[str] = []
         self.connection_persistence = connection_persistence
         self.agent_name = name
-        self.config = config  # Store the config for access in session factory
+        self.config = config  # Agent-specific callback configuration.
         self._persistent_connection_manager: MCPConnectionManager | None = None
         self._owns_connection_manager = False
 
@@ -437,7 +428,7 @@ class MCPAggregator(ContextDependent):
         self._skybridge_configs: dict[str, SkybridgeServerConfig] = {}
         self._mcp_skill_registries: dict[str, McpSkillRegistry] = {}
 
-        # Cache for server capabilities in non-persistent mode
+        # Cache for capabilities discovered by on-demand clients.
         self._capabilities_cache: dict[str, ServerCapabilities] = {}
         self._capabilities_cache_lock = Lock()
 
@@ -482,7 +473,7 @@ class MCPAggregator(ContextDependent):
 
     def _require_connection_manager(self) -> MCPConnectionManager:
         if self._persistent_connection_manager is None:
-            raise RuntimeError("Persistent connection manager is not initialized")
+            raise RuntimeError("MCP runtime manager is not initialized")
         return self._persistent_connection_manager
 
     def _create_progress_callback(
@@ -535,7 +526,7 @@ class MCPAggregator(ContextDependent):
 
     async def close(self) -> None:
         """
-        Close all persistent connections when the aggregator is deleted.
+        Close all attached MCP client runtimes when the aggregator is deleted.
         """
         if self.connection_persistence and self._persistent_connection_manager:
             try:
@@ -544,7 +535,7 @@ class MCPAggregator(ContextDependent):
                     self.context is not None
                     and self.context._connection_manager == self._persistent_connection_manager
                 ):
-                    logger.info("Shutting down all persistent connections...")
+                    logger.info("Shutting down attached MCP client runtimes...")
                     await self._persistent_connection_manager.disconnect_all()
                     await self._persistent_connection_manager.__aexit__(None, None, None)
                     self.context._connection_manager = None
@@ -582,61 +573,36 @@ class MCPAggregator(ContextDependent):
             await instance.__aexit__(None, None, None)
             raise
 
-    def _create_session_factory(self, server_name: str):
-        """
-        Create a session factory function for the given server.
-        This centralizes the logic for creating MCPAgentClientSession instances.
+    def _create_callback_runtime(self, server_name: str) -> MCPClientCallbackRuntime:
+        """Build callbacks and agent context for an SDK high-level client."""
+        agent_model: str | None = None
+        agent_name: str | None = None
+        elicitation_handler = None
+        api_key: str | None = None
 
-        Args:
-            server_name: The name of the server to create a session for
-
-        Returns:
-            A factory function that creates MCPAgentClientSession instances
-        """
-
-        def session_factory(read_stream, write_stream, read_timeout, **kwargs):
-            # Get agent's model and name from config if available
-            agent_model: str | None = None
-            agent_name: str | None = None
-            elicitation_handler = None
-            api_key: str | None = None
-
-            # Access config directly if it was passed from BaseAgent
-            if self.config:
-                resolved_model = resolve_model_spec(
-                    self.context,
-                    model=self.config.model,
-                    cli_model=get_context_cli_model_override(self.context),
-                    hardcoded_default=HARDCODED_DEFAULT_MODEL,
-                )
-                agent_model = resolved_model.model
-                if resolved_model.source:
-                    logger.info(
-                        f"Resolved MCP agent model '{agent_model}' via {resolved_model.source}",
-                        model=agent_model,
-                        source=resolved_model.source,
-                    )
-                agent_name = self.config.name
-                elicitation_handler = self.config.elicitation_handler
-                api_key = self.config.api_key
-
-            session = MCPAgentClientSession(
-                read_stream,
-                write_stream,
-                read_timeout,
-                server_name=server_name,
-                agent_model=agent_model,
-                agent_name=agent_name,
-                api_key=api_key,
-                elicitation_handler=elicitation_handler,
-                tool_list_changed_callback=self._handle_tool_list_changed,
-                aggregator=self,
-                **kwargs,  # Pass through any additional kwargs like server_config
+        if self.config:
+            resolved_model = resolve_model_spec(
+                self.context,
+                model=self.config.model,
+                cli_model=get_context_cli_model_override(self.context),
+                hardcoded_default=HARDCODED_DEFAULT_MODEL,
             )
+            agent_model = resolved_model.model
+            agent_name = self.config.name
+            elicitation_handler = self.config.elicitation_handler
+            api_key = self.config.api_key
 
-            return session
-
-        return session_factory
+        return MCPClientCallbackRuntime(
+            server_name=server_name,
+            server_config=self._require_server_registry().get_server_config(server_name),
+            agent_model=agent_model,
+            agent_name=agent_name,
+            api_key=api_key,
+            custom_elicitation_handler=elicitation_handler,
+            aggregator=self,
+            context=self.context,
+            tool_list_changed_callback=self._handle_tool_list_changed,
+        )
 
     async def load_servers(self, *, force_connect: bool = False) -> None:
         """
@@ -866,7 +832,7 @@ class MCPAggregator(ContextDependent):
         attach_options: MCPAttachOptions,
     ) -> None:
         logger.info(
-            f"Creating persistent connection to server: {server_name}",
+            f"Creating attached MCP client runtime for server: {server_name}",
             data={
                 "progress_action": ProgressAction.CONNECTING,
                 "server_name": server_name,
@@ -878,7 +844,7 @@ class MCPAggregator(ContextDependent):
         connect = manager.reconnect_server if attach_options.force_reconnect else manager.get_server
         await connect(
             server_name,
-            client_session_factory=self._create_session_factory(server_name),
+            callback_runtime=self._create_callback_runtime(server_name),
             startup_timeout_seconds=attach_options.startup_timeout_seconds,
             trigger_oauth=attach_options.trigger_oauth,
             oauth_event_handler=attach_options.oauth_event_handler,
@@ -1186,7 +1152,7 @@ class MCPAggregator(ContextDependent):
     ) -> None:
         seen_mime_types: list[str] = []
         for content in read_result.contents:
-            mime_type = content.mimeType
+            mime_type = content.mime_type
             if mime_type:
                 seen_mime_types.append(mime_type)
             if mime_type == SKYBRIDGE_MIME_TYPE:
@@ -1326,6 +1292,7 @@ class MCPAggregator(ContextDependent):
                 server_registry = self._require_server_registry()
                 async with server_registry.initialize_server(
                     server_name=server_name,
+                    callback_runtime=self._create_callback_runtime(server_name),
                 ) as _session:
                     capabilities = server_registry.get_server_capabilities(server_name)
 
@@ -1341,7 +1308,7 @@ class MCPAggregator(ContextDependent):
             manager = self._require_connection_manager()
             server_conn = await manager.get_server(
                 server_name,
-                client_session_factory=self._create_session_factory(server_name),
+                callback_runtime=self._create_callback_runtime(server_name),
             )
             return server_conn.server_capabilities
         except Exception as e:
@@ -1684,11 +1651,16 @@ class MCPAggregator(ContextDependent):
         if implementation is not None:
             status.implementation_name = implementation.name
             status.implementation_version = implementation.version
+        status.protocol_version = server_conn.protocol_version
+        status.protocol_era = server_conn.protocol_era
+        status.supported_protocol_versions = server_conn.supported_protocol_versions
+        status.negotiation = server_conn.negotiation
 
         status.server_capabilities = server_conn.server_capabilities
         status.mcp_skills_enabled = server_supports_mcp_skills(server_conn.server_capabilities)
-        status.client_capabilities = server_conn.client_capabilities
-        self._apply_client_info_status(status, server_conn.session)
+        client_info = server_conn._callback_runtime.client_info
+        status.client_info_name = client_info.name
+        status.client_info_version = client_info.version
 
         if server_conn._initialized_event.is_set():
             status.is_connected = server_conn.is_healthy()
@@ -1700,23 +1672,11 @@ class MCPAggregator(ContextDependent):
         status.instructions_available = server_conn.server_instructions_available
         status.instructions_enabled = server_conn.server_instructions_enabled
         status.instructions_included = bool(server_conn.server_instructions)
+        status.subscription_state = server_conn.subscription_state
 
         self._apply_ping_status(status, server_conn)
         self._apply_session_status(status, server_conn)
         self._apply_transport_status(status, server_conn)
-
-    @staticmethod
-    def _apply_client_info_status(
-        status: ServerStatus,
-        session: ClientSession | None,
-    ) -> None:
-        if not isinstance(session, SessionClientInfoCapable):
-            return
-
-        client_info = session.client_info
-        if client_info:
-            status.client_info_name = client_info.name
-            status.client_info_version = client_info.version
 
     @staticmethod
     def _apply_ping_status(status: ServerStatus, server_conn: ServerConnection) -> None:
@@ -1735,21 +1695,8 @@ class MCPAggregator(ContextDependent):
         status: ServerStatus,
         server_conn: ServerConnection,
     ) -> None:
-        session = server_conn.session
-        if isinstance(session, ElicitationModeCapable):
-            status.elicitation_mode = session.effective_elicitation_mode
-
-        # Mcp-Session-Id from the transport, when the server assigns one.
-        status.session_id = server_conn.session_id or self._session_id_from_callback(server_conn)
-
-    @staticmethod
-    def _session_id_from_callback(server_conn: ServerConnection) -> str | None:
-        if not server_conn._get_session_id_cb:
-            return None
-        try:
-            return server_conn._get_session_id_cb()
-        except Exception:
-            return None
+        status.elicitation_mode = server_conn._callback_runtime.effective_elicitation_mode
+        status.session_id = server_conn.session_id
 
     def _apply_transport_status(
         self,
@@ -1829,7 +1776,7 @@ class MCPAggregator(ContextDependent):
         if status.implementation_name is None and server_cfg.implementation is not None:
             status.implementation_name = server_cfg.implementation.name
             status.implementation_version = server_cfg.implementation.version
-        self._apply_config_session_id(status, server_cfg, server_conn)
+        self._apply_config_session_id(status, server_cfg)
         status.sampling_mode = (
             "configured" if server_cfg.sampling is not None else self._auto_sampling_mode()
         )
@@ -1838,14 +1785,11 @@ class MCPAggregator(ContextDependent):
         self,
         status: ServerStatus,
         server_cfg: MCPServerSettings,
-        server_conn: ServerConnection | None,
     ) -> None:
         if status.session_id is not None:
             return
         if server_cfg.transport == "stdio":
             status.session_id = "local"
-        elif server_conn is not None:
-            status.session_id = self._session_id_from_callback(server_conn)
 
     def _auto_sampling_mode(self) -> Literal["auto", "off"]:
         auto_sampling = True
@@ -1882,7 +1826,7 @@ class MCPAggregator(ContextDependent):
             server_name: Name of the server to execute the operation on
             operation_type: Type of operation (for logging) e.g., "tool", "prompt"
             operation_name: Name of the specific operation being called (for logging)
-            method_name: Name of the method to call on the client session
+            method_name: Name of the high-level client method to call
             method_args: Arguments to pass to the method
             error_factory: Function to create an error return value if the operation fails
             progress_callback: Optional progress callback for operations that support it
@@ -1891,7 +1835,7 @@ class MCPAggregator(ContextDependent):
             Result from the operation or an error result
         """
 
-        async def try_execute(client: ClientSession) -> R:
+        async def try_execute(client: MCPOperationClient) -> R:
             return await self._execute_session_method(
                 client,
                 server_name=server_name,
@@ -1942,7 +1886,7 @@ class MCPAggregator(ContextDependent):
 
     async def _execute_session_method(
         self,
-        client: ClientSession,
+        client: MCPOperationClient,
         *,
         server_name: str,
         operation_name: str,
@@ -1952,14 +1896,21 @@ class MCPAggregator(ContextDependent):
         progress_callback: ProgressFnT | None,
     ) -> R:
         try:
-            method = getattr(client, method_name)
-            kwargs = self._server_method_kwargs(method_name, method_args)
-            if method_name == "call_tool" and progress_callback:
-                result = await method(progress_callback=progress_callback, **kwargs)
-            else:
-                result = await method(**kwargs)
+            if method_name in {"call_tool", "read_resource", "get_prompt"}:
+                kwargs = self._server_method_kwargs(method_name, method_args)
+                if method_name == "call_tool":
+                    result = await client.call_tool(
+                        progress_callback=progress_callback,
+                        **kwargs,
+                    )
+                elif method_name == "read_resource":
+                    result = await client.read_resource(**kwargs)
+                else:
+                    result = await client.get_prompt(**kwargs)
+                return cast("R", result)
 
-            return result
+            method = getattr(client, method_name)
+            return cast("R", await method(**self._server_method_kwargs(method_name, method_args)))
         except (ConnectionError, ServerSessionTerminatedError):
             raise
         except Exception as e:
@@ -2002,7 +1953,7 @@ class MCPAggregator(ContextDependent):
             raise exc
 
         error_result = error_factory(error_msg)
-        payload = MCPAgentClientSession.get_url_elicitation_required_payload(exc)
+        payload = url_elicitation_required_payload(exc)
         if payload is not None:
             with suppress(Exception):
                 set_url_elicitation_required_payload(error_result, payload)
@@ -2011,7 +1962,7 @@ class MCPAggregator(ContextDependent):
     async def _execute_initial_server_operation(
         self,
         server_name: str,
-        try_execute: Callable[[ClientSession], Awaitable[R]],
+        try_execute: Callable[[MCPOperationClient], Awaitable[R]],
     ) -> R:
         if self.connection_persistence and not self._should_use_request_scoped_connection(
             server_name
@@ -2022,22 +1973,22 @@ class MCPAggregator(ContextDependent):
     async def _execute_persistent_server_operation(
         self,
         server_name: str,
-        try_execute: Callable[[ClientSession], Awaitable[R]],
+        try_execute: Callable[[MCPOperationClient], Awaitable[R]],
     ) -> R:
         manager = self._require_connection_manager()
         server_connection = await manager.get_server(
             server_name,
-            client_session_factory=self._create_session_factory(server_name),
+            callback_runtime=self._create_callback_runtime(server_name),
         )
-        session = server_connection.session
-        if session is None:
-            raise RuntimeError(f"Server session not initialized for '{server_name}'")
-        return await try_execute(session)
+        client = server_connection.client
+        if client is None:
+            raise RuntimeError(f"MCP client runtime not initialized for '{server_name}'")
+        return await try_execute(client)
 
     async def _execute_temporary_server_operation(
         self,
         server_name: str,
-        try_execute: Callable[[ClientSession], Awaitable[R]],
+        try_execute: Callable[[MCPOperationClient], Awaitable[R]],
     ) -> R:
         logger.debug(
             f"Creating temporary connection to server: {server_name}",
@@ -2048,7 +1999,11 @@ class MCPAggregator(ContextDependent):
             },
         )
         server_registry = self._require_server_registry()
-        async with gen_client(server_name, server_registry=server_registry) as client:
+        async with gen_client(
+            server_name,
+            server_registry=server_registry,
+            callback_runtime=self._create_callback_runtime(server_name),
+        ) as client:
             result = await try_execute(client)
             logger.debug(
                 f"Closing temporary connection to server: {server_name}",
@@ -2107,18 +2062,19 @@ class MCPAggregator(ContextDependent):
                 manager = self._require_connection_manager()
                 server_connection = await manager.reconnect_server(
                     server_name,
-                    client_session_factory=self._create_session_factory(server_name),
+                    callback_runtime=self._create_callback_runtime(server_name),
                     trigger_oauth=True,
                 )
-                session = server_connection.session
-                if session is None:
-                    raise RuntimeError(f"Server session not initialized for '{server_name}'")
-                result = await try_execute(session)
+                client = server_connection.client
+                if client is None:
+                    raise RuntimeError(f"MCP client runtime not initialized for '{server_name}'")
+                result = await try_execute(client)
             else:
                 server_registry = self._require_server_registry()
                 async with gen_client(
                     server_name,
                     server_registry=server_registry,
+                    callback_runtime=self._create_callback_runtime(server_name),
                     trigger_oauth=True,
                 ) as client:
                     result = await try_execute(client)
@@ -2151,16 +2107,20 @@ class MCPAggregator(ContextDependent):
                 manager = self._require_connection_manager()
                 server_connection = await manager.reconnect_server(
                     server_name,
-                    client_session_factory=self._create_session_factory(server_name),
+                    callback_runtime=self._create_callback_runtime(server_name),
                 )
-                session = server_connection.session
-                if session is None:
-                    raise RuntimeError(f"Server session not initialized for '{server_name}'")
-                result = await try_execute(session)
+                client = server_connection.client
+                if client is None:
+                    raise RuntimeError(f"MCP client runtime not initialized for '{server_name}'")
+                result = await try_execute(client)
             else:
-                # For non-persistent connections, just try again
+                # For on-demand clients, create a fresh runtime.
                 server_registry = self._require_server_registry()
-                async with gen_client(server_name, server_registry=server_registry) as client:
+                async with gen_client(
+                    server_name,
+                    server_registry=server_registry,
+                    callback_runtime=self._create_callback_runtime(server_name),
+                ) as client:
                     result = await try_execute(client)
 
             # Success!
@@ -2232,16 +2192,20 @@ class MCPAggregator(ContextDependent):
                 manager = self._require_connection_manager()
                 server_connection = await manager.reconnect_server(
                     server_name,
-                    client_session_factory=self._create_session_factory(server_name),
+                    callback_runtime=self._create_callback_runtime(server_name),
                 )
-                session = server_connection.session
-                if session is None:
-                    raise RuntimeError(f"Server session not initialized for '{server_name}'")
-                result = await try_execute(session)
+                client = server_connection.client
+                if client is None:
+                    raise RuntimeError(f"MCP client runtime not initialized for '{server_name}'")
+                result = await try_execute(client)
             else:
-                # For non-persistent connections, just try again
+                # For on-demand clients, create a fresh runtime.
                 server_registry = self._require_server_registry()
-                async with gen_client(server_name, server_registry=server_registry) as client:
+                async with gen_client(
+                    server_name,
+                    server_registry=server_registry,
+                    callback_runtime=self._create_callback_runtime(server_name),
+                ) as client:
                     result = await try_execute(client)
 
             # Success! Record the reconnection
@@ -2352,7 +2316,7 @@ class MCPAggregator(ContextDependent):
         if server_name is None:
             logger.error(f"Error: Tool '{name}' not found")
             return CallToolResult(
-                isError=True,
+                is_error=True,
                 content=[TextContent(type="text", text=f"Tool '{name}' not found")],
             )
 
@@ -2416,7 +2380,7 @@ class MCPAggregator(ContextDependent):
                         "arguments": arguments,
                     },
                     error_factory=lambda msg: CallToolResult(
-                        isError=True, content=[TextContent(type="text", text=msg)]
+                        is_error=True, content=[TextContent(type="text", text=msg)]
                     ),
                     progress_callback=progress_callback,
                 )
@@ -2501,7 +2465,7 @@ class MCPAggregator(ContextDependent):
     @staticmethod
     def _tool_error_result(message: str) -> CallToolResult:
         return CallToolResult(
-            isError=True,
+            is_error=True,
             content=[TextContent(type="text", text=message)],
         )
 
@@ -2556,7 +2520,7 @@ class MCPAggregator(ContextDependent):
         tool_call_id: str,
         tool_use_id: str | None,
     ) -> None:
-        completion_state = "completed" if not result.isError else "failed"
+        completion_state = "completed" if not result.is_error else "failed"
         logger.info(
             "Tool call completed",
             data=build_progress_payload(
@@ -2587,18 +2551,18 @@ class MCPAggregator(ContextDependent):
                 tool_call_id=tool_call_id,
                 has_content=content is not None,
                 content_count=len(content) if content else 0,
-                is_error=result.isError,
+                is_error=result.is_error,
             )
 
             error_text = None
-            if result.isError and content:
+            if result.is_error and content:
                 text_parts = [text for c in content if (text := get_text(c))]
                 error_text = "\n".join(text_parts) if text_parts else None
                 content = None
 
             await active_tool_handler.on_tool_complete(
                 tool_call_id,
-                not result.isError,
+                not result.is_error,
                 content,
                 error_text,
             )
@@ -3015,6 +2979,10 @@ class MCPAggregator(ContextDependent):
         # Refresh the tools for this server
         await self._refresh_server_tools(server_name)
 
+    async def _refresh_server_resources(self, server_name: str) -> None:
+        _, skybridge_config = await self._evaluate_skybridge_for_server(server_name)
+        self._skybridge_configs[server_name] = skybridge_config
+
     async def _refresh_server_tools(self, server_name: str) -> None:
         """
         Refresh the tools for a specific server.
@@ -3157,11 +3125,11 @@ class MCPAggregator(ContextDependent):
         )
 
         try:
-            uri_obj = AnyUrl(uri)
+            uri_value = str(AnyUrl(uri))
         except Exception as e:
             raise ValueError(f"Invalid {noun.lower()} URI: {uri}. Error: {e}") from e
 
-        method_args: dict[str, Any] = {"uri": uri_obj}
+        method_args: dict[str, Any] = {"uri": uri_value}
         if extra_args:
             method_args.update(extra_args)
 
@@ -3304,10 +3272,10 @@ class MCPAggregator(ContextDependent):
             operation_name="",
             method_name="list_resource_templates",
             method_args={},
-            error_factory=lambda _: ListResourceTemplatesResult(resourceTemplates=[]),
+            error_factory=lambda _: ListResourceTemplatesResult(resource_templates=[]),
         )
 
-        return result.resourceTemplates
+        return result.resource_templates
 
     async def list_resources(self, server_name: str | None = None) -> dict[str, list[str]]:
         """

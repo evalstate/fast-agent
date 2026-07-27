@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict
 from typing import TYPE_CHECKING
 
-from mcp.types import CallToolResult, ContentBlock, TextContent
+from mcp_types import CallToolResult, ContentBlock, TextContent
 
 from fast_agent.constants import (
     FAST_AGENT_ERROR_CHANNEL,

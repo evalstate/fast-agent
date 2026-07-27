@@ -96,7 +96,7 @@ async def test_agent_api_with_default_calls(fast_agent):
 @pytest.mark.asyncio
 async def test_mixed_message_types(fast_agent):
     """Test that the agent can handle mixed message types seamlessly."""
-    from mcp.types import PromptMessage, TextContent
+    from mcp_types import PromptMessage, TextContent
 
     from fast_agent.mcp.prompt import Prompt
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -172,14 +172,13 @@ async def test_mixed_message_types(fast_agent):
             assert "simulated prompt result" == response.first_text()
 
             # Test with EmbeddedResource directly in Prompt.user()
-            from mcp.types import EmbeddedResource, TextResourceContents
-            from pydantic import AnyUrl
+            from mcp_types import EmbeddedResource, TextResourceContents
 
             # Create a resource
             text_resource = TextResourceContents(
-                uri=AnyUrl("file:///test/example.txt"),
+                uri="file:///test/example.txt",
                 text="Sample text from resource",
-                mimeType="text/plain",
+                mime_type="text/plain",
             )
             embedded_resource = EmbeddedResource(type="resource", resource=text_resource)
 
@@ -508,7 +507,7 @@ async def test_agent_with_anyurl_instruction(fast_agent):
 @pytest.mark.asyncio
 async def test_mixed_prompt_message_and_multipart(fast_agent):
     """Test that the agent can process a mixed list of PromptMessage and PromptMessageExtended."""
-    from mcp.types import PromptMessage, TextContent
+    from mcp_types import PromptMessage, TextContent
 
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
@@ -545,7 +544,7 @@ async def test_mixed_prompt_message_and_multipart(fast_agent):
 @pytest.mark.asyncio
 async def test_generate_with_various_input_types(fast_agent):
     """Test that generate() accepts strings, PromptMessage, PromptMessageExtended, and lists."""
-    from mcp.types import PromptMessage, TextContent
+    from mcp_types import PromptMessage, TextContent
 
     from fast_agent.mcp.prompt import Prompt
 

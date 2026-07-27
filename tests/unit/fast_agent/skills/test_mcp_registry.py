@@ -8,7 +8,7 @@ from io import BytesIO
 
 import frontmatter
 import pytest
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     ListResourcesResult,
     ReadResourceResult,
@@ -16,7 +16,6 @@ from mcp.types import (
     ServerCapabilities,
     TextResourceContents,
 )
-from pydantic import AnyUrl
 
 from fast_agent.skills import mcp_registry
 from fast_agent.skills.mcp_registry import (
@@ -34,7 +33,7 @@ from fast_agent.skills.provenance import read_installed_skill_source
 
 def _text(uri: str, body: str) -> ReadResourceResult:
     return ReadResourceResult(
-        contents=[TextResourceContents(uri=AnyUrl(uri), mimeType="text/plain", text=body)]
+        contents=[TextResourceContents(uri=uri, mime_type="text/plain", text=body)]
     )
 
 
@@ -42,8 +41,8 @@ def _blob(uri: str, body: bytes) -> ReadResourceResult:
     return ReadResourceResult(
         contents=[
             BlobResourceContents(
-                uri=AnyUrl(uri),
-                mimeType="application/octet-stream",
+                uri=uri,
+                mime_type="application/octet-stream",
                 blob=base64.b64encode(body).decode("ascii"),
             )
         ]
@@ -336,15 +335,15 @@ async def test_install_direct_skill_materializes_supporting_files(tmp_path) -> N
         },
         directories={
             "skill://demo": [
-                Resource(uri=AnyUrl("skill://demo/SKILL.md"), name="SKILL.md"),
+                Resource(uri="skill://demo/SKILL.md", name="SKILL.md"),
                 Resource(
-                    uri=AnyUrl("skill://demo/references"),
+                    uri="skill://demo/references",
                     name="references",
-                    mimeType="inode/directory",
+                    mime_type="inode/directory",
                 ),
             ],
             "skill://demo/references": [
-                Resource(uri=AnyUrl("skill://demo/references/GUIDE.md"), name="GUIDE.md"),
+                Resource(uri="skill://demo/references/GUIDE.md", name="GUIDE.md"),
             ],
         },
     )
@@ -380,7 +379,7 @@ async def test_install_direct_skill_walks_lowercase_skill_md_url(tmp_path) -> No
         },
         directories={
             "skill://demo": [
-                Resource(uri=AnyUrl("skill://demo/GUIDE.md"), name="GUIDE.md"),
+                Resource(uri="skill://demo/GUIDE.md", name="GUIDE.md"),
             ],
         },
     )
@@ -414,7 +413,7 @@ async def test_install_direct_skill_rejects_oversized_supporting_file(
         },
         directories={
             "skill://demo": [
-                Resource(uri=AnyUrl("skill://demo/BIG.md"), name="BIG.md"),
+                Resource(uri="skill://demo/BIG.md", name="BIG.md"),
             ],
         },
     )
@@ -465,8 +464,8 @@ async def test_install_direct_skill_does_not_overwrite_verified_skill_md(tmp_pat
         },
         directories={
             "skill://demo": [
-                Resource(uri=AnyUrl("skill://demo/SKILL.md"), name="SKILL.md"),
-                Resource(uri=AnyUrl("skill://demo/skill.md"), name="skill.md"),
+                Resource(uri="skill://demo/SKILL.md", name="SKILL.md"),
+                Resource(uri="skill://demo/skill.md", name="skill.md"),
             ],
         },
     )
@@ -498,8 +497,8 @@ async def test_install_direct_skill_rolls_back_partial_supporting_files(tmp_path
             # GUIDE.md is staged first, then the unsafe backslash sibling raises
             # mid-walk (validated by _validate_archive_name).
             "skill://demo": [
-                Resource(uri=AnyUrl("skill://demo/GUIDE.md"), name="GUIDE.md"),
-                Resource(uri=AnyUrl(r"skill://demo/..\..\evil.md"), name="evil.md"),
+                Resource(uri="skill://demo/GUIDE.md", name="GUIDE.md"),
+                Resource(uri=r"skill://demo/..\..\evil.md", name="evil.md"),
             ],
         },
     )
@@ -535,7 +534,7 @@ async def test_install_direct_skill_bounds_infinite_pagination(tmp_path) -> None
         async def read_directory(self, uri, *, server_name=None, cursor=None):
             del uri, server_name, cursor
             self.calls += 1
-            return ListResourcesResult(resources=[], nextCursor="more")
+            return ListResourcesResult(resources=[], next_cursor="more")
 
     aggregator = _InfinitePagerAggregator()
 
@@ -562,7 +561,7 @@ async def test_install_direct_skill_skips_walk_without_capability(tmp_path) -> N
         responses={"skill://demo/SKILL.md": skill_text},
         directories={
             "skill://demo": [
-                Resource(uri=AnyUrl("skill://demo/extra.md"), name="extra.md"),
+                Resource(uri="skill://demo/extra.md", name="extra.md"),
             ]
         },
     )
@@ -745,15 +744,15 @@ async def test_install_warns_on_unverified_supporting_files(tmp_path, monkeypatc
         },
         directories={
             "skill://demo": [
-                Resource(uri=AnyUrl("skill://demo/SKILL.md"), name="SKILL.md"),
+                Resource(uri="skill://demo/SKILL.md", name="SKILL.md"),
                 Resource(
-                    uri=AnyUrl("skill://demo/references"),
+                    uri="skill://demo/references",
                     name="references",
-                    mimeType="inode/directory",
+                    mime_type="inode/directory",
                 ),
             ],
             "skill://demo/references": [
-                Resource(uri=AnyUrl("skill://demo/references/GUIDE.md"), name="GUIDE.md"),
+                Resource(uri="skill://demo/references/GUIDE.md", name="GUIDE.md"),
             ],
         },
     )
@@ -941,7 +940,7 @@ async def test_supporting_files_count_against_server_budget(tmp_path, monkeypatc
         },
         directories={
             "skill://demo": [
-                Resource(uri=AnyUrl("skill://demo/GUIDE.md"), name="GUIDE.md"),
+                Resource(uri="skill://demo/GUIDE.md", name="GUIDE.md"),
             ],
         },
     )

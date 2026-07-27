@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Literal, cast
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.llm.request_params import RequestParams
@@ -84,7 +84,7 @@ class _Agent:
         self.config = AgentConfig(name, instruction=instruction, model="passthrough")
         self.config.default_request_params = RequestParams(
             use_history=self.config.use_history,
-            systemPrompt=instruction,
+            system_prompt=instruction,
         )
         self.llm = SimpleNamespace(
             default_request_params=self.config.default_request_params.model_copy(deep=True),
@@ -107,8 +107,8 @@ class _Agent:
         self.config.instruction = instruction
         params = self.config.default_request_params
         assert params is not None
-        params.systemPrompt = instruction
-        self.llm.default_request_params.systemPrompt = instruction
+        params.system_prompt = instruction
+        self.llm.default_request_params.system_prompt = instruction
 
     async def set_model(self, model: str | None) -> None:
         self.model_updates.append(model)
@@ -574,12 +574,12 @@ async def test_hydrate_session_restores_runtime_state_and_replaces_usage(
     assert runtime_foo.instruction == "Stored foo prompt"
     assert runtime_foo.config.model == "anthropic.sonnet-4?reasoning=high"
     assert runtime_foo.model_updates == ["anthropic.sonnet-4?reasoning=high"]
-    assert params.maxTokens == 2048
+    assert params.max_tokens == 2048
     assert params.temperature == 0.3
     assert params.use_history is True
     assert params.max_iterations == 7
-    assert params.systemPrompt == "Stored foo prompt"
-    assert runtime_foo.llm.default_request_params.systemPrompt == "Stored foo prompt"
+    assert params.system_prompt == "Stored foo prompt"
+    assert runtime_foo.llm.default_request_params.system_prompt == "Stored foo prompt"
     assert runtime_foo.attached_servers == ["already-attached", "filesystem"]
     assert runtime_foo.usage_accumulator.turns == [_TurnRecord("restored-usage")]
 
@@ -638,7 +638,7 @@ async def test_hydrate_session_refresh_policy_skips_prompt_and_runtime_state(
     runtime_foo.config.model = "openai.gpt-5-mini"
     refresh_params = runtime_foo.config.default_request_params
     assert refresh_params is not None
-    refresh_params.maxTokens = 512
+    refresh_params.max_tokens = 512
 
     result = await SessionHydrator().hydrate_session(
         session=persisted_session,
@@ -653,7 +653,7 @@ async def test_hydrate_session_refresh_policy_skips_prompt_and_runtime_state(
     assert runtime_foo.config.model == "openai.gpt-5-mini"
     refreshed_params = runtime_foo.config.default_request_params
     assert refreshed_params is not None
-    assert refreshed_params.maxTokens == 512
+    assert refreshed_params.max_tokens == 512
     assert runtime_foo.attached_servers == ["existing-server"]
     assert _message_texts(runtime_foo) == ["refresh hello", "refresh done"]
 

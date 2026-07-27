@@ -4,8 +4,9 @@ import subprocess
 import sys
 
 import httpx
+import mcp_types as types
 import pytest
-from mcp import ClientSession, types
+from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -276,7 +277,6 @@ async def test_serve_request_scope_disables_session_header(mcp_test_ports, wait_
         async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (
             read_stream,
             write_stream,
-            _,
         ):
             async with ClientSession(read_stream, write_stream) as session:
                 init_result = await session.initialize()
@@ -442,7 +442,6 @@ async def test_agent_server_emits_mcp_progress_notifications(
         async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (
             read_stream,
             write_stream,
-            _,
         ):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
@@ -451,7 +450,7 @@ async def test_agent_server_emits_mcp_progress_notifications(
                 )
                 request = types.CallToolRequest(method="tools/call", params=params)
                 result = await session.send_request(
-                    types.ClientRequest(request),
+                    request,
                     types.CallToolResult,
                     progress_callback=on_progress,
                 )

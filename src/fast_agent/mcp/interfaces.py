@@ -4,15 +4,11 @@ This module defines protocols (interfaces) that can be used to break circular de
 """
 
 from contextlib import AbstractAsyncContextManager
-from datetime import timedelta
 from typing import (
     TYPE_CHECKING,
     Protocol,
     runtime_checkable,
 )
-
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from mcp import ClientSession
 
 from fast_agent.interfaces import (
     AgentProtocol,
@@ -24,51 +20,37 @@ from fast_agent.interfaces import (
 )
 
 if TYPE_CHECKING:
-    from mcp.types import ServerCapabilities
+    from mcp_types import (
+        ServerCapabilities,
+    )
 
     from fast_agent.config import MCPServerSettings
-    from fast_agent.mcp.transport_tracking import TransportChannelMetrics
+    from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
+    from fast_agent.mcp.client_connection import MCPClientConnection
 
 __all__ = [
     "AgentProtocol",
-    "ClientSessionFactory",
     "FastAgentLLMProtocol",
     "LLMFactoryProtocol",
     "LlmAgentProtocol",
     "ModelFactoryFunctionProtocol",
     "ModelT",
-    "ServerConnection",
     "ServerInitializerProtocol",
     "ServerRegistryProtocol",
 ]
 
 
 @runtime_checkable
-class ClientSessionFactory(Protocol):
-    """Protocol for creating client sessions across persistent and temporary connections."""
-
-    def __call__(
-        self,
-        read_stream: MemoryObjectReceiveStream,
-        write_stream: MemoryObjectSendStream,
-        read_timeout: timedelta | None,
-        *,
-        server_config: "MCPServerSettings | None" = None,
-        transport_metrics: "TransportChannelMetrics | None" = None,
-    ) -> ClientSession: ...
-
-
-@runtime_checkable
 class ServerInitializerProtocol(Protocol):
-    """Protocol for temporary (non-persistent) server connections used by gen_client."""
+    """Protocol for on-demand server clients used by gen_client."""
 
     def initialize_server(
         self,
         server_name: str,
-        client_session_factory: ClientSessionFactory | None = None,
+        callback_runtime: "MCPClientCallbackRuntime | None" = None,
         trigger_oauth: bool | None = None,
-    ) -> AbstractAsyncContextManager[ClientSession]:
-        """Initialize a server and yield a client session."""
+    ) -> AbstractAsyncContextManager["MCPClientConnection"]:
+        """Initialize a server and yield a client connection."""
         ...
 
     def get_server_capabilities(self, server_name: str) -> "ServerCapabilities | None":
@@ -84,10 +66,3 @@ class ServerRegistryProtocol(ServerInitializerProtocol, Protocol):
     def registry(self) -> dict[str, "MCPServerSettings"]: ...
 
     def get_server_config(self, server_name: str) -> "MCPServerSettings | None": ...
-
-
-class ServerConnection(Protocol):
-    """Protocol for server connection objects returned by MCPConnectionManager."""
-
-    @property
-    def session(self) -> ClientSession: ...

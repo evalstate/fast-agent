@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from google.genai import types as google_types
 from mcp import Tool
-from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 from pydantic import BaseModel
 
 from fast_agent.config import GoogleSettings, Settings
@@ -164,7 +164,7 @@ def test_structured_schema_with_tools_is_deferred_until_tool_result() -> None:
     tool = Tool(
         name="lookup_probe_payload",
         description="Return the probe payload for validation.",
-        inputSchema={"type": "object", "properties": {}},
+        input_schema={"type": "object", "properties": {}},
     )
     params = RequestParams(structured_schema=schema, structured_tool_policy="defer")
 
@@ -245,7 +245,7 @@ async def test_structured_schema_in_generate_path_can_keep_google_tools(
             Tool(
                 name="lookup_probe_payload",
                 description="Return the probe payload for validation.",
-                inputSchema={"type": "object", "properties": {}},
+                input_schema={"type": "object", "properties": {}},
             )
         ],
     )
@@ -380,7 +380,7 @@ async def test_structured_schema_in_generate_path_returns_google_tool_calls() ->
             Tool(
                 name="lookup_probe_payload",
                 description="Return the probe payload for validation.",
-                inputSchema={"type": "object", "properties": {}},
+                input_schema={"type": "object", "properties": {}},
             )
         ],
     )
@@ -479,7 +479,7 @@ async def test_tool_result_request_preserves_google_function_call_id_and_history
                 tool_results={
                     "call_weather": CallToolResult(
                         content=[TextContent(type="text", text="Sunny")],
-                        isError=False,
+                        is_error=False,
                     )
                 },
             ),
@@ -489,7 +489,7 @@ async def test_tool_result_request_preserves_google_function_call_id_and_history
             Tool(
                 name="weather",
                 description="Check weather",
-                inputSchema={"type": "object", "properties": {}},
+                input_schema={"type": "object", "properties": {}},
             )
         ],
     )

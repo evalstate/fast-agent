@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mcp.types import Tool
+from mcp_types import Tool
 
 from fast_agent.tools.tool_sources import (
     ACP_FILESYSTEM_TOOL_SOURCE,
@@ -12,7 +12,7 @@ from fast_agent.tools.tool_sources import (
 
 
 def test_set_tool_source_adds_metadata() -> None:
-    tool = set_tool_source(Tool(name="read_text_file", inputSchema={}), SHELL_TOOL_SOURCE)
+    tool = set_tool_source(Tool(name="read_text_file", input_schema={}), SHELL_TOOL_SOURCE)
 
     assert tool.meta == {FAST_AGENT_TOOL_SOURCE_META: SHELL_TOOL_SOURCE}
 
@@ -20,7 +20,7 @@ def test_set_tool_source_adds_metadata() -> None:
 def test_tool_source_reads_metadata() -> None:
     tool = Tool(
         name="read_text_file",
-        inputSchema={},
+        input_schema={},
         _meta={FAST_AGENT_TOOL_SOURCE_META: ACP_FILESYSTEM_TOOL_SOURCE},
     )
 
@@ -30,7 +30,7 @@ def test_tool_source_reads_metadata() -> None:
 def test_tool_source_ignores_unknown_metadata_value() -> None:
     tool = Tool(
         name="read_text_file",
-        inputSchema={},
+        input_schema={},
         _meta={FAST_AGENT_TOOL_SOURCE_META: "unknown"},
     )
 
