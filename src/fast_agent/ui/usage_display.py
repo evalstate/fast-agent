@@ -287,12 +287,12 @@ def _usage_table(
         pad_edge=False,
         header_style="dim",
     )
-    table.add_column("Agent", ratio=2, min_width=5, max_width=24, overflow="ellipsis", no_wrap=True)
+    table.add_column("Agent", min_width=5, max_width=24, overflow="ellipsis", no_wrap=True)
     table.add_column("Input", justify="right", overflow="ellipsis", no_wrap=True)
     table.add_column("Cache hit", justify="right", overflow="ellipsis", no_wrap=True)
     table.add_column("Output", justify="right", overflow="ellipsis", no_wrap=True)
     table.add_column("Tool calls", justify="right", overflow="ellipsis", no_wrap=True)
-    table.add_column("Context", justify="right", overflow="ellipsis", no_wrap=True)
+    table.add_column("Last context", justify="right", overflow="ellipsis", no_wrap=True)
     table.add_column("Model", ratio=2, min_width=4, max_width=25, overflow="ellipsis", no_wrap=True)
 
     row_style = "dim" if subdued_colors else None

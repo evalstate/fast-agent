@@ -100,3 +100,28 @@ def test_usage_uses_turn_summary_cache_language() -> None:
     assert "◀" in rendered
     assert all(len(line) <= 80 for line in rendered.splitlines())
     assert _format_cache_percentage(999, 1_000) == ">99%"
+
+
+def test_usage_table_keeps_agent_column_compact_and_labels_last_context() -> None:
+    total = UsageAccumulator()
+    total.set_context_window_size(10_000)
+    total.add_turn(
+        _turn(
+            input_tokens=1_000,
+            cache_read_tokens=750,
+            output_tokens=200,
+            tool_calls=3,
+            model="gpt-test",
+        )
+    )
+    agent = SimpleNamespace(usage_accumulator=total, llm=None)
+    data = _collect_usage_display_data({"ripgrep_spark": agent})
+
+    assert data is not None
+    console = Console(record=True, width=140, color_system=None)
+    console.print(_usage_table(data, subdued_colors=False))
+    lines = console.export_text().splitlines()
+
+    assert "Last context" in lines[0]
+    assert lines[0].index("Input") - lines[0].index("Agent") < 24
+    assert lines[1].index("▶") - lines[1].index("ripgrep_spark") < 24
