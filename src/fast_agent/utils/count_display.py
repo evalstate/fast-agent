@@ -20,8 +20,8 @@ def format_count_parts(
     return f"{count:,}", plural_label(count, singular, plural)
 
 
-def format_compact_count(count: int) -> str:
-    """Group counts below one million and abbreviate larger values to three significant digits."""
+def format_compact_count(count: int, *, significant_digits: int = 3) -> str:
+    """Group sub-million counts and abbreviate larger values."""
 
     magnitude = abs(count)
     if magnitude < 1_000_000:
@@ -36,11 +36,11 @@ def format_compact_count(count: int) -> str:
 
     divisor, suffix = units[unit_index]
     scaled = count / divisor
-    decimals = 2 if abs(scaled) < 10 else 1 if abs(scaled) < 100 else 0
+    decimals = max(0, significant_digits - len(str(int(abs(scaled)))))
     if round(abs(scaled), decimals) >= 1_000 and unit_index < len(units) - 1:
         divisor, suffix = units[unit_index + 1]
         scaled = count / divisor
-        decimals = 2
+        decimals = max(0, significant_digits - len(str(int(abs(scaled)))))
     return f"{scaled:.{decimals}f}{suffix}"
 
 

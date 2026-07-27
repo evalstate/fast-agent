@@ -130,3 +130,27 @@ def test_usage_table_keeps_agent_column_compact_and_labels_last_context() -> Non
     assert lines[0].index("Last context") + len("Last context") == lines[1].index("12.0%") + len(
         "12.0%"
     )
+
+
+def test_usage_table_compacts_large_token_counts_to_four_significant_digits() -> None:
+    total = UsageAccumulator()
+    total.add_turn(
+        _turn(
+            input_tokens=21_524_724,
+            cache_read_tokens=20_000_000,
+            output_tokens=51_651,
+            tool_calls=385,
+            model="gpt-test",
+        )
+    )
+    agent = SimpleNamespace(usage_accumulator=total, llm=None)
+    data = _collect_usage_display_data({"dev": agent})
+
+    assert data is not None
+    console = Console(record=True, width=120, color_system=None)
+    console.print(_usage_table(data, subdued_colors=False))
+    rendered = console.export_text()
+
+    assert "21.52M" in rendered
+    assert "21,524,724" not in rendered
+    assert "51,651" in rendered

@@ -14,6 +14,7 @@ from rich.text import Text
 
 from fast_agent.llm.model_display_name import resolve_llm_display_name
 from fast_agent.ui.context_usage_display import normalize_context_usage_percent
+from fast_agent.utils.count_display import format_compact_count
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -251,9 +252,9 @@ def _print_usage_header(console: Console) -> None:
 def _usage_cells(row: _UsageDisplayRow) -> tuple[Text, ...]:
     return (
         Text(row.name),
-        Text(f"{row.input_tokens:,}", style="blue"),
+        Text(format_compact_count(row.input_tokens, significant_digits=4), style="blue"),
         Text(_format_cache_percentage(row.cache_read_tokens, row.input_tokens), style="blue"),
-        Text(f"{row.output_tokens:,}", style="green"),
+        Text(format_compact_count(row.output_tokens, significant_digits=4), style="green"),
         Text(str(row.tool_calls), style="blue"),
         Text(_format_context_percentage(row.context_percentage), style="blue"),
         Text(row.model, style="dim"),
@@ -263,12 +264,18 @@ def _usage_cells(row: _UsageDisplayRow) -> tuple[Text, ...]:
 def _total_cells(usage_data: _UsageDisplayData) -> tuple[Text, ...]:
     return (
         Text("TOTAL", style="bold"),
-        Text(f"{usage_data.total_input:,}", style="bold blue"),
+        Text(
+            format_compact_count(usage_data.total_input, significant_digits=4),
+            style="bold blue",
+        ),
         Text(
             _format_cache_percentage(usage_data.total_cache_read, usage_data.total_input),
             style="bold blue",
         ),
-        Text(f"{usage_data.total_output:,}", style="bold green"),
+        Text(
+            format_compact_count(usage_data.total_output, significant_digits=4),
+            style="bold green",
+        ),
         Text(str(usage_data.total_tool_calls), style="bold blue"),
         Text(),
         Text(),
