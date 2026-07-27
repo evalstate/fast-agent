@@ -143,6 +143,7 @@ def test_load_agent_card_normalizes_padded_instruction(tmp_path: Path) -> None:
                     "name: markdown_agent",
                     "subagents: true",
                     "subagent_model: '  passthrough  '",
+                    "harness_tools: true",
                     "---",
                     "Be helpful.",
                 ]
@@ -155,6 +156,7 @@ def test_load_agent_card_normalizes_padded_instruction(tmp_path: Path) -> None:
                     "name: yaml_agent",
                     "subagents: false",
                     "subagent_model: passthrough",
+                    "harness_tools: true",
                 ]
             ),
         ),
@@ -172,6 +174,18 @@ def test_load_agent_card_parses_subagent_controls(
 
     assert config.subagents is (suffix == ".md")
     assert config.subagent_model == "passthrough"
+    assert config.harness_tools is True
+
+
+def test_load_agent_card_rejects_harness_tools_on_tool_only_agent(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "name: tool\ntool_only: true\nharness_tools: true\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError, match="cannot be enabled on a tool-only agent"):
+        load_agent_cards(card_path)
 
 
 @pytest.mark.parametrize(
@@ -182,6 +196,7 @@ def test_load_agent_card_parses_subagent_controls(
         ("subagents", "null", "subagents.*boolean"),
         ("subagent_model", "''", "subagent_model.*non-empty string"),
         ("subagent_model", "'   '", "subagent_model.*non-empty string"),
+        ("harness_tools", "not-a-bool", "harness_tools.*boolean"),
         ("subagent_model", "null", "subagent_model.*non-empty string"),
     ],
 )

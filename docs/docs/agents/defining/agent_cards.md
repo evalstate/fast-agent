@@ -135,6 +135,25 @@ fast-agent removes the directive before sending the instruction to the model.
 It only enables subagents when the AgentCard leaves `subagents` unset.
 `--no-subagents` and `subagents: false` always win.
 
+## Enable harness tools
+
+Basic agents can opt into model-visible tools for inspecting fast-agent itself:
+
+```yaml
+harness_tools: true
+```
+
+This installs:
+
+- `slash_command(command)` for an allow-listed, read-only slash-command surface;
+- `get_resource(uri, server_name?)` for bundled `internal://` resources and
+  resources from attached MCP servers.
+
+Use `slash_command("/commands")` to list the commands available to the model.
+Harness tools are disabled by default, can be enabled or disabled on a live
+agent, and are not inherited by detached or built-in subagent clones. The
+setting is accepted only by basic `agent` cards.
+
 ## Add Python function tools
 
 Cards can expose local Python functions as tools with `function_tools`. This is

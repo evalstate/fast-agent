@@ -501,6 +501,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             new_config.name = name
         if not copy_hooks:
             new_config.lifecycle_hooks = None
+            new_config.harness_tools = False
 
         constructor_kwargs = self._clone_constructor_kwargs()
         clone = type(self)(config=new_config, context=self.context, **constructor_kwargs)

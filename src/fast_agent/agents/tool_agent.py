@@ -119,7 +119,16 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         """Carry local tool definitions into detached clones."""
         if not self._execution_tools:
             return {}
-        return {"tools": list(self._execution_tools.values())}
+        tools = [
+            tool
+            for tool in self._execution_tools.values()
+            if not (
+                isinstance(tool.meta, dict)
+                and isinstance((fast_agent_meta := tool.meta.get("fast_agent")), dict)
+                and fast_agent_meta.get("inherit_to_clone") is False
+            )
+        ]
+        return {"tools": tools}
 
     def add_tool(self, tool: FunctionTool, *, replace: bool = True) -> None:
         """Register a new execution tool and expose it to the LLM."""

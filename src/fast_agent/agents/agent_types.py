@@ -122,6 +122,7 @@ class AgentConfig:
     tool_only: bool = False
     subagents: bool | None = None
     subagent_model: str | None = None
+    harness_tools: bool = False
     subagent_activation_source: SubagentActivationSource | None = field(
         default=None,
         init=False,

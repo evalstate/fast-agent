@@ -530,6 +530,7 @@ def test_scan_agent_cards_rejects_subagent_fields_for_unsupported_types(
                 f"type: {card_type}",
                 "subagents: true",
                 "subagent_model: passthrough",
+                "harness_tools: true",
             ]
         ),
         encoding="utf-8",
@@ -540,6 +541,7 @@ def test_scan_agent_cards_rejects_subagent_fields_for_unsupported_types(
 
     assert "subagents" in unsupported
     assert "subagent_model" in unsupported
+    assert "harness_tools" in unsupported
 
 
 def test_scan_agent_cards_accepts_subagent_fields_for_basic_agents(tmp_path: Path) -> None:
@@ -551,6 +553,7 @@ def test_scan_agent_cards_accepts_subagent_fields_for_basic_agents(tmp_path: Pat
                 "type: agent",
                 "subagents: true",
                 "subagent_model: passthrough",
+                "harness_tools: true",
             ]
         ),
         encoding="utf-8",

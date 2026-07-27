@@ -15,6 +15,17 @@ AgentCards and ToolCards remain the way to define configured specialists.
 Use a ToolCard when a parent should have a stable specialist with its own
 instructions, tools, or model.
 
+The former Smart agent's harness-facing tools are now an independent opt-in on
+basic agents:
+
+```yaml
+harness_tools: true
+```
+
+This adds the allow-listed `slash_command` and `get_resource` tools without
+changing the agent type. Combine it with `subagents: true` when both harness
+inspection and temporary delegation are wanted.
+
 ## Replace dynamic delegation
 
 The built-in `subagent` tool is now opt-in:
@@ -66,7 +77,9 @@ For every former Smart card:
 2. Keep `shell: true`, function tools, MCP servers, skills, and other normal
    AgentCard fields as needed.
 3. Add `subagents: true` only when the former agent needs temporary delegation.
-4. Move durable specialist definitions into AgentCards or ToolCards rather than
+4. Add `harness_tools: true` when the former agent used `slash_command` or
+   `get_resource`.
+5. Move durable specialist definitions into AgentCards or ToolCards rather than
    creating them dynamically.
 
 This is a breaking 0.10 migration; do not retain `--smart`, `type: smart`, or

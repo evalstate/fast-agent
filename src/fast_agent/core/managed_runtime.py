@@ -17,6 +17,7 @@ from fast_agent.core.direct_factory import (
     create_agents_in_dependency_order,
 )
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.harness_tools import set_harness_tools
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.core.instruction_utils import apply_instruction_context
 from fast_agent.core.logging.logger import get_logger
@@ -258,6 +259,7 @@ class ManagedRuntimeMixin:
         for agent in instance.agents.values():
             apply_subagent_runtime_policy(agent.config, runtime.subagent_policy)
             install_subagent_tool(agent)
+            set_harness_tools(agent)
 
         restore_result = None
         if runtime.resume_requested:
@@ -387,6 +389,7 @@ class ManagedRuntimeMixin:
         for agent in updated_agents.values():
             apply_subagent_runtime_policy(agent.config, runtime.subagent_policy)
             install_subagent_tool(agent)
+            set_harness_tools(agent)
 
         if not runtime.is_acp_server_mode:
             validate_final_provider_state(updated_agents)

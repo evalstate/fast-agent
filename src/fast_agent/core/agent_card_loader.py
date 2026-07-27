@@ -465,6 +465,9 @@ def _build_agent_data(
     )
     if "subagent_model" in raw and subagent_model is None:
         raise AgentConfigError(f"'subagent_model' must be a non-empty string in {path}")
+    harness_tools = _ensure_bool(raw.get("harness_tools"), "harness_tools", path, default=False)
+    if harness_tools and tool_only:
+        raise AgentConfigError(f"'harness_tools' cannot be enabled on a tool-only agent in {path}")
 
     api_key = raw.get("api_key")
     tool_input_schema = _ensure_tool_input_schema(raw.get("tool_input_schema"), path)
@@ -495,6 +498,7 @@ def _build_agent_data(
         tool_only=tool_only,
         subagents=subagents,
         subagent_model=subagent_model,
+        harness_tools=harness_tools,
         api_key=api_key,
         function_tools=function_tools,
         shell=shell,
@@ -1188,6 +1192,13 @@ def _serialize_optional_common_fields(
         "subagent_model",
         config.subagent_model,
         when=config.subagent_model is not None,
+    )
+    _set_allowed(
+        card,
+        allowed_fields,
+        "harness_tools",
+        True,
+        when=config.harness_tools,
     )
     _set_allowed(
         card,

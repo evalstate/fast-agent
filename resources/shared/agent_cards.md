@@ -53,6 +53,8 @@
   disable it.
 - `subagent_model` — optional non-empty model spec that every built-in
   subagent run must use.
+- `harness_tools` — bool (default `false`). Adds the allow-listed
+  `slash_command` and `get_resource` tools to a basic agent.
 
 ---
 
@@ -79,6 +81,19 @@ An exact standalone `fast-agent-subagents` line or
 enables the tool only when `subagents` is unset. The directive is stripped
 before the model sees the instruction. Explicit `--no-subagents` and
 `subagents: false` settings always win.
+
+## Harness tools
+
+```yaml
+harness_tools: true
+```
+
+This installs `slash_command(command)` for selected read-only fast-agent
+commands and `get_resource(uri, server_name?)` for bundled `internal://`
+resources or attached MCP resources. Call `slash_command("/commands")` to
+discover the available model-facing command surface. Harness tools can be
+toggled at runtime and are not inherited by detached or built-in subagent
+clones.
 
 ---
 
