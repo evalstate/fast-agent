@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 from fast_agent import FastAgent
@@ -115,5 +116,6 @@ def test_cli_rejects_no_subagents_with_subagent_model() -> None:
     )
 
     assert result.exit_code == 2
-    assert "Cannot combine --subagent-model with" in result.output
-    assert "--no-subagents." in result.output
+    output = strip_ansi(result.output)
+    assert "Cannot combine --subagent-model with" in output
+    assert "--no-subagents." in output
