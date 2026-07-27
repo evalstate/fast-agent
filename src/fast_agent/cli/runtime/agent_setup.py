@@ -594,26 +594,26 @@ async def _export_requested_outputs(
     attempted. The first failure remains primary after both attempts finish.
     """
 
-    failures: list[BaseException] = []
+    async def export_result_history() -> None:
+        await _export_result_histories(
+            agent_app,
+            request,
+            transient_messages_by_agent=transient_messages_by_agent,
+        )
+
+    async def export_atif() -> None:
+        await _export_live_atif_trajectory(
+            agent_app,
+            request,
+            transient_messages_by_agent=transient_messages_by_agent,
+            session_manager=session_manager,
+            harness_session=harness_session,
+        )
+
+    failures: list[Exception] = []
     exporters = (
-        (
-            "result_history",
-            _export_result_histories(
-                agent_app,
-                request,
-                transient_messages_by_agent=transient_messages_by_agent,
-            ),
-        ),
-        (
-            "atif",
-            _export_live_atif_trajectory(
-                agent_app,
-                request,
-                transient_messages_by_agent=transient_messages_by_agent,
-                session_manager=session_manager,
-                harness_session=harness_session,
-            ),
-        ),
+        ("result_history", export_result_history),
+        ("atif", export_atif),
     )
     for artifact, exporter in exporters:
         logger.debug(
@@ -621,8 +621,8 @@ async def _export_requested_outputs(
             data={"artifact": artifact},
         )
         try:
-            await exporter
-        except BaseException as exc:
+            await exporter()
+        except Exception as exc:
             failures.append(exc)
             logger.warning(
                 "CLI artifact export failed",
@@ -701,7 +701,7 @@ async def _run_cli_flow(
                     harness_session=harness_session,
                     error=exc,
                 )
-            except BaseException as export_exc:
+            except Exception as export_exc:
                 logger.warning(
                     "Failed-run ATIF export failed",
                     data={"error_type": type(export_exc).__name__},
@@ -745,7 +745,7 @@ async def _run_cli_flow(
                     harness_session=harness_session,
                     error=exc,
                 )
-            except BaseException as export_exc:
+            except Exception as export_exc:
                 logger.warning(
                     "Failed-run ATIF export failed",
                     data={"error_type": type(export_exc).__name__},

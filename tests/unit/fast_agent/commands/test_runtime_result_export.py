@@ -23,6 +23,7 @@ from fast_agent.cli.runtime.agent_setup import (
     _cli_attachment_token,
     _enable_atif_child_capture,
     _export_parallel_atif_trajectory,
+    _export_requested_outputs,
     _export_result_histories,
     _find_last_assistant_text,
     _resume_session_if_requested,
@@ -1035,6 +1036,40 @@ async def test_run_cli_flow_writes_result_when_atif_export_fails(
     exported = load_messages(str(result_output))
     assert [message.role for message in exported] == ["user", "assistant"]
     assert exported[1].last_text() == "done"
+
+
+@pytest.mark.asyncio
+async def test_requested_output_cancellation_stops_remaining_exports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    atif_attempted = False
+
+    async def cancel_result_export(*args: object, **kwargs: object) -> None:
+        raise asyncio.CancelledError
+
+    async def record_atif_export(*args: object, **kwargs: object) -> None:
+        nonlocal atif_attempted
+        atif_attempted = True
+
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup._export_result_histories",
+        cancel_result_export,
+    )
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup._export_live_atif_trajectory",
+        record_atif_export,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await _export_requested_outputs(
+            SimpleNamespace(),
+            _make_request(result_file=None),
+            transient_messages_by_agent=None,
+            session_manager=None,
+            harness_session=None,
+        )
+
+    assert not atif_attempted
 
 
 @pytest.mark.asyncio
