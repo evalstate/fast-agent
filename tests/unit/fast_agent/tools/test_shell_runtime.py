@@ -2698,14 +2698,14 @@ async def test_windows_termination_escalates_after_ctrl_break_grace(
         "_PROCESS_TERMINATION_GRACE_SECONDS",
         0.01,
     )
-    if not hasattr(signal, "CTRL_BREAK_EVENT"):
-        monkeypatch.setattr(signal, "CTRL_BREAK_EVENT", object(), raising=False)
+    ctrl_break_event = object()
+    monkeypatch.setattr(signal, "CTRL_BREAK_EVENT", ctrl_break_event, raising=False)
     executor = LocalShellExecutor(logger=logging.getLogger("shell-runtime-test"))
     process = StagedTerminationProcess()
 
     await executor._terminate_windows_process(cast("asyncio.subprocess.Process", process))
 
-    assert getattr(signal, "CTRL_BREAK_EVENT") in process.sent_signals
+    assert ctrl_break_event in process.sent_signals
     assert process.terminated is True
     assert process.killed is False
 

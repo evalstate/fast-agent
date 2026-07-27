@@ -8,13 +8,18 @@ from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.shell_output_truncation import SHELL_OUTPUT_TRUNCATION_MARKER
 
 
+class _ShellToolResult(CallToolResult):
+    output_line_count: int | None = None
+    transport_channel: str | None = None
+
+
 def test_shell_tool_result_uses_styled_exit_line() -> None:
     display = ConsoleDisplay()
-    result = CallToolResult(
+    result = _ShellToolResult(
         content=[TextContent(type="text", text="hello\nprocess exit code was 0")],
         isError=False,
     )
-    setattr(result, "output_line_count", 1)
+    result.output_line_count = 1
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -34,7 +39,7 @@ def test_shell_tool_result_uses_styled_exit_line() -> None:
 
 def test_shell_tool_result_no_output_adds_no_output_detail() -> None:
     display = ConsoleDisplay()
-    result = CallToolResult(
+    result = _ShellToolResult(
         content=[TextContent(type="text", text="process exit code was 0")],
         isError=False,
     )
@@ -57,7 +62,7 @@ def test_shell_tool_result_no_output_adds_no_output_detail() -> None:
 
 def test_poll_process_result_hides_process_metadata_and_keeps_exit_banner() -> None:
     display = ConsoleDisplay()
-    result = CallToolResult(
+    result = _ShellToolResult(
         content=[
             TextContent(
                 type="text",
@@ -66,7 +71,7 @@ def test_poll_process_result_hides_process_metadata_and_keeps_exit_banner() -> N
         ],
         isError=False,
     )
-    setattr(result, "output_line_count", 1)
+    result.output_line_count = 1
 
     with console.console.capture() as capture:
         display.show_tool_result(result, name="dev", tool_name="poll_process")
@@ -80,7 +85,7 @@ def test_poll_process_result_hides_process_metadata_and_keeps_exit_banner() -> N
 
 def test_running_process_result_uses_compact_lifecycle_line() -> None:
     display = ConsoleDisplay()
-    result = CallToolResult(
+    result = _ShellToolResult(
         content=[
             TextContent(
                 type="text",
@@ -207,8 +212,8 @@ def test_shell_tool_result_truncates_with_head_and_tail_windows() -> None:
     display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=6)))
     output_lines = [f"out-{i:02d}" for i in range(1, 11)]
     result_text = "\n".join([*output_lines, "process exit code was 0"])
-    result = CallToolResult(content=[TextContent(type="text", text=result_text)], isError=False)
-    setattr(result, "output_line_count", len(output_lines))
+    result = _ShellToolResult(content=[TextContent(type="text", text=result_text)], isError=False)
+    result.output_line_count = len(output_lines)
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -260,18 +265,14 @@ def test_shell_tool_result_parallel_deferred_uses_source_line_count() -> None:
 
 def test_tool_result_prefers_structured_content_over_many_text_blocks() -> None:
     display = ConsoleDisplay()
-    result = CallToolResult(
+    result = _ShellToolResult(
         content=[
             TextContent(type="text", text='{"id":"a"}'),
             TextContent(type="text", text='{"id":"b"}'),
         ],
         isError=False,
     )
-    setattr(
-        result,
-        "structuredContent",
-        {"result": [{"id": "a"}, {"id": "b"}]},
-    )
+    result.structuredContent = {"result": [{"id": "a"}, {"id": "b"}]}
 
     with console.console.capture() as capture:
         display.show_tool_result(result, name="dev", tool_name="voice__crm_tickets")
@@ -294,16 +295,9 @@ def test_tool_result_prefers_structured_content_when_text_blocks_disagree() -> N
         ],
         isError=False,
     )
-    setattr(
-        result,
-        "structuredContent",
-        {
-            "result": [
-                {"id": "a", "status": "open"},
-                {"id": "b", "status": "escalated"},
-            ]
-        },
-    )
+    result.structuredContent = {
+        "result": [{"id": "a", "status": "open"}, {"id": "b", "status": "escalated"}]
+    }
 
     with console.console.capture() as capture:
         display.show_tool_result(result, name="dev", tool_name="voice__crm_tickets")
@@ -318,12 +312,12 @@ def test_tool_result_prefers_structured_content_when_text_blocks_disagree() -> N
 
 def test_structured_tool_result_shows_transport_timing_and_structured_footer() -> None:
     display = ConsoleDisplay()
-    result = CallToolResult(
+    result = _ShellToolResult(
         content=[TextContent(type="text", text='{"ok": true}')],
         structuredContent={"ok": True},
         isError=False,
     )
-    setattr(result, "transport_channel", "post-json")
+    result.transport_channel = "post-json"
 
     with console.console.capture() as capture:
         display.show_tool_result(

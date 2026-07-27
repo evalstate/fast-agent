@@ -519,14 +519,12 @@ This appears to be a 1x1 pixel test image.
 
             if is_binary:
                 # For binary files, read as binary and base64 encode
-                with open(resource_path, "rb") as f:
-                    binary_data = f.read()
-                    # We need to explicitly base64 encode binary data
-                    return base64.b64encode(binary_data).decode("utf-8")
+                binary_data = Path(resource_path).read_bytes()
+                # We need to explicitly base64 encode binary data
+                return base64.b64encode(binary_data).decode("utf-8")
             else:
                 # For text files, read as text with UTF-8 encoding
-                with open(resource_path, "r", encoding="utf-8") as f:
-                    return f.read()
+                return Path(resource_path).read_text(encoding="utf-8")
 
         # Run our simulated resource handler
         path = str(temp_image_file)

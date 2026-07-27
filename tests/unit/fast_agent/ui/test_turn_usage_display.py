@@ -6,6 +6,7 @@ from fast_agent.ui.turn_usage_display import (
     TurnUsageDisplay,
     format_parallel_turn_usage,
     format_regular_turn_usage,
+    format_regular_turn_usage_with_subagents,
 )
 
 
@@ -51,6 +52,29 @@ def test_regular_turn_usage_uses_compact_detail_hierarchy() -> None:
         "[green]◀ 12,345[/green] output"
         " [dim]· 3 tool calls · context 14.2% · cache TTL 14:32[/dim]"
     )
+
+
+def test_regular_turn_usage_includes_delegated_breakdown() -> None:
+    lines = format_regular_turn_usage_with_subagents(
+        _usage(
+            input_tokens=400,
+            output_tokens=30,
+            tool_calls=3,
+            cache_percentage=80,
+            context_percentage=5.3,
+        ),
+        _usage(
+            input_tokens=300,
+            output_tokens=20,
+            tool_calls=2,
+            cache_percentage=90,
+        ),
+    )
+
+    assert len(lines) == 2
+    assert lines[0].startswith("[dim]Last:[/dim]")
+    assert lines[1].startswith("[dim]  └─ subagents:[/dim]")
+    assert "context" not in lines[1]
 
 
 def test_parallel_turn_usage_weights_cache_percentage_by_input_tokens() -> None:

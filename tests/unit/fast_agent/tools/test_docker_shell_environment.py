@@ -63,7 +63,7 @@ def test_docker_shell_environment_builds_bash_exec_argv() -> None:
         "pwd",
     ]
     assert (
-        environment._exec_process_env(  # noqa: SLF001
+        environment._exec_process_env(
             ShellExecutionRequest(command="pwd", cwd="/work", env={"TOKEN": "value"})
         )["TOKEN"]
         == "value"

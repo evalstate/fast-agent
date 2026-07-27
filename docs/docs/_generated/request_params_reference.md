@@ -21,7 +21,7 @@
 | `toolChoice` | `mcp.types.ToolChoice | None` | `None` |  |
 | `model` | `str | None` | `None` |  |
 | `use_history` | `bool` | `True` |  |
-| `max_iterations` | `int` | `199` |  |
+| `max_iterations` | `int` | `9999` |  |
 | `parallel_tool_calls` | `bool` | `True` |  |
 | `response_format` | `Any | None` | `None` |  |
 | `structured_schema` | `dict[str, Any] | None` | `None` |  |

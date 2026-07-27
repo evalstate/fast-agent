@@ -48,4 +48,4 @@ async def ask(body: str = Body(..., media_type="text/plain")) -> PromptMessageEx
         result = await app.state.agent.generate(body)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

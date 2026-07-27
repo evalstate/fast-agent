@@ -16,9 +16,10 @@ from fast_agent.core.exceptions import (
 )
 from fast_agent.core.harness_app import AppOpenRequest
 from fast_agent.tools.environment_registry import UnknownEnvironmentError
+from fast_agent.ui.usage_display import collect_agents_from_provider, finalize_usage_report
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
     from contextlib import AbstractAsyncContextManager
 
     from fast_agent.cli.runtime.run_request import AgentRunRequest
@@ -67,6 +68,29 @@ class ParallelCliFlow(Protocol):
         session_manager: SessionManager | None = None,
         harness_session: HarnessSession | None = None,
     ) -> None: ...
+
+
+def _display_cli_usage_report(agent_app: object, *, quiet: bool) -> None:
+    """Display usage before a harness-backed CLI session disposes its agents."""
+    finalize_usage_report(
+        collect_agents_from_provider(agent_app),
+        show=not quiet,
+    )
+
+
+async def _run_flow_with_usage_report(
+    operation: Awaitable[None],
+    *,
+    agent_app: object,
+    quiet: bool,
+) -> None:
+    """Render usage for normal and user-requested exits, but not failures."""
+    try:
+        await operation
+    except PromptExitError:
+        _display_cli_usage_report(agent_app, quiet=quiet)
+        raise
+    _display_cli_usage_report(agent_app, quiet=quiet)
 
 
 def should_use_harness_startup(request: AgentRunRequest) -> bool:
@@ -165,11 +189,15 @@ async def run_harness_cli_flow(
                 from fast_agent.cli.runtime.session_resume import resume_session_if_requested
 
                 await resume_session_if_requested(session.agent_app, request)
-                await flow(
-                    session.agent_app,
-                    request,
-                    session_manager=session.env.session_manager,
-                    harness_session=session.env.harness_session,
+                await _run_flow_with_usage_report(
+                    flow(
+                        session.agent_app,
+                        request,
+                        session_manager=session.env.session_manager,
+                        harness_session=session.env.harness_session,
+                    ),
+                    agent_app=session.agent_app,
+                    quiet=request.quiet,
                 )
     except PromptExitError as exc:
         fast._handle_error(exc)
@@ -225,12 +253,16 @@ async def run_harness_parallel_cli_flow(
                 from fast_agent.cli.runtime.session_resume import resume_session_if_requested
 
                 await resume_session_if_requested(session.agent_app, request)
-                await flow(
-                    session.agent_app,
-                    request,
-                    fan_out_agent_names,
-                    session_manager=session.env.session_manager,
-                    harness_session=session.env.harness_session,
+                await _run_flow_with_usage_report(
+                    flow(
+                        session.agent_app,
+                        request,
+                        fan_out_agent_names,
+                        session_manager=session.env.session_manager,
+                        harness_session=session.env.harness_session,
+                    ),
+                    agent_app=session.agent_app,
+                    quiet=request.quiet,
                 )
     except PromptExitError as exc:
         fast._handle_error(exc)

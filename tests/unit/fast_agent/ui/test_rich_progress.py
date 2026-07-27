@@ -39,7 +39,7 @@ def _make_event(
 
 def _make_display() -> RichProgressDisplay:
     """Create a display backed by a non-interactive string console."""
-    console = Console(file=open("/dev/null", "w"), force_terminal=True)
+    console = Console(file=io.StringIO(), force_terminal=True)
     return RichProgressDisplay(console=console)
 
 
@@ -434,7 +434,7 @@ class TestAggregatorInitializedVisibility:
 
     def test_process_poll_countdown_track_replaces_pulse_spinner(self) -> None:
         display = RichProgressDisplay(
-            console=Console(file=open("/dev/null", "w"), force_terminal=True),
+            console=Console(file=io.StringIO(), force_terminal=True),
             default_agent_name="test-agent",
         )
         display.start()
@@ -486,7 +486,7 @@ class TestAggregatorInitializedVisibility:
 
     def test_process_poll_completion_snaps_countdown_empty_before_drop(self) -> None:
         display = RichProgressDisplay(
-            console=Console(file=open("/dev/null", "w"), force_terminal=True),
+            console=Console(file=io.StringIO(), force_terminal=True),
             default_agent_name="test-agent",
         )
         display.start()
@@ -533,7 +533,7 @@ class TestAggregatorInitializedVisibility:
 
     def test_process_poll_early_completion_drops_without_fake_empty_frame(self) -> None:
         display = RichProgressDisplay(
-            console=Console(file=open("/dev/null", "w"), force_terminal=True),
+            console=Console(file=io.StringIO(), force_terminal=True),
             default_agent_name="test-agent",
         )
         display.start()
@@ -562,7 +562,7 @@ class TestAggregatorInitializedVisibility:
 
     def test_process_poll_refresh_keeps_countdown_start_time(self) -> None:
         display = RichProgressDisplay(
-            console=Console(file=open("/dev/null", "w"), force_terminal=True),
+            console=Console(file=io.StringIO(), force_terminal=True),
             default_agent_name="test-agent",
         )
         display.start()
@@ -596,7 +596,7 @@ class TestAggregatorInitializedVisibility:
 
     def test_process_elapsed_time_ticks_during_rendering(self) -> None:
         display = RichProgressDisplay(
-            console=Console(file=open("/dev/null", "w"), force_terminal=True, width=120),
+            console=Console(file=io.StringIO(), force_terminal=True, width=120),
             default_agent_name="test-agent",
         )
         display.start()
@@ -632,7 +632,7 @@ class TestAggregatorInitializedVisibility:
 
     def test_process_output_progress_refreshes_live_poll_baselines(self) -> None:
         display = RichProgressDisplay(
-            console=Console(file=open("/dev/null", "w"), force_terminal=True),
+            console=Console(file=io.StringIO(), force_terminal=True),
             default_agent_name="test-agent",
         )
         display.start()
@@ -671,7 +671,7 @@ class TestAggregatorInitializedVisibility:
 
     def test_process_output_activity_fades_then_goes_quiet(self) -> None:
         display = RichProgressDisplay(
-            console=Console(file=open("/dev/null", "w"), force_terminal=True),
+            console=Console(file=io.StringIO(), force_terminal=True),
             default_agent_name="test-agent",
         )
         display.start()
@@ -1073,6 +1073,44 @@ class TestAgentLifecycleRows:
 
 class TestSubagentMonitoringRows:
     """Built-in subagent monitoring stays visible while a parent awaits children."""
+
+    def test_registered_child_folds_delayed_generic_progress(self) -> None:
+        display = _make_display()
+        display.start()
+        child_name = "parent[reviewer]"
+        display.fold_agent_progress(child_name)
+
+        display.update(
+            _make_event(
+                action=ProgressAction.SENDING,
+                agent_name=child_name,
+                target="reviewer",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                agent_name=child_name,
+                target="reviewer",
+                tool_name="read_text_file",
+                correlation_id="inner-call",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.RUNNING,
+                agent_name=child_name,
+                target="reviewer",
+                details="turn 2 · tool · in 100 out 20 cache 80 · tools 1 (read_text_file)",
+                instance_name="parent::subagent::outer-call",
+                tool_name="subagent",
+                tool_event="subagent_monitor",
+            )
+        )
+
+        assert set(display._taskmap) == {"parent::subagent::outer-call"}
+        assert "read_text_file" in _task_fields(display, "parent::subagent::outer-call")["details"]
+        display.stop()
 
     def test_monitor_only_scope_folds_generic_child_progress(self) -> None:
         display = _make_display()

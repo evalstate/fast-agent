@@ -2205,7 +2205,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 failed_indices.append(provider_idx)
 
         block_distances: list[int] = []
-        for previous_idx, current_idx in zip(applied_indices, applied_indices[1:]):
+        for previous_idx, current_idx in zip(applied_indices, applied_indices[1:], strict=False):
             block_distances.append(
                 sum(
                     len(content)
@@ -2626,7 +2626,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 [TextContent(type="text", text=json.dumps({"id": response.container.id}))],
             )
         if cache_diagnostics_enabled or response.diagnostics is not None:
-            diagnostics = (
+            diagnostics: dict[str, Any] = (
                 response.diagnostics.model_dump(mode="json", exclude_none=False)
                 if response.diagnostics is not None
                 else {"cache_miss_reason": None}

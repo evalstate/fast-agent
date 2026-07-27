@@ -99,6 +99,7 @@ def ensure_jre() -> Path:
                 [system_java, "-version"],
                 capture_output=True,
                 text=True,
+                check=False,
             )
             version_output = result.stderr + result.stdout
             if "17" in version_output or "21" in version_output:
@@ -188,7 +189,7 @@ def run_cpd(
     for excluded_path in excluded_paths:
         cmd.extend(["--exclude", str(excluded_path)])
 
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
     output = result.stdout + result.stderr
     return result.returncode, output
 

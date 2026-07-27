@@ -84,6 +84,7 @@ async def simple_rating() -> str:
 
     match result:
         case AcceptedElicitation(data=data):
+            assert isinstance(data, ServerRating)
             response = f"You {'liked' if data.rating else 'did not like'} the server"
         case DeclinedElicitation():
             response = "Rating declined"
@@ -122,6 +123,7 @@ async def user_profile() -> str:
 
     match result:
         case AcceptedElicitation(data=data):
+            assert isinstance(data, UserProfile)
             lines = [
                 f"Name: {data.name}",
                 f"Age: {data.age}",
@@ -163,6 +165,7 @@ async def preferences() -> str:
 
     match result:
         case AcceptedElicitation(data=data):
+            assert isinstance(data, Preferences)
             response = f"Preferences set: Theme={data.theme}, Language={data.language}, Notifications={data.notifications}"
         case DeclinedElicitation():
             response = "Preferences declined"
@@ -186,6 +189,7 @@ async def feedback() -> str:
 
     match result:
         case AcceptedElicitation(data=data):
+            assert isinstance(data, Feedback)
             lines = [
                 f"Overall: {data.overall_rating}/5",
                 f"Ease of use: {data.ease_of_use}/10.0",

@@ -20,11 +20,13 @@ from fast_agent.core.fastagent import FastAgent
 
 fast = FastAgent("My Interactive Agent")
 
+
 @fast.agent(instruction="You are a helpful assistant")
 async def main():
     async with fast.run() as agent:
         # Start interactive prompt
         await agent()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -80,6 +82,7 @@ from fast_agent.core.fastagent import FastAgent
 
 fast = FastAgent("Server Agent")
 
+
 @fast.agent(instruction="You are an API agent")
 async def main():
     # Start as a server programmatically
@@ -90,6 +93,7 @@ async def main():
         server_description="Provides API access to my agent",
         tool_description="Send a message to the {agent} agent",
     )
+
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -108,17 +112,20 @@ from fast_agent.core.fastagent import FastAgent
 
 fast = FastAgent("Embedded Agent")
 
+
 @fast.agent(instruction="You are a data analysis assistant")
 async def analyze_data(data):
     async with fast.run() as agent:
         result = await agent.send(f"Analyze this data: {data}")
         return result
 
+
 # Use in your application
 async def main():
     user_data = get_user_data()
     analysis = await analyze_data(user_data)
     display_results(analysis)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

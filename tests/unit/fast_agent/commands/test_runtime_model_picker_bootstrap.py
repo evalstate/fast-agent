@@ -1012,8 +1012,7 @@ def test_persist_model_picker_last_used_selection_updates_loaded_env_overlay_in_
     assert persisted is True
     assert not (home / ".fast-agent" / "fast-agent.yaml").exists()
 
-    with open(config_path, "r", encoding="utf-8") as handle:
-        saved = yaml.safe_load(handle)
+    saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
 
@@ -1074,8 +1073,7 @@ def test_persist_model_picker_last_used_selection_writes_explicit_config_file(
     assert persisted is True
     assert not (workspace / ".fast-agent" / "fast-agent.yaml").exists()
 
-    with open(config_path, "r", encoding="utf-8") as handle:
-        saved = yaml.safe_load(handle)
+    saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
     initial_selection = _resolve_model_picker_initial_selection(settings=reloaded)
@@ -1136,8 +1134,7 @@ async def test_run_agent_request_persists_and_reloads_last_used_for_shell_mode(
     config_path = workspace / ".fast-agent" / "fast-agent.yaml"
     assert config_path.exists()
 
-    with open(config_path, "r", encoding="utf-8") as handle:
-        saved = yaml.safe_load(handle)
+    saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
     initial_selection = _resolve_model_picker_initial_selection(settings=settings)

@@ -27,9 +27,9 @@ if not hasattr(enum, "StrEnum"):
 if "a2a" not in sys.modules:
     a2a_module = types.ModuleType("a2a")
     a2a_types_module = types.ModuleType("a2a.types")
-    setattr(a2a_types_module, "AgentCard", object)
-    setattr(a2a_types_module, "AgentSkill", object)
-    setattr(a2a_module, "types", a2a_types_module)
+    setattr(a2a_types_module, "AgentCard", object)  # noqa: B010
+    setattr(a2a_types_module, "AgentSkill", object)  # noqa: B010
+    setattr(a2a_module, "types", a2a_types_module)  # noqa: B010
     sys.modules["a2a"] = a2a_module
     sys.modules["a2a.types"] = a2a_types_module
 

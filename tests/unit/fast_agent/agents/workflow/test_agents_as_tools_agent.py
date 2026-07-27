@@ -100,6 +100,20 @@ def test_agents_as_tools_rejects_duplicate_child_tool_names() -> None:
         AgentsAsToolsAgent(AgentConfig("parent"), [first, second])
 
 
+@pytest.mark.asyncio
+async def test_isolated_clone_does_not_shutdown_shared_child_templates() -> None:
+    child = FakeChildAgent("child")
+    parent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
+    await parent.initialize()
+
+    clone = await parent.spawn_isolated_instance()
+    await clone.shutdown()
+
+    assert child.initialized
+    await parent.shutdown()
+    assert not child.initialized
+
+
 class StructuredInputChild(FakeChildAgent):
     def __init__(self, name: str, response_text: str = "ok") -> None:
         super().__init__(name, response_text=response_text)
@@ -319,7 +333,7 @@ async def test_list_tools_merges_base_and_child():
 
     # Inject a base MCP tool via the filtered MCP path to ensure merge behavior.
     base_tool = Tool(name="base_tool", description="base", inputSchema={"type": "object"})
-    setattr(agent, "_get_filtered_mcp_tools", AsyncMock(return_value=[base_tool]))
+    agent._get_filtered_mcp_tools = AsyncMock(return_value=[base_tool])
 
     result = await agent.list_tools()
     tool_names = {t.name for t in result.tools}
@@ -347,7 +361,7 @@ async def test_call_tool_routes_collision_to_advertised_base_tool(monkeypatch):
     await agent.initialize()
 
     base_tool = Tool(name="agent__child", description="base", inputSchema={"type": "object"})
-    setattr(agent, "_get_filtered_mcp_tools", AsyncMock(return_value=[base_tool]))
+    agent._get_filtered_mcp_tools = AsyncMock(return_value=[base_tool])
 
     async def fake_base_call_tool(
         self,
@@ -377,7 +391,7 @@ async def test_run_tools_routes_collision_to_advertised_base_tool(monkeypatch):
     await agent.initialize()
 
     base_tool = Tool(name="agent__child", description="base", inputSchema={"type": "object"})
-    setattr(agent, "_get_filtered_mcp_tools", AsyncMock(return_value=[base_tool]))
+    agent._get_filtered_mcp_tools = AsyncMock(return_value=[base_tool])
 
     async def fake_base_run_tools(
         self,

@@ -1036,7 +1036,7 @@ async def test_prompt_loop_second_keyboard_interrupt_reports_session(
     output = capsys.readouterr().out
     if with_session:
         assert "Second Ctrl+C received; exiting fast-agent session." in output
-        assert "Resume with: fast-agent resume session-123" in output
+        assert "Resume with: fast-agent --resume session-123" in output
     else:
         assert "Second Ctrl+C received; exiting fast-agent session." in output
         assert "Resume with:" not in output
@@ -1079,7 +1079,7 @@ async def test_prompt_loop_ctrl_d_reports_session(
     output = capsys.readouterr().out
     if with_session:
         assert "Ctrl+D received; exiting fast-agent session." in output
-        assert "Resume with: fast-agent resume session-123" in output
+        assert "Resume with: fast-agent --resume session-123" in output
     else:
         assert "Ctrl+D received; exiting fast-agent session." in output
         assert "Resume with:" not in output

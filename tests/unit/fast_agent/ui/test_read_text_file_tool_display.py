@@ -6,6 +6,12 @@ from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.tool_display import ToolDisplay
 
 
+class _ReadTextFileResult(CallToolResult):
+    read_text_file_path: str | None = None
+    read_text_file_line: int | None = None
+    read_text_file_limit: int | None = None
+
+
 def test_read_text_file_tool_call_shows_summary_with_offset() -> None:
     display = ConsoleDisplay()
     long_path = "/tmp/" + "/".join(["very-long-directory-name"] * 8) + "/target_file.py"
@@ -51,7 +57,9 @@ def test_read_text_file_result_truncates_with_head_and_more_lines_note() -> None
     display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=4)))
     output_lines = [f"line-{i}" for i in range(1, 8)]
     result_text = "\n".join(output_lines)
-    result = CallToolResult(content=[TextContent(type="text", text=result_text)], isError=False)
+    result = _ReadTextFileResult(
+        content=[TextContent(type="text", text=result_text)], isError=False
+    )
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -112,10 +120,10 @@ def test_read_text_file_result_hides_content_when_line_limit_is_zero() -> None:
 
 def test_read_text_file_result_shows_no_lines_message_when_empty() -> None:
     display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=4)))
-    result = CallToolResult(content=[TextContent(type="text", text="")], isError=False)
-    setattr(result, "read_text_file_path", "/tmp/one/two/example.py")
-    setattr(result, "read_text_file_line", 300)
-    setattr(result, "read_text_file_limit", 80)
+    result = _ReadTextFileResult(content=[TextContent(type="text", text="")], isError=False)
+    result.read_text_file_path = "/tmp/one/two/example.py"
+    result.read_text_file_line = 300
+    result.read_text_file_limit = 80
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -159,7 +167,9 @@ def test_read_text_file_markdown_wrap_uses_language_from_path() -> None:
 def test_read_text_file_result_header_uses_preview_status() -> None:
     display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=3)))
     result_text = "\n".join(["a", "b", "c", "d", "e"])
-    result = CallToolResult(content=[TextContent(type="text", text=result_text)], isError=False)
+    result = _ReadTextFileResult(
+        content=[TextContent(type="text", text=result_text)], isError=False
+    )
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -177,8 +187,10 @@ def test_read_text_file_result_header_uses_preview_status() -> None:
 def test_read_text_file_result_header_shows_short_path_when_available() -> None:
     display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=3)))
     result_text = "\n".join(["a", "b", "c", "d", "e"])
-    result = CallToolResult(content=[TextContent(type="text", text=result_text)], isError=False)
-    setattr(result, "read_text_file_path", "/tmp/one/two/example.py")
+    result = _ReadTextFileResult(
+        content=[TextContent(type="text", text=result_text)], isError=False
+    )
+    result.read_text_file_path = "/tmp/one/two/example.py"
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -195,10 +207,12 @@ def test_read_text_file_result_header_shows_short_path_when_available() -> None:
 def test_read_text_file_result_header_includes_offset_and_limit_when_available() -> None:
     display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=3)))
     result_text = "\n".join(["a", "b", "c", "d", "e"])
-    result = CallToolResult(content=[TextContent(type="text", text=result_text)], isError=False)
-    setattr(result, "read_text_file_path", "/tmp/one/two/example.py")
-    setattr(result, "read_text_file_line", 93)
-    setattr(result, "read_text_file_limit", 30)
+    result = _ReadTextFileResult(
+        content=[TextContent(type="text", text=result_text)], isError=False
+    )
+    result.read_text_file_path = "/tmp/one/two/example.py"
+    result.read_text_file_line = 93
+    result.read_text_file_limit = 30
 
     with console.console.capture() as capture:
         display.show_tool_result(

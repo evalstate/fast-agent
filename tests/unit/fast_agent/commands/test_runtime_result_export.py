@@ -313,6 +313,7 @@ def test_trajectory_output_enables_stateless_child_capture(tmp_path: Path) -> No
     _enable_atif_child_capture(app, request)
 
     assert child.config.save_trajectory is True
+    assert child.subagent_trajectory_capture_enabled
 
 
 def test_select_loaded_card_agent_targets_single_runnable_card() -> None:

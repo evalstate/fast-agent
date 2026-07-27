@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from openai.types.responses import (
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from mcp import Tool
+    from openai import AsyncOpenAI
 
 
 class _ClientContext:
@@ -118,8 +119,8 @@ class _DelayedResponsesSseStream:
 class _SimulatedSseMixin:
     sse_stream: _DelayedResponsesSseStream
 
-    def _responses_client(self) -> _ClientContext:
-        return _ClientContext()
+    def _responses_client(self) -> AsyncOpenAI:
+        return cast("AsyncOpenAI", _ClientContext())
 
     async def _normalize_input_files(
         self,

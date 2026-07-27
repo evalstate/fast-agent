@@ -54,8 +54,7 @@ async def get_pdf() -> list[TextContent | EmbeddedResource]:
             return [TextContent(type="text", text=f"Error: PDF file '{pdf_path}' not found")]
 
         # Read the PDF file as binary data
-        with open(pdf_path, "rb") as f:
-            pdf_data = f.read()
+        pdf_data = Path(pdf_path).read_bytes()
 
         # Encode to base64
         b64_data = base64.b64encode(pdf_data).decode("ascii")

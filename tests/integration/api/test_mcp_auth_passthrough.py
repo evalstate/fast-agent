@@ -7,7 +7,8 @@ from fastmcp.server.auth import AccessToken
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from fast_agent.core.harness_app import AppOpenRequest
+from fast_agent.core.agent_app import AgentApp
+from fast_agent.core.harness_app import AgentRuntimeEnvironment, AppOpenRequest
 from fast_agent.mcp.auth.huggingface import HuggingFaceOAuthOrHubTokenVerifier
 from fast_agent.mcp.auth.middleware import HFAuthHeaderMiddleware
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -38,12 +39,12 @@ def _temporary_env(**env_vars: str) -> Iterator[None]:
 
 class _TokenEchoHarnessSession:
     @property
-    def agent_app(self) -> object:
-        return object()
+    def agent_app(self) -> AgentApp:
+        return AgentApp({})
 
     @property
-    def env(self) -> object:
-        return object()
+    def env(self) -> AgentRuntimeEnvironment:
+        raise AssertionError("The token echo harness does not expose a runtime environment")
 
     async def invoke(self, request: AgentRequest) -> AgentResponse:
         token = request.auth.token if request.auth is not None else None

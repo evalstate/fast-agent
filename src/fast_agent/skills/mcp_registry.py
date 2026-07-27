@@ -183,7 +183,7 @@ async def scan_mcp_skill_registry(
 
     try:
         result = await aggregator.get_resource(INDEX_URI, server_name=server_name)
-    except Exception as exc:  # noqa: BLE001 - optional index; registry simply has no entries.
+    except Exception as exc:
         logger.debug(
             "SEP-2640 skills index unavailable",
             data={"server": server_name, "error": str(exc)},
@@ -415,7 +415,7 @@ def _parse_index(result: "ReadResourceResult", server_name: str) -> list[dict[st
         return []
     try:
         parsed = json.loads(text)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning(
             "Failed to parse MCP skill index",
             data={"server": server_name, "error": str(exc)},
@@ -667,7 +667,7 @@ async def _materialize_supporting_files(
                 limits=_WalkLimits(),
                 depth=0,
             )
-        except Exception as exc:  # noqa: BLE001 - a failed walk falls back to the verified single file.
+        except Exception as exc:
             logger.warning(
                 "Failed to materialize MCP skill supporting files",
                 data={"server": skill.server_name, "skill": skill.name, "error": str(exc)},
@@ -807,7 +807,7 @@ def _normalize_uri(uri: str) -> str:
     """
     try:
         return str(AnyUrl(uri))
-    except Exception:  # noqa: BLE001 - fall back to the raw string if unparseable.
+    except Exception:
         return uri
 
 

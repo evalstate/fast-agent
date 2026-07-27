@@ -417,6 +417,7 @@ class AgentsAsToolsAgent(McpAgent):
         options: AgentsAsToolsOptions | None = None,
         context: Any | None = None,
         child_message_files: dict[str, list[Path]] | None = None,
+        owns_child_agents: bool = True,
         **kwargs: Any,
     ) -> None:
         """Initialize AgentsAsToolsAgent.
@@ -425,10 +426,12 @@ class AgentsAsToolsAgent(McpAgent):
             config: Agent configuration for this parent agent (including MCP servers/tools)
             agents: List of child agents to expose as tools
             context: Optional context for agent execution
+            owns_child_agents: Whether shutdown should release the configured child agents
             **kwargs: Additional arguments passed through to :class:`McpAgent` and its bases
         """
         super().__init__(config=config, context=context, **kwargs)
         self._options = options or AgentsAsToolsOptions()
+        self._owns_child_agents = owns_child_agents
         self._child_agents: dict[str, LlmAgent] = {}
         self._child_message_files = child_message_files or {}
         self._history_merge_lock = asyncio.Lock()
@@ -478,6 +481,8 @@ class AgentsAsToolsAgent(McpAgent):
     async def shutdown(self) -> None:
         """Shutdown this agent and all child agents."""
         await super().shutdown()
+        if not self._owns_child_agents:
+            return
         for agent in self._child_agents.values():
             try:
                 await agent.shutdown()
@@ -489,6 +494,7 @@ class AgentsAsToolsAgent(McpAgent):
         kwargs = super()._clone_constructor_kwargs()
         kwargs["agents"] = list(self._child_agents.values())
         kwargs["options"] = self._options
+        kwargs["owns_child_agents"] = False
         if self._child_message_files:
             kwargs["child_message_files"] = self._child_message_files
         return kwargs

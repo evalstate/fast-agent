@@ -31,6 +31,7 @@ def test_check_uses_home_for_config(tmp_path: Path) -> None:
     result = subprocess.run(
         ["uv", "run", "fast-agent", "check", "--home", str(home)],
         capture_output=True,
+        check=False,
         text=True,
         cwd=work_dir,
         env=env,

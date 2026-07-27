@@ -843,7 +843,11 @@ class SessionManager:
             except Exception as exc:
                 logger.warning(
                     "Failed to load child session metadata",
-                    data={"parent_session": parent.info.name, "path": str(metadata_file), "error": str(exc)},
+                    data={
+                        "parent_session": parent.info.name,
+                        "path": str(metadata_file),
+                        "error": str(exc),
+                    },
                 )
                 continue
             children.append(Session(info, child_dir, manager=self))

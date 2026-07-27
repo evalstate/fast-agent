@@ -10,15 +10,24 @@ Use this note for operational/runtime details that should not live in the public
 
 ## Precedence
 
-- Without an override, Fast Agent keeps the existing precedence: keyring first, then `~/.codex/auth.json`.
-- When `CODEX_AUTH_JSON_PATH` or `CODEX_HOME` is set, Fast Agent prefers the overridden auth file before keyring so a service can be pinned to a local profile.
+- Fast-agent-owned credentials use the OS keyring when writable and otherwise
+  fall back to `~/.fast-agent/auth.json`; these take precedence over external
+  Codex CLI credentials.
+- `CODEX_AUTH_JSON_PATH`, `CODEX_HOME`, and an existing `~/.codex/auth.json`
+  remain interoperable, read-only fallback sources.
+- `FAST_AGENT_AUTH_FILE` is an authoritative portable provider store and is
+  used by exported credentials and Harbor.
 
 ## Persistence
 
-- When an override path is active, refreshed Codex OAuth tokens are written back into the overridden auth file.
-- This keeps long-running service profiles stable across restarts without depending on the global `~/.codex/auth.json`.
+- Codex CLI auth files are never modified or deleted by fast-agent.
+- Login and refreshed tokens are persisted in the fast-agent-owned credential
+  store, even when the original token came from a Codex CLI auth file.
+- Provider exports retain refresh tokens. Newly created credential files use
+  mode `0600` on Unix; overwriting an existing file preserves its permissions.
 
 ## Intended use
 
-- Prefer `CODEX_AUTH_JSON_PATH` for service runtimes that need a repo-local or deployment-local Codex profile.
-- Prefer the environment variable over adding more CLI flags to `fast-agent serve`.
+- Use `fast-agent auth export codex codex.auth.json` and
+  `FAST_AGENT_AUTH_FILE` for service runtimes and Harbor.
+- Use `CODEX_AUTH_JSON_PATH` only to read a separate Codex CLI profile.

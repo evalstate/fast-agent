@@ -104,6 +104,7 @@ def on_stream_chunk(chunk: StreamChunk):
     current_text = "".join(accumulated_chunks)
     asyncio.create_task(send_stream_update(current_text, is_thought=chunk.is_reasoning))
 
+
 agent.add_stream_listener(on_stream_chunk)
 response = await agent.send(prompt_text)  # Triggers callbacks
 ```

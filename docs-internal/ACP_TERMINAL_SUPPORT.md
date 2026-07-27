@@ -26,9 +26,9 @@ The core runtime that implements command execution via ACP terminal methods:
 # Execution flow:
 terminal_id = create_unique_id()
 connection.terminal_create(terminal_id, command)  # Start execution
-connection.terminal_wait_for_exit(terminal_id)    # Wait for completion
+connection.terminal_wait_for_exit(terminal_id)  # Wait for completion
 output = connection.terminal_output(terminal_id)  # Get results
-connection.terminal_release(terminal_id)          # Cleanup
+connection.terminal_release(terminal_id)  # Cleanup
 ```
 
 **Features:**
@@ -44,9 +44,7 @@ connection.terminal_release(terminal_id)          # Cleanup
 ```python
 # During initialize()
 if params.clientCapabilities:
-    self._client_supports_terminal = bool(
-        getattr(params.clientCapabilities, "terminal", False)
-    )
+    self._client_supports_terminal = bool(getattr(params.clientCapabilities, "terminal", False))
 ```
 
 **Runtime Injection:**
@@ -69,6 +67,7 @@ if self._client_supports_terminal and agent._shell_runtime_enabled:
 def set_external_runtime(self, runtime) -> None:
     """Inject external runtime (e.g., ACPTerminalRuntime)."""
     self._external_runtime = runtime
+
 
 async def call_tool(self, name: str, arguments: dict) -> CallToolResult:
     # Check external runtime first (ACP terminal)

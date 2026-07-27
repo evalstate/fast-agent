@@ -16,12 +16,7 @@ You can include files in a conversation using Paths:
 from fast_agent import Prompt
 from pathlib import Path
 
-plans = await agent.send(
-    Prompt.user(
-        "Summarise this PDF",
-        Path("secret-plans.pdf")
-    )
-)
+plans = await agent.send(Prompt.user("Summarise this PDF", Path("secret-plans.pdf")))
 ```
 
 This works for any mime type that can be tokenized by the model.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from io import BytesIO
+from typing import ClassVar
 
 import pytest
 from mcp.types import (
@@ -277,7 +278,7 @@ async def test_resolve_mentions_raises_on_resource_errors() -> None:
 @pytest.mark.asyncio
 async def test_resolve_mentions_rejects_non_callable_resource_attribute() -> None:
     class _NotResourceAgent:
-        get_resource = {"not": "callable"}
+        get_resource: ClassVar[object] = {"not": "callable"}
 
     parsed = parse_mentions("Read ^demo:file:///tmp/notes.txt")
 

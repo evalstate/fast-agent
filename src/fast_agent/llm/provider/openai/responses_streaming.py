@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from openai.types.responses import (
@@ -74,6 +75,12 @@ _TOOL_KIND_BY_ACTIVITY_FAMILY: dict[ToolActivityFamily, _ResponsesToolKind] = {
     "remote_tool_listing": "server_tool",
     "remote_tool_search": "server_tool",
 }
+
+
+@dataclass(slots=True)
+class _IncompleteToolEntry:
+    tool_name: str
+    tool_use_id: str
 
 
 def _preview_json_like(value: Any) -> str | None:
@@ -180,9 +187,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 "retry_model": retry_model if isinstance(retry_model, str) else None,
             },
         )
-        self._notify_stream_listeners(
-            StreamChunk(text=_SAFETY_BUFFERING_NOTICE, is_reasoning=True)
-        )
+        self._notify_stream_listeners(StreamChunk(text=_SAFETY_BUFFERING_NOTICE, is_reasoning=True))
         raise ProviderSafetyBufferingError(
             model,
             retry_model=retry_model if isinstance(retry_model, str) else None,
@@ -756,7 +761,10 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             final_response=final_response,
             fetch_failure_message="Failed to fetch final Responses payload",
             use_exc_info_on_fetch_failure=True,
-            incomplete_entries=tool_state.incomplete(),
+            incomplete_entries=[
+                _IncompleteToolEntry(entry.tool_name, entry.tool_use_id)
+                for entry in tool_state.incomplete()
+            ],
             model=model,
             agent_name=self.name,
             chat_turn=self.chat_turn,

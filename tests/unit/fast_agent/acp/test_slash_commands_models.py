@@ -19,7 +19,9 @@ if TYPE_CHECKING:
 
 
 class _Agent:
-    acp_commands = {}
+    @property
+    def acp_commands(self) -> dict[str, ACPCommand]:
+        return {}
 
     def __init__(self) -> None:
         self.config = SimpleNamespace(model=None)
@@ -95,17 +97,15 @@ class _TaskBudgetLlm(_FastModeLlm):
 
 
 class _FastModeAgent:
-    acp_commands = {}
-
     def __init__(self) -> None:
+        self.acp_commands: dict[str, object] = {}
         self.llm = _FastModeLlm()
         self._llm = self.llm
 
 
 class _TaskBudgetAgent:
-    acp_commands = {}
-
     def __init__(self) -> None:
+        self.acp_commands: dict[str, object] = {}
         self.llm = _TaskBudgetLlm()
         self._llm = self.llm
 

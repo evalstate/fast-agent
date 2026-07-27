@@ -217,8 +217,10 @@ async def test_handle_session_export_requires_privacy_filter_for_privacy_options
     )
 
     assert [str(message.text) for message in outcome.messages] == [
-        "--privacy-filter-path, --download-privacy-filter, "
-        "--privacy-filter-device, and --privacy-filter-variant require --privacy-filter."
+        (
+            "--privacy-filter-path, --download-privacy-filter, "
+            "--privacy-filter-device, and --privacy-filter-variant require --privacy-filter."
+        )
     ]
 
 

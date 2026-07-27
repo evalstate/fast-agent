@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from pathlib import Path  # noqa: TC003 - typer resolves Path annotations at runtime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import typer

@@ -1307,7 +1307,7 @@ def _load_model_factory_constants(
                 target_name = stmt.targets[0].id
 
                 if target_name == "MODEL_PRESETS" and isinstance(stmt.value, ast.Dict):
-                    for k, v in zip(stmt.value.keys, stmt.value.values):
+                    for k, v in zip(stmt.value.keys, stmt.value.values, strict=True):
                         if (
                             isinstance(k, ast.Constant)
                             and isinstance(k.value, str)

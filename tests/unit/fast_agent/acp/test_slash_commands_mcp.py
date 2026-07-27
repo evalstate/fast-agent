@@ -1,6 +1,6 @@
 import os
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import pytest
 from acp.schema import ToolCallProgress, ToolCallStart
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 
 class _Agent:
-    acp_commands = {}
+    acp_commands: ClassVar[dict[str, object]] = {}
     instruction = ""
 
     def __init__(self) -> None:

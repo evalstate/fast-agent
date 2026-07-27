@@ -49,7 +49,7 @@ def _start_llamacpp_server(
     state = _ServerState()
 
     class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             parsed = urlsplit(self.path)
             state.request_paths.append(parsed.path)
             state.auth_headers.append(self.headers.get("Authorization"))

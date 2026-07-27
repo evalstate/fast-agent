@@ -10,6 +10,7 @@ from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core import Core
 from fast_agent.core.direct_factory import (
+    _ContextCoreShim,
     create_agents_in_dependency_order,
     create_basic_agents_in_dependency_order,
 )
@@ -111,7 +112,7 @@ async def test_create_agents_in_dependency_order_respects_disabled_session_histo
     await core.initialize()
     try:
         agents = await create_agents_in_dependency_order(
-            core,
+            _ContextCoreShim(core.context),
             agents_dict,
             cast("ModelFactoryFunctionProtocol", _passthrough_model_factory),
         )
@@ -256,7 +257,7 @@ async def test_create_custom_agent_accepts_cls_alias(tmp_path) -> None:
     await core.initialize()
     try:
         agents = await create_agents_in_dependency_order(
-            core,
+            _ContextCoreShim(core.context),
             agents_dict,
             cast("ModelFactoryFunctionProtocol", _passthrough_model_factory),
         )
@@ -293,7 +294,7 @@ async def test_custom_agent_function_tools_error_uses_class_name(tmp_path) -> No
     try:
         with pytest.raises(AgentConfigError) as exc_info:
             await create_agents_in_dependency_order(
-                core,
+                _ContextCoreShim(core.context),
                 agents_dict,
                 cast("ModelFactoryFunctionProtocol", _passthrough_model_factory),
             )
@@ -331,7 +332,7 @@ async def test_custom_agent_rejects_child_agents_without_agent_tool_support(tmp_
     try:
         with pytest.raises(AgentConfigError, match="does not support agents-as-tools"):
             await create_agents_in_dependency_order(
-                core,
+                _ContextCoreShim(core.context),
                 agents_dict,
                 cast("ModelFactoryFunctionProtocol", _passthrough_model_factory),
             )
@@ -370,7 +371,7 @@ async def test_create_maker_agents_in_dependency_order_respects_worker_dependenc
     await core.initialize()
     try:
         agents = await create_agents_in_dependency_order(
-            core,
+            _ContextCoreShim(core.context),
             agents_dict,
             cast("ModelFactoryFunctionProtocol", _passthrough_model_factory),
         )
@@ -402,7 +403,7 @@ async def test_create_custom_agent_requires_class_reference(tmp_path) -> None:
     try:
         with pytest.raises(AgentConfigError, match="missing class reference"):
             await create_agents_in_dependency_order(
-                core,
+                _ContextCoreShim(core.context),
                 agents_dict,
                 cast("ModelFactoryFunctionProtocol", _passthrough_model_factory),
             )

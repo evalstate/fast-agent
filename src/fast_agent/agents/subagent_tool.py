@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Annotated, Protocol, cast
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Annotated, Protocol, cast, runtime_checkable
 
 from fastmcp.tools import ToolResult
 from pydantic import Field
 
+from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.subagent_directive import resolve_subagent_directive
 from fast_agent.agents.subagent_labels import (
     SubagentLabel,
@@ -65,6 +67,13 @@ class ProgressEventDisplay(Protocol):
     def update(self, event: ProgressEvent) -> None: ...
 
 
+@runtime_checkable
+class FoldableProgressEventDisplay(Protocol):
+    """A progress display that can fold generic child rows into a monitor."""
+
+    def fold_agent_progress(self, agent_name: str) -> None: ...
+
+
 class _SubagentMonitorCoordinator:
     """Own the live subagent rows for one installed parent tool."""
 
@@ -85,11 +94,10 @@ class _SubagentMonitorCoordinator:
             label=label,
             child_name=child_name,
             parent_tool_call_id=parent_tool_call_id,
-            row_id=(
-                f"{self._parent_name}::subagent::"
-                f"{parent_tool_call_id or child_name}"
-            ),
+            row_id=(f"{self._parent_name}::subagent::{parent_tool_call_id or child_name}"),
         )
+        if isinstance(self._display, FoldableProgressEventDisplay):
+            self._display.fold_agent_progress(child_name)
         self._active[child_name] = progress
         self._emit_parent()
         progress.running(0)
@@ -264,10 +272,16 @@ def install_subagent_tool(
     """Install the built-in subagent tool on a compatible top-level agent."""
     if not isinstance(agent, ToolAgent):
         return False
-    directive = resolve_subagent_directive(agent.instruction)
-    if directive.found:
-        agent.set_instruction(directive.instruction)
-        agent.config.instruction = directive.instruction
+    rendered_directive = resolve_subagent_directive(agent.instruction)
+    source_directive_found = False
+    if isinstance(agent, McpAgent):
+        source_directive = resolve_subagent_directive(agent.instruction_template)
+        source_directive_found = source_directive.found
+        if source_directive_found:
+            agent.set_instruction_template(source_directive.instruction)
+    if rendered_directive.found:
+        agent.set_instruction(rendered_directive.instruction)
+    if rendered_directive.found or source_directive_found:
         if agent.config.subagents is None and not agent.config.tool_only:
             agent.config.subagents = True
             agent.config.subagent_activation_source = "instruction"
@@ -307,9 +321,7 @@ def install_subagent_tool(
         model: Annotated[
             str | None,
             Field(
-                description=(
-                    "Optional model override. Omit to inherit the parent's current model."
-                )
+                description=("Optional model override. Omit to inherit the parent's current model.")
             ),
         ] = None,
         label: Annotated[
@@ -340,6 +352,7 @@ def install_subagent_tool(
         response_text = ""
         is_error = False
         cancellation: asyncio.CancelledError | None = None
+        started_at = datetime.now(timezone.utc).isoformat()
         progress = monitor.start(
             label=resolved_label,
             child_name=child_name,
@@ -380,6 +393,11 @@ def install_subagent_tool(
                     child_name=child_name,
                     status=status,
                     progress=progress,
+                    message=message,
+                    requested_model=model,
+                    label=resolved_label,
+                    parent_tool_call_id=parent_tool_call_id,
+                    started_at=started_at,
                 )
             )
             while not finalizer.done():
@@ -566,55 +584,133 @@ async def _finalize_subagent_run(
     child_name: str,
     status: SessionExecutionStatus,
     progress: _SubagentProgress,
+    message: str,
+    requested_model: str | None,
+    label: str,
+    parent_tool_call_id: str | None,
+    started_at: str,
+    finalization_timeout_seconds: float = _FINALIZATION_TIMEOUT_SECONDS,
 ) -> None:
     """Persist and release one child without inheriting caller cancellation."""
     progress.finalizing()
     try:
-        async with asyncio.timeout(_FINALIZATION_TIMEOUT_SECONDS):
-            if child_session is not None:
-                try:
-                    child_session.set_execution_status(status)
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to update subagent child session status",
-                        data={
-                            "session": child_session.info.name,
-                            "status": status,
-                            "error": str(exc),
-                        },
-                    )
-            if clone is not None and child_session is not None:
-                try:
-                    history_agent = HistoryAgent(
-                        clone,
-                        [
-                            message.model_copy(deep=True)
-                            for message in (clone.message_history or clone.last_turn_messages)
-                        ],
-                    )
-                    await child_session.save_history(cast("AgentProtocol", history_agent))
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to persist subagent child session",
-                        data={"session": child_session.info.name, "error": str(exc)},
-                    )
-            if clone is not None:
-                try:
-                    async with asyncio.timeout(_SHUTDOWN_TIMEOUT_SECONDS):
-                        await clone.shutdown()
-                except TimeoutError:
-                    logger.warning(
-                        "Timed out while shutting down subagent",
-                        data={"agent_name": child_name},
-                    )
-                except Exception as exc:
-                    logger.warning("Failed to shut down subagent", data={"error": str(exc)})
-                try:
-                    parent.merge_usage_from(clone)
-                except Exception as exc:
-                    logger.warning("Failed to merge subagent usage", data={"error": str(exc)})
+        try:
+            async with asyncio.timeout(finalization_timeout_seconds):
+                await _persist_subagent_run(
+                    parent=parent,
+                    clone=clone,
+                    child_session=child_session,
+                    child_name=child_name,
+                    status=status,
+                    message=message,
+                    requested_model=requested_model,
+                    label=label,
+                    parent_tool_call_id=parent_tool_call_id,
+                    started_at=started_at,
+                )
+        finally:
+            await _release_subagent_clone(
+                parent=parent,
+                clone=clone,
+                child_name=child_name,
+            )
     finally:
         progress.finish(status)
+
+
+async def _persist_subagent_run(
+    *,
+    parent: ToolAgent,
+    clone: ToolAgent | None,
+    child_session: Session | None,
+    child_name: str,
+    status: SessionExecutionStatus,
+    message: str,
+    requested_model: str | None,
+    label: str,
+    parent_tool_call_id: str | None,
+    started_at: str,
+) -> None:
+    if child_session is not None:
+        try:
+            child_session.set_execution_status(status)
+        except Exception as exc:
+            logger.warning(
+                "Failed to update subagent child session status",
+                data={
+                    "session": child_session.info.name,
+                    "status": status,
+                    "error": str(exc),
+                },
+            )
+    child_messages = (
+        [item.model_copy(deep=True) for item in (clone.message_history or clone.last_turn_messages)]
+        if clone is not None
+        else []
+    )
+    if clone is not None and child_session is not None:
+        try:
+            history_agent = HistoryAgent(clone, child_messages)
+            await child_session.save_history(cast("AgentProtocol", history_agent))
+        except Exception as exc:
+            logger.warning(
+                "Failed to persist subagent child session",
+                data={"session": child_session.info.name, "error": str(exc)},
+            )
+    elif clone is not None and child_messages and parent.subagent_trajectory_capture_enabled:
+        from fast_agent.session.trajectory import TrajectoryRecord, new_trajectory_id
+
+        tool_arguments: dict[str, object] = {"message": message, "label": label}
+        if requested_model is not None:
+            tool_arguments["model"] = requested_model
+        usage = clone.usage_accumulator
+        model_name, provider = _subagent_model_metadata(clone)
+        parent.record_subagent_trajectory(
+            TrajectoryRecord(
+                trajectory_id=new_trajectory_id(),
+                session_id="",
+                parent_agent_name=parent.name,
+                agent_name=child_name,
+                template_agent_name=parent.name,
+                tool_name=SUBAGENT_TOOL_NAME,
+                parent_tool_call_id=parent_tool_call_id,
+                use_history=clone.config.use_history,
+                started_at=started_at,
+                completed_at=datetime.now(timezone.utc).isoformat(),
+                tool_input_schema=None,
+                tool_arguments=tool_arguments,
+                effective_tool_arguments=tool_arguments,
+                rendered_child_input=message,
+                messages=child_messages,
+                usage_summary=usage.get_summary() if usage is not None else None,
+                model_name=model_name,
+                provider=provider,
+            )
+        )
+
+
+async def _release_subagent_clone(
+    *,
+    parent: ToolAgent,
+    clone: ToolAgent | None,
+    child_name: str,
+) -> None:
+    if clone is None:
+        return
+    try:
+        async with asyncio.timeout(_SHUTDOWN_TIMEOUT_SECONDS):
+            await clone.shutdown()
+    except TimeoutError:
+        logger.warning(
+            "Timed out while shutting down subagent",
+            data={"agent_name": child_name},
+        )
+    except Exception as exc:
+        logger.warning("Failed to shut down subagent", data={"error": str(exc)})
+    try:
+        parent.merge_subagent_usage_from(clone)
+    except Exception as exc:
+        logger.warning("Failed to merge subagent usage", data={"error": str(exc)})
 
 
 def _subagent_result_metadata(
@@ -629,8 +725,7 @@ def _subagent_result_metadata(
     model_source: str,
 ) -> dict[str, object]:
     """Build durable, display-oriented details without changing model text."""
-    model_spec: str | None = None
-    provider: str | None = None
+    model_spec, provider = _subagent_model_metadata(clone)
     usage: dict[str, int | None] = {
         "prompt_tokens": None,
         "completion_tokens": None,
@@ -639,16 +734,6 @@ def _subagent_result_metadata(
     turn_count = 0
 
     if clone is not None:
-        llm = clone.llm
-        if llm is not None:
-            resolved_model = llm.resolved_model
-            model_spec = (
-                resolved_model.selected_model_name
-                or resolved_model.wire_model_name
-                or clone.config.model
-            )
-            provider = resolved_model.provider.value
-
         accumulator = clone.usage_accumulator
         if accumulator is not None:
             summary = accumulator.summary
@@ -672,6 +757,16 @@ def _subagent_result_metadata(
         "usage": usage,
         "turn_count": turn_count,
     }
+
+
+def _subagent_model_metadata(clone: ToolAgent | None) -> tuple[str | None, str | None]:
+    if clone is None or clone.llm is None:
+        return None, None
+    resolved_model = clone.llm.resolved_model
+    model_name = (
+        resolved_model.selected_model_name or resolved_model.wire_model_name or clone.config.model
+    )
+    return model_name, resolved_model.provider.value
 
 
 def _subagent_progress_hooks(progress: _SubagentProgress) -> ToolRunnerHooks:

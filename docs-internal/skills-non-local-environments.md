@@ -51,8 +51,9 @@ with the transfer helpers before or at session start:
 from fast_agent.tools.environment_transfer import copy_tree
 
 async with fast.harness(environment="hf-gpu") as harness:
-    await copy_tree(harness.local, ".fast-agent/skills",
-                    harness.environment, "/workspace/.fast-agent/skills")
+    await copy_tree(
+        harness.local, ".fast-agent/skills", harness.environment, "/workspace/.fast-agent/skills"
+    )
 ```
 
 (Skills are discovered when the run enters, so copy-based staging should happen

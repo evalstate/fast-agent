@@ -66,7 +66,7 @@ class _StubIO:
 
 
 class _StubAgentProvider:
-    def _agent(self, name: str):  # noqa: ARG002
+    def _agent(self, name: str):
         return object()
 
     def resolve_target_agent_name(self, agent_name: str | None = None):
@@ -82,7 +82,7 @@ class _StubAgentProvider:
     def registered_agents(self):
         return {"agent": object()}
 
-    async def list_prompts(self, namespace: str | None, agent_name: str | None = None):  # noqa: ARG002
+    async def list_prompts(self, namespace: str | None, agent_name: str | None = None):
         return {}
 
 

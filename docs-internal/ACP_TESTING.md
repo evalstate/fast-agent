@@ -57,6 +57,7 @@ from acp.schema import ClientCapabilities, ClientInfo
 from acp import InitializeRequest, NewSessionRequest, PromptRequest
 from acp.helpers import text_block
 
+
 class SimpleClient:
     """Minimal ACP client implementation."""
 
@@ -68,42 +69,55 @@ class SimpleClient:
 
     # Add other required methods...
 
+
 async def test():
     # Spawn fast-agent as ACP server (pick one)
     async with spawn_agent_process(
         lambda agent: SimpleClient(agent),
-        'fast-agent', 'serve', '--transport', 'acp',
-        '--instruction', '/tmp/instruction.md',
-        '--model', 'haiku', '--watch',
+        "fast-agent",
+        "serve",
+        "--transport",
+        "acp",
+        "--instruction",
+        "/tmp/instruction.md",
+        "--model",
+        "haiku",
+        "--watch",
     ) as (connection, process):
-
         # 1. Initialize
-        init_response = await connection.initialize(InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": False, "writeTextFile": False},
-                terminal=False,
-            ),
-            clientInfo=ClientInfo(name="test-client", version="0.1.0"),
-        ))
+        init_response = await connection.initialize(
+            InitializeRequest(
+                protocolVersion=1,
+                clientCapabilities=ClientCapabilities(
+                    fs={"readTextFile": False, "writeTextFile": False},
+                    terminal=False,
+                ),
+                clientInfo=ClientInfo(name="test-client", version="0.1.0"),
+            )
+        )
 
         print(f"✓ Initialized: {init_response.agentInfo.name}")
 
         # 2. Create session
-        session_response = await connection.newSession(NewSessionRequest(
-            mcpServers=[],
-        ))
+        session_response = await connection.newSession(
+            NewSessionRequest(
+                mcpServers=[],
+            )
+        )
 
         session_id = session_response.sessionId
         print(f"✓ Session created: {session_id}")
 
         # 3. Send prompt
-        prompt_response = await connection.prompt(PromptRequest(
-            sessionId=session_id,
-            prompt=[text_block("What is 2+2?")],
-        ))
+        prompt_response = await connection.prompt(
+            PromptRequest(
+                sessionId=session_id,
+                prompt=[text_block("What is 2+2?")],
+            )
+        )
 
         print(f"✓ Prompt completed: {prompt_response.stopReason}")
+
 
 if __name__ == "__main__":
     asyncio.run(test())

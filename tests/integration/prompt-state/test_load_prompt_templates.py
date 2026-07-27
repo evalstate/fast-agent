@@ -127,8 +127,7 @@ async def test_save_state_to_mcp_json_format(fast_agent):
             assert os.path.exists("./history.json")
 
             # Load the file and check content
-            with open("./history.json", "r", encoding="utf-8") as f:
-                json_content = f.read()
+            json_content = Path("./history.json").read_text(encoding="utf-8")
 
             # Parse using JSON
             import json

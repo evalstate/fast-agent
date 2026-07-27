@@ -177,12 +177,12 @@ class _OpenResponsesStreamingHarness(OpenResponsesStreamingMixin):
 
     def _update_streaming_progress(
         self,
-        chunk: str,
+        content: str,
         model: str,
-        current_total: int,
+        estimated_tokens: int,
     ) -> int:
-        del chunk, model
-        return current_total
+        del content, model
+        return estimated_tokens
 
     def chat_turn(self) -> int:
         return 1
@@ -467,7 +467,7 @@ def test_convert_tool_results_prefers_structured_content_and_keeps_attachments()
         ],
         isError=False,
     )
-    setattr(result, "structuredContent", {"fresh": True})
+    result.structuredContent = {"fresh": True}
 
     items = harness._convert_tool_results({"call_1": result})
 

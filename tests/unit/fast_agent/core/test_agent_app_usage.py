@@ -17,6 +17,7 @@ from fast_agent.llm.usage_tracking import (
 from fast_agent.ui.turn_usage_display import (
     TurnUsageDisplay,
     format_regular_turn_usage,
+    format_regular_turn_usage_with_subagents,
     format_turn_usage,
 )
 
@@ -78,6 +79,42 @@ def test_regular_agent_usage_displays_turn_delta_with_context_percentage() -> No
     assert "[blue]▶ 50[/blue] input" in output
     assert "[green]◀ 10[/green] output" in output
     assert "· 2 tool calls · context 30.0%" in output
+
+
+def test_regular_agent_usage_breaks_out_subagents_used_during_turn() -> None:
+    usage = UsageAccumulator()
+    subagents = UsageAccumulator()
+    agent = _agent(usage)
+    agent.subagent_usage_accumulator = subagents
+    app = AgentApp({"assistant": agent})
+    start = app._capture_turn_start_indices("assistant")
+
+    child_turn = _turn(
+        prompt_tokens=300,
+        completion_tokens=20,
+        tool_calls=2,
+        cache_read=270,
+    )
+    subagents.add_turn(child_turn)
+    usage.add_turn(child_turn.model_copy(deep=True))
+    usage.add_turn(_turn(prompt_tokens=100, completion_tokens=10, tool_calls=1, cache_read=50))
+
+    total = app._collect_agent_turn_usage(agent, start["assistant"])
+    delegated = app._collect_subagent_turn_usage(
+        agent,
+        start["assistant::subagents"],
+    )
+
+    assert total is not None
+    assert delegated is not None
+    assert total.input_tokens == 400
+    assert delegated.input_tokens == 300
+    assert delegated.context_percentage is None
+    lines = format_regular_turn_usage_with_subagents(total, delegated)
+    assert lines[0].startswith("[dim]Last:[/dim]")
+    assert "▶ 400" in lines[0]
+    assert "└─ subagents:" in lines[1]
+    assert "▶ 300" in lines[1]
 
 
 def test_regular_agent_usage_displays_cache_percentage_and_ttl() -> None:

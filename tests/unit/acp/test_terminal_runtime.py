@@ -691,7 +691,7 @@ async def test_session_id_in_all_terminal_requests():
     assert len(conn.calls) == 4
 
     for (expected_method, should_have_session), (method_name, params) in zip(
-        expected_calls, conn.calls
+        expected_calls, conn.calls, strict=True
     ):
         assert method_name == expected_method
         if should_have_session:

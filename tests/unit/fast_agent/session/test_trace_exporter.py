@@ -234,8 +234,10 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     )
 
     assert progress == [
-        "Export: preparing codex trace for agent 'dev' from 2 messages: "
-        "1 user, 1 assistant, 0 tool calls, 0 tool results."
+        (
+            "Export: preparing codex trace for agent 'dev' from 2 messages: "
+            "1 user, 1 assistant, 0 tool calls, 0 tool results."
+        )
     ]
     lines = (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
     records = [json.loads(line) for line in lines]
@@ -587,14 +589,14 @@ def test_session_trace_exporter_writes_atif_v17_with_tool_observation(
         "extra": {
             "total_reasoning_tokens": 5,
             "total_tool_use_tokens": 3,
-                "root_prompt_tokens": 35,
-                "root_completion_tokens": 8,
-                "root_cached_tokens": 7,
-                "subagent_prompt_tokens": 11,
-                "subagent_completion_tokens": 4,
-                "subagent_cached_tokens": 3,
-            },
-        }
+            "root_prompt_tokens": 35,
+            "root_completion_tokens": 8,
+            "root_cached_tokens": 7,
+            "subagent_prompt_tokens": 11,
+            "subagent_completion_tokens": 4,
+            "subagent_cached_tokens": 3,
+        },
+    }
 
     private_output = tmp_path / "private-atif.json"
     private_output.write_text("stale", encoding="utf-8")
@@ -666,9 +668,7 @@ def test_atif_embeds_nested_subagent_child_session_with_tool_linkage(tmp_path: P
                     call_id: CallToolResult(
                         content=[TextContent(type="text", text="inspection complete")],
                         _meta={
-                            FAST_AGENT_SUBAGENT_RESULT_METADATA: {
-                                "label": "repository-inspector"
-                            }
+                            FAST_AGENT_SUBAGENT_RESULT_METADATA: {"label": "repository-inspector"}
                         },
                     )
                 },
@@ -876,9 +876,27 @@ def test_atif_embeds_nested_subagent_child_session_with_tool_linkage(tmp_path: P
     )
     unlinked_payload = json.loads(unlinked_result.output_path.read_text(encoding="utf-8"))
     assert len(unlinked_payload["subagent_trajectories"]) == 1
-    assert "subagent_trajectory_ref" not in unlinked_payload["steps"][2]["observation"][
-        "results"
-    ][0]
+    assert (
+        "subagent_trajectory_ref" not in unlinked_payload["steps"][2]["observation"]["results"][0]
+    )
+
+    child_link.parent_tool_call_id = "stale-call"
+    (child_dir / "session.json").write_text(
+        json.dumps(child_snapshot.model_dump(mode="json"), indent=2),
+        encoding="utf-8",
+    )
+    stale_result = SessionTraceExporter(session_manager=manager).export(
+        ExportRequest(
+            target=parent_dir,
+            agent_name="parent",
+            output_path=tmp_path / "parent-stale-child-atif.json",
+            format="atif",
+        )
+    )
+    stale_payload = json.loads(stale_result.output_path.read_text(encoding="utf-8"))
+    assert not stale_payload.get("subagent_trajectories")
+    assert stale_payload["final_metrics"]["total_prompt_tokens"] == 10
+    assert stale_payload["final_metrics"]["total_completion_tokens"] == 2
 
 
 def test_atif_package_version_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:

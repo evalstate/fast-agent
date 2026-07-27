@@ -51,10 +51,12 @@ class TrajectoryRecord:
     rendered_child_input: str | None
     messages: list["PromptMessageExtended"]
     usage_summary: dict[str, Any] | None = None
+    model_name: str | None = None
+    provider: str | None = None
     schema_version: int = TRAJECTORY_SCHEMA_VERSION
 
     def model_dump(self) -> dict[str, Any]:
-        return {
+        payload = {
             "schema_version": self.schema_version,
             "trajectory_id": self.trajectory_id,
             "session_id": self.session_id,
@@ -75,6 +77,11 @@ class TrajectoryRecord:
                 message.model_dump(mode="json", exclude_none=True) for message in self.messages
             ],
         }
+        if self.model_name is not None:
+            payload["model_name"] = self.model_name
+        if self.provider is not None:
+            payload["provider"] = self.provider
+        return payload
 
 
 def new_trajectory_id() -> str:

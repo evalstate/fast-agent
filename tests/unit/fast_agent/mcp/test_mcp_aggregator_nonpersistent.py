@@ -322,12 +322,12 @@ async def test_execute_on_server_uses_request_scoped_connection_for_forwarded_hf
     )
 
     class _PersistentManager:
-        async def get_server(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        async def get_server(self, *args, **kwargs):
             del args, kwargs
             raise AssertionError("persistent connection must not be reused for forwarded auth")
 
     class _RequestClient:
-        async def call_tool(self, **kwargs):  # noqa: ANN003
+        async def call_tool(self, **kwargs):
             del kwargs
             return CallToolResult(content=[TextContent(type="text", text="ok")])
 

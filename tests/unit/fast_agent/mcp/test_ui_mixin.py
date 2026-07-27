@@ -1,13 +1,22 @@
+from collections.abc import Iterable
+
 import pytest
-from mcp.types import CallToolResult, EmbeddedResource, TextContent, TextResourceContents
+from mcp.types import (
+    CallToolResult,
+    ContentBlock,
+    EmbeddedResource,
+    TextContent,
+    TextResourceContents,
+)
 from pydantic import AnyUrl
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.constants import MCP_UI
 from fast_agent.mcp.ui_mixin import McpUIMixin
-from fast_agent.mcp.ui_modes import is_mcp_ui_mode, normalize_mcp_ui_mode
+from fast_agent.mcp.ui_modes import McpUIMode, is_mcp_ui_mode, normalize_mcp_ui_mode
 from fast_agent.types import PromptMessageExtended
+from fast_agent.ui.mcp_ui_utils import UILink
 
 
 class StubDisplay:
@@ -42,13 +51,13 @@ class StubAgent:
         self,
         message,
         bottom_items: list[str] | None = None,
-        highlight_indexes: list[int] | None = None,
+        highlight_items: str | list[str] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
         additional_message: Text | None = None,
         render_markdown: bool | None = None,
-        show_hook_indicator: bool = False,
+        show_hook_indicator: bool | None = None,
         render_message: bool = True,
         show_reprint_banner: bool = False,
     ) -> None:
@@ -57,7 +66,7 @@ class StubAgent:
             {
                 "message": message,
                 "bottom_items": bottom_items,
-                "highlight_indexes": highlight_indexes,
+                "highlight_items": highlight_items,
                 "max_item_length": max_item_length,
                 "name": name,
                 "model": model,
@@ -251,14 +260,14 @@ async def test_show_assistant_message_displays_ui_resources(ui_agent):
 
     try:
 
-        def stub_ui_links(resources):
-            return [{"title": "Test UI", "url": "ui://test"}] if resources else []
+        def stub_ui_links(resources: Iterable[ContentBlock]) -> list[UILink]:
+            return [UILink(title="Test UI", file_path="ui://test")] if list(resources) else []
 
-        def stub_open_browser(links, **kwargs):
-            pass
+        def stub_open_browser(links: Iterable[UILink], mcp_ui_mode: McpUIMode = "auto") -> None:
+            del links, mcp_ui_mode
 
-        setattr(ui_mixin_module, "ui_links_from_channel", stub_ui_links)
-        setattr(ui_mixin_module, "open_links_in_browser", stub_open_browser)
+        setattr(ui_mixin_module, "ui_links_from_channel", stub_ui_links)  # noqa: B010
+        setattr(ui_mixin_module, "open_links_in_browser", stub_open_browser)  # noqa: B010
 
         await ui_agent.show_assistant_message(assistant_msg)
 
@@ -268,8 +277,8 @@ async def test_show_assistant_message_displays_ui_resources(ui_agent):
 
     finally:
         # Restore original functions
-        setattr(ui_mixin_module, "ui_links_from_channel", original_ui_links_from_channel)
-        setattr(ui_mixin_module, "open_links_in_browser", original_open_links_in_browser)
+        ui_mixin_module.ui_links_from_channel = original_ui_links_from_channel
+        ui_mixin_module.open_links_in_browser = original_open_links_in_browser
 
 
 @pytest.mark.asyncio

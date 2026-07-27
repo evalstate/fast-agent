@@ -29,6 +29,7 @@ Example outline:
 ```python
 from fast_agent.acp import ACPAwareMixin, ACPCommand
 
+
 class MyAgent(ACPAwareMixin, ...):
     @property
     def acp_commands(self) -> dict[str, ACPCommand]:
@@ -50,6 +51,7 @@ By default, `fast-agent-acp` infers ACP mode display info from the agent name an
 
 ```python
 from fast_agent.acp import ACPAwareMixin, ACPModeInfo
+
 
 class MyAgent(ACPAwareMixin, ...):
     def acp_mode_info(self) -> ACPModeInfo | None:

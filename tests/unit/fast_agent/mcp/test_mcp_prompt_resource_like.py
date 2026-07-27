@@ -8,7 +8,7 @@ from pydantic import AnyUrl
 from fast_agent.mcp.mcp_content import MCPPrompt
 
 
-@dataclass(frozen=True)
+@dataclass
 class _ResourceLike:
     type: str
     resource: object

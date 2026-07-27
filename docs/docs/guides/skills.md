@@ -254,6 +254,7 @@ Skills directories can be defined on a per-agent basis:
 ```python
 from fast_agent.constants import DEFAULT_SKILLS_PATHS
 
+
 # Define the agent
 @fast.agent(instruction=default_instruction, skills=DEFAULT_SKILLS_PATHS + ["~/source/skills"])
 async def main():

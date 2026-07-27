@@ -2448,7 +2448,6 @@ def _run_structured_output_probe(
 
     from fast_agent.cli.checks.structured_tools_probe import (
         StructuredProbeMode,
-        StructuredToolPolicy,
         _print_text_summary,
         run_probe_suite,
     )
@@ -2460,7 +2459,7 @@ def _run_structured_output_probe(
     results = run_coroutine(
         run_probe_suite(
             model_names,
-            structured_tool_policy=cast("StructuredToolPolicy", structured_tool_policy),
+            structured_tool_policy=structured_tool_policy,
             modes=cast("list[StructuredProbeMode]", modes),
         )
     )

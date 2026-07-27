@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Literal
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.utils.action_normalization import normalize_action_token
@@ -209,4 +209,4 @@ def normalize_card_type(raw_type: str | None) -> CardType | None:
     if normalized not in ALLOWED_FIELDS_BY_TYPE:
         return None
 
-    return cast("CardType", normalized)
+    return normalized

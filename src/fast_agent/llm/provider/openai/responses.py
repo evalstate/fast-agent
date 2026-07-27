@@ -49,6 +49,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     send_response_request,
 )
 from fast_agent.llm.provider.openai.schema_sanitizer import (
+    sanitize_response_format_schema,
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
@@ -70,6 +71,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.text_verbosity import parse_text_verbosity
+from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.provider_management import build_openai_provider_managed_mcp_tools
@@ -157,7 +159,6 @@ class ResponsesLLM(
     ResponsesFileMixin,
     ResponsesOutputMixin,
     ResponsesStreamingMixin,
-    OpenAIStructuredOutputMixin,
     FastAgentLLM[dict[str, Any], Any],
 ):
     """LLM implementation for OpenAI's Responses models."""
@@ -177,6 +178,38 @@ class ResponsesLLM(
         FastAgentLLM.PARAM_PARALLEL_TOOL_CALLS,
         "response_format",
     }
+
+    _prepare_structured_request = OpenAIStructuredOutputMixin._prepare_structured_request
+    _apply_prompt_provider_specific_structured_schema = (
+        OpenAIStructuredOutputMixin._apply_prompt_provider_specific_structured_schema
+    )
+
+    @staticmethod
+    def schema_to_response_format(
+        schema: dict[str, Any],
+        *,
+        name: str = "structured_output",
+        strict: bool = True,
+    ) -> dict[str, Any]:
+        return FastAgentLLM.schema_to_response_format(
+            sanitize_response_format_schema(schema) if strict else schema,
+            name=name,
+            strict=strict,
+        )
+
+    def _finalize_turn_usage(
+        self,
+        usage: TurnUsage | None = None,
+        *,
+        requested_service_tier: Literal["fast", "flex"] | None = None,
+        **kwargs: TurnUsage,
+    ) -> None:
+        turn_usage = usage if usage is not None else kwargs["turn_usage"]
+        FastAgentLLM._finalize_turn_usage(
+            self,
+            turn_usage,
+            requested_service_tier=requested_service_tier,
+        )
 
     def __init__(self, provider: Provider = Provider.RESPONSES, **kwargs) -> None:
         web_search_override = kwargs.pop("web_search", None)

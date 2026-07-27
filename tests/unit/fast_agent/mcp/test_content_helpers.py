@@ -46,7 +46,7 @@ def test_canonicalize_tool_result_content_prefers_structured_content_and_preserv
         content=[TextContent(type="text", text="stale summary"), image_block],
         isError=False,
     )
-    setattr(result, "structuredContent", {"z": 3, "a": 1})
+    result.structuredContent = {"z": 3, "a": 1}
 
     canonical = canonicalize_tool_result_content_for_llm(result)
 
@@ -65,7 +65,7 @@ def test_canonicalize_tool_result_content_warns_for_multiple_text_blocks() -> No
         ],
         isError=False,
     )
-    setattr(result, "structuredContent", {"fresh": True})
+    result.structuredContent = {"fresh": True}
 
     canonicalize_tool_result_content_for_llm(result, logger=logger, source="test.helper")
 
@@ -80,7 +80,7 @@ def test_tool_result_text_for_llm_uses_structured_content_json() -> None:
         content=[TextContent(type="text", text="stale summary")],
         isError=False,
     )
-    setattr(result, "structuredContent", {"b": 2, "a": 1})
+    result.structuredContent = {"b": 2, "a": 1}
 
     text = tool_result_text_for_llm(result)
 

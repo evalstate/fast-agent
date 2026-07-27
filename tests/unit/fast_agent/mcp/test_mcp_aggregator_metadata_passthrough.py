@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from mcp.types import CallToolRequest, CallToolResult, ClientRequest, TextContent
@@ -10,6 +10,9 @@ from mcp.types import CallToolRequest, CallToolResult, ClientRequest, TextConten
 from fast_agent.llm.fastagent_llm import _mcp_metadata_var
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
+
+if TYPE_CHECKING:
+    from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
 
 
 class _RecordingSession:
@@ -80,7 +83,9 @@ async def test_client_session_call_tool_uses_raw_request_path_with_meta() -> Non
 async def test_execute_on_server_uses_meta_for_call_tool() -> None:
     session = _RecordingSession()
     aggregator = MCPAggregator(server_names=[], connection_persistence=True, context=None)
-    setattr(aggregator, "_persistent_connection_manager", _FakeConnectionManager(session))
+    aggregator._persistent_connection_manager = cast(
+        "MCPConnectionManager", _FakeConnectionManager(session)
+    )
 
     metadata = {
         "io.modelcontextprotocol/session": {
@@ -110,7 +115,9 @@ async def test_execute_on_server_uses_meta_for_call_tool() -> None:
 async def test_execute_on_server_uses_meta_for_read_resource() -> None:
     session = _RecordingSession()
     aggregator = MCPAggregator(server_names=[], connection_persistence=True, context=None)
-    setattr(aggregator, "_persistent_connection_manager", _FakeConnectionManager(session))
+    aggregator._persistent_connection_manager = cast(
+        "MCPConnectionManager", _FakeConnectionManager(session)
+    )
 
     metadata = {
         "io.modelcontextprotocol/session": {

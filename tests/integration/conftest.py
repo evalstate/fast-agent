@@ -35,11 +35,11 @@ def isolate_fast_agent_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[
     """Keep integration tests independent of the developer's fast-agent home."""
     from fast_agent import config as config_module
 
-    config_module._settings = None  # noqa: SLF001
+    config_module._settings = None
     for key in ("FAST_AGENT_HOME", "FAST_AGENT_HOME", "FAST_AGENT_RUNTIME_HOME"):
         monkeypatch.delenv(key, raising=False)
     yield
-    config_module._settings = None  # noqa: SLF001
+    config_module._settings = None
 
 
 @pytest.fixture(scope="session")
@@ -98,9 +98,11 @@ def wait_for_port():
                 writer.close()
                 await writer.wait_closed()
                 return
-            except OSError:
+            except OSError as error:
                 if asyncio.get_running_loop().time() >= deadline:
-                    raise AssertionError(f"Server did not start listening on {host}:{port}")
+                    raise AssertionError(
+                        f"Server did not start listening on {host}:{port}"
+                    ) from error
                 await asyncio.sleep(interval)
 
     return _wait_for_port

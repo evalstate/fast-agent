@@ -245,9 +245,9 @@ def generate(
 
         console.print(f"[green]✓[/] Schema written to: {output}")
 
-    except Exception as e:
-        console.print(f"[red]Error generating schema:[/] {str(e)}")
-        raise typer.Exit(1)
+    except Exception as err:
+        console.print(f"[red]Error generating schema:[/] {err}")
+        raise typer.Exit(1) from err
 
 
 if __name__ == "__main__":

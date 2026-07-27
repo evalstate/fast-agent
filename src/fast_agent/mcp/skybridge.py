@@ -86,7 +86,7 @@ def _visibility(meta: dict[str, Any]) -> VisibilityMetadata:
         for value in raw_visibility
         if (visibility_value := _app_visibility_value(value)) is not None
     ]
-    invalid = sorted(set(raw_visibility) - _VALID_APP_VISIBILITY)
+    invalid = sorted(value for value in raw_visibility if _app_visibility_value(value) is None)
     warnings = (
         [f"invalid _meta.ui.visibility values ignored: {', '.join(invalid)}"] if invalid else []
     )

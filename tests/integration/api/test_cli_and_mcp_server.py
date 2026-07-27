@@ -34,6 +34,7 @@ def test_agent_message_cli():
             #  "--quiet",  # Suppress progress display, etc. for cleaner output
         ],
         capture_output=True,
+        check=False,
         text=True,
         cwd=test_dir,  # Run in the test directory to use its config
     )
@@ -67,6 +68,7 @@ def test_agent_message_cli_default_agent():
             test_message,
         ],
         capture_output=True,
+        check=False,
         text=True,
         cwd=test_dir,  # Run in the test directory to use its config
     )
@@ -92,6 +94,7 @@ def test_agent_message_prompt_file():
     result = subprocess.run(
         ["uv", "run", test_agent_path, "--agent", "test", "--prompt-file", "prompt.txt"],
         capture_output=True,
+        check=False,
         text=True,
         cwd=test_dir,  # Run in the test directory to use its config
     )
@@ -118,6 +121,7 @@ def test_agent_message_prompt_file_default_agent():
     result = subprocess.run(
         ["uv", "run", test_agent_path, "--prompt-file", "prompt.txt"],
         capture_output=True,
+        check=False,
         text=True,
         cwd=test_dir,  # Run in the test directory to use its config
     )
@@ -157,6 +161,7 @@ def test_agent_message_cli_quiet_flag():
             "--quiet",  # Suppress progress display, etc. for cleaner output
         ],
         capture_output=True,
+        check=False,
         text=True,
         cwd=test_dir,  # Run in the test directory to use its config
     )

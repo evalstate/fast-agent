@@ -15,6 +15,7 @@ from fast_agent.core.agent_card_loader import (
     load_agent_cards,
 )
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.tools.function_tool_config import FunctionToolSpec
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -572,10 +573,11 @@ def test_load_agent_card_parses_structured_function_tool_metadata(tmp_path: Path
 
     assert config.function_tools is not None
     spec = config.function_tools[0]
-    assert getattr(spec, "entrypoint") == "tools.py:run_query"
-    assert getattr(spec, "variant") == "code"
-    assert getattr(spec, "code_arg") == "code"
-    assert getattr(spec, "language") == "python"
+    assert isinstance(spec, FunctionToolSpec)
+    assert spec.entrypoint == "tools.py:run_query"
+    assert spec.variant == "code"
+    assert spec.code_arg == "code"
+    assert spec.language == "python"
 
 
 def test_dump_agent_card_preserves_structured_function_tool_metadata(tmp_path: Path) -> None:

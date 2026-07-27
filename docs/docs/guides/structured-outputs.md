@@ -83,6 +83,7 @@ To use a Pydantic Model:
     ```python title="pydantic_books.py"
     from pydantic import BaseModel, ConfigDict, Field
 
+
     class BookRecommendation(BaseModel):
         model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -149,6 +150,7 @@ The **`fast-agent`** API supports using either a Pydantic Model or JSON Schema:
 
     fast = FastAgent("Pydantic Model Example", quiet=True)
 
+
     @fast.agent("city", instruction="Return accurate tourist information.")
     async def main() -> None:
         async with fast.run() as agent:
@@ -163,7 +165,6 @@ The **`fast-agent`** API supports using either a Pydantic Model or JSON Schema:
 
     if __name__ == "__main__":
         asyncio.run(main())
-
     ```
 
 === "Schema"
@@ -223,7 +224,6 @@ The **`fast-agent`** API supports using either a Pydantic Model or JSON Schema:
 
     if __name__ == "__main__":
         asyncio.run(main())
-
     ```
 
 ## ACP (Agent Client Protocol)

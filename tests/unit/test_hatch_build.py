@@ -10,6 +10,10 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
+class _PluginInterfaceModule(types.ModuleType):
+    BuildHookInterface: type[object]
+
+
 def _load_hatch_build_module() -> "ModuleType":
     module_path = Path(__file__).resolve().parents[2] / "hatch_build.py"
     spec = importlib.util.spec_from_file_location("hatch_build_module", module_path)
@@ -17,12 +21,12 @@ def _load_hatch_build_module() -> "ModuleType":
     loader = spec.loader
     assert loader is not None
 
-    plugin_interface = types.ModuleType("hatchling.builders.hooks.plugin.interface")
+    plugin_interface = _PluginInterfaceModule("hatchling.builders.hooks.plugin.interface")
 
-    class BuildHookInterface:  # noqa: D101
+    class BuildHookInterface:
         pass
 
-    setattr(plugin_interface, "BuildHookInterface", BuildHookInterface)
+    plugin_interface.BuildHookInterface = BuildHookInterface
     sys.modules.setdefault("hatchling", types.ModuleType("hatchling"))
     sys.modules.setdefault("hatchling.builders", types.ModuleType("hatchling.builders"))
     sys.modules.setdefault("hatchling.builders.hooks", types.ModuleType("hatchling.builders.hooks"))

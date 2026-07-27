@@ -18,6 +18,7 @@ These utilities are intended for both production diagnostics and safe, repeatabl
 ```python
 from fast_agent.hooks import show_hook_message
 
+
 async def before_llm_call(ctx: HookContext) -> None:
     show_hook_message(
         ctx,

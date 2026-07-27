@@ -146,15 +146,15 @@ We can then send messages to the Agent:
 
 ```python
 async with fast.run() as agent:
-  moon_size = await agent("the moon")
-  print(moon_size)
+    moon_size = await agent("the moon")
+    print(moon_size)
 ```
 
 Or start an interactive chat with the Agent:
 
 ```python
 async with fast.run() as agent:
-  await agent.interactive()
+    await agent.interactive()
 ```
 
 Here is the complete `sizer.py` Agent application, with boilerplate code:
@@ -166,12 +166,12 @@ from fast_agent import FastAgent
 # Create the application
 fast = FastAgent("Agent Example")
 
-@fast.agent(
-  instruction="Given an object, respond only with an estimate of its size."
-)
+
+@fast.agent(instruction="Given an object, respond only with an estimate of its size.")
 async def main():
-  async with fast.run() as agent:
-    await agent.interactive()
+    async with fast.run() as agent:
+        await agent.interactive()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -202,7 +202,7 @@ Agents can be chained to build a workflow, using MCP Servers defined in the `fas
 @fast.agent(
     "url_fetcher",
     "Given a URL, provide a complete and comprehensive summary",
-    servers=["fetch"], # Name of an MCP Server defined in fast-agent.yaml
+    servers=["fetch"],  # Name of an MCP Server defined in fast-agent.yaml
 )
 @fast.agent(
     "social_media",
@@ -240,20 +240,20 @@ MAKER (“Massively decomposed Agentic processes with K-voting Error Reduction�
 
 ```python
 @fast.agent(
-  name="classifier",
-  instruction="Reply with only: A, B, or C.",
+    name="classifier",
+    instruction="Reply with only: A, B, or C.",
 )
 @fast.maker(
-  name="reliable_classifier",
-  worker="classifier",
-  k=3,
-  max_samples=25,
-  match_strategy="normalized",
-  red_flag_max_length=16,
+    name="reliable_classifier",
+    worker="classifier",
+    k=3,
+    max_samples=25,
+    match_strategy="normalized",
+    red_flag_max_length=16,
 )
 async def main():
-  async with fast.run() as agent:
-    await agent.reliable_classifier.send("Classify: ...")
+    async with fast.run() as agent:
+        await agent.reliable_classifier.send("Classify: ...")
 ```
 
 ### Agents As Tools
@@ -600,10 +600,12 @@ Register Python functions as tools directly in code — no MCP server or externa
 @fast.agent(name="writer", instruction="You write things.")
 async def writer(): ...
 
+
 @writer.tool
 def translate(text: str, language: str) -> str:
     """Translate text to the given language."""
     return f"[{language}] {text}"
+
 
 @writer.tool(name="summarize", description="Produce a one-line summary")
 def summarize(text: str) -> str:
@@ -629,11 +631,11 @@ Agents with `@agent.tool` or `function_tools=` only see their own tools — glob
 Add Resources to prompts using either the inbuilt `prompt-server` or MCP Types directly. Convenience class are made available to do so simply, for example:
 
 ```python
-  summary: str =  await agent.with_resource(
-      "Summarise this PDF please",
-      "mcp_server",
-      "resource://fast-agent/sample.pdf",
-  )
+summary: str = await agent.with_resource(
+    "Summarise this PDF please",
+    "mcp_server",
+    "resource://fast-agent/sample.pdf",
+)
 ```
 
 #### MCP Tool Result Conversion

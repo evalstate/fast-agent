@@ -164,12 +164,8 @@ mcp:
 `agent_two` then references the server in its definition:
 
 ```python title="agent_two.py" linenums="10" hl_lines="4"
-
 # Define the agent
-@fast.agent(name="agent_two",
-            instruction="You are a helpful AI Agent",
-            servers=["agent_one"])
-
+@fast.agent(name="agent_two", instruction="You are a helpful AI Agent", servers=["agent_one"])
 async def main():
     # use the --model command line switch or agent arguments to change model
     async with fast.run() as agent:

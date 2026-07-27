@@ -1,4 +1,3 @@
-import types
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -33,11 +32,8 @@ def _build_llm(config: Settings) -> GoogleNativeLLM:
 
 def test_vertex_cfg_accepts_model_object_and_expands_model_names() -> None:
     """Vertex config may arrive as a pydantic model with a custom attr object."""
-    google_settings = GoogleSettings()
-    setattr(
-        google_settings,
-        "vertex_ai",
-        types.SimpleNamespace(enabled=True, project_id="proj", location="loc"),
+    google_settings = GoogleSettings.model_validate(
+        {"vertex_ai": {"enabled": True, "project_id": "proj", "location": "loc"}}
     )
     config = Settings(google=google_settings)
 

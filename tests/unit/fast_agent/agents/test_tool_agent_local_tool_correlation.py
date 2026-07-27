@@ -46,9 +46,7 @@ class LocalToolCallSimulator(PassthroughLLM):
 class ToolExecutionSimulator(NoOpToolExecutionHandler):
     def __init__(self) -> None:
         self.starts: list[tuple[str, str | None]] = []
-        self.completions: list[
-            tuple[str, bool, list[ContentBlock] | None, str | None]
-        ] = []
+        self.completions: list[tuple[str, bool, list[ContentBlock] | None, str | None]] = []
 
     async def on_tool_start(
         self,
@@ -190,6 +188,4 @@ async def test_native_error_result_reports_failed_tool_completion() -> None:
 
     assert result.isError is True
     assert handler.starts == [("error_tool", "error-call")]
-    assert handler.completions == [
-        ("local-error_tool", False, None, "simulated tool failure")
-    ]
+    assert handler.completions == [("local-error_tool", False, None, "simulated tool failure")]

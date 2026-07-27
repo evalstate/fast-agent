@@ -526,7 +526,7 @@ class InteractivePrompt:
 
         session_id = current_session.info.name
         message = Text(f"{lead}exiting fast-agent session.\nResume with: ", style="red")
-        message.append(f"fast-agent resume {session_id}", style="bold red")
+        message.append(f"fast-agent --resume {session_id}", style="bold red")
         rich_print(message)
 
     def _handle_ctrl_c_interrupt(

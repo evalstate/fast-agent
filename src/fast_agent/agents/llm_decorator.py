@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from fast_agent.agents.tool_runner import ToolRunnerHooks
     from fast_agent.hooks.lifecycle_hook_loader import AgentLifecycleHooks
     from fast_agent.hooks.lifecycle_hook_types import LifecycleHookType
+    from fast_agent.session.trajectory import TrajectoryRecord
 
 from a2a.types import AgentCard
 from mcp import ListToolsResult, Tool
@@ -204,6 +205,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._llm_attach_kwargs: dict[str, Any] | None = None
         self._lifecycle_hooks: "AgentLifecycleHooks | None" = None
         self._session_history_persistence_enabled = True
+        self._subagent_usage_accumulator = UsageAccumulator()
+        self._capture_subagent_trajectories = False
+        self._subagent_trajectory_records: list["TrajectoryRecord"] = []
 
     @property
     def context(self) -> Context | None:
@@ -455,6 +459,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """Hook for subclasses/mixins to supply constructor kwargs when cloning."""
         return {}
 
+    def _clone_config(self) -> AgentConfig:
+        """Return the instance-local config used to construct a clone."""
+        return deepcopy(self.config)
+
     async def spawn_detached_instance(self, *, name: str | None = None) -> Self:
         """Create a detached agent that preserves the current clone behavior."""
         return await self._spawn_detached_instance(
@@ -485,9 +493,11 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     ) -> Self:
         """Create a fresh agent instance with its own MCP/LLM stack."""
 
-        new_config = deepcopy(self.config)
+        new_config = self._clone_config()
         if name:
             new_config.name = name
+        if not copy_hooks:
+            new_config.lifecycle_hooks = None
 
         constructor_kwargs = self._clone_constructor_kwargs()
         clone = type(self)(config=new_config, context=self.context, **constructor_kwargs)
@@ -537,6 +547,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
                     **attach_kwargs,
                 )
 
+            from fast_agent.core.instruction_refresh import McpInstructionCapable
+            from fast_agent.core.instruction_utils import apply_instruction_context
+
+            if isinstance(self, McpInstructionCapable) and isinstance(clone, McpInstructionCapable):
+                await apply_instruction_context([clone], self.instruction_context)
+
             return clone
         except BaseException:
             try:
@@ -567,6 +583,39 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             except AttributeError:
                 # Fallback if turn doesn't provide model_copy
                 target_usage.add_turn(turn)
+
+    def merge_subagent_usage_from(self, other: "LlmAgent") -> None:
+        """Merge child usage into totals while retaining a delegated subtotal."""
+
+        source_usage = other.usage_accumulator
+        if source_usage is None:
+            return
+
+        self.merge_usage_from(other)
+        for turn in source_usage.turns:
+            self._subagent_usage_accumulator.add_turn(turn.model_copy(deep=True))
+
+    @property
+    def subagent_usage_accumulator(self) -> UsageAccumulator:
+        """Usage incurred by built-in subagents and included in the agent total."""
+
+        return self._subagent_usage_accumulator
+
+    def enable_subagent_trajectory_capture(self) -> None:
+        """Retain sessionless built-in subagent traces for live export."""
+
+        self._capture_subagent_trajectories = True
+
+    @property
+    def subagent_trajectory_capture_enabled(self) -> bool:
+        return self._capture_subagent_trajectories
+
+    def record_subagent_trajectory(self, record: "TrajectoryRecord") -> None:
+        self._subagent_trajectory_records.append(record)
+
+    @property
+    def subagent_trajectory_records(self) -> tuple["TrajectoryRecord", ...]:
+        return tuple(self._subagent_trajectory_records)
 
     async def __call__(
         self,
@@ -722,6 +771,8 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         if not self._llm:
             return
         self._llm.clear(clear_prompts=clear_prompts)
+        self._subagent_usage_accumulator.reset()
+        self._subagent_trajectory_records.clear()
         if clear_prompts:
             self._message_history = []
         else:
@@ -1364,15 +1415,23 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
         """Replace message history with a deep copy of supplied messages (or empty list)."""
+        from fast_agent.history.compaction import normalize_compaction_notice
+
         msgs = messages or []
         self._message_history = [msg.model_copy(deep=True) for msg in msgs]
+        for message in self._message_history:
+            normalize_compaction_notice(message)
 
     def append_history(self, messages: list[PromptMessageExtended] | None) -> None:
         """Append messages to history as deep copies."""
         if not messages:
             return
+        from fast_agent.history.compaction import normalize_compaction_notice
+
         for msg in messages:
-            self._message_history.append(msg.model_copy(deep=True))
+            copied = msg.model_copy(deep=True)
+            normalize_compaction_notice(copied)
+            self._message_history.append(copied)
 
     def pop_last_message(self) -> PromptMessageExtended | None:
         """Remove and return the most recent message from the conversation history."""

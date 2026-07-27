@@ -2,7 +2,7 @@ import asyncio
 import io
 import json
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import pytest
 from fastmcp.exceptions import ValidationError
@@ -16,6 +16,8 @@ from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.subagent_tool import (
     SUBAGENT_TOOL_NAME,
     _default_progress_display,
+    _finalize_subagent_run,
+    _SubagentMonitorCoordinator,
     install_subagent_tool,
 )
 from fast_agent.agents.tool_agent import ToolAgent
@@ -23,6 +25,7 @@ from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks
 from fast_agent.constants import FAST_AGENT_SUBAGENT_RESULT_METADATA, FAST_AGENT_TOOL_METADATA
 from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.event_progress import ProgressAction, ProgressEvent
 from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
 from fast_agent.llm.internal.passthrough import PassthroughLLM
@@ -36,6 +39,8 @@ from fast_agent.llm.usage_tracking import (
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.session import (
+    Session,
+    SessionChildLinkSnapshot,
     SessionManager,
     load_session_snapshot,
     reset_session_manager,
@@ -327,7 +332,7 @@ class ToolUsingLLM(PassthroughLLM):
 
 
 class TrackingToolAgent(ToolAgent):
-    instances: list["TrackingToolAgent"] = []
+    instances: ClassVar[list["TrackingToolAgent"]] = []
 
     def __init__(self, config: AgentConfig, context: Context | None = None) -> None:
         super().__init__(config, context=context)
@@ -337,6 +342,13 @@ class TrackingToolAgent(ToolAgent):
     async def shutdown(self) -> None:
         self.shutdown_called = True
         await super().shutdown()
+
+
+class SlowSaveSession(Session):
+    async def save_history(self, *args: Any, **kwargs: Any) -> str:
+        del args, kwargs
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
 
 
 def inspecting_factory(created: list[InspectingLLM]) -> Callable[..., FastAgentLLMProtocol]:
@@ -391,6 +403,10 @@ async def test_subagent_inherits_tools_without_recursion_or_parent_hooks() -> No
     assert "hooks=True" in text
     assert parent_hook_calls == 0
     assert len(created) == 2
+    assert parent.usage_accumulator is not None
+    assert parent.usage_accumulator.summary.prompt.total == 3
+    assert parent.subagent_usage_accumulator.summary.prompt.total == 3
+    assert parent.subagent_usage_accumulator.summary.completion.total == 2
 
 
 @pytest.mark.unit
@@ -406,6 +422,63 @@ async def test_detached_instance_accepts_model_override() -> None:
         assert clone.llm.resolved_model.selected_model_name == "playback"
     finally:
         await clone.shutdown()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_isolated_clone_rebuilds_instruction_for_child_context_and_model() -> None:
+    parent = McpAgent(
+        AgentConfig(
+            "parent",
+            instruction="environment={{env}} model={{model_specific}}",
+        )
+    )
+    await parent.attach_llm(lambda agent, **kwargs: InspectingLLM(agent, **kwargs))
+    parent.set_instruction_context({"env": "sandbox", "model_specific": "parent-only"})
+    await rebuild_agent_instruction(parent)
+    assert parent.instruction == "environment=sandbox model=parent-only"
+
+    clone = await parent.spawn_isolated_instance(model="playback")
+    try:
+        assert clone.instruction == "environment=sandbox model="
+        assert "{{env}}" not in clone.instruction
+        assert "parent-only" not in clone.instruction
+    finally:
+        await clone.shutdown()
+        await parent.shutdown()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_isolated_clone_does_not_run_parent_lifecycle_hooks(tmp_path) -> None:
+    marker = tmp_path / "isolated-hook-ran"
+    hook_file = tmp_path / "isolated_hooks.py"
+    hook_file.write_text(
+        f"""
+from pathlib import Path
+
+async def record_hook(ctx):
+    Path({str(marker)!r}).write_text(ctx.hook_type, encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+    parent = ToolAgent(
+        AgentConfig(
+            "parent",
+            lifecycle_hooks={
+                "on_start": f"{hook_file}:record_hook",
+                "on_shutdown": f"{hook_file}:record_hook",
+            },
+        )
+    )
+    await parent.attach_llm(lambda agent, **kwargs: InspectingLLM(agent, **kwargs))
+
+    clone = await parent.spawn_isolated_instance()
+    await clone.shutdown()
+
+    assert not marker.exists()
+    await parent.shutdown()
+    assert marker.read_text(encoding="utf-8") == "on_shutdown"
 
 
 @pytest.mark.unit
@@ -428,6 +501,77 @@ async def test_incomplete_isolated_clone_is_shutdown() -> None:
     child = TrackingToolAgent.instances[-1]
     assert child is not parent
     assert child.shutdown_called
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_finalization_timeout_still_releases_clone_and_merges_usage(tmp_path) -> None:
+    created: list[InspectingLLM] = []
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    parent_session = manager.create_session()
+    persisted_child = manager.create_child_session(
+        parent_session,
+        SessionChildLinkSnapshot(
+            parent_session_id=parent_session.info.name,
+            parent_agent_name="parent",
+            parent_tool_call_id="parent-call",
+        ),
+    )
+    child_session = SlowSaveSession(
+        persisted_child.info,
+        persisted_child.directory,
+        manager=manager,
+    )
+    parent = ToolAgent(AgentConfig("parent"))
+    clone = TrackingToolAgent(AgentConfig("parent[child]"))
+    await parent.attach_llm(inspecting_factory(created))
+    await clone.attach_llm(inspecting_factory(created))
+    clone.load_message_history([Prompt.user("persist me")])
+    assert clone.usage_accumulator is not None
+    clone.usage_accumulator.add_turn(
+        TurnUsage(
+            provider=Provider.FAST_AGENT,
+            usage_schema=UsageSchema.OPENAI_CHAT,
+            model="passthrough",
+            prompt=PromptTokenUsage(total=3),
+            completion=CompletionTokenUsage(total=2),
+        )
+    )
+    monitor = _SubagentMonitorCoordinator(
+        display=RecordingProgressDisplay(),
+        parent_name=parent.name,
+    )
+    progress = monitor.start(
+        label="child",
+        child_name=clone.name,
+        parent_tool_call_id="parent-call",
+    )
+
+    with pytest.raises(TimeoutError):
+        await _finalize_subagent_run(
+            parent=parent,
+            clone=clone,
+            child_session=child_session,
+            child_name=clone.name,
+            status="completed",
+            progress=progress,
+            message="persist me",
+            requested_model=None,
+            label="child",
+            parent_tool_call_id="parent-call",
+            started_at="2026-07-26T00:00:00+00:00",
+            finalization_timeout_seconds=0.01,
+        )
+
+    assert clone.shutdown_called
+    assert parent.usage_accumulator is not None
+    assert parent.usage_accumulator.summary.prompt.total == 3
+    assert parent.subagent_usage_accumulator.summary.completion.total == 2
+    await parent.shutdown()
 
 
 @pytest.mark.unit
@@ -507,9 +651,7 @@ async def test_subagent_label_schema_and_tool_boundary_validation() -> None:
 @pytest.mark.unit
 def test_subagent_schema_and_description_follow_forced_model_config() -> None:
     normal = ToolAgent(AgentConfig("normal", subagents=True))
-    forced = ToolAgent(
-        AgentConfig("forced", subagents=True, subagent_model="passthrough")
-    )
+    forced = ToolAgent(AgentConfig("forced", subagents=True, subagent_model="passthrough"))
 
     assert install_subagent_tool(normal)
     assert install_subagent_tool(forced)
@@ -577,7 +719,9 @@ async def test_subagent_labels_are_generated_supplied_and_disambiguated() -> Non
         await parent.call_tool(SUBAGENT_TOOL_NAME, {"message": "supplied", "label": " scout "}),
         await parent.call_tool(SUBAGENT_TOOL_NAME, {"message": "duplicate", "label": "scout"}),
         await parent.call_tool(SUBAGENT_TOOL_NAME, {"message": "long", "label": "a" * 32}),
-        await parent.call_tool(SUBAGENT_TOOL_NAME, {"message": "long duplicate", "label": "a" * 32}),
+        await parent.call_tool(
+            SUBAGENT_TOOL_NAME, {"message": "long duplicate", "label": "a" * 32}
+        ),
     ]
     details = [
         result.meta[FAST_AGENT_SUBAGENT_RESULT_METADATA]
@@ -725,7 +869,11 @@ async def test_subagent_persists_last_turn_when_history_is_disabled(tmp_path) ->
             agent_name="parent",
             model_name="passthrough",
             provider="fast-agent",
-            history=[Prompt.user("root turn")],
+            history=[
+                Prompt.assistant(
+                    tool_calls={"tool-transient": _subagent_call("persist transient child turn")}
+                )
+            ],
             message_timestamps=(None,),
             parent_session_dir=parent_session.directory,
         )
@@ -736,6 +884,62 @@ async def test_subagent_persists_last_turn_when_history_is_disabled(tmp_path) ->
         "persist transient child turn" in str(step.message)
         for step in trajectory.subagent_trajectories[0].steps
     )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_sessionless_subagent_is_embedded_from_transient_capture() -> None:
+    async def lookup() -> str:
+        return "found"
+
+    parent = ToolAgent(
+        AgentConfig("parent", model="passthrough", subagents=True),
+        [lookup],
+    )
+    await parent.attach_llm(lambda agent, **kwargs: ToolUsingLLM(name=agent.name, **kwargs))
+    parent.enable_subagent_trajectory_capture()
+    assert install_subagent_tool(parent)
+    request = Prompt.assistant(
+        tool_calls={"parent-call": _subagent_call("inspect without a session", "inspector")}
+    )
+
+    result = await parent.run_tools(request)
+
+    assert len(parent.subagent_trajectory_records) == 1
+    trajectory = build_atif_trajectory(
+        AtifRunSource(
+            session_id="run-sessionless",
+            agent_name=parent.name,
+            model_name="passthrough",
+            provider="fast-agent",
+            history=[request, result],
+            message_timestamps=(None, None),
+            transient_child_trajectories=parent.subagent_trajectory_records,
+        )
+    )
+    assert trajectory.subagent_trajectories is not None
+    assert len(trajectory.subagent_trajectories) == 1
+    child = trajectory.subagent_trajectories[0]
+    assert child.agent.model_name == "passthrough"
+    assert child.extra is not None
+    assert child.extra["persistence"] == "transient"
+    assert child.extra["parent_tool_call_id"] == "parent-call"
+    assert child.extra["model"] == "passthrough"
+    assert child.extra["provider"] == "fast-agent"
+    assert any(
+        step.tool_calls is not None
+        and any(call.function_name == "lookup" for call in step.tool_calls)
+        for step in child.steps
+    )
+    parent_observation = next(
+        step.observation for step in trajectory.steps if step.observation is not None
+    )
+    assert parent_observation.results[0].subagent_trajectory_ref is not None
+    assert (
+        parent_observation.results[0].subagent_trajectory_ref[0].trajectory_id
+        == child.trajectory_id
+    )
+    await parent.shutdown()
 
 
 @pytest.mark.unit
@@ -758,10 +962,7 @@ async def test_isolated_subagent_does_not_persist_to_parent_session(tmp_path) ->
         context=Context(session_manager=manager),
     )
     await parent.attach_llm(
-        lambda agent, **kwargs: (
-            instances.append(agent)
-            or ToolUsingLLM(name=agent.name, **kwargs)
-        )
+        lambda agent, **kwargs: instances.append(agent) or ToolUsingLLM(name=agent.name, **kwargs)
     )
     assert install_subagent_tool(parent)
 
@@ -812,9 +1013,7 @@ async def test_subagent_persists_terminal_failure_and_cancellation(tmp_path) -> 
         )
         assert failed.isError
         failed_child_events = [
-            event
-            for event in failed_progress.events
-            if event.agent_name == "failing[brisk-otter]"
+            event for event in failed_progress.events if event.agent_name == "failing[brisk-otter]"
         ]
         assert failed_child_events[-1].action == ProgressAction.READY
         assert failed_child_events[-1].details == "failed"
@@ -882,7 +1081,9 @@ async def test_subagent_persists_terminal_failure_and_cancellation(tmp_path) -> 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_subagent_live_display_uses_chat_panels_and_preserves_result_metadata(tmp_path) -> None:
+async def test_subagent_live_display_uses_chat_panels_and_preserves_result_metadata(
+    tmp_path,
+) -> None:
     created: list[InspectingLLM] = []
     manager = SessionManager(
         cwd=tmp_path,
@@ -1001,9 +1202,7 @@ async def test_parallel_subagent_live_display_keeps_call_and_session_identity(tm
             "parent → subagent",
             "parent → subagent",
         ]
-        assert {
-            payload["name"] for event, payload in display.events if event == "assistant"
-        } == {
+        assert {payload["name"] for event, payload in display.events if event == "assistant"} == {
             "subagent: brisk-otter",
             "subagent: brisk-otter-2",
         }
@@ -1015,11 +1214,10 @@ async def test_parallel_subagent_live_display_keeps_call_and_session_identity(tm
             ).execution.child_link
             for child in children
         ]
-        assert {
-            link.parent_tool_call_id
-            for link in child_links
-            if link is not None
-        } == {"call-a", "call-b"}
+        assert {link.parent_tool_call_id for link in child_links if link is not None} == {
+            "call-a",
+            "call-b",
+        }
     finally:
         reset_session_manager()
 
@@ -1230,9 +1428,7 @@ async def test_unmanaged_mcp_tool_named_subagent_keeps_generic_display() -> None
     agent.display = display
 
     result = await agent.run_tools(
-        Prompt.assistant(
-            tool_calls={"ordinary-call": _subagent_call("not a built-in")}
-        )
+        Prompt.assistant(tool_calls={"ordinary-call": _subagent_call("not a built-in")})
     )
 
     assert result.tool_results is not None
@@ -1275,6 +1471,7 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
     assert details["parent_tool_call_id"] == "parent-call"
 
     events = [event for event in progress.events if event.agent_name == "parent[brisk-otter]"]
+    assert "parent[brisk-otter]" in progress._folded_agent_progress
     assert events[0].action == ProgressAction.RUNNING
     assert events[0].target == "brisk-otter"
     assert events[0].details == "turn 0 · starting · in 0 out 0 cache 0 · tools 0"
@@ -1358,10 +1555,7 @@ async def test_parallel_subagent_monitor_rows_have_distinct_identity_and_cleanup
             rows_by_name.setdefault(event.agent_name, []).append(event)
 
     assert set(rows_by_name) == {"parent[brisk-otter]", "parent[brisk-otter-2]"}
-    assert {
-        events[0].correlation_id
-        for events in rows_by_name.values()
-    } == {"call-a", "call-b"}
+    assert {events[0].correlation_id for events in rows_by_name.values()} == {"call-a", "call-b"}
     assert all(events[0].action == ProgressAction.RUNNING for events in rows_by_name.values())
     assert all(
         events[0].details == "turn 0 · starting · in 0 out 0 cache 0 · tools 0"

@@ -378,8 +378,10 @@ def _enable_atif_child_capture(agent_app: Any, request: AgentRunRequest) -> None
     from fast_agent.agents.llm_agent import LlmAgent
 
     for agent in agent_app.registered_agents().values():
-        if isinstance(agent, LlmAgent) and not agent.config.use_history:
-            agent.config.save_trajectory = True
+        if isinstance(agent, LlmAgent):
+            agent.enable_subagent_trajectory_capture()
+            if not agent.config.use_history:
+                agent.config.save_trajectory = True
 
 
 def _live_atif_session_id(
@@ -442,6 +444,7 @@ async def _export_live_atif_trajectory(
     if request.trajectory_output is None:
         return
 
+    from fast_agent.agents.llm_agent import LlmAgent
     from fast_agent.session.trace_export_atif import (
         AtifRunSource,
         build_atif_trajectory,
@@ -488,6 +491,9 @@ async def _export_live_atif_trajectory(
             ),
             system_prompt=agent_obj.instruction,
             reasoning_effort=(reasoning_setting_telemetry_value(reasoning)),
+            transient_child_trajectories=(
+                agent_obj.subagent_trajectory_records if isinstance(agent_obj, LlmAgent) else ()
+            ),
         )
     )
     write_atif_trajectory(trajectory, request.trajectory_output.expanduser().resolve())
@@ -885,26 +891,24 @@ def _configure_stdio_server_console(request: AgentRunRequest) -> None:
 def _apply_cli_subagent_overrides(fast: Any, request: AgentRunRequest) -> None:
     """Apply CLI subagent policy after every generated or card agent is registered."""
     from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.core.subagent_policy import (
+        SubagentRuntimePolicy,
+        apply_subagent_runtime_policy,
+    )
 
+    policy = SubagentRuntimePolicy(
+        enabled=request.subagents,
+        model=request.subagent_model,
+    )
     for agent_data in fast.agents.values():
         config = agent_data.get("config")
         if not isinstance(config, AgentConfig):
             continue
-        if config.tool_only or agent_data.get("tool_only", False):
-            config.subagents = False
-            config.subagent_activation_source = None
-            continue
-        configuration_disables_subagents = (
-            config.subagents is False
-            and config.subagent_activation_source == "configuration"
+        apply_subagent_runtime_policy(
+            config,
+            policy,
+            tool_only=bool(agent_data.get("tool_only", False)),
         )
-        if request.subagents is not None:
-            if request.subagents and configuration_disables_subagents:
-                continue
-            config.subagents = request.subagents
-            config.subagent_activation_source = "cli"
-        if request.subagent_model is not None:
-            config.subagent_model = request.subagent_model
 
 
 def _build_fast_agent(request: AgentRunRequest):
@@ -940,6 +944,8 @@ def _apply_fast_args(
     fast.args.reload = request.reload
     fast.args.watch = request.watch
     fast.args.card_tools = request.card_tools
+    fast.args.subagents = request.subagents
+    fast.args.subagent_model = request.subagent_model
     fast.args.agent = request.target_agent_name or request.agent_name or "agent"
 
 
@@ -1315,6 +1321,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
         )
 
     else:
+
         @fast.agent(
             name=request.agent_name or "agent",
             instruction=instruction,

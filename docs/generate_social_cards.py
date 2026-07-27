@@ -378,6 +378,7 @@ def render(cards: list[PageCard]) -> int:
                     html_path.as_uri(),
                 ],
                 cwd=DOCS_DIR,
+                check=False,
             )
             if result.returncode != 0:
                 return result.returncode

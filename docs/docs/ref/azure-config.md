@@ -72,15 +72,17 @@ from fast_agent.core.fastagent import FastAgent
 # Create the application
 fast = FastAgent("Azure OpenAI Example")
 
+
 # Define the agent using Azure OpenAI deployment
 @fast.agent(
     instruction="You are a helpful AI assistant powered by Azure OpenAI Service",
-    model="azure.my-deployment"
+    model="azure.my-deployment",
 )
 async def main():
     async with fast.run() as agent:
         # Start interactive prompt
         await agent()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

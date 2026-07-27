@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
@@ -15,9 +15,9 @@ from fast_agent.ui import history_actions
 
 
 class _CaptureDisplay:
-    events: list[str] = []
-    tool_call_metadata: list[dict[str, object] | None] = []
-    tool_calls: list[dict[str, object]] = []
+    events: ClassVar[list[str]] = []
+    tool_call_metadata: ClassVar[list[dict[str, object] | None]] = []
+    tool_calls: ClassVar[list[dict[str, object]]] = []
 
     def __init__(self, config=None) -> None:
         del config

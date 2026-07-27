@@ -6,7 +6,7 @@ import sys
 import time
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import IO, TYPE_CHECKING, Any, Protocol, TextIO, cast
+from typing import IO, TYPE_CHECKING, Any, Protocol, TextIO, cast, runtime_checkable
 
 from rich.console import Console, Group, RenderHook
 from rich.control import Control
@@ -66,10 +66,18 @@ _STREAM_HEADER_AND_MARGIN_LINES = 3
 _MISSING_CONSOLE_WIDTH = object()
 
 
+@runtime_checkable
+class _ConsoleWithAttributes(Protocol):
+    __dict__: dict[str, object]
+
+
 def _apply_console_width_override(target_console: object, width_override: int | None) -> object:
-    original_width = getattr(target_console, "_width", _MISSING_CONSOLE_WIDTH)
+    if not isinstance(target_console, _ConsoleWithAttributes):
+        raise TypeError("Console width overrides require an attribute dictionary")
+    attributes = target_console.__dict__
+    original_width = attributes.get("_width", _MISSING_CONSOLE_WIDTH)
     if width_override is not None:
-        setattr(target_console, "_width", width_override)
+        attributes["_width"] = width_override
     return original_width
 
 
@@ -81,11 +89,13 @@ def _restore_console_width_override(
 ) -> None:
     if width_override is None:
         return
+    if not isinstance(target_console, _ConsoleWithAttributes):
+        raise TypeError("Console width overrides require an attribute dictionary")
+    attributes = target_console.__dict__
     if original_width is not _MISSING_CONSOLE_WIDTH:
-        setattr(target_console, "_width", original_width)
+        attributes["_width"] = original_width
         return
-    with suppress(AttributeError):
-        delattr(target_console, "_width")
+    attributes.pop("_width", None)
 
 
 def _resolve_progress_resume_debounce_seconds() -> float:

@@ -29,12 +29,7 @@ You can attach files by using `Prompt.user()` method to construct your message:
 from fast_agent import Prompt
 from pathlib import Path
 
-plans: str = await agent.send(
-    Prompt.user(
-        "Summarise this PDF",
-        Path("secret-plans.pdf")
-    )
-)
+plans: str = await agent.send(Prompt.user("Summarise this PDF", Path("secret-plans.pdf")))
 ```
 
 `Prompt.user()` automatically converts content to the appropriate MCP Type. For example, `image/png` becomes `ImageContent` and `application/pdf` becomes an EmbeddedResource.
@@ -45,16 +40,9 @@ You can also use MCP Types directly - for example:
 from mcp.types import ImageContent, TextContent
 
 mcp_text: TextContent = TextContent(type="text", text="Analyse this image.")
-mcp_image: ImageContent = ImageContent(type="image", 
-                          mimeType="image/png",
-                          data=base_64_encoded)
+mcp_image: ImageContent = ImageContent(type="image", mimeType="image/png", data=base_64_encoded)
 
-response: str  = await agent.send(
-    Prompt.user(
-        mcp_text,
-        mcp_image
-    )
-)
+response: str = await agent.send(Prompt.user(mcp_text, mcp_image))
 ```
 
 > Note: use `Prompt.assistant()` to produce messages for the `assistant` role.
@@ -84,9 +72,7 @@ This is particularly useful when working with multimodal responses or tool outpu
 
 ```python
 # Generate a response that might include multiple content types
-response = await agent.generate([
-    Prompt.user("Analyze this image", Path("chart.png"))
-])
+response = await agent.generate([Prompt.user("Analyze this image", Path("chart.png"))])
 
 for content in response.content:
     if content.type == "text":
@@ -103,7 +89,7 @@ You can also use `generate()` for multi-turn conversations by passing multiple m
 messages = [
     Prompt.user("What is the capital of France?"),
     Prompt.assistant("The capital of France is Paris."),
-    Prompt.user("And what is its population?")
+    Prompt.user("And what is its population?"),
 ]
 
 response = await agent.generate(messages)
@@ -119,6 +105,7 @@ When you need the agent to return data in a specific format, use the `structured
 from pydantic import BaseModel
 from typing import List
 
+
 # Define your expected response structure
 class CityInfo(BaseModel):
     name: str
@@ -126,11 +113,9 @@ class CityInfo(BaseModel):
     population: int
     landmarks: List[str]
 
+
 # Request structured information
-result, message = await agent.structured(
-    [Prompt.user("Tell me about Paris")], 
-    CityInfo
-)
+result, message = await agent.structured([Prompt.user("Tell me about Paris")], CityInfo)
 
 # Now you have strongly typed data
 if result:
@@ -172,10 +157,7 @@ The `structured()` method provides the same request parameter options as `genera
 Apply a Prompt from an MCP Server to the agent with:
 
 ```python
-response: str = await agent.apply_prompt(
-    "setup_sizing",
-    arguments={"units": "metric"}
-)
+response: str = await agent.apply_prompt("setup_sizing", arguments={"units": "metric"})
 ```
 
 You can list and get Prompts from attached MCP Servers:
@@ -203,11 +185,9 @@ response: str = await agent.send(first_message)
 from mcp.types import ReadResourceResult
 
 resource: ReadResourceResult = await agent.get_resource(
-    "resource://images/cat.png", "mcp_server_name" 
+    "resource://images/cat.png", "mcp_server_name"
 )
-response: str = await agent.send(
-    Prompt.user("What is in this image?", resource)
-)
+response: str = await agent.send(Prompt.user("What is in this image?", resource))
 ```
 
 Alternatively, use the _with_resource_ convenience method:
@@ -218,7 +198,6 @@ response: str = await agent.with_resource(
     "resource://images/cat.png",
     "mcp_server_name",
 )
-
 ```
 
 ## Prompt Files

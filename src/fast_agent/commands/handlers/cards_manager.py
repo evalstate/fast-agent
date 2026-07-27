@@ -717,8 +717,10 @@ async def handle_publish_card_pack(
         add_info_messages(
             outcome,
             [
-                "Publish with `/cards publish <number|name> [--no-push] [--message ...] "
-                "[--temp-dir <path>] [--keep-temp]`."
+                (
+                    "Publish with `/cards publish <number|name> [--no-push] [--message ...] "
+                    "[--temp-dir <path>] [--keep-temp]`."
+                )
             ],
             right_info="cards",
             agent_name=agent_name,

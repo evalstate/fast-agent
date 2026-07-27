@@ -1104,7 +1104,7 @@ def _model_references_completions(
         return results
 
     if (not current_token and alias_argument.endswith(" ")) or current_token.startswith("--"):
-        alias_flags = {
+        alias_flags: dict[str, str] = {
             "--target": "choose write target (env|project)",
             "--dry-run": "preview changes without writing",
         }

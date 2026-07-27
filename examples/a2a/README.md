@@ -125,6 +125,23 @@ A2A `context_id` is passed as the harness `session_id`, so follow-up refinement
 and the eventual research task share the same fast-agent session. Harness
 session files are stored under `research/.fast-agent/sessions/`.
 
+By default the research worker runs in the same harness execution environment as
+the intake server. To create one Hugging Face Sandbox execution environment per
+accepted A2A task, provide a writable bucket:
+
+```bash
+FAST_AGENT_RESEARCH_HF_BUCKET=<namespace>/<bucket> \
+uv run python examples/a2a/research/server.py
+```
+
+The server creates the bucket if needed, mounts a task-scoped prefix at
+`/workspace`, runs the research worker in a fresh sandbox harness, and reports
+the attached bucket path through the A2A progress artifact. Useful optional
+settings are `FAST_AGENT_RESEARCH_HF_IMAGE`, `FAST_AGENT_RESEARCH_HF_FLAVOR`,
+`FAST_AGENT_RESEARCH_HF_TOKEN`, `FAST_AGENT_RESEARCH_HF_NAMESPACE`,
+`FAST_AGENT_RESEARCH_HF_FORWARD_TOKEN`, `FAST_AGENT_RESEARCH_HF_CREATE_BUCKET`,
+and `FAST_AGENT_RESEARCH_HF_BUCKET_PRIVATE`.
+
 For a Hugging Face Space deployment with OAuth, set:
 
 ```bash

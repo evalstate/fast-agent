@@ -190,7 +190,7 @@ async def test_passthrough_uses_structured_content_for_tool_result_text() -> Non
         content=[text_content("stale summary")],
         isError=False,
     )
-    setattr(tool_result, "structuredContent", {"b": 2, "a": 1})
+    tool_result.structuredContent = {"b": 2, "a": 1}
     message = PromptMessageExtended(role="user", content=[], tool_results={"call_1": tool_result})
 
     result = await llm._apply_prompt_provider_specific([message])

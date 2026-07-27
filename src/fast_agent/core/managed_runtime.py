@@ -28,6 +28,7 @@ from fast_agent.core.runtime_finalization import (
     session_restore_warnings,
     validate_final_provider_state,
 )
+from fast_agent.core.subagent_policy import apply_subagent_runtime_policy
 from fast_agent.core.validation import get_agent_dependencies, get_dependencies_groups
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.tools.local_shell_executor import LocalEnvironment
@@ -153,6 +154,7 @@ class ManagedRuntimeMixin:
             resume_requested=settings.resume_requested,
             resume_session_id=settings.resume_session_id,
             target_agent_name=settings.target_agent_name,
+            subagent_policy=settings.subagent_policy,
             is_acp_server_mode=settings.is_acp_server_mode,
             no_home_mode=settings.no_home_mode,
             managed_instances=[],
@@ -254,6 +256,7 @@ class ManagedRuntimeMixin:
             await self._apply_instruction_context(instance, runtime.global_prompt_context)
 
         for agent in instance.agents.values():
+            apply_subagent_runtime_policy(agent.config, runtime.subagent_policy)
             install_subagent_tool(agent)
 
         restore_result = None
@@ -382,6 +385,7 @@ class ManagedRuntimeMixin:
             await apply_instruction_context(updated_agents.values(), runtime.global_prompt_context)
 
         for agent in updated_agents.values():
+            apply_subagent_runtime_policy(agent.config, runtime.subagent_policy)
             install_subagent_tool(agent)
 
         if not runtime.is_acp_server_mode:
@@ -763,7 +767,7 @@ class ManagedRuntimeMixin:
     async def _apply_card_tool_cli_option(
         self,
         state: "ManagedRunState",
-        refresh_callback: "Callable[[], Awaitable[AgentRefreshResult]]",
+        refresh_shared_instance: "Callable[[], Awaitable[AgentRefreshResult]]",
     ) -> None:
         card_tools = getattr(self.args, "card_tools", None)
         if not card_tools:
@@ -779,7 +783,7 @@ class ManagedRuntimeMixin:
             self._handle_error(exc)
             raise SystemExit(1) from exc
 
-        await refresh_callback()
+        await refresh_shared_instance()
 
 
 __all__ = ["ManagedRuntimeMixin"]

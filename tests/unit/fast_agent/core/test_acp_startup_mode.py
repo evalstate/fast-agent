@@ -42,11 +42,10 @@ if TYPE_CHECKING:
 class _Agent:
     def __init__(self, name: str, *, default: bool = True, instruction: str = "") -> None:
         self.name = name
-        self.config = SimpleNamespace(
+        self.config = AgentConfig(
             name=name,
             default=default,
             description=None,
-            tool_input_schema=None,
         )
         self.instruction = instruction
 

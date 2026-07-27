@@ -44,7 +44,6 @@ class _MutableLlm:
 class _Agent:
     name = "main"
     agent_type = "agent"
-    message_history = []
     usage_accumulator = None
     initialized = True
     instruction = ""
@@ -53,6 +52,7 @@ class _Agent:
     def __init__(self, llm: _MutableLlm, tools: list[Tool] | None = None) -> None:
         self.llm = llm
         self.tools = tools or []
+        self.message_history: list[object] = []
         self.config = SimpleNamespace(model=llm.model_name)
 
     async def list_tools(self) -> ListToolsResult:

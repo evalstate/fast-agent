@@ -83,6 +83,16 @@ def format_regular_turn_usage(usage: TurnUsageDisplay) -> str:
     return f"[dim]Last:[/dim] {format_turn_usage(usage)}"
 
 
+def format_regular_turn_usage_with_subagents(
+    usage: TurnUsageDisplay,
+    subagent_usage: TurnUsageDisplay,
+) -> list[str]:
+    return [
+        format_regular_turn_usage(usage),
+        f"[dim]  └─ subagents:[/dim] {format_turn_usage(subagent_usage)}",
+    ]
+
+
 def format_parallel_turn_usage(children: Sequence[NamedTurnUsageDisplay]) -> list[str]:
     total_input = sum(child.usage.input_tokens for child in children)
     cache_percentages = [child.usage.cache_percentage for child in children]
@@ -121,6 +131,16 @@ def display_regular_turn_usage(usage: TurnUsageDisplay) -> None:
     with progress_display.paused():
         rich_print()
         rich_print(format_regular_turn_usage(usage))
+
+
+def display_regular_turn_usage_with_subagents(
+    usage: TurnUsageDisplay,
+    subagent_usage: TurnUsageDisplay,
+) -> None:
+    with progress_display.paused():
+        rich_print()
+        for line in format_regular_turn_usage_with_subagents(usage, subagent_usage):
+            rich_print(line)
 
 
 def display_parallel_turn_usage(children: Sequence[NamedTurnUsageDisplay]) -> None:

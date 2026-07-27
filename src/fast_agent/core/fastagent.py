@@ -53,6 +53,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.managed_runtime import ManagedRuntimeMixin
 from fast_agent.core.prompt_templates import enrich_with_environment_context
 from fast_agent.core.run_runtime import FastAgentRunMixin
+from fast_agent.core.subagent_policy import SubagentRuntimePolicy
 from fast_agent.core.validation import validate_server_references, validate_workflow_references
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
@@ -100,6 +101,7 @@ class RunSettings:
     resume_requested: bool = False
     resume_session_id: str | None = None
     target_agent_name: str | None = None
+    subagent_policy: SubagentRuntimePolicy = SubagentRuntimePolicy()
 
 
 @dataclass
@@ -114,6 +116,7 @@ class RunRuntime:
     resume_requested: bool = False
     resume_session_id: str | None = None
     target_agent_name: str | None = None
+    subagent_policy: SubagentRuntimePolicy = SubagentRuntimePolicy()
 
 
 @dataclass
@@ -720,6 +723,10 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         target_agent_name = (
             target_agent_name_arg if isinstance(target_agent_name_arg, str) else None
         )
+        subagents_arg = getattr(self.args, "subagents", None)
+        subagents = subagents_arg if isinstance(subagents_arg, bool) else None
+        subagent_model_arg = getattr(self.args, "subagent_model", None)
+        subagent_model = subagent_model_arg if isinstance(subagent_model_arg, str) else None
 
         cfg = self.context.config
         model_source_override_arg = getattr(self.args, "model_source_override", None)
@@ -743,6 +750,10 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
             resume_requested=resume_requested,
             resume_session_id=resume_session_id,
             target_agent_name=target_agent_name,
+            subagent_policy=SubagentRuntimePolicy(
+                enabled=subagents,
+                model=subagent_model,
+            ),
             no_home_mode=no_home_mode,
             server_mode=server_mode,
             transport=transport,

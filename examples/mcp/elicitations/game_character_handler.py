@@ -73,7 +73,9 @@ async def game_character_elicitation_handler(
                 "Inspiring magical performer",
             ]
 
-            for i, (cls, name, desc) in enumerate(zip(class_enum, class_names, descriptions)):
+            for i, (cls, name, desc) in enumerate(
+                zip(class_enum, class_names, descriptions, strict=False)
+            ):
                 table.add_row(f"[{i + 1}]", name, desc)
 
             console.print(table)

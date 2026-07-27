@@ -80,8 +80,9 @@ async def test_download_remote_file_normalizes_content_type(
     expected_content_type: str | None,
 ) -> None:
     class _Response:
-        headers = {"content-type": header_value}
-        content = b"remote data"
+        def __init__(self) -> None:
+            self.headers = {"content-type": header_value}
+            self.content = b"remote data"
 
         def raise_for_status(self) -> None:
             return None
@@ -725,7 +726,7 @@ class TestOpenAIToolConverter(unittest.TestCase):
             ],
             isError=False,
         )
-        setattr(tool_result, "structuredContent", {"status": "fresh", "value": 3})
+        tool_result.structuredContent = {"status": "fresh", "value": 3}
 
         converted = OpenAIConverter.convert_tool_result_to_openai(
             tool_result=tool_result,

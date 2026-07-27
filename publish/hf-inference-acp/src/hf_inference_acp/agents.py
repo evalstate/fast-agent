@@ -403,7 +403,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "agent-cards").mkdir(parents=True, exist_ok=True)
             (target_dir / "tool-cards").mkdir(parents=True, exist_ok=True)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return f"Error resetting `{target_dir}`: {exc}"
 
         return (

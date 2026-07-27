@@ -261,6 +261,7 @@ class RichProgressDisplay:
         self._lock = RLock()
         self._taskmap: dict[str, TaskID] = {}
         self._task_kind: dict[str, str] = {}
+        self._folded_agent_progress: set[str] = set()
         _ensure_spinners()
         self._description_spinner = SpinnerDescriptionColumn(spinner_name=PROGRESS_SPINNER_NAME)
         self._progress = Progress(
@@ -477,6 +478,15 @@ class RichProgressDisplay:
                 agent_name=normalized_agent,
                 cleared=len(task_names),
             )
+
+    def fold_agent_progress(self, agent_name: str) -> None:
+        """Fold one agent's generic lifecycle rows into an external monitor row."""
+        normalized_agent = agent_name.strip()
+        if not normalized_agent:
+            return
+        with self._lock:
+            self._folded_agent_progress.add(normalized_agent)
+            self.clear_agent_tasks(normalized_agent)
 
     @contextmanager
     def paused(self):
@@ -853,12 +863,14 @@ class RichProgressDisplay:
 
     def update(self, event: ProgressEvent) -> None:
         """Update the progress display with a new event."""
-        if (
-            interactive_display_mode() == "monitor_only"
-            and event.tool_event != "subagent_monitor"
-        ):
+        if interactive_display_mode() == "monitor_only" and event.tool_event != "subagent_monitor":
             return
         with self._lock:
+            if (
+                event.agent_name in self._folded_agent_progress
+                and event.tool_event != "subagent_monitor"
+            ):
+                return
             # Skip updates when display is stopped
             if self._stopped:
                 self._trace("update.skipped_stopped", action=event.action.value)

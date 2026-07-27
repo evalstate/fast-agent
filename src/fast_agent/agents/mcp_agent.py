@@ -573,6 +573,15 @@ class McpAgent(ABC, ToolAgent):
         """The original instruction template with placeholders."""
         return self._instruction_template or ""
 
+    def set_instruction_template(self, instruction: str) -> None:
+        """Replace this instance's source instruction template."""
+        self._instruction_template = instruction
+
+    def _clone_config(self) -> AgentConfig:
+        config = super()._clone_config()
+        config.instruction = self.instruction_template
+        return config
+
     @property
     def instruction_context(self) -> dict[str, str]:
         """Context values for instruction template resolution."""

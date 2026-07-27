@@ -120,9 +120,7 @@ async def _run_lifecycle_hook(self, hook_type: Literal["on_start", "on_shutdown"
         await hook(ctx)
     except Exception as exc:  # noqa: BLE001
         if hook_type == "on_start":
-            raise AgentConfigError(
-                f"Lifecycle hook '{hook_type}' failed", str(exc)
-            ) from exc
+            raise AgentConfigError(f"Lifecycle hook '{hook_type}' failed", str(exc)) from exc
         logger.exception("Lifecycle hook failed during shutdown", hook_type=hook_type)
 ```
 

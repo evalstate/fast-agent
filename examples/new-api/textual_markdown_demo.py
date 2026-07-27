@@ -8,7 +8,7 @@ import json
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, ClassVar, Sequence
 
 from rich.console import Group
 from rich.markdown import Markdown
@@ -397,7 +397,7 @@ class MarkdownLLMApp(App[None]):
         margin: 1 2;
     }
     """
-    BINDINGS = [
+    BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
         ("r", "regenerate", "Regenerate"),
         ("q", "quit", "Quit"),
     ]

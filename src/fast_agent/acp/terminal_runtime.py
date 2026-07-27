@@ -618,9 +618,11 @@ class ACPTerminalRuntime:
             estimated_tokens = max(int(output_byte_limit / TERMINAL_BYTES_PER_TOKEN), 1)
             result_text = "\n".join(
                 [
-                    "[Output truncated by ACP terminal outputByteLimit: "
-                    f"{output_byte_limit} bytes (~{estimated_tokens} tokens). "
-                    "Client returned partial output only.]",
+                    (
+                        "[Output truncated by ACP terminal outputByteLimit: "
+                        f"{output_byte_limit} bytes (~{estimated_tokens} tokens). "
+                        "Client returned partial output only.]"
+                    ),
                     result_text,
                 ]
             )

@@ -67,7 +67,7 @@ class _FakeProvider:
     def __init__(self, display: _FakeDisplay) -> None:
         self._display = display
 
-    def _agent(self, agent_name: str) -> object:  # noqa: ARG002
+    def _agent(self, agent_name: str) -> object:
         return _FakeAgent(self._display)
 
     def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
@@ -83,7 +83,7 @@ class _FakeProvider:
     def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
         return agent_name or "alpha"
 
-    async def list_prompts(self, namespace: str | None, agent_name: str | None = None) -> object:  # noqa: ARG002
+    async def list_prompts(self, namespace: str | None, agent_name: str | None = None) -> object:
         return {}
 
 

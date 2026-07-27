@@ -5,7 +5,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import pytest
 from acp.exceptions import RequestError
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 class _Agent:
     instruction = ""
-    acp_commands: dict[str, object] = {}
+    acp_commands: ClassVar[dict[str, object]] = {}
 
     def __init__(self) -> None:
         self.config = SimpleNamespace(default=False)

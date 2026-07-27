@@ -44,6 +44,7 @@ def _run_apply_patch_scenario(scenario_dir: Path) -> None:
             ["uv", "run", "python", "-m", "fast_agent.patch.cli", patch],
             cwd=tmp_path,
             capture_output=True,
+            check=False,
             text=True,
         )
 

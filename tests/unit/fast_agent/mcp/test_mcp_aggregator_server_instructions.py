@@ -26,9 +26,9 @@ if not hasattr(enum, "StrEnum"):
 if "a2a" not in sys.modules:
     a2a_module = types.ModuleType("a2a")
     a2a_types_module = types.ModuleType("a2a.types")
-    setattr(a2a_types_module, "AgentCard", object)
-    setattr(a2a_types_module, "AgentSkill", object)
-    setattr(a2a_module, "types", a2a_types_module)
+    setattr(a2a_types_module, "AgentCard", object)  # noqa: B010
+    setattr(a2a_types_module, "AgentSkill", object)  # noqa: B010
+    setattr(a2a_module, "types", a2a_types_module)  # noqa: B010
     sys.modules["a2a"] = a2a_module
     sys.modules["a2a.types"] = a2a_types_module
 
@@ -36,6 +36,7 @@ spec = importlib.util.spec_from_file_location("fast_agent.mcp.mcp_aggregator", M
 if spec is None or spec.loader is None:
     raise RuntimeError("Failed to load mcp_aggregator module for testing")
 _module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = _module
 spec.loader.exec_module(_module)
 
 MCPAggregator = _module.MCPAggregator

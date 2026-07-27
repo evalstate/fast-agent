@@ -76,6 +76,12 @@ class _OpenResponsesStreamState:
     stream_event_index: int = 0
 
 
+@dataclass(slots=True)
+class _IncompleteToolEntry:
+    tool_name: str
+    tool_use_id: str
+
+
 class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
     if TYPE_CHECKING:
         from fast_agent.core.logging.logger import Logger
@@ -89,7 +95,9 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
             self, event_type: str, payload: dict[str, Any] | None = None
         ) -> None: ...
 
-        def _update_streaming_progress(self, chunk: str, model: str, current_total: int) -> int: ...
+        def _update_streaming_progress(
+            self, content: str, model: str, estimated_tokens: int
+        ) -> int: ...
 
         def _emit_stream_text_delta(
             self,
@@ -580,7 +588,10 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
             final_response=state.final_response,
             fetch_failure_message="Failed to fetch final Open Responses payload",
             use_exc_info_on_fetch_failure=False,
-            incomplete_entries=state.tool_state.incomplete(),
+            incomplete_entries=[
+                _IncompleteToolEntry(entry.tool_name, entry.tool_use_id)
+                for entry in state.tool_state.incomplete()
+            ],
             model=model,
             agent_name=self.name,
             chat_turn=self.chat_turn,

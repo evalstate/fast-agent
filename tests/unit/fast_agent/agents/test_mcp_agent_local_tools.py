@@ -1821,11 +1821,14 @@ async def test_parallel_shell_results_display_in_tool_call_order() -> None:
             else:
                 await asyncio.sleep(0.01)
 
-            result = CallToolResult(
+            class ShellToolResult(CallToolResult):
+                _suppress_display: bool = False
+
+            result = ShellToolResult(
                 content=[TextContent(type="text", text=f"{command}\nprocess exit code was 0")],
                 isError=False,
             )
-            setattr(result, "_suppress_display", not defer_display_to_tool_result)
+            result._suppress_display = not defer_display_to_tool_result
             return result
 
         async def call_tool(

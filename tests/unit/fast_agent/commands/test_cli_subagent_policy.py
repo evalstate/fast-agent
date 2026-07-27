@@ -84,6 +84,7 @@ def test_cli_no_subagents_overrides_enabled_card(tmp_path) -> None:
     assert config.subagent_activation_source == "cli"
     assert install_subagent_tool(ToolAgent(config)) is False
 
+
 @pytest.mark.unit
 def test_card_disable_overrides_positive_cli_activation(tmp_path) -> None:
     card = tmp_path / "card.yaml"

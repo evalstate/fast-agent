@@ -122,8 +122,8 @@ You can store the prompt in an external file for easy editing - including templa
 ```python title="From file"
 from pathlib import Path
 
-@fast.agent(name="mcp-expert",
-    instruction=Path("./mcp-expert.md"))
+
+@fast.agent(name="mcp-expert", instruction=Path("./mcp-expert.md"))
 async def main():
     pass
 ```

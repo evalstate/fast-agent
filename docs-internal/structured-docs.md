@@ -186,12 +186,7 @@ json_mode = "schema"
 This path uses Anthropic's native structured-output API:
 
 ```python
-output_config = {
-  "format": {
-    "type": "json_schema",
-    "schema": ...
-  }
-}
+output_config = {"format": {"type": "json_schema", "schema": ...}}
 ```
 
 and the Anthropic structured-output beta header.
@@ -240,10 +235,7 @@ return_structured_output
 and forces the model to call it:
 
 ```python
-tool_choice = {
-  "type": "tool",
-  "name": "return_structured_output"
-}
+tool_choice = {"type": "tool", "name": "return_structured_output"}
 ```
 
 The final structured JSON is read from that tool's input.

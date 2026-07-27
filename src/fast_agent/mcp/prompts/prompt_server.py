@@ -39,7 +39,7 @@ from fast_agent.mcp.prompts.prompt_load import (
 )
 from fast_agent.mcp.prompts.prompt_template import PromptMetadata, PromptTemplateLoader
 from fast_agent.types import PromptMessageExtended
-from fast_agent.utils.async_utils import run_sync
+from fast_agent.utils.async_utils import run_in_thread, run_sync
 from fast_agent.utils.text import strip_casefold
 
 logging.basicConfig(level=logging.ERROR)
@@ -491,10 +491,9 @@ async def register_file_resource_handler(config: PromptConfig) -> None:
 
             mime_type = mime_utils.guess_mime_type(str(file_path))
             if mime_utils.is_binary_content(mime_type):
-                with file_path.open("rb") as file:
-                    return base64.b64encode(file.read()).decode("utf-8")
-            with file_path.open("r", encoding="utf-8") as file:
-                return file.read()
+                content = await run_in_thread(file_path.read_bytes)
+                return base64.b64encode(content).decode("utf-8")
+            return await run_in_thread(file_path.read_text, encoding="utf-8")
         except Exception as exc:
             logger.error(f"Error accessing resource at '{path}': {exc}")
             raise

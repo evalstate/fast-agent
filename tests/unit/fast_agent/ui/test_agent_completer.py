@@ -1584,7 +1584,10 @@ def test_managed_command_completions_use_catalogued_options(
 def test_command_completion_descriptions_avoid_parenthetical_plurals() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
-    assert all("(s)" not in description for description in completer.commands.values())
+    assert all(
+        description is None or "(s)" not in description
+        for description in completer.commands.values()
+    )
 
 
 def test_catalogued_command_completion_descriptions_use_catalog_actions() -> None:

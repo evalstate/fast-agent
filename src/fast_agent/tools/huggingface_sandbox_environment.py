@@ -136,23 +136,6 @@ class _Sandbox(Protocol):
     def close(self) -> None: ...
 
 
-class _SandboxClass(Protocol):
-    @staticmethod
-    def create(
-        image: str = "python:3.12",
-        *,
-        flavor: str = "cpu-basic",
-        idle_timeout: int | float | str | None = DEFAULT_HF_SANDBOX_IDLE_TIMEOUT,
-        env: dict[str, Any] | None = None,
-        secrets: dict[str, Any] | None = None,
-        volumes: list[Any] | None = None,
-        namespace: str | None = None,
-        forward_hf_token: bool = False,
-        start_timeout: float = 120.0,
-        token: str | None = None,
-    ) -> _Sandbox: ...
-
-
 class _VolumeClass(Protocol):
     def __call__(
         self,
@@ -260,7 +243,6 @@ class HuggingFaceSandboxEnvironment:
                 "Hugging Face sandbox support requires huggingface_hub with Sandbox support."
             ) from exc
         api = HfApi(token=token)
-        sandbox_cls: _SandboxClass = Sandbox
         volume_cls: _VolumeClass = Volume
 
         idle_timeout = (
@@ -280,20 +262,17 @@ class HuggingFaceSandboxEnvironment:
         ]
         self._emit_startup_stage("calling Sandbox.create")
         try:
-            sandbox = cast(
-                "_Sandbox",
-                sandbox_cls.create(
-                    image=self._image,
-                    flavor=self._flavor,
-                    idle_timeout=idle_timeout,
-                    env=self._env,
-                    secrets=self._secrets,
-                    volumes=volumes,
-                    namespace=self._namespace,
-                    forward_hf_token=self._forward_hf_token,
-                    start_timeout=self._start_timeout,
-                    token=token,
-                ),
+            sandbox = Sandbox.create(
+                image=self._image,
+                flavor=self._flavor,
+                idle_timeout=idle_timeout,
+                env=self._env,
+                secrets=self._secrets,
+                volumes=volumes,
+                namespace=self._namespace,
+                forward_hf_token=self._forward_hf_token,
+                start_timeout=self._start_timeout,
+                token=token,
             )
         except Exception as exc:
             if _is_huggingface_auth_error(exc):
@@ -319,7 +298,7 @@ class HuggingFaceSandboxEnvironment:
             self._emit_startup_stage("label update failed; killing sandbox")
             sandbox.kill()
             raise
-        return sandbox
+        return cast("_Sandbox", sandbox)
 
     @property
     def cwd(self) -> str:

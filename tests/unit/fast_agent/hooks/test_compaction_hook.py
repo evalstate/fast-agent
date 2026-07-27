@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import pytest
 
+from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.config import CompactionSettings, Settings
 from fast_agent.context import Context
 from fast_agent.core.direct_factory import _auto_compaction_after_turn_hook
@@ -20,7 +21,7 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 class _Agent:
     def __init__(self, name: str) -> None:
         self.name = name
-        self.config = SimpleNamespace(tool_only=False, use_history=True)
+        self.config = AgentConfig(name=name, tool_only=False, use_history=True)
         self.context = Context(config=Settings(compaction=CompactionSettings(threshold=0.5)))
         self.message_history: list[PromptMessageExtended] = []
         self.usage_accumulator = UsageAccumulator()
