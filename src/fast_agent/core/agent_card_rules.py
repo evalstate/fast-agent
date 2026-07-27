@@ -42,13 +42,13 @@ COMMON_CARD_FIELDS = {
     "description",
     "default",
     "tool_only",
-    "subagents",
-    "subagent_model",
     "schema_version",
 }
 
 AGENT_CARD_FIELDS = {
     *COMMON_CARD_FIELDS,
+    "subagents",
+    "subagent_model",
     "agents",
     "servers",
     "tools",
