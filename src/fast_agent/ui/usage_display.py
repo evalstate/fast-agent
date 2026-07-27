@@ -251,9 +251,9 @@ def _print_usage_header(console: Console) -> None:
 def _usage_cells(row: _UsageDisplayRow) -> tuple[Text, ...]:
     return (
         Text(row.name),
-        Text(f"▶ {row.input_tokens:,}", style="blue"),
+        Text(f"{row.input_tokens:,}", style="blue"),
         Text(_format_cache_percentage(row.cache_read_tokens, row.input_tokens), style="blue"),
-        Text(f"◀ {row.output_tokens:,}", style="green"),
+        Text(f"{row.output_tokens:,}", style="green"),
         Text(str(row.tool_calls), style="blue"),
         Text(_format_context_percentage(row.context_percentage), style="blue"),
         Text(row.model, style="dim"),
@@ -263,12 +263,12 @@ def _usage_cells(row: _UsageDisplayRow) -> tuple[Text, ...]:
 def _total_cells(usage_data: _UsageDisplayData) -> tuple[Text, ...]:
     return (
         Text("TOTAL", style="bold"),
-        Text(f"▶ {usage_data.total_input:,}", style="bold blue"),
+        Text(f"{usage_data.total_input:,}", style="bold blue"),
         Text(
             _format_cache_percentage(usage_data.total_cache_read, usage_data.total_input),
             style="bold blue",
         ),
-        Text(f"◀ {usage_data.total_output:,}", style="bold green"),
+        Text(f"{usage_data.total_output:,}", style="bold green"),
         Text(str(usage_data.total_tool_calls), style="bold blue"),
         Text(),
         Text(),
@@ -288,9 +288,9 @@ def _usage_table(
         header_style="dim",
     )
     table.add_column("Agent", min_width=5, max_width=24, overflow="ellipsis", no_wrap=True)
-    table.add_column("Input", justify="right", overflow="ellipsis", no_wrap=True)
+    table.add_column("▶ Input", justify="right", overflow="ellipsis", no_wrap=True)
     table.add_column("Cache hit", justify="right", overflow="ellipsis", no_wrap=True)
-    table.add_column("Output", justify="right", overflow="ellipsis", no_wrap=True)
+    table.add_column("◀ Output", justify="right", overflow="ellipsis", no_wrap=True)
     table.add_column("Tool calls", justify="right", overflow="ellipsis", no_wrap=True)
     table.add_column("Last context", justify="right", overflow="ellipsis", no_wrap=True)
     table.add_column("Model", ratio=2, min_width=4, max_width=25, overflow="ellipsis", no_wrap=True)

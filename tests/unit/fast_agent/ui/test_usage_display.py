@@ -95,9 +95,9 @@ def test_usage_uses_turn_summary_cache_language() -> None:
     console = Console(record=True, width=80, color_system=None)
     console.print(_usage_table(data, subdued_colors=False))
     rendered = console.export_text()
-    assert "▶" in rendered
+    assert "▶ Input" in rendered
     assert "85%" in rendered
-    assert "◀" in rendered
+    assert "◀ Output" in rendered
     assert all(len(line) <= 80 for line in rendered.splitlines())
     assert _format_cache_percentage(999, 1_000) == ">99%"
 
@@ -124,4 +124,9 @@ def test_usage_table_keeps_agent_column_compact_and_labels_last_context() -> Non
 
     assert "Last context" in lines[0]
     assert lines[0].index("Input") - lines[0].index("Agent") < 24
-    assert lines[1].index("▶") - lines[1].index("ripgrep_spark") < 24
+    assert lines[1].index("1,000") - lines[1].index("ripgrep_spark") < 24
+    assert lines[0].index("Input") + len("Input") == lines[1].index("1,000") + len("1,000")
+    assert lines[0].index("Output") + len("Output") == lines[1].index("200") + len("200")
+    assert lines[0].index("Last context") + len("Last context") == lines[1].index("12.0%") + len(
+        "12.0%"
+    )
