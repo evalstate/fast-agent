@@ -4,6 +4,7 @@ from fast_agent.ui.turn_usage_display import (
     CacheTTLExpiry,
     NamedTurnUsageDisplay,
     TurnUsageDisplay,
+    _render_turn_usage,
     format_parallel_turn_usage,
     format_regular_turn_usage,
     format_regular_turn_usage_with_subagents,
@@ -52,6 +53,21 @@ def test_regular_turn_usage_uses_compact_detail_hierarchy() -> None:
         "[green]◀ 12,345[/green] output"
         " [dim]· 3 tool calls · context 14.2% · cache TTL 14:32[/dim]"
     )
+
+
+def test_turn_usage_rendering_does_not_auto_highlight_numbers() -> None:
+    rendered = _render_turn_usage(
+        format_regular_turn_usage(_usage(input_tokens=2_200_000, output_tokens=20))
+    )
+
+    input_start = rendered.plain.index("▶")
+    input_end = rendered.plain.index(" input")
+    input_spans = [
+        span for span in rendered.spans if span.start <= input_start and span.end >= input_end
+    ]
+
+    assert len(input_spans) == 1
+    assert input_spans[0].style == "blue"
 
 
 def test_regular_turn_usage_includes_delegated_breakdown() -> None:

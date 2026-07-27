@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from rich import print as rich_print
+from rich.text import Text
 
+from fast_agent.ui.console import console
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.utils.count_display import format_compact_count
 from fast_agent.utils.time import format_two_unit_duration
@@ -83,6 +84,11 @@ def format_regular_turn_usage(usage: TurnUsageDisplay) -> str:
     return f"[dim]Last:[/dim] {format_turn_usage(usage)}"
 
 
+def _render_turn_usage(line: str) -> Text:
+    """Parse usage markup without Rich's automatic repr highlighting."""
+    return Text.from_markup(line)
+
+
 def format_regular_turn_usage_with_subagents(
     usage: TurnUsageDisplay,
     subagent_usage: TurnUsageDisplay,
@@ -129,8 +135,8 @@ def format_parallel_turn_usage(children: Sequence[NamedTurnUsageDisplay]) -> lis
 
 def display_regular_turn_usage(usage: TurnUsageDisplay) -> None:
     with progress_display.paused():
-        rich_print()
-        rich_print(format_regular_turn_usage(usage))
+        console.print()
+        console.print(_render_turn_usage(format_regular_turn_usage(usage)))
 
 
 def display_regular_turn_usage_with_subagents(
@@ -138,12 +144,12 @@ def display_regular_turn_usage_with_subagents(
     subagent_usage: TurnUsageDisplay,
 ) -> None:
     with progress_display.paused():
-        rich_print()
+        console.print()
         for line in format_regular_turn_usage_with_subagents(usage, subagent_usage):
-            rich_print(line)
+            console.print(_render_turn_usage(line))
 
 
 def display_parallel_turn_usage(children: Sequence[NamedTurnUsageDisplay]) -> None:
     with progress_display.paused():
         for line in format_parallel_turn_usage(children):
-            rich_print(line)
+            console.print(_render_turn_usage(line))
