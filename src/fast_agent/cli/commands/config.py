@@ -189,7 +189,12 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
 
     for name, field_info in ShellSettings.model_fields.items():
         # Skip internal fields
-        if name in ("model_config", "interactive_use_pty"):
+        schema_extra = field_info.json_schema_extra
+        if (
+            name in ("model_config", "interactive_use_pty")
+            or isinstance(schema_extra, dict)
+            and schema_extra.get("internal") is True
+        ):
             continue
 
         desc = field_info.description or ""

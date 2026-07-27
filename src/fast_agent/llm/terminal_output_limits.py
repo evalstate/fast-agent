@@ -33,6 +33,10 @@ def calculate_terminal_output_limit_for_model(model_name: str | None) -> int:
     if not model_name:
         return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 
+    model_override = ModelDatabase.get_shell_output_byte_limit(model_name)
+    if model_override is not None:
+        return model_override
+
     max_tokens = ModelDatabase.get_max_output_tokens(model_name)
     return calculate_terminal_output_limit_for_max_tokens(max_tokens)
 
@@ -42,5 +46,9 @@ def calculate_terminal_output_limit_for_resolved_model(
 ) -> int:
     if resolved_model is None:
         return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+
+    model_params = resolved_model.model_params
+    if model_params is not None and model_params.shell_output_byte_limit is not None:
+        return model_params.shell_output_byte_limit
 
     return calculate_terminal_output_limit_for_max_tokens(resolved_model.max_output_tokens)

@@ -124,7 +124,8 @@ class StubLLM:
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
         self.resolved_model = SimpleNamespace(
-            max_output_tokens=ModelDatabase.get_max_output_tokens(model_name)
+            max_output_tokens=ModelDatabase.get_max_output_tokens(model_name),
+            model_params=ModelDatabase.get_model_params(model_name),
         )
         self.instruction = ""
         self.default_request_params = RequestParams()
@@ -1610,6 +1611,97 @@ async def test_read_text_file_tool_use_turn_hides_bottom_bar_without_extra_messa
     assert call["bottom_items"] is None
     assert call["highlight_indexes"] == []
     assert call["additional_message"] is None
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_grok_catalog_shell_output_limit_applies_when_setting_is_omitted() -> None:
+    settings = Settings(shell_execution=ShellSettings())
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="xai/grok-4.5?reasoning=high",
+    )
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    shell_runtime = agent.shell_runtime
+    assert shell_runtime is not None
+    assert shell_runtime.output_byte_limit == 16_000
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_default_shell_output_limit_returns_after_switching_away_from_grok() -> None:
+    settings = Settings(shell_execution=ShellSettings())
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="xai/grok-4.5",
+    )
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    shell_runtime = agent.shell_runtime
+    assert shell_runtime is not None
+    assert shell_runtime.output_byte_limit == 16_000
+
+    agent._on_llm_attached(cast("Any", StubLLM("claude-opus-4-6")))
+
+    assert shell_runtime.output_byte_limit == DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_null_shell_output_limit_uses_automatic_model_sizing() -> None:
+    settings = Settings(shell_execution=ShellSettings(output_byte_limit=None))
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="claude-opus-4-6",
+    )
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    shell_runtime = agent.shell_runtime
+    assert shell_runtime is not None
+    assert shell_runtime.output_byte_limit == calculate_terminal_output_limit_for_model(
+        "claude-opus-4-6"
+    )
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("configured_limit", [8192, 32_000])
+async def test_explicit_shell_output_limit_overrides_grok_catalog(
+    configured_limit: int,
+) -> None:
+    settings = Settings(
+        shell_execution=ShellSettings(output_byte_limit=configured_limit)
+    )
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="xai/grok-4.5",
+    )
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    shell_runtime = agent.shell_runtime
+    assert shell_runtime is not None
+    assert shell_runtime.output_byte_limit == configured_limit
+
+    agent._on_llm_attached(cast("Any", StubLLM("xai/grok-4.5")))
+
+    assert shell_runtime.output_byte_limit == configured_limit
 
     await agent._aggregator.close()
 
