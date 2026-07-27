@@ -580,6 +580,66 @@ async def _export_failed_one_shot_atif(
     )
 
 
+async def _export_requested_outputs(
+    agent_app: Any,
+    request: AgentRunRequest,
+    *,
+    transient_messages_by_agent: Mapping[str, list[PromptMessageExtended]] | None,
+    session_manager: SessionManager | None,
+    harness_session: HarnessSession | None,
+) -> None:
+    """Export result history and ATIF independently.
+
+    A failure in one artifact must not prevent the other artifact from being
+    attempted. The first failure remains primary after both attempts finish.
+    """
+
+    async def export_result_history() -> None:
+        await _export_result_histories(
+            agent_app,
+            request,
+            transient_messages_by_agent=transient_messages_by_agent,
+        )
+
+    async def export_atif() -> None:
+        await _export_live_atif_trajectory(
+            agent_app,
+            request,
+            transient_messages_by_agent=transient_messages_by_agent,
+            session_manager=session_manager,
+            harness_session=harness_session,
+        )
+
+    failures: list[Exception] = []
+    exporters = (
+        ("result_history", export_result_history),
+        ("atif", export_atif),
+    )
+    for artifact, exporter in exporters:
+        logger.debug(
+            "CLI artifact export started",
+            data={"artifact": artifact},
+        )
+        try:
+            await exporter()
+        except Exception as exc:
+            failures.append(exc)
+            logger.warning(
+                "CLI artifact export failed",
+                data={
+                    "artifact": artifact,
+                    "error_type": type(exc).__name__,
+                },
+            )
+        else:
+            logger.debug(
+                "CLI artifact export succeeded",
+                data={"artifact": artifact},
+            )
+    if failures:
+        raise failures[0]
+
+
 async def _run_cli_flow(
     agent_app: Any,
     request: AgentRunRequest,
@@ -630,16 +690,22 @@ async def _run_cli_flow(
                 harness_session=harness_session,
             )
         except BaseException as exc:
-            await _export_failed_one_shot_atif(
-                agent_app,
-                agent_obj,
-                prompt_payload,
-                request,
-                history_before=history_before,
-                session_manager=session_manager,
-                harness_session=harness_session,
-                error=exc,
-            )
+            try:
+                await _export_failed_one_shot_atif(
+                    agent_app,
+                    agent_obj,
+                    prompt_payload,
+                    request,
+                    history_before=history_before,
+                    session_manager=session_manager,
+                    harness_session=harness_session,
+                    error=exc,
+                )
+            except Exception as export_exc:
+                logger.warning(
+                    "Failed-run ATIF export failed",
+                    data={"error_type": type(export_exc).__name__},
+                )
             raise
         one_shot_response = response
         transient_messages_by_agent = _transient_result_messages_if_needed(
@@ -668,16 +734,22 @@ async def _run_cli_flow(
                 harness_session=harness_session,
             )
         except BaseException as exc:
-            await _export_failed_one_shot_atif(
-                agent_app,
-                agent_obj,
-                prompt_payload,
-                request,
-                history_before=history_before,
-                session_manager=session_manager,
-                harness_session=harness_session,
-                error=exc,
-            )
+            try:
+                await _export_failed_one_shot_atif(
+                    agent_app,
+                    agent_obj,
+                    prompt_payload,
+                    request,
+                    history_before=history_before,
+                    session_manager=session_manager,
+                    harness_session=harness_session,
+                    error=exc,
+                )
+            except Exception as export_exc:
+                logger.warning(
+                    "Failed-run ATIF export failed",
+                    data={"error_type": type(export_exc).__name__},
+                )
             raise
         one_shot_response = response
         transient_messages_by_agent = _transient_result_messages_if_needed(
@@ -695,12 +767,7 @@ async def _run_cli_flow(
             harness_session=harness_session,
         )
 
-    await _export_result_histories(
-        agent_app,
-        request,
-        transient_messages_by_agent=transient_messages_by_agent,
-    )
-    await _export_live_atif_trajectory(
+    await _export_requested_outputs(
         agent_app,
         request,
         transient_messages_by_agent=transient_messages_by_agent,

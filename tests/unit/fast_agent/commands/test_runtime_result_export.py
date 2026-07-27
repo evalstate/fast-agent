@@ -23,6 +23,7 @@ from fast_agent.cli.runtime.agent_setup import (
     _cli_attachment_token,
     _enable_atif_child_capture,
     _export_parallel_atif_trajectory,
+    _export_requested_outputs,
     _export_result_histories,
     _find_last_assistant_text,
     _resume_session_if_requested,
@@ -968,6 +969,135 @@ async def test_run_cli_flow_writes_atif_input_when_one_shot_raises(tmp_path: Pat
         "error_type": "RuntimeError",
         "message": "provider unavailable",
     }
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_writes_atif_when_result_export_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = _NonPersistentMessageAgent("agent", "done")
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+    result_output = tmp_path / "result.json"
+    trajectory_output = tmp_path / "trajectory.json"
+
+    async def fail_result_export(*args: object, **kwargs: object) -> None:
+        raise typer.Exit(1)
+
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup._export_result_histories",
+        fail_result_export,
+    )
+
+    with pytest.raises(typer.Exit):
+        await _run_cli_flow(
+            app,
+            _make_request(
+                result_file=str(result_output),
+                message="hello",
+                trajectory_output=trajectory_output,
+            ),
+        )
+
+    payload = json.loads(trajectory_output.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == "ATIF-v1.7"
+    assert payload["steps"][2]["message"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_writes_result_when_atif_export_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = _NonPersistentMessageAgent("agent", "done")
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+    result_output = tmp_path / "result.json"
+
+    async def fail_atif_export(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("atif export failed")
+
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup._export_live_atif_trajectory",
+        fail_atif_export,
+    )
+
+    with pytest.raises(RuntimeError, match="atif export failed"):
+        await _run_cli_flow(
+            app,
+            _make_request(
+                result_file=str(result_output),
+                message="hello",
+                trajectory_output=tmp_path / "trajectory.json",
+            ),
+        )
+
+    exported = load_messages(str(result_output))
+    assert [message.role for message in exported] == ["user", "assistant"]
+    assert exported[1].last_text() == "done"
+
+
+@pytest.mark.asyncio
+async def test_requested_output_cancellation_stops_remaining_exports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    atif_attempted = False
+
+    async def cancel_result_export(*args: object, **kwargs: object) -> None:
+        raise asyncio.CancelledError
+
+    async def record_atif_export(*args: object, **kwargs: object) -> None:
+        nonlocal atif_attempted
+        atif_attempted = True
+
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup._export_result_histories",
+        cancel_result_export,
+    )
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup._export_live_atif_trajectory",
+        record_atif_export,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await _export_requested_outputs(
+            SimpleNamespace(),
+            _make_request(result_file=None),
+            transient_messages_by_agent=None,
+            session_manager=None,
+            harness_session=None,
+        )
+
+    assert not atif_attempted
+
+
+@pytest.mark.asyncio
+async def test_failed_run_preserves_primary_error_when_atif_export_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = _FailingMessageAgent("agent")
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+
+    async def fail_atif_export(*args: object, **kwargs: object) -> None:
+        raise OSError("write failed")
+
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup._export_failed_one_shot_atif",
+        fail_atif_export,
+    )
+
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        await _run_cli_flow(
+            app,
+            _make_request(
+                result_file=None,
+                message="hello",
+                trajectory_output=tmp_path / "trajectory.json",
+            ),
+        )
 
 
 @pytest.mark.asyncio
