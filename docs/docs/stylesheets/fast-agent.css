@@ -1773,10 +1773,15 @@ table.fa-table {
   padding: 0;
   border: 0;
 }
-@media (max-width: 900px) {
+@media (max-width: 1020px) {
   .fa-benchmark { min-height: 900px; }
   .fa-benchmark__body { grid-template-columns: 1fr; }
-  .fa-benchmark__results { border-top: var(--bw) solid var(--b-1); border-left: 0; }
+  .fa-benchmark__results {
+    order: -1;
+    border-right: 0;
+    border-bottom: var(--bw) solid var(--b-1);
+    border-left: 0;
+  }
 }
 @media (min-width: 721px) {
   .fa-home-splash {
