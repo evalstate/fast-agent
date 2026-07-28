@@ -47,8 +47,8 @@ window.fastAgentBenchmark = {
           attempts: "445 trials · PR #174",
           note:
             "fast-agent 0.9.24. Accuracy from submission static analysis; cost and tokens totalled from the two linked Harbor source jobs.",
-          disclaimer: "Pending Terminal-Bench leaderboard review.",
-          disclaimerLabel: "Pending",
+          disclaimer: "Provisional result pending Terminal-Bench leaderboard review.",
+          disclaimerLabel: "Provisional",
           url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/174",
         },
         {
@@ -64,8 +64,8 @@ window.fastAgentBenchmark = {
           attempts: "445 trials · PR #173",
           note:
             "fast-agent 0.9.24. Accuracy from submission static analysis; cost and tokens totalled from the two linked Harbor source jobs.",
-          disclaimer: "Pending Terminal-Bench leaderboard review.",
-          disclaimerLabel: "Pending",
+          disclaimer: "Provisional result pending Terminal-Bench leaderboard review.",
+          disclaimerLabel: "Provisional",
           url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/173",
         },
         {
@@ -79,7 +79,6 @@ window.fastAgentBenchmark = {
           date: "2026-06-07",
           attempts: "445 trials · published",
           note: "Published Terminal-Bench 2.1 leaderboard row.",
-          disclaimer: "Published score includes a 0.2-point reward-hack adjustment.",
           url: "https://hub.harborframework.com/datasets/terminal-bench/terminal-bench-2-1/6/leaderboards/main/rows/40dbe33d-e8af-475b-8eba-7d5d8f70054c",
         },
         {
@@ -93,7 +92,6 @@ window.fastAgentBenchmark = {
           date: "2026-05-01",
           attempts: "445 trials · published",
           note: "Same model and reasoning effort as the fast-agent GPT-5.5 submission.",
-          disclaimer: "Published score includes a 0.2-point reward-hack adjustment.",
           url: "https://hub.harborframework.com/datasets/terminal-bench/terminal-bench-2-1/6/leaderboards/main/rows/6d091468-3fda-4cbf-ba1c-645b0f522e97",
         },
         {
