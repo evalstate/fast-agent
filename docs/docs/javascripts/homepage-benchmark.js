@@ -97,7 +97,7 @@
 
   function placePointLabels(results, x, y, plot) {
     var points = results.map(function (result) {
-      return { x: x(result.score), y: y(result.cost) };
+      return { x: x(result.cost), y: y(result.score) };
     });
     var order = results.map(function (_, index) { return index; });
     order.sort(function (first, second) {
@@ -162,6 +162,9 @@
   }
 
   function render(root, data) {
+    var comparisons = data.comparisons.filter(function (comparison) {
+      return comparison.visible !== false;
+    });
     var selectedComparison = 0;
     var selectedResult = 0;
 
@@ -172,7 +175,7 @@
     }
 
     function draw() {
-      var comparison = data.comparisons[selectedComparison];
+      var comparison = comparisons[selectedComparison];
       var result = comparison.results[selectedResult] || comparison.results[0];
       var score = scoreDomain(comparison.results, comparison.axes && comparison.axes.score);
       var cost = costDomain(comparison.results, comparison.axes && comparison.axes.cost);
@@ -189,7 +192,7 @@
       var tabs = element("div", "fa-benchmark__tabs");
       tabs.setAttribute("role", "tablist");
       tabs.setAttribute("aria-label", "Benchmark comparison");
-      data.comparisons.forEach(function (item, index) {
+      comparisons.forEach(function (item, index) {
         var tab = element("button", "fa-benchmark__tab", item.label);
         tab.type = "button";
         tab.title = "Show the " + item.label + " comparison";
@@ -214,40 +217,47 @@
         "class": "fa-benchmark__chart",
         "viewBox": "0 0 680 350",
         "role": "img",
-        "aria-label": comparison.label + ": Terminal-Bench score versus cost per task",
+        "aria-label": comparison.label + ": cost per task versus Terminal-Bench score",
       });
       var plot = { left: 72, right: 650, top: 22, bottom: 300 };
       var width = plot.right - plot.left;
       var height = plot.bottom - plot.top;
       var x = function (value) {
-        return plot.left + ((value - score.min) / (score.max - score.min)) * width;
-      };
-      var y = function (value) {
         var ratio = (Math.log10(value) - Math.log10(cost.min)) /
           (Math.log10(cost.max) - Math.log10(cost.min));
+        return plot.left + ratio * width;
+      };
+      var y = function (value) {
+        var ratio = (value - score.min) / (score.max - score.min);
         return plot.bottom - ratio * height;
       };
       var labelPlacements = placePointLabels(comparison.results, x, y, plot);
 
-      score.ticks.forEach(function (tick) {
+      cost.ticks.forEach(function (tick) {
         var tickX = x(tick);
         svg.appendChild(svgElement("line", { x1: tickX, y1: plot.top, x2: tickX, y2: plot.bottom, "class": "fa-benchmark__grid" }));
-        svg.appendChild(svgElement("text", { x: tickX, y: 325, "class": "fa-benchmark__tick", "text-anchor": "middle" }, tick));
+        svg.appendChild(svgElement("text", { x: tickX, y: 325, "class": "fa-benchmark__tick", "text-anchor": "middle" }, formatCost(tick)));
       });
-      cost.ticks.forEach(function (tick) {
+      score.ticks.forEach(function (tick) {
         var tickY = y(tick);
         svg.appendChild(svgElement("line", { x1: plot.left, y1: tickY, x2: plot.right, y2: tickY, "class": "fa-benchmark__grid" }));
-        svg.appendChild(svgElement("text", { x: 62, y: tickY + 4, "class": "fa-benchmark__tick", "text-anchor": "end" }, formatCost(tick)));
+        svg.appendChild(svgElement("text", { x: 62, y: tickY + 4, "class": "fa-benchmark__tick", "text-anchor": "end" }, tick + "%"));
       });
       svg.appendChild(svgElement("line", { x1: plot.left, y1: plot.top, x2: plot.left, y2: plot.bottom, "class": "fa-benchmark__axis" }));
       svg.appendChild(svgElement("line", { x1: plot.left, y1: plot.bottom, x2: plot.right, y2: plot.bottom, "class": "fa-benchmark__axis" }));
       svg.appendChild(svgElement("text", {
         x: 17, y: 165, "class": "fa-benchmark__axis-label", transform: "rotate(-90 17 165)", "text-anchor": "middle",
+      }, data.title.toUpperCase() + " SCORE (%)"));
+      svg.appendChild(svgElement("text", {
+        x: (plot.left + plot.right) / 2,
+        y: 347,
+        "class": "fa-benchmark__axis-label",
+        "text-anchor": "middle",
       }, "COST / TASK (USD)"));
 
       comparison.results.forEach(function (entry, index) {
-        var pointX = x(entry.score);
-        var pointY = y(entry.cost);
+        var pointX = x(entry.cost);
+        var pointY = y(entry.score);
         var labelPlacement = labelPlacements[index];
         var group = svgElement("g", {
           "class": "fa-benchmark__point" +
@@ -409,7 +419,7 @@
       var footer = element("div", "fa-benchmark__footer");
       footer.appendChild(element("span", "fa-benchmark__legend fa-benchmark__legend--fast-agent", "fast-agent"));
       footer.appendChild(element("span", "fa-benchmark__legend", "other harnesses"));
-      footer.appendChild(element("span", "", "Lower and further right is better."));
+      footer.appendChild(element("span", "", "Higher and further left is better."));
       var methodology = element("a", "", "Methodology & disclaimers");
       methodology.href = data.methodologyUrl;
       methodology.target = "_blank";

@@ -3,6 +3,7 @@
  *
  * To update the panel, edit this file only:
  * - Add/remove objects in `comparisons` to change the selector.
+ * - Set `visible: false` to keep a comparison ready without showing its tab.
  * - Add/remove `results` to change both the chart and results table.
  * - Set `winner: true` on the run whose cost should receive KPI emphasis.
  * - Labels are placed automatically; `labelPosition` can optionally force
@@ -112,6 +113,7 @@ window.fastAgentBenchmark = {
     {
       id: "gpt55",
       label: "GPT-5.5",
+      visible: false,
       claim:
         "The workhorse tier, where efficiency compounds: +2.4 pts on half the spend of the next-best harness.",
       stats: [
@@ -170,6 +172,7 @@ window.fastAgentBenchmark = {
     {
       id: "open",
       label: "Open + local",
+      visible: false,
       claim:
         "Open weights, local serving: GLM-5 on fast-agent beats every hosted small model in the set, for $2.10.",
       stats: [
