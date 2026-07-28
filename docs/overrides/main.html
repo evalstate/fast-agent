@@ -1,15 +1,21 @@
 {% extends "base.html" %} {# Announce banner — preserved from existing main.html
 #} {% block announce %} Join the <b>fast-agent</b> community on
 <strong><a href="https://discord.gg/xg5cJ7ndN6">Discord</a></strong>
-{% endblock %} {# Inject Google Fonts so JetBrains Mono is available even before
-the CSS loads it #} {% block extrahead %} {{ super() }}
+{% endblock %}
+
+{# The site is mono-first. Override the default Inter + JetBrains request so
+only the font family used by the design is render-blocking. #}
+{% block fonts %}
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link
-  href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+  href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=optional"
   rel="stylesheet"
 />
+<style>:root{--md-text-font:"JetBrains Mono";--md-code-font:"JetBrains Mono"}</style>
+{% endblock %}
 
+{% block extrahead %} {{ super() }}
 {# Open Graph + Twitter metadata for committed per-page social cards. #} {% set
 social_meta = page.meta.social if page and page.meta and page.meta.social else
 {} %} {% set social_title = social_meta.title if social_meta and
