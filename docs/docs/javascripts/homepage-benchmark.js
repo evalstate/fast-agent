@@ -383,6 +383,7 @@
       body.appendChild(chartArea);
 
       var results = element("div", "fa-benchmark__results");
+      results.appendChild(element("h2", "fa-benchmark__results-title", data.title));
       var resultHeader = element("div", "fa-benchmark__result fa-benchmark__result--header");
       ["Harness", "Score", "$/task", "Run"].forEach(function (label) {
         resultHeader.appendChild(element("span", "", label));

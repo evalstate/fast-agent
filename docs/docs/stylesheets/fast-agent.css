@@ -1623,6 +1623,16 @@ table.fa-table {
   padding: 16px;
   border-left: var(--bw) solid var(--b-1);
 }
+.md-typeset .fa-benchmark__results-title {
+  margin: 0 10px var(--sp-4);
+  padding: 0 0 var(--sp-3);
+  border-top: 0;
+  border-bottom: var(--bw) solid var(--b-1);
+  color: var(--fg-0);
+  font-size: clamp(18px, 1.7vw, 24px);
+  letter-spacing: -0.02em;
+  text-transform: none;
+}
 .fa-benchmark__result {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 52px 62px 66px;
