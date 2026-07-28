@@ -26,11 +26,11 @@ window.fastAgentBenchmark = {
       id: "frontier",
       label: "Frontier",
       claim:
-        "fast-agent + GPT-5.5 scores 2.0 pts above Codex with the same model and effort — at 80% lower cost per task.",
+        "fast-agent + GPT-5.6-sol 4.5 pts above Claude Code with Fable 5 at under half the cost.",
       stats: [
-        { value: "88.3%", label: "fast-agent + GPT-5.6 Sol" },
-        { value: "+2.0 pts", label: "fast-agent vs Codex · GPT-5.5" },
-        { value: "80% less", label: "cost per task vs Codex · GPT-5.5" },
+        { value: "88.3%", label: "fast-agent + GPT-5.6 Sol high" },
+        { value: "80% less", label: "cost per task vs Codex · GPT-5.5 xhigh" },
+        { value: "+4.5 pts", label: "fast-agent + GPT-5.6 Sol vs Claude + Fable 5" },
       ],
       results: [
         {

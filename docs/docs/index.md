@@ -25,7 +25,7 @@ social:
     </div>
     <div>
       <p>
-        Same model, better results. fast-agent leads on the two metrics that decide whether an agent is worth running:
+        Same model, better results. fast-agent leads on 
         <strong>accuracy</strong> and <strong>cost efficiency</strong>.
       </p>
       <div class="fa-home-splash__actions">
