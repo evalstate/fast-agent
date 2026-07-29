@@ -1,0 +1,93 @@
+import httpx2
+from mcp.client.auth import OAuthRegistrationError
+
+from fast_agent.core.exceptions import ServerInitializationError
+from fast_agent.mcp.failures import (
+    classify_mcp_failure,
+    redact_mcp_failure_text,
+    render_mcp_failure,
+)
+
+
+def test_oauth_failure_uses_typed_cause_and_redacts_target() -> None:
+    cause = OAuthRegistrationError("Registration failed")
+    outer = ServerInitializationError(
+        "MCP initialization failed",
+        "Registration failed for https://user:pass@example.com/mcp?token=secret",
+        server_name="docs",
+    )
+    outer.__cause__ = cause
+
+    failure = classify_mcp_failure(
+        outer,
+        server_name="docs",
+        origin="session",
+        surface="acp_connect",
+        input_ref="https://user:pass@example.com/mcp?token=secret",
+    )
+
+    assert failure.kind == "oauth_failed"
+    assert failure.stage == "auth"
+    assert failure.retry == "user_action"
+    assert failure.cause is outer
+    assert failure.input_ref.startswith("https://[REDACTED]@example.com/mcp")
+    assert "secret" not in failure.input_ref
+    assert failure.detail is not None
+    assert "user:pass" not in failure.detail
+    assert "token=secret" not in failure.detail
+    rendered = render_mcp_failure(failure, output_format="markdown")
+    assert "**Next:**" in rendered
+    assert "Stop/Cancel" in rendered
+
+
+def test_explicit_auth_rejection_does_not_offer_oauth_override() -> None:
+    request = httpx2.Request(
+        "POST",
+        "https://user:pass@example.com/mcp?access_token=secret",
+    )
+    cause = httpx2.HTTPStatusError(
+        "rejected",
+        request=request,
+        response=httpx2.Response(401, request=request),
+    )
+
+    failure = classify_mcp_failure(
+        cause,
+        server_name="private",
+        origin="session",
+        surface="terminal_connect",
+        input_ref=str(request.url),
+        explicit_auth=True,
+    )
+
+    assert failure.kind == "unauthorized"
+    assert failure.stage == "auth"
+    assert failure.remediation is not None
+    assert "supplied credentials" in failure.remediation.casefold()
+    assert "OAuth" not in failure.remediation
+    assert "secret" not in render_mcp_failure(failure)
+
+
+def test_connection_failure_is_safe_to_retry_once() -> None:
+    failure = classify_mcp_failure(
+        ConnectionError("connection reset"),
+        server_name="docs",
+        origin="central",
+        surface="configured_attach",
+        input_ref="fast-agent.yaml",
+        stage="discover",
+    )
+
+    assert failure.kind == "transport"
+    assert failure.retry == "safe_once"
+    assert failure.stage == "discover"
+
+
+def test_failure_text_redacts_serialized_headers() -> None:
+    redacted = redact_mcp_failure_text(
+        'headers={"Authorization": "Bearer top-secret", "X-Api-Key": "also-secret"}'
+    )
+
+    assert "top-secret" not in redacted
+    assert "also-secret" not in redacted
+    assert redacted.count("[REDACTED]") == 2

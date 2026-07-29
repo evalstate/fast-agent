@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, ClassVar, cast
 
 import pytest
 from acp.schema import ToolCallProgress, ToolCallStart
+from mcp.client.auth import OAuthFlowError
 
 from fast_agent.acp.slash.handlers import mcp as mcp_handler_module
 from fast_agent.acp.slash_commands import SlashCommandHandler
@@ -175,6 +176,12 @@ class _FailingMcpApp(_App):
         raise AssertionError("app MCP detach bypassed callback")
 
 
+class _OAuthFailingMcpApp(_App):
+    async def attach_mcp_server(self, _agent_name, server_name, server_config=None, options=None):
+        del server_name, server_config, options
+        raise OAuthFlowError("OAuth callback could not be completed")
+
+
 class _FakeACPContext:
     def __init__(self) -> None:
         self.updates: list[object] = []
@@ -272,6 +279,30 @@ async def test_slash_command_mcp_uses_callbacks_not_instance_app() -> None:
     assert "Connected MCP server 'demo'" in connected
     assert "Reconnected MCP server 'demo'" in reconnected
     assert "Disconnected MCP server 'demo'" in disconnected
+
+
+@pytest.mark.asyncio
+async def test_slash_connect_renders_typed_acp_oauth_failure() -> None:
+    app = _OAuthFailingMcpApp()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", _Agent())},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+        attach_mcp_server_callback=app.attach_mcp_server,
+        detach_mcp_server_callback=app.detach_mcp_server,
+        list_attached_mcp_servers_callback=app.list_attached_mcp_servers,
+    )
+
+    result = await handler.execute_command("connect", "https://example.com/mcp")
+
+    assert "MCP OAuth authorization failed" in result
+    assert "fast-agent auth mcp login" in result
+    assert "Stop/Cancel" in result
 
 
 @pytest.mark.asyncio

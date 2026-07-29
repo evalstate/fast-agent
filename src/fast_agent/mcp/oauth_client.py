@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, urlparse, urlunparse
 
 from mcp.client.auth import (
     AuthorizationCodeResult,
+    OAuthFlowError,
     TokenStorage,
 )
 from mcp.client.auth import OAuthClientProvider as _BaseOAuthClientProvider
@@ -1095,7 +1096,7 @@ async def _handle_oauth_callback(
                 "for this connection mode."
             )
             await _emit_oauth_error(context, message)
-            raise RuntimeError(message) from exc
+            raise OAuthFlowError(message) from exc
 
         logger.info(f"OAuth local callback server unavailable, fallback to paste flow: {exc}")
         await _emit_oauth_error(

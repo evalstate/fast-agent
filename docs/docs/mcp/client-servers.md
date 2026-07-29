@@ -40,6 +40,12 @@ targets are all validated before connection; malformed or failed targets stop
 startup. During the compatibility window, a URL missing `/mcp` or `/sse` is
 shown with its resolved `/mcp` URL and a deprecation notice.
 
+Connection failures use the same structured report at startup, in the terminal,
+and over ACP. The report names the server, failure stage, redacted target,
+details, and next action. URL user information, query values, fragments, and
+common credential fields are redacted. If explicit bearer credentials are
+rejected, fast-agent tells you to replace them; it does not silently switch to
+OAuth.
 
 MCP Servers are configured in the `fast-agent.yaml` file. Secrets can be kept in `fast-agent.secrets.yaml`, which follows the same format (**fast-agent** merges the contents of the two files).
 

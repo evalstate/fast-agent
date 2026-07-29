@@ -24,6 +24,7 @@ from fast_agent.mcp.connect_targets import (
     render_connect_request,
     render_normalized_target,
 )
+from fast_agent.mcp.failures import MCPFailure, render_mcp_failure
 from fast_agent.ui.mcp_display import render_mcp_status_text
 from fast_agent.utils.action_normalization import is_help_flag
 from fast_agent.utils.commandline import split_commandline
@@ -244,7 +245,16 @@ def _summarize_connect_outcome(outcome) -> _ConnectOutcomeSummary:
     has_error = any(msg.channel == "error" for msg in outcome.messages)
     if has_error:
         first_error = next((msg for msg in outcome.messages if msg.channel == "error"), None)
-        failure_details = str(first_error.text) if first_error is not None else None
+        failure = (
+            first_error.metadata.get("mcp_failure") if first_error is not None else None
+        )
+        failure_details = (
+            render_mcp_failure(failure, output_format="markdown")
+            if isinstance(failure, MCPFailure)
+            else str(first_error.text)
+            if first_error is not None
+            else None
+        )
         return _ConnectOutcomeSummary(has_error=True, failure_details=failure_details)
 
     success_message = _connect_success_message_from_metadata(outcome) or next(
@@ -442,6 +452,7 @@ async def _handle_mcp_connect_command(
             manager=manager,
             agent_name=handler.current_agent_name,
             request=request,
+            surface="acp_connect",
             on_progress=_send_connect_progress,
         )
     except asyncio.CancelledError:

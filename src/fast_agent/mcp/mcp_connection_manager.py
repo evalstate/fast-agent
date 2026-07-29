@@ -1046,6 +1046,7 @@ class MCPConnectionManager(ContextDependent):
                     server_conn,
                     "Try increasing --timeout or verify server/network startup.",
                 ),
+                server_name=server_name,
             ) from exc
 
         return server_conn
@@ -1214,6 +1215,7 @@ class MCPConnectionManager(ContextDependent):
             raise ServerInitializationError(
                 f"MCP Server: '{server_name}': OAuth authorization timed out.",
                 "Authorization was not completed in time; retry /mcp connect.",
+                server_name=server_name,
             ) from server_conn._lifecycle_error
 
         if _is_oauth_registration_404_message(formatted_error):
@@ -1223,12 +1225,14 @@ class MCPConnectionManager(ContextDependent):
                     formatted_error,
                     server_conn.server_config.url,
                 ),
+                server_name=server_name,
             ) from server_conn._lifecycle_error
 
         if _is_stdio_startup_error(server_conn, formatted_error):
             raise ServerInitializationError(
                 f"MCP Server: '{server_name}': Failed to start stdio server.",
                 _append_stdio_stderr_details(server_conn, formatted_error),
+                server_name=server_name,
             ) from server_conn._lifecycle_error
 
         origin = self.server_registry.get_server_origin(server_name)
@@ -1239,6 +1243,7 @@ class MCPConnectionManager(ContextDependent):
         raise ServerInitializationError(
             f"MCP Server: '{server_name}': Failed to initialize - see details.{remediation}",
             _append_stdio_stderr_details(server_conn, formatted_error),
+            server_name=server_name,
         ) from server_conn._lifecycle_error
 
     @staticmethod
@@ -1351,6 +1356,7 @@ class MCPConnectionManager(ContextDependent):
                 raise ServerInitializationError(
                     f"MCP Server: '{server_name}': OAuth authorization timed out during reconnect.",
                     "Authorization was not completed in time; retry /mcp connect.",
+                    server_name=server_name,
                 ) from server_conn._lifecycle_error
             if isinstance(error_msg, list):
                 formatted_error = "\n".join(error_msg)
@@ -1363,17 +1369,20 @@ class MCPConnectionManager(ContextDependent):
                     _format_oauth_registration_404_details(
                         formatted_error, server_conn.server_config.url
                     ),
+                    server_name=server_name,
                 ) from server_conn._lifecycle_error
 
             if _is_stdio_startup_error(server_conn, formatted_error):
                 raise ServerInitializationError(
                     f"MCP Server: '{server_name}': Failed to start stdio server during reconnect.",
                     _append_stdio_stderr_details(server_conn, formatted_error),
+                    server_name=server_name,
                 ) from server_conn._lifecycle_error
 
             raise ServerInitializationError(
                 f"MCP Server: '{server_name}': Failed to reconnect - see details.",
                 _append_stdio_stderr_details(server_conn, formatted_error),
+                server_name=server_name,
             ) from server_conn._lifecycle_error
 
         logger.info(f"{server_name}: Reconnection successful")

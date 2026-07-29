@@ -3,6 +3,26 @@ Custom exceptions for the FastAgent framework.
 Enables user-friendly error handling for common issues.
 """
 
+from collections.abc import Iterator
+
+
+def walk_exception_chain(error: BaseException) -> Iterator[BaseException]:
+    """Yield an exception, nested groups, and chained causes once."""
+    pending = [error]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        yield current
+        if isinstance(current, BaseExceptionGroup):
+            pending.extend(reversed(current.exceptions))
+        if current.__context__ is not None:
+            pending.append(current.__context__)
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+
 
 class FastAgentError(Exception):
     """Base exception class for FastAgent errors"""
@@ -80,7 +100,14 @@ class ProviderSafetyBufferingError(FastAgentError):
 class ServerInitializationError(FastAgentError):
     """Raised when a server fails to initialize properly."""
 
-    def __init__(self, message: str, details: str = "") -> None:
+    def __init__(
+        self,
+        message: str,
+        details: str = "",
+        *,
+        server_name: str | None = None,
+    ) -> None:
+        self.server_name = server_name
         super().__init__(message, details)
 
 

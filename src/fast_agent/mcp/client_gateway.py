@@ -15,6 +15,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp_types import JSONRPCMessage
 from pydantic import TypeAdapter, ValidationError
 
+from fast_agent.core.exceptions import walk_exception_chain
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.home import build_child_environment
 from fast_agent.mcp.client_connection import MCPClientConnection
@@ -106,7 +107,7 @@ def is_http_auth_challenge(
     response_challenged: bool = False,
 ) -> bool:
     """Classify an HTTP auth challenge without discarding structured causes."""
-    exceptions = _walk_exceptions(error) if isinstance(error, BaseException) else []
+    exceptions = list(walk_exception_chain(error)) if isinstance(error, BaseException) else []
     if any(
         isinstance(exc, HTTPStatusError)
         and exc.response is not None
@@ -124,25 +125,6 @@ def is_http_auth_challenge(
     else:
         values = [error]
     return any(_text_signals_auth_challenge(value) for value in values)
-
-
-def _walk_exceptions(error: BaseException) -> list[BaseException]:
-    pending = [error]
-    found: list[BaseException] = []
-    seen: set[int] = set()
-    while pending:
-        current = pending.pop()
-        if id(current) in seen:
-            continue
-        seen.add(id(current))
-        found.append(current)
-        if isinstance(current, BaseExceptionGroup):
-            pending.extend(current.exceptions)
-        if current.__cause__ is not None:
-            pending.append(current.__cause__)
-        if current.__context__ is not None:
-            pending.append(current.__context__)
-    return found
 
 
 def _text_signals_auth_challenge(value: object) -> bool:

@@ -2,12 +2,14 @@ import os
 from typing import cast
 
 import pytest
+from mcp.client.auth import OAuthFlowError, OAuthRegistrationError
 
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import mcp_runtime
 from fast_agent.commands.results import CommandMessage
 from fast_agent.config import MCPServerSettings, MCPSettings, Settings
 from fast_agent.mcp.connect_targets import parse_connect_command_text
+from fast_agent.mcp.failures import MCPFailure
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
 from fast_agent.mcp.oauth_client import OAuthEvent
 
@@ -90,32 +92,6 @@ def test_mcp_attach_counts_rejects_bool_totals() -> None:
     )
 
     assert counts.refreshed == mcp_runtime._McpResourceCounts(tools=2, prompts=1)
-
-
-def test_connect_failure_classifier_requires_explicit_oauth_timeout() -> None:
-    timeout = mcp_runtime._classify_connect_failure(
-        "OAuth callback wait timed out after 120 seconds"
-    )
-    assert timeout.oauth_related is True
-    assert timeout.oauth_timeout is True
-
-    non_oauth_timeout = mcp_runtime._classify_connect_failure(
-        "Startup timed out after 10.0s (non-OAuth startup budget)"
-    )
-    assert non_oauth_timeout.oauth_related is False
-    assert non_oauth_timeout.oauth_timeout is False
-
-    lifetime_policy = mcp_runtime._classify_connect_failure(
-        "OAuth token lifetime policy rejected by remote server"
-    )
-    assert lifetime_policy.oauth_related is True
-    assert lifetime_policy.oauth_timeout is False
-
-    mixed_case_timeout = mcp_runtime._classify_connect_failure(
-        "OAUTH CALLBACK WAIT TIMED OUT AFTER 120 SECONDS"
-    )
-    assert mixed_case_timeout.oauth_related is True
-    assert mixed_case_timeout.oauth_timeout is True
 
 
 class _Provider:
@@ -239,7 +215,7 @@ class _OAuthEventManager(_Manager):
 class _OAuthFailureManager(_Manager):
     async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
         del agent_name, server_name, server_config, options
-        raise RuntimeError(
+        raise OAuthFlowError(
             "OAuth local callback server unavailable and paste fallback is disabled "
             "for this connection mode."
         )
@@ -248,9 +224,8 @@ class _OAuthFailureManager(_Manager):
 class _OAuthRegistration404Manager(_Manager):
     async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
         del agent_name, server_name, server_config, options
-        raise RuntimeError(
-            "OAuthRegistrationError: Registration failed: 404 404 page not found "
-            "for URL: https://api.githubcopilot.com/mcp/"
+        raise OAuthRegistrationError(
+            "Registration failed: HTTP 404 for https://api.githubcopilot.com/mcp/"
         )
 
 
@@ -755,9 +730,20 @@ async def test_handle_mcp_connect_oauth_failure_adds_noninteractive_recovery_gui
     )
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    failure = next(
+        (
+            value
+            for message in outcome.messages
+            if isinstance((value := message.metadata.get("mcp_failure")), MCPFailure)
+        ),
+        None,
+    )
     assert "Failed to connect MCP server" in message_text
+    assert failure is not None
+    assert failure.kind == "oauth_failed"
+    assert failure.surface == "terminal_connect"
     assert "fast-agent auth mcp login" in message_text
-    assert "Stop/Cancel" in message_text
+    assert "Stop/Cancel" not in message_text
     assert any("Failed to connect MCP server" in item for item in progress_updates)
 
 
@@ -783,7 +769,7 @@ async def test_handle_mcp_connect_oauth_registration_404_adds_guidance() -> None
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
     assert "Failed to connect MCP server" in message_text
-    assert "registration returned HTTP 404" in message_text
+    assert "MCP OAuth authorization failed" in message_text
     assert "--client-metadata-url" in message_text
     assert "--auth <token>" in message_text
     assert "GitHub Copilot MCP" in message_text

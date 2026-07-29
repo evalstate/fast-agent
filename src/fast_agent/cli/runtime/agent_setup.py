@@ -16,14 +16,21 @@ import typer
 from fast_agent.cli.commands.server_helpers import register_runtime_servers
 from fast_agent.commands.model_capabilities import resolve_reasoning_effort
 from fast_agent.core.card_tool_attachment import load_and_attach_card_tool_agents
-from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.exceptions import (
+    AgentConfigError,
+    ServerInitializationError,
+    walk_exception_chain,
+)
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.reasoning_effort import reasoning_setting_telemetry_value
+from fast_agent.mcp.connect_targets import redact_mcp_url
+from fast_agent.mcp.failures import MCPFailure, classify_mcp_failure, render_mcp_failure
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
+from fast_agent.utils.commandline import join_commandline
 from fast_agent.utils.filename import sanitize_filename_suffix
 from fast_agent.utils.text import strip_casefold, strip_to_none
-from fast_agent.utils.transports import uses_protocol_stdio
+from fast_agent.utils.transports import uses_mcp_remote_transport, uses_protocol_stdio
 
 from .harness_startup import run_cli_flow, run_parallel_cli_flow
 from .model_bootstrap import (
@@ -1422,6 +1429,77 @@ async def _rollback_cli_startup(fast: Any, request: AgentRunRequest) -> None:
         await fast.app.cleanup()
 
 
+def _startup_server_input_ref(server_config) -> str:
+    if server_config.url:
+        return redact_mcp_url(server_config.url)
+    if server_config.command:
+        return join_commandline(
+            [server_config.command, *(server_config.args or ())],
+            syntax="posix",
+        )
+    return server_config.transport
+
+
+def _classify_cli_mcp_failure(
+    fast: Any,
+    request: AgentRunRequest,
+    cause: BaseException,
+    *,
+    allow_untyped_startup_registration: bool = False,
+) -> MCPFailure | None:
+    initialization_error = next(
+        (
+            error
+            for error in walk_exception_chain(cause)
+            if isinstance(error, ServerInitializationError) and error.server_name
+        ),
+        None,
+    )
+    startup_servers = request.startup_mcp_servers or {}
+    if initialization_error is None and not (
+        startup_servers and allow_untyped_startup_registration
+    ):
+        return None
+
+    server_name = (
+        initialization_error.server_name
+        if initialization_error is not None
+        else next(iter(startup_servers), None)
+        if len(startup_servers) == 1
+        else None
+    )
+    startup_config = startup_servers.get(server_name) if server_name else None
+    if startup_config is not None:
+        surface = (
+            "startup_url"
+            if uses_mcp_remote_transport(startup_config.transport)
+            else "startup_stdio"
+        )
+        origin = "session"
+        input_ref = _startup_server_input_ref(startup_config)
+        explicit_auth = any(
+            key.casefold() in {"authorization", "x-hf-authorization"}
+            for key in (startup_config.headers or {})
+        )
+    else:
+        surface = "harness_startup"
+        registry = fast.app.context.server_registry
+        registry_origin = registry.get_server_origin(server_name) if server_name else None
+        origin = registry_origin if registry_origin in {"central", "card"} else "session"
+        input_ref = request.config_path or server_name or "MCP configuration"
+        explicit_auth = False
+
+    return classify_mcp_failure(
+        cause,
+        server_name=server_name,
+        origin=origin,
+        surface=surface,
+        input_ref=input_ref,
+        stage="initialize",
+        explicit_auth=explicit_auth,
+    )
+
+
 async def run_agent_request(request: AgentRunRequest) -> None:
     """Run the normalized CLI request."""
     startup_model_source_override = await _select_startup_model_if_needed(request)
@@ -1436,14 +1514,25 @@ async def run_agent_request(request: AgentRunRequest) -> None:
         model_source_override=startup_model_source_override,
     )
     await _apply_runtime_context_overrides(fast, request)
+    registering_startup_servers = True
     try:
         await _add_cli_servers(fast, request)
+        registering_startup_servers = False
         await _run_initialized_agent_request(
             fast,
             request,
             instruction=instruction,
             serve_permissions_enabled=serve_permissions_enabled,
         )
-    except BaseException:
+    except BaseException as exc:
+        failure = _classify_cli_mcp_failure(
+            fast,
+            request,
+            exc,
+            allow_untyped_startup_registration=registering_startup_servers,
+        )
         await _rollback_cli_startup(fast, request)
+        if failure is not None:
+            typer.echo(render_mcp_failure(failure, output_format="cli"), err=True)
+            raise SystemExit(1) from exc
         raise

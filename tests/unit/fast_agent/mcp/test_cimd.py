@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from typing import TypeAlias, cast
 
 import pytest
-from mcp.client.auth import AuthorizationCodeResult
+from mcp.client.auth import AuthorizationCodeResult, OAuthFlowError
 from pydantic import ValidationError
 
 from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
@@ -526,7 +526,7 @@ async def test_callback_handler_disables_paste_fallback_when_configured(monkeypa
 
     callback_handler = _callback_handler(captured_kwargs)
 
-    with pytest.raises(RuntimeError, match="paste fallback is disabled"):
+    with pytest.raises(OAuthFlowError, match="paste fallback is disabled"):
         await callback_handler()
 
     assert called["paste"] is False
