@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from mcp.client import CacheConfig, Client, Transport
 from mcp.shared.exceptions import MCPError
 from mcp_types import (
+    INVALID_REQUEST,
     CallToolResult,
     CompleteResult,
     GetPromptResult,
@@ -158,7 +159,7 @@ class MCPClientConnection:
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
     ) -> ListToolsResult:
-        return await self.client.list_tools(cursor=cursor, meta=meta)
+        return await self._request(self.client.list_tools(cursor=cursor, meta=meta))
 
     async def list_prompts(
         self,
@@ -166,7 +167,7 @@ class MCPClientConnection:
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
     ) -> ListPromptsResult:
-        return await self.client.list_prompts(cursor=cursor, meta=meta)
+        return await self._request(self.client.list_prompts(cursor=cursor, meta=meta))
 
     async def list_resources(
         self,
@@ -174,7 +175,7 @@ class MCPClientConnection:
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
     ) -> ListResourcesResult:
-        return await self.client.list_resources(cursor=cursor, meta=meta)
+        return await self._request(self.client.list_resources(cursor=cursor, meta=meta))
 
     async def list_resource_templates(
         self,
@@ -182,7 +183,9 @@ class MCPClientConnection:
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
     ) -> ListResourceTemplatesResult:
-        return await self.client.list_resource_templates(cursor=cursor, meta=meta)
+        return await self._request(
+            self.client.list_resource_templates(cursor=cursor, meta=meta)
+        )
 
     async def call_tool(
         self,
@@ -233,7 +236,7 @@ class MCPClientConnection:
         argument: dict[str, str],
         context_arguments: dict[str, str] | None = None,
     ) -> CompleteResult:
-        return await self.client.complete(ref, argument, context_arguments)
+        return await self._request(self.client.complete(ref, argument, context_arguments))
 
     async def read_directory(
         self,
@@ -242,22 +245,34 @@ class MCPClientConnection:
         cursor: str | None = None,
     ) -> ListResourcesResult:
         request = DirectoryReadRequest(params=DirectoryReadRequestParams(uri=uri, cursor=cursor))
-        return await self.client.session.send_request(request, ListResourcesResult)
+        return await self._request(
+            self.client.session.send_request(request, ListResourcesResult)
+        )
 
-    async def _interactive_operation(self, method: str, operation: Awaitable[T]) -> T:
-        self.callbacks.discard_pending_url_elicitations()
+    async def _request(self, operation: Awaitable[T]) -> T:
         try:
-            result = await operation
+            return await operation
         except MCPError as exc:
-            self.callbacks.discard_pending_url_elicitations()
             if (
-                exc.code == ServerSessionTerminatedError.SESSION_TERMINATED_CODE
+                exc.code == INVALID_REQUEST
+                and exc.message == "Session terminated"
                 and self.protocol_version not in MODERN_PROTOCOL_VERSIONS
             ):
                 raise ServerSessionTerminatedError(
                     server_name=self.callbacks.display_server_name,
                     details="Server returned 404 - runtime may need replacement",
                 ) from exc
+            raise
+
+    async def _interactive_operation(self, method: str, operation: Awaitable[T]) -> T:
+        self.callbacks.discard_pending_url_elicitations()
+        try:
+            result = await self._request(operation)
+        except ServerSessionTerminatedError:
+            self.callbacks.discard_pending_url_elicitations()
+            raise
+        except MCPError as exc:
+            self.callbacks.discard_pending_url_elicitations()
             if exc.code == URL_ELICITATION_REQUIRED:
                 payload = build_url_elicitation_required_display_payload(
                     exc.data,
