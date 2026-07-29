@@ -14,18 +14,41 @@ social:
 ---
 
 
-<section class="fa-hero fa-hero--home">
+<section class="fa-home-splash">
+  <div class="fa-home-splash__heading">
+    <div>
+      <span class="fa-home-splash__brand" aria-label="fast-agent">
+        <img class="fa-home-splash__wordmark fa-home-splash__wordmark--dark" src="assets/brand/fast-agent-anim-dark.svg" width="720" height="200" alt="fast-agent">
+        <img class="fa-home-splash__wordmark fa-home-splash__wordmark--light" src="assets/brand/fast-agent-anim-light.svg" width="720" height="200" alt="fast-agent">
+      </span>
+      <h1>The harness your model deserves.</h1>
+    </div>
+    <div>
+      <p>
+        Same model, better results. fast-agent leads on 
+        <strong>accuracy</strong> and <strong>cost efficiency</strong>.
+      </p>
+      <div class="fa-home-splash__actions">
+        <a class="fa-btn fa-btn--primary" href="guides/codex/">Try it now</a>
+        <a class="fa-btn" href="guides/migrate-automations/">Migrate your automations</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="fa-benchmark" data-fa-benchmark>
+    <div class="fa-benchmark__loading">Loading Terminal-Bench comparisons…</div>
+  </div>
+  <div class="fa-benchmark-stats" data-fa-benchmark-stats aria-live="polite" aria-label="Selected comparison summary"></div>
+</section>
+
+<section class="fa-product-intro">
   <div>
-  <p class="fa-kicker">Coding Agent and Development Toolkit</p> 
-    <span class="fa-hero__brand" aria-label="fast-agent">
-      <img class="fa-hero__wordmark fa-hero__wordmark--dark" src="assets/brand/fast-agent-anim-dark.svg" alt="fast-agent">
-      <img class="fa-hero__wordmark fa-hero__wordmark--light" src="assets/brand/fast-agent-anim-light.svg" alt="fast-agent">
-    </span>
+    <p class="fa-kicker">Coding agent and development toolkit</p>
+    <h2>Simple, extendable agents.</h2>
     <p class="fa-lede">
-      Simple extendable agents. Excellent provider and local model support. Flexible context management. Terminal native and scriptable.
+      Excellent provider and local model support. Flexible context management. Terminal native and scriptable.
     </p>
     <div class="fa-hero__actions">
-      <a class="fa-btn fa-btn--primary" href="guides/codex/">Try it now</a>
       <a class="fa-btn" href="agents/defining/">Build an agent</a>
       <a class="fa-btn" href="ref/go_command/">Explore the CLI</a>
     </div>
@@ -38,11 +61,11 @@ social:
     <pre><code><span class="fa-muted">$</span> uvx fast-agent-mcp@latest -x
 <span class="fa-good">start</span> an interactive session with shell tools
 
-<span class="fa-muted">$</span>uv tool install -U fast-agent-mcp
+<span class="fa-muted">$</span> uv tool install -U fast-agent-mcp
 <span class="fa-good">install</span> the latest version of fast-agent
 
-<span class="fa-muted">$</span> fast-agent --pack codex 
-<span class="fa-good">code</span> download configuration to use codex</code></pre>
+<span class="fa-muted">$</span> fast-agent --pack codex
+<span class="fa-good">code</span> download configuration to use codex<span class="fa-cursor"></span></code></pre>
   </div>
 </section>
 
