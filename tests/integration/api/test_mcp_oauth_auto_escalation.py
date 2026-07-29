@@ -124,11 +124,11 @@ async def test_http_mcp_auto_escalates_to_oauth_on_401(
         )
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.httpx2.AsyncClient",
+        "fast_agent.mcp.client_gateway.httpx2.AsyncClient",
         _client_factory,
     )
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.build_oauth_provider",
+        "fast_agent.mcp.client_gateway.build_oauth_provider",
         lambda *_args, **_kwargs: _BearerAuth(),
     )
 
@@ -136,7 +136,6 @@ async def test_http_mcp_auto_escalates_to_oauth_on_401(
         mcp=MCPSettings(
             servers={
                 "authsrv": MCPServerSettings(
-                    name="authsrv",
                     transport="http",
                     url="http://testserver/mcp",
                 )

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx2
 import pytest
@@ -13,19 +13,28 @@ from fast_agent.context import Context
 from fast_agent.core.exceptions import ServerInitializationError
 from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
+from fast_agent.mcp.client_gateway import (
+    _managed_http_transport_context,
+    _prepare_headers_and_auth,
+)
+from fast_agent.mcp.client_gateway import (
+    is_http_auth_challenge as _is_http_auth_challenge_error,
+)
 from fast_agent.mcp.mcp_connection_manager import (
     MCPConnectionManager,
     ServerConnection,
     _format_oauth_registration_404_details,
-    _is_http_auth_challenge_error,
     _is_oauth_registration_404_message,
     _is_oauth_timeout_message,
-    _managed_http_transport_context,
-    _prepare_headers_and_auth,
     _server_lifecycle_task,
     _wait_for_initialized_with_startup_budget,
 )
 from fast_agent.mcp.oauth_client import OAuthEventHandler
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from fast_agent.mcp.client_connection import MCPClientConnection
 
 
 @pytest.mark.asyncio
@@ -34,7 +43,10 @@ async def test_http_response_hook_captures_session_id_and_auth_challenge() -> No
     connection = ServerConnection(
         "test",
         config,
-        lambda: streamable_http_client(config.url or ""),
+        cast(
+            "Callable[[], MCPClientConnection]",
+            lambda: streamable_http_client(config.url or ""),
+        ),
         MCPClientCallbackRuntime(server_name="test", server_config=config),
     )
     response = httpx2.Response(
@@ -61,7 +73,7 @@ def test_prepare_headers_respects_user_authorization(monkeypatch):
         raise AssertionError("OAuth provider should not be built when Authorization header is set.")
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.build_oauth_provider",
+        "fast_agent.mcp.client_gateway.build_oauth_provider",
         _builder,
     )
 
@@ -85,7 +97,7 @@ def test_prepare_headers_respects_case_insensitive_authorization(monkeypatch):
         raise AssertionError("OAuth provider should not be built when authorization header is set.")
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.build_oauth_provider",
+        "fast_agent.mcp.client_gateway.build_oauth_provider",
         _builder,
     )
 
@@ -112,7 +124,7 @@ def test_prepare_headers_invokes_oauth_when_no_auth_headers(monkeypatch):
         return sentinel
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.build_oauth_provider",
+        "fast_agent.mcp.client_gateway.build_oauth_provider",
         _builder,
     )
 
@@ -135,7 +147,7 @@ def test_prepare_headers_auto_mode_does_not_build_oauth(monkeypatch):
         raise AssertionError("OAuth provider should not be built in auto mode.")
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.build_oauth_provider",
+        "fast_agent.mcp.client_gateway.build_oauth_provider",
         _builder,
     )
 
@@ -273,7 +285,9 @@ async def test_server_lifecycle_sets_initialized_on_startup_failure():
     server_conn = ServerConnection(
         server_name="test-server",
         server_config=MCPServerSettings(name="test-server", url="http://example.com/mcp"),
-        transport_context_factory=DummyTransportContext,
+        client_connection_factory=cast(
+            "Callable[[], MCPClientConnection]", DummyTransportContext
+        ),
         callback_runtime=_callback_runtime(),
     )
 
@@ -297,7 +311,9 @@ def _make_server_connection() -> ServerConnection:
     return ServerConnection(
         server_name="test-server",
         server_config=MCPServerSettings(name="test-server", url="http://example.com/mcp"),
-        transport_context_factory=DummyTransportContext,
+        client_connection_factory=cast(
+            "Callable[[], MCPClientConnection]", DummyTransportContext
+        ),
         callback_runtime=_callback_runtime(),
     )
 
@@ -368,6 +384,9 @@ async def test_startup_timeout_budget_resumes_after_oauth_wait_ends() -> None:
 
 
 class _DummyRegistry:
+    active_home = None
+    no_home = False
+
     def get_server_config(self, _server_name: str):
         return MCPServerSettings(name="demo", url="http://example.com/mcp")
 
@@ -385,7 +404,7 @@ def test_disabled_mcp_diagnostics_skips_timeline_metrics_and_ping_history() -> N
     connection = ServerConnection(
         server_name="demo",
         server_config=config,
-        transport_context_factory=lambda: cast("Any", object()),
+        client_connection_factory=lambda: cast("Any", object()),
         callback_runtime=_callback_runtime(),
     )
     connection.record_ping_event("ping")
@@ -394,6 +413,9 @@ def test_disabled_mcp_diagnostics_skips_timeline_metrics_and_ping_history() -> N
 
 
 class _DummyStdioRegistry:
+    active_home = None
+    no_home = False
+
     def __init__(self, config: MCPServerSettings) -> None:
         self._config = config
 
@@ -478,7 +500,9 @@ async def test_get_server_startup_timeout_cancels_blocked_lifecycle(
             transport="http",
             url="http://127.0.0.1:9/mcp",
         ),
-        transport_context_factory=HangingTransportContext,
+        client_connection_factory=cast(
+            "Callable[[], MCPClientConnection]", HangingTransportContext
+        ),
         callback_runtime=_callback_runtime(),
     )
 
@@ -591,7 +615,7 @@ async def test_get_server_formats_stdio_missing_executable_without_traceback(
         return _FailingStdioClient()
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.tracking_stdio_client",
+            "fast_agent.mcp.client_gateway.tracking_stdio_client",
         _failing_stdio_client,
     )
 
@@ -642,7 +666,7 @@ async def test_get_server_formats_stdio_missing_cwd_without_traceback(
     missing_cwd = str(tmp_path / "missing-dir")
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.tracking_stdio_client",
+            "fast_agent.mcp.client_gateway.tracking_stdio_client",
         _failing_stdio_client,
     )
 
@@ -690,7 +714,7 @@ async def test_get_server_stdio_timeout_includes_recent_stderr(
     server_conn = ServerConnection(
         server_name="demo",
         server_config=config,
-        transport_context_factory=lambda: cast("Any", object()),
+        client_connection_factory=lambda: cast("Any", object()),
         callback_runtime=_callback_runtime(),
     )
     server_conn.record_stdio_stderr("npm notice downloading desktop-commander")

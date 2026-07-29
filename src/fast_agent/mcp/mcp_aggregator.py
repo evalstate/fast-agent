@@ -50,16 +50,15 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 from fast_agent.mcp.client_connection import MCPClientConnection
+from fast_agent.mcp.client_gateway import (
+    is_http_auth_challenge,
+    resolve_oauth_mode,
+)
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
-from fast_agent.mcp.mcp_connection_manager import (
-    MCPConnectionManager,
-    ServerConnection,
-    _is_http_auth_challenge_error,
-    _resolve_oauth_mode,
-)
+from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager, ServerConnection
 from fast_agent.mcp.prompt_metadata import with_prompt_metadata
 from fast_agent.mcp.skybridge import (
     MCP_APP_MIME_TYPE,
@@ -1304,11 +1303,12 @@ class MCPAggregator(ContextDependent):
             # I/O without holding lock — allows concurrent probes for different servers
             try:
                 server_registry = self._require_server_registry()
-                async with server_registry.initialize_server(
+                async with gen_client(
                     server_name=server_name,
+                    server_registry=server_registry,
                     callback_runtime=self._create_callback_runtime(server_name),
-                ) as _session:
-                    capabilities = server_registry.get_server_capabilities(server_name)
+                ) as connection:
+                    capabilities = connection.server_capabilities
 
                 if capabilities is not None:
                     async with self._capabilities_cache_lock:
@@ -2061,9 +2061,9 @@ class MCPAggregator(ContextDependent):
         config = server_registry.get_server_config(server_name)
         if config is None:
             return False
-        return _resolve_oauth_mode(
+        return resolve_oauth_mode(
             config, trigger_oauth=None
-        ) == "auto" and _is_http_auth_challenge_error(exc)
+        ) == "auto" and is_http_auth_challenge(exc)
 
     def _log_server_progress(
         self,

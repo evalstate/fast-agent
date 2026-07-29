@@ -895,13 +895,6 @@ class MCPSettings(BaseModel):
                     f"`mcp.servers.{server_name}.name` must match its map key "
                     f"'{server_name}', got {server.name!r}"
                 )
-            if server.name == server_name and "name" in server.model_fields_set:
-                warnings.warn(
-                    f"`mcp.servers.{server_name}.name` is deprecated; the map key is the "
-                    "canonical server name.",
-                    DeprecationWarning,
-                    stacklevel=3,
-                )
 
             updates: dict[str, Any] = {"name": server_name}
             updates.update(

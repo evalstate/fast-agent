@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
     from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
     from fast_agent.mcp.client_connection import MCPClientConnection
-    from fast_agent.mcp.interfaces import ServerInitializerProtocol
+    from fast_agent.mcp.interfaces import ServerRegistryProtocol
 
 logger = get_logger(__name__)
 
@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def gen_client(
     server_name: str,
-    server_registry: ServerInitializerProtocol,
+    server_registry: ServerRegistryProtocol,
     *,
     callback_runtime: MCPClientCallbackRuntime | None = None,
     trigger_oauth: bool | None = None,
@@ -33,9 +33,29 @@ async def gen_client(
             "Server registry not found in the context. Please specify one either on this method, or in the context."
         )
 
-    async with server_registry.initialize_server(
+    config = server_registry.get_server_config(server_name)
+    if config is None:
+        raise ValueError(f"Server '{server_name}' not found in registry.")
+
+    from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
+    from fast_agent.mcp.client_gateway import MCPClientHooks, open_request_scoped_client
+
+    callbacks = callback_runtime or MCPClientCallbackRuntime(
+        server_name=server_name, server_config=config
+    )
+    hooks = MCPClientHooks(
+        active_home=server_registry.active_home,
+        no_home=server_registry.no_home,
+    )
+    async with open_request_scoped_client(
         server_name=server_name,
-        callback_runtime=callback_runtime,
+        config=config,
+        callback_runtime=callbacks,
         trigger_oauth=trigger_oauth,
-    ) as session:
-        yield session
+        hooks=hooks,
+    ) as connection:
+        if connection.server_capabilities is not None:
+            server_registry.set_server_capabilities(
+                server_name, connection.server_capabilities
+            )
+        yield connection
