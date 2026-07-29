@@ -38,6 +38,7 @@ PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
     Provider.XAI,
     Provider.META_AI,
     Provider.DEEPSEEK,
+    Provider.ZAI,
     Provider.GENERIC,
     Provider.ANTHROPIC_VERTEX,
     Provider.OPENAI,

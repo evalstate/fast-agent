@@ -22,6 +22,7 @@ class _Runtime:
                 os_process_id=4321,
                 total_output_bytes=0,
                 exit_code=None,
+                lifecycle="session",
             ),
             ManagedProcessSnapshot(
                 process_id="process-2",
@@ -32,6 +33,7 @@ class _Runtime:
                 os_process_id=4322,
                 total_output_bytes=9,
                 exit_code=0,
+                lifecycle="session",
             ),
         )
 

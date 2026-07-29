@@ -59,6 +59,7 @@ nav = [
       { "llama.cpp" = "models/providers/llamacpp.md" },
       { "xAI" = "models/providers/xai.md" },
       { "MetaAI" = "models/providers/metaai.md" },
+      { "Z.ai" = "models/providers/zai.md" },
       { "Azure" = "models/providers/azure.md" },
       { "Bedrock" = "models/providers/bedrock.md" },
       { "Additional Providers" = "models/providers/additional.md" },

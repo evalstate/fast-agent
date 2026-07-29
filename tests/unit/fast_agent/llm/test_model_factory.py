@@ -832,6 +832,13 @@ def test_builtin_glm_alias_uses_glm_52_default() -> None:
     assert legacy.model_name == "zai-org/GLM-5:novita"
 
 
+def test_zaiglm_alias_uses_native_zai_provider() -> None:
+    config = ModelFactory.parse_model_string("zaiglm")
+
+    assert config.provider == Provider.ZAI
+    assert config.model_name == "glm-5.2"
+
+
 def test_opus_alias_resolves_to_current_catalog_model():
     opus_entry = next(
         entry

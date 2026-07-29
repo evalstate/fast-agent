@@ -82,6 +82,13 @@ anthropic:
 #  cache_mode: "auto" # Options: off, prompt, auto (default: auto)
 #  cache_ttl: "5m" # Options: 5m, 1h (default: 5m)
 #  cache_diagnostics: false # First-party Anthropic cache-miss diagnosis (debug only)
+
+# Native Z.ai Chat Completions provider:
+# zai:
+#   api_key: "${ZAI_API_KEY}"
+#   # base_url: "https://api.z.ai/api/paas/v4/"
+#   # default_model: "glm-5.2"
+
 #shell_execution:
 # model-facing shell tools: minimal_process (Bash/Process, default) or native
 # (legacy execute/poll_process/terminate_process compatibility)

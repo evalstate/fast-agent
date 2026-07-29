@@ -795,7 +795,9 @@ shell_execution:
 
 `tool_profile` controls the model-facing contract only. The default
 `minimal_process` profile exposes `Bash(command, run_in_background?)` and
-`Process(process_id, action)`. The `native` profile remains available as a
+`Process(action, process_id?)`. Use `Process(action="list")` to list retained
+managed processes in creation order; `process_id` is required for `status`,
+`wait`, and `stop`. The `native` profile remains available as a
 compatibility escape hatch for the legacy `execute`, `poll_process`, and
 `terminate_process` schemas; both profiles use the same managed-process runtime.
 
