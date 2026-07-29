@@ -155,7 +155,6 @@ def _example_mappings() -> dict[str, Path]:
         "examples/researcher": examples_dir / "researcher",
         "examples/data-analysis": examples_dir / "data-analysis",
         "examples/markdown": examples_dir / "markdown",
-        "examples/mcp/state-transfer": examples_dir / "mcp" / "state-transfer",
         "examples/mcp/elicitations": examples_dir / "mcp" / "elicitations",
         "examples/tensorzero": examples_dir / "tensorzero",
         "examples/hf-toad-cards": examples_dir / "hf-toad-cards",

@@ -197,7 +197,7 @@ Recommended defaults:
 - never rely on hidden global agent state for user-specific app data.
 
 If an app needs continuity across clicks, include the handle in the backend tool
-schema:
+schema and use it to load and save application state:
 
 ```python
 @ui.tool()
@@ -210,6 +210,11 @@ async def refine_plan(workspace_id: str, instruction: str, ctx: MCPContext) -> s
     )
     return response.text_content()
 ```
+
+In connection scope, `workspace_id` overrides an ambient `Mcp-Session-Id` as
+the harness session key. In request scope, the harness session is transient and
+`workspace_id` is retained as request metadata only; durable continuity must
+come from application-managed storage.
 
 ## Auth and CSP
 

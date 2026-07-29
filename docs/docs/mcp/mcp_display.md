@@ -11,13 +11,21 @@ Detailed information about the MCP Server connection can be displayed with the `
 
 ![](./pics/mcp_transport_display.png)
 
-### Section 1 - Implementation and Session
+### Section 1 - Implementation, Protocol, and Session
 
-This section shows the MCP Server Implementation Details (`Name` and `Version`), along with any `Mcp-Session-Id` allocated by the MCP Server.
+This section shows the server implementation, negotiated protocol version and
+era, and subscription state. For legacy Streamable HTTP servers it also shows a
+real `Mcp-Session-Id` when one was observed. Modern `2026-07-28` connections are
+shown as sessionless. The `local` value for stdio describes transport locality,
+not a protocol session.
 
 ### Section 2 - Transport Channel History
 
-Shows activity from the Streamable HTTP GET and POST handlers for the MCP Server. 
+Shows transport activity only when fast-agent has a live diagnostics source.
+The current SDK v2 integration records stdio connection and operation activity.
+It does not expose the exact Streamable HTTP POST JSON/SSE response split, GET
+stream, or resumption counters that older fast-agent transport forks collected,
+so those remote channel rows are omitted rather than inferred.
 
 ### Section 3 - Server Capabilities
 
@@ -36,7 +44,8 @@ Shows activity from the Streamable HTTP GET and POST handlers for the MCP Server
 
 ### Configuration
 
-The activity timeline shown in the transport section can be tailored in `fast-agent.yaml` via the `mcp_timeline` block:
+When a transport activity timeline is available, it can be tailored in
+`fast-agent.yaml` via the `mcp_timeline` block:
 
 ```yaml
 mcp_timeline:

@@ -68,9 +68,8 @@ uv run agent.py --transport http --port 8080
 uv run agent.py --transport stdio
 ```
 
-Each agent exposes an MCP Tool for sending messages to the agent, and a Prompt that returns the conversation history. 
-
-This enables cross-agent state transfer via the MCP Prompts.
+Each configured agent is exposed as an MCP tool for sending messages to that
+agent. The managed server does not expose conversation history as MCP prompts.
 
 The MCP Server can also be started programmatically.
 

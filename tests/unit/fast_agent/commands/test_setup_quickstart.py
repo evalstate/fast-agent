@@ -105,7 +105,6 @@ def test_quickstart_next_steps_are_defined_for_standard_examples() -> None:
         "workflow",
         "researcher",
         "data-analysis",
-        "state-transfer",
         "elicitations",
     }
 

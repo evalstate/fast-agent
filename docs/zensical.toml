@@ -105,7 +105,6 @@ nav = [
     { "Features" = [
       { "Skills over MCP" = "mcp/skills-over-mcp.md" },
       { "Elicitations" = "mcp/elicitations.md" },
-      { "State Transfer" = "mcp/state_transfer.md" },
       "mcp/resources.md",
     ] },
   ] },

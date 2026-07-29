@@ -49,9 +49,6 @@ _NEXT_STEP_MESSAGES: dict[str, tuple[str, ...]] = {
         "   - mount-point/WA_Fn-UseC_-HR-Employee-Attrition.csv",
         "On Windows platforms, please edit the fast-agent.yaml and adjust the volume mount point.",
     ),
-    "state-transfer": (
-        "Check [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for quick start walkthroughs",
-    ),
     "elicitations": (
         "1. Go to the `elicitations` subdirectory (cd elicitations)",
         "2. Try the forms demo: uv run forms_demo.py",
@@ -111,21 +108,6 @@ _EXAMPLE_CONFIGS = {
         mount_point_files=["WA_Fn-UseC_-HR-Employee-Attrition.csv"],
         create_subdir=True,
         path_in_examples=["data-analysis"],
-    ),
-    "state-transfer": ExampleConfig(
-        description=(
-            "Example demonstrating state transfer between multiple agents.\n"
-            "Shows how state can be passed between agent runs to maintain context.\n"
-            "Creates examples in a 'state-transfer' subdirectory."
-        ),
-        files=[
-            "agent_one.py",
-            "agent_two.py",
-            "fast-agent.yaml",
-            "fast-agent.secrets.yaml.example",
-        ],
-        create_subdir=True,
-        path_in_examples=["mcp", "state-transfer"],
     ),
     "elicitations": ExampleConfig(
         description=(
@@ -467,24 +449,6 @@ def data_analysis(
 
     created = copy_example_files("data-analysis", target_dir, force)
     _show_completion_message("data-analysis", created)
-
-
-@app.command()
-def state_transfer(
-    directory: Path = typer.Argument(
-        Path(),
-        help="Directory where state transfer examples will be created (in 'state-transfer' subdirectory)",
-    ),
-    force: bool = typer.Option(False, "--force", "-f", help="Force overwrite existing files"),
-) -> None:
-    """Create state transfer example showing state passing between agents."""
-    target_dir = directory.resolve()
-    if not target_dir.exists():
-        target_dir.mkdir(parents=True)
-        console.print(f"Created directory: {target_dir}")
-
-    created = copy_example_files("state-transfer", target_dir, force)
-    _show_completion_message("state-transfer", created)
 
 
 @app.command()

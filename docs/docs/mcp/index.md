@@ -11,8 +11,8 @@ social:
 
 - **Client**: connect agents to local or remote MCP servers.
 - **Server**: expose fast-agent agents, AgentCards, and Harness apps as MCP servers with [FastMCP](https://gofastmcp.com/getting-started/welcome).
-- **Protocol features**: work with MCP types, resources, elicitations, state transfer,
-  OAuth, UI content, and MCP Apps.
+- **Protocol features**: work with MCP types, resources, elicitations, OAuth,
+  UI content, and MCP Apps.
 
 ## Choose your path
 
@@ -119,6 +119,5 @@ fast-agent supports several MCP protocol features directly in the agent runtime:
 
 - [Skills over MCP](skills-over-mcp.md)
 - [Elicitations](elicitations.md)
-- [State Transfer](state_transfer.md)
 - [Resources](resources.md)
 - [mcp-ui](mcp-ui.md)

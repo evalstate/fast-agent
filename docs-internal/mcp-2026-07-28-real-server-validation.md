@@ -115,7 +115,3 @@ isolates `HF_HOME`.
 The elicitation integration suite currently passes 4 of 7 selected cases.
 The three custom-handler failures are the FastMCP standalone-elicitation
 deficit recorded as `MCP3-006`. A separate SDK-native MRTR probe passes.
-
-The state-transfer example successfully exposes and calls `agent_one`, but
-does not expose the documented `agent_one_history` prompt. This is recorded as
-`MCP3-007`.
