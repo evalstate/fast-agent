@@ -11,10 +11,12 @@ from fast_agent.tools import docker_shell_environment as docker_environment_modu
 from fast_agent.tools.docker_shell_environment import (
     DockerManagedShellEnvironment,
     DockerMount,
+    DockerMountedEnvironment,
     DockerShellEnvironment,
 )
 from fast_agent.tools.execution_environment import (
     EnvironmentFilesystemWithBytes,
+    EnvironmentTemporaryArtifacts,
     ShellExecutionRequest,
 )
 from fast_agent.tools.shell_output_spool import ShellOutputSpoolPaths
@@ -303,6 +305,170 @@ async def test_docker_shell_environment_reads_text_from_container(
     assert content == "hello"
     assert calls[0][0][:3] == ("wslc", "exec", "workspace")
     assert calls[0][0][-1] == "/workspace/README.md"
+
+
+@pytest.mark.asyncio
+async def test_docker_temporary_artifact_is_atomic_bounded_and_cleaned() -> None:
+    class _ArtifactEnvironment(DockerShellEnvironment):
+        def __init__(self) -> None:
+            super().__init__(container="workspace")
+            self.calls: list[tuple[str, list[str], bytes | None]] = []
+
+        async def _docker_shell_bytes(
+            self,
+            script: str,
+            args: list[str],
+            *,
+            stdin: bytes | None = None,
+        ) -> docker_environment_module._DockerExecResult:
+            self.calls.append((script, args, stdin))
+            if "mktemp -d" in script:
+                return docker_environment_module._DockerExecResult(
+                    exit_code=0,
+                    stdout=(
+                        b"/tmp/fast-agent-output-private\n"
+                        b"/tmp/fast-agent-output-private/fast-agent-subagent-random.log\n"
+                    ),
+                    stderr="",
+                )
+            return docker_environment_module._DockerExecResult(
+                exit_code=0,
+                stdout=b"",
+                stderr="",
+            )
+
+    environment = _ArtifactEnvironment()
+    assert isinstance(environment, EnvironmentTemporaryArtifacts)
+
+    artifact = await environment.write_temporary_text(
+        prefix="fast-agent-subagent-",
+        suffix=".log",
+        content="a" * 100,
+        max_bytes=64,
+    )
+
+    assert artifact.path.endswith("/fast-agent-subagent-random.log")
+    assert artifact.retained_bytes <= 64
+    assert not artifact.complete
+    allocation_script, allocation_args, payload = environment.calls[0]
+    assert "umask 077" in allocation_script
+    assert "mktemp" in allocation_script
+    assert allocation_args == ["", "fast-agent-subagent-", ".log"]
+    assert payload is not None
+    assert len(payload) <= 64
+
+    await environment.remove_temporary_artifact(artifact)
+    assert artifact.path not in environment._temporary_artifact_paths
+    await environment.close()
+    assert environment._temporary_artifact_directory is None
+
+
+@pytest.mark.asyncio
+async def test_docker_concurrent_temporary_artifacts_share_one_directory() -> None:
+    class _ConcurrentArtifactEnvironment(DockerShellEnvironment):
+        def __init__(self) -> None:
+            super().__init__(container="workspace")
+            self.allocated_roots = 0
+            self.write_count = 0
+
+        async def _docker_shell_bytes(
+            self,
+            script: str,
+            args: list[str],
+            *,
+            stdin: bytes | None = None,
+        ) -> docker_environment_module._DockerExecResult:
+            del stdin
+            if "mktemp -d" not in script:
+                return docker_environment_module._DockerExecResult(
+                    exit_code=0,
+                    stdout=b"",
+                    stderr="",
+                )
+            self.write_count += 1
+            directory = args[0]
+            if not directory:
+                self.allocated_roots += 1
+                directory = f"/tmp/fast-agent-output-{self.allocated_roots}"
+                await asyncio.sleep(0)
+            path = f"{directory}/{args[1]}{self.write_count}{args[2]}"
+            return docker_environment_module._DockerExecResult(
+                exit_code=0,
+                stdout=f"{directory}\n{path}\n".encode(),
+                stderr="",
+            )
+
+    environment = _ConcurrentArtifactEnvironment()
+    artifacts = await asyncio.gather(
+        environment.write_temporary_text(
+            prefix="fast-agent-subagent-",
+            suffix=".log",
+            content="first",
+            max_bytes=1024,
+        ),
+        environment.write_temporary_text(
+            prefix="fast-agent-subagent-",
+            suffix=".log",
+            content="second",
+            max_bytes=1024,
+        ),
+    )
+
+    assert environment.allocated_roots == 1
+    directory = environment._temporary_artifact_directory
+    assert directory is not None
+    assert all(artifact.path.startswith(f"{directory}/") for artifact in artifacts)
+
+
+@pytest.mark.asyncio
+async def test_mounted_docker_routes_only_owned_artifact_paths_to_container(tmp_path) -> None:
+    class _MountedArtifactEnvironment(DockerMountedEnvironment):
+        def __init__(self) -> None:
+            super().__init__(image="unused", workspace=tmp_path)
+            self.container_reads: list[str] = []
+
+        async def _docker_shell_bytes(
+            self,
+            script: str,
+            args: list[str],
+            *,
+            stdin: bytes | None = None,
+        ) -> docker_environment_module._DockerExecResult:
+            del stdin
+            if "mktemp -d" in script:
+                return docker_environment_module._DockerExecResult(
+                    exit_code=0,
+                    stdout=(
+                        b"/tmp/fast-agent-output-private\n"
+                        b"/tmp/fast-agent-output-private/fast-agent-subagent-random.log\n"
+                    ),
+                    stderr="",
+                )
+            if "exec cat" in script:
+                self.container_reads.append(args[0])
+                return docker_environment_module._DockerExecResult(
+                    exit_code=0,
+                    stdout=b"transcript",
+                    stderr="",
+                )
+            return docker_environment_module._DockerExecResult(
+                exit_code=0,
+                stdout=b"",
+                stderr="",
+            )
+
+    environment = _MountedArtifactEnvironment()
+    artifact = await environment.write_temporary_text(
+        prefix="fast-agent-subagent-",
+        suffix=".log",
+        content="transcript",
+        max_bytes=1024,
+    )
+
+    assert await environment.read_text(artifact.path) == "transcript"
+    assert environment.container_reads == [artifact.path]
+    with pytest.raises(ValueError, match="outside the mounted Docker workspace"):
+        await environment.read_text("/tmp/unowned.log")
 
 
 @pytest.mark.asyncio

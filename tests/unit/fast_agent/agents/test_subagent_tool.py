@@ -2,6 +2,7 @@ import asyncio
 import io
 import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import pytest
@@ -26,6 +27,7 @@ from fast_agent.constants import FAST_AGENT_SUBAGENT_RESULT_METADATA, FAST_AGENT
 from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction, ProgressEvent
 from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
 from fast_agent.llm.internal.passthrough import PassthroughLLM
@@ -39,6 +41,7 @@ from fast_agent.llm.usage_tracking import (
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult
 from fast_agent.mcp.prompt import Prompt
+from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.session import (
     Session,
     SessionChildLinkSnapshot,
@@ -48,12 +51,16 @@ from fast_agent.session import (
     set_session_manager,
 )
 from fast_agent.session.trace_export_atif import AtifRunSource, build_atif_trajectory
+from fast_agent.tools.execution_environment import TemporaryArtifact
+from fast_agent.tools.local_shell_executor import LocalEnvironment
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.progress.display import RichProgressDisplay
 from fast_agent.ui.progress_display import progress_display
 
 if TYPE_CHECKING:
+    from acp import AgentSideConnection
+
     from fast_agent.mcp.skybridge import SkybridgeServerConfig
     from fast_agent.tools.execution_environment import ShellEnvironment
     from fast_agent.ui.terminal_images.renderer import ImageRenderItem
@@ -380,6 +387,54 @@ class SlowSaveSession(Session):
         raise AssertionError("unreachable")
 
 
+class FailingArtifactLocalEnvironment(LocalEnvironment):
+    async def write_temporary_text(
+        self,
+        *,
+        prefix: str,
+        suffix: str,
+        content: str,
+        max_bytes: int,
+    ) -> TemporaryArtifact:
+        del prefix, suffix, content, max_bytes
+        raise OSError("simulated artifact failure")
+
+
+class BlockingArtifactLocalEnvironment(LocalEnvironment):
+    def __init__(
+        self,
+        *,
+        write_started: asyncio.Event,
+        release_write: asyncio.Event,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.write_started = write_started
+        self.release_write = release_write
+        self.removed_artifacts: list[TemporaryArtifact] = []
+
+    async def write_temporary_text(
+        self,
+        *,
+        prefix: str,
+        suffix: str,
+        content: str,
+        max_bytes: int,
+    ) -> TemporaryArtifact:
+        self.write_started.set()
+        await self.release_write.wait()
+        return await super().write_temporary_text(
+            prefix=prefix,
+            suffix=suffix,
+            content=content,
+            max_bytes=max_bytes,
+        )
+
+    async def remove_temporary_artifact(self, artifact: TemporaryArtifact) -> None:
+        self.removed_artifacts.append(artifact)
+        await super().remove_temporary_artifact(artifact)
+
+
 def inspecting_factory(created: list[InspectingLLM]) -> Callable[..., FastAgentLLMProtocol]:
     def factory(
         agent: ToolAgent,
@@ -436,6 +491,250 @@ async def test_subagent_inherits_tools_without_recursion_or_parent_hooks() -> No
     assert parent.usage_accumulator.summary.prompt.total == 3
     assert parent.subagent_usage_accumulator.summary.prompt.total == 3
     assert parent.subagent_usage_accumulator.summary.completion.total == 2
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_subagent_returns_readable_transcript_and_cleans_up_with_parent(tmp_path) -> None:
+    environment = LocalEnvironment(
+        logger=get_logger(__name__),
+        working_directory=tmp_path,
+    )
+    created: list[InspectingLLM] = []
+    parent = McpAgent(
+        AgentConfig("parent", model="passthrough", subagents=True, shell=True),
+        shell_environment=environment,
+    )
+    await parent.attach_llm(inspecting_factory(created))
+    assert install_subagent_tool(parent, label_generator=lambda: "research")
+
+    result = await parent.call_tool(SUBAGENT_TOOL_NAME, {"message": "inspect transcript"})
+
+    assert result.meta is not None
+    details = result.meta[FAST_AGENT_SUBAGENT_RESULT_METADATA]
+    path = Path(details["transcript_path"])
+    assert details["transcript_bytes"] == path.stat().st_size
+    assert details["transcript_complete"] is True
+    response = get_text(result.content[0])
+    assert response is not None
+    generated_response = response.split("\n\n", 1)[0]
+    assert generated_response.startswith("inspect transcript | tools=")
+    assert response.startswith(f"{generated_response}\n\nThe complete subagent transcript")
+    assert str(path) in response
+    transcript = await environment.read_text(str(path))
+    assert "FAST_AGENT_SUBAGENT_TRANSCRIPT 1" in transcript
+    assert "=== USER TEXT ===\ninspect transcript" in transcript
+    assert "=== ASSISTANT TEXT ===" in transcript
+    assert generated_response in transcript
+
+    await parent.shutdown()
+    assert not path.exists()
+    await environment.close()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_subagent_omits_transcript_without_model_visible_environment(tmp_path) -> None:
+    environment = LocalEnvironment(
+        logger=get_logger(__name__),
+        working_directory=tmp_path,
+    )
+    created: list[InspectingLLM] = []
+    parent = McpAgent(
+        AgentConfig("parent", model="passthrough", subagents=True),
+        shell_environment=environment,
+    )
+    await parent.attach_llm(inspecting_factory(created))
+    assert install_subagent_tool(parent)
+
+    result = await parent.call_tool(SUBAGENT_TOOL_NAME, {"message": "no visible transcript"})
+
+    assert get_text(result.content[0]) == "no visible transcript | tools=[] | hooks=True"
+    assert result.meta is not None
+    details = result.meta[FAST_AGENT_SUBAGENT_RESULT_METADATA]
+    assert "transcript_path" not in details
+    assert environment._temporary_artifact_directory is None
+    await parent.shutdown()
+    await environment.close()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("runtime_kind", ["filesystem", "terminal"])
+async def test_subagent_omits_server_transcript_for_acp_runtime(
+    tmp_path,
+    runtime_kind: str,
+) -> None:
+    from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
+    from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+
+    environment = LocalEnvironment(
+        logger=get_logger(__name__),
+        working_directory=tmp_path,
+    )
+    created: list[InspectingLLM] = []
+    parent = McpAgent(
+        AgentConfig("parent", model="passthrough", subagents=True, shell=True),
+        shell_environment=environment,
+    )
+    if runtime_kind == "filesystem":
+        parent.set_filesystem_runtime(
+            ACPFilesystemRuntime(
+                connection=cast("AgentSideConnection", object()),
+                session_id="test-session",
+                activation_reason="test",
+            )
+        )
+    else:
+        parent.set_external_runtime(
+            ACPTerminalRuntime(
+                connection=cast("AgentSideConnection", object()),
+                session_id="test-session",
+                activation_reason="test",
+            )
+        )
+    await parent.attach_llm(inspecting_factory(created))
+    assert install_subagent_tool(parent)
+
+    result = await parent.call_tool(SUBAGENT_TOOL_NAME, {"message": "ACP owns files"})
+
+    response = get_text(result.content[0])
+    assert response is not None
+    assert "subagent transcript" not in response
+    assert result.meta is not None
+    details = result.meta[FAST_AGENT_SUBAGENT_RESULT_METADATA]
+    assert "transcript_path" not in details
+    assert environment._temporary_artifact_directory is None
+    await parent.shutdown()
+    await environment.close()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_subagent_artifact_failure_preserves_result_semantics(tmp_path) -> None:
+    environment = FailingArtifactLocalEnvironment(
+        logger=get_logger(__name__),
+        working_directory=tmp_path,
+    )
+    created: list[InspectingLLM] = []
+    parent = McpAgent(
+        AgentConfig("parent", model="passthrough", subagents=True, shell=True),
+        shell_environment=environment,
+    )
+    await parent.attach_llm(inspecting_factory(created))
+    assert install_subagent_tool(parent)
+
+    result = await parent.call_tool(SUBAGENT_TOOL_NAME, {"message": "artifact unavailable"})
+
+    response = get_text(result.content[0])
+    assert response is not None
+    assert response.startswith("artifact unavailable | tools=")
+    assert "subagent transcript" not in response
+    assert result.meta is not None
+    details = result.meta[FAST_AGENT_SUBAGENT_RESULT_METADATA]
+    assert "transcript_path" not in details
+    assert "transcript_bytes" not in details
+    assert "transcript_complete" not in details
+    await parent.shutdown()
+    await environment.close()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_cancellation_during_finalization_removes_unreturned_transcript(tmp_path) -> None:
+    write_started = asyncio.Event()
+    release_write = asyncio.Event()
+    environment = BlockingArtifactLocalEnvironment(
+        write_started=write_started,
+        release_write=release_write,
+        logger=get_logger(__name__),
+        working_directory=tmp_path,
+    )
+    created: list[InspectingLLM] = []
+    parent = McpAgent(
+        AgentConfig("parent", model="passthrough", subagents=True, shell=True),
+        shell_environment=environment,
+    )
+    await parent.attach_llm(inspecting_factory(created))
+    assert install_subagent_tool(parent)
+
+    task = asyncio.create_task(
+        parent.call_tool(SUBAGENT_TOOL_NAME, {"message": "cancel during finalization"})
+    )
+    await write_started.wait()
+    task.cancel()
+    release_write.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert len(environment.removed_artifacts) == 1
+    artifact = environment.removed_artifacts[0]
+    assert not Path(artifact.path).exists()
+    await parent.shutdown()
+    await environment.close()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_failed_subagent_still_returns_error_transcript(tmp_path) -> None:
+    environment = LocalEnvironment(
+        logger=get_logger(__name__),
+        working_directory=tmp_path,
+    )
+    parent = McpAgent(
+        AgentConfig("parent", model="passthrough", subagents=True, shell=True),
+        shell_environment=environment,
+    )
+    await parent.attach_llm(lambda agent, **kwargs: FailingLLM(name=agent.name, **kwargs))
+    assert install_subagent_tool(parent)
+
+    result = await parent.call_tool(SUBAGENT_TOOL_NAME, {"message": "fail with transcript"})
+
+    assert result.is_error
+    response = get_text(result.content[0])
+    assert response is not None
+    assert response.startswith("Error: simulated failure\n\nThe complete subagent transcript")
+    assert result.meta is not None
+    details = result.meta[FAST_AGENT_SUBAGENT_RESULT_METADATA]
+    assert details["status"] == "failed"
+    transcript = await environment.read_text(details["transcript_path"])
+    assert "=== USER TEXT ===\nfail with transcript" in transcript
+    assert "=== STATUS failed ===" in transcript
+    await parent.shutdown()
+    await environment.close()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_parallel_subagents_receive_distinct_transcript_paths(tmp_path) -> None:
+    environment = LocalEnvironment(
+        logger=get_logger(__name__),
+        working_directory=tmp_path,
+    )
+    created: list[InspectingLLM] = []
+    parent = McpAgent(
+        AgentConfig("parent", model="passthrough", subagents=True, shell=True),
+        shell_environment=environment,
+    )
+    await parent.attach_llm(inspecting_factory(created))
+    assert install_subagent_tool(parent)
+
+    results = await asyncio.gather(
+        parent.call_tool(SUBAGENT_TOOL_NAME, {"message": "first", "label": "first"}),
+        parent.call_tool(SUBAGENT_TOOL_NAME, {"message": "second", "label": "second"}),
+    )
+
+    paths = []
+    for result in results:
+        assert result.meta is not None
+        details = result.meta[FAST_AGENT_SUBAGENT_RESULT_METADATA]
+        paths.append(details["transcript_path"])
+    assert len(set(paths)) == 2
+    assert all(Path(path).exists() for path in paths)
+    await parent.shutdown()
+    assert all(not Path(path).exists() for path in paths)
+    await environment.close()
 
 
 @pytest.mark.unit
@@ -614,6 +913,7 @@ async def test_finalization_timeout_still_releases_clone_and_merges_usage(tmp_pa
             label="child",
             parent_tool_call_id="parent-call",
             started_at="2026-07-26T00:00:00+00:00",
+            cancellation_requested=asyncio.Event(),
             finalization_timeout_seconds=0.01,
         )
 
@@ -821,9 +1121,14 @@ async def test_subagent_persists_nested_child_with_call_correlation(tmp_path) ->
     set_session_manager(global_manager)
 
     try:
-        parent = ToolAgent(
-            AgentConfig("parent", model="passthrough", subagents=True),
-            context=Context(session_manager=manager),
+        environment = LocalEnvironment(
+            logger=get_logger(__name__),
+            working_directory=tmp_path,
+        )
+        parent = McpAgent(
+            AgentConfig("parent", model="passthrough", subagents=True, shell=True),
+            context=Context(session_manager=manager, server_registry=ServerRegistry()),
+            shell_environment=environment,
         )
         await parent.attach_llm(inspecting_factory(created))
         assert install_subagent_tool(parent, label_generator=lambda: "brisk-otter")
@@ -835,6 +1140,7 @@ async def test_subagent_persists_nested_child_with_call_correlation(tmp_path) ->
         )
 
         assert get_text(result.content[0]) is not None
+        assert not result.is_error, get_text(result.content[0])
         assert global_manager.current_session is None
         assert manager.current_session is parent_session
         assert [info.name for info in global_manager.list_sessions()] == []
@@ -864,6 +1170,16 @@ async def test_subagent_persists_nested_child_with_call_correlation(tmp_path) ->
         assert "persist this" in history
         assert snapshot.analysis.usage_summary is not None
         assert snapshot.analysis.usage_summary.total_tokens == 5
+        assert result.meta is not None
+        details = result.meta[FAST_AGENT_SUBAGENT_RESULT_METADATA]
+        transcript_path = details["transcript_path"]
+        assert isinstance(transcript_path, str)
+        session_payload = (child.directory / "session.json").read_text(encoding="utf-8")
+        assert "transcript_path" not in session_payload
+        assert transcript_path not in session_payload
+        await parent.shutdown()
+        assert not Path(transcript_path).exists()
+        await environment.close()
     finally:
         reset_session_manager()
 
@@ -938,13 +1254,18 @@ async def test_subagent_persists_last_turn_when_history_is_disabled(tmp_path) ->
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_sessionless_subagent_is_embedded_from_transient_capture() -> None:
+async def test_sessionless_subagent_is_embedded_from_transient_capture(tmp_path) -> None:
     async def lookup() -> str:
         return "found"
 
-    parent = ToolAgent(
-        AgentConfig("parent", model="passthrough", subagents=True),
-        [lookup],
+    environment = LocalEnvironment(
+        logger=get_logger(__name__),
+        working_directory=tmp_path,
+    )
+    parent = McpAgent(
+        AgentConfig("parent", model="passthrough", subagents=True, shell=True),
+        tools=[lookup],
+        shell_environment=environment,
     )
     await parent.attach_llm(lambda agent, **kwargs: ToolUsingLLM(name=agent.name, **kwargs))
     parent.enable_subagent_trajectory_capture()
@@ -984,12 +1305,17 @@ async def test_sessionless_subagent_is_embedded_from_transient_capture() -> None
     parent_observation = next(
         step.observation for step in trajectory.steps if step.observation is not None
     )
+    parent_result = parent_observation.results[0]
+    assert "complete subagent transcript" in str(parent_result.content)
+    assert parent_result.extra is not None
+    assert "transcript_path" not in parent_result.extra
     assert parent_observation.results[0].subagent_trajectory_ref is not None
     assert (
         parent_observation.results[0].subagent_trajectory_ref[0].trajectory_id
         == child.trajectory_id
     )
     await parent.shutdown()
+    await environment.close()
 
 
 @pytest.mark.unit
@@ -1073,9 +1399,14 @@ async def test_subagent_persists_terminal_failure_and_cancellation(tmp_path) -> 
 
         entered = asyncio.Event()
         cancelled_progress = RecordingProgressDisplay()
-        blocking_parent = ToolAgent(
+        cancellation_environment = LocalEnvironment(
+            logger=get_logger(__name__),
+            working_directory=tmp_path,
+        )
+        blocking_parent = McpAgent(
             AgentConfig("blocking", model="passthrough", subagents=True),
-            context=Context(session_manager=manager),
+            context=Context(session_manager=manager, server_registry=ServerRegistry()),
+            shell_environment=cancellation_environment,
         )
         await blocking_parent.attach_llm(
             lambda agent, **kwargs: BlockingLLM(entered, name=agent.name, **kwargs)
@@ -1096,6 +1427,7 @@ async def test_subagent_persists_terminal_failure_and_cancellation(tmp_path) -> 
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+        assert cancellation_environment._temporary_artifact_directory is None
         cancelled_child_events = [
             event
             for event in cancelled_progress.events
@@ -1125,6 +1457,8 @@ async def test_subagent_persists_terminal_failure_and_cancellation(tmp_path) -> 
                 assert snapshot.analysis.usage_summary is not None
                 assert snapshot.analysis.usage_summary.total_tokens == 5
         assert statuses == {"tool-failed": "failed", "tool-cancelled": "cancelled"}
+        await blocking_parent.shutdown()
+        await cancellation_environment.close()
     finally:
         reset_session_manager()
 
