@@ -176,3 +176,25 @@ async def test_cli_startup_rollback_removes_registration_and_cleans_app() -> Non
 
     assert registry.registry == {}
     assert app.cleaned is True
+
+
+@pytest.mark.asyncio
+async def test_cli_startup_rollback_handles_uninitialized_core() -> None:
+    from fast_agent.cli.runtime.agent_setup import _rollback_cli_startup
+
+    class _App:
+        cleaned = False
+
+        @property
+        def context(self):
+            raise RuntimeError("Core not initialized")
+
+        async def cleanup(self) -> None:
+            self.cleaned = True
+
+    app = _App()
+    request = SimpleNamespace(mode="serve", startup_mcp_servers=None)
+
+    await _rollback_cli_startup(SimpleNamespace(app=app), cast("Any", request))
+
+    assert app.cleaned is True

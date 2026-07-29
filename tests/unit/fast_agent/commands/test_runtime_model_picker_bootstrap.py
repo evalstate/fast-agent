@@ -191,7 +191,11 @@ def test_attach_cli_servers_prefers_typed_default_agent_config() -> None:
     request = _make_request()
     request.server_list = ["existing", "from-cli"]
 
-    _set_cli_server_overlay_for_selected_agent(fast, request)
+    _set_cli_server_overlay_for_selected_agent(
+        fast,
+        request,
+        fast.app.context.runtime_mcp_server_names,
+    )
 
     assert default_config.servers == ["existing"]
     assert fallback_config.servers == []
@@ -216,7 +220,11 @@ def test_attach_cli_servers_prefers_explicit_agent_over_default() -> None:
     request.agent_name = "target"
     request.server_list = ["existing", "from-cli"]
 
-    _set_cli_server_overlay_for_selected_agent(fast, request)
+    _set_cli_server_overlay_for_selected_agent(
+        fast,
+        request,
+        fast.app.context.runtime_mcp_server_names,
+    )
 
     assert default_config.servers == []
     assert explicit_config.servers == ["existing"]
@@ -240,7 +248,11 @@ def test_attach_cli_servers_skips_tool_only_fallback_agent() -> None:
     request = _make_request()
     request.server_list = ["from-cli"]
 
-    _set_cli_server_overlay_for_selected_agent(fast, request)
+    _set_cli_server_overlay_for_selected_agent(
+        fast,
+        request,
+        fast.app.context.runtime_mcp_server_names,
+    )
 
     assert tool_config.servers == []
     assert runnable_config.servers == []

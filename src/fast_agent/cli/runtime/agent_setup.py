@@ -159,7 +159,11 @@ def _select_loaded_card_agent(
     return selected_name
 
 
-def _set_cli_server_overlay_for_selected_agent(fast, request: AgentRunRequest) -> None:
+def _set_cli_server_overlay_for_selected_agent(
+    fast,
+    request: AgentRunRequest,
+    runtime_mcp_server_names: dict[str, tuple[str, ...]],
+) -> None:
     if not request.server_list:
         return
 
@@ -187,7 +191,7 @@ def _set_cli_server_overlay_for_selected_agent(fast, request: AgentRunRequest) -
     if selected_agent_data:
         config = selected_agent_data.get("config")
         if isinstance(config, AgentConfig):
-            fast.app.context.runtime_mcp_server_names[config.name] = tuple(request.server_list)
+            runtime_mcp_server_names[config.name] = tuple(request.server_list)
 
 
 def _build_result_file_with_suffix(base_file: Path, suffix: str) -> Path:
@@ -1123,9 +1127,6 @@ def _configure_card_agents(
         fast._handle_error(exc)
         raise typer.Exit(1) from exc
 
-    _set_cli_server_overlay_for_selected_agent(fast, request)
-
-
 def _default_managed_mcp_agent_names(fast: Any) -> list[str]:
     names = [
         name
@@ -1151,7 +1152,11 @@ def _build_card_cli_agent(
             fast,
             request,
             flow=_run_cli_flow,
-            prepare=lambda: _set_cli_server_overlay_for_selected_agent(fast, request),
+            prepare=lambda: _set_cli_server_overlay_for_selected_agent(
+                fast,
+                request,
+                fast.app.context.runtime_mcp_server_names,
+            ),
         )
 
     return cli_agent
@@ -1406,6 +1411,12 @@ async def _run_initialized_agent_request(
     _apply_cli_subagent_overrides(fast, request)
 
     if request.mode == "serve":
+        await fast.app.initialize()
+        _set_cli_server_overlay_for_selected_agent(
+            fast,
+            request,
+            fast.app.context.runtime_mcp_server_names,
+        )
         if request.managed_mcp_agent_names is None:
             request.managed_mcp_agent_names = _default_managed_mcp_agent_names(fast)
         await fast.start_server(
@@ -1421,7 +1432,10 @@ async def _run_initialized_agent_request(
 
 
 async def _rollback_cli_startup(fast: Any, request: AgentRunRequest) -> None:
-    registry = fast.app.context.server_registry
+    try:
+        registry = fast.app.context.server_registry
+    except RuntimeError:
+        registry = None
     if registry is not None:
         for server_name in request.startup_mcp_servers or ():
             registry.remove_runtime(server_name, owner=_cli_startup_owner(request))
