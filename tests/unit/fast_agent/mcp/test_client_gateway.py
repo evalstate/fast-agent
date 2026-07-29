@@ -8,11 +8,13 @@ from fast_agent.config import MCPServerSettings
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 from fast_agent.mcp.client_gateway import (
     MCPClientHooks,
+    _http_diagnostic_hooks,
     is_http_auth_challenge,
     open_request_scoped_client,
 )
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
+from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 from fast_agent.mcp_server_registry import ServerRegistry
 
 
@@ -32,6 +34,50 @@ def test_auth_challenge_classifier_walks_exception_groups_and_causes() -> None:
         RuntimeError("request failed"),
         response_challenged=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_http_diagnostic_hooks_track_post_get_and_resumption() -> None:
+    metrics = TransportChannelMetrics()
+    hooks = _http_diagnostic_hooks(
+        "docs",
+        MCPClientHooks(transport_metrics=metrics),
+    )
+    assert hooks is not None
+
+    async def server(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            405 if request.method == "GET" else 202,
+            request=request,
+        )
+
+    async with httpx2.AsyncClient(
+        transport=httpx2.MockTransport(server),
+        event_hooks=hooks,
+    ) as client:
+        await client.post(
+            "https://example.com/mcp",
+            headers={"Accept": "application/json"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/list",
+                "params": {},
+            },
+        )
+        await client.get(
+            "https://example.com/mcp",
+            headers={"Accept": "text/event-stream", "Last-Event-ID": "event-7"},
+        )
+
+    snapshot = metrics.snapshot()
+    assert snapshot.post_json is not None
+    assert snapshot.post_json.request_count == 1
+    assert snapshot.get is not None
+    assert snapshot.get.last_status_code == 405
+    assert snapshot.resumption is not None
+    assert snapshot.resumption.request_count == 1
+    assert snapshot.resumption.last_message_summary == "event-7"
 
 
 @pytest.mark.asyncio

@@ -27,10 +27,12 @@ initialize, forced legacy`.
 ### Section 2 - Transport Channel History
 
 Shows transport activity only when fast-agent has a live diagnostics source.
-The current SDK v2 integration records stdio connection and operation activity.
-It does not expose the exact Streamable HTTP POST JSON/SSE response split, GET
-stream, or resumption counters that older fast-agent transport forks collected,
-so those remote channel rows are omitted rather than inferred.
+The SDK v2 integration records stdio connection and operation activity. For
+Streamable HTTP, public `httpx` hooks classify outgoing POST requests as JSON or
+SSE from their `Accept` header, record GET status and errors, and track
+resumption requests carrying `Last-Event-ID`. Response bodies and streamed SSE
+events are not consumed for diagnostics, so the display does not infer message
+counts from them.
 
 ### Section 3 - Server Capabilities
 

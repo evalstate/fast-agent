@@ -329,7 +329,7 @@ class TransportChannelMetrics:
             self._get_last_event = "connect"
             self._get_last_event_at = now
             self._get_last_error = None
-            self._get_last_status_code = None
+            self._get_last_status_code = event.status_code
         elif event.event_type == "disconnect":
             self._get_connected = False
             self._get_disconnect_at = now
@@ -363,7 +363,15 @@ class TransportChannelMetrics:
             self._record_history("get", timeline_state, now)
 
     def _handle_resumption_event(self, event: ChannelEvent, now: datetime) -> None:
-        if event.event_type == "message" and event.message is not None:
+        if event.event_type == "connect":
+            self._resumption_count += 1
+            self._resumption_counts.increment(ActivityState.REQUEST)
+            self._resumption_last_event = "request"
+            self._resumption_last_event_at = now
+            self._resumption_last_summary = event.detail or "resume"
+            self._resumption_last_at = now
+            self._record_history("resumption", ActivityState.REQUEST, now)
+        elif event.event_type == "message" and event.message is not None:
             self._resumption_count += 1
             classification = self._tally_message_counts("resumption", event.message, now)
             summary = _summarise_classified_message(classification, event.message)

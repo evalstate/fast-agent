@@ -5,13 +5,15 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import httpx2
 from httpx2 import HTTPStatusError
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, get_default_environment
 from mcp.client.streamable_http import streamable_http_client
+from mcp_types import JSONRPCMessage
+from pydantic import TypeAdapter, ValidationError
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.home import build_child_environment
@@ -20,6 +22,7 @@ from fast_agent.mcp.hf_auth import add_forwarded_hf_auth_header
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.oauth_client import OAuthEventHandler, build_oauth_provider
 from fast_agent.mcp.stdio_tracking_simple import tracking_stdio_client
+from fast_agent.mcp.transport_tracking import ChannelEvent
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.text import strip_casefold
 from fast_agent.utils.transports import uses_mcp_remote_transport
@@ -34,11 +37,12 @@ if TYPE_CHECKING:
 
     from fast_agent.config import MCPServerSettings
     from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
-    from fast_agent.mcp.transport_tracking import ChannelEvent, TransportChannelMetrics
+    from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 logger = get_logger(__name__)
 OAuthMode = str
 HttpResponseHandler = Callable[[httpx2.Response], Awaitable[None]]
+_JSONRPC_MESSAGE_ADAPTER = TypeAdapter(JSONRPCMessage)
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,9 +332,7 @@ def _create_transport(
         auth=prepared_auth.oauth_provider,
         timeout=_http_timeout(config),
         follow_redirects=True,
-        event_hooks={"response": [hooks.http_response_handler]}
-        if hooks.http_response_handler is not None
-        else None,
+        event_hooks=_http_diagnostic_hooks(server_name, hooks),
     )
     return _managed_http_transport_context(
         http_client,
@@ -352,6 +354,91 @@ def _transport_metrics_hook(
             logger.debug("%s: transport metrics hook failed", server_name, exc_info=True)
 
     return record
+
+
+def _http_post_channel(request: httpx2.Request) -> Literal["post-json", "post-sse"]:
+    accept = strip_casefold(request.headers.get("accept", ""))
+    return "post-sse" if "text/event-stream" in accept else "post-json"
+
+
+def _http_diagnostic_hooks(
+    server_name: str,
+    hooks: MCPClientHooks,
+) -> dict[str, list[Callable]] | None:
+    metrics = hooks.transport_metrics
+    response_handlers: list[Callable] = []
+    if hooks.http_response_handler is not None:
+        response_handlers.append(hooks.http_response_handler)
+
+    if metrics is None:
+        return {"response": response_handlers} if response_handlers else None
+
+    async def capture_request(request: httpx2.Request) -> None:
+        try:
+            if request.method == "GET":
+                metrics.record_event(
+                    ChannelEvent(
+                        channel="get",
+                        event_type="connect",
+                        detail=(
+                            f"Last-Event-ID {request.headers['last-event-id']}"
+                            if "last-event-id" in request.headers
+                            else None
+                        ),
+                    )
+                )
+                if "last-event-id" in request.headers:
+                    metrics.record_event(
+                        ChannelEvent(
+                            channel="resumption",
+                            event_type="connect",
+                            detail=request.headers["last-event-id"],
+                        )
+                    )
+                return
+            if request.method != "POST" or not request.content:
+                return
+            message = _JSONRPC_MESSAGE_ADAPTER.validate_json(request.content)
+            metrics.record_event(
+                ChannelEvent(
+                    channel=_http_post_channel(request),
+                    event_type="message",
+                    message=message,
+                )
+            )
+        except (ValidationError, ValueError):
+            logger.debug("%s: could not classify HTTP MCP request", server_name)
+
+    async def capture_response(response: httpx2.Response) -> None:
+        try:
+            request = response.request
+            if request.method == "GET":
+                event_type = "error" if response.status_code >= 400 else "connect"
+                metrics.record_event(
+                    ChannelEvent(
+                        channel="get",
+                        event_type=event_type,
+                        status_code=response.status_code,
+                        detail=f"HTTP {response.status_code}",
+                    )
+                )
+            elif request.method == "POST" and response.status_code >= 400:
+                metrics.record_event(
+                    ChannelEvent(
+                        channel=_http_post_channel(request),
+                        event_type="error",
+                        status_code=response.status_code,
+                        detail=f"HTTP {response.status_code}",
+                    )
+                )
+        except Exception:
+            logger.debug("%s: HTTP diagnostics hook failed", server_name, exc_info=True)
+
+    response_handlers.append(capture_response)
+    return {
+        "request": [capture_request],
+        "response": response_handlers,
+    }
 
 
 def _prepare_headers_and_auth(
