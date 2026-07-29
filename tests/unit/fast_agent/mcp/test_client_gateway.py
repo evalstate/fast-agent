@@ -12,6 +12,7 @@ from fast_agent.mcp.client_gateway import (
     open_request_scoped_client,
 )
 from fast_agent.mcp.gen_client import gen_client
+from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
 from fast_agent.mcp_server_registry import ServerRegistry
 
 
@@ -145,10 +146,85 @@ async def test_gen_client_uses_real_stdio_simulator() -> None:
         args=[str(server)],
     )
     registry = ServerRegistry()
-    registry.registry = {"simulator": config}
+    registry.register_central("simulator", config)
 
     async with gen_client("simulator", server_registry=registry) as client:
         result = await client.list_tools()
 
     assert {tool.name for tool in result.tools} >= {"echo", "ping"}
     assert registry.get_server_capabilities("simulator") is not None
+
+
+@pytest.mark.asyncio
+async def test_gen_client_uses_attachment_local_config_without_publishing_capabilities() -> None:
+    server = (
+        Path(__file__).parents[3]
+        / "integration"
+        / "server_instructions"
+        / "server_without_instructions.py"
+    )
+    registry = ServerRegistry()
+    registry.register_central(
+        "simulator",
+        MCPServerSettings(
+            transport="stdio",
+            command="missing-registry-command",
+        ),
+    )
+    override = MCPServerSettings(
+        transport="stdio",
+        command=sys.executable,
+        args=[str(server)],
+    )
+
+    async with gen_client(
+        "simulator",
+        server_registry=registry,
+        server_config=override,
+        publish_capabilities=False,
+    ) as client:
+        result = await client.list_tools()
+
+    assert {tool.name for tool in result.tools} >= {"echo", "ping"}
+    stored = registry.get_server_config("simulator")
+    assert stored is not None
+    assert stored.command == "missing-registry-command"
+    assert registry.get_server_capabilities("simulator") is None
+
+
+@pytest.mark.asyncio
+async def test_connection_manager_uses_attachment_local_config() -> None:
+    server = (
+        Path(__file__).parents[3]
+        / "integration"
+        / "server_instructions"
+        / "server_without_instructions.py"
+    )
+    registry = ServerRegistry()
+    registry.register_central(
+        "simulator",
+        MCPServerSettings(transport="stdio", command="missing-registry-command"),
+    )
+    override = MCPServerSettings(
+        transport="stdio",
+        command=sys.executable,
+        args=[str(server)],
+    )
+    callbacks = MCPClientCallbackRuntime(
+        server_name="simulator",
+        server_config=override,
+    )
+
+    async with MCPConnectionManager(registry) as manager:
+        connection = await manager.get_server(
+            "simulator",
+            server_config=override,
+            callback_runtime=callbacks,
+        )
+        assert connection.client is not None
+        result = await connection.client.list_tools()
+
+    assert {tool.name for tool in result.tools} >= {"echo", "ping"}
+    stored = registry.get_server_config("simulator")
+    assert stored is not None
+    assert stored.command == "missing-registry-command"

@@ -1,4 +1,6 @@
+import asyncio
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from mcp_types import (
@@ -20,10 +22,14 @@ from fast_agent.mcp.mcp_aggregator import (
 from fast_agent.mcp.skybridge import SkybridgeServerConfig
 from fast_agent.mcp_server_registry import ServerRegistry
 
+if TYPE_CHECKING:
+    from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
+
 
 def _build_context(configs: dict[str, MCPServerSettings]) -> Context:
     registry = ServerRegistry()
-    registry.registry = configs
+    for name, config in configs.items():
+        registry.register_central(name, config)
     return Context(server_registry=registry)
 
 
@@ -194,7 +200,7 @@ async def test_fetch_server_tools_optimistic_fallback_when_capability_missing() 
 
 
 @pytest.mark.asyncio
-async def test_attach_server_registers_runtime_server_before_prompt_discovery() -> None:
+async def test_runtime_server_is_published_only_after_discovery() -> None:
     context = _build_context({})
 
     class _CapabilityAwareAggregator(MCPAggregator):
@@ -221,8 +227,12 @@ async def test_attach_server_registers_runtime_server_before_prompt_discovery() 
                 progress_callback,
             )
             if method_name == "list_tools":
+                assert context.server_registry is not None
+                assert context.server_registry.get_server_config("runtime") is None
                 return ListToolsResult(tools=[Tool(name="echo", input_schema={"type": "object"})])
             if method_name == "list_prompts":
+                assert context.server_registry is not None
+                assert context.server_registry.get_server_config("runtime") is None
                 return SimpleNamespace(prompts=[SimpleNamespace(name="demo-prompt")])
             raise AssertionError(f"Unexpected MCP method: {method_name}")
 
@@ -249,6 +259,284 @@ async def test_attach_server_registers_runtime_server_before_prompt_discovery() 
     assert result.tools_total == 1
     assert result.prompts_total == 1
     assert aggregator.server_names == ["runtime"]
+    assert context.server_registry is not None
+    assert context.server_registry.get_server_origin("runtime") == "runtime"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("connection_persistence", [False, True])
+@pytest.mark.parametrize("failure", ["exception", "cancel"])
+async def test_attachment_discovery_failure_rolls_back_transaction(
+    connection_persistence: bool,
+    failure: str,
+) -> None:
+    context = _build_context({})
+    disconnected: list[str] = []
+
+    class _Manager:
+        async def disconnect_server(self, server_name: str) -> None:
+            disconnected.append(server_name)
+
+    class _FailingAggregator(MCPAggregator):
+        async def _connect_persistent_server(self, server_name, server_config, attach_options):
+            del server_name, server_config, attach_options
+
+        async def get_capabilities(self, server_name: str):
+            del server_name
+            return ServerCapabilities.model_validate({"tools": {}, "prompts": {}})
+
+        async def _execute_on_server(
+            self,
+            server_name,
+            operation_type,
+            operation_name,
+            method_name,
+            method_args=None,
+            error_factory=None,
+            progress_callback=None,
+        ):
+            del (
+                server_name,
+                operation_type,
+                operation_name,
+                method_args,
+                error_factory,
+                progress_callback,
+            )
+            if method_name == "list_tools":
+                return ListToolsResult(
+                    tools=[Tool(name="staged", input_schema={"type": "object"})]
+                )
+            if method_name == "list_prompts":
+                if failure == "cancel":
+                    raise asyncio.CancelledError
+                raise RuntimeError("discovery failed")
+            raise AssertionError(method_name)
+
+    aggregator = _FailingAggregator(
+        server_names=[],
+        connection_persistence=connection_persistence,
+        context=context,
+    )
+    if connection_persistence:
+        aggregator._persistent_connection_manager = cast("MCPConnectionManager", _Manager())
+    aggregator._capabilities_cache["runtime"] = ServerCapabilities()
+    assert context.server_registry is not None
+    context.server_registry.set_server_capabilities("runtime", ServerCapabilities())
+
+    error = asyncio.CancelledError if failure == "cancel" else RuntimeError
+    with pytest.raises(error):
+        await aggregator.attach_server(
+            server_name="runtime",
+            server_config=MCPServerSettings(
+                name="runtime",
+                transport="stdio",
+                command="echo",
+            ),
+        )
+
+    assert context.server_registry.get_server_config("runtime") is None
+    assert context.server_registry.get_server_capabilities("runtime") is None
+    assert "runtime" not in aggregator._capabilities_cache
+    assert aggregator.list_attached_servers() == []
+    assert aggregator.server_names == []
+    assert aggregator._namespaced_tool_map == {}
+    assert aggregator._prompt_cache == {}
+    assert disconnected == (["runtime"] if connection_persistence else [])
+
+
+@pytest.mark.asyncio
+async def test_failed_forced_reconnect_clears_stale_attachment_indexes() -> None:
+    config = MCPServerSettings(name="central", transport="stdio", command="echo")
+    context = _build_context({"central": config})
+
+    class _FailingAggregator(MCPAggregator):
+        async def _connect_persistent_server(self, server_name, server_config, attach_options):
+            del server_name, server_config, attach_options
+            raise RuntimeError("reconnect failed")
+
+    aggregator = _FailingAggregator(
+        server_names=["central"],
+        connection_persistence=True,
+        context=context,
+    )
+    tool = NamespacedTool(
+        tool=Tool(name="stale", input_schema={"type": "object"}),
+        server_name="central",
+        namespaced_tool_name="central-stale",
+    )
+    aggregator._attached_server_names = ["central"]
+    aggregator._server_to_tool_map["central"] = [tool]
+    aggregator._namespaced_tool_map[tool.namespaced_tool_name] = tool
+
+    with pytest.raises(RuntimeError, match="reconnect failed"):
+        await aggregator.attach_server(
+            server_name="central",
+            options=MCPAttachOptions(force_reconnect=True),
+        )
+
+    assert aggregator.list_attached_servers() == []
+    assert aggregator.server_names == []
+    assert aggregator._server_to_tool_map == {}
+    assert aggregator._namespaced_tool_map == {}
+    assert context.server_registry is not None
+    assert context.server_registry.get_server_origin("central") == "central"
+
+
+@pytest.mark.asyncio
+async def test_attachment_reconnect_override_is_local_and_not_published() -> None:
+    context = _build_context({})
+    supplied = MCPServerSettings(
+        name="runtime",
+        transport="stdio",
+        command="echo",
+        reconnect_on_disconnect=False,
+    )
+
+    class _OverrideAggregator(MCPAggregator):
+        async def get_capabilities(self, server_name: str):
+            config = self._server_config(server_name)
+            assert config is not None
+            assert config.reconnect_on_disconnect is True
+            return ServerCapabilities()
+
+        async def _execute_on_server(
+            self,
+            server_name,
+            operation_type,
+            operation_name,
+            method_name,
+            method_args=None,
+            error_factory=None,
+            progress_callback=None,
+        ):
+            del (
+                server_name,
+                operation_type,
+                operation_name,
+                method_args,
+                error_factory,
+                progress_callback,
+            )
+            if method_name == "list_tools":
+                return ListToolsResult(tools=[])
+            raise AssertionError(method_name)
+
+    aggregator = _OverrideAggregator(
+        server_names=[],
+        connection_persistence=False,
+        context=context,
+    )
+    await aggregator.attach_server(
+        server_name="runtime",
+        server_config=supplied,
+        options=MCPAttachOptions(reconnect_on_disconnect=True),
+    )
+
+    assert supplied.reconnect_on_disconnect is False
+    assert context.server_registry is not None
+    published = context.server_registry.get_server_config("runtime")
+    assert published is not None
+    assert published.reconnect_on_disconnect is False
+    attached = aggregator._server_config("runtime")
+    assert attached is not None
+    assert attached.reconnect_on_disconnect is True
+
+
+@pytest.mark.asyncio
+async def test_detach_removes_only_runtime_owned_definition() -> None:
+    context = _build_context(
+        {
+            "central": MCPServerSettings(
+                name="central", transport="stdio", command="echo"
+            )
+        }
+    )
+    assert context.server_registry is not None
+    context.server_registry.register_card(
+        "card",
+        MCPServerSettings(name="card", transport="stdio", command="echo"),
+    )
+    aggregator = MCPAggregator(
+        server_names=["central", "card", "runtime"],
+        connection_persistence=False,
+        context=context,
+    )
+    context.server_registry.register_runtime(
+        "runtime",
+        MCPServerSettings(name="runtime", transport="stdio", command="echo"),
+        owner=aggregator._runtime_definition_owner,
+    )
+    aggregator._attached_server_names = ["central", "card", "runtime"]
+
+    for name in ["central", "card", "runtime"]:
+        result = await aggregator.detach_server(name)
+        assert result.detached is True
+
+    assert context.server_registry.get_server_config("central") is not None
+    assert context.server_registry.get_server_config("card") is not None
+    assert context.server_registry.get_server_config("runtime") is None
+
+
+@pytest.mark.asyncio
+async def test_close_releases_runtime_definition_owner() -> None:
+    context = _build_context({})
+    aggregator = MCPAggregator(
+        server_names=[],
+        connection_persistence=False,
+        context=context,
+    )
+    assert context.server_registry is not None
+    config = MCPServerSettings(name="runtime", transport="stdio", command="echo")
+    context.server_registry.register_runtime(
+        "runtime",
+        config,
+        owner=aggregator._runtime_definition_owner,
+    )
+    aggregator._attachment_configs["runtime"] = config
+
+    await aggregator.close()
+
+    assert context.server_registry.get_server_config("runtime") is None
+    assert aggregator._attachment_configs == {}
+
+
+@pytest.mark.asyncio
+async def test_detach_closes_local_runtime_but_keeps_shared_definition() -> None:
+    context = _build_context({})
+    aggregator = MCPAggregator(
+        server_names=["runtime"],
+        connection_persistence=True,
+        context=context,
+    )
+    assert context.server_registry is not None
+    config = MCPServerSettings(name="runtime", transport="stdio", command="echo")
+    context.server_registry.register_runtime(
+        "runtime",
+        config,
+        owner=aggregator._runtime_definition_owner,
+    )
+    context.server_registry.register_runtime("runtime", config, owner="other")
+    context.server_registry.register_attachment(
+        "runtime",
+        owner=aggregator._attachment_owner,
+    )
+    context.server_registry.register_attachment("runtime", owner="other")
+    aggregator._attached_server_names = ["runtime"]
+    disconnected: list[str] = []
+
+    class _Manager:
+        async def disconnect_server(self, server_name: str) -> None:
+            disconnected.append(server_name)
+
+    aggregator._persistent_connection_manager = cast("MCPConnectionManager", _Manager())
+
+    await aggregator.detach_server("runtime")
+
+    assert disconnected == ["runtime"]
+    assert context.server_registry.get_server_config("runtime") is not None
+    assert context.server_registry.get_runtime_owners("runtime") == frozenset({"other"})
+    assert context.server_registry.get_attachment_owners("runtime") == frozenset({"other"})
 
 
 @pytest.mark.asyncio

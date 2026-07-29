@@ -5,6 +5,7 @@ This module defines protocols (interfaces) that can be used to break circular de
 
 from typing import (
     TYPE_CHECKING,
+    Literal,
     Protocol,
     runtime_checkable,
 )
@@ -59,3 +60,27 @@ class ServerRegistryProtocol(Protocol):
     def set_server_capabilities(
         self, server_name: str, capabilities: "ServerCapabilities"
     ) -> None: ...
+
+    def clear_server_capabilities(self, server_name: str) -> None: ...
+
+    def register_runtime(
+        self,
+        server_name: str,
+        config: "MCPServerSettings",
+        *,
+        owner: str = "process",
+    ) -> None: ...
+
+    def remove_runtime(self, server_name: str, *, owner: str = "process") -> bool: ...
+
+    def get_runtime_owners(self, server_name: str) -> frozenset[str]: ...
+
+    def register_attachment(self, server_name: str, *, owner: str) -> None: ...
+
+    def release_attachment(self, server_name: str, *, owner: str) -> bool: ...
+
+    def get_attachment_owners(self, server_name: str) -> frozenset[str]: ...
+
+    def get_server_origin(
+        self, server_name: str
+    ) -> "Literal['central', 'card', 'runtime'] | None": ...

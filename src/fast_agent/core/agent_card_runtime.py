@@ -869,16 +869,23 @@ class AgentCardRuntimeMixin:
         app_config: Any,
         registry: Any,
         effective_servers: dict[str, "MCPServerSettings"],
+        card_server_names: set[str],
     ) -> None:
         app_config.mcp.servers = {
             name: self._copy_server_settings(server, name=name)
             for name, server in effective_servers.items()
         }
         if registry is not None:
-            registry.registry = {
-                name: self._copy_server_settings(server, name=name)
-                for name, server in effective_servers.items()
-            }
+            try:
+                registry.replace_card_servers(
+                    {
+                        name: self._copy_server_settings(effective_servers[name], name=name)
+                        for name in card_server_names
+                        if name in effective_servers
+                    }
+                )
+            except ValueError as exc:
+                raise AgentConfigError("MCP server ownership collision", str(exc)) from exc
 
     def _sync_agent_card_mcp_servers(self) -> None:
         sync_context = self._ensure_app_mcp_settings()
@@ -898,7 +905,12 @@ class AgentCardRuntimeMixin:
         )
 
         self._merge_agent_mcp_servers(resolved_servers_by_agent)
-        self._publish_effective_mcp_servers(app_config, registry, effective_servers)
+        self._publish_effective_mcp_servers(
+            app_config,
+            registry,
+            effective_servers,
+            all_dynamic_server_names,
+        )
         self._dynamic_mcp_server_names = all_dynamic_server_names
 
     async def _watch_agent_cards(self) -> None:

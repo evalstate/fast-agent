@@ -862,6 +862,7 @@ class MCPConnectionManager(ContextDependent):
         self,
         server_name: str,
         *,
+        server_config: MCPServerSettings | None = None,
         callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
@@ -877,7 +878,7 @@ class MCPConnectionManager(ContextDependent):
 
         await self._ensure_task_group(server_name)
 
-        config = self.server_registry.get_server_config(server_name)
+        config = server_config or self.server_registry.get_server_config(server_name)
         if not config:
             raise ValueError(f"Server '{server_name}' not found in registry.")
 
@@ -913,7 +914,12 @@ class MCPConnectionManager(ContextDependent):
         async with self._lock:
             # Check if already running
             if server_name in self.running_servers:
-                return self.running_servers[server_name]
+                existing = self.running_servers[server_name]
+                if existing.server_config != config:
+                    raise ValueError(
+                        f"MCP server '{server_name}' is already starting with different settings"
+                    )
+                return existing
 
             self.running_servers[server_name] = server_conn
             self._server_oauth_mode[server_name] = oauth_mode
@@ -1005,6 +1011,7 @@ class MCPConnectionManager(ContextDependent):
         self,
         *,
         server_name: str,
+        server_config: MCPServerSettings | None = None,
         callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None,
         trigger_oauth: bool | None,
@@ -1015,6 +1022,7 @@ class MCPConnectionManager(ContextDependent):
         """Launch a server connection and wait for initialization to complete."""
         server_conn = await self.launch_server(
             server_name=server_name,
+            server_config=server_config,
             callback_runtime=callback_runtime,
             startup_timeout_seconds=startup_timeout_seconds,
             trigger_oauth=trigger_oauth,
@@ -1061,6 +1069,7 @@ class MCPConnectionManager(ContextDependent):
         *,
         server_name: str,
         server_conn: ServerConnection,
+        server_config: MCPServerSettings | None = None,
         callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None,
         oauth_event_handler: OAuthEventHandler | None,
@@ -1075,6 +1084,7 @@ class MCPConnectionManager(ContextDependent):
         await self._clear_running_server_state(server_name, server_conn)
         return await self._launch_and_wait_for_server(
             server_name=server_name,
+            server_config=server_config,
             callback_runtime=callback_runtime,
             startup_timeout_seconds=startup_timeout_seconds,
             trigger_oauth=True,
@@ -1102,6 +1112,7 @@ class MCPConnectionManager(ContextDependent):
         self,
         server_name: str,
         *,
+        server_config: MCPServerSettings | None = None,
         callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
@@ -1111,11 +1122,12 @@ class MCPConnectionManager(ContextDependent):
         """
         Get a running server instance, launching it if needed.
         """
-        if running_server := await self._healthy_running_server(server_name):
+        if running_server := await self._healthy_running_server(server_name, server_config):
             return running_server
 
         server_conn = await self._launch_and_wait_for_server(
             server_name=server_name,
+            server_config=server_config,
             callback_runtime=callback_runtime,
             startup_timeout_seconds=startup_timeout_seconds,
             trigger_oauth=trigger_oauth,
@@ -1127,18 +1139,25 @@ class MCPConnectionManager(ContextDependent):
         return await self._healthy_or_retry_server(
             server_name=server_name,
             server_conn=server_conn,
+            server_config=server_config,
             callback_runtime=callback_runtime,
             startup_timeout_seconds=startup_timeout_seconds,
             oauth_event_handler=oauth_event_handler,
             allow_oauth_paste_fallback=allow_oauth_paste_fallback,
         )
 
-    async def _healthy_running_server(self, server_name: str) -> ServerConnection | None:
+    async def _healthy_running_server(
+        self,
+        server_name: str,
+        server_config: MCPServerSettings | None,
+    ) -> ServerConnection | None:
         async with self._lock:
             server_conn = self.running_servers.get(server_name)
             if server_conn is None:
                 return None
-            if server_conn.is_healthy():
+            if server_conn.is_healthy() and (
+                server_config is None or server_conn.server_config == server_config
+            ):
                 return server_conn
             logger.info(f"{server_name}: Server exists but is unhealthy, recreating...")
             server_conn.shutdown_lifecycle()
@@ -1153,6 +1172,7 @@ class MCPConnectionManager(ContextDependent):
         *,
         server_name: str,
         server_conn: ServerConnection,
+        server_config: MCPServerSettings | None,
         callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None,
         oauth_event_handler: OAuthEventHandler | None,
@@ -1168,6 +1188,7 @@ class MCPConnectionManager(ContextDependent):
             retried_conn = await self._retry_server_with_oauth(
                 server_name=server_name,
                 server_conn=server_conn,
+                server_config=server_config,
                 callback_runtime=callback_runtime,
                 startup_timeout_seconds=startup_timeout_seconds,
                 oauth_event_handler=oauth_event_handler,
@@ -1258,6 +1279,7 @@ class MCPConnectionManager(ContextDependent):
         self,
         server_name: str,
         *,
+        server_config: MCPServerSettings | None = None,
         callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
@@ -1283,6 +1305,7 @@ class MCPConnectionManager(ContextDependent):
 
         server_conn = await self._launch_and_wait_for_server(
             server_name=server_name,
+            server_config=server_config,
             callback_runtime=callback_runtime,
             startup_timeout_seconds=startup_timeout_seconds,
             trigger_oauth=trigger_oauth,
@@ -1300,6 +1323,7 @@ class MCPConnectionManager(ContextDependent):
                 server_conn = await self._retry_server_with_oauth(
                     server_name=server_name,
                     server_conn=server_conn,
+                    server_config=server_config,
                     callback_runtime=callback_runtime,
                     startup_timeout_seconds=startup_timeout_seconds,
                     oauth_event_handler=oauth_event_handler,

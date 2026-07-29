@@ -8,6 +8,7 @@ from fast_agent.core.logging.logger import get_logger
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from fast_agent.config import MCPServerSettings
     from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
     from fast_agent.mcp.client_connection import MCPClientConnection
     from fast_agent.mcp.interfaces import ServerRegistryProtocol
@@ -20,6 +21,8 @@ async def gen_client(
     server_name: str,
     server_registry: ServerRegistryProtocol,
     *,
+    server_config: MCPServerSettings | None = None,
+    publish_capabilities: bool = True,
     callback_runtime: MCPClientCallbackRuntime | None = None,
     trigger_oauth: bool | None = None,
 ) -> AsyncIterator[MCPClientConnection]:
@@ -33,7 +36,7 @@ async def gen_client(
             "Server registry not found in the context. Please specify one either on this method, or in the context."
         )
 
-    config = server_registry.get_server_config(server_name)
+    config = server_config or server_registry.get_server_config(server_name)
     if config is None:
         raise ValueError(f"Server '{server_name}' not found in registry.")
 
@@ -54,7 +57,7 @@ async def gen_client(
         trigger_oauth=trigger_oauth,
         hooks=hooks,
     ) as connection:
-        if connection.server_capabilities is not None:
+        if publish_capabilities and connection.server_capabilities is not None:
             server_registry.set_server_capabilities(
                 server_name, connection.server_capabilities
             )

@@ -64,9 +64,23 @@ async def test_add_servers_to_config_keeps_url_server_auth_block() -> None:
 
     class _FakeApp:
         def __init__(self) -> None:
+            registry: dict[str, object] = {}
+
+            def register_runtime(
+                server_name: str,
+                server: object,
+                *,
+                owner: str,
+            ) -> None:
+                assert owner == "cli"
+                registry[server_name] = server
+
             self.context = SimpleNamespace(
                 config=SimpleNamespace(),
-                server_registry=SimpleNamespace(registry={}),
+                server_registry=SimpleNamespace(
+                    registry=registry,
+                    register_runtime=register_runtime,
+                ),
             )
 
         async def initialize(self) -> None:

@@ -97,9 +97,8 @@ async def add_servers_to_config(fast_app: Any, servers: dict[str, dict[str, Any]
                 server_settings["auth"] = server_config["auth"]
 
         mcp_server = MCPServerSettings(**server_settings)
-        # Update config model
-        config.mcp.servers[server_name] = mcp_server
         # Ensure ServerRegistry sees dynamic additions even when no config file exists
         server_registry = vars(context).get("server_registry")
         if server_registry is not None:
-            server_registry.registry[server_name] = mcp_server
+            server_registry.register_runtime(server_name, mcp_server, owner="cli")
+        config.mcp.servers[server_name] = mcp_server

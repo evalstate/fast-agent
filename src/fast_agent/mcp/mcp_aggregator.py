@@ -303,6 +303,15 @@ class MCPDetachResult:
     prompts_removed: list[str]
 
 
+@dataclass(frozen=True, slots=True)
+class _AttachmentDiscovery:
+    tools: list[NamespacedTool]
+    prompts: list[Prompt]
+    skill_registry: McpSkillRegistry | None
+    skybridge: SkybridgeServerConfig
+    capabilities: ServerCapabilities | None
+
+
 class MCPAggregator(ContextDependent):
     """
     Aggregates multiple MCP servers. When a developer calls, e.g. call_tool(...),
@@ -331,14 +340,11 @@ class MCPAggregator(ContextDependent):
         # Keep a runtime manager for attached clients owned by this aggregator.
         if self.connection_persistence:
             context = self._require_context()
-            # Try to get existing connection manager from context
-            if context._connection_manager is None:
-                server_registry = cast("ServerRegistry", self._require_server_registry())
-                manager = MCPConnectionManager(server_registry, context=context)
-                await manager.__aenter__()
-                context._connection_manager = manager
-                self._owns_connection_manager = True
-            self._persistent_connection_manager = context._connection_manager
+            server_registry = cast("ServerRegistry", self._require_server_registry())
+            manager = MCPConnectionManager(server_registry, context=context)
+            await manager.__aenter__()
+            self._persistent_connection_manager = manager
+            self._owns_connection_manager = True
         else:
             self._persistent_connection_manager = None
 
@@ -388,6 +394,8 @@ class MCPAggregator(ContextDependent):
         self.config = config  # Agent-specific callback configuration.
         self._persistent_connection_manager: MCPConnectionManager | None = None
         self._owns_connection_manager = False
+        self._lifecycle_lock = Lock()
+        self._closed = False
 
         # Store tool execution handler for integration with ACP or other protocols.
         #
@@ -444,6 +452,11 @@ class MCPAggregator(ContextDependent):
         # Cache for capabilities discovered by on-demand clients.
         self._capabilities_cache: dict[str, ServerCapabilities] = {}
         self._capabilities_cache_lock = Lock()
+        self._attachment_configs: dict[str, MCPServerSettings] = {}
+        self._attachment_locks: dict[str, Lock] = {}
+        self._staged_discovery_tools: dict[str, list[NamespacedTool]] = {}
+        self._attachment_owner = f"aggregator:{id(self)}"
+        self._runtime_definition_owner = self._attachment_owner
 
     @property
     def tool_execution_handler(self) -> ToolExecutionHandler:
@@ -477,7 +490,7 @@ class MCPAggregator(ContextDependent):
         if not token_present:
             return False
         try:
-            config = self._require_server_registry().get_server_config(server_name)
+            config = self._server_config(server_name)
         except Exception:
             return False
         return (
@@ -541,20 +554,26 @@ class MCPAggregator(ContextDependent):
         """
         Close all attached MCP client runtimes when the aggregator is deleted.
         """
-        if self.connection_persistence and self._persistent_connection_manager:
+        async with self._lifecycle_lock:
+            if self._closed:
+                return
+            self._closed = True
             try:
-                # Only attempt cleanup if we own the connection manager
-                if self._owns_connection_manager and (
-                    self.context is not None
-                    and self.context._connection_manager == self._persistent_connection_manager
+                if (
+                    self.connection_persistence
+                    and self._persistent_connection_manager
+                    and self._owns_connection_manager
                 ):
                     logger.info("Shutting down attached MCP client runtimes...")
                     await self._persistent_connection_manager.disconnect_all()
                     await self._persistent_connection_manager.__aexit__(None, None, None)
-                    self.context._connection_manager = None
                 self.initialized = False
             except Exception as e:
                 logger.error(f"Error during connection manager cleanup: {e}")
+            finally:
+                await self._release_owned_runtime_definitions(disconnect=False)
+                self._attachment_configs.clear()
+                await self._clear_runtime_indexes()
 
     @classmethod
     async def create(
@@ -607,7 +626,7 @@ class MCPAggregator(ContextDependent):
 
         return MCPClientCallbackRuntime(
             server_name=server_name,
-            server_config=self._require_server_registry().get_server_config(server_name),
+            server_config=self._server_config(server_name),
             agent_model=agent_model,
             agent_name=agent_name,
             api_key=api_key,
@@ -616,6 +635,21 @@ class MCPAggregator(ContextDependent):
             context=self.context,
             tool_list_changed_callback=self._handle_tool_list_changed,
         )
+
+    def _server_config(self, server_name: str) -> MCPServerSettings | None:
+        return self._attachment_configs.get(
+            server_name
+        ) or self._require_server_registry().get_server_config(server_name)
+
+    def _attachment_client_kwargs(self, server_name: str) -> dict[str, Any]:
+        config = self._attachment_configs.get(server_name)
+        if config is None:
+            return {}
+        return {"server_config": config, "publish_capabilities": False}
+
+    def _attachment_manager_kwargs(self, server_name: str) -> dict[str, Any]:
+        config = self._attachment_configs.get(server_name)
+        return {"server_config": config} if config is not None else {}
 
     async def load_servers(self, *, force_connect: bool = False) -> None:
         """
@@ -670,6 +704,12 @@ class MCPAggregator(ContextDependent):
         self.initialized = True
 
     async def _reset_runtime_indexes(self) -> None:
+        async with self._lifecycle_lock:
+            await self._release_owned_runtime_definitions(disconnect=True)
+            self._attachment_configs.clear()
+            await self._clear_runtime_indexes()
+
+    async def _clear_runtime_indexes(self) -> None:
         async with self._tool_map_lock:
             self._namespaced_tool_map.clear()
             self._server_to_tool_map.clear()
@@ -683,6 +723,34 @@ class MCPAggregator(ContextDependent):
         self._skybridge_configs.clear()
         self._mcp_skill_registries.clear()
         self._attached_server_names = []
+
+    async def _release_owned_runtime_definitions(self, *, disconnect: bool) -> None:
+        registry = self.context.server_registry if self.context else None
+        if registry is None:
+            return
+        server_names = set(registry.registry)
+        server_names.update(self._attached_server_names)
+        server_names.update(self._attachment_configs)
+        for server_name in server_names:
+            attachment_owned = (
+                self._attachment_owner in registry.get_attachment_owners(server_name)
+            )
+            if attachment_owned:
+                registry.release_attachment(
+                    server_name,
+                    owner=self._attachment_owner,
+                )
+            if self._runtime_definition_owner in registry.get_runtime_owners(server_name):
+                registry.remove_runtime(
+                    server_name,
+                    owner=self._runtime_definition_owner,
+                )
+            if (
+                attachment_owned
+                and disconnect
+                and self._persistent_connection_manager is not None
+            ):
+                await self._persistent_connection_manager.disconnect_server(server_name)
 
     async def _fetch_server_tools(self, server_name: str) -> list[Tool]:
         supports_tools = await self.server_supports_feature(server_name, "tools")
@@ -708,7 +776,12 @@ class MCPAggregator(ContextDependent):
             logger.debug(f"Server '{server_name}' does not provide tools (list_tools failed): {e}")
             return []
 
-    async def _fetch_server_prompts(self, server_name: str) -> list[Prompt]:
+    async def _fetch_server_prompts(
+        self,
+        server_name: str,
+        *,
+        strict: bool = False,
+    ) -> list[Prompt]:
         if not await self.server_supports_feature(server_name, "prompts"):
             logger.debug(f"Server '{server_name}' does not support prompts")
             return []
@@ -723,6 +796,8 @@ class MCPAggregator(ContextDependent):
             )
             return result.prompts
         except Exception as e:
+            if strict:
+                raise
             logger.debug(f"Error loading prompts from server '{server_name}': {e}")
             return []
 
@@ -732,6 +807,23 @@ class MCPAggregator(ContextDependent):
         server_name: str,
         server_config: MCPServerSettings | None = None,
         options: MCPAttachOptions | None = None,
+    ) -> MCPAttachResult:
+        async with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("MCP aggregator is closed")
+            async with self._attachment_locks.setdefault(server_name, Lock()):
+                return await self._attach_server_locked(
+                    server_name=server_name,
+                    server_config=server_config,
+                    options=options,
+                )
+
+    async def _attach_server_locked(
+        self,
+        *,
+        server_name: str,
+        server_config: MCPServerSettings | None,
+        options: MCPAttachOptions | None,
     ) -> MCPAttachResult:
         attach_options = options or MCPAttachOptions()
         server_registry = self._require_server_registry()
@@ -754,19 +846,32 @@ class MCPAggregator(ContextDependent):
                 existing_prompt_names,
             )
 
-        await self._clear_capabilities_for_forced_reconnect(server_name, attach_options)
-
-        if self.connection_persistence:
-            await self._connect_persistent_server(server_name, attach_options)
-
-        # Ensure capability-gated discovery can validate newly attached or reattached servers.
-        if server_name not in self.server_names:
-            self.server_names.append(server_name)
-
-        skybridge_config = await self._refresh_attached_server_cache(server_name)
-
-        if server_name not in self._attached_server_names:
-            self._attached_server_names.append(server_name)
+        self._attachment_configs[server_name] = resolved_config
+        server_registry.register_attachment(
+            server_name,
+            owner=self._attachment_owner,
+        )
+        try:
+            await self._clear_capabilities_for_forced_reconnect(server_name, attach_options)
+            if self.connection_persistence:
+                await self._connect_persistent_server(
+                    server_name,
+                    resolved_config,
+                    attach_options,
+                )
+            discovery = await self._discover_server_attachment(server_name)
+            await self._commit_server_attachment(
+                server_name,
+                discovery,
+                runtime_config=server_config,
+            )
+        except BaseException:
+            self._attachment_configs.pop(server_name, None)
+            await self._rollback_server_attachment(
+                server_name,
+                clear_existing=already_attached and attach_options.force_reconnect,
+            )
+            raise
 
         self._log_server_initialized()
         return await self._attached_result(
@@ -775,7 +880,7 @@ class MCPAggregator(ContextDependent):
             already_attached=already_attached,
             existing_tool_names=existing_tool_names,
             existing_prompt_names=existing_prompt_names,
-            skybridge_config=skybridge_config,
+            skybridge_config=discovery.skybridge,
         )
 
     def _resolve_attach_server_config(
@@ -783,25 +888,32 @@ class MCPAggregator(ContextDependent):
         server_name: str,
         server_config: MCPServerSettings | None,
         attach_options: MCPAttachOptions,
-        server_registry: Any,
+        server_registry: ServerRegistryProtocol,
     ) -> MCPServerSettings:
         if server_config is not None:
-            server_registry.registry[server_name] = server_config
-            if server_name not in self._configured_server_names:
-                self._configured_server_names.append(server_name)
-
-        resolved_config = server_registry.get_server_config(server_name)
+            origin = server_registry.get_server_origin(server_name)
+            if origin in {"central", "card"}:
+                raise ValueError(
+                    f"Runtime MCP server '{server_name}' collides with {origin} configuration"
+                )
+            if origin == "runtime":
+                existing = server_registry.get_server_config(server_name)
+                if existing != server_config:
+                    raise ValueError(
+                        f"Runtime MCP server '{server_name}' is already registered with different settings"
+                    )
+            resolved_config = server_config.model_copy(deep=True)
+        else:
+            resolved_config = server_registry.get_server_config(server_name)
         if resolved_config is None:
             raise ValueError(f"Server '{server_name}' not found in registry")
 
         if attach_options.reconnect_on_disconnect is None:
             return resolved_config
 
-        updated_config = resolved_config.model_copy(
+        return resolved_config.model_copy(
             update={"reconnect_on_disconnect": attach_options.reconnect_on_disconnect}
         )
-        server_registry.registry[server_name] = updated_config
-        return updated_config
 
     def _attached_tool_names(self, server_name: str) -> set[str]:
         return {tool.namespaced_tool_name for tool in self._server_to_tool_map.get(server_name, [])}
@@ -842,6 +954,7 @@ class MCPAggregator(ContextDependent):
     async def _connect_persistent_server(
         self,
         server_name: str,
+        server_config: MCPServerSettings,
         attach_options: MCPAttachOptions,
     ) -> None:
         logger.info(
@@ -857,6 +970,7 @@ class MCPAggregator(ContextDependent):
         connect = manager.reconnect_server if attach_options.force_reconnect else manager.get_server
         await connect(
             server_name,
+            server_config=server_config,
             callback_runtime=self._create_callback_runtime(server_name),
             startup_timeout_seconds=attach_options.startup_timeout_seconds,
             trigger_oauth=attach_options.trigger_oauth,
@@ -865,37 +979,110 @@ class MCPAggregator(ContextDependent):
         )
         await self._record_server_call(server_name, "initialize", True)
 
-    async def _refresh_attached_server_cache(self, server_name: str) -> SkybridgeServerConfig:
+    async def _discover_server_attachment(self, server_name: str) -> _AttachmentDiscovery:
         tools = await self._fetch_server_tools(server_name)
-        prompts = await self._fetch_server_prompts(server_name)
+        prompts = await self._fetch_server_prompts(server_name, strict=True)
         mcp_skill_registry = await self._scan_mcp_skill_registry(server_name)
+        namespaced_tools = [
+            NamespacedTool(
+                tool=tool,
+                server_name=server_name,
+                namespaced_tool_name=create_namespaced_name(server_name, tool.name),
+            )
+            for tool in tools
+        ]
+        self._staged_discovery_tools[server_name] = namespaced_tools
+        try:
+            _, skybridge_config = await self._evaluate_skybridge_for_server(server_name)
+        finally:
+            self._staged_discovery_tools.pop(server_name, None)
+        return _AttachmentDiscovery(
+            tools=namespaced_tools,
+            prompts=prompts,
+            skill_registry=mcp_skill_registry,
+            skybridge=skybridge_config,
+            capabilities=await self.get_capabilities(server_name),
+        )
 
+    async def _commit_server_attachment(
+        self,
+        server_name: str,
+        discovery: _AttachmentDiscovery,
+        *,
+        runtime_config: MCPServerSettings | None = None,
+    ) -> None:
         async with self._tool_map_lock:
-            for namespaced in self._server_to_tool_map.get(server_name, []):
-                self._namespaced_tool_map.pop(namespaced.namespaced_tool_name, None)
+            async with self._prompt_cache_lock:
+                registry = self._require_server_registry()
+                if runtime_config is not None:
+                    registry.register_runtime(
+                        server_name,
+                        runtime_config,
+                        owner=self._runtime_definition_owner,
+                    )
 
-            self._server_to_tool_map[server_name] = []
-            for tool in tools:
-                namespaced_tool_name = create_namespaced_name(server_name, tool.name)
-                namespaced_tool = NamespacedTool(
-                    tool=tool,
-                    server_name=server_name,
-                    namespaced_tool_name=namespaced_tool_name,
-                )
-                self._namespaced_tool_map[namespaced_tool_name] = namespaced_tool
-                self._server_to_tool_map[server_name].append(namespaced_tool)
+                for namespaced in self._server_to_tool_map.get(server_name, []):
+                    self._namespaced_tool_map.pop(namespaced.namespaced_tool_name, None)
 
-        async with self._prompt_cache_lock:
-            self._prompt_cache[server_name] = prompts
+                self._server_to_tool_map[server_name] = discovery.tools
+                for tool in discovery.tools:
+                    self._namespaced_tool_map[tool.namespaced_tool_name] = tool
+                self._prompt_cache[server_name] = discovery.prompts
 
-        if mcp_skill_registry is None:
+                if discovery.skill_registry is None:
+                    self._mcp_skill_registries.pop(server_name, None)
+                else:
+                    self._mcp_skill_registries[server_name] = discovery.skill_registry
+
+                self._skybridge_configs[server_name] = discovery.skybridge
+                if discovery.capabilities is not None:
+                    registry.set_server_capabilities(
+                        server_name,
+                        discovery.capabilities,
+                    )
+                if server_name not in self.server_names:
+                    self.server_names.append(server_name)
+                if server_name not in self._attached_server_names:
+                    self._attached_server_names.append(server_name)
+
+    async def _refresh_attached_server_cache(self, server_name: str) -> SkybridgeServerConfig:
+        discovery = await self._discover_server_attachment(server_name)
+        await self._commit_server_attachment(server_name, discovery)
+        return discovery.skybridge
+
+    async def _rollback_server_attachment(
+        self,
+        server_name: str,
+        *,
+        clear_existing: bool,
+    ) -> None:
+        registry = self._require_server_registry()
+        registry.release_attachment(
+            server_name,
+            owner=self._attachment_owner,
+        )
+        if self._persistent_connection_manager is not None:
+            with suppress(Exception):
+                await self._persistent_connection_manager.disconnect_server(server_name)
+        async with self._capabilities_cache_lock:
+            self._capabilities_cache.pop(server_name, None)
+        registry.clear_server_capabilities(server_name)
+        if clear_existing:
+            async with self._tool_map_lock:
+                for namespaced in self._server_to_tool_map.pop(server_name, []):
+                    self._namespaced_tool_map.pop(namespaced.namespaced_tool_name, None)
+            async with self._prompt_cache_lock:
+                self._prompt_cache.pop(server_name, None)
             self._mcp_skill_registries.pop(server_name, None)
-        else:
-            self._mcp_skill_registries[server_name] = mcp_skill_registry
-
-        _, skybridge_config = await self._evaluate_skybridge_for_server(server_name)
-        self._skybridge_configs[server_name] = skybridge_config
-        return skybridge_config
+            self._skybridge_configs.pop(server_name, None)
+            self._attached_server_names = [
+                name for name in self._attached_server_names if name != server_name
+            ]
+            self.server_names = [name for name in self.server_names if name != server_name]
+            registry.remove_runtime(
+                server_name,
+                owner=self._runtime_definition_owner,
+            )
 
     def _log_server_initialized(self) -> None:
         logger.info(
@@ -939,6 +1126,11 @@ class MCPAggregator(ContextDependent):
         return len(registry.skills)
 
     async def detach_server(self, server_name: str) -> MCPDetachResult:
+        async with self._lifecycle_lock:
+            async with self._attachment_locks.setdefault(server_name, Lock()):
+                return await self._detach_server_locked(server_name)
+
+    async def _detach_server_locked(self, server_name: str) -> MCPDetachResult:
         existing_tools = self._server_to_tool_map.get(server_name, [])
         existing_prompts = self._prompt_cache.get(server_name, [])
         tools_removed = sorted(tool.namespaced_tool_name for tool in existing_tools)
@@ -952,7 +1144,15 @@ class MCPAggregator(ContextDependent):
                 prompts_removed=[],
             )
 
-        if self.connection_persistence and self._persistent_connection_manager is not None:
+        registry = self._require_server_registry()
+        registry.release_attachment(
+            server_name,
+            owner=self._attachment_owner,
+        )
+        if (
+            self.connection_persistence
+            and self._persistent_connection_manager is not None
+        ):
             await self._persistent_connection_manager.disconnect_server(server_name)
 
         async with self._tool_map_lock:
@@ -967,6 +1167,12 @@ class MCPAggregator(ContextDependent):
 
         self._skybridge_configs.pop(server_name, None)
         self._mcp_skill_registries.pop(server_name, None)
+        self._attachment_configs.pop(server_name, None)
+        registry.clear_server_capabilities(server_name)
+        registry.remove_runtime(
+            server_name,
+            owner=self._runtime_definition_owner,
+        )
         self._attached_server_names = [
             name for name in self._attached_server_names if name != server_name
         ]
@@ -995,11 +1201,16 @@ class MCPAggregator(ContextDependent):
         return sorted(configured - set(self.list_attached_servers()))
 
     async def _evaluate_skybridge_for_server(
-        self, server_name: str
+        self,
+        server_name: str,
     ) -> tuple[str, SkybridgeServerConfig]:
         """Inspect a single server for Skybridge-compatible resources."""
         config = SkybridgeServerConfig(server_name=server_name)
-        tool_configs = self._skybridge_tool_configs_for_server(server_name, config)
+        tool_configs = self._skybridge_tool_configs_for_server(
+            server_name,
+            config,
+            self._staged_discovery_tools.get(server_name),
+        )
 
         raw_resources_capability = await self.server_supports_feature(server_name, "resources")
         supports_resources = bool(raw_resources_capability)
@@ -1019,9 +1230,12 @@ class MCPAggregator(ContextDependent):
         self,
         server_name: str,
         config: SkybridgeServerConfig,
+        tools: list[NamespacedTool] | None = None,
     ) -> list[SkybridgeToolConfig]:
         tool_configs: list[SkybridgeToolConfig] = []
-        for namespaced_tool in self._server_to_tool_map.get(server_name, []):
+        for namespaced_tool in (
+            tools if tools is not None else self._server_to_tool_map.get(server_name, [])
+        ):
             tool_config = self._skybridge_tool_config(namespaced_tool, config)
             if tool_config is not None:
                 tool_configs.append(tool_config)
@@ -1307,6 +1521,7 @@ class MCPAggregator(ContextDependent):
                     server_name=server_name,
                     server_registry=server_registry,
                     callback_runtime=self._create_callback_runtime(server_name),
+                    **self._attachment_client_kwargs(server_name),
                 ) as connection:
                     capabilities = connection.server_capabilities
 
@@ -1323,6 +1538,7 @@ class MCPAggregator(ContextDependent):
             server_conn = await manager.get_server(
                 server_name,
                 callback_runtime=self._create_callback_runtime(server_name),
+                **self._attachment_manager_kwargs(server_name),
             )
             return server_conn.server_capabilities
         except Exception as e:
@@ -1378,7 +1594,10 @@ class MCPAggregator(ContextDependent):
         Returns:
             True if the server exists, False otherwise
         """
-        valid = server_name in self.server_names
+        valid = (
+            server_name in self.server_names
+            or server_name in self._attachment_configs
+        )
         if not valid:
             logger.debug(f"Server '{server_name}' not found")
         return valid
@@ -2000,6 +2219,7 @@ class MCPAggregator(ContextDependent):
         server_connection = await manager.get_server(
             server_name,
             callback_runtime=self._create_callback_runtime(server_name),
+            **self._attachment_manager_kwargs(server_name),
         )
         client = server_connection.client
         if client is None:
@@ -2024,6 +2244,7 @@ class MCPAggregator(ContextDependent):
             server_name,
             server_registry=server_registry,
             callback_runtime=self._create_callback_runtime(server_name),
+            **self._attachment_client_kwargs(server_name),
         ) as client:
             result = await try_execute(client)
             logger.debug(
@@ -2057,8 +2278,7 @@ class MCPAggregator(ContextDependent):
             manager = self._require_connection_manager()
             return manager.should_retry_server_with_oauth(server_name, exc)
 
-        server_registry = self._require_server_registry()
-        config = server_registry.get_server_config(server_name)
+        config = self._server_config(server_name)
         if config is None:
             return False
         return resolve_oauth_mode(
@@ -2103,6 +2323,7 @@ class MCPAggregator(ContextDependent):
                     server_name,
                     callback_runtime=self._create_callback_runtime(server_name),
                     trigger_oauth=True,
+                    **self._attachment_manager_kwargs(server_name),
                 )
                 client = server_connection.client
                 if client is None:
@@ -2115,6 +2336,7 @@ class MCPAggregator(ContextDependent):
                     server_registry=server_registry,
                     callback_runtime=self._create_callback_runtime(server_name),
                     trigger_oauth=True,
+                    **self._attachment_client_kwargs(server_name),
                 ) as client:
                     result = await try_execute(client)
             self._log_server_progress(
@@ -2152,6 +2374,7 @@ class MCPAggregator(ContextDependent):
                 server_connection = await manager.reconnect_server(
                     server_name,
                     callback_runtime=self._create_callback_runtime(server_name),
+                    **self._attachment_manager_kwargs(server_name),
                 )
                 client = server_connection.client
                 if client is None:
@@ -2164,6 +2387,7 @@ class MCPAggregator(ContextDependent):
                     server_name,
                     server_registry=server_registry,
                     callback_runtime=self._create_callback_runtime(server_name),
+                    **self._attachment_client_kwargs(server_name),
                 ) as client:
                     result = await try_execute(client)
 
@@ -2217,6 +2441,7 @@ class MCPAggregator(ContextDependent):
             await manager.reconnect_server(
                 server_name,
                 callback_runtime=self._create_callback_runtime(server_name),
+                **self._attachment_manager_kwargs(server_name),
             )
             self._log_server_progress(ProgressAction.READY, server_name, "reconnected")
         except Exception as exc:
@@ -2238,12 +2463,7 @@ class MCPAggregator(ContextDependent):
         exc: ServerSessionTerminatedError,
     ) -> _ServerOperationRecovery[R]:
         """Handle ServerSessionTerminatedError by attempting to reconnect if configured."""
-        # Check if reconnect_on_disconnect is enabled for this server
-        server_config = None
-        server_registry = self.context.server_registry if self.context else None
-        if server_registry is not None:
-            server_config = server_registry.get_server_config(server_name)
-
+        server_config = self._server_config(server_name)
         reconnect_enabled = server_config and server_config.reconnect_on_disconnect
 
         if not reconnect_enabled:
@@ -2271,6 +2491,7 @@ class MCPAggregator(ContextDependent):
                 server_connection = await manager.reconnect_server(
                     server_name,
                     callback_runtime=self._create_callback_runtime(server_name),
+                    **self._attachment_manager_kwargs(server_name),
                 )
                 client = server_connection.client
                 if client is None:
@@ -2283,6 +2504,7 @@ class MCPAggregator(ContextDependent):
                     server_name,
                     server_registry=server_registry,
                     callback_runtime=self._create_callback_runtime(server_name),
+                    **self._attachment_client_kwargs(server_name),
                 ) as client:
                     result = await try_execute(client)
 
@@ -3054,10 +3276,17 @@ class MCPAggregator(ContextDependent):
         Args:
             server_name: The name of the server whose tools have changed
         """
-        logger.info(f"Tool list changed for server '{server_name}', refreshing tools")
-
-        # Refresh the tools for this server
-        await self._refresh_server_tools(server_name)
+        async with self._lifecycle_lock:
+            if self._closed:
+                return
+            async with self._attachment_locks.setdefault(server_name, Lock()):
+                if server_name not in self._attached_server_names:
+                    logger.debug(
+                        f"Ignoring tool-list change for unattached server '{server_name}'"
+                    )
+                    return
+                logger.info(f"Tool list changed for server '{server_name}', refreshing tools")
+                await self._refresh_server_tools(server_name)
 
     async def _refresh_server_resources(self, server_name: str) -> None:
         _, skybridge_config = await self._evaluate_skybridge_for_server(server_name)

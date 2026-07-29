@@ -439,13 +439,14 @@ async def test_get_server_cancellation_cleans_up_pending_connection(
     async def _fake_launch_server(
         *,
         server_name: str,
+        server_config: MCPServerSettings | None,
         callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
         allow_oauth_paste_fallback: bool = True,
     ) -> ServerConnection:
-        del server_name, callback_runtime, startup_timeout_seconds
+        del server_name, server_config, callback_runtime, startup_timeout_seconds
         del trigger_oauth, oauth_event_handler, allow_oauth_paste_fallback
         manager.running_servers["demo"] = server_conn
         asyncio.create_task(_run_lifecycle())
@@ -509,13 +510,14 @@ async def test_get_server_startup_timeout_cancels_blocked_lifecycle(
     async def _fake_launch_server(
         *,
         server_name: str,
+        server_config: MCPServerSettings | None,
         callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
         allow_oauth_paste_fallback: bool = True,
     ) -> ServerConnection:
-        del server_name, callback_runtime, startup_timeout_seconds
+        del server_name, server_config, callback_runtime, startup_timeout_seconds
         del trigger_oauth, oauth_event_handler, allow_oauth_paste_fallback
         manager.running_servers["demo"] = server_conn
         asyncio.create_task(_server_lifecycle_task(server_conn))
@@ -555,6 +557,7 @@ async def test_get_server_retries_with_oauth_after_401_startup(
     async def _fake_launch_and_wait_for_server(
         *,
         server_name: str,
+        server_config: MCPServerSettings | None,
         callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None,
         trigger_oauth: bool | None,
@@ -562,7 +565,7 @@ async def test_get_server_retries_with_oauth_after_401_startup(
         allow_oauth_paste_fallback: bool,
         timeout_action: str,
     ) -> ServerConnection:
-        del server_name, callback_runtime, startup_timeout_seconds
+        del server_name, server_config, callback_runtime, startup_timeout_seconds
         del oauth_event_handler, allow_oauth_paste_fallback, timeout_action
         trigger = trigger_oauth
         calls.append(trigger)
@@ -574,13 +577,14 @@ async def test_get_server_retries_with_oauth_after_401_startup(
         *,
         server_name: str,
         server_conn: ServerConnection,
+        server_config: MCPServerSettings | None,
         callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None,
         oauth_event_handler: OAuthEventHandler | None,
         allow_oauth_paste_fallback: bool,
         timeout_action: str,
     ) -> ServerConnection:
-        del server_name, server_conn, callback_runtime, startup_timeout_seconds
+        del server_name, server_conn, server_config, callback_runtime, startup_timeout_seconds
         del oauth_event_handler, allow_oauth_paste_fallback, timeout_action
         calls.append(True)
         manager._server_oauth_mode["demo"] = "force"
@@ -727,13 +731,14 @@ async def test_get_server_stdio_timeout_includes_recent_stderr(
     async def _fake_launch_server(
         *,
         server_name: str,
+        server_config: MCPServerSettings | None,
         callback_runtime: MCPClientCallbackRuntime,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
         allow_oauth_paste_fallback: bool = True,
     ) -> ServerConnection:
-        del server_name, callback_runtime, startup_timeout_seconds
+        del server_name, server_config, callback_runtime, startup_timeout_seconds
         del trigger_oauth, oauth_event_handler, allow_oauth_paste_fallback
         manager.running_servers["demo"] = server_conn
         asyncio.create_task(_run_lifecycle())

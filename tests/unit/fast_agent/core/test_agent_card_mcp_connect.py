@@ -321,7 +321,7 @@ async def test_sync_agent_card_mcp_connect_prunes_removed_runtime_servers(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_sync_agent_card_mcp_connect_preserves_declared_servers_on_reload(
+async def test_sync_agent_card_mcp_connect_rejects_central_ownership_collision(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "fastagent.config.yaml"
@@ -354,14 +354,7 @@ async def test_sync_agent_card_mcp_connect_preserves_declared_servers_on_reload(
 
     await fast.app.initialize()
     try:
-        fast._sync_agent_card_mcp_servers()
-        assert "bar" in fast.agents["card_agent"]["config"].servers
-
-        _write_card(card_path, include_mcp_connect=False)
-        changed = await fast.reload_agents()
-        assert changed is True
-
-        fast._sync_agent_card_mcp_servers()
-        assert "bar" in fast.agents["card_agent"]["config"].servers
+        with pytest.raises(AgentConfigError, match="ownership collision"):
+            fast._sync_agent_card_mcp_servers()
     finally:
         await fast.app.cleanup()
