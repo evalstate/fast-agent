@@ -705,6 +705,8 @@ class AgentCardRuntimeMixin:
         }
         if entry.defer_loading is not None:
             payload["defer_loading"] = entry.defer_loading
+        if entry.protocol_mode is not None:
+            payload["protocol_mode"] = entry.protocol_mode
         return payload
 
     @staticmethod
@@ -716,6 +718,7 @@ class AgentCardRuntimeMixin:
             "access_token": entry.access_token,
             "defer_loading": entry.defer_loading,
             "auth": dict(entry.auth) if entry.auth is not None else None,
+            "protocol_mode": entry.protocol_mode,
         }
         return {name: value for name, value in optional_fields.items() if value is not None}
 

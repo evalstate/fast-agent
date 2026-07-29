@@ -21,8 +21,13 @@ from fast_agent.agents.agent_types import (
     MCPConnectTarget,
 )
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
-from fast_agent.config import MCPServerAuthSettings, MCPServerSettings, resolve_env_vars
+from fast_agent.config import MCPServerAuthSettings, resolve_env_vars
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+from fast_agent.core.agent_card_mcp_connect_validation import (
+    ParsedMCPConnect,
+    parse_mcp_connect_entries,
+    validate_parsed_mcp_connect_entry,
+)
 from fast_agent.core.agent_card_paths import (
     is_agent_card_path,
     is_markdown_agent_card_path,
@@ -34,7 +39,6 @@ from fast_agent.core.agent_card_rules import (
     CARD_TYPE_TO_AGENT_TYPE,
     DEFAULT_USE_HISTORY_BY_TYPE,
     LEGACY_SMART_TYPE_WARNING,
-    MCP_CONNECT_ALLOWED_KEYS,
     REQUIRED_FIELDS_BY_TYPE,
     CardType,
     apply_legacy_smart_defaults,
@@ -70,19 +74,6 @@ class LoadedAgentCard:
 class _MarkdownCard:
     metadata: dict[str, Any]
     body: str
-
-
-@dataclass(frozen=True, slots=True)
-class _ParsedMCPConnectEntry:
-    target: str | None
-    name: str | None
-    description: str | None
-    management: str | None
-    connector_id: str | None
-    headers: dict[str, str] | None
-    access_token: str | None
-    defer_loading: bool | None
-    auth: dict[str, Any] | None
 
 
 def load_agent_cards(path: Path) -> list[LoadedAgentCard]:
@@ -515,7 +506,8 @@ def _build_agent_data(
         lifecycle_hooks=lifecycle_hooks,
         commands=commands,
         trim_tool_history=trim_tool_history,
-        mcp_connect=mcp_connect,
+        mcp_connect=mcp_connect.entries,
+        mcp_connect_source_form=mcp_connect.source_form,
         source_path=path,
         agent_type=agent_type,
     )
@@ -830,170 +822,19 @@ def _ensure_headers_map(value: Any, field: str, path: Path) -> dict[str, str] | 
     return headers
 
 
-def _ensure_auth_map(value: Any, field: str, path: Path) -> dict[str, Any] | None:
-    if value is None:
-        return None
-    if not isinstance(value, dict):
-        raise AgentConfigError(f"'{field}' must be a mapping in {path}")
-    return dict(value)
+def _ensure_mcp_connect_entries(value: Any, path: Path) -> ParsedMCPConnect:
+    parsed = parse_mcp_connect_entries(value)
+    if parsed.errors:
+        raise AgentConfigError(f"Invalid 'mcp_connect' in {path}", parsed.errors[0])
 
-
-def _ensure_optional_bool(value: Any, field: str, path: Path) -> bool | None:
-    if value is None:
-        return None
-    return _ensure_bool(value, field, path)
-
-
-def _validate_mcp_connect_keys(raw_entry: dict[str, Any], idx: int, path: Path) -> None:
-    unknown_keys = set(raw_entry.keys()) - MCP_CONNECT_ALLOWED_KEYS
-    if not unknown_keys:
-        return
-    unknown_text = ", ".join(sorted(str(key) for key in unknown_keys))
-    raise AgentConfigError(
-        f"'mcp_connect[{idx}]' has unsupported keys in {path}",
-        f"Unknown keys: {unknown_text}",
-    )
-
-
-def _mcp_connect_target(raw_entry: dict[str, Any], idx: int, path: Path) -> str | None:
-    target_raw = raw_entry.get("target")
-    if target_raw is None:
-        return None
-    target = strip_str_to_none(target_raw)
-    if target is None:
-        raise AgentConfigError(f"'mcp_connect[{idx}].target' must be a non-empty string in {path}")
-    return target
-
-
-def _mcp_connect_name(raw_entry: dict[str, Any], idx: int, path: Path) -> str | None:
-    name = _ensure_optional_str(raw_entry.get("name"), f"mcp_connect[{idx}].name", path)
-    if raw_entry.get("connector_id") is not None and name is None:
-        raise AgentConfigError(
-            f"'mcp_connect[{idx}].name' must be a non-empty string in {path} "
-            "when connector_id is set"
-        )
-    return name
-
-
-def _ensure_mcp_target_xor_connector(
-    target: str | None,
-    connector_id: str | None,
-    idx: int,
-    path: Path,
-) -> None:
-    if target is None and connector_id is None:
-        raise AgentConfigError(
-            f"'mcp_connect[{idx}].target' must be a non-empty string in {path} "
-            "unless connector_id is set"
-        )
-    if target is not None and connector_id is not None:
-        raise AgentConfigError(
-            f"'mcp_connect[{idx}]' must set exactly one of 'target' or 'connector_id' in {path}"
-        )
-
-
-def _parse_mcp_connect_entry(
-    raw_entry: dict[str, Any],
-    idx: int,
-    path: Path,
-) -> _ParsedMCPConnectEntry:
-    _validate_mcp_connect_keys(raw_entry, idx, path)
-    target = _mcp_connect_target(raw_entry, idx, path)
-    connector_id = _ensure_optional_str(
-        raw_entry.get("connector_id"),
-        f"mcp_connect[{idx}].connector_id",
-        path,
-    )
-    _ensure_mcp_target_xor_connector(target, connector_id, idx, path)
-
-    return _ParsedMCPConnectEntry(
-        target=target,
-        name=_mcp_connect_name(raw_entry, idx, path),
-        description=_ensure_optional_str(
-            raw_entry.get("description"),
-            f"mcp_connect[{idx}].description",
-            path,
-        ),
-        management=_ensure_optional_str(
-            raw_entry.get("management"),
-            f"mcp_connect[{idx}].management",
-            path,
-        ),
-        connector_id=connector_id,
-        headers=_ensure_headers_map(raw_entry.get("headers"), f"mcp_connect[{idx}].headers", path),
-        access_token=_ensure_optional_str(
-            raw_entry.get("access_token"),
-            f"mcp_connect[{idx}].access_token",
-            path,
-        ),
-        defer_loading=_ensure_optional_bool(
-            raw_entry.get("defer_loading"),
-            f"mcp_connect[{idx}].defer_loading",
-            path,
-        ),
-        auth=_ensure_auth_map(raw_entry.get("auth"), f"mcp_connect[{idx}].auth", path),
-    )
-
-
-def _validate_provider_mcp_connect_entry(
-    entry: _ParsedMCPConnectEntry,
-    idx: int,
-    path: Path,
-) -> None:
-    if entry.connector_id is None:
-        return
-
-    payload: dict[str, Any] = {
-        "name": entry.name,
-        "description": entry.description,
-        "management": entry.management,
-        "connector_id": entry.connector_id,
-        "headers": entry.headers,
-        "access_token": entry.access_token,
-        "auth": entry.auth,
-    }
-    if entry.defer_loading is not None:
-        payload["defer_loading"] = entry.defer_loading
-    try:
-        MCPServerSettings.model_validate(payload)
-    except Exception as exc:
-        raise AgentConfigError(f"Invalid 'mcp_connect[{idx}]' in {path}", str(exc)) from exc
-
-
-def _mcp_connect_target_from_entry(
-    entry: _ParsedMCPConnectEntry,
-) -> MCPConnectTarget:
-    return MCPConnectTarget(
-        target=entry.target,
-        name=entry.name,
-        description=entry.description,
-        management=entry.management,
-        connector_id=entry.connector_id,
-        headers=entry.headers,
-        access_token=entry.access_token,
-        defer_loading=entry.defer_loading,
-        auth=entry.auth,
-    )
-
-
-def _ensure_mcp_connect_entries(value: Any, path: Path) -> list[MCPConnectTarget]:
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise AgentConfigError(f"'mcp_connect' must be a list in {path}")
-
-    entries: list[MCPConnectTarget] = []
-    for idx, raw_entry in enumerate(value):
-        if not is_str_object_dict(raw_entry):
-            raise AgentConfigError(
-                f"'mcp_connect[{idx}]' must be a mapping in {path}",
-            )
-
-        entry = _parse_mcp_connect_entry(raw_entry, idx, path)
-        _validate_provider_mcp_connect_entry(entry, idx, path)
-        entries.append(_mcp_connect_target_from_entry(entry))
-
-    return entries
+    for field_path, entry in zip(parsed.field_paths, parsed.entries, strict=True):
+        if entry.connector_id is None:
+            continue
+        try:
+            validate_parsed_mcp_connect_entry(entry, field_path)
+        except Exception as exc:
+            raise AgentConfigError(f"Invalid '{field_path}' in {path}", str(exc)) from exc
+    return parsed
 
 
 def _ensure_request_params(value: Any, path: Path) -> RequestParams | None:
@@ -1243,7 +1084,10 @@ def _serialize_optional_common_fields(
         card,
         allowed_fields,
         "mcp_connect",
-        _serialize_mcp_connect_targets(config.mcp_connect),
+        _serialize_mcp_connect_targets(
+            config.mcp_connect,
+            config.mcp_connect_source_form,
+        ),
         when=bool(config.mcp_connect),
     )
     _set_allowed(card, allowed_fields, "tools", config.tools, when=bool(config.tools))
@@ -1305,10 +1149,25 @@ def _optional_mcp_connect_fields(entry: MCPConnectTarget) -> dict[str, Any]:
         fields["defer_loading"] = entry.defer_loading
     if entry.auth is not None:
         fields["auth"] = dict(entry.auth)
+    if entry.protocol_mode is not None:
+        fields["protocol_mode"] = entry.protocol_mode
     return fields
 
 
-def _serialize_mcp_connect_targets(targets: list[MCPConnectTarget]) -> list[dict[str, Any]]:
+def _serialize_mcp_connect_targets(
+    targets: list[MCPConnectTarget],
+    source_form: str,
+) -> list[dict[str, Any]] | dict[str, dict[str, Any]]:
+    if source_form == "mapping":
+        return {
+            entry.name: {
+                key: value
+                for key, value in _optional_mcp_connect_fields(entry).items()
+                if key != "name"
+            }
+            for entry in targets
+            if entry.name is not None
+        }
     return [_optional_mcp_connect_fields(entry) for entry in targets]
 
 

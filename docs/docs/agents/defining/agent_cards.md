@@ -291,26 +291,33 @@ Use `mcp_connect` when a card needs MCP servers that are not preconfigured under
 
 ```yaml
 mcp_connect:
-  - target: "https://demo.hf.space"
+  docs:
+    target: "https://demo.hf.space"
+    protocol_mode: modern
     headers:
       Authorization: "Bearer ${DEMO_TOKEN}"
     auth:
       oauth: true
-  - target: "@modelcontextprotocol/server-everything"
-    name: "everything"
+  everything:
+    target: "@modelcontextprotocol/server-everything"
 ```
 
+- The canonical form is a mapping from server name to target settings.
+- The legacy list form remains accepted and is preserved when a card is dumped.
 - `target` (required): URL, `@pkg`, `npx ...`, `uvx ...`, or stdio command.
-- `name` (optional): explicit server alias; if omitted, fast-agent infers one.
+- `protocol_mode` (optional): `auto`, `modern`, or `legacy`.
 - `headers` (optional): structured HTTP headers.
 - `auth` (optional): structured auth settings, for example `oauth: true`.
+- Process fields (`command`, `args`, `env`, and `cwd`) are not permitted in
+  AgentCards. Declare a trusted `target`; fast-agent materializes process
+  settings from that target.
 
 For provider-managed remote MCP, use:
 
 ```yaml
 mcp_connect:
-  - target: "https://huggingface.co/mcp"
-    name: "huggingface"
+  huggingface:
+    target: "https://huggingface.co/mcp"
     management: provider
     access_token: "${HF_TOKEN}"
     description: "Hugging Face MCP"
@@ -337,7 +344,7 @@ card entries. Use `connector_id` instead of `target`:
 
 ```yaml
 mcp_connect:
-  - name: dropbox
+  dropbox:
     management: provider
     connector_id: connector_dropbox
     access_token: "${DROPBOX_OAUTH_ACCESS_TOKEN}"
@@ -346,8 +353,8 @@ mcp_connect:
 ```
 
 Connector-backed entries are supported only by the OpenAI `responses` provider.
-They require `name` and `access_token`; omit `target`, `transport`, `headers`,
-and `auth`.
+They require a mapping key (or `name` in the compatible list form) and
+`access_token`; omit `target`, `transport`, `headers`, and `auth`.
 
 For provider-managed servers, use exact tool names in `tools.<server_name>`.
 Wildcard tool filters, prompt filters, and resource filters are not supported.

@@ -170,17 +170,23 @@ This is useful when a card depends on MCP servers that are not predeclared in
 
 ```yaml
 mcp_connect:
-  - target: "https://demo.hf.space"
+  demo:
+    target: "https://demo.hf.space"
+    protocol_mode: modern
     headers:
       Authorization: "Bearer ${DEMO_TOKEN}"
     auth:
       oauth: true
-  - target: "@modelcontextprotocol/server-everything"
-    name: "everything"
+  everything:
+    target: "@modelcontextprotocol/server-everything"
 ```
 
-`mcp.servers` remains the place for reusable, preconfigured aliases.
+`mcp.servers` remains the place for reusable, preconfigured definitions.
 `mcp_connect` is card-scoped runtime declaration.
+The named mapping is canonical; list entries remain compatible and retain
+their list form when dumped. `protocol_mode` accepts `auto`, `modern`, or
+`legacy`. Cards cannot set process fields (`command`, `args`, `env`, or `cwd`);
+those are materialized only from the allow-listed `target`.
 
 ## Provider-managed MCP
 
@@ -202,8 +208,8 @@ AgentCards can use the same mode in `mcp_connect`:
 
 ```yaml
 mcp_connect:
-  - target: "https://huggingface.co/mcp"
-    name: "huggingface"
+  huggingface:
+    target: "https://huggingface.co/mcp"
     management: provider
     access_token: "${HF_TOKEN}"
 ```

@@ -26,10 +26,15 @@
 - `servers` — list of configured MCP server names.
 - `tools` / `resources` / `prompts` — map: `server_name -> [allowed_items]`.
 - `mcp_connect` — optional runtime MCP targets resolved at startup.
-  - entries normally require `target` and may include optional `name`.
+  - canonical syntax is a mapping from server name to settings, for example
+    `mcp_connect: {docs: {target: "https://example.com/mcp"}}`; list entries
+    with optional `name` remain compatible.
   - target forms: `https://...`, `@scope/pkg`, `npx ...`, `uvx ...`, or stdio command.
+  - `protocol_mode` optionally selects `auto`, `modern`, or `legacy`.
+  - process fields `command`, `args`, `env`, and `cwd` are rejected; process
+    settings are materialized from the trusted target parser.
   - provider-managed remote MCP may add: `management: provider`, `description`, `access_token`, `defer_loading`.
-  - provider-managed OpenAI connectors use structured entries with `name`, `management: provider`, `connector_id`, and `access_token`; omit `target` for connector-backed entries.
+  - provider-managed OpenAI connectors use a mapping key (or list-form `name`) with `management: provider`, `connector_id`, and `access_token`; omit `target`.
   - valid connector IDs come from the pinned OpenAI SDK; current IDs are: `connector_dropbox`, `connector_gmail`, `connector_googlecalendar`, `connector_googledrive`, `connector_microsoftteams`, `connector_outlookcalendar`, `connector_outlookemail`, `connector_sharepoint`.
   - for OpenAI Responses provider-managed remote MCP or connectors, `defer_loading: true` automatically enables server-side `tool_search` so tool definitions load lazily.
 - `agents` — list of child agents (Agents-as-Tools).

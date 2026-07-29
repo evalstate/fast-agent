@@ -137,6 +137,51 @@ async def test_sync_agent_card_mcp_connect_registers_runtime_server(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_sync_named_mcp_connect_materializes_target_and_protocol_mode(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+    card_path = tmp_path / "card_agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: card_agent",
+                "mcp_connect:",
+                "  docs:",
+                "    target: '@foo/bar'",
+                "    protocol_mode: modern",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    fast = FastAgent(
+        "mcp-connect-test",
+        config_path=str(config_path),
+        parse_cli_args=False,
+        quiet=True,
+    )
+    fast.load_agents(card_path)
+
+    await fast.app.initialize()
+    try:
+        fast._sync_agent_card_mcp_servers()
+
+        cfg = fast.app.context.config
+        assert cfg is not None
+        assert cfg.mcp is not None
+        server_cfg = cfg.mcp.servers["docs"]
+        assert server_cfg.command == "npx"
+        assert server_cfg.args == ["@foo/bar"]
+        assert server_cfg.protocol_mode == "modern"
+        assert server_cfg.env is None
+        assert server_cfg.cwd is None
+    finally:
+        await fast.app.cleanup()
+
+
+@pytest.mark.asyncio
 async def test_sync_agent_card_mcp_connect_applies_auth_overrides(tmp_path: Path) -> None:
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text("", encoding="utf-8")

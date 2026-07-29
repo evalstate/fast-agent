@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+import yaml
 
 from fast_agent.agents.workflow.agents_as_tools_agent import HistoryMergeTarget, HistorySource
 from fast_agent.core.agent_card_loader import (
@@ -134,6 +135,82 @@ def test_load_agent_card_parses_mcp_connect_entries(tmp_path: Path) -> None:
     assert config.mcp_connect[1].name == "foo_bar"
     assert config.mcp_connect[1].headers == {"Authorization": "Bearer abc"}
     assert config.mcp_connect[1].auth == {"oauth": False}
+
+
+def test_mcp_connect_mapping_roundtrip_preserves_canonical_form(tmp_path: Path) -> None:
+    card_path = tmp_path / "mcp_agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: mcp_agent",
+                "mcp_connect:",
+                "  docs:",
+                '    target: "https://demo.hf.space"',
+                "    protocol_mode: modern",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)[0]
+    config = loaded.agent_data["config"]
+    assert config.mcp_connect_source_form == "mapping"
+    assert len(config.mcp_connect) == 1
+    assert config.mcp_connect[0].name == "docs"
+    assert config.mcp_connect[0].protocol_mode == "modern"
+
+    dumped = dump_agent_to_string("mcp_agent", loaded.agent_data, as_yaml=True)
+    payload = yaml.safe_load(dumped)
+    assert payload["mcp_connect"] == {
+        "docs": {
+            "target": "https://demo.hf.space",
+            "protocol_mode": "modern",
+        }
+    }
+
+    roundtripped_path = tmp_path / "roundtripped.yaml"
+    roundtripped_path.write_text(dumped, encoding="utf-8")
+    roundtripped = load_agent_cards(roundtripped_path)[0].agent_data["config"]
+    assert roundtripped.mcp_connect_source_form == "mapping"
+    assert roundtripped.mcp_connect == config.mcp_connect
+
+
+def test_mcp_connect_list_roundtrip_preserves_compatibility_form(tmp_path: Path) -> None:
+    card_path = tmp_path / "mcp_agent.yaml"
+    card_path.write_text(
+        "name: mcp_agent\nmcp_connect:\n  - target: '@foo/bar'\n    protocol_mode: legacy\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)[0]
+    dumped = dump_agent_to_string("mcp_agent", loaded.agent_data, as_yaml=True)
+    payload = yaml.safe_load(dumped)
+
+    assert isinstance(payload["mcp_connect"], list)
+    assert payload["mcp_connect"][0]["protocol_mode"] == "legacy"
+
+
+@pytest.mark.parametrize("process_field", ["command", "args", "env", "cwd"])
+def test_mcp_connect_rejects_untrusted_process_fields(
+    tmp_path: Path,
+    process_field: str,
+) -> None:
+    card_path = tmp_path / "untrusted.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: untrusted",
+                "mcp_connect:",
+                "  docs:",
+                "    target: '@foo/bar'",
+                f"    {process_field}: untrusted",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError, match=rf"unsupported keys: {process_field}"):
+        load_agent_cards(card_path)
 
 
 def test_load_agent_card_normalizes_padded_instruction(tmp_path: Path) -> None:

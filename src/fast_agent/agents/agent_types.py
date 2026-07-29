@@ -66,6 +66,7 @@ FunctionToolConfig: TypeAlias = (
 
 FunctionToolsConfig: TypeAlias = list[FunctionToolConfig] | None
 SubagentActivationSource: TypeAlias = Literal["configuration", "cli", "instruction"]
+MCPConnectSourceForm: TypeAlias = Literal["list", "mapping"]
 
 
 # Tool hooks config maps hook type to function spec string
@@ -88,6 +89,7 @@ class MCPConnectTarget:
     access_token: str | None = None
     defer_loading: bool | None = None
     auth: dict[str, Any] | None = None
+    protocol_mode: Literal["auto", "modern", "legacy"] | None = None
 
 
 @dataclass
@@ -137,6 +139,7 @@ class AgentConfig:
     commands: PluginCommandsConfig = None
     trim_tool_history: bool = False
     mcp_connect: list[MCPConnectTarget] = field(default_factory=list)
+    mcp_connect_source_form: MCPConnectSourceForm = field(default="list", repr=False)
     source_path: Path | None = field(default=None, repr=False)
 
     def __post_init__(self):
