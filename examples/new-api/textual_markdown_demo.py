@@ -793,8 +793,8 @@ class MarkdownLLMApp(App[None]):
     def _format_transport_channel(channel: str) -> str:
         mapping = {
             "post-json": "HTTP (JSON-RPC)",
-            "post-sse": "Legacy SSE",
-            "get": "Legacy SSE",
+            "post-sse": "HTTP (SSE response)",
+            "get": "HTTP (GET stream)",
             "resumption": "Resumption",
             "stdio": "STDIO",
         }

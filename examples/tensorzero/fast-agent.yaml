@@ -14,5 +14,6 @@ logger:
 mcp:
   servers:
     tester:
-      target: "http://localhost:8000/t0-example-server/sse"
+      target: "http://localhost:8000/t0-example-server/mcp"
+      protocol_mode: modern
       read_transport_sse_timeout_seconds: 300

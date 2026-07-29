@@ -11,6 +11,9 @@ dependencies = [
 [tool.uv]
 package = true
 
+[tool.uv.sources]
+fast-agent-mcp = { path = "../..", editable = true }
+
 # Optional convenience entry point if you later package this app:
 [project.scripts]
 fast-agent-app = "agent:main"

@@ -2,8 +2,8 @@
 name: hf_researcher
 description: Research Hugging Face models and datasets for batch rows.
 mcp_connect:
-  - target: "https://huggingface.co/mcp?login"
-    name: huggingface
+  huggingface:
+    target: "https://huggingface.co/mcp?login"
 ---
 You are a concise Hugging Face research assistant.
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from mcp_types import CallToolResult, TextContent
 
 app = FastMCP(name="Structured Content Preview Demo")

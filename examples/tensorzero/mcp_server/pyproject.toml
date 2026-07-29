@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastmcp>=2.10.6",
+    "fastmcp-slim[server]==4.0.0b1",
     "starlette>=0.46.2",
     "uvicorn>=0.34.3",
 ]

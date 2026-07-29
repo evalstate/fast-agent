@@ -111,8 +111,8 @@ class PreparedToolCallDisplay:
 
 _TRANSPORT_METADATA_LABELS: dict[str, str] = {
     "post-json": "HTTP (JSON-RPC)",
-    "post-sse": "HTTP (SSE)",
-    "get": "Legacy SSE",
+    "post-sse": "HTTP (SSE response)",
+    "get": "HTTP (GET stream)",
     "resumption": "Resumption",
     "stdio": "STDIO",
 }

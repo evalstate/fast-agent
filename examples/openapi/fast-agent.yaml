@@ -36,6 +36,7 @@ mcp:
   servers:
     petstore:
       target: "uv run openapi_mcp_server.py petstore.yaml"
+      protocol_mode: modern
     filesystem:
       target: "npx -y @modelcontextprotocol/server-filesystem ."
     huggingface:
