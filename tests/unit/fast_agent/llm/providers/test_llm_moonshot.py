@@ -115,6 +115,7 @@ def test_moonshot_kimi_k3_capabilities_match_native_contract() -> None:
     assert params.stream_mode == "manual"
     assert params.json_mode == "schema"
     assert params.structured_tool_policy == "no_tools"
+    assert params.shell_output_byte_limit == 16_000
     assert "image/png" in params.tokenizes
     assert "video/mp4" in params.tokenizes
     assert "application/pdf" not in params.tokenizes

@@ -845,6 +845,7 @@ class ModelDatabase:
         stream_mode="manual",
         default_provider=Provider.MOONSHOT,
         model_specific="You have image and video understanding capabilities.",
+        shell_output_byte_limit=16_000,
     )
 
     GROK_43 = ModelParameters(
