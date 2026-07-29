@@ -58,6 +58,7 @@ class ProgressEvent(BaseModel):
     process_seconds_since_last_stderr: float | None = None
     process_stdout_bytes: int | None = None
     process_stderr_bytes: int | None = None
+    elapsed_seconds: float | None = None
     streaming_tokens: str | None = None  # Special field for streaming token count
     progress: float | None = None  # Current progress value
     total: float | None = None  # Total value for progress calculation

@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -59,6 +60,19 @@ _COMPACTING_FRAMES = (
     "⣤⣤⣤",
     "⣀⣀⣀",
     "   ",
+)
+
+_SUBAGENT_DETAIL_STYLES = (
+    (r"\bturn\s+\d+", "not dim cyan"),
+    (r"\bstarting\b", "not dim green"),
+    (r"\bthinking\b", "not dim bold yellow"),
+    (r"\bprocessing\b", "not dim cyan"),
+    (r"\btool\b", "not dim magenta"),
+    (r"\bfinalizing\b", "not dim blue"),
+    (r"\bin\s+[\d,]+", "not dim blue"),
+    (r"\bout\s+[\d,]+", "not dim green"),
+    (r"\bcache\s+\d+%", "not dim magenta"),
+    (r"\btools\s+\d+", "not dim yellow"),
 )
 
 
@@ -177,10 +191,14 @@ class DynamicDetailsColumn(ProgressColumn):
         is_process_poll = bool(task.fields.get("is_process_poll"))
         parts: list[str | Text] = []
         if details:
-            parts.append(details)
-        local_tick = self._local_tick_seconds(task)
+            parts.append(
+                self._colorize_subagent_details(details)
+                if bool(task.fields.get("is_subagent_monitor"))
+                else details
+            )
         elapsed_base = task.fields.get("process_elapsed_seconds")
         if is_process_poll:
+            local_tick = self._local_tick_seconds(task, "process_snapshot_task_elapsed")
             elapsed = self._numeric_field(elapsed_base)
             stdout_age = self._numeric_field(task.fields.get("process_seconds_since_last_stdout"))
             stderr_age = self._numeric_field(task.fields.get("process_seconds_since_last_stderr"))
@@ -203,6 +221,10 @@ class DynamicDetailsColumn(ProgressColumn):
                 )
             )
         elif (elapsed := self._numeric_field(elapsed_base)) is not None:
+            local_tick = self._local_tick_seconds(task, "process_snapshot_task_elapsed")
+            parts.append(format_process_elapsed(elapsed + local_tick))
+        elif (elapsed := self._numeric_field(task.fields.get("elapsed_seconds"))) is not None:
+            local_tick = self._local_tick_seconds(task, "elapsed_snapshot_task_elapsed")
             parts.append(format_process_elapsed(elapsed + local_tick))
         command = task.fields.get("process_command")
         if isinstance(command, str) and command:
@@ -222,10 +244,10 @@ class DynamicDetailsColumn(ProgressColumn):
         return None
 
     @staticmethod
-    def _local_tick_seconds(task: "Task") -> float:
-        """Seconds since the latest process field snapshot was applied."""
+    def _local_tick_seconds(task: "Task", snapshot_field: str) -> float:
+        """Seconds since the latest elapsed field snapshot was applied."""
         task_elapsed = task.elapsed or 0.0
-        snapshot = task.fields.get("process_snapshot_task_elapsed")
+        snapshot = task.fields.get(snapshot_field)
         if isinstance(snapshot, (int, float)) and not isinstance(snapshot, bool):
             return max(task_elapsed - float(snapshot), 0.0)
         return task_elapsed
@@ -244,6 +266,13 @@ class DynamicDetailsColumn(ProgressColumn):
             else:
                 line.append(part, style=self.style)
         return line
+
+    def _colorize_subagent_details(self, details: str) -> Text:
+        text = Text(details, style=self.style)
+        for pattern, style in _SUBAGENT_DETAIL_STYLES:
+            for match in re.finditer(pattern, details):
+                text.stylize(style, match.start(), match.end())
+        return text
 
 
 class RichProgressDisplay:
@@ -710,10 +739,13 @@ class RichProgressDisplay:
             ),
             "task_name": task_name,
             "is_process_poll": is_process_poll,
+            "is_subagent_monitor": event.tool_event == "subagent_monitor",
             "is_compacting": event.action == ProgressAction.COMPACTING,
         }
         if event.process_elapsed_seconds is not None:
             update_kwargs["process_elapsed_seconds"] = event.process_elapsed_seconds
+        if event.elapsed_seconds is not None:
+            update_kwargs["elapsed_seconds"] = event.elapsed_seconds
         if event.process_command is not None:
             update_kwargs["process_command"] = event.process_command
         if event.process_wait_seconds is not None:
@@ -939,6 +971,12 @@ class RichProgressDisplay:
             update_kwargs["process_poll_blink_next"] = blink_next
         self._progress.update(task_id, **update_kwargs)
         if self._is_process_poll_event(event):
+            snapshot_field = "process_snapshot_task_elapsed"
+        elif event.elapsed_seconds is not None:
+            snapshot_field = "elapsed_snapshot_task_elapsed"
+        else:
+            snapshot_field = None
+        if snapshot_field is not None:
             # Anchor field baselines to the current task clock so local ticks
             # between refresh events do not double-count process age.
             task = next(
@@ -946,10 +984,7 @@ class RichProgressDisplay:
                 None,
             )
             if task is not None:
-                self._progress.update(
-                    task_id,
-                    process_snapshot_task_elapsed=task.elapsed or 0.0,
-                )
+                task.fields[snapshot_field] = task.elapsed or 0.0
         self._apply_post_update_lifecycle(
             event,
             task_name=task_name,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Annotated, Protocol, cast, runtime_checkable
@@ -111,6 +112,7 @@ class _SubagentMonitorCoordinator:
             details=details,
             parent_tool_call_id=progress.parent_tool_call_id,
             row_id=progress.row_id,
+            elapsed_seconds=progress.elapsed_seconds,
         )
 
     def finish(self, progress: "_SubagentProgress", status: str) -> None:
@@ -121,6 +123,7 @@ class _SubagentMonitorCoordinator:
             details=status,
             parent_tool_call_id=progress.parent_tool_call_id,
             row_id=progress.row_id,
+            elapsed_seconds=progress.elapsed_seconds,
         )
         self._active.pop(progress.child_name, None)
         if self._active:
@@ -133,6 +136,7 @@ class _SubagentMonitorCoordinator:
                 details="",
                 parent_tool_call_id=None,
                 row_id=None,
+                elapsed_seconds=None,
             )
 
     def _emit_parent(self) -> None:
@@ -145,6 +149,7 @@ class _SubagentMonitorCoordinator:
             details=f"{len(labels)} {noun} · {', '.join(labels)}",
             parent_tool_call_id=None,
             row_id=None,
+            elapsed_seconds=None,
         )
 
     def _emit(
@@ -156,6 +161,7 @@ class _SubagentMonitorCoordinator:
         details: str,
         parent_tool_call_id: str | None,
         row_id: str | None,
+        elapsed_seconds: float | None,
     ) -> None:
         self._display.update(
             ProgressEvent(
@@ -167,6 +173,7 @@ class _SubagentMonitorCoordinator:
                 instance_name=row_id or agent_name,
                 tool_name=SUBAGENT_TOOL_NAME,
                 tool_event="subagent_monitor" if row_id is not None else None,
+                elapsed_seconds=elapsed_seconds,
             )
         )
 
@@ -193,9 +200,14 @@ class _SubagentProgress:
         self._tool_count = 0
         self._current_tool_name: str | None = None
         self._activity = "starting"
+        self._started_at = time.monotonic()
 
     def attach(self, agent: ToolAgent) -> None:
         self._agent = agent
+
+    @property
+    def elapsed_seconds(self) -> float:
+        return time.monotonic() - self._started_at
 
     def running(self, turn: int) -> None:
         self._turn = turn
@@ -235,26 +247,46 @@ class _SubagentProgress:
         if self._current_tool_name:
             tool_details = f"{tool_details} ({self._current_tool_name})"
         return " · ".join(
-            (f"turn {self._turn}", self._activity, self._usage_details(), tool_details)
+            (
+                f"turn {self._turn:>2}",
+                f"{self._activity:<10}",
+                self._usage_details(),
+                tool_details,
+            )
         )
 
     def _usage_details(self) -> str:
         if self._agent is None or self._agent.usage_accumulator is None:
-            return "in 0 out 0 cache 0"
+            return _format_usage_details(input_tokens=0, output_tokens=0, cache_percentage=0)
         summary = self._agent.usage_accumulator.summary
-        cache_total = _cache_total(summary.prompt.cache_read, summary.prompt.cache_write) or 0
-        return " ".join(
-            (
-                f"in {summary.prompt.total or 0}",
-                f"out {summary.completion.total or 0}",
-                f"cache {cache_total}",
-            )
+        input_tokens = summary.prompt.total or 0
+        return _format_usage_details(
+            input_tokens=input_tokens,
+            output_tokens=summary.completion.total or 0,
+            cache_percentage=_cache_percentage(
+                cache_read=summary.prompt.cache_read,
+                input_tokens=input_tokens,
+            ),
         )
 
 
-def _cache_total(cache_read: int | None, cache_write: int | None) -> int | None:
-    values = [value for value in (cache_read, cache_write) if value is not None]
-    return sum(values) if values else None
+def _format_usage_details(
+    *,
+    input_tokens: int,
+    output_tokens: int,
+    cache_percentage: float,
+) -> str:
+    return (
+        f"in {input_tokens:>7,} "
+        f"out {output_tokens:>7,} "
+        f"cache {cache_percentage:>3.0f}%"
+    )
+
+
+def _cache_percentage(*, cache_read: int | None, input_tokens: int) -> float:
+    if cache_read is None or input_tokens == 0:
+        return 0
+    return (cache_read / input_tokens) * 100
 
 
 def _default_progress_display() -> ProgressEventDisplay:

@@ -261,17 +261,17 @@ def show_input_help_banner(
         return
 
     attachment_hint = (
-        "[dim]Use [/dim]/attach, `^file:`, `^url:`, [dim]or [/dim]"
+        "[dim]Use [/dim]/attach[dim], '[/dim]^file:[dim]', '[/dim]^url:[dim]', [dim]or [/dim]"
         "Ctrl+Alt+V[dim] to paste attachments.[/dim]"
         if supports_clipboard_image_paste
-        else "[dim]Use [/dim]/attach, `^file:`, [dim]or [/dim]`^url:`[dim] for attachments.[/dim]"
+        else "[dim]Use [/dim]/attach, '[/dim]^file:[dim]',or '[/dim]^url:[dim]' for attachments.[/dim]"
     )
     rich_print(
         """CTRL+T [dim]multiline, [/dim]CTRL+Y[dim] copy last message, [/dim]CTRL+E[dim] external editor.[/dim]\n"""
         """CTRL+C[dim] to interrupt generation or background waiting, [/dim]CTRL+D[dim] to exit.[/dim]\n"""
         """CTRL+Space[dim] or [/dim]Tab[dim] for path completion.[/dim]\n"""
         f"""{attachment_hint} F10[dim] to clear.[/dim]\n"""
-        """[dim]Use [/dim]'/'[dim] for commands, [/dim]'!'[dim] for shell. [/dim]'#'[dim] to query, [/dim]'@'[dim] to switch agents[/dim]\n"""
+        """[dim]Use '[/dim]/[dim]' for commands, '[/dim]![dim]' for shell. '[/dim]#[dim]' to query, '[/dim]@[dim]' to switch agents[/dim]\n"""
     )
 
 

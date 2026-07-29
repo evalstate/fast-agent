@@ -669,6 +669,43 @@ class TestAggregatorInitializedVisibility:
         assert rendered.plain == "out   — · err   — · time 1m10s · size 25.0KB · uv run worker.py"
         display.stop()
 
+    def test_subagent_elapsed_time_ticks_between_monitor_events(self) -> None:
+        display = _make_display()
+        display.start()
+        display.update(
+            _make_event(
+                action=ProgressAction.RUNNING,
+                instance_name="test-agent::subagent::call-1",
+                tool_event="subagent_monitor",
+                details=(
+                    "turn  1 · thinking   · in  58,662 out   7,095 "
+                    "cache  56% · tools 18"
+                ),
+                elapsed_seconds=2,
+            )
+        )
+        task_id = display._taskmap["test-agent::subagent::call-1"]
+        task = next(task for task in display._progress.tasks if task.id == task_id)
+        assert task.start_time is not None
+        task.start_time -= 5.5
+
+        rendered = DynamicDetailsColumn().render(task)
+
+        assert rendered.plain == (
+            "turn  1 · thinking   · in  58,662 out   7,095 "
+            "cache  56% · tools 18 · 0m07s"
+        )
+        styles = {str(span.style) for span in rendered.spans}
+        assert {
+            "not dim cyan",
+            "not dim bold yellow",
+            "not dim blue",
+            "not dim green",
+            "not dim magenta",
+            "not dim yellow",
+        } <= styles
+        display.stop()
+
     def test_process_output_activity_fades_then_goes_quiet(self) -> None:
         display = RichProgressDisplay(
             console=Console(file=io.StringIO(), force_terminal=True),

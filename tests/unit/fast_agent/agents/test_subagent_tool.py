@@ -1524,15 +1524,17 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
     assert "parent[brisk-otter]" in progress._folded_agent_progress
     assert events[0].action == ProgressAction.RUNNING
     assert events[0].target == "brisk-otter"
-    assert events[0].details == "turn 0 · starting · in 0 out 0 cache 0 · tools 0"
+    assert events[0].details == (
+        "turn  0 · starting   · in       0 out       0 cache   0% · tools 0"
+    )
     assert {event.correlation_id for event in events} == {"parent-call"}
     assert any(
         event.action == ProgressAction.RUNNING
         and event.details is not None
-        and "turn 1" in event.details
-        and "in 3" in event.details
-        and "out 2" in event.details
-        and "cache 1" in event.details
+        and "turn  1" in event.details
+        and "in       3" in event.details
+        and "out       2" in event.details
+        and "cache  33%" in event.details
         for event in events
     )
     assert any(
@@ -1544,10 +1546,10 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
     assert any(
         event.action == ProgressAction.RUNNING
         and event.details is not None
-        and "turn 2" in event.details
-        and "in 6" in event.details
-        and "out 4" in event.details
-        and "cache 2" in event.details
+        and "turn  2" in event.details
+        and "in       6" in event.details
+        and "out       4" in event.details
+        and "cache  33%" in event.details
         for event in events
     )
     assert events[-1].action == ProgressAction.READY
@@ -1608,7 +1610,8 @@ async def test_parallel_subagent_monitor_rows_have_distinct_identity_and_cleanup
     assert {events[0].correlation_id for events in rows_by_name.values()} == {"call-a", "call-b"}
     assert all(events[0].action == ProgressAction.RUNNING for events in rows_by_name.values())
     assert all(
-        events[0].details == "turn 0 · starting · in 0 out 0 cache 0 · tools 0"
+        events[0].details
+        == "turn  0 · starting   · in       0 out       0 cache   0% · tools 0"
         for events in rows_by_name.values()
     )
     assert all(events[-1].action == ProgressAction.READY for events in rows_by_name.values())
