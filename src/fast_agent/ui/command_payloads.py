@@ -69,6 +69,13 @@ class McpListCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class McpAttachCommand(CommandBase):
+    server_name: str | None
+    error: str | None
+    kind: Literal["mcp_attach"] = "mcp_attach"
+
+
+@dataclass(frozen=True, slots=True)
 class McpConnectCommand(CommandBase):
     request: ParsedMcpConnectRequest | None
     error: str | None
@@ -471,6 +478,7 @@ CommandPayload = (
     | CheckCommand
     | CommandsCommand
     | McpListCommand
+    | McpAttachCommand
     | McpConnectCommand
     | McpDisconnectCommand
     | McpReconnectCommand

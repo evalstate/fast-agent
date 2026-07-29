@@ -51,6 +51,7 @@ from fast_agent.ui.command_payloads import (
     LoadAgentCardCommand,
     LoadHistoryCommand,
     LoadPromptCommand,
+    McpAttachCommand,
     McpConnectCommand,
     McpDisconnectCommand,
     McpListCommand,
@@ -117,6 +118,7 @@ _SESSION_PAYLOAD_FACTORIES: dict[str, _ValueCommandFactory] = {
 }
 
 _MCP_SERVER_COMMAND_TYPES = {
+    "attach": McpAttachCommand,
     "disconnect": McpDisconnectCommand,
     "reconnect": McpReconnectCommand,
 }
@@ -141,8 +143,16 @@ def _parse_mcp_list_command(tokens: list[str], _remainder: str) -> CommandPayloa
     return McpListCommand()
 
 
+def _parse_mcp_status_command(tokens: list[str], _remainder: str) -> CommandPayload:
+    intent = parse_mcp_no_args_tokens(tokens, usage="Usage: /mcp status")
+    if intent.error:
+        return CommandError(intent.error)
+    return ShowMcpStatusCommand()
+
+
 _MCP_TOKEN_PARSERS: dict[str, _McpTokenParser] = {
     "list": _parse_mcp_list_command,
+    "status": _parse_mcp_status_command,
     **dict.fromkeys(_MCP_SERVER_COMMAND_TYPES, _parse_mcp_server_name_command),
 }
 
@@ -451,7 +461,8 @@ def _parse_mcp_command(remainder: str) -> CommandPayload:
             sub_remainder,
             usage=(
                 "Usage: /mcp connect <target> [--name <server>] [--auth <token-value>] "
-                "[--timeout <seconds>] [--oauth|--no-oauth] [--reconnect|--no-reconnect]"
+                "[--timeout <seconds>] [--protocol auto|modern|legacy] "
+                "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
             ),
         )
 
@@ -482,7 +493,11 @@ def _mcp_invalid_arguments_payload(subcmd: str, message: str) -> CommandPayload:
 def _parse_connect_alias_command(remainder: str) -> McpConnectCommand:
     return _parse_connect_command(
         remainder,
-        usage="Usage: /connect <target>",
+        usage=(
+            "Usage: /connect <target> [--name <server>] [--auth <token-value>] "
+            "[--timeout <seconds>] [--protocol auto|modern|legacy] "
+            "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
+        ),
     )
 
 

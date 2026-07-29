@@ -73,6 +73,7 @@ from fast_agent.ui.command_payloads import (
     LoadAgentCardCommand,
     LoadHistoryCommand,
     LoadPromptCommand,
+    McpAttachCommand,
     McpConnectCommand,
     McpDisconnectCommand,
     McpListCommand,
@@ -286,6 +287,12 @@ _COMMAND_OUTCOME_ROUTES: tuple[_CommandOutcomeRoute, ...] = (
         "mcp",
         "mcp_list",
         mcp_runtime_handlers.handle_mcp_list,
+    ),
+    _CommandOutcomeRoute(
+        McpAttachCommand,
+        "mcp",
+        "mcp_server",
+        mcp_runtime_handlers.handle_mcp_attach,
     ),
     _CommandOutcomeRoute(
         McpDisconnectCommand,
@@ -1189,6 +1196,7 @@ async def _dispatch_mcp_payload(
                     payload,
                     (
                         McpListCommand,
+                        McpAttachCommand,
                         McpDisconnectCommand,
                         McpReconnectCommand,
                     ),

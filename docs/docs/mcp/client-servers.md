@@ -10,7 +10,10 @@ social:
 
 # Connect to MCP Servers
 
-For convenience, **`fast-agent`** lets you connect to MCP Servers with command line switches or the `/connect` TUI command.
+For convenience, **`fast-agent`** lets you connect to MCP Servers with command
+line switches or runtime commands. Use `/mcp attach <name>` for a server in the
+configured registry. Use `/mcp connect <target>` or `/connect <target>` for an
+ad-hoc URL, package, or stdio command.
 
 From the command line:
 
@@ -123,9 +126,25 @@ For an ad-hoc connection:
 /mcp connect --protocol modern https://api.example.com/mcp
 ```
 
-Configured aliases take their mode from `protocol_mode`; `/mcp connect
---protocol` does not override an existing alias. Provider-managed MCP does not
-use fast-agent's MCP client and therefore does not accept this setting.
+Configured servers attached with `/mcp attach <name>` take their mode from
+`protocol_mode`. `/mcp connect` and `/connect` always materialize an ad-hoc
+target, so `/connect docs` runs the stdio command `docs`; it does not resolve a
+configured server named `docs`. If that inferred runtime name collides with a
+configured entry, choose another with `--name`. Provider-managed MCP does not use
+fast-agent's MCP client and therefore does not accept this setting.
+
+## Runtime MCP commands
+
+- `/mcp list` lists attached servers and configured servers that remain detached.
+- `/mcp status` shows detailed protocol, transport, health, activity, and capability status.
+- `/mcp attach <name>` attaches the named configured registry entry.
+- `/mcp connect <target>` connects an ad-hoc target; `/connect` is an alias.
+- `/mcp disconnect <name>` detaches a server.
+- `/mcp reconnect <name>` reconnects the attached server using its existing target.
+
+In the terminal and ACP, bare `/mcp` is a shortcut for detailed status.
+`/mcpstatus` remains available in the terminal for compatibility. ACP exposes
+`/mcp list` for inventory and top-level `/connect` for ad-hoc targets.
 
 ## AgentCard runtime MCP connections (`mcp_connect`)
 

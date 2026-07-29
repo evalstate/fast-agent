@@ -390,10 +390,20 @@ class SlashCommandHandler:
                 description="Manage runtime MCP servers and MCP data-layer sessions",
                 handler=self._handle_mcp,
                 input_hint=(
-                    "list | connect <target> [--name <server>] [--auth <token>] "
+                    "list | status | attach <server> | "
+                    "connect <target> [--name <server>] [--auth <token>] "
                     "[--timeout <seconds>] [--oauth|--no-oauth] "
                     "[--reconnect|--no-reconnect] | session [list|jar|new|use|clear] | "
-                    "disconnect <server>"
+                    "disconnect <server> | reconnect <server>"
+                ),
+            ),
+            _BuiltinSlashCommandSpec(
+                name="connect",
+                description="Connect an ad-hoc runtime MCP target",
+                handler=self._handle_connect,
+                input_hint=(
+                    "<target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
+                    "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
                 ),
             ),
             _BuiltinSlashCommandSpec(
@@ -929,6 +939,9 @@ class SlashCommandHandler:
 
     async def _handle_mcp(self, arguments: str | None = None) -> str:
         return await mcp_slash_handlers.handle_mcp(self, arguments)
+
+    async def _handle_connect(self, arguments: str | None = None) -> str:
+        return await mcp_slash_handlers.handle_connect(self, arguments)
 
     async def _handle_reload(self, arguments: str | None = None) -> str:
         del arguments

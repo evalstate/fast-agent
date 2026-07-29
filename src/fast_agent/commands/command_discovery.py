@@ -318,9 +318,15 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         },
         _simple_command_entry(
             "connect",
-            summary="Attach a runtime MCP server",
-            usage="/connect <target> [--name <server>] [options]",
-            examples=["/connect filesystem --name docs"],
+            summary="Connect an ad-hoc runtime MCP target",
+            usage=(
+                "/connect <target> [--name <server>] "
+                "[--protocol auto|modern|legacy] [options]"
+            ),
+            examples=[
+                "/connect npx @modelcontextprotocol/server-everything",
+                "/connect --protocol modern https://example.com/mcp",
+            ],
         ),
         _simple_command_entry(
             "fast",
@@ -372,12 +378,21 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         {
             "name": "mcp",
             "summary": "Runtime MCP control",
-            "usage": "/mcp [list|connect|disconnect|reconnect] [args]",
+            "usage": (
+                "/mcp [list|status|attach|connect|disconnect|reconnect] [args]; "
+                "connect supports --protocol auto|modern|legacy"
+            ),
             "actions": [
                 {"name": name, "summary": summary}
                 for name, summary in MCP_TOP_LEVEL_ACTION_DESCRIPTIONS.items()
             ],
-            "examples": ["/mcp list", "/mcp connect <target>", "/mcp disconnect <server>"],
+            "examples": [
+                "/mcp list",
+                "/mcp status",
+                "/mcp attach docs",
+                "/mcp connect <target>",
+                "/mcp disconnect <server>",
+            ],
         },
         _session_detail_entry(),
         _simple_command_entry(

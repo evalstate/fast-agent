@@ -7,7 +7,10 @@ social:
 ---
 
 
-Detailed information about the MCP Server connection can be displayed with the `/mcp` command.
+Detailed information about MCP Server connections can be displayed with
+`/mcp status`. In the terminal, `/mcp` remains a status shortcut and
+`/mcpstatus` remains a compatibility alias. Use `/mcp list` for the configured
+and attached server inventory.
 
 ![](./pics/mcp_transport_display.png)
 
@@ -60,7 +63,7 @@ mcp:
 
 Set `mcp.diagnostics.enabled` to `false` to disable MCP diagnostics collection.
 Timeline values flow through to both `fast-agent check` and the in-session
-`/mcp` display. When multiple events occur in the same bucket, higher priority
+`/mcp status` display. When multiple events occur in the same bucket, higher priority
 states replace lower ones using this order: `error` → `disabled/request` →
 `response` → `notification/ping` → `none`. This keeps significant events (such
 as errors and requests) visible even if a subsequent ping lands in the same

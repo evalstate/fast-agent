@@ -427,6 +427,7 @@ async def test_handle_mcp_reconnect_attached_server() -> None:
     assert "Refreshed 2 tools and 4 prompts (0 new)." in message_text
     assert manager.last_options is not None
     assert manager.last_options.force_reconnect is True
+    assert manager.last_config is None
 
 
 @pytest.mark.asyncio
@@ -443,6 +444,25 @@ async def test_handle_mcp_reconnect_requires_attached_server() -> None:
 
     message_text = "\n".join(str(message.text) for message in outcome.messages)
     assert "is not currently attached" in message_text
+    assert "/connect --name <name> <target>" in message_text
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_reconnect_guides_configured_detached_server_to_attach() -> None:
+    manager = _Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_reconnect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        server_name="docs",
+    )
+
+    message_text = "\n".join(str(message.text) for message in outcome.messages)
+    assert message_text == (
+        "MCP server 'docs' is configured but not attached. Use `/mcp attach docs`."
+    )
 
 
 @pytest.mark.asyncio
@@ -478,9 +498,8 @@ async def test_handle_mcp_connect_scoped_package_uses_npx_command() -> None:
 
 
 @pytest.mark.asyncio
-async def test_handle_mcp_connect_configured_name_uses_existing_registry_entry() -> None:
+async def test_handle_mcp_attach_and_connect_use_distinct_config_sources() -> None:
     manager = _Manager()
-    progress_updates: list[str] = []
     ctx = CommandContext(
         agent_provider=_Provider(),
         current_agent_name="main",
@@ -489,7 +508,6 @@ async def test_handle_mcp_connect_configured_name_uses_existing_registry_entry()
             mcp=MCPSettings(
                 servers={
                     "docs": MCPServerSettings(
-                        name="docs",
                         transport="http",
                         url="https://docs.example.com/mcp",
                     )
@@ -498,24 +516,31 @@ async def test_handle_mcp_connect_configured_name_uses_existing_registry_entry()
         ),
     )
 
-    async def _capture_progress(message: str) -> None:
-        progress_updates.append(message)
+    attach_outcome = await mcp_runtime.handle_mcp_attach(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        server_name="docs",
+    )
 
-    outcome = await mcp_runtime.handle_mcp_connect(
+    assert any(
+        "Attached configured MCP server 'docs': https://docs.example.com/mcp."
+        in str(msg.text)
+        for msg in attach_outcome.messages
+    )
+    assert manager.last_config is None
+
+    connect_outcome = await mcp_runtime.handle_mcp_connect(
         ctx,
         manager=cast("mcp_runtime.McpRuntimeManager", manager),
         agent_name="main",
         request=_request("docs"),
-        on_progress=_capture_progress,
     )
 
-    assert any(
-        "Connected MCP server 'docs' from configuration: https://docs.example.com/mcp."
-        in str(msg.text)
-        for msg in outcome.messages
-    )
-    assert any("Connecting MCP server 'docs' from config file" in item for item in progress_updates)
-    assert manager.last_config is None
+    assert any("Connected MCP server 'docs' (stdio)." in str(msg.text) for msg in connect_outcome.messages)
+    assert manager.last_config is not None
+    assert manager.last_config.command == "docs"
+    assert manager.last_config.args == []
 
 
 @pytest.mark.asyncio

@@ -24,6 +24,7 @@ from fast_agent.mcp.connect_targets import (
     render_connect_request,
     render_normalized_target,
 )
+from fast_agent.ui.mcp_display import render_mcp_status_text
 from fast_agent.utils.action_normalization import is_help_flag
 from fast_agent.utils.commandline import split_commandline
 from fast_agent.utils.slash_commands import split_subcommand_and_remainder
@@ -121,7 +122,10 @@ def _mcp_usage_text(heading: str) -> str:
         f"{heading}\n\n"
         "Usage:\n"
         "- /mcp list\n"
+        "- /mcp status\n"
+        "- /mcp attach <server_name>\n"
         "- /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
+        "[--protocol auto|modern|legacy] "
         "[--oauth|--no-oauth] [--reconnect|--no-reconnect]\n"
         '  Example: /mcp connect "C:\\Program Files\\Tool\\tool.exe" --flag\n'
         "- /mcp disconnect <server_name>\n"
@@ -160,7 +164,6 @@ async def _send_connect_tool_update(
 
 
 def _connect_tool_call_title(request) -> str:
-    connect_label = "MCP server"
     if request.target.server_name:
         connect_label = f"MCP server '{request.target.server_name}'"
     else:
@@ -330,6 +333,54 @@ async def _handle_mcp_list_command(
     return handler._format_outcome_as_markdown(outcome, heading, io=io)
 
 
+async def _handle_mcp_status_command(
+    handler: "SlashCommandHandler",
+    *,
+    heading: str,
+    ctx,
+    io: "ACPCommandIO",
+    manager,
+    tokens: list[str],
+) -> str:
+    del ctx, io, manager
+    intent = parse_mcp_no_args_tokens(tokens, usage="Usage: /mcp status")
+    if intent.error:
+        return f"{heading}\n\n{intent.error}"
+    agent = handler._get_current_agent()
+    if agent is None:
+        return f"{heading}\n\nNo MCP status is available for the current agent."
+    rendered = await render_mcp_status_text(agent)
+    return f"{heading}\n\n```text\n{rendered}\n```"
+
+
+async def _handle_mcp_attach_command(
+    handler: "SlashCommandHandler",
+    *,
+    heading: str,
+    ctx,
+    io: "ACPCommandIO",
+    manager,
+    tokens: list[str],
+) -> str:
+    if handler._attach_mcp_server_callback is None:
+        return "mcp\n\nRuntime MCP server attachment is not available."
+    intent = _parse_mcp_server_name_argument(
+        tokens,
+        heading=heading,
+        subcommand="attach",
+    )
+    if intent.error:
+        return intent.error
+    outcome = await mcp_runtime_handlers.handle_mcp_attach(
+        ctx,
+        manager=manager,
+        agent_name=handler.current_agent_name,
+        server_name=cast("str", intent.server_name),
+    )
+    await _refresh_acp_instruction_cache(handler)
+    return handler._format_outcome_as_markdown(outcome, heading, io=io)
+
+
 async def _handle_mcp_connect_command(
     handler: "SlashCommandHandler",
     *,
@@ -491,6 +542,8 @@ async def _handle_mcp_reconnect_command(
 
 _MCP_COMMAND_HANDLERS: dict[str, "_McpCommandHandler"] = {
     "list": _handle_mcp_list_command,
+    "status": _handle_mcp_status_command,
+    "attach": _handle_mcp_attach_command,
     "disconnect": _handle_mcp_disconnect_command,
     "reconnect": _handle_mcp_reconnect_command,
 }
@@ -500,9 +553,9 @@ if set(_MCP_COMMAND_HANDLERS) | {"connect"} != set(MCP_TOP_LEVEL_ACTIONS):
 
 async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
     heading = "mcp"
-    args = (arguments or "").strip() or "list"
+    args = (arguments or "").strip() or "status"
     subcmd_text, remainder = split_subcommand_and_remainder(args)
-    subcmd = strip_casefold(subcmd_text or "list")
+    subcmd = strip_casefold(subcmd_text or "status")
 
     if is_help_flag(subcmd):
         return _mcp_usage_text(heading)
@@ -537,4 +590,16 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
         io=io,
         manager=manager,
         tokens=tokens,
+    )
+
+
+async def handle_connect(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
+    ctx = handler._build_command_context()
+    return await _handle_mcp_connect_command(
+        handler,
+        heading="connect",
+        ctx=ctx,
+        io=cast("ACPCommandIO", ctx.io),
+        manager=_AcpMcpRuntimeManager(handler),
+        remainder=(arguments or "").strip(),
     )

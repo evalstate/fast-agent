@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from io import StringIO
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
+from rich.console import Console
 from rich.text import Text
 
 from fast_agent.ui import console
@@ -35,6 +38,12 @@ class _ServerStatusProvider(Protocol):
 
 
 type CapabilityState = bool | Literal["blue", "red", "warn"]
+
+_STATUS_CONSOLE: ContextVar[Console | None] = ContextVar("_STATUS_CONSOLE", default=None)
+
+
+def _status_console() -> Console:
+    return _STATUS_CONSOLE.get() or console.console
 
 _ELICITATION_MODE_STATES: dict[str, CapabilityState] = {
     "auto-cancel": "red",
@@ -587,7 +596,7 @@ def _build_channel_summary_layout(
 
 
 def _render_channel_summary_header(indent: str, layout: _ChannelSummaryLayout) -> None:
-    console.console.print()
+    _status_console().print()
 
     header = Text(indent)
     header_intro = f"┌ {layout.transport_display} "
@@ -598,11 +607,11 @@ def _render_channel_summary_header(indent: str, layout: _ChannelSummaryLayout) -
         "  activity" if layout.is_stdio else "  req  resp notif  ping",
         style="dim",
     )
-    console.console.print(header)
+    _status_console().print(header)
 
     empty_header = Text(indent)
     empty_header.append("│", style="dim")
-    console.console.print(empty_header)
+    _status_console().print(empty_header)
 
 
 def _channel_arrow_style(channel: ChannelSnapshot | None) -> str:
@@ -796,7 +805,7 @@ def _render_channel_health_row(
         ping_style = Colours.TEXT_DEFAULT if ping_attempts > 0 else Colours.TEXT_DIM
         line.append(ping, style=ping_style)
 
-    console.console.print(line)
+    _status_console().print(line)
 
 
 def _render_single_channel_row(
@@ -817,7 +826,7 @@ def _render_single_channel_row(
 
     _append_channel_timeline(line, entry.channel, layout=layout)
     _append_channel_metrics(line, entry.channel, is_stdio=layout.is_stdio)
-    console.console.print(line)
+    _status_console().print(line)
     return _channel_error_entry(entry.label, entry.channel)
 
 
@@ -827,7 +836,7 @@ def _render_channel_errors(errors: list[_ChannelErrorEntry], indent: str) -> Non
 
     empty_line = Text(indent)
     empty_line.append("│", style="dim")
-    console.console.print(empty_line)
+    _status_console().print(empty_line)
 
     for error in errors:
         error_line = Text(indent)
@@ -835,7 +844,7 @@ def _render_channel_errors(errors: list[_ChannelErrorEntry], indent: str) -> Non
         error_line.append("▲ ", style=Colours.TEXT_WARNING)
         error_line.append(f"{error.label}: ", style=Colours.TEXT_DEFAULT)
         error_line.append(_truncate_detail(error.message, max_len=60), style=Colours.TEXT_ERROR)
-        console.console.print(error_line)
+        _status_console().print(error_line)
 
 
 def _render_channel_footer(
@@ -850,7 +859,7 @@ def _render_channel_footer(
     if has_timelines:
         empty_before = Text(indent)
         empty_before.append("│", style="dim")
-        console.console.print(empty_before)
+        _status_console().print(empty_before)
 
     footer = Text(indent)
     footer.append("└", style="dim")
@@ -882,7 +891,7 @@ def _render_channel_footer(
             footer.append(symbol, style=color)
             footer.append(f" {name}", style="dim")
 
-    console.console.print(footer)
+    _status_console().print(footer)
 
 
 def _render_channel_summary(status: ServerStatus, indent: str, total_width: int) -> None:
@@ -908,7 +917,7 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
 
     _render_channel_errors(errors, indent)
     _render_channel_footer(entries, indent, is_stdio=layout.is_stdio)
-    console.console.print()
+    _status_console().print()
 
 
 async def _load_server_status_map(agent: object) -> dict[str, ServerStatus]:
@@ -935,7 +944,7 @@ def _template_expects_server_instructions(agent: object) -> bool:
 
 def _console_width() -> int:
     try:
-        return console.console.size.width
+        return _status_console().size.width
     except Exception:
         return 80
 
@@ -954,9 +963,9 @@ def _render_mcp_status_header(label: Text, total_width: int, right: Text | None 
     else:
         line.append("─" * max(1, separator_width), style="dim")
 
-    console.console.print()
-    console.console.print(line)
-    console.console.print()
+    _status_console().print()
+    _status_console().print(line)
+    _status_console().print()
 
 
 def _render_server_header(server: str, index: int, *, indent: str, total_width: int) -> None:
@@ -1004,7 +1013,7 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
         meta_line.append(" | ", style="dim")
         meta_line.append_text(_build_aligned_field("client", client_display))
 
-    console.console.print(meta_line)
+    _status_console().print(meta_line)
 
     session_line = Text(indent + "  ")
     protocol = status.protocol_version or "unknown"
@@ -1023,15 +1032,15 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
         session_line.append_text(
             _build_aligned_field("session", _format_session_id(status.session_id))
         )
-    console.console.print(session_line)
+    _status_console().print(session_line)
 
     health_text = _build_health_text(status)
     if health_text is not None:
         health_line = Text(indent + "  ")
         health_line.append_text(_build_aligned_field("health", health_text))
-        console.console.print(health_line)
+        _status_console().print(health_line)
 
-    console.console.print()
+    _status_console().print()
 
 
 def _build_server_state_segments(
@@ -1073,7 +1082,7 @@ def _render_server_state(status: ServerStatus, *, indent: str, template_expected
         if index:
             status_line.append("  |  ", style="dim")
         status_line.append_text(segment)
-    console.console.print(status_line)
+    _status_console().print(status_line)
 
 
 def _render_server_calls(status: ServerStatus, *, indent: str) -> None:
@@ -1086,14 +1095,14 @@ def _render_server_calls(status: ServerStatus, *, indent: str) -> None:
             calls_line.append("  |  ", style="dim")
             calls_line.append("reconnects: ", style=Colours.TEXT_DIM)
             calls_line.append(str(status.reconnect_count), style=Colours.TEXT_WARNING)
-        console.console.print(calls_line)
+        _status_console().print(calls_line)
         return
 
     if status.reconnect_count > 0:
         reconnect_line = Text(indent + "  ")
         reconnect_line.append("reconnects: ", style=Colours.TEXT_DIM)
         reconnect_line.append(str(status.reconnect_count), style=Colours.TEXT_WARNING)
-        console.console.print(reconnect_line)
+        _status_console().print(reconnect_line)
 
 
 def _render_mcp_skills_hint(server: str, status: ServerStatus, *, indent: str) -> None:
@@ -1105,7 +1114,7 @@ def _render_mcp_skills_hint(server: str, status: ServerStatus, *, indent: str) -
         f"Skills over MCP are available: use `/skills registry {server}` to select them",
         style=Colours.TEXT_SUCCESS,
     )
-    console.console.print(skills_line)
+    _status_console().print(skills_line)
 
 
 def _render_capability_banner(
@@ -1132,7 +1141,7 @@ def _render_capability_banner(
     if remaining > 0:
         banner_line.append("─" * remaining, style="dim")
 
-    console.console.print(banner_line)
+    _status_console().print(banner_line)
 
 
 def _render_server_status_block(
@@ -1159,28 +1168,50 @@ def _render_server_status_block(
     )
 
     if index != total_count:
-        console.console.print()
+        _status_console().print()
 
 
-async def render_mcp_status(agent, indent: str = "") -> None:
-    server_status_map = await _load_server_status_map(agent)
-    if not server_status_map:
-        console.console.print(f"{indent}[dim]•[/dim] [dim]No MCP status available[/dim]")
-        return
+async def render_mcp_status(
+    agent,
+    indent: str = "",
+    *,
+    output_console: Console | None = None,
+) -> None:
+    token = _STATUS_CONSOLE.set(output_console) if output_console is not None else None
+    try:
+        server_status_map = await _load_server_status_map(agent)
+        if not server_status_map:
+            _status_console().print(f"{indent}[dim]•[/dim] [dim]No MCP status available[/dim]")
+            return
 
-    template_expected = _template_expects_server_instructions(agent)
-    total_width = _console_width()
-    server_items = sorted(server_status_map.items())
+        template_expected = _template_expects_server_instructions(agent)
+        total_width = _console_width()
+        server_items = sorted(server_status_map.items())
 
-    for index, (server, status) in enumerate(server_items, start=1):
-        _render_server_status_block(
-            server,
-            status,
-            index=index,
-            total_count=len(server_items),
-            indent=indent,
-            total_width=total_width,
-            template_expected=template_expected,
-        )
+        for index, (server, status) in enumerate(server_items, start=1):
+            _render_server_status_block(
+                server,
+                status,
+                index=index,
+                total_count=len(server_items),
+                indent=indent,
+                total_width=total_width,
+                template_expected=template_expected,
+            )
 
-    console.console.print()
+        _status_console().print()
+    finally:
+        if token is not None:
+            _STATUS_CONSOLE.reset(token)
+
+
+async def render_mcp_status_text(agent, *, width: int = 100) -> str:
+    buffer = StringIO()
+    output_console = Console(
+        file=buffer,
+        width=width,
+        color_system=None,
+        force_terminal=False,
+    )
+    await render_mcp_status(agent, output_console=output_console)
+    return buffer.getvalue().strip()

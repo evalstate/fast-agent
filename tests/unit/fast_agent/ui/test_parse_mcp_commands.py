@@ -3,6 +3,7 @@ import shlex
 from fast_agent.commands.mcp_command_intents import MCP_SERVER_NAME_ACTIONS, MCP_TOP_LEVEL_ACTIONS
 from fast_agent.ui.command_payloads import (
     CommandError,
+    McpAttachCommand,
     McpConnectCommand,
     McpDisconnectCommand,
     McpListCommand,
@@ -32,6 +33,16 @@ def test_parse_mcp_status_backwards_compatible() -> None:
 def test_parse_mcp_list() -> None:
     result = parse_special_input("/mcp list")
     assert isinstance(result, McpListCommand)
+
+
+def test_parse_mcp_status() -> None:
+    result = parse_special_input("/mcp status")
+    assert isinstance(result, ShowMcpStatusCommand)
+
+
+def test_parse_mcp_attach() -> None:
+    result = parse_special_input("/mcp attach docs")
+    assert result == McpAttachCommand(server_name="docs", error=None)
 
 
 def test_parse_mcp_list_matches_case_insensitively() -> None:
@@ -102,6 +113,15 @@ def test_connect_alias_matches_mcp_connect() -> None:
     assert isinstance(alias, McpConnectCommand)
     assert isinstance(explicit, McpConnectCommand)
     assert alias.request == explicit.request
+
+
+def test_connect_name_is_always_an_ad_hoc_stdio_command() -> None:
+    result = parse_special_input("/connect docs")
+
+    assert isinstance(result, McpConnectCommand)
+    assert result.request is not None
+    assert result.request.target.command == "docs"
+    assert result.request.target.args == ()
 
 
 def test_parse_mcp_disconnect() -> None:

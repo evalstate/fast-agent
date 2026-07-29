@@ -212,7 +212,10 @@ Inside the interactive prompt, agents are lightweight to move between:
 
 ## Add MCP servers to an agent
 
-MCP Servers can be connected at any time with the `/connect` command. This supports both remote servers with a URL as well as npx, uvx or other STDIO servers.
+Ad-hoc MCP Servers can be connected at any time with `/connect` (an alias for
+`/mcp connect`). This supports remote URLs as well as npx, uvx, or other stdio
+commands. Attach a preconfigured server by registry name with `/mcp attach
+<name>`.
 
 MCP servers can also be configured once in `fast-agent.yaml`, then referenced by
 agents.

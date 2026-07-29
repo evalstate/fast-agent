@@ -306,9 +306,7 @@ def _mcp_connect_completions(completer: "AgentCompleter", remainder: str) -> lis
     connect_context = completer._mcp_connect_context(remainder)
 
     if connect_context.context in {"target", "new_token"} and connect_context.target_count == 0:
-        results = [completer._mcp_connect_target_hint(connect_context.partial)]
-        results.extend(list(completer._complete_configured_mcp_servers(connect_context.partial)))
-        return results
+        return [completer._mcp_connect_target_hint(connect_context.partial)]
 
     if connect_context.context == "new_token" and connect_context.target_count > 0:
         return _mcp_connect_flag_completions("", start_position=0)
@@ -1262,6 +1260,7 @@ def _mcp_prefix_completion(
     text_lower: str,
 ) -> list[Completion] | None:
     for prefix, completion_fn in (
+        ("/mcp attach ", lambda owner, partial: owner._complete_configured_mcp_servers(partial)),
         ("/mcp disconnect ", _complete_attached_mcp_servers),
         ("/mcp reconnect ", _complete_attached_mcp_servers),
         ("/mcp connect ", _mcp_connect_completions),

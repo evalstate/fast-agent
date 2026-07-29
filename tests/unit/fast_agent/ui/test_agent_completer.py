@@ -1904,14 +1904,13 @@ def test_mcp_connect_context_ignores_inline_value_flags_as_target(flag: str) -> 
     assert context.partial == "--"
 
 
-def test_get_completions_for_mcp_connect_configured_servers(monkeypatch) -> None:
-    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+def test_get_completions_for_mcp_attach_configured_servers(monkeypatch) -> None:
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
-                "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
-                "local": MCPServerSettings(name="local", transport="stdio", command="echo"),
+                "docs": MCPServerSettings(transport="stdio", command="echo"),
+                "local": MCPServerSettings(transport="stdio", command="echo"),
             }
         )
     )
@@ -1919,7 +1918,7 @@ def test_get_completions_for_mcp_connect_configured_servers(monkeypatch) -> None
 
     completer = AgentCompleter(agents=["agent1"])
 
-    doc = Document("/mcp connect d", cursor_position=len("/mcp connect d"))
+    doc = Document("/mcp attach d", cursor_position=len("/mcp attach d"))
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
     docs_completion = next((c for c in completions if c.text == "docs"), None)
@@ -1937,7 +1936,7 @@ def test_runtime_mcp_servers_does_not_swallow_registry_target_failures(
         context = SimpleNamespace(
             server_registry=SimpleNamespace(
                 registry={
-                    "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
+                    "docs": MCPServerSettings(transport="stdio", command="echo"),
                 }
             )
         )
@@ -1975,7 +1974,7 @@ def test_settings_mcp_servers_does_not_swallow_registry_target_failures(
     settings = Settings(
         mcp=MCPSettings(
             servers={
-                "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
+                "docs": MCPServerSettings(transport="stdio", command="echo"),
             }
         )
     )
@@ -1994,14 +1993,12 @@ def test_settings_mcp_servers_does_not_swallow_registry_target_failures(
         AgentCompleter(agents=["agent1"])._settings_mcp_servers()
 
 
-def test_get_completions_for_mcp_connect_configured_url_server_shows_url(monkeypatch) -> None:
-    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+def test_get_completions_for_mcp_attach_configured_url_server_shows_url(monkeypatch) -> None:
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
                 "docs": MCPServerSettings(
-                    name="docs",
                     transport="http",
                     url="https://example.test/mcp/docs",
                 ),
@@ -2012,7 +2009,7 @@ def test_get_completions_for_mcp_connect_configured_url_server_shows_url(monkeyp
 
     completer = AgentCompleter(agents=["agent1"])
 
-    doc = Document("/mcp connect d", cursor_position=len("/mcp connect d"))
+    doc = Document("/mcp attach d", cursor_position=len("/mcp attach d"))
     completions = list(completer.get_completions(doc, None))
     docs_completion = next((c for c in completions if c.text == "docs"), None)
 
@@ -2022,11 +2019,10 @@ def test_get_completions_for_mcp_connect_configured_url_server_shows_url(monkeyp
 
 def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) -> None:
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
-    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
-                "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
+                "docs": MCPServerSettings(transport="stdio", command="echo"),
             }
         )
     )
@@ -2040,15 +2036,15 @@ def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) ->
     assert completions
     assert completions[0].display_text == "[url|npx|uvx|stdio]"
     assert completions[0].display_meta_text == "enter url, npx/uvx, or stdio cmd"
+    assert all(completion.text != "docs" for completion in completions)
 
 
-def test_get_completions_for_connect_alias_shows_target_hint_and_servers(monkeypatch) -> None:
-    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+def test_get_completions_for_connect_alias_shows_only_ad_hoc_target_hint(monkeypatch) -> None:
     monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
     settings = Settings(
         mcp=MCPSettings(
             servers={
-                "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
+                "docs": MCPServerSettings(transport="stdio", command="echo"),
             }
         )
     )
@@ -2062,7 +2058,7 @@ def test_get_completions_for_connect_alias_shows_target_hint_and_servers(monkeyp
     assert completions
     assert completions[0].display_text == "[url|npx|uvx|stdio]"
     assert completions[0].display_meta_text == "enter url, npx/uvx, or stdio cmd"
-    assert any(completion.text == "docs" for completion in completions)
+    assert all(completion.text != "docs" for completion in completions)
 
 
 def test_get_completions_for_connect_alias_connect_flags() -> None:
