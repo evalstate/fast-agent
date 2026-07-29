@@ -2061,6 +2061,24 @@ class MCPAggregator(ContextDependent):
             config, trigger_oauth=None
         ) == "auto" and _is_http_auth_challenge_error(exc)
 
+    def _log_server_progress(
+        self,
+        action: ProgressAction,
+        server_name: str,
+        details: str,
+    ) -> None:
+        payload = build_progress_payload(
+            action=action,
+            server_name=server_name,
+            agent_name=self.agent_name,
+            details=details,
+            extra={"error_message": details}
+            if action == ProgressAction.FATAL_ERROR
+            else None,
+        )
+        log = logger.error if action == ProgressAction.FATAL_ERROR else logger.info
+        log("MCP server recovery", data=payload)
+
     async def _handle_auth_challenge(
         self,
         server_name: str,
@@ -2068,10 +2086,10 @@ class MCPAggregator(ContextDependent):
         error_factory: Callable[[str], R] | None,
         _exc: Exception | None = None,
     ) -> _ServerOperationRecovery[R]:
-        from fast_agent.ui import console
-
-        console.console.print(
-            f"[dim yellow]MCP server {server_name} requested authorization - reconnecting with OAuth...[/dim yellow]"
+        self._log_server_progress(
+            ProgressAction.CONNECTING,
+            server_name,
+            "authorization required; reconnecting with OAuth",
         )
 
         try:
@@ -2095,11 +2113,18 @@ class MCPAggregator(ContextDependent):
                     trigger_oauth=True,
                 ) as client:
                     result = await try_execute(client)
-            console.console.print(
-                f"[dim green]MCP server {server_name} reconnected with OAuth successfully[/dim green]"
+            self._log_server_progress(
+                ProgressAction.READY,
+                server_name,
+                "reconnected with OAuth",
             )
             return _ServerOperationRecovery(result=result, success=True)
         except Exception as retry_exc:
+            self._log_server_progress(
+                ProgressAction.FATAL_ERROR,
+                server_name,
+                f"OAuth reconnect failed: {retry_exc}",
+            )
             if error_factory:
                 return _ServerOperationRecovery(
                     result=error_factory(str(retry_exc)),
@@ -2114,9 +2139,7 @@ class MCPAggregator(ContextDependent):
         error_factory: Callable[[str], R] | None,
     ) -> _ServerOperationRecovery[R]:
         """Handle ConnectionError by attempting to reconnect to the server."""
-        from fast_agent.ui import console
-
-        console.console.print(f"[dim yellow]MCP server {server_name} reconnecting...[/dim yellow]")
+        self._log_server_progress(ProgressAction.CONNECTING, server_name, "reconnecting")
 
         try:
             if self.connection_persistence:
@@ -2141,14 +2164,16 @@ class MCPAggregator(ContextDependent):
                     result = await try_execute(client)
 
             # Success!
-            console.console.print(f"[dim green]MCP server {server_name} online[/dim green]")
+            self._log_server_progress(ProgressAction.READY, server_name, "reconnected")
             return _ServerOperationRecovery(result=result, success=True)
 
         except ServerSessionTerminatedError:
             # After reconnecting for connection error, we got session terminated
             # Don't loop - just report the error
-            console.console.print(
-                f"[dim red]MCP server {server_name} session terminated after reconnect[/dim red]"
+            self._log_server_progress(
+                ProgressAction.FATAL_ERROR,
+                server_name,
+                "session terminated after reconnect; retries exhausted",
             )
             error_msg = (
                 f"MCP server {server_name} reconnected but session was immediately terminated. "
@@ -2160,8 +2185,10 @@ class MCPAggregator(ContextDependent):
 
         except Exception as e:
             # Reconnection failed
-            console.console.print(
-                f"[dim red]MCP server {server_name} offline - failed to reconnect: {e}[/dim red]"
+            self._log_server_progress(
+                ProgressAction.FATAL_ERROR,
+                server_name,
+                f"reconnect failed: {e}",
             )
             error_msg = f"MCP server {server_name} offline - failed to reconnect"
             if error_factory:
@@ -2176,13 +2203,24 @@ class MCPAggregator(ContextDependent):
         if not self.connection_persistence:
             return
 
+        self._log_server_progress(
+            ProgressAction.CONNECTING,
+            server_name,
+            f"reconnecting after {method_name}",
+        )
         try:
             manager = self._require_connection_manager()
             await manager.reconnect_server(
                 server_name,
                 callback_runtime=self._create_callback_runtime(server_name),
             )
+            self._log_server_progress(ProgressAction.READY, server_name, "reconnected")
         except Exception as exc:
+            self._log_server_progress(
+                ProgressAction.FATAL_ERROR,
+                server_name,
+                f"reconnect failed: {exc}",
+            )
             logger.warning(
                 f"MCP server {server_name} failed to reconnect after non-replayable "
                 f"{method_name}: {exc}"
@@ -2196,8 +2234,6 @@ class MCPAggregator(ContextDependent):
         exc: ServerSessionTerminatedError,
     ) -> _ServerOperationRecovery[R]:
         """Handle ServerSessionTerminatedError by attempting to reconnect if configured."""
-        from fast_agent.ui import console
-
         # Check if reconnect_on_disconnect is enabled for this server
         server_config = None
         server_registry = self.context.server_registry if self.context else None
@@ -2208,11 +2244,10 @@ class MCPAggregator(ContextDependent):
 
         if not reconnect_enabled:
             # Reconnection not enabled - inform user and fail
-            console.console.print(
-                f"[dim red]MCP server {server_name} session terminated (404)[/dim red]"
-            )
-            console.console.print(
-                "[dim]Tip: Enable 'reconnect_on_disconnect: true' in config to auto-reconnect[/dim]"
+            self._log_server_progress(
+                ProgressAction.FATAL_ERROR,
+                server_name,
+                "session terminated; reconnect disabled (enable reconnect_on_disconnect)",
             )
             error_msg = f"MCP server {server_name} session terminated - reconnection not enabled"
             if error_factory:
@@ -2220,8 +2255,10 @@ class MCPAggregator(ContextDependent):
             raise exc
 
         # Attempt reconnection
-        console.console.print(
-            f"[dim yellow]MCP server {server_name} session terminated - reconnecting...[/dim yellow]"
+        self._log_server_progress(
+            ProgressAction.CONNECTING,
+            server_name,
+            "session terminated; reconnecting",
         )
 
         try:
@@ -2247,16 +2284,16 @@ class MCPAggregator(ContextDependent):
 
             # Success! Record the reconnection
             await self._record_reconnect(server_name)
-            console.console.print(
-                f"[dim green]MCP server {server_name} reconnected successfully[/dim green]"
-            )
+            self._log_server_progress(ProgressAction.READY, server_name, "reconnected")
             return _ServerOperationRecovery(result=result, success=True)
 
         except ServerSessionTerminatedError:
             # Retry after reconnection ALSO failed with session terminated
             # Do NOT attempt another reconnection - this would cause an infinite loop
-            console.console.print(
-                f"[dim red]MCP server {server_name} session terminated again after reconnect[/dim red]"
+            self._log_server_progress(
+                ProgressAction.FATAL_ERROR,
+                server_name,
+                "session terminated after reconnect; retries exhausted",
             )
             error_msg = (
                 f"MCP server {server_name} session terminated even after reconnection. "
@@ -2269,8 +2306,10 @@ class MCPAggregator(ContextDependent):
 
         except Exception as e:
             # Other reconnection failure
-            console.console.print(
-                f"[dim red]MCP server {server_name} failed to reconnect: {e}[/dim red]"
+            self._log_server_progress(
+                ProgressAction.FATAL_ERROR,
+                server_name,
+                f"reconnect failed: {e}",
             )
             error_msg = f"MCP server {server_name} failed to reconnect: {e}"
             if error_factory:

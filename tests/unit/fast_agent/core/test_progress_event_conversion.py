@@ -201,6 +201,57 @@ def test_convert_log_event_mcp_resource_read_completion_preserves_details() -> N
     assert progress_event.details == "docs - file://README.md"
 
 
+def test_convert_log_event_mcp_recovery_preserves_structured_context_and_details() -> None:
+    event = Event(
+        type="info",
+        namespace="fast_agent.mcp.mcp_aggregator.assistant",
+        message="MCP server recovery",
+        data={
+            "data": {
+                "progress_action": ProgressAction.CONNECTING,
+                "agent_name": "assistant",
+                "server_name": "alpha",
+                "details": "authorization required; reconnecting with OAuth",
+            }
+        },
+    )
+
+    progress_event = convert_log_event(event)
+
+    assert progress_event is not None
+    assert progress_event.action == ProgressAction.CONNECTING
+    assert progress_event.target == "assistant"
+    assert progress_event.agent_name == "assistant"
+    assert progress_event.server_name == "alpha"
+    assert progress_event.details == "alpha - authorization required; reconnecting with OAuth"
+
+
+def test_convert_log_event_mcp_recovery_error_includes_server_context() -> None:
+    event = Event(
+        type="error",
+        namespace="fast_agent.mcp.mcp_aggregator.assistant",
+        message="MCP server recovery",
+        data={
+            "data": {
+                "progress_action": ProgressAction.FATAL_ERROR,
+                "agent_name": "assistant",
+                "server_name": "alpha",
+                "error_message": "session terminated after reconnect; retries exhausted",
+            }
+        },
+    )
+
+    progress_event = convert_log_event(event)
+
+    assert progress_event is not None
+    assert progress_event.action == ProgressAction.FATAL_ERROR
+    assert progress_event.target == "assistant"
+    assert progress_event.server_name == "alpha"
+    assert progress_event.details == (
+        "alpha - session terminated after reconnect; retries exhausted"
+    )
+
+
 def test_convert_log_event_skips_loaded_progress_events() -> None:
     event = Event(
         type="info",
