@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed implementation plan for `dev/0.10.0`.
+Implemented on `dev/0.10.0`.
 
 This plan changes MCP configuration, ownership, error handling, and user-facing
 connection boundaries. It preserves the current protocol-mode product behavior
@@ -1670,50 +1670,47 @@ Rollback boundaries:
 Do not add a second silent precedence rule as a rollback mechanism. Temporary
 compatibility must be explicit, warning-producing, and time-bounded.
 
-## HTTP diagnostics are separate
+## HTTP diagnostics were implemented separately
 
-Detailed MCP HTTP diagnostics should be restored in a separate effort after
-the configuration boundary is stable. Most desired observations are available
-without forking the MCP SDK through:
+Detailed MCP HTTP diagnostics were restored after the configuration boundary
+stabilized, without forking the MCP SDK, through:
 
 1. supplied `httpx2.AsyncClient` request/response hooks for POST JSON versus
    POST SSE, GET activity, session IDs, and `Last-Event-ID`;
-2. a public MCP `Transport` wrapper for logical message and request/response ID
-   correlation;
-3. an optional `AsyncByteStream` observer for incremental SSE event IDs and
-   stream lifecycle.
+2. existing public SDK transport messages for logical request/response
+   correlation where exposed.
 
-The `mcp.diagnostics` namespace reserves policy for that work, but this refactor
-must not couple its schema migration to transport instrumentation or make
-diagnostic restoration a merge prerequisite.
+Response bodies and streaming SSE events remain unconsumed by diagnostics.
+The `mcp.diagnostics` namespace controls collection and timeline rendering
+without coupling schema migration to transport instrumentation.
 
 ## Completion checklist
 
-- [ ] `mcp.servers` is the only persisted central server collection.
-- [ ] `mcp.servers.<name>.target` and expanded definitions are documented.
-- [ ] Map-key identity and source exclusivity are enforced.
-- [ ] MCP defaults, client policy, and diagnostics use typed namespace models.
-- [ ] Maintained setup, docs, examples, and fixtures use the new schema.
-- [ ] Obsolete input receives an actionable migration error.
-- [ ] Migration is mechanical and idempotent.
-- [ ] Stable-v2 session termination uses the SDK public constant and is covered
+- [x] `mcp.servers` is the only persisted central server collection.
+- [x] `mcp.servers.<name>.target` and expanded definitions are documented.
+- [x] Map-key identity and source exclusivity are enforced.
+- [x] MCP defaults, client policy, and diagnostics use typed namespace models.
+- [x] Maintained setup, docs, examples, and fixtures use the new schema.
+- [x] Obsolete input receives an actionable migration error.
+- [x] Migration is mechanical and idempotent.
+- [x] Stable-v2 session termination uses the SDK public constant and is covered
       by a simulator.
-- [ ] Recovery classification precedes result conversion and respects operation
+- [x] Recovery classification precedes result conversion and respects operation
       replay safety.
-- [ ] Persistent and request-scoped clients use one SDK/OAuth gateway.
-- [ ] Disconnect/reconnect awaits lifecycle completion without correctness
+- [x] Persistent and request-scoped clients use one SDK/OAuth gateway.
+- [x] Disconnect/reconnect awaits lifecycle completion without correctness
       sleeps.
-- [ ] Runtime catalog entries carry origin metadata.
-- [ ] Failed and cancelled attachment is atomic.
-- [ ] Configured attachment and ad-hoc connection are distinct commands.
-- [ ] Startup flags, terminal `/connect`, and ACP `/connect` share target
+- [x] Runtime catalog entries carry origin metadata.
+- [x] Failed and cancelled attachment is atomic.
+- [x] Configured attachment and ad-hoc connection are distinct commands.
+- [x] Startup flags, terminal `/connect`, and ACP `/connect` share target
       semantics and structured outcomes.
-- [ ] MCP core emits events/failures rather than printing directly to terminal
+- [x] MCP core emits events/failures rather than printing directly to terminal
       UI.
-- [ ] AgentCards share declaration syntax subject to separate trust policy.
-- [ ] Source and effective output preserve intent and redact credentials.
-- [ ] Seven scenario contracts cover the meaningful configuration and runtime
+- [x] AgentCards share declaration syntax subject to separate trust policy.
+- [x] Source and effective output preserve intent and redact credentials.
+- [x] Seven scenario contracts cover the meaningful configuration and runtime
       behavior.
-- [ ] Redundant micro-tests are removed only after scenario coverage exists.
-- [ ] Lint, typecheck, focused MCP suites, docs build, and package smoke pass.
-- [ ] HTTP diagnostics restoration remains a separate implementation effort.
+- [x] Redundant micro-tests are removed only after scenario coverage exists.
+- [x] Lint, typecheck, focused MCP suites, docs build, and package smoke pass.
+- [x] HTTP diagnostics restoration landed separately through public hooks.
