@@ -12,6 +12,16 @@ mcp:
       transport: stdio
       elicitation:
         mode: none
+    forced_modern:
+      command: uv
+      args: [run, mrtr_server.py]
+      transport: stdio
+      protocol_mode: modern
+    forced_legacy:
+      command: uv
+      args: [run, mrtr_server.py]
+      transport: stdio
+      protocol_mode: legacy
     modern_http:
       url: http://127.0.0.1:${FAST_AGENT_TEST_HTTP_PORT}/mcp
       transport: http

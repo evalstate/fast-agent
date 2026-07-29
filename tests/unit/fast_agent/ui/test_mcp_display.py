@@ -293,6 +293,10 @@ async def test_render_mcp_status_renders_server_details_and_calls() -> None:
                 implementation_version="2026.03.14-build7",
                 client_info_name="fast-agent",
                 client_info_version="1.2.3",
+                protocol_mode="modern",
+                protocol_version="2026-07-28",
+                protocol_era="modern",
+                negotiation="adopt",
                 session_id="sess-1234567890abcdefghijklmnop",
                 is_connected=True,
                 staleness_seconds=12,
@@ -336,6 +340,7 @@ async def test_render_mcp_status_renders_server_details_and_calls() -> None:
     assert "reconnects:" in output
     assert "STDIO" in output
     assert "session" in output
+    assert "modern, adopt, forced modern" in output
 
 
 @pytest.mark.asyncio

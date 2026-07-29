@@ -24,7 +24,7 @@ from mcp_types import (
     ResourceTemplateReference,
     TextContent,
 )
-from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+from mcp_types.version import LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
 
 from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.mcp.tool_result_metadata import set_url_elicitation_required_payload
@@ -43,6 +43,11 @@ if TYPE_CHECKING:
 
 URL_ELICITATION_REQUIRED = -32042
 T = TypeVar("T")
+
+
+def sdk_connect_mode(protocol_mode: Literal["auto", "modern", "legacy"]) -> str:
+    """Map fast-agent's era-oriented setting to the SDK connect mode."""
+    return LATEST_MODERN_VERSION if protocol_mode == "modern" else protocol_mode
 
 
 class DirectoryReadRequestParams(PaginatedRequestParams):
@@ -70,11 +75,12 @@ class MCPClientConnection:
         *,
         read_timeout_seconds: float | None = None,
         cache: bool = True,
+        protocol_mode: Literal["auto", "modern", "legacy"] = "auto",
     ) -> None:
         self.callbacks = callbacks
         self.client = Client(
             transport,
-            mode="auto",
+            mode=sdk_connect_mode(protocol_mode),
             read_timeout_seconds=read_timeout_seconds,
             sampling_callback=callbacks.sampling_callback,
             sampling_capabilities=callbacks.sampling_capabilities,

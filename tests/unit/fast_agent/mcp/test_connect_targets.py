@@ -45,6 +45,7 @@ def test_parse_connect_command_text_preserves_quoted_windows_path() -> None:
         ("--name=docs", "--name"),
         ("--auth=token", "--auth"),
         ("--timeout=7", "--timeout"),
+        ("--protocol=modern", "--protocol"),
         ("--oauth", "--oauth"),
         ("--server-owned", None),
     ],
@@ -63,6 +64,7 @@ def test_connect_flag_name_returns_canonical_fast_agent_flags(
         ("-n", True),
         ("--auth", True),
         ("--timeout", True),
+        ("--protocol", True),
         ("--name=docs", False),
         ("--oauth", False),
         ("--server-owned", False),
@@ -142,13 +144,36 @@ def test_parse_connect_command_text_accepts_mixed_windows_apostrophes_and_single
 
 
 def test_parse_connect_command_text_consumes_documented_trailing_flags_for_stdio() -> None:
-    request = parse_connect_command_text("python server.py --timeout 30 --name workspace")
+    request = parse_connect_command_text(
+        "python server.py --timeout 30 --protocol modern --name workspace"
+    )
 
     assert request.target.mode == "stdio"
     assert request.target.command == "python"
     assert request.target.args == ("server.py",)
     assert request.target.server_name == "workspace"
     assert request.options.timeout_seconds == 30.0
+    assert request.options.protocol_mode == "modern"
+
+
+def test_parse_connect_command_text_rejects_invalid_protocol_mode() -> None:
+    with pytest.raises(ValueError, match="expected one of auto, modern, or legacy"):
+        parse_connect_command_text("--protocol discover https://example.com")
+
+
+def test_render_connect_request_includes_protocol_mode() -> None:
+    request = parse_connect_command_text("--protocol legacy https://example.com")
+
+    assert render_connect_request(request) == "--protocol legacy https://example.com/mcp"
+
+
+def test_build_server_config_from_target_applies_protocol_mode_override() -> None:
+    built = build_server_config_from_target(
+        "https://example.com",
+        overrides={"protocol_mode": "modern"},
+    )
+
+    assert built.settings.protocol_mode == "modern"
 
 
 def test_parse_connect_command_text_delimits_stdio_server_args() -> None:

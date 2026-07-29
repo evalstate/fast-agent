@@ -35,6 +35,7 @@ mcp:
         Authorization: "Bearer ${EXAMPLE_TOKEN}"
       auth:
         oauth: true
+      protocol_mode: auto
 ```
 
 You can also supply a list of target-first entries via `mcp.targets`:
@@ -54,6 +55,51 @@ forms define the same alias, the explicit `mcp.servers.<name>` entry wins.
 `target` must be a pure target string (URL/package/command only). Do not embed
 fast-agent CLI flags like `--auth`/`--oauth` inside `target`; use `headers` and
 `auth` fields instead.
+
+## Protocol selection
+
+By default, fast-agent asks the MCP SDK to negotiate the best supported
+protocol:
+
+```yaml
+protocol_mode: auto
+```
+
+You can force a protocol era per client-managed server:
+
+```yaml
+mcp:
+  servers:
+    modern_only:
+      target: "https://api.example.com/mcp"
+      protocol_mode: modern
+    legacy_only:
+      target: "uvx legacy-mcp-server"
+      protocol_mode: legacy
+```
+
+- `auto` attempts modern discovery and falls back when the peer is identified
+  as a handshake-era server.
+- `modern` directly adopts the latest modern protocol supported by the pinned
+  MCP SDK. It does not fall back to initialization and cannot be combined with
+  the legacy SSE transport.
+- `legacy` uses the initialization handshake and does not attempt modern
+  discovery.
+
+Forced modern mode intentionally skips `server/discover`. It is useful for
+interoperability testing and known modern-only peers, but server-advertised
+capabilities, implementation metadata, and supported-version lists may be
+unavailable. Prefer `auto` for normal connections.
+
+For an ad-hoc connection:
+
+```text
+/mcp connect --protocol modern https://api.example.com/mcp
+```
+
+Configured aliases take their mode from `protocol_mode`; `/mcp connect
+--protocol` does not override an existing alias. Provider-managed MCP does not
+use fast-agent's MCP client and therefore does not accept this setting.
 
 ## AgentCard runtime MCP connections (`mcp_connect`)
 

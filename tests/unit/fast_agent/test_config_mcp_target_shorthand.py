@@ -35,6 +35,30 @@ def test_config_mcp_target_shorthand_url_expansion() -> None:
     assert demo.name == "demo"
     assert demo.transport == "http"
     assert demo.url == "https://demo.hf.space/mcp"
+    assert demo.protocol_mode == "auto"
+
+
+@pytest.mark.parametrize("protocol_mode", ["auto", "modern", "legacy"])
+def test_mcp_server_settings_accepts_protocol_modes(protocol_mode: str) -> None:
+    settings = MCPServerSettings.model_validate({"protocol_mode": protocol_mode})
+
+    assert settings.protocol_mode == protocol_mode
+
+
+def test_mcp_server_settings_rejects_invalid_protocol_mode() -> None:
+    with pytest.raises(ValidationError, match="protocol_mode"):
+        MCPServerSettings.model_validate({"protocol_mode": "discover"})
+
+
+def test_mcp_server_settings_rejects_forced_modern_over_legacy_sse() -> None:
+    with pytest.raises(ValidationError, match="not supported with legacy SSE"):
+        MCPServerSettings.model_validate(
+            {
+                "transport": "sse",
+                "url": "https://example.com/sse",
+                "protocol_mode": "modern",
+            }
+        )
 
 
 def test_config_mcp_target_shorthand_preserves_load_on_start_and_overrides() -> None:

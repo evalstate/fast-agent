@@ -532,6 +532,9 @@ class MCPServerSettings(BaseModel):
     transport: McpClientTransport = "stdio"
     """The transport mechanism."""
 
+    protocol_mode: Literal["auto", "modern", "legacy"] = "auto"
+    """MCP protocol selection: negotiate automatically or force a protocol era."""
+
     command: str | None = None
     """The command to execute the server (e.g. npx)."""
 
@@ -702,6 +705,9 @@ class MCPServerSettings(BaseModel):
 
         if self.connector_id is not None:
             raise ValueError("connector_id is only supported for provider-managed MCP servers")
+
+        if self.protocol_mode == "modern" and self.transport == "sse":
+            raise ValueError("protocol_mode='modern' is not supported with legacy SSE transport")
 
         if self.access_token is not None and not self.url:
             raise ValueError("access_token requires a URL-based MCP server")

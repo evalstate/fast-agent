@@ -131,6 +131,7 @@ class ServerRegistry:
                 callbacks,
                 read_timeout_seconds=config.read_timeout_seconds,
                 cache=False,
+                protocol_mode=config.protocol_mode,
             )
             async with connection:
                 if connection.server_capabilities is not None:

@@ -27,12 +27,14 @@ if TYPE_CHECKING:
 
 McpConnectMode = Literal["url", "stdio", "npx", "uvx"]
 McpTransport = Literal["http", "sse", "stdio"]
+McpProtocolMode = Literal["auto", "modern", "legacy"]
 
 MCP_CONNECT_FLAG_DESCRIPTIONS: dict[str, str] = {
     "--name": "set attached server name",
     "-n": "set attached server name",
     "--auth": "set bearer token for URL servers",
     "--timeout": "set startup timeout in seconds",
+    "--protocol": "set MCP protocol mode: auto, modern, or legacy",
     "--oauth": "enable oauth flow",
     "--no-oauth": "disable oauth flow",
     "--reconnect": "force reconnect and refresh tools",
@@ -82,6 +84,7 @@ class NormalizedMcpTarget:
 class McpConnectOptions:
     auth_token: str | None
     timeout_seconds: float | None
+    protocol_mode: McpProtocolMode | None
     trigger_oauth: bool | None
     reconnect_on_disconnect: bool | None
     force_reconnect: bool
@@ -159,11 +162,21 @@ def _validate_timeout(value: str) -> float:
     return timeout_seconds
 
 
+def _validate_protocol_mode(value: str) -> McpProtocolMode:
+    normalized = strip_casefold(value)
+    if normalized not in {"auto", "modern", "legacy"}:
+        raise ValueError(
+            "Invalid value for --protocol: expected one of auto, modern, or legacy"
+        )
+    return normalized
+
+
 @dataclass(slots=True)
 class _ConnectOptionState:
     server_name: str | None = None
     auth_token: str | None = None
     timeout_seconds: float | None = None
+    protocol_mode: McpProtocolMode | None = None
     trigger_oauth: bool | None = None
     reconnect_on_disconnect: bool | None = None
     force_reconnect: bool = False
@@ -245,6 +258,10 @@ def _set_timeout_seconds(options: _ConnectOptionState, value: str) -> None:
     options.timeout_seconds = _validate_timeout(value)
 
 
+def _set_protocol_mode(options: _ConnectOptionState, value: str) -> None:
+    options.protocol_mode = _validate_protocol_mode(value)
+
+
 def _server_name_already_set(options: _ConnectOptionState) -> bool:
     return options.server_name is not None
 
@@ -255,6 +272,10 @@ def _auth_token_already_set(options: _ConnectOptionState) -> bool:
 
 def _timeout_seconds_already_set(options: _ConnectOptionState) -> bool:
     return options.timeout_seconds is not None
+
+
+def _protocol_mode_already_set(options: _ConnectOptionState) -> bool:
+    return options.protocol_mode is not None
 
 
 _CONNECT_VALUE_OPTIONS: tuple[_ConnectValueOption, ...] = (
@@ -275,6 +296,12 @@ _CONNECT_VALUE_OPTIONS: tuple[_ConnectValueOption, ...] = (
         error_name="--timeout",
         apply=_set_timeout_seconds,
         already_set=_timeout_seconds_already_set,
+    ),
+    _ConnectValueOption(
+        option_names=("--protocol",),
+        error_name="--protocol",
+        apply=_set_protocol_mode,
+        already_set=_protocol_mode_already_set,
     ),
 )
 
@@ -526,6 +553,7 @@ def parse_connect_command_tokens(tokens: Sequence[str]) -> ParsedMcpConnectReque
         options=McpConnectOptions(
             auth_token=options.auth_token,
             timeout_seconds=options.timeout_seconds,
+            protocol_mode=options.protocol_mode,
             trigger_oauth=options.trigger_oauth,
             reconnect_on_disconnect=options.reconnect_on_disconnect,
             force_reconnect=options.force_reconnect,
@@ -664,6 +692,8 @@ def render_connect_request(
         argv.extend(["--auth", "[REDACTED]" if redact_auth else request.options.auth_token])
     if request.options.timeout_seconds is not None:
         argv.extend(["--timeout", str(request.options.timeout_seconds)])
+    if request.options.protocol_mode is not None:
+        argv.extend(["--protocol", request.options.protocol_mode])
     if request.options.trigger_oauth is True:
         argv.append("--oauth")
     elif request.options.trigger_oauth is False:
@@ -912,6 +942,7 @@ __all__ = [
     "McpConnectMode",
     "McpConnectOptions",
     "McpTransport",
+    "McpProtocolMode",
     "NormalizedConnectConfigTarget",
     "NormalizedMcpTarget",
     "ParsedMcpConnectRequest",

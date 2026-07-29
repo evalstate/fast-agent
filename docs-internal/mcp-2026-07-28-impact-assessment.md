@@ -899,18 +899,20 @@ Documentation must stop presenting `Mcp-Session-Id` as a universal application
 session, distinguish protocol era from configured transport, and explain the
 legacy-only status of roots, sampling, logging, SSE, DCR, and ping settings.
 
-Configuration should add an explicit protocol mode only if operationally
-needed:
+Configuration supports an explicit protocol mode for interoperability testing
+and migration control:
 
 ```yaml
 mcp:
   servers:
     example:
-      protocol_mode: auto  # auto | legacy | 2026-07-28
+      protocol_mode: auto  # auto | modern | legacy
 ```
 
-`auto` should be the default. A forced legacy setting is a migration escape
-hatch, not the long-term solution for stateful servers.
+`auto` is the default. `modern` adopts the latest modern version supported by
+the pinned SDK without fallback; `legacy` forces the initialization handshake.
+A forced legacy setting is a migration escape hatch, not the long-term solution
+for stateful servers.
 
 Legacy-only settings such as ping interval and SSE read timeout should either
 be grouped under a compatibility section or accepted with a warning when a

@@ -17,7 +17,9 @@ This section shows the server implementation, negotiated protocol version and
 era, and subscription state. For legacy Streamable HTTP servers it also shows a
 real `Mcp-Session-Id` when one was observed. Modern `2026-07-28` connections are
 shown as sessionless. The `local` value for stdio describes transport locality,
-not a protocol session.
+not a protocol session. A configured forced mode is signposted alongside the
+connection path, for example `modern, adopt, forced modern` or `legacy,
+initialize, forced legacy`.
 
 ### Section 2 - Transport Channel History
 

@@ -146,6 +146,7 @@ mcp:
       target: "npx -y @modelcontextprotocol/server-filesystem ."
     - name: huggingface
       target: "https://huggingface.co/mcp?login"
+      # protocol_mode: auto # auto (default), modern, or legacy
       # headers:
       # "Authorization": "Bearer ${ENV_VAR}"
 

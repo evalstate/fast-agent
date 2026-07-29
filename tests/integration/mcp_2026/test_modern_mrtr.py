@@ -50,3 +50,30 @@ async def test_modern_negotiation_and_mrtr(fast_agent) -> None:
             assert status.ping_fail_count == 0
 
     await run_probe()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_protocol_mode_can_force_modern_or_legacy(fast_agent) -> None:
+    @fast_agent.agent(
+        name="forced",
+        model="passthrough",
+        servers=["forced_modern", "forced_legacy"],
+    )
+    async def run_probe() -> None:
+        async with fast_agent.run() as app:
+            statuses = await app.forced.get_server_status()
+
+            modern = statuses["forced_modern"]
+            assert modern.protocol_mode == "modern"
+            assert modern.protocol_version == "2026-07-28"
+            assert modern.protocol_era == "modern"
+            assert modern.negotiation == "adopt"
+            assert modern.supported_protocol_versions == ()
+
+            legacy = statuses["forced_legacy"]
+            assert legacy.protocol_mode == "legacy"
+            assert legacy.protocol_era == "legacy"
+            assert legacy.negotiation == "initialize"
+
+    await run_probe()

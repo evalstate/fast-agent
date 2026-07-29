@@ -278,6 +278,8 @@ async def _run_login_session(
             from mcp.client import Client
             from mcp.client.streamable_http import streamable_http_client
 
+            from fast_agent.mcp.client_connection import sdk_connect_mode
+
             async with (
                 httpx2.AsyncClient(
                     headers=cfg.headers,
@@ -286,20 +288,24 @@ async def _run_login_session(
                 ) as http_client,
                 Client(
                     streamable_http_client(cfg.url or "", http_client=http_client),
-                    mode="auto",
+                    mode=sdk_connect_mode(cfg.protocol_mode),
                     cache=None,
-                ),
+                ) as client,
             ):
+                await client.list_tools()
                 return True
         if resolved_transport == "sse":
             from mcp.client import Client
             from mcp.client.sse import sse_client
 
+            from fast_agent.mcp.client_connection import sdk_connect_mode
+
             async with Client(
                 sse_client(cfg.url or "", cfg.headers, auth=provider),
-                mode="auto",
+                mode=sdk_connect_mode(cfg.protocol_mode),
                 cache=None,
-            ):
+            ) as client:
+                await client.list_tools()
                 return True
         return False
     except Exception as e:

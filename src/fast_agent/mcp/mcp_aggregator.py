@@ -212,6 +212,7 @@ class ServerStats:
 
 class ServerStatus(BaseModel):
     server_name: str
+    protocol_mode: Literal["auto", "modern", "legacy"] = "auto"
     implementation_name: str | None = None
     implementation_version: str | None = None
     protocol_version: str | None = None
@@ -1761,6 +1762,7 @@ class MCPAggregator(ContextDependent):
 
         if status.instructions_enabled is None:
             status.instructions_enabled = server_cfg.include_instructions
+        status.protocol_mode = server_cfg.protocol_mode
         roots = server_cfg.roots
         status.roots_configured = bool(roots)
         status.roots_count = len(roots) if roots else 0

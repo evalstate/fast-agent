@@ -1012,6 +1012,8 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
         protocol += f" ({status.protocol_era}"
         if status.negotiation:
             protocol += f", {status.negotiation}"
+        if status.protocol_mode != "auto":
+            protocol += f", forced {status.protocol_mode}"
         protocol += ")"
     session_line.append_text(_build_aligned_field("protocol", protocol))
     session_line.append("  ", style="dim")

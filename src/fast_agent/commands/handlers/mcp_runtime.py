@@ -437,9 +437,15 @@ def _connect_server_config(
     if configured_alias is not None:
         return configured_alias, None
 
+    overrides = (
+        {"protocol_mode": parsed.options.protocol_mode}
+        if parsed.options.protocol_mode is not None
+        else None
+    )
     built_config = build_server_config_from_target(
         parsed.target,
         auth_token=parsed.options.auth_token,
+        overrides=overrides,
     )
     return built_config.server_name, built_config.settings
 
@@ -697,6 +703,13 @@ async def handle_mcp_connect(
         agent_name=agent_name,
         request=parsed,
     )
+    if configured_alias is not None and parsed.options.protocol_mode is not None:
+        outcome.add_message(
+            "Invalid MCP connect arguments: --protocol cannot override a configured alias; "
+            "set protocol_mode in the server configuration.",
+            channel="error",
+        )
+        return outcome
 
     plan = _build_connect_plan(
         parsed=parsed,
