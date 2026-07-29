@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import httpx2
 import pytest
-from anyio import create_task_group
+from anyio import CancelScope
 from mcp.client.streamable_http import streamable_http_client
 
 from fast_agent.config import MCPServerAuthSettings, MCPServerSettings, Settings
@@ -769,11 +769,10 @@ async def test_connection_manager_exit_skips_grace_sleep_without_running_servers
             return False
 
     manager = _NoRunningServersManager(server_registry=cast("Any", _DummyRegistry()))
-    task_group = create_task_group()
+    task_group = asyncio.TaskGroup()
     await task_group.__aenter__()
     manager._task_group_active = True
     manager._task_group = task_group
-    manager._tg = task_group
 
     async def _unexpected_sleep(_delay: float) -> None:
         raise AssertionError("shutdown grace sleep should be skipped")
@@ -784,7 +783,6 @@ async def test_connection_manager_exit_skips_grace_sleep_without_running_servers
 
     assert manager._task_group_active is False
     assert manager._task_group is None
-    assert manager._tg is None
 
 
 @pytest.mark.asyncio
@@ -796,11 +794,10 @@ async def test_connection_manager_exit_needs_no_fixed_shutdown_sleep(
             return True
 
     manager = _RunningServersManager(server_registry=cast("Any", _DummyRegistry()))
-    task_group = create_task_group()
+    task_group = asyncio.TaskGroup()
     await task_group.__aenter__()
     manager._task_group_active = True
     manager._task_group = task_group
-    manager._tg = task_group
     async def _unexpected_sleep(_delay: float) -> None:
         raise AssertionError("lifecycle completion replaces fixed shutdown sleeps")
 
@@ -810,7 +807,16 @@ async def test_connection_manager_exit_needs_no_fixed_shutdown_sleep(
 
     assert manager._task_group_active is False
     assert manager._task_group is None
-    assert manager._tg is None
+
+
+@pytest.mark.asyncio
+async def test_connection_manager_does_not_leak_cancel_scope_into_caller() -> None:
+    manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
+
+    with CancelScope():
+        await manager.__aenter__()
+
+    await manager.__aexit__(None, None, None)
 
 
 @pytest.mark.asyncio

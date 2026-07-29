@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, NoReturn, Protocol, runtime_checkable
 from urllib.parse import urlsplit
 
 import httpx2
-from anyio import CancelScope, Event, Lock, create_task_group
+from anyio import CancelScope, Event, Lock
 from httpx2 import HTTPStatusError
 from mcp.client.subscriptions import SubscriptionLost
 from mcp.shared.exceptions import MCPError
@@ -728,8 +728,7 @@ class MCPConnectionManager(ContextDependent):
         self.server_registry = server_registry
         self.running_servers: dict[str, ServerConnection] = {}
         self._lock = Lock()
-        # Manage our own task group - independent of task context
-        self._task_group = None
+        self._task_group: asyncio.TaskGroup | None = None
         self._task_group_active = False
         self._mcp_sse_filter_added = False
         self._mcp_streamable_http_filter_added = False
@@ -739,12 +738,9 @@ class MCPConnectionManager(ContextDependent):
         self._server_oauth_active: dict[str, bool] = {}
 
     async def __aenter__(self):
-        # Create a task group that isn't tied to a specific task
-        self._task_group = create_task_group()
-        # Enter the task group context
+        self._task_group = asyncio.TaskGroup()
         await self._task_group.__aenter__()
         self._task_group_active = True
-        self._tg = self._task_group
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -759,7 +755,6 @@ class MCPConnectionManager(ContextDependent):
                 finally:
                     self._task_group_active = False
                     self._task_group = None
-                    self._tg = None
 
     def _suppress_mcp_sse_errors(self) -> None:
         """Suppress MCP library's 'Error in sse_reader' messages."""
@@ -924,8 +919,8 @@ class MCPConnectionManager(ContextDependent):
             self.running_servers[server_name] = server_conn
             self._server_oauth_mode[server_name] = oauth_mode
             self._server_oauth_active[server_name] = oauth_active
-            assert self._tg is not None
-            self._tg.start_soon(_server_lifecycle_task, server_conn)
+            assert self._task_group is not None
+            self._task_group.create_task(_server_lifecycle_task(server_conn))
 
         logger.info(f"{server_name}: Attached MCP client runtime is ready")
         return server_conn
@@ -933,10 +928,9 @@ class MCPConnectionManager(ContextDependent):
     async def _ensure_task_group(self, server_name: str) -> None:
         if self._task_group_active:
             return
-        self._task_group = create_task_group()
+        self._task_group = asyncio.TaskGroup()
         await self._task_group.__aenter__()
         self._task_group_active = True
-        self._tg = self._task_group
         logger.info(f"Auto-created task group for server: {server_name}")
 
     def _launch_transport_metrics(
