@@ -1,6 +1,14 @@
 """Shared CLI option definitions for fast-agent commands to reduce duplication."""
 
+from enum import StrEnum
+
 import typer
+
+
+class McpProtocolOption(StrEnum):
+    AUTO = "auto"
+    MODERN = "modern"
+    LEGACY = "legacy"
 
 
 class CommonAgentOptions:
@@ -54,7 +62,13 @@ class CommonAgentOptions:
     @staticmethod
     def urls():
         return typer.Option(
-            None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
+            None,
+            "--url",
+            metavar="<url>",
+            help=(
+                "HTTP/SSE MCP URL to connect to (repeatable; comma-separated values "
+                "remain supported temporarily)"
+            ),
         )
 
     @staticmethod
@@ -64,8 +78,17 @@ class CommonAgentOptions:
             "--auth",
             help=(
                 "Authorization token value for remote MCP URL servers and A2A endpoints "
-                "(pass token only; optional 'Bearer ' prefix is accepted)"
+                "(applies to every startup --url; pass token only; optional 'Bearer ' "
+                "prefix is accepted)"
             ),
+        )
+
+    @staticmethod
+    def mcp_protocol():
+        return typer.Option(
+            None,
+            "--mcp-protocol",
+            help="MCP protocol mode for every startup --url/--npx/--uvx/--stdio target",
         )
 
     @staticmethod

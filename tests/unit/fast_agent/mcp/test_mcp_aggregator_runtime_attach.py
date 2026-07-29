@@ -1,6 +1,6 @@
 import asyncio
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from mcp_types import (
@@ -17,6 +17,7 @@ from fast_agent.mcp.mcp_aggregator import (
     MCPAggregator,
     MCPAttachOptions,
     MCPAttachResult,
+    MCPDetachResult,
     NamespacedTool,
 )
 from fast_agent.mcp.skybridge import SkybridgeServerConfig
@@ -53,6 +54,31 @@ class _RecordingAggregator(MCPAggregator):
         )
 
 
+class _FailingStartupAggregator(_RecordingAggregator):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.detach_calls: list[str] = []
+
+    async def attach_server(self, *, server_name: str, server_config=None, options=None):
+        if server_name == "beta":
+            raise RuntimeError("beta failed")
+        return await super().attach_server(
+            server_name=server_name,
+            server_config=server_config,
+            options=options,
+        )
+
+    async def detach_server(self, server_name: str) -> MCPDetachResult:
+        self.detach_calls.append(server_name)
+        self._attached_server_names.remove(server_name)
+        return MCPDetachResult(
+            server_name=server_name,
+            detached=True,
+            tools_removed=[],
+            prompts_removed=[],
+        )
+
+
 @pytest.mark.asyncio
 async def test_load_servers_routes_startup_connections_through_attach_server() -> None:
     context = _build_context(
@@ -79,6 +105,28 @@ async def test_load_servers_routes_startup_connections_through_attach_server() -
 
     assert aggregator.attach_calls == ["alpha", "alpha", "beta"]
     assert aggregator.list_attached_servers() == ["alpha", "beta"]
+
+
+@pytest.mark.asyncio
+async def test_load_servers_rolls_back_cli_owned_startup_batch() -> None:
+    registry = ServerRegistry()
+    configs = {
+        name: MCPServerSettings(name=name, transport="stdio", command="echo")
+        for name in ("alpha", "beta")
+    }
+    registry.register_runtime_batch(configs, owner="cli-startup")
+    aggregator = _FailingStartupAggregator(
+        server_names=["alpha", "beta"],
+        connection_persistence=False,
+        context=Context(server_registry=registry),
+    )
+
+    with pytest.raises(RuntimeError, match="beta failed"):
+        await aggregator.load_servers()
+
+    assert aggregator.detach_calls == ["alpha"]
+    assert aggregator.list_attached_servers() == []
+    assert registry.registry == {}
 
 
 @pytest.mark.asyncio
@@ -475,6 +523,41 @@ async def test_detach_removes_only_runtime_owned_definition() -> None:
 
     assert context.server_registry.get_server_config("central") is not None
     assert context.server_registry.get_server_config("card") is not None
+    assert context.server_registry.get_server_config("runtime") is None
+
+
+@pytest.mark.asyncio
+async def test_interactive_startup_definition_transfers_to_attachment_owner() -> None:
+    context = _build_context({})
+    aggregator = MCPAggregator(
+        server_names=["runtime"],
+        connection_persistence=False,
+        context=context,
+    )
+    assert context.server_registry is not None
+    config = MCPServerSettings(name="runtime", transport="stdio", command="echo")
+    context.server_registry.register_runtime(config.name or "runtime", config, owner="cli-startup")
+
+    await aggregator._commit_server_attachment(
+        "runtime",
+        cast(
+            "Any",
+            SimpleNamespace(
+                tools=[],
+                prompts=[],
+                skill_registry=None,
+                    skybridge=SkybridgeServerConfig(server_name="runtime"),
+                capabilities=ServerCapabilities(),
+            ),
+        ),
+    )
+
+    assert context.server_registry.get_runtime_owners("runtime") == frozenset(
+        {aggregator._runtime_definition_owner}
+    )
+
+    await aggregator.detach_server("runtime")
+
     assert context.server_registry.get_server_config("runtime") is None
 
 

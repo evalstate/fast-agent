@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal
 
 from fast_agent.llm.request_params import is_structured_tool_policy
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.config import MCPServerSettings
     from fast_agent.llm.request_params import StructuredToolPolicy
 
 Mode = Literal["interactive", "serve"]
@@ -30,23 +31,6 @@ def resolve_execution_mode(
     return "repl"
 
 
-class UrlServerConfig(TypedDict, total=False):
-    """Configuration for URL-backed MCP servers."""
-
-    transport: str
-    url: str
-    headers: dict[str, str]
-    auth: dict[str, str | bool]
-
-
-class StdioServerConfig(TypedDict):
-    """Configuration for STDIO-backed MCP servers."""
-
-    transport: Literal["stdio"]
-    command: str
-    args: list[str]
-
-
 @dataclass(slots=True)
 class AgentRunRequest:
     """Normalized request used by the CLI runtime."""
@@ -62,8 +46,8 @@ class AgentRunRequest:
     prompt_file: str | None
     result_file: str | None
     resume: str | None
-    url_servers: dict[str, UrlServerConfig] | None
-    stdio_servers: dict[str, StdioServerConfig] | None
+    startup_mcp_servers: dict[str, MCPServerSettings] | None
+    mcp_startup_notices: tuple[str, ...]
     agent_name: str | None
     target_agent_name: str | None
     skills_directory: Path | None
@@ -187,8 +171,8 @@ class AgentRunRequest:
             "trajectory_output": self.trajectory_output,
             "trajectory_format": self.trajectory_format,
             "resume": self.resume,
-            "url_servers": self.url_servers,
-            "stdio_servers": self.stdio_servers,
+            "startup_mcp_servers": self.startup_mcp_servers,
+            "mcp_startup_notices": self.mcp_startup_notices,
             "agent_name": self.agent_name,
             "target_agent_name": self.target_agent_name,
             "environment": self.environment,

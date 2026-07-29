@@ -82,3 +82,31 @@ def test_runtime_definition_is_removed_after_final_owner() -> None:
 
     assert registry.remove_runtime("demo", owner="second") is True
     assert registry.get_server_config("demo") is None
+
+
+def test_runtime_batch_registration_is_atomic_on_configured_collision() -> None:
+    registry = ServerRegistry()
+    registry.register_central(
+        "central",
+        MCPServerSettings(name="central", transport="stdio", command="central"),
+    )
+
+    with pytest.raises(ValueError, match="collides with central"):
+        registry.register_runtime_batch(
+            {
+                "runtime": MCPServerSettings(
+                    name="runtime",
+                    transport="stdio",
+                    command="runtime",
+                ),
+                "central": MCPServerSettings(
+                    name="central",
+                    transport="stdio",
+                    command="replacement",
+                ),
+            },
+            owner="cli-startup",
+        )
+
+    assert registry.get_server_config("runtime") is None
+    assert registry.get_runtime_owners("runtime") == frozenset()

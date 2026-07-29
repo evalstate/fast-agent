@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import re
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, replace
@@ -21,9 +19,10 @@ from fast_agent.mcp.connect_targets import (
     McpConnectMode,
     ParsedMcpConnectRequest,
     build_server_config_from_target,
+    redact_mcp_url,
+    resolve_connect_auth_token,
 )
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
-from fast_agent.utils.action_normalization import normalize_action_token
 from fast_agent.utils.commandline import join_commandline
 from fast_agent.utils.count_display import format_count_parts
 from fast_agent.utils.numeric import nonnegative_int_or_none
@@ -75,59 +74,6 @@ class _McpConnectFailureClassification:
     oauth_timeout: bool
 
 
-_AUTH_ENV_BRACED_RE = re.compile(r"^\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::(?P<default>.*))?\}$")
-_AUTH_ENV_SIMPLE_RE = re.compile(r"^\$(?P<name>[A-Za-z_][A-Za-z0-9_]*)$")
-
-
-def _normalize_auth_token_value(raw_value: str) -> str:
-    """Normalize user-provided --auth values before environment lookup.
-
-    ``--auth`` takes the raw token value. If a user passes an Authorization
-    header style value (``Bearer <token>``), strip the prefix so downstream
-    code can still compose a single valid ``Authorization: Bearer ...`` header.
-    """
-
-    normalized = strip_to_none(raw_value) or ""
-    if normalize_action_token(normalized).startswith("bearer "):
-        normalized = strip_to_none(normalized[7:]) or ""
-    return normalized
-
-
-def _resolve_auth_token_value(raw_value: str) -> str:
-    """Resolve --auth values that reference environment variables.
-
-    Supported forms:
-    - ``$VAR``
-    - ``${VAR}``
-    - ``${VAR:default}``
-    """
-
-    normalized_value = _normalize_auth_token_value(raw_value)
-    if not normalized_value:
-        raise ValueError("Missing value for --auth")
-
-    match = _AUTH_ENV_BRACED_RE.match(normalized_value)
-    if match:
-        env_name = match.group("name")
-        default = match.group("default")
-        resolved = os.environ.get(env_name)
-        if resolved is not None:
-            return resolved
-        if default is not None:
-            return default
-        raise ValueError(f"Environment variable '{env_name}' is not set for --auth")
-
-    match = _AUTH_ENV_SIMPLE_RE.match(normalized_value)
-    if match:
-        env_name = match.group("name")
-        resolved = os.environ.get(env_name)
-        if resolved is None:
-            raise ValueError(f"Environment variable '{env_name}' is not set for --auth")
-        return resolved
-
-    return normalized_value
-
-
 def _resolve_request_auth(request: ParsedMcpConnectRequest) -> ParsedMcpConnectRequest:
     auth_token = request.options.auth_token
     if auth_token is None:
@@ -136,7 +82,7 @@ def _resolve_request_auth(request: ParsedMcpConnectRequest) -> ParsedMcpConnectR
         request,
         options=replace(
             request.options,
-            auth_token=_resolve_auth_token_value(auth_token),
+            auth_token=resolve_connect_auth_token(auth_token),
         ),
     )
 
@@ -158,7 +104,7 @@ def _describe_server_config_source(
 
     url = strip_to_none(url_value) if isinstance(url_value, str) else None
     if url is not None:
-        return url
+        return redact_mcp_url(url)
 
     command = strip_to_none(command_value) if isinstance(command_value, str) else None
     if command is not None:
@@ -730,6 +676,21 @@ async def handle_mcp_connect(
         agent_name=agent_name,
         on_progress=on_progress,
     )
+    if (
+        parsed.target.mode == "url"
+        and parsed.target.input_url is not None
+        and parsed.target.url != parsed.target.input_url
+    ):
+        outcome.add_message(
+            (
+                f"Resolved MCP URL '{redact_mcp_url(parsed.target.input_url)}' to "
+                f"'{redact_mcp_url(parsed.target.url or parsed.target.input_url)}'. "
+                "Automatic '/mcp' suffixing is deprecated; pass the complete URL explicitly."
+            ),
+            channel="warning",
+            right_info="mcp",
+            agent_name=agent_name,
+        )
     for warning in result.warnings:
         outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)
 

@@ -41,6 +41,7 @@ GO_SPECIFIC_OPTIONS = {
     "--card-pack",
     "--pack-registry",
     "--url",
+    "--mcp-protocol",
     "--model",
     "--models",
     "--agent",

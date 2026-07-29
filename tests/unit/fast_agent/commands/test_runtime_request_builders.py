@@ -28,7 +28,7 @@ def test_build_agent_run_request_merges_url_servers_after_explicit_servers() -> 
         instruction="instruction",
         config_path=None,
         servers="alpha,beta",
-        urls="http://localhost:9000/mcp",
+        urls=["http://localhost:9000/mcp"],
         auth=None,
         client_metadata_url=None,
         agent_cards=None,
@@ -58,8 +58,8 @@ def test_build_agent_run_request_merges_url_servers_after_explicit_servers() -> 
 
     assert request.server_list is not None
     assert request.server_list[:2] == ["alpha", "beta"]
-    assert request.url_servers is not None
-    assert request.server_list[2:] == list(request.url_servers.keys())
+    assert request.startup_mcp_servers is not None
+    assert request.server_list[2:] == list(request.startup_mcp_servers)
 
 
 def test_build_agent_run_request_includes_client_metadata_url_in_url_server_auth() -> None:
@@ -68,7 +68,7 @@ def test_build_agent_run_request_includes_client_metadata_url_in_url_server_auth
         instruction="instruction",
         config_path=None,
         servers=None,
-        urls="https://example.com/mcp",
+        urls=["https://example.com/mcp"],
         auth=None,
         client_metadata_url="https://example.com/oauth/client-metadata.json",
         agent_cards=None,
@@ -96,23 +96,29 @@ def test_build_agent_run_request_includes_client_metadata_url_in_url_server_auth
         watch=False,
     )
 
-    assert request.url_servers is not None
-    server_config = next(iter(request.url_servers.values()))
-    assert server_config["auth"] == {
-        "oauth": True,
-        "client_metadata_url": "https://example.com/oauth/client-metadata.json",
-    }
+    assert request.startup_mcp_servers is not None
+    server_config = next(iter(request.startup_mcp_servers.values()))
+    assert server_config.auth is not None
+    assert server_config.auth.oauth is True
+    assert (
+        server_config.auth.client_metadata_url
+        == "https://example.com/oauth/client-metadata.json"
+    )
 
 
-def test_build_agent_run_request_skips_invalid_stdio_commands(capsys) -> None:
+def test_startup_mcp_targets_share_ordered_naming_auth_and_protocol_semantics() -> None:
     request = build_agent_run_request(
         name="test-agent",
         instruction="instruction",
         config_path=None,
         servers=None,
-        urls=None,
-        auth=None,
+        urls=[
+            "https://example.com/one,https://example.com/two",
+            "https://other.example/mcp",
+        ],
+        auth="Bearer shared-token",
         client_metadata_url=None,
+        mcp_protocol="legacy",
         agent_cards=None,
         card_tools=None,
         model=None,
@@ -120,7 +126,7 @@ def test_build_agent_run_request_skips_invalid_stdio_commands(capsys) -> None:
         prompt_file=None,
         result_file=None,
         resume=None,
-        stdio_commands=["python good.py", 'python "unterminated', ""],
+        stdio_commands=["npx @scope/demo", "python server.py"],
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
@@ -138,14 +144,139 @@ def test_build_agent_run_request_skips_invalid_stdio_commands(capsys) -> None:
         watch=False,
     )
 
-    captured = capsys.readouterr()
-    assert "Error parsing stdio command" in captured.err
-    assert "Error: Empty stdio command" in captured.err
-    assert request.stdio_servers is not None
-    assert len(request.stdio_servers) == 1
-    only_config = next(iter(request.stdio_servers.values()))
-    assert only_config["command"] == "python"
-    assert only_config["args"] == ["good.py"]
+    assert request.startup_mcp_servers is not None
+    assert list(request.startup_mcp_servers) == [
+        "example_com",
+        "example_com_1",
+        "other_example",
+        "demo",
+        "python",
+    ]
+    configs = list(request.startup_mcp_servers.values())
+    assert [config.access_token for config in configs] == [
+        "shared-token",
+        "shared-token",
+        "shared-token",
+        None,
+        None,
+    ]
+    assert {config.protocol_mode for config in configs} == {"legacy"}
+    assert request.server_list == list(request.startup_mcp_servers)
+    assert request.mcp_startup_notices[-1] == "Startup MCP server 'python': python server.py"
+    assert any("Automatic '/mcp' suffixing is deprecated" in item for item in request.mcp_startup_notices)
+
+
+def test_startup_url_parity_is_case_insensitive_and_notices_are_redacted() -> None:
+    request = build_agent_run_request(
+        name="test-agent",
+        instruction="instruction",
+        config_path=None,
+        servers=None,
+        urls=["HTTPS://user:secret@example.com/api?token=secret"],
+        auth=None,
+        client_metadata_url=None,
+        agent_cards=None,
+        card_tools=None,
+        model=None,
+        message=None,
+        prompt_file=None,
+        result_file=None,
+        resume=None,
+        stdio_commands=None,
+        agent_name="agent",
+        target_agent_name=None,
+        skills_directory=None,
+        home=None,
+        shell_enabled=False,
+        mode="interactive",
+        transport="http",
+        host="127.0.0.1",
+        port=8000,
+        tool_description=None,
+        tool_name_template=None,
+        instance_scope="shared",
+        permissions_enabled=True,
+        reload=False,
+        watch=False,
+    )
+
+    assert request.startup_mcp_servers is not None
+    assert "example_com" in request.startup_mcp_servers
+    rendered = "\n".join(request.mcp_startup_notices)
+    assert "secret" not in rendered
+    assert "REDACTED" in rendered
+
+
+def test_startup_mcp_rejects_explicit_auth_with_forced_oauth_metadata() -> None:
+    with pytest.raises(typer.BadParameter, match="Cannot combine --auth"):
+        build_agent_run_request(
+            name="test-agent",
+            instruction="instruction",
+            config_path=None,
+            servers=None,
+            urls=["https://example.com/mcp"],
+            auth="explicit-token",
+            client_metadata_url="https://example.com/client-metadata.json",
+            agent_cards=None,
+            card_tools=None,
+            model=None,
+            message=None,
+            prompt_file=None,
+            result_file=None,
+            resume=None,
+            stdio_commands=None,
+            agent_name="agent",
+            target_agent_name=None,
+            skills_directory=None,
+            home=None,
+            shell_enabled=False,
+            mode="interactive",
+            transport="http",
+            host="127.0.0.1",
+            port=8000,
+            tool_description=None,
+            tool_name_template=None,
+            instance_scope="shared",
+            permissions_enabled=True,
+            reload=False,
+            watch=False,
+        )
+
+
+def test_build_agent_run_request_rejects_invalid_stdio_batch() -> None:
+    with pytest.raises(typer.BadParameter, match="No closing quotation"):
+        build_agent_run_request(
+            name="test-agent",
+            instruction="instruction",
+            config_path=None,
+            servers=None,
+            urls=None,
+            auth=None,
+            client_metadata_url=None,
+            agent_cards=None,
+            card_tools=None,
+            model=None,
+            message=None,
+            prompt_file=None,
+            result_file=None,
+            resume=None,
+            stdio_commands=["python good.py", 'python "unterminated'],
+            agent_name="agent",
+            target_agent_name=None,
+            skills_directory=None,
+            home=None,
+            shell_enabled=False,
+            mode="interactive",
+            transport="http",
+            host="127.0.0.1",
+            port=8000,
+            tool_description=None,
+            tool_name_template=None,
+            instance_scope="shared",
+            permissions_enabled=True,
+            reload=False,
+            watch=False,
+        )
 
 
 def test_build_command_run_request_resolves_defaults() -> None:
@@ -1078,8 +1209,8 @@ def test_agent_run_request_rejects_no_home_with_resume_at_boundary() -> None:
             prompt_file=None,
             result_file=None,
             resume="latest",
-            url_servers=None,
-            stdio_servers=None,
+            startup_mcp_servers=None,
+            mcp_startup_notices=(),
             agent_name="agent",
             target_agent_name=None,
             skills_directory=None,
@@ -1166,7 +1297,7 @@ def test_build_command_run_request_rejects_malformed_url() -> None:
             instruction_option=None,
             config_path=None,
             servers=None,
-            urls="not-a-url",
+            urls=["not-a-url"],
             auth=None,
             client_metadata_url=None,
             agent_cards=None,
@@ -1185,3 +1316,76 @@ def test_build_command_run_request_rejects_malformed_url() -> None:
             shell_enabled=False,
             mode="interactive",
         )
+
+
+def test_build_command_run_request_redacts_malformed_url_error() -> None:
+    with pytest.raises(typer.BadParameter) as exc_info:
+        build_command_run_request(
+            name="cli",
+            instruction_option=None,
+            config_path=None,
+            servers=None,
+            urls=["ftp://user:secret@example.com/mcp?token=topsecret#private"],
+            auth=None,
+            client_metadata_url=None,
+            agent_cards=None,
+            card_tools=None,
+            model=None,
+            message=None,
+            prompt_file=None,
+            result_file=None,
+            resume=None,
+            npx=None,
+            uvx=None,
+            stdio=None,
+            target_agent_name=None,
+            skills_directory=None,
+            home=Path("."),
+            shell_enabled=False,
+            mode="interactive",
+        )
+
+    error = str(exc_info.value)
+    assert "secret" not in error
+    assert "topsecret" not in error
+    assert "REDACTED" in error
+
+
+@pytest.mark.parametrize(
+    "bad_url",
+    [
+        "https://user:secret@[bad/mcp?token=topsecret",
+        "https://user:secret@exa／mple.com/mcp?token=topsecret",
+    ],
+)
+def test_build_command_run_request_normalizes_invalid_authority_error(bad_url: str) -> None:
+    with pytest.raises(typer.BadParameter) as exc_info:
+        build_command_run_request(
+            name="cli",
+            instruction_option=None,
+            config_path=None,
+            servers=None,
+            urls=[bad_url],
+            auth=None,
+            client_metadata_url=None,
+            agent_cards=None,
+            card_tools=None,
+            model=None,
+            message=None,
+            prompt_file=None,
+            result_file=None,
+            resume=None,
+            npx=None,
+            uvx=None,
+            stdio=None,
+            target_agent_name=None,
+            skills_directory=None,
+            home=Path("."),
+            shell_enabled=False,
+            mode="interactive",
+        )
+
+    error = str(exc_info.value)
+    assert "secret" not in error
+    assert "topsecret" not in error
+    assert error == "URL occurrence 1 is invalid: [REDACTED INVALID URL]"

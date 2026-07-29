@@ -199,6 +199,16 @@ if TYPE_CHECKING:
     from fast_agent.tools.execution_environment import ShellEnvironment
 
 
+def _effective_configured_servers(
+    config: AgentConfig,
+    context: "Context | None",
+) -> tuple[str, ...]:
+    runtime_servers = (
+        context.runtime_mcp_server_names.get(config.name, ()) if context is not None else ()
+    )
+    return tuple(dict.fromkeys((*config.servers, *runtime_servers)))
+
+
 class McpAgent(ABC, ToolAgent):
     """
     A base Agent class that implements the AgentProtocol interface.
@@ -222,7 +232,7 @@ class McpAgent(ABC, ToolAgent):
             **kwargs,
         )
 
-        configured_servers = tuple(self.config.servers)
+        configured_servers = _effective_configured_servers(self.config, context)
         managed_mcp = self._managed_mcp_setup(configured_servers, context)
         self._provider_managed_mcp_state = managed_mcp.provider_state
         self._configured_server_names = tuple(configured_servers)

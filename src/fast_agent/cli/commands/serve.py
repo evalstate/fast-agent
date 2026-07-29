@@ -13,7 +13,7 @@ from rich.console import Console
 from fast_agent.cli.home_helpers import resolve_home_option
 from fast_agent.cli.runtime.request_builders import build_command_run_request
 from fast_agent.cli.runtime.runner import run_request
-from fast_agent.cli.shared_options import CommonAgentOptions
+from fast_agent.cli.shared_options import CommonAgentOptions, McpProtocolOption
 from fast_agent.cli.workspace_helpers import resolve_workspace_option
 from fast_agent.constants import DEFAULT_HOME_DIR
 
@@ -125,9 +125,10 @@ def _build_run_request(
     servers: str | None,
     agent_cards: list[str] | None,
     card_tools: list[str] | None,
-    urls: str | None,
+    urls: list[str] | None,
     auth: str | None,
     client_metadata_url: str | None,
+    mcp_protocol: McpProtocolOption | None = None,
     model: str | None,
     skills_dir: Path | None,
     home: Path | None,
@@ -168,6 +169,7 @@ def _build_run_request(
         urls=urls,
         auth=auth,
         client_metadata_url=client_metadata_url,
+        mcp_protocol=mcp_protocol.value if mcp_protocol is not None else None,
         agent_cards=agent_cards,
         card_tools=card_tools,
         model=model,
@@ -220,9 +222,10 @@ def serve(
     servers: str | None = CommonAgentOptions.servers(),
     agent_cards: list[str] | None = CommonAgentOptions.agent_cards(),
     card_tools: list[str] | None = CommonAgentOptions.card_tools(),
-    urls: str | None = CommonAgentOptions.urls(),
+    urls: list[str] | None = CommonAgentOptions.urls(),
     auth: str | None = CommonAgentOptions.auth(),
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
+    mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
     workspace: Path | None = CommonAgentOptions.workspace(),
     home: Path | None = CommonAgentOptions.home(),
     no_home: bool = CommonAgentOptions.no_home(),
@@ -289,6 +292,7 @@ def serve(
         urls=urls,
         auth=auth,
         client_metadata_url=client_metadata_url,
+        mcp_protocol=mcp_protocol,
         model=model,
         skills_dir=skills_dir,
         workspace=workspace,
@@ -329,9 +333,10 @@ def serve_a2a(
     servers: str | None = CommonAgentOptions.servers(),
     agent_cards: list[str] | None = CommonAgentOptions.agent_cards(),
     card_tools: list[str] | None = CommonAgentOptions.card_tools(),
-    urls: str | None = CommonAgentOptions.urls(),
+    urls: list[str] | None = CommonAgentOptions.urls(),
     auth: str | None = CommonAgentOptions.auth(),
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
+    mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
     workspace: Path | None = CommonAgentOptions.workspace(),
     home: Path | None = CommonAgentOptions.home(),
     no_home: bool = CommonAgentOptions.no_home(),
@@ -372,6 +377,7 @@ def serve_a2a(
         urls=urls,
         auth=auth,
         client_metadata_url=client_metadata_url,
+        mcp_protocol=mcp_protocol,
         model=model,
         skills_dir=skills_dir,
         workspace=workspace,

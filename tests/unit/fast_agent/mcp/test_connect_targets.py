@@ -11,6 +11,7 @@ from fast_agent.mcp.connect_targets import (
     mcp_connect_flag_descriptions,
     normalize_connect_config_target,
     parse_connect_command_text,
+    redact_mcp_url,
     render_connect_request,
 )
 from fast_agent.utils import commandline
@@ -486,3 +487,12 @@ def test_build_server_config_from_target_accepts_single_quoted_args_on_windows(
     assert built_config.server_name == "python"
     assert built_config.settings.command == "python"
     assert built_config.settings.args == ["-c", "print(1)"]
+
+
+def test_redact_mcp_url_removes_userinfo_query_values_and_fragment() -> None:
+    assert redact_mcp_url(
+        "https://user:secret@example.com:8443/mcp?token=secret&mode=read#private"
+    ) == (
+        "https://[REDACTED]@example.com:8443/mcp"
+        "?token=%5BREDACTED%5D&mode=%5BREDACTED%5D#[REDACTED]"
+    )

@@ -16,7 +16,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from fast_agent.config import Settings, get_settings
 from fast_agent.core.executor.executor import AsyncioExecutor, Executor
@@ -62,6 +62,7 @@ class Context(BaseModel):
     # Registries
     server_registry: ServerRegistry | None = None
     skill_registry: SkillRegistry | None = None
+    runtime_mcp_server_names: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     no_shell: bool = False
 
     tracer: trace.Tracer | None = None

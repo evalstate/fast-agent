@@ -81,6 +81,26 @@ class ServerRegistry:
         self._register(server_name, config, "runtime")
         self._runtime_owners[server_name] = {owner}
 
+    def register_runtime_batch(
+        self,
+        servers: dict[str, MCPServerSettings],
+        *,
+        owner: str = "process",
+    ) -> None:
+        for server_name, config in servers.items():
+            origin = self._origins.get(server_name)
+            if origin in {"central", "card"}:
+                raise ValueError(
+                    f"Runtime MCP server '{server_name}' collides with {origin} configuration"
+                )
+            if origin == "runtime" and self.registry[server_name] != config:
+                raise ValueError(
+                    f"Runtime MCP server '{server_name}' is already registered "
+                    "with different settings"
+                )
+        for server_name, config in servers.items():
+            self.register_runtime(server_name, config, owner=owner)
+
     def replace_card_servers(self, servers: dict[str, MCPServerSettings]) -> None:
         conflicts = [
             (name, origin)

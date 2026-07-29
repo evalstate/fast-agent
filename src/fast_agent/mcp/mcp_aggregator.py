@@ -669,22 +669,32 @@ class MCPAggregator(ContextDependent):
 
         servers_to_load = list(self._configured_server_names)
 
-        for server_name in servers_to_load:
-            # Check if server should be loaded on start
-            server_registry = self.context.server_registry if self.context else None
-            if server_registry is not None:
-                server_config = server_registry.get_server_config(server_name)
-                if server_config and not server_config.load_on_start and not force_connect:
-                    logger.debug(f"Skipping server '{server_name}' - load_on_start=False")
-                    skipped_servers.append(server_name)
-                    continue
+        try:
+            for server_name in servers_to_load:
+                # Check if server should be loaded on start
+                server_registry = self.context.server_registry if self.context else None
+                if server_registry is not None:
+                    server_config = server_registry.get_server_config(server_name)
+                    if server_config and not server_config.load_on_start and not force_connect:
+                        logger.debug(f"Skipping server '{server_name}' - load_on_start=False")
+                        skipped_servers.append(server_name)
+                        continue
 
-            attached_results.append(
-                await self.attach_server(
-                    server_name=server_name,
-                    options=MCPAttachOptions(),
+                attached_results.append(
+                    await self.attach_server(
+                        server_name=server_name,
+                        options=MCPAttachOptions(),
+                    )
                 )
-            )
+        except BaseException:
+            for result in reversed(attached_results):
+                with suppress(Exception):
+                    await self.detach_server(result.server_name)
+            registry = self._require_server_registry()
+            for server_name in servers_to_load:
+                if "cli-startup" in registry.get_runtime_owners(server_name):
+                    registry.remove_runtime(server_name, owner="cli-startup")
+            raise
 
         if skipped_servers:
             logger.debug(
@@ -871,6 +881,8 @@ class MCPAggregator(ContextDependent):
                 server_name,
                 clear_existing=already_attached and attach_options.force_reconnect,
             )
+            if "cli-startup" in server_registry.get_runtime_owners(server_name):
+                server_registry.remove_runtime(server_name, owner="cli-startup")
             raise
 
         self._log_server_initialized()
@@ -1020,7 +1032,17 @@ class MCPAggregator(ContextDependent):
                         runtime_config,
                         owner=self._runtime_definition_owner,
                     )
-
+                elif registry.get_server_origin(server_name) == "runtime":
+                    registered_config = registry.get_server_config(server_name)
+                    if registered_config is None:
+                        raise ValueError(f"Server '{server_name}' not found in registry")
+                    registry.register_runtime(
+                        server_name,
+                        registered_config,
+                        owner=self._runtime_definition_owner,
+                    )
+                if "cli-startup" in registry.get_runtime_owners(server_name):
+                    registry.remove_runtime(server_name, owner="cli-startup")
                 for namespaced in self._server_to_tool_map.get(server_name, []):
                     self._namespaced_tool_map.pop(namespaced.namespaced_tool_name, None)
 

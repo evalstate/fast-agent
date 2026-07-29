@@ -24,6 +24,22 @@ fast-agent --uvx server-fetch # UVX Package
 fast-agent --stdio /path/to/stdio-server # STDIO Server
 ```
 
+Repeat `--url` to preserve input order. Comma-separated values remain accepted
+temporarily:
+
+```bash
+fast-agent \
+  --url https://one.example/mcp \
+  --url https://two.example/mcp \
+  --mcp-protocol modern
+```
+
+`--mcp-protocol` applies to every startup `--url`, `--npx`, `--uvx`, and
+`--stdio` target. One `--auth` value applies to every startup URL. Startup
+targets are all validated before connection; malformed or failed targets stop
+startup. During the compatibility window, a URL missing `/mcp` or `/sse` is
+shown with its resolved `/mcp` URL and a deprecation notice.
+
 
 MCP Servers are configured in the `fast-agent.yaml` file. Secrets can be kept in `fast-agent.secrets.yaml`, which follows the same format (**fast-agent** merges the contents of the two files).
 

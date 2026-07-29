@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import mslex
 
@@ -44,6 +46,10 @@ _NPX_PACKAGE_VALUE_OPTIONS = frozenset({"--package", "-p"})
 _UVX_PACKAGE_VALUE_OPTIONS = frozenset({"--from"})
 
 _WHOLE_SINGLE_QUOTED_ARG_PATTERN = re.compile(r"(^|\s)'([^']+)'(?=\s|$)")
+_AUTH_ENV_BRACED_RE = re.compile(
+    r"^\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::(?P<default>.*))?\}$"
+)
+_AUTH_ENV_SIMPLE_RE = re.compile(r"^\$(?P<name>[A-Za-z_][A-Za-z0-9_]*)$")
 
 
 def _rewrite_shell_single_quotes_for_windows(text: str) -> str:
@@ -51,6 +57,36 @@ def _rewrite_shell_single_quotes_for_windows(text: str) -> str:
         lambda match: f"{match.group(1)}{mslex.quote(match.group(2))}",
         text,
     )
+
+
+def resolve_connect_auth_token(raw_value: str) -> str:
+    """Normalize an auth token and resolve supported environment references."""
+    normalized = strip_to_none(raw_value) or ""
+    if strip_casefold(normalized).startswith("bearer "):
+        normalized = strip_to_none(normalized[7:]) or ""
+    if not normalized:
+        raise ValueError("Missing value for --auth")
+
+    match = _AUTH_ENV_BRACED_RE.match(normalized)
+    if match:
+        env_name = match.group("name")
+        default = match.group("default")
+        resolved = os.environ.get(env_name)
+        if resolved is not None:
+            return resolved
+        if default is not None:
+            return default
+        raise ValueError(f"Environment variable '{env_name}' is not set")
+
+    match = _AUTH_ENV_SIMPLE_RE.match(normalized)
+    if match:
+        env_name = match.group("name")
+        resolved = os.environ.get(env_name)
+        if resolved is None:
+            raise ValueError(f"Environment variable '{env_name}' is not set")
+        return resolved
+
+    return normalized
 
 
 def _split_connect_command_text(
@@ -78,6 +114,7 @@ class NormalizedMcpTarget:
     command: str | None
     args: tuple[str, ...]
     server_name: str | None
+    input_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -464,6 +501,7 @@ def _normalize_target_tokens(
             command=None,
             args=(),
             server_name=resolved_server_name,
+            input_url=tokens[0],
         )
 
     if mode == "npx":
@@ -658,6 +696,30 @@ def render_normalized_target(
     syntax: CommandLineSyntax = "auto",
 ) -> str:
     return join_commandline(_render_target_argv(target), syntax=syntax)
+
+
+def redact_mcp_url(url: str) -> str:
+    """Redact URL userinfo, query values, and fragments for user-facing output."""
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return "[REDACTED INVALID URL]"
+    netloc = parsed.netloc
+    if "@" in netloc:
+        netloc = f"[REDACTED]@{netloc.rsplit('@', 1)[1]}"
+    query = urlencode([(key, "[REDACTED]") for key, _value in parse_qsl(parsed.query)])
+    fragment = "[REDACTED]" if parsed.fragment else ""
+    return urlunsplit((parsed.scheme, netloc, parsed.path, query, fragment))
+
+
+def render_redacted_target(
+    target: NormalizedMcpTarget,
+    *,
+    syntax: CommandLineSyntax = "auto",
+) -> str:
+    if target.mode == "url" and target.url is not None:
+        return redact_mcp_url(target.url)
+    return render_normalized_target(target, syntax=syntax)
 
 
 def _render_target_argv(target: NormalizedMcpTarget) -> list[str]:
@@ -868,6 +930,7 @@ def build_server_config_from_target(
             command=normalized_target.command,
             args=normalized_target.args,
             server_name=server_name,
+            input_url=normalized_target.input_url,
         )
     )
 
@@ -961,5 +1024,8 @@ __all__ = [
     "parse_connect_command_tokens",
     "render_connect_request",
     "render_normalized_target",
+    "render_redacted_target",
+    "redact_mcp_url",
+    "resolve_connect_auth_token",
     "resolve_target_entry",
 ]

@@ -6,13 +6,14 @@ import asyncio
 import sys
 import time
 import uuid
+from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
 import typer
 
-from fast_agent.cli.commands.server_helpers import add_servers_to_config
+from fast_agent.cli.commands.server_helpers import register_runtime_servers
 from fast_agent.commands.model_capabilities import resolve_reasoning_effort
 from fast_agent.core.card_tool_attachment import load_and_attach_card_tool_agents
 from fast_agent.core.exceptions import AgentConfigError
@@ -151,7 +152,7 @@ def _select_loaded_card_agent(
     return selected_name
 
 
-def _attach_cli_servers_to_selected_agent(fast, request: AgentRunRequest) -> None:
+def _set_cli_server_overlay_for_selected_agent(fast, request: AgentRunRequest) -> None:
     if not request.server_list:
         return
 
@@ -179,10 +180,7 @@ def _attach_cli_servers_to_selected_agent(fast, request: AgentRunRequest) -> Non
     if selected_agent_data:
         config = selected_agent_data.get("config")
         if isinstance(config, AgentConfig):
-            existing = list(config.servers) if config.servers else []
-            config.servers = existing + [
-                server for server in request.server_list if server not in existing
-            ]
+            fast.app.context.runtime_mcp_server_names[config.name] = tuple(request.server_list)
 
 
 def _build_result_file_with_suffix(base_file: Path, suffix: str) -> Path:
@@ -1036,16 +1034,18 @@ async def _apply_runtime_context_overrides(fast: Any, request: AgentRunRequest) 
 
 
 async def _add_cli_servers(fast: Any, request: AgentRunRequest) -> None:
-    if request.url_servers:
-        await add_servers_to_config(
+    if request.startup_mcp_servers:
+        for notice in request.mcp_startup_notices:
+            typer.echo(notice, err=True)
+        await register_runtime_servers(
             fast,
-            cast("dict[str, dict[str, Any]]", request.url_servers),
+            request.startup_mcp_servers,
+            owner=_cli_startup_owner(request),
         )
-    if request.stdio_servers:
-        await add_servers_to_config(
-            fast,
-            cast("dict[str, dict[str, Any]]", request.stdio_servers),
-        )
+
+
+def _cli_startup_owner(request: AgentRunRequest) -> str:
+    return "cli-startup" if request.mode == "interactive" else "cli-startup-serve"
 
 
 def _card_defined_default_type(fast: Any) -> str | None:
@@ -1116,7 +1116,7 @@ def _configure_card_agents(
         fast._handle_error(exc)
         raise typer.Exit(1) from exc
 
-    _attach_cli_servers_to_selected_agent(fast, request)
+    _set_cli_server_overlay_for_selected_agent(fast, request)
 
 
 def _default_managed_mcp_agent_names(fast: Any) -> list[str]:
@@ -1144,7 +1144,7 @@ def _build_card_cli_agent(
             fast,
             request,
             flow=_run_cli_flow,
-            prepare=lambda: _attach_cli_servers_to_selected_agent(fast, request),
+            prepare=lambda: _set_cli_server_overlay_for_selected_agent(fast, request),
         )
 
     return cli_agent
@@ -1357,22 +1357,13 @@ def _build_multi_model_cli_agent(
     return cli_agent
 
 
-async def run_agent_request(request: AgentRunRequest) -> None:
-    """Run the normalized CLI request."""
-    startup_model_source_override = await _select_startup_model_if_needed(request)
-    serve_permissions_enabled = _serve_permissions_enabled(request)
-    instruction = _request_instruction(request)
-    _configure_stdio_server_console(request)
-
-    fast = _build_fast_agent(request)
-    _apply_fast_args(
-        fast,
-        request,
-        model_source_override=startup_model_source_override,
-    )
-    await _apply_runtime_context_overrides(fast, request)
-    await _add_cli_servers(fast, request)
-
+async def _run_initialized_agent_request(
+    fast: Any,
+    request: AgentRunRequest,
+    *,
+    instruction: str | None,
+    serve_permissions_enabled: bool,
+) -> None:
     if request.agent_cards or request.card_tools:
         cli_agent = _build_card_cli_agent(
             fast,
@@ -1420,3 +1411,39 @@ async def run_agent_request(request: AgentRunRequest) -> None:
         )
     else:
         await cli_agent()
+
+
+async def _rollback_cli_startup(fast: Any, request: AgentRunRequest) -> None:
+    registry = fast.app.context.server_registry
+    if registry is not None:
+        for server_name in request.startup_mcp_servers or ():
+            registry.remove_runtime(server_name, owner=_cli_startup_owner(request))
+    with suppress(Exception):
+        await fast.app.cleanup()
+
+
+async def run_agent_request(request: AgentRunRequest) -> None:
+    """Run the normalized CLI request."""
+    startup_model_source_override = await _select_startup_model_if_needed(request)
+    serve_permissions_enabled = _serve_permissions_enabled(request)
+    instruction = _request_instruction(request)
+    _configure_stdio_server_console(request)
+
+    fast = _build_fast_agent(request)
+    _apply_fast_args(
+        fast,
+        request,
+        model_source_override=startup_model_source_override,
+    )
+    await _apply_runtime_context_overrides(fast, request)
+    try:
+        await _add_cli_servers(fast, request)
+        await _run_initialized_agent_request(
+            fast,
+            request,
+            instruction=instruction,
+            serve_permissions_enabled=serve_permissions_enabled,
+        )
+    except BaseException:
+        await _rollback_cli_startup(fast, request)
+        raise

@@ -21,7 +21,6 @@ import yaml
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.cli.runtime.agent_setup import (
     _agent_config_defines_startup_model,
-    _attach_cli_servers_to_selected_agent,
     _explicit_agent_cards_define_startup_model,
     _generic_model_prompt_default,
     _last_used_model_reference,
@@ -31,6 +30,7 @@ from fast_agent.cli.runtime.agent_setup import (
     _resolve_model_without_hardcoded_default,
     _select_model_from_picker,
     _select_startup_model_if_needed,
+    _set_cli_server_overlay_for_selected_agent,
     _should_prompt_for_model_picker,
     _split_requested_models,
     run_agent_request,
@@ -84,8 +84,8 @@ def _make_request(
         prompt_file=prompt_file,
         result_file=None,
         resume=resume,
-        url_servers=None,
-        stdio_servers=None,
+        startup_mcp_servers=None,
+        mcp_startup_notices=(),
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
@@ -180,6 +180,9 @@ def test_attach_cli_servers_prefers_typed_default_agent_config() -> None:
     default_config = AgentConfig("primary", default=True, servers=["existing"])
     fallback_config = AgentConfig("fallback", servers=[])
     fast = SimpleNamespace(
+        app=SimpleNamespace(
+            context=SimpleNamespace(runtime_mcp_server_names={}),
+        ),
         agents={
             "fallback": {"config": fallback_config},
             "primary": {"config": default_config},
@@ -188,16 +191,22 @@ def test_attach_cli_servers_prefers_typed_default_agent_config() -> None:
     request = _make_request()
     request.server_list = ["existing", "from-cli"]
 
-    _attach_cli_servers_to_selected_agent(fast, request)
+    _set_cli_server_overlay_for_selected_agent(fast, request)
 
-    assert default_config.servers == ["existing", "from-cli"]
+    assert default_config.servers == ["existing"]
     assert fallback_config.servers == []
+    assert fast.app.context.runtime_mcp_server_names == {
+        "primary": ("existing", "from-cli")
+    }
 
 
 def test_attach_cli_servers_prefers_explicit_agent_over_default() -> None:
     default_config = AgentConfig("primary", default=True, servers=[])
     explicit_config = AgentConfig("target", servers=["existing"])
     fast = SimpleNamespace(
+        app=SimpleNamespace(
+            context=SimpleNamespace(runtime_mcp_server_names={}),
+        ),
         agents={
             "primary": {"config": default_config},
             "target": {"config": explicit_config},
@@ -207,16 +216,22 @@ def test_attach_cli_servers_prefers_explicit_agent_over_default() -> None:
     request.agent_name = "target"
     request.server_list = ["existing", "from-cli"]
 
-    _attach_cli_servers_to_selected_agent(fast, request)
+    _set_cli_server_overlay_for_selected_agent(fast, request)
 
     assert default_config.servers == []
-    assert explicit_config.servers == ["existing", "from-cli"]
+    assert explicit_config.servers == ["existing"]
+    assert fast.app.context.runtime_mcp_server_names == {
+        "target": ("existing", "from-cli")
+    }
 
 
 def test_attach_cli_servers_skips_tool_only_fallback_agent() -> None:
     tool_config = AgentConfig("tool", tool_only=True, servers=[])
     runnable_config = AgentConfig("runnable", servers=[])
     fast = SimpleNamespace(
+        app=SimpleNamespace(
+            context=SimpleNamespace(runtime_mcp_server_names={}),
+        ),
         agents={
             "tool": {"config": tool_config, "tool_only": True},
             "runnable": {"config": runnable_config},
@@ -225,10 +240,11 @@ def test_attach_cli_servers_skips_tool_only_fallback_agent() -> None:
     request = _make_request()
     request.server_list = ["from-cli"]
 
-    _attach_cli_servers_to_selected_agent(fast, request)
+    _set_cli_server_overlay_for_selected_agent(fast, request)
 
     assert tool_config.servers == []
-    assert runnable_config.servers == ["from-cli"]
+    assert runnable_config.servers == []
+    assert fast.app.context.runtime_mcp_server_names == {"runnable": ("from-cli",)}
 
 
 def test_explicit_remote_agent_card_model_suppresses_startup_model_selection(

@@ -341,11 +341,15 @@ def test_runtime_normalizes_bearer_prefix() -> None:
     )
 
     assert parsed.options.auth_token == "token-from-cli"
-    assert mcp_runtime._resolve_auth_token_value(" bEaReR token-from-cli ") == "token-from-cli"
+    from fast_agent.mcp.connect_targets import resolve_connect_auth_token
+
+    assert resolve_connect_auth_token(" bEaReR token-from-cli ") == "token-from-cli"
 
 
 def test_runtime_normalizes_spaced_bearer_prefix() -> None:
-    assert mcp_runtime._resolve_auth_token_value(" Bearer   token-from-cli ") == "token-from-cli"
+    from fast_agent.mcp.connect_targets import resolve_connect_auth_token
+
+    assert resolve_connect_auth_token(" Bearer   token-from-cli ") == "token-from-cli"
 
 
 def test_runtime_normalizes_bearer_prefix_before_env_resolution() -> None:
@@ -648,6 +652,10 @@ async def test_handle_mcp_connect_url_auto_appends_mcp_suffix() -> None:
     )
 
     assert any("Connected MCP server" in str(msg.text) for msg in outcome.messages)
+    assert any(
+        "Automatic '/mcp' suffixing is deprecated" in str(msg.text)
+        for msg in outcome.messages
+    )
     assert manager.last_config is not None
     assert manager.last_config.url == "https://example.com/api/mcp"
 

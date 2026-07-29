@@ -60,6 +60,10 @@ def test_first_positional_argument_skips_option_values(
             ["fast-agent", "--no-shell", "--help"],
             ["fast-agent", "go", "--no-shell", "--help"],
         ),
+        (
+            ["fast-agent", "--mcp-protocol", "modern", "--help"],
+            ["fast-agent", "go", "--mcp-protocol", "modern", "--help"],
+        ),
     ],
 )
 def test_root_go_options_auto_route_to_go(

@@ -17,7 +17,12 @@ from mcp_types import (
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
-from fast_agent.agents.mcp_agent import McpAgent, ShellEditToolFlags, ShellEditToolMode
+from fast_agent.agents.mcp_agent import (
+    McpAgent,
+    ShellEditToolFlags,
+    ShellEditToolMode,
+    _effective_configured_servers,
+)
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.context import Context
@@ -42,6 +47,18 @@ from fast_agent.utils.tool_names import (
     EXECUTE_TOOL_NAME,
     PROCESS_TOOL_NAME,
 )
+
+
+def test_runtime_mcp_overlay_does_not_mutate_agent_config() -> None:
+    config = AgentConfig(name="main", servers=["configured"])
+    context = Context(
+        runtime_mcp_server_names={
+            "main": ("configured", "startup"),
+        }
+    )
+
+    assert config.servers == ["configured"]
+    assert _effective_configured_servers(config, context) == ("configured", "startup")
 
 
 class _DisplayCall(TypedDict):

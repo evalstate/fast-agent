@@ -1,9 +1,14 @@
 """Helper functions for server configuration and naming."""
 
+from __future__ import annotations
+
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fast_agent.utils.transports import uses_mcp_remote_transport
+
+if TYPE_CHECKING:
+    from fast_agent.config import MCPServerSettings
 
 SCRIPT_EXTENSIONS = (".py", ".js", ".ts")
 
@@ -102,3 +107,16 @@ async def add_servers_to_config(fast_app: Any, servers: dict[str, dict[str, Any]
         if server_registry is not None:
             server_registry.register_runtime(server_name, mcp_server, owner="cli")
         config.mcp.servers[server_name] = mcp_server
+
+
+async def register_runtime_servers(
+    fast_app: Any,
+    servers: dict[str, MCPServerSettings],
+    *,
+    owner: str,
+) -> None:
+    """Register an already-materialized runtime server batch without mutating settings."""
+    if not servers:
+        return
+    await fast_app.app.initialize()
+    fast_app.app.context.server_registry.register_runtime_batch(servers, owner=owner)

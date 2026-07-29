@@ -200,10 +200,10 @@ def test_serve_command_builds_run_request() -> None:
     assert request.card_tools == ["./tool-cards"]
     assert request.reload is True
     assert request.watch is False
-    assert request.stdio_servers is not None
-    first_stdio_config = next(iter(request.stdio_servers.values()))
-    assert first_stdio_config["command"] == "python"
-    assert first_stdio_config["args"] == ["tool_server.py"]
+    assert request.startup_mcp_servers is not None
+    first_stdio_config = next(iter(request.startup_mcp_servers.values()))
+    assert first_stdio_config.command == "python"
+    assert first_stdio_config.args == ["tool_server.py"]
 
 
 def test_serve_command_no_home_forces_permissions_disabled() -> None:

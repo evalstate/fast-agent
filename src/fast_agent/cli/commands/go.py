@@ -31,7 +31,7 @@ from fast_agent.cli.runtime.request_builders import (
     resolve_instruction_option as _resolve_instruction_option,
 )
 from fast_agent.cli.runtime.runner import run_request
-from fast_agent.cli.shared_options import CommonAgentOptions
+from fast_agent.cli.shared_options import CommonAgentOptions, McpProtocolOption
 from fast_agent.cli.workspace_helpers import resolve_workspace_option
 from fast_agent.constants import DEFAULT_HOME_DIR, FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.agent_card_paths import AGENT_CARD_EXTENSIONS as _CARD_EXTENSIONS
@@ -228,9 +228,10 @@ def go(
         help="Force or disable browser OAuth for --a2a remote agents.",
     ),
     card_tools: list[str] | None = CommonAgentOptions.card_tools(),
-    urls: str | None = CommonAgentOptions.urls(),
+    urls: list[str] | None = CommonAgentOptions.urls(),
     auth: str | None = CommonAgentOptions.auth(),
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
+    mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
     model: str | None = CommonAgentOptions.model(),
     pack: str | None = typer.Option(
         None,
@@ -423,6 +424,7 @@ def go(
         urls=urls,
         auth=auth,
         client_metadata_url=client_metadata_url,
+        mcp_protocol=mcp_protocol.value if mcp_protocol is not None else None,
         agent_cards=agent_cards,
         card_tools=card_tools,
         model=model,

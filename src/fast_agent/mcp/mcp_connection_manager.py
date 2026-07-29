@@ -1231,8 +1231,13 @@ class MCPConnectionManager(ContextDependent):
                 _append_stdio_stderr_details(server_conn, formatted_error),
             ) from server_conn._lifecycle_error
 
+        origin = self.server_registry.get_server_origin(server_name)
+        remediation = {
+            "central": " Check the server's fast-agent.yaml configuration.",
+            "card": " Check the server's AgentCard configuration.",
+        }.get(origin, "")
         raise ServerInitializationError(
-            f"MCP Server: '{server_name}': Failed to initialize - see details. Check fast-agent.yaml?",
+            f"MCP Server: '{server_name}': Failed to initialize - see details.{remediation}",
             _append_stdio_stderr_details(server_conn, formatted_error),
         ) from server_conn._lifecycle_error
 
