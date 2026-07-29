@@ -8,7 +8,8 @@ import pytest
 from anyio import create_task_group
 from mcp.client.streamable_http import streamable_http_client
 
-from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
+from fast_agent.config import MCPServerAuthSettings, MCPServerSettings, Settings
+from fast_agent.context import Context
 from fast_agent.core.exceptions import ServerInitializationError
 from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
@@ -369,6 +370,27 @@ async def test_startup_timeout_budget_resumes_after_oauth_wait_ends() -> None:
 class _DummyRegistry:
     def get_server_config(self, _server_name: str):
         return MCPServerSettings(name="demo", url="http://example.com/mcp")
+
+
+def test_disabled_mcp_diagnostics_skips_timeline_metrics_and_ping_history() -> None:
+    settings = Settings.model_validate({"mcp": {"diagnostics": {"enabled": False}}})
+    manager = MCPConnectionManager(
+        server_registry=cast("Any", _DummyRegistry()),
+        context=Context(config=settings),
+    )
+    config = MCPServerSettings(name="demo", url="http://example.com/mcp")
+
+    assert manager._launch_transport_metrics(config) is None
+
+    connection = ServerConnection(
+        server_name="demo",
+        server_config=config,
+        transport_context_factory=lambda: cast("Any", object()),
+        callback_runtime=_callback_runtime(),
+    )
+    connection.record_ping_event("ping")
+
+    assert connection.build_ping_activity_buckets(30, 2) == ["none", "none"]
 
 
 class _DummyStdioRegistry:

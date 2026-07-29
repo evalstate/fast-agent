@@ -30,7 +30,7 @@ def _context(*, auto_sampling: bool = False, elicitation_mode: str = "forms") ->
     return Context(
         config=Settings.model_validate(
             {
-                "auto_sampling": auto_sampling,
+                "mcp": {"client": {"auto_sampling": auto_sampling}},
                 "elicitation": {"mode": elicitation_mode},
             }
         )

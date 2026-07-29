@@ -512,8 +512,8 @@ class McpAgent(ABC, ToolAgent):
             return status_map
 
         auto_sampling = True
-        if self._context and self._context.config:
-            auto_sampling = self._context.config.auto_sampling
+        if self._context and self._context.config and self._context.config.mcp:
+            auto_sampling = self._context.config.mcp.client.auto_sampling
 
         for server_name in self._provider_managed_server_names:
             if server_name in status_map:

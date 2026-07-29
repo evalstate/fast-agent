@@ -549,6 +549,8 @@ class ServerConnection:
             self.session_id = session_id
 
     def record_ping_event(self, state: str) -> None:
+        if self.transport_metrics is None:
+            return
         self._ping_history.append((datetime.now(timezone.utc), state))
 
     def build_ping_activity_buckets(self, bucket_seconds: int, bucket_count: int) -> list[str]:
@@ -1212,11 +1214,14 @@ class MCPConnectionManager(ContextDependent):
         except RuntimeError:
             ctx = None
 
-        config_obj = getattr(ctx, "config", None)
-        timeline_config = getattr(config_obj, "mcp_timeline", None)
-        if timeline_config:
-            timeline_steps = getattr(timeline_config, "steps", timeline_steps)
-            timeline_seconds = getattr(timeline_config, "step_seconds", timeline_seconds)
+        config_obj = ctx.config if ctx is not None else None
+        mcp_config = config_obj.mcp if config_obj is not None else None
+        diagnostics = mcp_config.diagnostics if mcp_config is not None else None
+        if diagnostics is not None:
+            if not diagnostics.enabled:
+                return None
+            timeline_steps = diagnostics.timeline.steps
+            timeline_seconds = diagnostics.timeline.step_seconds
 
         return TransportChannelMetrics(
             bucket_seconds=timeline_seconds,

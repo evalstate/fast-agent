@@ -1808,8 +1808,12 @@ class MCPAggregator(ContextDependent):
 
     def _auto_sampling_mode(self) -> Literal["auto", "off"]:
         auto_sampling = True
-        if self.context and self.context.config is not None:
-            auto_sampling = self.context.config.auto_sampling
+        if (
+            self.context
+            and self.context.config is not None
+            and self.context.config.mcp is not None
+        ):
+            auto_sampling = self.context.config.mcp.client.auto_sampling
         return "auto" if auto_sampling else "off"
 
     async def get_skybridge_configs(self) -> dict[str, SkybridgeServerConfig]:

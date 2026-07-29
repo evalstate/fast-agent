@@ -11,5 +11,8 @@ def test_auto_sampling_defaults_to_enabled_without_context() -> None:
 
 
 def test_auto_sampling_uses_settings_value() -> None:
-    assert resolve_auto_sampling_enabled(Context(config=Settings(auto_sampling=True))) is True
-    assert resolve_auto_sampling_enabled(Context(config=Settings(auto_sampling=False))) is False
+    enabled = Settings.model_validate({"mcp": {"client": {"auto_sampling": True}}})
+    disabled = Settings.model_validate({"mcp": {"client": {"auto_sampling": False}}})
+
+    assert resolve_auto_sampling_enabled(Context(config=enabled)) is True
+    assert resolve_auto_sampling_enabled(Context(config=disabled)) is False

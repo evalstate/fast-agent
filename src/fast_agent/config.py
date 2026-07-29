@@ -53,7 +53,6 @@ from fast_agent.utils.collections import unique_preserve_order
 from fast_agent.utils.numeric import int_or_none
 from fast_agent.utils.text import strip_casefold, strip_str_to_none
 from fast_agent.utils.transports import McpClientTransport
-from fast_agent.utils.type_narrowing import is_str_object_dict
 
 type TerminalImageSize = int | Literal["auto"] | str | None
 type ShellWriteTextFileMode = Literal["auto", "on", "off", "apply_patch"]
@@ -228,6 +227,33 @@ class MCPTimelineSettings(BaseModel):
         if value <= 0:
             raise ValueError("Timeline steps must be greater than zero.")
         return value
+
+
+class MCPDefaultsSettings(BaseModel):
+    """Defaults applied to omitted MCP server settings."""
+
+    protocol_mode: Literal["auto", "modern", "legacy"] = "auto"
+    reconnect_on_disconnect: bool = True
+    include_instructions: bool = True
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class MCPClientSettings(BaseModel):
+    """MCP client behavior."""
+
+    auto_sampling: bool = True
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class MCPDiagnosticsSettings(BaseModel):
+    """MCP diagnostics collection and display settings."""
+
+    enabled: bool = True
+    timeline: MCPTimelineSettings = Field(default_factory=MCPTimelineSettings)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class SkillsSettings(BaseModel):
@@ -728,6 +754,9 @@ class MCPServerSettings(BaseModel):
 class MCPSettings(BaseModel):
     """Configuration for all MCP servers."""
 
+    defaults: MCPDefaultsSettings = Field(default_factory=MCPDefaultsSettings)
+    client: MCPClientSettings = Field(default_factory=MCPClientSettings)
+    diagnostics: MCPDiagnosticsSettings = Field(default_factory=MCPDiagnosticsSettings)
     servers: dict[str, MCPServerSettings] = Field(default_factory=dict)
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -759,63 +788,6 @@ class MCPSettings(BaseModel):
         return payload
 
     @classmethod
-    def _normalize_target_list_entries(
-        cls,
-        raw_targets: Any,
-    ) -> dict[str, dict[str, Any]]:
-        if raw_targets is None:
-            return {}
-
-        if not isinstance(raw_targets, list):
-            raise ValueError("`mcp.targets` must be a list")
-
-        from fast_agent.mcp.connect_targets import resolve_target_entry
-
-        normalized_targets: dict[str, dict[str, Any]] = {}
-        for index, raw_entry in enumerate(raw_targets):
-            if isinstance(raw_entry, str):
-                entry: dict[str, object] = {"target": raw_entry}
-            elif is_str_object_dict(raw_entry):
-                entry = raw_entry
-            else:
-                raise ValueError(f"`mcp.targets[{index}]` must be a string or mapping")
-
-            target_value = strip_str_to_none(entry.get("target"))
-            source_path = f"mcp.targets[{index}].target"
-            if target_value is None:
-                raise ValueError(f"`{source_path}` must be a non-empty string")
-
-            raw_name = entry.get("name")
-            name_value = strip_str_to_none(raw_name)
-            if raw_name is not None and name_value is None:
-                raise ValueError(f"`mcp.targets[{index}].name` must be a non-empty string")
-
-            overrides = {key: value for key, value in entry.items() if key != "target"}
-            resolved_entry = resolve_target_entry(
-                target=target_value,
-                default_name=name_value,
-                overrides=overrides,
-                source_path=source_path,
-            )
-
-            resolved_payload = cls._serialize_resolved_target_settings(resolved_entry.settings)
-            existing_payload = normalized_targets.get(resolved_entry.server_name)
-            if existing_payload is not None and existing_payload != resolved_payload:
-                raise ValueError(
-                    " ".join(
-                        [
-                            f"`mcp.targets[{index}]` resolves to duplicate server name '{resolved_entry.server_name}'",
-                            "with different settings.",
-                            "Set an explicit unique `name`.",
-                        ]
-                    )
-                )
-
-            normalized_targets[resolved_entry.server_name] = resolved_payload
-
-        return normalized_targets
-
-    @classmethod
     def _normalize_server_map_entries(
         cls,
         raw_servers: Any,
@@ -829,15 +801,47 @@ class MCPSettings(BaseModel):
 
         normalized_servers: dict[Any, Any] = {}
         for server_key, raw_entry in raw_servers.items():
-            if not isinstance(raw_entry, dict) or "target" not in raw_entry:
+            if not isinstance(raw_entry, dict):
                 normalized_servers[server_key] = raw_entry
                 continue
 
             source_name = str(server_key)
+            if "name" in raw_entry:
+                raw_name = raw_entry.get("name")
+                if raw_name != source_name:
+                    raise ValueError(
+                        f"`mcp.servers.{source_name}.name` must match its map key "
+                        f"'{source_name}', got {raw_name!r}"
+                    )
+                warnings.warn(
+                    f"`mcp.servers.{source_name}.name` is deprecated; the map key is the "
+                    "canonical server name.",
+                    DeprecationWarning,
+                    stacklevel=4,
+                )
+
+            if "target" not in raw_entry:
+                normalized_entry = dict(raw_entry)
+                normalized_entry.pop("name", None)
+                normalized_servers[server_key] = normalized_entry
+                continue
+
             source_path = f"mcp.servers.{source_name}.target"
             target_value = strip_str_to_none(raw_entry.get("target"))
             if target_value is None:
                 raise ValueError(f"`{source_path}` must be a non-empty string")
+
+            conflicting_fields = [
+                field
+                for field in ("transport", "url", "command", "args", "connector_id")
+                if field in raw_entry
+            ]
+            if conflicting_fields:
+                fields = ", ".join(conflicting_fields)
+                raise ValueError(
+                    f"`{source_path}` cannot be combined with source fields: {fields}. "
+                    "Remove them or replace `target` with explicit transport settings."
+                )
 
             overrides = {key: value for key, value in raw_entry.items() if key != "target"}
             resolved_entry = resolve_target_entry(
@@ -846,9 +850,16 @@ class MCPSettings(BaseModel):
                 overrides=overrides,
                 source_path=source_path,
             )
-            normalized_servers[server_key] = cls._serialize_resolved_target_settings(
-                resolved_entry.settings
-            )
+            payload = cls._serialize_resolved_target_settings(resolved_entry.settings)
+            payload.pop("name", None)
+            for field in (
+                "protocol_mode",
+                "reconnect_on_disconnect",
+                "include_instructions",
+            ):
+                if field not in raw_entry:
+                    payload.pop(field, None)
+            normalized_servers[server_key] = payload
 
         return normalized_servers
 
@@ -858,22 +869,52 @@ class MCPSettings(BaseModel):
         if not isinstance(values, dict):
             return values
 
-        raw_servers = values.get("servers")
-        raw_targets = values.get("targets")
+        if "targets" in values:
+            raise ValueError(
+                "`mcp.targets` is no longer supported. Run `fast-agent config migrate-mcp` "
+                "to migrate it to `mcp.servers`."
+            )
 
-        normalized_targets = cls._normalize_target_list_entries(raw_targets)
+        raw_servers = values.get("servers")
         normalized_servers = cls._normalize_server_map_entries(raw_servers)
 
         if normalized_servers is None:
             return values
 
-        merged_servers: dict[Any, Any] = dict(normalized_targets)
-        merged_servers.update(normalized_servers)
-
         normalized_values = dict(values)
-        normalized_values["servers"] = merged_servers
-        normalized_values.pop("targets", None)
+        normalized_values["servers"] = normalized_servers
         return normalized_values
+
+    @model_validator(mode="after")
+    def _materialize_server_defaults_and_names(self) -> "MCPSettings":
+        defaults = self.defaults.model_dump()
+        canonical_servers: dict[str, MCPServerSettings] = {}
+        for server_name, server in self.servers.items():
+            if server.name is not None and server.name != server_name:
+                raise ValueError(
+                    f"`mcp.servers.{server_name}.name` must match its map key "
+                    f"'{server_name}', got {server.name!r}"
+                )
+            if server.name == server_name and "name" in server.model_fields_set:
+                warnings.warn(
+                    f"`mcp.servers.{server_name}.name` is deprecated; the map key is the "
+                    "canonical server name.",
+                    DeprecationWarning,
+                    stacklevel=3,
+                )
+
+            updates: dict[str, Any] = {"name": server_name}
+            updates.update(
+                {
+                    field: value
+                    for field, value in defaults.items()
+                    if field not in server.model_fields_set
+                }
+            )
+            canonical_servers[server_name] = server.model_copy(update=updates)
+
+        self.servers = canonical_servers
+        return self
 
 
 _DOMAIN_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -1973,6 +2014,65 @@ class _WithoutAmbiguousHomeSource(PydanticBaseSettingsSource):
         return self._source.get_field_value(field, field_name)
 
 
+def _migrate_legacy_mcp_settings_values(values: Any) -> Any:
+    if not isinstance(values, dict):
+        return values
+
+    normalized = dict(values)
+    raw_mcp = normalized.get("mcp")
+    if isinstance(raw_mcp, MCPSettings):
+        mcp: dict[str, Any] = raw_mcp.model_dump(mode="python")
+    elif isinstance(raw_mcp, dict):
+        mcp = dict(raw_mcp)
+    else:
+        mcp = {}
+
+    migrations = (
+        ("auto_sampling", "client", "auto_sampling"),
+        ("mcp_timeline", "diagnostics", "timeline"),
+    )
+    for legacy_key, section_name, canonical_key in migrations:
+        if legacy_key not in normalized:
+            continue
+
+        raw_section = mcp.get(section_name)
+        if isinstance(raw_mcp, MCPSettings):
+            section_model = raw_mcp.client if section_name == "client" else raw_mcp.diagnostics
+            section = section_model.model_dump(mode="python")
+            canonical_present = (
+                section_name in raw_mcp.model_fields_set
+                and canonical_key in section_model.model_fields_set
+            )
+        elif isinstance(raw_section, BaseModel):
+            section = raw_section.model_dump(mode="python")
+            canonical_present = canonical_key in raw_section.model_fields_set
+        elif isinstance(raw_section, dict):
+            section = dict(raw_section)
+            canonical_present = canonical_key in raw_section
+        else:
+            section = {}
+            canonical_present = False
+
+        canonical_path = f"mcp.{section_name}.{canonical_key}"
+        if canonical_present:
+            raise ValueError(
+                f"`{legacy_key}` and `{canonical_path}` cannot both be set; "
+                f"remove `{legacy_key}`."
+            )
+
+        warnings.warn(
+            f"`{legacy_key}` is deprecated; use `{canonical_path}` instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        section[canonical_key] = normalized.pop(legacy_key)
+        mcp[section_name] = section
+
+    if mcp or raw_mcp is not None:
+        normalized["mcp"] = mcp
+    return normalized
+
+
 class Settings(BaseSettings):
     """
     Settings class for the fast-agent application.
@@ -2008,6 +2108,11 @@ class Settings(BaseSettings):
             file_secret_settings,
         )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_mcp_settings(cls, values: Any) -> Any:
+        return _migrate_legacy_mcp_settings_values(values)
+
     mcp: MCPSettings | None = Field(default_factory=MCPSettings)
     """MCP config, such as MCP servers"""
 
@@ -2042,9 +2147,6 @@ class Settings(BaseSettings):
 
     cli_model_override: str | None = None
     """Model override supplied by the CLI for the current run, if any."""
-
-    auto_sampling: bool = True
-    """Enable automatic sampling model selection if not explicitly configured"""
 
     session_history: bool = True
     """Persist session history in the environment sessions folder (default: True)."""
@@ -2127,9 +2229,6 @@ class Settings(BaseSettings):
     mcp_ui_output_dir: str = ".fast-agent/ui"
     """Directory where MCP-UI HTML files are written. Relative paths are resolved from CWD."""
 
-    mcp_timeline: MCPTimelineSettings = Field(default_factory=MCPTimelineSettings)
-    """Display settings for MCP activity timelines."""
-
     skills: SkillsSettings = Field(default_factory=SkillsSettings)
     """Local skills discovery and selection settings."""
 
@@ -2163,6 +2262,10 @@ class Settings(BaseSettings):
     _logger_path_explicit: bool = PrivateAttr(default=False)
 
     def __init__(self, **values: Any) -> None:
+        if isinstance(values.get("mcp"), MCPSettings):
+            migrated_values = _migrate_legacy_mcp_settings_values(values)
+            if isinstance(migrated_values, dict):
+                values = migrated_values
         raw_logger = values.get("logger")
         nested_model_path_explicit = (
             "path" in raw_logger.model_fields_set

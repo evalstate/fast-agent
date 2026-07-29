@@ -520,6 +520,7 @@ def _default_logger_summary(default_settings: Any) -> dict[str, Any]:
 
 
 def _build_default_config_summary(default_settings: Any) -> dict[str, Any]:
+    diagnostics = default_settings.mcp.diagnostics
     return {
         "status": "not_found",
         "error": None,
@@ -527,8 +528,9 @@ def _build_default_config_summary(default_settings: Any) -> dict[str, Any]:
         "logger": _default_logger_summary(default_settings),
         "mcp_ui_mode": default_settings.mcp_ui_mode,
         "timeline": {
-            "steps": default_settings.mcp_timeline.steps,
-            "step_seconds": default_settings.mcp_timeline.step_seconds,
+            "enabled": diagnostics.enabled,
+            "steps": diagnostics.timeline.steps,
+            "step_seconds": diagnostics.timeline.step_seconds,
         },
         "mcp_servers": [],
         "skills_directories": None,
@@ -583,28 +585,35 @@ def _resolve_timeline_summary(
     config: dict[str, Any],
     *,
     default_settings: Any,
-) -> dict[str, int]:
+) -> dict[str, int | bool]:
+    default_diagnostics = default_settings.mcp.diagnostics
     timeline = {
-        "steps": default_settings.mcp_timeline.steps,
-        "step_seconds": default_settings.mcp_timeline.step_seconds,
+        "enabled": default_diagnostics.enabled,
+        "steps": default_diagnostics.timeline.steps,
+        "step_seconds": default_diagnostics.timeline.step_seconds,
     }
-    if "mcp_timeline" not in config:
+    raw_mcp = config.get("mcp")
+    if not isinstance(raw_mcp, dict):
+        return timeline
+    raw_diagnostics = raw_mcp.get("diagnostics")
+    if not isinstance(raw_diagnostics, dict):
         return timeline
 
-    from fast_agent.config import MCPTimelineSettings
+    from fast_agent.config import MCPDiagnosticsSettings
 
     try:
-        timeline_override = MCPTimelineSettings(**(config.get("mcp_timeline") or {}))
+        diagnostics = MCPDiagnosticsSettings(**raw_diagnostics)
     except Exception as exc:  # pragma: no cover - defensive
         console.print(
-            "[yellow]Warning:[/yellow] Invalid mcp_timeline configuration; using defaults."
+            "[yellow]Warning:[/yellow] Invalid mcp.diagnostics configuration; using defaults."
         )
         console.print(f"[yellow]Details:[/yellow] {exc}")
         return timeline
 
     return {
-        "steps": timeline_override.steps,
-        "step_seconds": timeline_override.step_seconds,
+        "enabled": diagnostics.enabled,
+        "steps": diagnostics.timeline.steps,
+        "step_seconds": diagnostics.timeline.step_seconds,
     }
 
 
@@ -1504,6 +1513,7 @@ def _build_application_settings_rows(
     )
 
     timeline_settings = config_summary.get("timeline", {})
+    timeline_enabled = timeline_settings.get("enabled", True)
     timeline_steps = timeline_settings.get("steps", 20)
     timeline_step_seconds = timeline_settings.get("step_seconds", 30)
 
@@ -1531,6 +1541,7 @@ def _build_application_settings_rows(
         ("Truncate Tools", _bool_to_symbol(logger.get("truncate_tools", True))),
         ("Enable Markup", _bool_to_symbol(logger.get("enable_markup", True))),
         ("Prompt Marks", _bool_to_symbol(logger.get("enable_prompt_marks", False))),
+        ("MCP Diagnostics", _bool_to_symbol(timeline_enabled)),
         ("Timeline Steps", f"[green]{timeline_steps}[/green]"),
         (
             "Timeline Interval",

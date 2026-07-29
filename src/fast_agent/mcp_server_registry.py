@@ -67,8 +67,6 @@ class ServerRegistry:
         if server_config is None:
             logger.warning(f"Server '{server_name}' not found in registry.")
             return None
-        if server_config.name is None:
-            server_config.name = server_name
         return server_config
 
     def get_server_capabilities(self, server_name: str) -> "ServerCapabilities | None":

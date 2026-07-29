@@ -107,9 +107,13 @@ def _end_sampling_notification(server_name: str) -> None:
 
 
 def resolve_auto_sampling_enabled(app_context: "Context | None") -> bool:
-    if app_context is None or app_context.config is None:
+    if (
+        app_context is None
+        or app_context.config is None
+        or app_context.config.mcp is None
+    ):
         return True
-    return app_context.config.auto_sampling
+    return app_context.config.mcp.client.auto_sampling
 
 
 def _configured_sampling_model(server_config: "MCPServerSettings | None") -> str | None:
