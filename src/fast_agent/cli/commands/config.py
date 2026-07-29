@@ -8,6 +8,12 @@ from typing import Annotated, Any
 import typer
 from ruamel.yaml import YAML
 
+from fast_agent.cli.mcp_config_migration import (
+    MCPConfigMigrationError,
+    load_and_migrate_mcp,
+    unified_mcp_diff,
+    write_mcp_migration,
+)
 from fast_agent.config import (
     SHELL_WRITE_TEXT_FILE_MODE_HELP,
     SHELL_WRITE_TEXT_FILE_MODES,
@@ -539,6 +545,40 @@ def config_display(config: ConfigOption = None) -> None:
     rprint(f"[green]Display settings saved to {config_path}[/green]")
 
 
+@app.command("migrate-mcp")
+def migrate_mcp(
+    path: Annotated[
+        Path,
+        typer.Argument(
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+            help="Configuration YAML file to migrate.",
+        ),
+    ],
+    write: Annotated[
+        bool,
+        typer.Option("--write", help="Replace PATH and save the exact original as PATH.bak."),
+    ] = False,
+) -> None:
+    """Migrate legacy MCP configuration to the canonical nested schema."""
+    try:
+        original, migrated, changed = load_and_migrate_mcp(path)
+        if not changed:
+            typer.echo("No MCP migration needed.")
+            return
+        if write:
+            write_mcp_migration(path, original, migrated)
+            typer.echo(f"Migrated {path}; backup saved to {path}.bak")
+        else:
+            typer.echo(unified_mcp_diff(path, original, migrated), nl=False)
+    except (MCPConfigMigrationError, OSError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
 @app.callback(invoke_without_command=True)
 def config_main(ctx: typer.Context) -> None:
     """Configure fast-agent settings interactively.
@@ -546,6 +586,7 @@ def config_main(ctx: typer.Context) -> None:
     Use subcommands to configure specific areas:
       - shell: Shell execution settings (timeout, output limits, etc.)
       - display: Console display and markdown rendering
+      - migrate-mcp: Migrate legacy MCP configuration
     """
     if ctx.invoked_subcommand is None:
         # Show help if no subcommand
@@ -560,6 +601,7 @@ def config_main(ctx: typer.Context) -> None:
 
         table.add_row("shell", "Configure shell execution settings")
         table.add_row("display", "Configure display and markdown rendering")
+        table.add_row("migrate-mcp", "Migrate legacy MCP configuration")
 
         rprint(table)
         rprint("\nExample: [cyan]fast-agent config shell[/cyan]")

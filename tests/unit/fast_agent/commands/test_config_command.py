@@ -19,6 +19,7 @@ def test_config_root_lists_display_subcommand() -> None:
     assert result.exit_code == 0, result.output
     assert "display" in result.output
     assert "markdown rendering" in result.output
+    assert "migrate-mcp" in result.output
     assert "model" not in result.output
 
 
