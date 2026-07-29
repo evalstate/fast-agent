@@ -72,8 +72,7 @@ compaction:
 # mcp_ui_mode: enabled
 
 anthropic:
-  thinking_enabled: true
-  thinking_budget_tokens: 1024
+  reasoning: null # Optional: auto/low/medium/high/max, an integer token budget, or off
 #  cache_mode: "auto" # Options: off, prompt, auto (default: auto)
 #  cache_ttl: "5m" # Options: 5m, 1h (default: 5m)
 #  cache_diagnostics: false # First-party Anthropic cache-miss diagnosis (debug only)

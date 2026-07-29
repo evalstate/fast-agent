@@ -17,11 +17,12 @@ In this quick start, we'll demonstrate **fast-agent**'s [MCP Elicitation](https:
 
 Elicitations allow MCP Servers to request additional input directly from Users.
 
-This demo comprises three MCP Servers and three **fast-agent** programs:
+This demo comprises four MCP servers and four **fast-agent** programs:
 
  - An interactive demonstration showing all types of Forms, Fields and Validation in the specification.
  - A demonstration of an Elicitation made during a Tool Call.
  - An example of using a custom Elicitation handler.
+ - A URL elicitation example for out-of-band authorization, credential, and payment flows.
 
 This quick start provides you with a complete MCP Client and Server solution for developing and deploying Elicitations.
 
@@ -52,7 +53,7 @@ Make sure you have the `uv` [package manager](https://docs.astral.sh/uv/) instal
 
     ```pwsh
     # create, and change to a new directory
-    md fast-agent |cd
+    mkdir fast-agent; cd fast-agent
 
     # create and activate a python environment
     uv venv
@@ -124,7 +125,7 @@ This agent uses a custom elicitation handler to generate a character for a game.
 ```python title="game_character.py" linenums="23" hl_lines="4-5"
 @fast.agent(
     "character-creator",
-    servers=["elicitation_forms_server"],
+    servers=["elicitation_game_server"],
     # Register our handler from game_character_handler.py
     elicitation_handler=game_character_elicitation_handler,
 )
@@ -132,24 +133,35 @@ This agent uses a custom elicitation handler to generate a character for a game.
 
 For MCP Server Developers, Custom Handlers can be used to help complete automated test flows. For Production use, Custom Handlers can be used to send notifications or request input via remote  platforms such as web forms.
 
+## URL Elicitation
+
+URL elicitation directs the user to an external page without sending sensitive
+credentials or payment details through the MCP client or LLM context. Run:
+
+```bash
+uv run url_elicitation_demo.py
+```
+
+The example covers OAuth-like authorization, secure API-key entry, payment, and
+protected-resource flows. Its `example.com` URLs are illustrative placeholders;
+replace them with endpoints that track `elicitation_id` and verify completion
+out of band.
+
 ## Configuration
 
-Note that Elicitations are now _enabled by default_ in **fast-agent**, and can be [configured with](../#elicitations) the `fast-agent.yaml` file.
+Elicitations are enabled with the forms handler by default. Configure global
+and per-server behavior in
+[`fast-agent.yaml`](client-servers.md#elicitations).
 
 You can configure the Elicitation mode to `forms` (the default), `auto-cancel`, or `none`.
 
-```yaml title="fast-agent.yaml" linenums="19" hl_lines="10"
+```yaml title="fast-agent.yaml"
 mcp:
   servers:
-    # Elicitation test servers for different modes
-    elicitation_forms_mode:
-      command: "uv"
-      args: ["run", "elicitation_test_server_advanced.py"]
-      transport: "stdio"
-      cwd: "."
+    elicitation_forms_server:
+      target: "uv run elicitation_forms_server.py"
       elicitation:
         mode: "forms"
-
 ```
 
 In `auto-cancel` mode, **fast-agent** advertises the Elicitation capability, and automatically cancels Elicitation requests from the MCP Server.

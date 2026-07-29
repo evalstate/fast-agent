@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -55,6 +56,16 @@ def test_setup_config_compaction_defaults_match_settings() -> None:
     assert "prompt" not in compaction
 
 
+def test_setup_config_uses_current_anthropic_reasoning_setting() -> None:
+    parsed = yaml.safe_load(
+        Path("examples/setup/fast-agent.yaml").read_text(encoding="utf-8")
+    )
+
+    assert parsed["anthropic"]["reasoning"] is None
+    assert "thinking_enabled" not in parsed["anthropic"]
+    assert "thinking_budget_tokens" not in parsed["anthropic"]
+
+
 def test_render_pyproject_uses_python_requirement_helper(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setattr(setup, "_python_requires", lambda: ">=3.14")
 
@@ -86,6 +97,30 @@ def test_quickstart_copies_preferred_config_filename(
     assert "workflow/fast-agent.yaml" in created
     assert (tmp_path / "workflow" / "fast-agent.yaml").exists()
     assert not (tmp_path / "workflow" / "fastagent.config.yaml").exists()
+
+
+def test_elicitation_quickstart_copies_every_configured_server() -> None:
+    example = quickstart._EXAMPLE_CONFIGS["elicitations"]
+    parsed = yaml.safe_load(
+        Path("examples/mcp/elicitations/fast-agent.yaml").read_text(encoding="utf-8")
+    )
+    configured_scripts = {
+        tokens[-1]
+        for server in parsed["mcp"]["servers"].values()
+        if (tokens := shlex.split(server["target"])) and tokens[-1].endswith(".py")
+    }
+
+    assert configured_scripts <= set(example.files)
+    assert "url_elicitation_demo.py" in example.files
+
+
+def test_elicitation_quickstart_copies_url_demo(tmp_path: Path) -> None:
+    created = quickstart.copy_example_files("elicitations", tmp_path, force=True)
+
+    assert "elicitations/url_elicitation_demo.py" in created
+    assert "elicitations/url_elicitation_server.py" in created
+    assert (tmp_path / "elicitations" / "url_elicitation_demo.py").is_file()
+    assert (tmp_path / "elicitations" / "url_elicitation_server.py").is_file()
 
 
 def test_quickstart_files_summary_formats_singular_counts() -> None:

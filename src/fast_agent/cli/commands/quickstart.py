@@ -53,6 +53,7 @@ _NEXT_STEP_MESSAGES: dict[str, tuple[str, ...]] = {
         "1. Go to the `elicitations` subdirectory (cd elicitations)",
         "2. Try the forms demo: uv run forms_demo.py",
         "3. Run the game character creator: uv run game_character.py",
+        "4. Try out-of-band URL elicitation: uv run url_elicitation_demo.py",
         "Check [cyan][link=https://fast-agent.ai/mcp/elicitations/]https://fast-agent.ai/mcp/elicitations/[/link][/cyan] for more details",
     ),
 }
@@ -112,8 +113,8 @@ _EXAMPLE_CONFIGS = {
     "elicitations": ExampleConfig(
         description=(
             "Interactive form examples using MCP elicitations feature.\n"
-            "Demonstrates collecting structured data with forms, AI-guided workflows,\n"
-            "and custom handlers. Creates examples in an 'elicitations' subdirectory."
+            "Demonstrates forms, tool-call requests, custom handlers, and out-of-band\n"
+            "URL flows. Creates examples in an 'elicitations' subdirectory."
         ),
         files=[
             "elicitation_account_server.py",
@@ -125,6 +126,8 @@ _EXAMPLE_CONFIGS = {
             "game_character.py",
             "game_character_handler.py",
             "tool_call.py",
+            "url_elicitation_demo.py",
+            "url_elicitation_server.py",
         ],
         create_subdir=True,
         path_in_examples=["mcp", "elicitations"],
