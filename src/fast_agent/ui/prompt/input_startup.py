@@ -264,7 +264,7 @@ def show_input_help_banner(
         "[dim]Use [/dim]/attach[dim], '[/dim]^file:[dim]', '[/dim]^url:[dim]', [dim]or [/dim]"
         "Ctrl+Alt+V[dim] to paste attachments.[/dim]"
         if supports_clipboard_image_paste
-        else "[dim]Use [/dim]/attach, '[/dim]^file:[dim]',or '[/dim]^url:[dim]' for attachments.[/dim]"
+        else "[dim]Use [/dim]/attach[dim], '[/dim]^file:[dim]', or '[/dim]^url:[dim]' for attachments.[/dim]"
     )
     rich_print(
         """CTRL+T [dim]multiline, [/dim]CTRL+Y[dim] copy last message, [/dim]CTRL+E[dim] external editor.[/dim]\n"""

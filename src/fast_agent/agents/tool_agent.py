@@ -1,13 +1,14 @@
+from __future__ import annotations
+
 import json
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from contextlib import suppress
 from contextvars import ContextVar
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastmcp.tools import FunctionTool, ToolResult
 from mcp_types import CallToolResult, ContentBlock, ListToolsResult, Tool
 
-from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.subagent_labels import requested_subagent_display_label
 from fast_agent.agents.tool_call_planning import (
@@ -24,14 +25,12 @@ from fast_agent.constants import (
     HUMAN_INPUT_TOOL_NAME,
     should_parallelize_tool_calls,
 )
-from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import LlmAgentProtocol, ToolRunnerHookCapable
 from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content, tool_result_text_for_llm
 from fast_agent.mcp.prompt import Prompt
-from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 from fast_agent.mcp.tool_result_metadata import (
     set_url_elicitation_required_payload,
     url_elicitation_required_payload,
@@ -39,9 +38,16 @@ from fast_agent.mcp.tool_result_metadata import (
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 from fast_agent.tools.invocation_context import local_tool_invocation_context
+from fast_agent.tools.transient_artifacts import TransientArtifactStore
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams, ToolTimingInfo
 from fast_agent.ui.message_display_helpers import resolve_highlight_indexes
 from fast_agent.utils.async_utils import gather_with_cancel
+
+if TYPE_CHECKING:
+    from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.context import Context
+    from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
+    from fast_agent.tools.execution_environment import EnvironmentTemporaryArtifacts
 
 logger = get_logger(__name__)
 
@@ -86,6 +92,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         self._agent_tools: dict[str, LlmAgent] = {}
         self._card_tool_names: set[str] = set()
         self.last_turn_messages: list[PromptMessageExtended] = []
+        self._transient_artifact_store: TransientArtifactStore | None = None
 
         # Build a working list of tools and auto-inject human-input tool if missing
         working_tools: list[FunctionTool | Callable[..., Any]] = list(tools) if tools else []
@@ -129,6 +136,32 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             )
         ]
         return {"tools": tools}
+
+    def _temporary_artifact_environment(self) -> EnvironmentTemporaryArtifacts | None:
+        """Return this agent's model-visible temporary-file capability, if any."""
+
+        return None
+
+    def transient_artifact_store(self) -> TransientArtifactStore | None:
+        """Lazily create the parent-owned temporary artifact store."""
+
+        if self._transient_artifact_store is not None:
+            return self._transient_artifact_store
+        environment = self._temporary_artifact_environment()
+        if environment is None:
+            return None
+        self._transient_artifact_store = TransientArtifactStore(environment)
+        return self._transient_artifact_store
+
+    async def _close_transient_artifact_store(self) -> None:
+        store = self._transient_artifact_store
+        self._transient_artifact_store = None
+        if store is not None:
+            await store.close()
+
+    async def shutdown(self) -> None:
+        await self._close_transient_artifact_store()
+        await super().shutdown()
 
     def add_tool(self, tool: FunctionTool, *, replace: bool = True) -> None:
         """Register a new execution tool and expose it to the LLM."""

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Annotated, Protocol, cast, runtime_checkable
 
@@ -17,6 +18,10 @@ from fast_agent.agents.subagent_labels import (
     SubagentLabel,
     generate_subagent_label,
     resolve_subagent_label,
+)
+from fast_agent.agents.subagent_transcript import (
+    SubagentTranscriptMetadata,
+    render_subagent_transcript,
 )
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.tool_runner import ToolRunnerHooks
@@ -46,6 +51,7 @@ if TYPE_CHECKING:
     from fast_agent.agents.tool_runner import ToolRunner
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.session.session_manager import SessionManager
+    from fast_agent.tools.transient_artifacts import TransientArtifactResult
     from fast_agent.types import PromptMessageExtended
 
 SUBAGENT_TOOL_NAME = BUILTIN_SUBAGENT_TOOL_NAME
@@ -57,7 +63,8 @@ _FINALIZATION_TIMEOUT_SECONDS = 15.0
 _DESCRIPTION = (
     "Run a focused subagent in a clean context. It inherits your instruction and available "
     "capabilities, except it does not receive this subagent tool. Give it a complete task and "
-    "all necessary context. The tool returns only its final answer. The optional model overrides "
+    "all necessary context. The tool returns its final answer and, when available, a temporary "
+    "path to its complete transcript. The optional model overrides "
     "the current model for this run. The optional label is a short display name for this run."
 )
 
@@ -66,6 +73,11 @@ class ProgressEventDisplay(Protocol):
     """The small progress-display surface used by a subagent run."""
 
     def update(self, event: ProgressEvent) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _SubagentFinalizationResult:
+    transcript: TransientArtifactResult | None = None
 
 
 @runtime_checkable
@@ -384,6 +396,8 @@ def install_subagent_tool(
         response_text = ""
         is_error = False
         cancellation: asyncio.CancelledError | None = None
+        cancellation_requested = asyncio.Event()
+        finalization_result = _SubagentFinalizationResult()
         started_at = datetime.now(timezone.utc).isoformat()
         progress = monitor.start(
             label=resolved_label,
@@ -430,6 +444,7 @@ def install_subagent_tool(
                     label=resolved_label,
                     parent_tool_call_id=parent_tool_call_id,
                     started_at=started_at,
+                    cancellation_requested=cancellation_requested,
                 )
             )
             while not finalizer.done():
@@ -437,8 +452,9 @@ def install_subagent_tool(
                     await asyncio.shield(finalizer)
                 except asyncio.CancelledError as exc:
                     cancellation = cancellation or exc
+                    cancellation_requested.set()
             try:
-                finalizer.result()
+                finalization_result = finalizer.result()
             except TimeoutError:
                 logger.warning(
                     "Timed out while finalizing subagent",
@@ -451,8 +467,15 @@ def install_subagent_tool(
                 )
 
         if cancellation is not None:
+            finalization_result = await _remove_subagent_transcript(
+                parent=agent,
+                result=finalization_result,
+            )
             raise cancellation
 
+        transcript = finalization_result.transcript
+        if transcript is not None:
+            response_text = f"{response_text}\n\n{transcript.notice}"
         return ToolResult(
             content=[text_content(response_text)],
             meta={
@@ -465,6 +488,7 @@ def install_subagent_tool(
                     status=status,
                     parent_tool_call_id=parent_tool_call_id,
                     model_source=model_source,
+                    transcript=transcript,
                 )
             },
             is_error=is_error,
@@ -621,25 +645,57 @@ async def _finalize_subagent_run(
     label: str,
     parent_tool_call_id: str | None,
     started_at: str,
+    cancellation_requested: asyncio.Event,
     finalization_timeout_seconds: float = _FINALIZATION_TIMEOUT_SECONDS,
-) -> None:
+) -> _SubagentFinalizationResult:
     """Persist and release one child without inheriting caller cancellation."""
     progress.finalizing()
+    result = _SubagentFinalizationResult()
+    effective_status = status
     try:
         try:
             async with asyncio.timeout(finalization_timeout_seconds):
+                child_messages = (
+                    [
+                        item.model_copy(deep=True)
+                        for item in (clone.message_history or clone.last_turn_messages)
+                    ]
+                    if clone is not None
+                    else []
+                )
+                if cancellation_requested.is_set():
+                    effective_status = "cancelled"
+                if effective_status != "cancelled":
+                    result = await _write_subagent_transcript(
+                        parent=parent,
+                        clone=clone,
+                        child_messages=child_messages,
+                        child_name=child_name,
+                        status=effective_status,
+                        message=message,
+                        label=label,
+                    )
+                if cancellation_requested.is_set():
+                    effective_status = "cancelled"
+                    result = await _remove_subagent_transcript(parent=parent, result=result)
                 await _persist_subagent_run(
                     parent=parent,
                     clone=clone,
                     child_session=child_session,
                     child_name=child_name,
-                    status=status,
+                    status=effective_status,
                     message=message,
                     requested_model=requested_model,
                     label=label,
                     parent_tool_call_id=parent_tool_call_id,
                     started_at=started_at,
+                    child_messages=child_messages,
                 )
+                if cancellation_requested.is_set():
+                    if effective_status != "cancelled" and child_session is not None:
+                        child_session.set_execution_status("cancelled")
+                    effective_status = "cancelled"
+                    result = await _remove_subagent_transcript(parent=parent, result=result)
         finally:
             await _release_subagent_clone(
                 parent=parent,
@@ -647,7 +703,73 @@ async def _finalize_subagent_run(
                 child_name=child_name,
             )
     finally:
-        progress.finish(status)
+        progress.finish(effective_status)
+    return result
+
+
+async def _write_subagent_transcript(
+    *,
+    parent: ToolAgent,
+    clone: ToolAgent | None,
+    child_messages: list[PromptMessageExtended],
+    child_name: str,
+    status: SessionExecutionStatus,
+    message: str,
+    label: str,
+) -> _SubagentFinalizationResult:
+    store = parent.transient_artifact_store()
+    if store is None:
+        logger.info(
+            "Subagent transcript is unavailable; omitting it from the tool result",
+            data={"agent_name": child_name, "status": status},
+        )
+        return _SubagentFinalizationResult()
+    try:
+        model_name, provider = _subagent_model_metadata(clone)
+        content = render_subagent_transcript(
+            delegated_input=message,
+            messages=child_messages,
+            metadata=SubagentTranscriptMetadata(
+                child_agent=child_name,
+                label=label,
+                status=status,
+                model=model_name,
+                provider=provider,
+            ),
+        )
+        transcript = await store.write_text(
+            producer="subagent",
+            suffix=".log",
+            content=content,
+            description="subagent transcript",
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to create subagent transcript artifact",
+            data={"agent_name": child_name, "status": status, "error": str(exc)},
+        )
+        return _SubagentFinalizationResult()
+    return _SubagentFinalizationResult(transcript=transcript)
+
+
+async def _remove_subagent_transcript(
+    *,
+    parent: ToolAgent,
+    result: _SubagentFinalizationResult,
+) -> _SubagentFinalizationResult:
+    transcript = result.transcript
+    if transcript is None:
+        return result
+    store = parent.transient_artifact_store()
+    if store is not None:
+        try:
+            await store.remove(transcript.artifact)
+        except Exception as exc:
+            logger.warning(
+                "Failed to remove cancelled subagent transcript artifact",
+                data={"path": transcript.artifact.path, "error": str(exc)},
+            )
+    return _SubagentFinalizationResult()
 
 
 async def _persist_subagent_run(
@@ -662,6 +784,7 @@ async def _persist_subagent_run(
     label: str,
     parent_tool_call_id: str | None,
     started_at: str,
+    child_messages: list[PromptMessageExtended],
 ) -> None:
     if child_session is not None:
         try:
@@ -675,11 +798,6 @@ async def _persist_subagent_run(
                     "error": str(exc),
                 },
             )
-    child_messages = (
-        [item.model_copy(deep=True) for item in (clone.message_history or clone.last_turn_messages)]
-        if clone is not None
-        else []
-    )
     if clone is not None and child_session is not None:
         try:
             history_agent = HistoryAgent(clone, child_messages)
@@ -755,6 +873,7 @@ def _subagent_result_metadata(
     status: str,
     parent_tool_call_id: str | None,
     model_source: str,
+    transcript: TransientArtifactResult | None,
 ) -> dict[str, object]:
     """Build durable, display-oriented details without changing model text."""
     model_spec, provider = _subagent_model_metadata(clone)
@@ -776,7 +895,7 @@ def _subagent_result_metadata(
             }
             turn_count = len(accumulator.turns)
 
-    return {
+    metadata: dict[str, object] = {
         "child_session_id": child_session.info.name if child_session is not None else None,
         "child_agent_name": child_name,
         "requested_label": requested_label,
@@ -789,6 +908,15 @@ def _subagent_result_metadata(
         "usage": usage,
         "turn_count": turn_count,
     }
+    if transcript is not None:
+        metadata.update(
+            {
+                "transcript_path": transcript.artifact.path,
+                "transcript_bytes": transcript.artifact.retained_bytes,
+                "transcript_complete": transcript.artifact.complete,
+            }
+        )
+    return metadata
 
 
 def _subagent_model_metadata(clone: ToolAgent | None) -> tuple[str | None, str | None]:

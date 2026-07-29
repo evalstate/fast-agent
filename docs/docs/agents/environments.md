@@ -518,6 +518,42 @@ Keep provider-specific concepts inside the adapter. For example, Hugging Face
 bucket mounts belong on `HuggingFaceSandboxEnvironment`, while the generic
 runtime only depends on `ShellEnvironment` and `EnvironmentFilesystem`.
 
+Custom environments can also opt into temporary subagent transcripts by
+implementing `EnvironmentTemporaryArtifacts` on the same object. Its
+`write_temporary_text(...)` operation must allocate an unpredictable private
+file and perform the bounded write as one adapter-level operation. The returned
+path must be visible to that environment's shell and file tools.
+
+```python
+from fast_agent.tools.execution_environment import (
+    EnvironmentTemporaryArtifacts,
+    TemporaryArtifact,
+)
+
+
+class MyEnvironment:
+    # ShellEnvironment and optional EnvironmentFilesystem methods above...
+
+    async def write_temporary_text(
+        self,
+        *,
+        prefix: str,
+        suffix: str,
+        content: str,
+        max_bytes: int,
+    ) -> TemporaryArtifact: ...
+
+    async def remove_temporary_artifact(
+        self,
+        artifact: TemporaryArtifact,
+    ) -> None: ...
+```
+
+Do not implement this capability with a predictable path followed by a generic
+file write, or place artifacts on persistent mounts. fast-agent treats artifact
+creation and cleanup as best effort; environments without the capability keep
+the final-response-only subagent behavior.
+
 `ShellRuntimeInfo.kind` is coarse display metadata. Built-in values include
 `local`, `docker`, and `remote`, but custom providers can use another stable
 string and should set `provider` to the adapter name.

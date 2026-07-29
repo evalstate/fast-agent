@@ -121,8 +121,13 @@ The model calls `subagent(message, model?, label?)`. Each call:
   all results; and
 - persists its complete transcript as a nested, non-resumable child session.
 
-The tool returns only the child's final response to the parent. Child tool and
-reasoning details stay folded into the subagent progress row in the terminal.
+The tool returns the child's final response first. When the active execution
+environment supports private temporary artifacts, it also returns a temporary
+path to a bounded, line-oriented transcript. The parent can search that file or
+read selected line ranges without loading the whole transcript into context.
+The path is valid only during the current runtime and is removed when the
+parent shuts down. The transcript includes child messages and tool activity,
+but excludes reasoning content.
 
 For repository-level opt-in without editing an AgentCard, add this exact
 standalone directive to the system prompt or an embedded `AGENTS.md`:

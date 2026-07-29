@@ -101,7 +101,10 @@ from fast_agent.tools.elicitation import (
     set_elicitation_input_callback,
 )
 from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
-from fast_agent.tools.execution_environment import EnvironmentFilesystem
+from fast_agent.tools.execution_environment import (
+    EnvironmentFilesystem,
+    EnvironmentTemporaryArtifacts,
+)
 from fast_agent.tools.external_runtime_protocol import ExternalRuntime
 from fast_agent.tools.filesystem_runtime_protocol import FilesystemRuntime
 from fast_agent.tools.filesystem_tool_definitions import (
@@ -436,6 +439,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Clean up the agent and its MCP aggregator."""
+        await self._close_transient_artifact_store()
         if self._shell_runtime is not None:
             await self._shell_runtime.close()
         await self._aggregator.__aexit__(exc_type, exc_val, exc_tb)
@@ -460,6 +464,7 @@ class McpAgent(ABC, ToolAgent):
         if self._shutdown_complete:
             return
         await self._run_lifecycle_hook("on_shutdown")
+        await self._close_transient_artifact_store()
         if self._shell_runtime is not None:
             await self._shell_runtime.close()
         await self._aggregator.close()
@@ -606,6 +611,20 @@ class McpAgent(ABC, ToolAgent):
         kwargs = super()._clone_constructor_kwargs()
         kwargs["shell_environment"] = self._shell_environment
         return kwargs
+
+    def _temporary_artifact_environment(self) -> EnvironmentTemporaryArtifacts | None:
+        environment = self._shell_environment
+        if not isinstance(environment, EnvironmentTemporaryArtifacts):
+            return None
+        if not self._shell_runtime_enabled or self._external_runtime is not None:
+            return None
+        filesystem_runtime = self._filesystem_runtime
+        if (
+            filesystem_runtime is not None
+            and filesystem_runtime is not self._environment_filesystem_runtime()
+        ):
+            return None
+        return environment
 
     async def _configure_cloned_instance(self, clone: "LlmDecorator") -> None:
         await super()._configure_cloned_instance(clone)
