@@ -71,6 +71,15 @@ mcp:
 The key under `mcp.servers` is the server's canonical name. Use that key in
 agent `servers` lists; do not add a separate `name` field.
 
+Inspect redacted declarations without expanding shorthand:
+
+```bash
+fast-agent config show-mcp fast-agent.yaml
+```
+
+Use `--view effective` to show resolved transports, inherited defaults, and
+per-field provenance.
+
 Each server uses either a shorthand `target` or expanded source fields:
 
 ```yaml

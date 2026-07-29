@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from mcp_types import (
     ListToolsResult,
+    Prompt,
     ReadResourceResult,
     ServerCapabilities,
     TextResourceContents,
@@ -22,6 +23,7 @@ from fast_agent.mcp.mcp_aggregator import (
 )
 from fast_agent.mcp.skybridge import SkybridgeServerConfig
 from fast_agent.mcp_server_registry import ServerRegistry
+from fast_agent.ui.console_display import ConsoleDisplay
 
 if TYPE_CHECKING:
     from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
@@ -559,6 +561,89 @@ async def test_interactive_startup_definition_transfers_to_attachment_owner() ->
     await aggregator.detach_server("runtime")
 
     assert context.server_registry.get_server_config("runtime") is None
+
+
+@pytest.mark.asyncio
+async def test_card_tool_refresh_preserves_visible_namespace() -> None:
+    context = _build_context({})
+    assert context.server_registry is not None
+    internal_name = "card-source-revision-docs"
+    context.server_registry.register_card(
+        internal_name,
+        MCPServerSettings(name="docs", transport="stdio", command="echo"),
+    )
+
+    class _RefreshAggregator(MCPAggregator):
+        async def server_supports_feature(self, server_name: str, feature: str) -> bool:
+            del server_name, feature
+            return True
+
+        async def _execute_on_server(self, *args, **kwargs):
+            del args, kwargs
+            return ListToolsResult(tools=[Tool(name="search", input_schema={})])
+
+    aggregator = _RefreshAggregator(
+        server_names=[internal_name],
+        connection_persistence=False,
+        context=context,
+    )
+    class _SilentDisplay(ConsoleDisplay):
+        async def show_tool_update(
+            self,
+            updated_server: str,
+            agent_name: str | None = None,
+        ) -> None:
+            del updated_server, agent_name
+
+    aggregator.display = _SilentDisplay(config=None)
+
+    await aggregator._refresh_server_tools(internal_name)
+
+    assert set(aggregator._namespaced_tool_map) == {"docs__search"}
+
+
+@pytest.mark.asyncio
+async def test_card_grouped_apis_accept_and_return_visible_namespace() -> None:
+    context = _build_context(
+        {
+            "docs": MCPServerSettings(
+                name="docs",
+                transport="stdio",
+                command="unrelated-central",
+            )
+        }
+    )
+    assert context.server_registry is not None
+    internal_name = "card-source-revision-docs"
+    context.server_registry.register_card(
+        internal_name,
+        MCPServerSettings(name="docs", transport="stdio", command="echo"),
+    )
+
+    class _CollectionAggregator(MCPAggregator):
+        async def server_supports_feature(self, server_name: str, feature: str) -> bool:
+            del server_name, feature
+            return True
+
+        async def _execute_on_server(self, *args, **kwargs):
+            del args, kwargs
+            return ListToolsResult(tools=[Tool(name="search", input_schema={})])
+
+    aggregator = _CollectionAggregator(
+        server_names=[internal_name],
+        connection_persistence=False,
+        context=context,
+    )
+    aggregator.initialized = True
+    aggregator._prompt_cache[internal_name] = [Prompt(name="summarize")]
+
+    prompts = await aggregator.list_prompts("docs")
+    tools = await aggregator.list_mcp_tools("docs")
+    resolved_prompt = aggregator._resolve_prompt_name("summarize", "docs")
+
+    assert list(prompts) == ["docs"]
+    assert list(tools) == ["docs"]
+    assert resolved_prompt.server_name == internal_name
 
 
 @pytest.mark.asyncio

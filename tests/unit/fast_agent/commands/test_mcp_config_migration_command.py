@@ -23,6 +23,43 @@ def _run(path: Path, *, write: bool = False):
     return CliRunner().invoke(config_command.app, arguments)
 
 
+def test_show_mcp_source_and_effective_views_are_redacted(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path,
+        """
+mcp:
+  defaults:
+    protocol_mode: modern
+  servers:
+    docs:
+      target: https://example.com/mcp
+      access_token: secret
+""".lstrip(),
+    )
+
+    source = CliRunner().invoke(config_command.app, ["show-mcp", str(path)])
+    effective = CliRunner().invoke(
+        config_command.app,
+        ["show-mcp", str(path), "--view", "effective"],
+    )
+
+    assert source.exit_code == 0, source.output
+    assert "target: https://example.com/mcp" in source.output
+    assert "protocol_mode: modern" in source.output
+    assert "access_token: '[REDACTED]'" in source.output
+    assert "transport:" not in source.output
+    assert effective.exit_code == 0, effective.output
+    assert "protocol_mode: modern" in effective.output
+    assert "_provenance:" in effective.output
+    assert "secret" not in effective.output
+
+    roundtrip_path = tmp_path / "roundtrip.yaml"
+    roundtrip_path.write_text(source.output, encoding="utf-8")
+    roundtrip = get_settings(roundtrip_path)
+    assert roundtrip.mcp is not None
+    assert roundtrip.mcp.servers["docs"].protocol_mode == "modern"
+
+
 def test_migrate_mcp_dry_run_prints_diff_without_mutation(tmp_path: Path) -> None:
     original = """\
 # retained root comment

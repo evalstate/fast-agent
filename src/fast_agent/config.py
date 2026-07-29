@@ -40,6 +40,10 @@ from fast_agent.mcp.provider_management import (
     normalize_provider_managed_url_server,
     validate_provider_managed_server_settings,
 )
+from fast_agent.mcp.server_declaration import (
+    MCPServerDeclaration,
+    effective_server_view,
+)
 from fast_agent.mcp.ui_modes import McpUIMode
 from fast_agent.tools.environment_config import EnvironmentSpec
 from fast_agent.types.streaming import StreamingMode
@@ -758,6 +762,11 @@ class MCPSettings(BaseModel):
     client: MCPClientSettings = Field(default_factory=MCPClientSettings)
     diagnostics: MCPDiagnosticsSettings = Field(default_factory=MCPDiagnosticsSettings)
     servers: dict[str, MCPServerSettings] = Field(default_factory=dict)
+    server_declarations: dict[str, MCPServerDeclaration] = Field(
+        default_factory=dict,
+        exclude=True,
+        repr=False,
+    )
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
     @staticmethod
@@ -791,28 +800,29 @@ class MCPSettings(BaseModel):
     def _normalize_server_map_entries(
         cls,
         raw_servers: Any,
-    ) -> dict[Any, Any] | None:
+        *,
+        warn_nested_names: bool = True,
+    ) -> tuple[dict[Any, Any] | None, dict[str, MCPServerDeclaration]]:
         if raw_servers is None:
-            return {}
+            return {}, {}
         if not isinstance(raw_servers, dict):
-            return None
-
-        from fast_agent.mcp.connect_targets import resolve_target_entry
+            return None, {}
 
         normalized_servers: dict[Any, Any] = {}
+        declarations: dict[str, MCPServerDeclaration] = {}
         for server_key, raw_entry in raw_servers.items():
             if not isinstance(raw_entry, dict):
                 normalized_servers[server_key] = raw_entry
                 continue
 
             source_name = str(server_key)
-            if "name" in raw_entry:
-                raw_name = raw_entry.get("name")
-                if raw_name != source_name:
-                    raise ValueError(
-                        f"`mcp.servers.{source_name}.name` must match its map key "
-                        f"'{source_name}', got {raw_name!r}"
-                    )
+            declaration = MCPServerDeclaration.from_source(
+                name=source_name,
+                source=raw_entry,
+                source_path=f"mcp.servers.{source_name}",
+            )
+            declarations[source_name] = declaration
+            if "name" in raw_entry and warn_nested_names:
                 warnings.warn(
                     f"`mcp.servers.{source_name}.name` is deprecated; the map key is the "
                     "canonical server name.",
@@ -831,26 +841,10 @@ class MCPSettings(BaseModel):
             if target_value is None:
                 raise ValueError(f"`{source_path}` must be a non-empty string")
 
-            conflicting_fields = [
-                field
-                for field in ("transport", "url", "command", "args", "connector_id")
-                if field in raw_entry
-            ]
-            if conflicting_fields:
-                fields = ", ".join(conflicting_fields)
-                raise ValueError(
-                    f"`{source_path}` cannot be combined with source fields: {fields}. "
-                    "Remove them or replace `target` with explicit transport settings."
-                )
-
-            overrides = {key: value for key, value in raw_entry.items() if key != "target"}
-            resolved_entry = resolve_target_entry(
-                target=target_value,
-                default_name=source_name,
-                overrides=overrides,
-                source_path=source_path,
+            settings = declaration.materialize(
+                source_path=f"mcp.servers.{source_name}",
             )
-            payload = cls._serialize_resolved_target_settings(resolved_entry.settings)
+            payload = cls._serialize_resolved_target_settings(settings)
             payload.pop("name", None)
             for field in (
                 "protocol_mode",
@@ -861,7 +855,7 @@ class MCPSettings(BaseModel):
                     payload.pop(field, None)
             normalized_servers[server_key] = payload
 
-        return normalized_servers
+        return normalized_servers, declarations
 
     @model_validator(mode="before")
     @classmethod
@@ -876,13 +870,26 @@ class MCPSettings(BaseModel):
             )
 
         raw_servers = values.get("servers")
-        normalized_servers = cls._normalize_server_map_entries(raw_servers)
+        existing_declarations = values.get("server_declarations")
+        normalized_servers, declarations = cls._normalize_server_map_entries(
+            raw_servers,
+            warn_nested_names=not isinstance(existing_declarations, dict),
+        )
 
         if normalized_servers is None:
             return values
 
         normalized_values = dict(values)
         normalized_values["servers"] = normalized_servers
+        normalized_values["server_declarations"] = (
+            existing_declarations
+            if isinstance(existing_declarations, dict)
+            and all(
+                isinstance(item, MCPServerDeclaration)
+                for item in existing_declarations.values()
+            )
+            else declarations
+        )
         return normalized_values
 
     @model_validator(mode="after")
@@ -908,6 +915,46 @@ class MCPSettings(BaseModel):
 
         self.servers = canonical_servers
         return self
+
+    def source_server_view(self, *, redact: bool = True) -> dict[str, dict[str, Any]]:
+        return {
+            name: declaration.source_view(redact=redact)
+            for name, declaration in self.server_declarations.items()
+        }
+
+    def source_view(self, *, redact: bool = True) -> dict[str, Any]:
+        payload: dict[str, Any] = {"servers": self.source_server_view(redact=redact)}
+        for field in ("defaults", "client", "diagnostics"):
+            value = getattr(self, field)
+            source = value.model_dump(mode="python", exclude_unset=True)
+            if source:
+                payload[field] = source
+        return payload
+
+    def effective_server_view(self, *, redact: bool = True) -> dict[str, dict[str, Any]]:
+        result: dict[str, dict[str, Any]] = {}
+        default_fields = self.defaults.model_fields_set
+        for name, settings in self.servers.items():
+            payload = effective_server_view(settings, redact=redact)
+            declaration = self.server_declarations.get(name)
+            source_fields = declaration.model_fields_set if declaration is not None else set()
+            from_target = declaration is not None and declaration.target is not None
+            payload["_provenance"] = {
+                field: (
+                    "map_key"
+                    if field == "name"
+                    else "declaration"
+                    if field in source_fields
+                    else "target"
+                    if from_target and field in {"transport", "url", "command", "args"}
+                    else "mcp.defaults"
+                    if field in default_fields
+                    else "model_default"
+                )
+                for field in payload
+            }
+            result[name] = payload
+        return result
 
 
 _DOMAIN_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -2015,6 +2062,7 @@ def _migrate_legacy_mcp_settings_values(values: Any) -> Any:
     raw_mcp = normalized.get("mcp")
     if isinstance(raw_mcp, MCPSettings):
         mcp: dict[str, Any] = raw_mcp.model_dump(mode="python")
+        mcp["server_declarations"] = raw_mcp.server_declarations
     elif isinstance(raw_mcp, dict):
         mcp = dict(raw_mcp)
     else:
@@ -2255,7 +2303,13 @@ class Settings(BaseSettings):
     _logger_path_explicit: bool = PrivateAttr(default=False)
 
     def __init__(self, **values: Any) -> None:
-        if isinstance(values.get("mcp"), MCPSettings):
+        raw_mcp = values.get("mcp")
+        source_declarations = (
+            dict(raw_mcp.server_declarations)
+            if isinstance(raw_mcp, MCPSettings)
+            else None
+        )
+        if isinstance(raw_mcp, MCPSettings):
             migrated_values = _migrate_legacy_mcp_settings_values(values)
             if isinstance(migrated_values, dict):
                 values = migrated_values
@@ -2266,6 +2320,8 @@ class Settings(BaseSettings):
             else None
         )
         super().__init__(**values)
+        if self.mcp is not None and source_declarations is not None:
+            self.mcp.server_declarations = source_declarations
         self._logger_path_explicit = (
             nested_model_path_explicit
             if nested_model_path_explicit is not None

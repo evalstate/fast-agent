@@ -14,6 +14,7 @@ from fast_agent.command_actions import PluginCommandActionSpec
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.hooks.lifecycle_hook_types import LifecycleHookType
+from fast_agent.mcp.server_declaration import MCPServerDeclaration
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
 from fast_agent.tools.function_tool_config import FunctionToolSpec
 
@@ -76,20 +77,7 @@ LifecycleHooksConfig: TypeAlias = dict[LifecycleHookType, str] | None
 PluginCommandsConfig: TypeAlias = dict[str, PluginCommandActionSpec] | None
 
 
-@dataclass(frozen=True, slots=True)
-class MCPConnectTarget:
-    """Runtime MCP connect target declared on an AgentCard."""
-
-    target: str | None = None
-    name: str | None = None
-    description: str | None = None
-    management: str | None = None
-    connector_id: str | None = None
-    headers: dict[str, str] | None = None
-    access_token: str | None = None
-    defer_loading: bool | None = None
-    auth: dict[str, Any] | None = None
-    protocol_mode: Literal["auto", "modern", "legacy"] | None = None
+MCPConnectTarget: TypeAlias = MCPServerDeclaration
 
 
 @dataclass

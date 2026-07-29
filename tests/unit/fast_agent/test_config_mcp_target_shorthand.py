@@ -17,6 +17,70 @@ def test_default_mcp_settings_are_per_settings_instance() -> None:
     assert second.mcp.servers == {}
 
 
+def test_mcp_source_and_effective_views_preserve_shorthand_and_redact_secrets() -> None:
+    settings = Settings.model_validate(
+        {
+            "mcp": {
+                "defaults": {"protocol_mode": "modern"},
+                "servers": {
+                    "docs": {
+                        "target": "https://user:password@example.com/mcp",
+                        "headers": {
+                            "Authorization": "Bearer secret",
+                            "Cookie": "session=secret",
+                            "X-Api-Key": "secret",
+                            "X-Tenant": "engineering",
+                        },
+                        "auth": {
+                            "api_key": "secret",
+                            "client_secret": "secret",
+                        },
+                    }
+                },
+            }
+        }
+    )
+
+    assert settings.mcp is not None
+    source = settings.mcp.source_server_view()
+    effective = settings.mcp.effective_server_view()
+
+    assert source["docs"]["target"] == "https://[REDACTED]@example.com/mcp"
+    assert source["docs"]["headers"] == {
+        "Authorization": "[REDACTED]",
+        "Cookie": "[REDACTED]",
+        "X-Api-Key": "[REDACTED]",
+        "X-Tenant": "engineering",
+    }
+    assert source["docs"]["auth"]["api_key"] == "[REDACTED]"
+    assert source["docs"]["auth"]["client_secret"] == "[REDACTED]"
+    assert "transport" not in source["docs"]
+    assert effective["docs"]["protocol_mode"] == "modern"
+    assert effective["docs"]["headers"]["Authorization"] == "[REDACTED]"
+    assert effective["docs"]["_provenance"]["url"] == "target"
+    assert effective["docs"]["_provenance"]["protocol_mode"] == "mcp.defaults"
+
+
+def test_wrapping_mcp_settings_preserves_source_declarations_and_provenance() -> None:
+    original = MCPSettings.model_validate(
+        {
+            "servers": {
+                "docs": {
+                    "target": "https://example.com/mcp",
+                }
+            }
+        }
+    )
+
+    wrapped = Settings(mcp=original)
+
+    assert wrapped.mcp is not None
+    assert wrapped.mcp.source_server_view() == {
+        "docs": {"target": "https://example.com/mcp"}
+    }
+    assert wrapped.mcp.effective_server_view()["docs"]["_provenance"]["url"] == "target"
+
+
 def test_config_mcp_target_shorthand_url_expansion() -> None:
     settings = Settings.model_validate(
         {

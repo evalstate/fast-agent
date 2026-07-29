@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import typer
 from ruamel.yaml import YAML
@@ -19,6 +20,7 @@ from fast_agent.config import (
     SHELL_WRITE_TEXT_FILE_MODES,
     LoggerSettings,
     ShellSettings,
+    get_settings,
     load_implicit_settings,
     normalize_shell_write_text_file_mode,
 )
@@ -126,6 +128,30 @@ def _load_effective_config(config_path: Path | None = None) -> dict[str, Any]:
 
     discovered_config, _ = load_implicit_settings(start_path=Path.cwd())
     return discovered_config
+
+
+@app.command("show-mcp")
+def show_mcp_config(
+    config: Path | None = typer.Argument(None, exists=True, dir_okay=False),
+    view: Literal["source", "effective"] = typer.Option(
+        "source",
+        "--view",
+        help="Show source declarations or effective runtime settings.",
+    ),
+) -> None:
+    """Show redacted MCP server configuration."""
+    settings = get_settings(config)
+    mcp = settings.mcp
+    payload = (
+        {}
+        if mcp is None
+        else mcp.source_view()
+        if view == "source"
+        else {"servers": mcp.effective_server_view()}
+    )
+    output = YAML()
+    output.default_flow_style = False
+    output.dump({"mcp": payload}, sys.stdout)
 
 
 def _overlay_section_updates(

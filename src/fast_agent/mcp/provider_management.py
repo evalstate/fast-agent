@@ -361,18 +361,21 @@ def build_provider_managed_mcp_state(
         )
         if settings is None:
             continue
+        visible_name = settings.name or server_name
 
         tool_patterns = _provider_managed_tool_patterns(
-            server_name=server_name,
+            server_name=visible_name,
             agent_config=agent_config,
         )
         _reject_provider_managed_prompt_resource_filters(
-            server_name=server_name,
+            server_name=visible_name,
             agent_config=agent_config,
         )
-        if server_name in agent_config.tools:
-            tool_allowlists[server_name] = tool_patterns
-        attachments.append(_provider_managed_attachment(server_name=server_name, settings=settings))
+        if visible_name in agent_config.tools:
+            tool_allowlists[visible_name] = tool_patterns
+        attachments.append(
+            _provider_managed_attachment(server_name=visible_name, settings=settings)
+        )
 
     return ProviderManagedToolState(
         attachments=tuple(attachments),

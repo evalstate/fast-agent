@@ -9,9 +9,7 @@ from fast_agent.agents.agent_types import (
     MCPConnectSourceForm,
     MCPConnectTarget,
 )
-from fast_agent.config import MCPServerSettings
 from fast_agent.core.agent_card_rules import MCP_CONNECT_ALLOWED_KEYS
-from fast_agent.mcp.connect_targets import resolve_target_entry
 from fast_agent.utils.text import strip_str_to_none
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
@@ -112,6 +110,22 @@ def _protocol_mode(
     return value
 
 
+def _management_mode(
+    value: Any,
+    field_path: str,
+    errors: list[str],
+) -> Literal["client", "provider"] | None:
+    if value is None:
+        return None
+    normalized = strip_str_to_none(value)
+    if normalized == "client":
+        return "client"
+    if normalized == "provider":
+        return "provider"
+    errors.append(f"'{field_path}.management' must be one of client, provider")
+    return None
+
+
 def _parse_entry(
     raw_entry: dict[str, Any],
     *,
@@ -149,7 +163,7 @@ def _parse_entry(
         target=target,
         name=name,
         description=_optional_string(raw_entry, field_path, "description", errors),
-        management=_optional_non_empty_string(raw_entry, field_path, "management", errors),
+        management=_management_mode(raw_entry.get("management"), field_path, errors),
         connector_id=connector_id,
         headers=_headers(raw_entry.get("headers"), field_path, errors),
         access_token=_optional_string(raw_entry, field_path, "access_token", errors),
@@ -218,49 +232,8 @@ def parse_mcp_connect_entries(value: Any) -> ParsedMCPConnect:
     )
 
 
-def _settings_payload(entry: MCPConnectTarget) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "name": entry.name,
-        "description": entry.description,
-        "management": entry.management,
-        "connector_id": entry.connector_id,
-        "headers": entry.headers,
-        "access_token": entry.access_token,
-        "auth": entry.auth,
-    }
-    if entry.defer_loading is not None:
-        payload["defer_loading"] = entry.defer_loading
-    if entry.protocol_mode is not None:
-        payload["protocol_mode"] = entry.protocol_mode
-    return payload
-
-
 def validate_parsed_mcp_connect_entry(entry: MCPConnectTarget, field_path: str) -> None:
-    if entry.connector_id is not None:
-        MCPServerSettings.model_validate(_settings_payload(entry))
-        return
-    if entry.target is None:
-        raise ValueError("'target' is required")
-
-    overrides = {
-        name: value
-        for name, value in {
-            "description": entry.description,
-            "management": entry.management,
-            "headers": entry.headers,
-            "access_token": entry.access_token,
-            "defer_loading": entry.defer_loading,
-            "auth": entry.auth,
-            "protocol_mode": entry.protocol_mode,
-        }.items()
-        if value is not None
-    }
-    resolve_target_entry(
-        target=entry.target,
-        default_name=entry.name,
-        overrides=overrides,
-        source_path=f"{field_path}.target",
-    )
+    entry.materialize(source_path=field_path)
 
 
 def validate_mcp_connect_entries(value: Any, errors: list[str]) -> None:

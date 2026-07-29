@@ -236,7 +236,7 @@ class McpAgent(ABC, ToolAgent):
         managed_mcp = self._managed_mcp_setup(configured_servers, context)
         self._provider_managed_mcp_state = managed_mcp.provider_state
         self._configured_server_names = tuple(configured_servers)
-        self._provider_managed_server_names = tuple(managed_mcp.provider_managed_servers)
+        self._provider_managed_server_keys = tuple(managed_mcp.provider_managed_servers)
 
         # Create aggregator with composition
         self._aggregator = MCPAggregator(
@@ -246,6 +246,10 @@ class McpAgent(ABC, ToolAgent):
             context=context,
             config=self.config,  # Pass the full config for access to elicitation_handler
             **kwargs,
+        )
+        self._provider_managed_server_names = tuple(
+            self._aggregator.server_display_name(name)
+            for name in self._provider_managed_server_keys
         )
         self._aggregator.set_supplemental_attached_servers(self._provider_managed_server_names)
 
@@ -525,7 +529,7 @@ class McpAgent(ABC, ToolAgent):
         if self._context and self._context.config and self._context.config.mcp:
             auto_sampling = self._context.config.mcp.client.auto_sampling
 
-        for server_name in self._provider_managed_server_names:
+        for server_name in self._provider_managed_server_keys:
             if server_name in status_map:
                 continue
             server_cfg = server_settings_by_name.get(server_name)
@@ -550,7 +554,13 @@ class McpAgent(ABC, ToolAgent):
                 ),
             )
 
-        return status_map
+        visible_status: dict[str, ServerStatus] = {}
+        for server_name, status in status_map.items():
+            visible_name = self._aggregator.server_display_name(server_name)
+            visible_status[visible_name] = status.model_copy(
+                update={"server_name": visible_name}
+            )
+        return visible_status
 
     async def attach_mcp_server(
         self,
@@ -585,7 +595,13 @@ class McpAgent(ABC, ToolAgent):
 
     async def list_servers(self) -> list[str]:
         return self._unique_preserving_order(
-            [*self._aggregator.server_names, *self._provider_managed_server_names]
+            [
+                *(
+                    self._aggregator.server_display_name(name)
+                    for name in self._aggregator.server_names
+                ),
+                *self._provider_managed_server_names,
+            ]
         )
 
     @property

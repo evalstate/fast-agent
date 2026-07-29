@@ -818,6 +818,7 @@ class MCPAggregator(ContextDependent):
         server_config: MCPServerSettings | None = None,
         options: MCPAttachOptions | None = None,
     ) -> MCPAttachResult:
+        server_name = self._resolve_server_key(server_name)
         async with self._lifecycle_lock:
             if self._closed:
                 raise RuntimeError("MCP aggregator is closed")
@@ -933,15 +934,15 @@ class MCPAggregator(ContextDependent):
     def _attached_prompt_names(self, server_name: str) -> set[str]:
         return {prompt.name for prompt in self._prompt_cache.get(server_name, [])}
 
-    @staticmethod
     def _already_attached_result(
+        self,
         server_name: str,
         resolved_config: MCPServerSettings,
         existing_tool_names: set[str],
         existing_prompt_names: set[str],
     ) -> MCPAttachResult:
         return MCPAttachResult(
-            server_name=server_name,
+            server_name=self.server_display_name(server_name),
             transport=resolved_config.transport,
             attached=True,
             already_attached=True,
@@ -995,11 +996,12 @@ class MCPAggregator(ContextDependent):
         tools = await self._fetch_server_tools(server_name)
         prompts = await self._fetch_server_prompts(server_name, strict=True)
         mcp_skill_registry = await self._scan_mcp_skill_registry(server_name)
+        namespace = self.server_display_name(server_name)
         namespaced_tools = [
             NamespacedTool(
                 tool=tool,
                 server_name=server_name,
-                namespaced_tool_name=create_namespaced_name(server_name, tool.name),
+                namespaced_tool_name=create_namespaced_name(namespace, tool.name),
             )
             for tool in tools
         ]
@@ -1129,7 +1131,7 @@ class MCPAggregator(ContextDependent):
         prompt_names = self._attached_prompt_names(server_name)
         skills_total = await self._mcp_skills_total(server_name)
         return MCPAttachResult(
-            server_name=server_name,
+            server_name=self.server_display_name(server_name),
             transport=resolved_config.transport,
             attached=True,
             already_attached=already_attached,
@@ -1148,11 +1150,13 @@ class MCPAggregator(ContextDependent):
         return len(registry.skills)
 
     async def detach_server(self, server_name: str) -> MCPDetachResult:
+        server_name = self._resolve_server_key(server_name)
         async with self._lifecycle_lock:
             async with self._attachment_locks.setdefault(server_name, Lock()):
                 return await self._detach_server_locked(server_name)
 
     async def _detach_server_locked(self, server_name: str) -> MCPDetachResult:
+        display_name = self.server_display_name(server_name)
         existing_tools = self._server_to_tool_map.get(server_name, [])
         existing_prompts = self._prompt_cache.get(server_name, [])
         tools_removed = sorted(tool.namespaced_tool_name for tool in existing_tools)
@@ -1160,7 +1164,7 @@ class MCPAggregator(ContextDependent):
 
         if server_name not in self._attached_server_names:
             return MCPDetachResult(
-                server_name=server_name,
+                server_name=display_name,
                 detached=False,
                 tools_removed=[],
                 prompts_removed=[],
@@ -1201,7 +1205,7 @@ class MCPAggregator(ContextDependent):
         self.server_names = [name for name in self.server_names if name != server_name]
 
         return MCPDetachResult(
-            server_name=server_name,
+            server_name=display_name,
             detached=True,
             tools_removed=tools_removed,
             prompts_removed=prompts_removed,
@@ -1209,8 +1213,35 @@ class MCPAggregator(ContextDependent):
 
     def list_attached_servers(self) -> list[str]:
         return self._unique_preserving_order(
-            [*self._attached_server_names, *self._supplemental_attached_server_names]
+            [
+                *(self.server_display_name(name) for name in self._attached_server_names),
+                *self._supplemental_attached_server_names,
+            ]
         )
+
+    def server_display_name(self, server_name: str) -> str:
+        registry = self.context.server_registry if self.context else None
+        config = registry.get_server_config(server_name) if registry is not None else None
+        return config.name if config is not None and config.name else server_name
+
+    def _resolve_server_key(self, server_name: str) -> str:
+        registry = self.context.server_registry if self.context else None
+        if registry is None:
+            return server_name
+        scoped_servers = set(self._configured_server_names)
+        scoped_servers.update(self._attached_server_names)
+        scoped_servers.update(self._attachment_configs)
+        scoped_servers.update(self.server_names)
+        if server_name in scoped_servers:
+            return server_name
+        matches = [
+            key
+            for key in scoped_servers
+            if self.server_display_name(key) == server_name
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        return server_name
 
     def set_supplemental_attached_servers(self, server_names: Iterable[str]) -> None:
         self._supplemental_attached_server_names = self._unique_preserving_order(server_names)
@@ -1220,7 +1251,16 @@ class MCPAggregator(ContextDependent):
         server_registry = self.context.server_registry if self.context else None
         if server_registry is not None:
             configured.update(server_registry.registry.keys())
-        return sorted(configured - set(self.list_attached_servers()))
+        attached = set(self._attached_server_names)
+        supplemental = set(self._supplemental_attached_server_names)
+        return sorted(
+            {
+                display_name
+                for name in configured
+                if name not in attached
+                and (display_name := self.server_display_name(name)) not in supplemental
+            }
+        )
 
     async def _evaluate_skybridge_for_server(
         self,
@@ -1529,6 +1569,7 @@ class MCPAggregator(ContextDependent):
 
     async def get_capabilities(self, server_name: str) -> ServerCapabilities | None:
         """Get server capabilities if available."""
+        server_name = self._resolve_server_key(server_name)
         if not self.connection_persistence:
             # Check cache under lock (fast path)
             async with self._capabilities_cache_lock:
@@ -1579,7 +1620,7 @@ class MCPAggregator(ContextDependent):
         if not self.initialized:
             await self.load_servers()
         registries: list[McpSkillRegistry] = []
-        for server_name in self.list_attached_servers():
+        for server_name in self._attached_server_names:
             registry = self._mcp_skill_registries.get(server_name)
             if registry is None:
                 registry = await self._scan_mcp_skill_registry(server_name)
@@ -1616,6 +1657,7 @@ class MCPAggregator(ContextDependent):
         Returns:
             True if the server exists, False otherwise
         """
+        server_name = self._resolve_server_key(server_name)
         valid = (
             server_name in self.server_names
             or server_name in self._attachment_configs
@@ -1667,7 +1709,7 @@ class MCPAggregator(ContextDependent):
         if not self.initialized:
             await self.load_servers()
 
-        return self.server_names
+        return [self.server_display_name(name) for name in self.server_names]
 
     async def list_tools(self) -> ListToolsResult:
         """
@@ -1812,7 +1854,10 @@ class MCPAggregator(ContextDependent):
             ]
 
             try:
-                instructions[server_name] = (server_conn.server_instructions, tool_names)
+                instructions[self.server_display_name(server_name)] = (
+                    server_conn.server_instructions,
+                    tool_names,
+                )
             except Exception as e:
                 logger.debug(f"Failed to get instructions from server {server_name}: {e}")
 
@@ -2644,12 +2689,13 @@ class MCPAggregator(ContextDependent):
                 content=[TextContent(type="text", text=f"Tool '{name}' not found")],
             )
 
-        namespaced_tool_name = create_namespaced_name(server_name, local_tool_name)
+        display_server_name = self.server_display_name(server_name)
+        namespaced_tool_name = create_namespaced_name(display_server_name, local_tool_name)
         active_tool_handler = request_tool_handler or self._tool_handler
 
         permission_error = await self._tool_permission_error_result(
             local_tool_name=local_tool_name,
-            server_name=server_name,
+            server_name=display_server_name,
             namespaced_tool_name=namespaced_tool_name,
             arguments=arguments,
             tool_use_id=tool_use_id,
@@ -2661,7 +2707,7 @@ class MCPAggregator(ContextDependent):
         tool_call_id = await self._start_tool_execution(
             active_tool_handler,
             local_tool_name=local_tool_name,
-            server_name=server_name,
+            server_name=display_server_name,
             arguments=arguments,
             tool_use_id=tool_use_id,
         )
@@ -2671,7 +2717,7 @@ class MCPAggregator(ContextDependent):
             data=build_progress_payload(
                 action=ProgressAction.CALLING_TOOL,
                 tool_name=local_tool_name,
-                server_name=server_name,
+                server_name=display_server_name,
                 agent_name=self.agent_name,
                 tool_call_id=tool_call_id,
                 tool_use_id=tool_use_id,
@@ -2681,12 +2727,12 @@ class MCPAggregator(ContextDependent):
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(f"MCP Tool: {namespaced_tool_name}"):
             trace.get_current_span().set_attribute("tool_name", local_tool_name)
-            trace.get_current_span().set_attribute("server_name", server_name)
+            trace.get_current_span().set_attribute("server_name", display_server_name)
             trace.get_current_span().set_attribute("namespaced_tool_name", namespaced_tool_name)
 
             # Create progress callback for this tool execution
             progress_callback = self._create_progress_callback(
-                server_name,
+                display_server_name,
                 local_tool_name,
                 tool_call_id,
                 tool_use_id,
@@ -2713,7 +2759,7 @@ class MCPAggregator(ContextDependent):
                     active_tool_handler,
                     result=result,
                     local_tool_name=local_tool_name,
-                    server_name=server_name,
+                    server_name=display_server_name,
                     tool_call_id=tool_call_id,
                     tool_use_id=tool_use_id,
                 )
@@ -2724,7 +2770,7 @@ class MCPAggregator(ContextDependent):
                     active_tool_handler,
                     exc=e,
                     local_tool_name=local_tool_name,
-                    server_name=server_name,
+                    server_name=display_server_name,
                     tool_call_id=tool_call_id,
                     tool_use_id=tool_use_id,
                 )
@@ -2974,13 +3020,17 @@ class MCPAggregator(ContextDependent):
         server_name: str | None,
     ) -> _PromptNameResolution:
         if server_name:
-            return _PromptNameResolution(server_name=server_name, local_name=prompt_name)
+            return _PromptNameResolution(
+                server_name=self._resolve_server_key(server_name),
+                local_name=prompt_name,
+            )
         if not is_namespaced_name(prompt_name):
             return _PromptNameResolution(server_name=None, local_name=prompt_name)
 
         potential_server, local_name = prompt_name.split(SEP, 1)
-        if potential_server in self.server_names:
-            return _PromptNameResolution(server_name=potential_server, local_name=local_name)
+        resolved_server = self._resolve_server_key(potential_server)
+        if resolved_server in self.server_names:
+            return _PromptNameResolution(server_name=resolved_server, local_name=local_name)
 
         return _PromptNameResolution(server_name=None, local_name=prompt_name)
 
@@ -3164,8 +3214,8 @@ class MCPAggregator(ContextDependent):
             method_args["arguments"] = arguments
         return method_args
 
-    @staticmethod
     def _prompt_result_with_metadata(
+        self,
         result: GetPromptResult,
         server_name: str,
         prompt_name: str,
@@ -3173,7 +3223,10 @@ class MCPAggregator(ContextDependent):
     ) -> GetPromptResult:
         return with_prompt_metadata(
             result,
-            namespaced_name=create_namespaced_name(server_name, prompt_name),
+            namespaced_name=create_namespaced_name(
+                self.server_display_name(server_name),
+                prompt_name,
+            ),
             arguments=arguments,
         )
 
@@ -3229,28 +3282,30 @@ class MCPAggregator(ContextDependent):
                 supported_servers.append(s_name)
             else:
                 logger.debug(f"Server '{s_name}' does not support prompts, skipping")
-                results[s_name] = []
+                results[self.server_display_name(s_name)] = []
 
         for s_name in supported_servers:
-            results[s_name] = await self._fetch_and_cache_prompts(s_name)
+            results[self.server_display_name(s_name)] = await self._fetch_and_cache_prompts(s_name)
 
         logger.debug(f"Available prompts across servers: {results}")
         return results
 
     async def _list_prompts_for_server(self, server_name: str) -> dict[str, list[Prompt]]:
+        server_name = self._resolve_server_key(server_name)
         if server_name not in self.server_names:
             logger.error(f"Server '{server_name}' not found")
             return {}
 
         cached_prompts = await self._cached_prompts_for_server(server_name)
+        display_name = self.server_display_name(server_name)
         if cached_prompts is not None:
-            return {server_name: cached_prompts}
+            return {display_name: cached_prompts}
 
         if not await self._server_supports_prompts(server_name):
             logger.debug(f"Server '{server_name}' does not support prompts")
-            return {server_name: []}
+            return {display_name: []}
 
-        return {server_name: await self._fetch_and_cache_prompts(server_name)}
+        return {display_name: await self._fetch_and_cache_prompts(server_name)}
 
     async def _cached_prompts_for_server(self, server_name: str) -> list[Prompt] | None:
         async with self._prompt_cache_lock:
@@ -3264,7 +3319,10 @@ class MCPAggregator(ContextDependent):
             if not all(s_name in self._prompt_cache for s_name in self.server_names):
                 return None
             logger.debug("Returning cached prompts for all servers")
-            return dict(self._prompt_cache)
+            return {
+                self.server_display_name(server_name): prompts
+                for server_name, prompts in self._prompt_cache.items()
+            }
 
     async def _server_supports_prompts(self, server_name: str) -> bool:
         capabilities = await self.get_capabilities(server_name)
@@ -3357,7 +3415,10 @@ class MCPAggregator(ContextDependent):
                     # Add new tools
                     self._server_to_tool_map[server_name] = []
                     for tool in new_tools:
-                        namespaced_tool_name = create_namespaced_name(server_name, tool.name)
+                        namespaced_tool_name = create_namespaced_name(
+                            self.server_display_name(server_name),
+                            tool.name,
+                        )
                         namespaced_tool = NamespacedTool(
                             tool=tool,
                             server_name=server_name,
@@ -3401,6 +3462,7 @@ class MCPAggregator(ContextDependent):
 
         # If specific server requested, use only that server
         if server_name is not None:
+            server_name = self._resolve_server_key(server_name)
             if server_name not in self.server_names:
                 raise ValueError(f"Server '{server_name}' not found")
 
@@ -3547,6 +3609,7 @@ class MCPAggregator(ContextDependent):
 
         if server_name is None:
             raise ValueError("read_directory requires an explicit server_name")
+        server_name = self._resolve_server_key(server_name)
         if server_name not in self.server_names:
             raise ValueError(f"Server '{server_name}' not found")
         return await self._read_directory_from_server(server_name, uri, cursor=cursor)
@@ -3625,7 +3688,9 @@ class MCPAggregator(ContextDependent):
         results: dict[str, list[str]] = {}
 
         # Get the list of servers to check
-        servers_to_check = [server_name] if server_name else self.server_names
+        servers_to_check = (
+            [self._resolve_server_key(server_name)] if server_name else self.server_names
+        )
 
         # For each server, try to list its resources
         for s_name in servers_to_check:
@@ -3634,7 +3699,8 @@ class MCPAggregator(ContextDependent):
                 continue
 
             # Initialize empty list for this server
-            results[s_name] = []
+            display_name = self.server_display_name(s_name)
+            results[display_name] = []
 
             # Check if server supports resources capability
             if not await self.server_supports_feature(s_name, "resources"):
@@ -3650,7 +3716,7 @@ class MCPAggregator(ContextDependent):
                     uri = resource.uri
                     if uri is not None:
                         formatted_resources.append(str(uri))
-                results[s_name] = formatted_resources
+                results[display_name] = formatted_resources
             except Exception as e:
                 logger.error(f"Error fetching resources from {s_name}: {e}")
 
@@ -3664,14 +3730,17 @@ class MCPAggregator(ContextDependent):
             await self.load_servers()
 
         results: dict[str, list[ResourceTemplate]] = {}
-        servers_to_check = [server_name] if server_name else self.server_names
+        servers_to_check = (
+            [self._resolve_server_key(server_name)] if server_name else self.server_names
+        )
 
         for s_name in servers_to_check:
             if s_name not in self.server_names:
                 logger.error(f"Server '{s_name}' not found")
                 continue
 
-            results[s_name] = []
+            display_name = self.server_display_name(s_name)
+            results[display_name] = []
 
             if not await self.server_supports_feature(s_name, "resources"):
                 logger.debug(f"Server '{s_name}' does not support resources")
@@ -3681,7 +3750,7 @@ class MCPAggregator(ContextDependent):
                 templates = await self._list_resource_templates_from_server(
                     s_name, check_support=False
                 )
-                results[s_name] = list(templates)
+                results[display_name] = list(templates)
             except Exception as e:
                 logger.error(f"Error fetching resource templates from {s_name}: {e}")
 
@@ -3696,6 +3765,7 @@ class MCPAggregator(ContextDependent):
         context_args: dict[str, str] | None = None,
     ) -> Completion:
         """Request MCP completion for resource template argument values."""
+        server_name = self._resolve_server_key(server_name)
         if not await self.validate_server(server_name):
             return Completion(values=[])
 
@@ -3734,7 +3804,9 @@ class MCPAggregator(ContextDependent):
         results: dict[str, list[Tool]] = {}
 
         # Get the list of servers to check
-        servers_to_check = [server_name] if server_name else self.server_names
+        servers_to_check = (
+            [self._resolve_server_key(server_name)] if server_name else self.server_names
+        )
 
         # For each server, try to list its tools
         for s_name in servers_to_check:
@@ -3743,7 +3815,8 @@ class MCPAggregator(ContextDependent):
                 continue
 
             # Initialize empty list for this server
-            results[s_name] = []
+            display_name = self.server_display_name(s_name)
+            results[display_name] = []
 
             # Check if server supports tools capability
             if not await self.server_supports_feature(s_name, "tools"):
@@ -3762,7 +3835,7 @@ class MCPAggregator(ContextDependent):
 
                 # Get tools from result (these have original names, not namespaced)
                 tools = result.tools
-                results[s_name] = tools
+                results[display_name] = tools
 
             except Exception as e:
                 logger.error(f"Error fetching tools from {s_name}: {e}")

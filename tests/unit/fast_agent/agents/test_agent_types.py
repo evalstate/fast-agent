@@ -127,6 +127,33 @@ async def test_provider_managed_servers_remain_visible_without_local_aggregator_
     assert status_map["stripe"].transport == "http"
 
 
+@pytest.mark.asyncio
+async def test_card_provider_server_lists_visible_name() -> None:
+    internal_name = "card-source-revision-docs"
+    server = MCPServerSettings(
+        name="docs",
+        management="provider",
+        transport="http",
+        url="https://example.com/mcp",
+    )
+    registry = ServerRegistry()
+    registry.register_card(internal_name, server)
+    context = Context(
+        config=Settings.model_construct(
+            mcp=MCPSettings.model_construct(servers={internal_name: server}),
+        ),
+        server_registry=registry,
+    )
+    agent = McpAgent(
+        config=AgentConfig(name="agent", servers=[internal_name]),
+        context=context,
+        connection_persistence=False,
+    )
+
+    assert agent.list_attached_mcp_servers() == ["docs"]
+    assert await agent.list_servers() == ["docs"]
+
+
 def test_provider_managed_servers_attach_state_to_supported_llm() -> None:
     context = Context(
         config=Settings(
