@@ -34,6 +34,22 @@ resumption requests carrying `Last-Event-ID`. Response bodies and streamed SSE
 events are not consumed for diagnostics, so the display does not infer message
 counts from them.
 
+This recording connects to Hugging Face's live stable-v2 MCP endpoint, opens
+`/mcp`, and shows modern discovery plus public-hook HTTP diagnostics before
+continuing into the Skills over MCP workflow:
+
+<div
+  data-fa-asciinema-cast="../../assets/tui/skills-over-mcp.cast"
+  data-fa-asciinema-cols="96"
+  data-fa-asciinema-rows="22"
+  data-fa-asciinema-poster="npt:0:13"
+  data-fa-asciinema-speed="1"
+  data-fa-asciinema-idle-time-limit="1.3"
+  data-fa-asciinema-fit="width"
+>
+  <div data-fa-asciinema-target></div>
+</div>
+
 ### Section 3 - Server Capabilities
 
 - `To`, `Pr`, `Re`: Tools, Prompts and Resources. Green for available, Yellow for List Change notifications.

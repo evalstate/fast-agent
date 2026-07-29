@@ -37,6 +37,7 @@ class TerminalCastScenario:
     idle_time_limit: float
     prompt: str
     shell_command: str
+    notes: str = ""
 
 
 @dataclass(frozen=True)
@@ -125,6 +126,10 @@ def _skills_over_mcp_scenario() -> TerminalCastScenario:
         idle_time_limit=float(os.environ.get("FAST_AGENT_SKILLS_MCP_DEMO_IDLE_TIME_LIMIT", "1.3")),
         prompt="",
         shell_command=command,
+        notes=(
+            "Live Hugging Face stable-v2 connection; includes /mcp HTTP diagnostics "
+            "and the SEP-2640 skills workflow."
+        ),
     )
 
 
@@ -186,6 +191,7 @@ def _cast_recorders() -> dict[Path, CastRecorder]:
         scenario.output.relative_to(ROOT): CastRecorder(
             name=scenario.name,
             command=f"uv run scripts/docs.py cast-build {scenario.name}",
+            notes=scenario.notes,
         )
         for scenario in _scenarios().values()
     }
