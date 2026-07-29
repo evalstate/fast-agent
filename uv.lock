@@ -13,10 +13,6 @@ members = [
     "fast-agent-mcp",
     "hf-inference-acp",
 ]
-constraints = [
-    { name = "mcp", specifier = "==2.0.0rc1" },
-    { name = "mcp-types", specifier = "==2.0.0rc1" },
-]
 
 [[package]]
 name = "a2a-sdk"
@@ -900,7 +896,6 @@ dependencies = [
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-instrumentation-anthropic" },
     { name = "opentelemetry-instrumentation-google-genai" },
-    { name = "opentelemetry-instrumentation-mcp" },
     { name = "opentelemetry-instrumentation-openai" },
     { name = "pillow" },
     { name = "prompt-toolkit" },
@@ -994,15 +989,15 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'parquet'", specifier = ">=1.4" },
     { name = "email-validator", specifier = "==2.3.0" },
     { name = "fastapi", specifier = "==0.136.3" },
-    { name = "fastmcp-slim", extras = ["server"], git = "https://github.com/evalstate/fastmcp.git?subdirectory=fastmcp_slim&rev=0a771b0a5e3e52202f2d4d941ae50f43610b8882" },
+    { name = "fastmcp-slim", extras = ["server"], specifier = "==4.0.0b1" },
     { name = "filelock", specifier = "==3.29.1" },
     { name = "gepa", marker = "extra == 'gepa'", specifier = ">=0.1.1" },
     { name = "google-genai", specifier = "==2.10.0" },
     { name = "huggingface-hub", specifier = "==1.24.0" },
     { name = "jsonschema", specifier = "==4.26.0" },
     { name = "keyring", specifier = "==25.7.0" },
-    { name = "mcp", specifier = "==2.0.0rc1" },
-    { name = "mcp-types", specifier = "==2.0.0rc1" },
+    { name = "mcp", specifier = "==2.0.0" },
+    { name = "mcp-types", specifier = "==2.0.0" },
     { name = "mslex", specifier = "==1.3.0" },
     { name = "numpy", marker = "extra == 'privacy'", specifier = ">=2" },
     { name = "numpy", marker = "extra == 'privacy-gpu'", specifier = ">=2" },
@@ -1013,7 +1008,6 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = "==1.43.0" },
     { name = "opentelemetry-instrumentation-anthropic", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = "==0.62.1" },
     { name = "opentelemetry-instrumentation-google-genai", specifier = "==1.0b1" },
-    { name = "opentelemetry-instrumentation-mcp", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = "==0.62.1" },
     { name = "opentelemetry-instrumentation-openai", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = "==0.62.1" },
     { name = "pillow", specifier = ">=12.1.1" },
     { name = "prompt-toolkit", specifier = "==3.0.53" },
@@ -1075,8 +1069,8 @@ wheels = [
 
 [[package]]
 name = "fastmcp-slim"
-version = "4.0.0a2.post1"
-source = { git = "https://github.com/evalstate/fastmcp.git?subdirectory=fastmcp_slim&rev=0a771b0a5e3e52202f2d4d941ae50f43610b8882#0a771b0a5e3e52202f2d4d941ae50f43610b8882" }
+version = "4.0.0b1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "mcp-types" },
     { name = "platformdirs" },
@@ -1085,6 +1079,10 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bc/33/f207166aac88c6d8be1b2a82c54fecd1e04b075ef12d027aa17b3134fc0f/fastmcp_slim-4.0.0b1.tar.gz", hash = "sha256:158efb25720e0cb301711146b2d05d181de95cd91fe70e87c251ad14b123d665", size = 660081, upload-time = "2026-07-28T21:17:50.171Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/5d/fbe192d2ab50bb31b284fd0eb6c72d4347df7a57d836bee4f1973ffd1d7d/fastmcp_slim-4.0.0b1-py3-none-any.whl", hash = "sha256:dd907a3db5a2f479ca958c30157e227b4f7b340a56d333eb91de95719254597a", size = 827975, upload-time = "2026-07-28T21:17:48.747Z" },
 ]
 
 [package.optional-dependencies]
@@ -1932,7 +1930,7 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "2.0.0rc1"
+version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1950,22 +1948,22 @@ dependencies = [
     { name = "typing-inspection" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d1/ea/aa22bd3a6056fc9fb183ddb245545684cca2391286e1eb67946ab3ef418f/mcp-2.0.0rc1.tar.gz", hash = "sha256:664f719ea0ba33fa6a697fa1e32cadca6b6f7d7f958a8a8cda59622a0172d835", size = 1619591, upload-time = "2026-07-27T13:35:17.166Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/74/33/32d4dff2c95bb5d897c3ef4c83649a08996b17b58f0a326d2495d4c81179/mcp-2.0.0.tar.gz", hash = "sha256:0f440e735c13ece8bb19bc62cf0b86f4313448432fbb77d35e14034f4e050728", size = 1662284, upload-time = "2026-07-28T13:45:32.346Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1b/4c/02657d8e70dc828089e1a0f1326c44c3a1f9aba2d7b22df61feda71111fa/mcp-2.0.0rc1-py3-none-any.whl", hash = "sha256:43d8c181d3dac50aaa310e16fa14dae92ac844ffa3fcc3363b6a93d8b088ea0d", size = 340369, upload-time = "2026-07-27T13:35:13.997Z" },
+    { url = "https://files.pythonhosted.org/packages/67/72/7d7897418912c1d12e87556630dfb7bf0eac71160e9bef8b447960804ee3/mcp-2.0.0-py3-none-any.whl", hash = "sha256:1cb4c75d2d2c7b8c1d756355e5d82a39f2822cc7f13e22a2051d7ca3592349d6", size = 349980, upload-time = "2026-07-28T13:45:28.853Z" },
 ]
 
 [[package]]
 name = "mcp-types"
-version = "2.0.0rc1"
+version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ad/7b/a405786c8ec58f40769fb27b4131edc6f175b407be73a821eff446568ead/mcp_types-2.0.0rc1.tar.gz", hash = "sha256:3c9ec7d0e356d9c73023c53b418179801257869d2f1647cb6d19a9072831cfcd", size = 66486, upload-time = "2026-07-27T13:35:18.386Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/56/9b8e1c152f61f6c6b07c4b5896c88c7d0ae90bac6ee6306f852fcc5c1eb0/mcp_types-2.0.0.tar.gz", hash = "sha256:d7d939b9285c9961ae8866ba75ef85da34d12bafe276efbf4eb6a131786d8379", size = 66632, upload-time = "2026-07-28T13:45:33.804Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c4/01/c18c6c37df2ca487113e76b5a0fb001b285482b28dbde6488a832209ff68/mcp_types-2.0.0rc1-py3-none-any.whl", hash = "sha256:b40ce464006aacd6682049f6f3b573a2ce04af203fddd1716e8e1ae9226779bb", size = 69518, upload-time = "2026-07-27T13:35:15.598Z" },
+    { url = "https://files.pythonhosted.org/packages/f5/4c/c78d78c3d52b0ac594ad7cc8ef5972adfe070e3597a8a4c6ce0cd39196ea/mcp_types-2.0.0-py3-none-any.whl", hash = "sha256:6b2de797ca2797f568b79529e1b25948e34de511bcc0bd82fef1039a6d1b8eb0", size = 69649, upload-time = "2026-07-28T13:45:30.713Z" },
 ]
 
 [[package]]
@@ -2393,21 +2391,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/7c/13/a2422f9164c09406092576d878d9b23d74b0a2ed75c1a77454c3a0178eb1/opentelemetry_instrumentation_google_genai-1.0b1.tar.gz", hash = "sha256:784b3a473ed51033837114b96854b31a0f0b0fe7c81e132e58a45352eee3b102", size = 104473, upload-time = "2026-07-13T19:01:35.403Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/07/a3/315330fb955d5caea51793c4f49d8904fcade3927b3512fdc0595b3b701a/opentelemetry_instrumentation_google_genai-1.0b1-py3-none-any.whl", hash = "sha256:50789eebf4ce38dc09147e28bdbd96d45550c7f479232c593c0ddbdab37cf97f", size = 28010, upload-time = "2026-07-13T19:01:34.051Z" },
-]
-
-[[package]]
-name = "opentelemetry-instrumentation-mcp"
-version = "0.62.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-instrumentation" },
-    { name = "opentelemetry-semantic-conventions" },
-    { name = "opentelemetry-semantic-conventions-ai" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/96/8d/faa4ae935f8a6b90ec786a08f2e5fc71bb491c513a814f0efd2e05d1cdce/opentelemetry_instrumentation_mcp-0.62.1.tar.gz", hash = "sha256:109c8ef1b5340725e93ed61f21a1a1298bffce77b22dfb5861db36044678d11f", size = 120553, upload-time = "2026-06-28T12:12:24.019Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/32/95042450a28a8c7607e4fad2fce2435ffb9e8c4664309180b7dc01c84f13/opentelemetry_instrumentation_mcp-0.62.1-py3-none-any.whl", hash = "sha256:7ffeee0dbca9002ad8a2364ffeb638f7d66facdf7d2dbbc364dc21af748e4625", size = 10476, upload-time = "2026-06-28T12:11:51.91Z" },
 ]
 
 [[package]]

@@ -20,14 +20,19 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from urllib.parse import parse_qs, urlparse, urlunparse
 
+from mcp.client.auth import (
+    AuthorizationCodeResult,
+    TokenStorage,
+)
 from mcp.client.auth import OAuthClientProvider as _BaseOAuthClientProvider
-from mcp.client.auth import TokenStorage
+from mcp.client.auth.oauth2 import check_registration_usable
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
     create_client_info_from_metadata_url,
     create_client_registration_request,
     create_oauth_metadata_request,
+    credentials_match_issuer,
     extract_field_from_www_auth,
     extract_resource_metadata_from_www_auth,
     extract_scope_from_www_auth,
@@ -36,6 +41,7 @@ from mcp.client.auth.utils import (
     handle_protected_resource_response,
     handle_registration_response,
     should_use_client_metadata_url,
+    validate_metadata_issuer,
 )
 from mcp.shared.auth import (
     OAuthClientInformationFull,
@@ -196,6 +202,7 @@ class InMemoryTokenStorage(TokenStorage):
 class _CallbackResult:
     authorization_code: str | None = None
     state: str | None = None
+    issuer: str | None = None
     error: str | None = None
 
 
@@ -220,6 +227,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         if "code" in params:
             self._result.authorization_code = params["code"][0]
             self._result.state = params.get("state", [None])[0]
+            self._result.issuer = params.get("iss", [None])[0]
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
@@ -343,13 +351,17 @@ class _CallbackServer:
         self,
         timeout_seconds: int = 300,
         abort_event: threading.Event | None = None,
-    ) -> tuple[str, str | None]:
+    ) -> AuthorizationCodeResult:
         start = time.time()
         while time.time() - start < timeout_seconds:
             if abort_event is not None and abort_event.is_set():
                 raise OAuthFlowCancelledError("OAuth callback wait cancelled")
             if self._result.authorization_code:
-                return self._result.authorization_code, self._result.state
+                return AuthorizationCodeResult(
+                    code=self._result.authorization_code,
+                    state=self._result.state,
+                    iss=self._result.issuer,
+                )
             if self._result.error:
                 raise RuntimeError(f"OAuth error: {self._result.error}")
             time.sleep(0.1)
@@ -541,6 +553,8 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
         if not ok:
             return "stop"
         if asm:
+            if self.context.auth_server_url is not None:
+                validate_metadata_issuer(asm, self.context.auth_server_url)
             self.context.oauth_metadata = asm
             return "found"
         logger.debug(f"OAuth metadata discovery failed: {url}")
@@ -551,9 +565,13 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
             extract_scope_from_www_auth(response),
             self.context.protected_resource_metadata,
             self.context.oauth_metadata,
+            self.context.client_metadata.grant_types,
         )
 
-    async def _client_registration_request_if_needed(self) -> httpx.Request | None:
+    async def _client_registration_request_if_needed(
+        self,
+        discovered_issuer: str | None,
+    ) -> httpx.Request | None:
         if self.context.client_info:
             return None
 
@@ -566,12 +584,12 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
             and client_metadata_url is not None
         ):
             logger.debug(f"Using URL-based client ID (CIMD): {client_metadata_url}")
-            await self._store_client_info(
-                create_client_info_from_metadata_url(
-                    client_metadata_url,
-                    redirect_uris=self.context.client_metadata.redirect_uris,
-                )
+            client_information = create_client_info_from_metadata_url(
+                client_metadata_url,
+                redirect_uris=self.context.client_metadata.redirect_uris,
             )
+            client_information.issuer = discovered_issuer
+            await self._store_client_info(client_information)
             return None
 
         return create_client_registration_request(
@@ -618,6 +636,22 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
                 ):
                     break
 
+            if (
+                self.context.client_info is not None
+                and self.context.auth_server_url is not None
+                and not credentials_match_issuer(
+                    self.context.client_info,
+                    self.context.auth_server_url,
+                    self.context.client_metadata_url,
+                )
+            ):
+                logger.debug(
+                    "Authorization server changed; discarding bound credentials and re-registering"
+                )
+                self.context.client_info = None
+                self.context.clear_tokens()
+                self.context.oauth_metadata = None
+
             asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
                 self.context.auth_server_url,
                 self._discovery_server_url,
@@ -640,8 +674,34 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
                 if result in {"stop", "found"}:
                     break
 
+            discovered_issuer = (
+                self.context.auth_server_url
+                or (
+                    str(self.context.oauth_metadata.issuer)
+                    if self.context.oauth_metadata is not None
+                    else None
+                )
+            )
+            if (
+                self.context.client_info is not None
+                and self.context.auth_server_url is None
+                and discovered_issuer is not None
+                and not credentials_match_issuer(
+                    self.context.client_info,
+                    discovered_issuer,
+                    self.context.client_metadata_url,
+                )
+            ):
+                logger.debug(
+                    "Authorization server changed; discarding bound credentials and re-registering"
+                )
+                self.context.client_info = None
+                self.context.clear_tokens()
+
             self._update_client_metadata_scope(response)
-            registration_request = await self._client_registration_request_if_needed()
+            registration_request = await self._client_registration_request_if_needed(
+                discovered_issuer
+            )
             if registration_request is not None:
                 _trace_oauth_http("client-registration request", registration_request)
                 registration_response = yield registration_request
@@ -651,6 +711,17 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
                     registration_response,
                 )
                 client_information = await handle_registration_response(registration_response)
+                check_registration_usable(client_information)
+                if (
+                    self.context.oauth_metadata is not None
+                    and discovered_issuer is not None
+                    and (
+                        self.context.oauth_metadata.registration_endpoint is not None
+                        or self.context.get_authorization_base_url(discovered_issuer)
+                        == self.context.get_authorization_base_url(self.context.server_url)
+                    )
+                ):
+                    client_information.issuer = discovered_issuer
                 await self._store_client_info(client_information)
 
             token_request = await self._perform_authorization()
@@ -915,7 +986,7 @@ def _callback_server_uri(server: _CallbackServer, context: _OAuthCallbackContext
 
 async def _capture_local_oauth_callback(
     context: _OAuthCallbackContext,
-) -> tuple[str, str | None]:
+) -> AuthorizationCodeResult:
     # MCP python-sdk currently uses the first redirect URI from client metadata
     # for both authorization and token exchange. Bind only the selected primary
     # redirect port so the callback listener matches that fixed redirect URI.
@@ -934,13 +1005,13 @@ async def _capture_local_oauth_callback(
         )
 
         try:
-            code, state = await run_in_thread(
+            result = await run_in_thread(
                 server.wait,
                 timeout_seconds=300,
                 abort_event=context.abort_event,
             )
             await _emit_oauth_callback_received(context)
-            return code, state
+            return result
         except OAuthFlowCancelledError as exc:
             await _emit_oauth_error(context, "OAuth authorization cancelled.")
             raise OAuthFlowCancelledError("OAuth authorization cancelled") from exc
@@ -954,17 +1025,21 @@ async def _capture_local_oauth_callback(
         server.stop()
 
 
-def _extract_oauth_callback_params(callback_url: str) -> tuple[str, str | None]:
+def _extract_oauth_callback_params(callback_url: str) -> AuthorizationCodeResult:
     params = parse_qs(urlparse(callback_url).query)
     code = params.get("code", [None])[0]
     if not code:
         raise RuntimeError("Callback URL missing authorization code")
-    return code, params.get("state", [None])[0]
+    return AuthorizationCodeResult(
+        code=code,
+        state=params.get("state", [None])[0],
+        iss=params.get("iss", [None])[0],
+    )
 
 
 async def _capture_pasted_oauth_callback(
     context: _OAuthCallbackContext,
-) -> tuple[str, str | None]:
+) -> AuthorizationCodeResult:
     await _emit_oauth_wait_start(
         context,
         "Waiting for pasted OAuth callback URL (startup timer paused)…",
@@ -994,18 +1069,18 @@ async def _capture_pasted_oauth_callback(
         await _emit_oauth_wait_end(context)
 
     try:
-        code, state = _extract_oauth_callback_params(callback_url)
+        result = _extract_oauth_callback_params(callback_url)
     except RuntimeError as exc:
         await _emit_oauth_error(context, str(exc))
         raise RuntimeError(str(exc)) from None
 
     await _emit_oauth_callback_received(context)
-    return code, state
+    return result
 
 
 async def _handle_oauth_callback(
     context: _OAuthCallbackContext,
-) -> tuple[str, str | None]:
+) -> AuthorizationCodeResult:
     try:
         return await _capture_local_oauth_callback(context)
     except (OAuthCallbackTimeoutError, OAuthFlowCancelledError):
@@ -1358,7 +1433,7 @@ def build_oauth_provider(
                 warn_if_no_keyring=(settings.persist_mode == "keyring"),
             )
 
-    async def _callback_handler() -> tuple[str, str | None]:
+    async def _callback_handler() -> AuthorizationCodeResult:
         return await _handle_oauth_callback(
             _OAuthCallbackContext(
                 event_handler=event_handler,

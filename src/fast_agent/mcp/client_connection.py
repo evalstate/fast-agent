@@ -35,7 +35,6 @@ from fast_agent.mcp.url_elicitation_required import (
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
-    from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
     from mcp.shared.dispatcher import ProgressFnT
@@ -296,22 +295,3 @@ class MCPClientConnection:
                     request_method=method,
                 )
                 set_url_elicitation_required_payload(result, payload)
-
-
-class MCPTransportAdapter:
-    """Adapt fast-agent's legacy three-value transport context to SDK Transport."""
-
-    def __init__(self, context: AbstractAsyncContextManager[tuple[Any, Any, Any]]) -> None:
-        self._context = context
-
-    async def __aenter__(self):
-        read_stream, write_stream, _session_id = await self._context.__aenter__()
-        return read_stream, write_stream
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> bool | None:
-        return await self._context.__aexit__(exc_type, exc_val, exc_tb)

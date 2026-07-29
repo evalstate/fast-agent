@@ -2,10 +2,12 @@
 
 import socket
 import threading
+import urllib.request
 from collections.abc import Awaitable, Callable, Mapping
 from typing import TypeAlias, cast
 
 import pytest
+from mcp.client.auth import AuthorizationCodeResult
 from pydantic import ValidationError
 
 from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
@@ -18,7 +20,7 @@ from fast_agent.mcp.oauth_client import (
     build_oauth_provider,
 )
 
-AsyncCallbackHandler: TypeAlias = Callable[[], Awaitable[object]]
+AsyncCallbackHandler: TypeAlias = Callable[[], Awaitable[AuthorizationCodeResult]]
 
 
 def _callback_handler(captured_kwargs: Mapping[str, object]) -> AsyncCallbackHandler:
@@ -353,6 +355,25 @@ class TestCallbackServerPortFallback:
         server = _CallbackServer(port=3030, path="/callback")
         with pytest.raises(RuntimeError, match="Server not started"):
             server.get_redirect_uri()
+
+    def test_callback_server_preserves_authorization_response_issuer(self) -> None:
+        server = _CallbackServer(port=0, path="/callback")
+        try:
+            server.start()
+            callback_url = (
+                f"{server.get_redirect_uri()}?code=abc&state=xyz"
+                "&iss=https%3A%2F%2Fissuer.example"
+            )
+            with urllib.request.urlopen(callback_url) as response:
+                assert response.status == 200
+
+            assert server.wait(timeout_seconds=1) == AuthorizationCodeResult(
+                code="abc",
+                state="xyz",
+                iss="https://issuer.example",
+            )
+        finally:
+            server.stop()
 
 
 def test_callback_server_wait_respects_abort_event() -> None:

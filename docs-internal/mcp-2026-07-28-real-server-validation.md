@@ -78,7 +78,7 @@ tool-list subscriptions.
 ## Hugging Face MCP
 
 Anonymous discovery against `https://huggingface.co/mcp` succeeded with MCP
-Python SDK `2.0.0rc1` and an isolated `HF_HOME` so a developer credential could
+Python SDK `2.0.0` and an isolated `HF_HOME` so a developer credential could
 not affect the probe:
 
 ```bash

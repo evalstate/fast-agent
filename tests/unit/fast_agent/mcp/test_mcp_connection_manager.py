@@ -3,8 +3,10 @@ import logging
 import time
 from typing import Any, cast
 
+import httpx2
 import pytest
 from anyio import create_task_group
+from mcp.client.streamable_http import streamable_http_client
 
 from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
 from fast_agent.core.exceptions import ServerInitializationError
@@ -23,6 +25,27 @@ from fast_agent.mcp.mcp_connection_manager import (
     _wait_for_initialized_with_startup_budget,
 )
 from fast_agent.mcp.oauth_client import OAuthEventHandler
+
+
+@pytest.mark.asyncio
+async def test_http_response_hook_captures_session_id_and_auth_challenge() -> None:
+    config = MCPServerSettings(name="test", transport="http", url="https://example.com/mcp")
+    connection = ServerConnection(
+        "test",
+        config,
+        lambda: streamable_http_client(config.url or ""),
+        MCPClientCallbackRuntime(server_name="test", server_config=config),
+    )
+    response = httpx2.Response(
+        401,
+        headers={"Mcp-Session-Id": "session-123"},
+        request=httpx2.Request("POST", config.url or ""),
+    )
+
+    await connection.capture_http_response(response)
+
+    assert connection._auth_challenge_received is True
+    assert connection.session_id == "session-123"
 
 
 def test_prepare_headers_respects_user_authorization(monkeypatch):

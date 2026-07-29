@@ -34,7 +34,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.home import build_child_environment
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
-from fast_agent.mcp.client_connection import MCPClientConnection, MCPTransportAdapter
+from fast_agent.mcp.client_connection import MCPClientConnection
 from fast_agent.mcp.hf_auth import add_forwarded_hf_auth_header
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.oauth_client import (
@@ -53,9 +53,9 @@ from fast_agent.utils.transports import is_mcp_client_transport, uses_mcp_remote
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+    from mcp.client import Transport
     from mcp.client.auth import OAuthClientProvider
-    from mcp_types import Implementation, JSONRPCMessage, ServerCapabilities
+    from mcp_types import Implementation, ServerCapabilities
 
     from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
@@ -98,27 +98,6 @@ def _format_user_auth_skip_oauth_message(server_name: str, user_auth_keys: set[s
         f"{server_name}: Using user-specified "
         f"{format_count(len(user_auth_keys), 'auth header')}; skipping OAuth provider."
     )
-
-
-class StreamingContextAdapter:
-    """Adapter to provide a 3-value context from a 2-value context manager"""
-
-    def __init__(self, context_manager):
-        self.context_manager = context_manager
-        self.cm_instance = None
-
-    async def __aenter__(self):
-        self.cm_instance = await self.context_manager.__aenter__()
-        read_stream, write_stream = self.cm_instance
-        return read_stream, write_stream, None
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        return await self.context_manager.__aexit__(exc_type, exc_val, exc_tb)
-
-
-def _add_none_to_context(context_manager):
-    """Helper to add a None value to context managers that return 2 values instead of 3"""
-    return StreamingContextAdapter(context_manager)
 
 
 @asynccontextmanager
@@ -297,7 +276,7 @@ def create_transport_context(
     trigger_oauth: bool | None = None,
     active_home: str | Path | None = None,
     no_home: bool = False,
-) -> AbstractAsyncContextManager:
+) -> Transport:
     """
     Create a transport context manager for the given server configuration.
 
@@ -345,17 +324,15 @@ def create_transport_context(
         )
         error_handler = get_stderr_handler(server_name)
         logger.debug(f"{server_name}: Creating stdio client with custom error handler")
-        return _add_none_to_context(tracking_stdio_client(server_params, errlog=error_handler))
+        return tracking_stdio_client(server_params, errlog=error_handler)
     if config.transport == "sse":
         if not config.url:
             raise ValueError(f"Server '{server_name}' uses sse transport but no url is specified")
-        return _add_none_to_context(
-            sse_client(
-                config.url,
-                prepared_auth.headers,
-                sse_read_timeout=config.read_transport_sse_timeout_seconds,
-                auth=prepared_auth.oauth_provider,
-            )
+        return sse_client(
+            config.url,
+            prepared_auth.headers,
+            sse_read_timeout=config.read_transport_sse_timeout_seconds,
+            auth=prepared_auth.oauth_provider,
         )
     if config.transport == "http":
         if not config.url:
@@ -374,7 +351,7 @@ def create_transport_context(
         )
         return _managed_http_transport_context(
             http_client,
-            _add_none_to_context(streamable_http_client(config.url, http_client=http_client)),
+            streamable_http_client(config.url, http_client=http_client),
         )
     raise ValueError(f"Unsupported transport: {config.transport}")
 
@@ -388,16 +365,7 @@ class ServerConnection:
         self,
         server_name: str,
         server_config: MCPServerSettings,
-        transport_context_factory: Callable[
-            [],
-            AbstractAsyncContextManager[
-                tuple[
-                    MemoryObjectReceiveStream[JSONRPCMessage | Exception],
-                    MemoryObjectSendStream[JSONRPCMessage],
-                    Callable[[], str | None] | None,
-                ]
-            ],
-        ],
+        transport_context_factory: Callable[[], Transport],
         callback_runtime: MCPClientCallbackRuntime,
     ) -> None:
         self.server_name = server_name
@@ -555,9 +523,11 @@ class ServerConnection:
         return tuple(self._stdio_stderr_lines)
 
     async def capture_http_response(self, response: httpx2.Response) -> None:
-        """Record an OAuth challenge before the SDK normalizes the transport error."""
+        """Capture public HTTP response metadata before SDK normalization."""
         if response.status_code == 401:
             self._auth_challenge_received = True
+        if session_id := response.headers.get("mcp-session-id"):
+            self.session_id = session_id
 
     def record_ping_event(self, state: str) -> None:
         self._ping_history.append((datetime.now(timezone.utc), state))
@@ -720,7 +690,7 @@ async def _run_server_lifecycle(server_conn: ServerConnection) -> None:
     try:
         transport_context = server_conn._transport_context_factory()
         connection = MCPClientConnection(
-            MCPTransportAdapter(transport_context),
+            transport_context,
             server_conn._callback_runtime,
             read_timeout_seconds=server_conn.server_config.read_timeout_seconds,
         )
@@ -1246,8 +1216,8 @@ class MCPConnectionManager(ContextDependent):
         oauth_event_handler: OAuthEventHandler | None,
         allow_oauth_paste_fallback: bool,
         transport_metrics: TransportChannelMetrics | None,
-    ) -> Callable[[], AbstractAsyncContextManager]:
-        def transport_context_factory() -> AbstractAsyncContextManager:
+    ) -> Callable[[], Transport]:
+        def transport_context_factory() -> Transport:
             return self._persistent_transport_context(
                 server_conn_holder[0],
                 server_name=server_name,
@@ -1272,7 +1242,7 @@ class MCPConnectionManager(ContextDependent):
         oauth_event_handler: OAuthEventHandler | None,
         allow_oauth_paste_fallback: bool,
         transport_metrics: TransportChannelMetrics | None,
-    ) -> AbstractAsyncContextManager:
+    ) -> Transport:
         if config.transport == "stdio":
             return self._persistent_stdio_transport_context(
                 server_conn,
@@ -1311,7 +1281,7 @@ class MCPConnectionManager(ContextDependent):
         server_name: str,
         config: MCPServerSettings,
         transport_metrics: TransportChannelMetrics | None,
-    ) -> AbstractAsyncContextManager:
+    ) -> Transport:
         if not config.command:
             raise ValueError(
                 f"Server '{server_name}' uses stdio transport but no command is specified"
@@ -1323,8 +1293,8 @@ class MCPConnectionManager(ContextDependent):
         )
         logger.debug(f"{server_name}: Creating stdio client with custom error handler")
         channel_hook = transport_metrics.record_event if transport_metrics else None
-        return _add_none_to_context(
-            tracking_stdio_client(server_params, channel_hook=channel_hook, errlog=error_handler)
+        return tracking_stdio_client(
+            server_params, channel_hook=channel_hook, errlog=error_handler
         )
 
     def _stdio_server_parameters(self, config: MCPServerSettings) -> StdioServerParameters:
@@ -1354,7 +1324,7 @@ class MCPConnectionManager(ContextDependent):
         oauth_event_handler: OAuthEventHandler | None,
         allow_oauth_paste_fallback: bool,
         transport_metrics: TransportChannelMetrics | None,
-    ) -> AbstractAsyncContextManager:
+    ) -> Transport:
         if not config.url:
             raise ValueError(f"Server '{server_name}' uses sse transport but no url is specified")
         headers, oauth_auth, channel_hook = self._prepare_persistent_http_transport_auth(
@@ -1369,13 +1339,11 @@ class MCPConnectionManager(ContextDependent):
             suppress_transport_errors=self._suppress_mcp_sse_errors,
         )
         del channel_hook
-        return _add_none_to_context(
-            sse_client(
-                config.url,
-                headers,
-                sse_read_timeout=config.read_transport_sse_timeout_seconds,
-                auth=oauth_auth,
-            )
+        return sse_client(
+            config.url,
+            headers,
+            sse_read_timeout=config.read_transport_sse_timeout_seconds,
+            auth=oauth_auth,
         )
 
     def _persistent_http_transport_context(
@@ -1389,7 +1357,7 @@ class MCPConnectionManager(ContextDependent):
         oauth_event_handler: OAuthEventHandler | None,
         allow_oauth_paste_fallback: bool,
         transport_metrics: TransportChannelMetrics | None,
-    ) -> AbstractAsyncContextManager:
+    ) -> Transport:
         if not config.url:
             raise ValueError(f"Server '{server_name}' uses http transport but no url is specified")
         headers, oauth_auth, channel_hook = self._prepare_persistent_http_transport_auth(
@@ -1413,7 +1381,7 @@ class MCPConnectionManager(ContextDependent):
         )
         return _managed_http_transport_context(
             http_client,
-            _add_none_to_context(streamable_http_client(config.url, http_client=http_client)),
+            streamable_http_client(config.url, http_client=http_client),
         )
 
     def _prepare_persistent_http_transport_auth(

@@ -9,11 +9,11 @@ server initialization.
 
 from __future__ import annotations
 
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import TYPE_CHECKING, Any, cast
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.client_connection import MCPClientConnection, MCPTransportAdapter
+from fast_agent.mcp.client_connection import MCPClientConnection
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -111,7 +111,7 @@ class ServerRegistry:
         async def _initialized_session(
             oauth_enabled: bool,
         ) -> AsyncIterator[MCPClientConnection]:
-            legacy_transport = create_transport_context(
+            transport = create_transport_context(
                 server_name=server_name,
                 config=config,
                 trigger_oauth=oauth_enabled,
@@ -127,9 +127,7 @@ class ServerRegistry:
                 server_name=server_name, server_config=config
             )
             connection = MCPClientConnection(
-                MCPTransportAdapter(
-                    cast("AbstractAsyncContextManager[tuple[Any, Any, Any]]", legacy_transport)
-                ),
+                transport,
                 callbacks,
                 read_timeout_seconds=config.read_timeout_seconds,
                 cache=False,

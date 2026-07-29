@@ -96,7 +96,7 @@ async def test_initialize_server_uses_public_client_and_two_stream_transport(mon
     @asynccontextmanager
     async def _fake_transport(server_name, config, trigger_oauth=None, **kwargs):
         del server_name, config, trigger_oauth, kwargs
-        yield (object(), object(), lambda: "legacy-session-id")
+        yield (object(), object())
 
     class _FakeConnection:
         def __init__(self, transport, callbacks, **kwargs) -> None:
