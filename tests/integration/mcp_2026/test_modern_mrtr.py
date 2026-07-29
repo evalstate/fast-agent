@@ -3,6 +3,7 @@ from mcp.client.session import ClientRequestContext
 from mcp_types import ElicitRequestFormParams, ElicitRequestParams, ElicitResult
 
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
 
 
 async def accept_profile(
@@ -45,6 +46,7 @@ async def test_modern_negotiation_and_mrtr(fast_agent) -> None:
             assert status.protocol_era == "modern"
             assert status.supported_protocol_versions == ("2026-07-28",)
             assert status.negotiation == "discover"
+            assert "initialize" not in status.call_counts
             assert status.subscription_state == "open"
             assert status.ping_ok_count == 0
             assert status.ping_fail_count == 0
@@ -70,10 +72,24 @@ async def test_protocol_mode_can_force_modern_or_legacy(fast_agent) -> None:
             assert modern.protocol_era == "modern"
             assert modern.negotiation == "adopt"
             assert modern.supported_protocol_versions == ()
+            assert "initialize" not in modern.call_counts
 
             legacy = statuses["forced_legacy"]
             assert legacy.protocol_mode == "legacy"
             assert legacy.protocol_era == "legacy"
             assert legacy.negotiation == "initialize"
+            assert legacy.call_counts["initialize"] == 1
+
+            reconnect = MCPAttachOptions(force_reconnect=True)
+            await app.forced._aggregator.attach_server(
+                server_name="forced_modern", options=reconnect
+            )
+            await app.forced._aggregator.attach_server(
+                server_name="forced_legacy", options=reconnect
+            )
+
+            reconnected = await app.forced.get_server_status()
+            assert "initialize" not in reconnected["forced_modern"].call_counts
+            assert reconnected["forced_legacy"].call_counts["initialize"] == 2
 
     await run_probe()

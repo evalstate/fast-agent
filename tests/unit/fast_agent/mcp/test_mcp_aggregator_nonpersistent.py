@@ -132,12 +132,12 @@ async def test_connection_error_does_not_replay_tool_call() -> None:
 
         async def get_server(self, *args, **kwargs):
             del args, kwargs
-            return SimpleNamespace(client=_ToolClient())
+            return SimpleNamespace(client=_ToolClient(), negotiation="adopt")
 
         async def reconnect_server(self, *args, **kwargs):
             del args, kwargs
             self.reconnect_count += 1
-            return SimpleNamespace(client=_ReconnectedClient())
+            return SimpleNamespace(client=_ReconnectedClient(), negotiation="adopt")
 
     manager = _PersistentManager()
     aggregator._persistent_connection_manager = cast("MCPConnectionManager", manager)
@@ -190,12 +190,12 @@ async def test_connection_error_replays_list_operation_once() -> None:
 
         async def get_server(self, *args, **kwargs):
             del args, kwargs
-            return SimpleNamespace(client=_DisconnectedClient())
+            return SimpleNamespace(client=_DisconnectedClient(), negotiation="adopt")
 
         async def reconnect_server(self, *args, **kwargs):
             del args, kwargs
             self.reconnect_count += 1
-            return SimpleNamespace(client=_ReconnectedClient())
+            return SimpleNamespace(client=_ReconnectedClient(), negotiation="adopt")
 
     manager = _PersistentManager()
     aggregator._persistent_connection_manager = cast("MCPConnectionManager", manager)

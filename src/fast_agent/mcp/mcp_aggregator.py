@@ -981,7 +981,7 @@ class MCPAggregator(ContextDependent):
 
         manager = self._require_connection_manager()
         connect = manager.reconnect_server if attach_options.force_reconnect else manager.get_server
-        await connect(
+        server_conn = await connect(
             server_name,
             server_config=server_config,
             callback_runtime=self._create_callback_runtime(server_name),
@@ -990,7 +990,7 @@ class MCPAggregator(ContextDependent):
             oauth_event_handler=attach_options.oauth_event_handler,
             allow_oauth_paste_fallback=attach_options.allow_oauth_paste_fallback,
         )
-        await self._record_server_call(server_name, "initialize", True)
+        await self._record_connection_negotiation(server_name, server_conn)
 
     async def _discover_server_attachment(self, server_name: str) -> _AttachmentDiscovery:
         tools = await self._fetch_server_tools(server_name)
@@ -1770,6 +1770,14 @@ class MCPAggregator(ContextDependent):
             # For stdio servers, also emit synthetic transport events to create activity timeline
             await self._notify_stdio_transport_activity(server_name, operation_type, success)
 
+    async def _record_connection_negotiation(
+        self,
+        server_name: str,
+        server_conn: ServerConnection,
+    ) -> None:
+        if server_conn.negotiation == "initialize":
+            await self._record_server_call(server_name, "initialize", True)
+
     async def _record_reconnect(self, server_name: str) -> None:
         """Record a successful server reconnection."""
         async with self._stats_lock:
@@ -2392,6 +2400,7 @@ class MCPAggregator(ContextDependent):
                     trigger_oauth=True,
                     **self._attachment_manager_kwargs(server_name),
                 )
+                await self._record_connection_negotiation(server_name, server_connection)
                 client = server_connection.client
                 if client is None:
                     raise RuntimeError(f"MCP client runtime not initialized for '{server_name}'")
@@ -2443,6 +2452,7 @@ class MCPAggregator(ContextDependent):
                     callback_runtime=self._create_callback_runtime(server_name),
                     **self._attachment_manager_kwargs(server_name),
                 )
+                await self._record_connection_negotiation(server_name, server_connection)
                 client = server_connection.client
                 if client is None:
                     raise RuntimeError(f"MCP client runtime not initialized for '{server_name}'")
@@ -2505,11 +2515,12 @@ class MCPAggregator(ContextDependent):
         )
         try:
             manager = self._require_connection_manager()
-            await manager.reconnect_server(
+            server_connection = await manager.reconnect_server(
                 server_name,
                 callback_runtime=self._create_callback_runtime(server_name),
                 **self._attachment_manager_kwargs(server_name),
             )
+            await self._record_connection_negotiation(server_name, server_connection)
             self._log_server_progress(ProgressAction.READY, server_name, "reconnected")
         except Exception as exc:
             self._log_server_progress(
@@ -2560,6 +2571,7 @@ class MCPAggregator(ContextDependent):
                     callback_runtime=self._create_callback_runtime(server_name),
                     **self._attachment_manager_kwargs(server_name),
                 )
+                await self._record_connection_negotiation(server_name, server_connection)
                 client = server_connection.client
                 if client is None:
                     raise RuntimeError(f"MCP client runtime not initialized for '{server_name}'")
