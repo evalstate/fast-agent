@@ -150,6 +150,13 @@ class ModelSelectionCatalog:
                 current=False,
             ),
         ),
+        Provider.ZAI: (
+            CatalogModelEntry(
+                alias="zaiglm",
+                display_label="GLM 5.2",
+                model="zai.glm-5.2",
+            ),
+        ),
         Provider.OPENROUTER: (),
         Provider.ALIYUN: (
             CatalogModelEntry(alias="qwen-turbo", model="aliyun.qwen-turbo", fast=True),

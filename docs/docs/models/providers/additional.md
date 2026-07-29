@@ -9,7 +9,11 @@ social:
 
 # Additional Providers
 
-These providers are useful when you want a specific hosted model, a router, or an OpenAI-compatible endpoint without needing a dedicated first-class provider guide. For Grok models, see the dedicated [xAI / Grok](xai.md) guide. For Hugging Face Inference Providers, see the dedicated [Hugging Face](huggingface.md) guide.
+These providers are useful when you want a specific hosted model, a router, or
+an OpenAI-compatible endpoint without needing a dedicated first-class provider
+guide. For Grok models, see the dedicated [xAI / Grok](xai.md) guide. For native
+GLM models, see [Z.ai](zai.md). For Hugging Face Inference Providers, see the
+dedicated [Hugging Face](huggingface.md) guide.
 
 Most entries use the same small configuration shape:
 

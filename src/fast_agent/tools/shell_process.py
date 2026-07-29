@@ -229,6 +229,7 @@ class ManagedProcessSnapshot:
     os_process_id: int | None
     total_output_bytes: int
     exit_code: int | None
+    lifecycle: Literal["session", "persistent"]
     output_spool_path: str | None = None
 
 

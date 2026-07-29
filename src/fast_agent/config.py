@@ -1273,6 +1273,23 @@ class DeepSeekSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class ZaiSettings(BaseModel):
+    """Settings for using Z.ai models in the fast-agent application."""
+
+    api_key: str | None = Field(default=None, description="Z.ai API key")
+    base_url: str | None = Field(default=None, description="Override API endpoint")
+    default_model: str | None = Field(
+        default=None,
+        description="Default model when Z.ai provider is selected without an explicit model",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class GoogleSettings(BaseModel):
     """Settings for using Google models in the fast-agent application."""
 
@@ -2072,6 +2089,9 @@ class Settings(BaseSettings):
 
     deepseek: DeepSeekSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""
+
+    zai: ZaiSettings | None = None
+    """Settings for using Z.ai models in the fast-agent application"""
 
     google: GoogleSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""

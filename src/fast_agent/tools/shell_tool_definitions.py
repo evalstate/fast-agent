@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeAlias, cast
 
 from mcp.types import Tool
 
@@ -58,10 +58,18 @@ class PollProcessArguments:
 
 
 @dataclass(frozen=True, slots=True)
-class MinimalProcessArguments:
+class MinimalProcessListArguments:
+    action: Literal["list"]
+
+
+@dataclass(frozen=True, slots=True)
+class MinimalProcessLifecycleArguments:
     process_id: str
     action: Literal["status", "wait", "stop"]
     wait_sec: int | None
+
+
+MinimalProcessArguments: TypeAlias = MinimalProcessListArguments | MinimalProcessLifecycleArguments
 
 
 def build_execute_tool(*, shell_name: str) -> Tool:
@@ -261,7 +269,9 @@ def build_minimal_process_tool(
     return Tool(
         name=PROCESS_TOOL_NAME,
         description=(
-            "Inspect, wait for, or stop a managed process returned by Bash. "
+            "List, inspect, wait for, or stop managed processes returned by Bash. "
+            "`list` returns all retained processes in creation order and takes no "
+            "process ID. "
             "`status` returns immediately. `wait` accepts an optional `wait_sec`; "
             "when omitted it uses the configured model-specific polling interval "
             "(with a nonzero fallback when the model has none). "
@@ -273,11 +283,14 @@ def build_minimal_process_tool(
             "properties": {
                 "process_id": {
                     "type": "string",
-                    "description": "Managed process ID returned by Bash.",
+                    "description": (
+                        "Managed process ID returned by Bash. Required for status, "
+                        "wait, and stop; omit for list."
+                    ),
                 },
                 "action": {
                     "type": "string",
-                    "enum": ["status", "wait", "stop"],
+                    "enum": ["list", "status", "wait", "stop"],
                     "default": "status",
                 },
                 "wait_sec": {
@@ -290,7 +303,6 @@ def build_minimal_process_tool(
                     "maximum": max_wait_seconds,
                 },
             },
-            "required": ["process_id"],
             "additionalProperties": False,
         },
     )
@@ -470,8 +482,15 @@ def parse_minimal_process_arguments(
         tool_name="Process",
     )
     action = payload.get("action", "status")
-    if action not in {"status", "wait", "stop"}:
-        raise ValueError("Error: 'action' must be 'status', 'wait', or 'stop'")
+    if action not in {"list", "status", "wait", "stop"}:
+        raise ValueError("Error: 'action' must be 'list', 'status', 'wait', or 'stop'")
+    if action == "list":
+        if "process_id" in payload:
+            raise ValueError("Error: 'process_id' must be omitted for action='list'")
+        if "wait_sec" in payload:
+            raise ValueError("Error: 'wait_sec' must be omitted for action='list'")
+        return MinimalProcessListArguments(action="list")
+
     wait_sec = payload.get("wait_sec")
     if action == "wait" and wait_sec is not None:
         if type(wait_sec) is not int or wait_sec < 0:
@@ -481,7 +500,7 @@ def parse_minimal_process_arguments(
         wait_sec = min(max(wait_sec, min_wait_seconds), max_wait_seconds)
     elif action != "wait":
         wait_sec = None
-    return MinimalProcessArguments(
+    return MinimalProcessLifecycleArguments(
         process_id=coerce_required_string_argument(
             payload.get("process_id"),
             "process_id",

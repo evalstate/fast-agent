@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import posixpath
 import shutil
 import tempfile
@@ -9,7 +10,7 @@ from collections import deque
 from contextlib import nullcontext, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from mcp.types import CallToolResult, TextContent, Tool
 from rich.text import Text
@@ -133,9 +134,24 @@ class _ShellRuntimeExecution:
 
 @dataclass(frozen=True, slots=True)
 class _ManagedProcessOperation:
-    kind: Literal["status", "wait", "stop"]
+    kind: Literal["list", "status", "wait", "stop"]
     process_id: str | None
     wait_sec: int | None
+
+
+class _ProcessListEntry(TypedDict):
+    process_id: str
+    status: str
+    lifecycle: Literal["session", "persistent"]
+    command: str
+    working_directory: str
+    elapsed_seconds: float
+    total_output_bytes: int
+    exit_code: int | None
+
+
+class _ProcessListResult(TypedDict):
+    processes: list[_ProcessListEntry]
 
 
 def _coerce_output_byte_limit(output_byte_limit: int | None) -> int:
@@ -312,6 +328,7 @@ class ShellRuntime:
             os_process_id=process.callbacks.os_process_id,
             total_output_bytes=process.output_state.lifetime_output_bytes,
             exit_code=exit_code,
+            lifecycle=process.lifecycle,
             output_spool_path=process.request.output_spool_path,
         )
 
@@ -436,7 +453,13 @@ class ShellRuntime:
         operation = self._managed_process_operation(tool_name, arguments)
         metadata: dict[str, Any] = {
             "variant": "shell_process",
-            "action": "terminate" if operation.kind == "stop" else "poll",
+            "action": (
+                "list"
+                if operation.kind == "list"
+                else "terminate"
+                if operation.kind == "stop"
+                else "poll"
+            ),
             "process_id": operation.process_id,
             "wait_sec": operation.wait_sec,
         }
@@ -494,6 +517,12 @@ class ShellRuntime:
                     process_id=None,
                     wait_sec=0,
                 )
+            if parsed.action == "list":
+                return _ManagedProcessOperation(
+                    kind="list",
+                    process_id=None,
+                    wait_sec=None,
+                )
             return _ManagedProcessOperation(
                 kind=parsed.action,
                 process_id=parsed.process_id,
@@ -520,6 +549,29 @@ class ShellRuntime:
                 else arguments.get("wait_sec", self._process_poll_default_wait_seconds)
             ),
         )
+
+    async def list_processes(self) -> CallToolResult:
+        """Return retained managed-process handles in creation order."""
+        snapshots = await self.process_snapshots()
+        if not snapshots:
+            return _text_result("No managed processes.", is_error=False)
+
+        payload: _ProcessListResult = {
+            "processes": [
+                {
+                    "process_id": snapshot.process_id,
+                    "status": snapshot.status,
+                    "lifecycle": snapshot.lifecycle,
+                    "command": snapshot.command,
+                    "working_directory": snapshot.working_directory,
+                    "elapsed_seconds": round(snapshot.elapsed_seconds, 3),
+                    "total_output_bytes": snapshot.total_output_bytes,
+                    "exit_code": snapshot.exit_code,
+                }
+                for snapshot in snapshots
+            ]
+        }
+        return _text_result(json.dumps(payload, indent=2), is_error=False)
 
     def _invalid_execute_result(self, message: str) -> CallToolResult:
         return _text_result(message, is_error=True)
@@ -1328,6 +1380,8 @@ class ShellRuntime:
                 )
             except ValueError as exc:
                 return _text_result(str(exc), is_error=True)
+            if parsed_process.action == "list":
+                return await self.list_processes()
             if parsed_process.action == "stop":
                 return await self._call_process_lifecycle_tool(
                     TERMINATE_PROCESS_TOOL_NAME,

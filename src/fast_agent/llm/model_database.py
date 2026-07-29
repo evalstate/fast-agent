@@ -1142,6 +1142,8 @@ class ModelDatabase:
         "deepseek-reasoner": DEEPSEEK_REASONER,
         "deepseek-v4-flash": _with_fast(DEEPSEEK_V4_FLASH),
         "deepseek-v4-pro": DEEPSEEK_V4_PRO,
+        # Z.ai models
+        "glm-5.2": GLM_5_2.model_copy(update={"default_provider": Provider.ZAI}),
         # Google Gemini Models (vanilla aliases and versioned)
         "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
         "gemini-2.5-pro": GEMINI_25_STANDARD,
@@ -1198,6 +1200,12 @@ class ModelDatabase:
             ("gpt-5.6-luna", _with_fast(OPENAI_GPT_56_LUNA)),
         )
     }
+    _PROVIDER_MODEL_OVERRIDES[(Provider.ZAI, "glm-5.2")] = GLM_5_2.model_copy(
+        update={
+            "default_provider": Provider.ZAI,
+            "process_poll_default_wait_seconds": 240,
+        }
+    )
     _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {}
 
     @classmethod

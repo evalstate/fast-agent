@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import platform
@@ -598,10 +599,12 @@ def test_minimal_process_profile_exposes_only_bash_and_process() -> None:
         "wait_sec",
     }
     assert process_tool.inputSchema["properties"]["action"]["enum"] == [
+        "list",
         "status",
         "wait",
         "stop",
     ]
+    assert "required" not in process_tool.inputSchema
     wait_schema = process_tool.inputSchema["properties"]["wait_sec"]
     assert "default" not in wait_schema
     assert wait_schema["maximum"] == 250
@@ -827,6 +830,95 @@ def test_minimal_process_metadata_matches_facade_operations() -> None:
     )
     assert stop_metadata["action"] == "terminate"
     assert stop_metadata["wait_sec"] is None
+
+    list_metadata = runtime.process_tool_metadata("Process", {"action": "list"})
+    assert list_metadata == {
+        "variant": "shell_process",
+        "action": "list",
+        "process_id": None,
+        "wait_sec": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_minimal_process_list_reports_retained_handles_in_creation_order() -> None:
+    environment = _ManagedShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+
+    empty = await runtime.call_tool("Process", {"action": "list"})
+    assert empty.isError is False
+    assert empty.content
+    assert isinstance(empty.content[0], TextContent)
+    assert empty.content[0].text == "No managed processes."
+
+    await runtime.call_tool(
+        "Bash",
+        {"command": "service-one", "run_in_background": True},
+    )
+    await runtime.call_tool(
+        "Bash",
+        {"command": "service-two", "run_in_background": True},
+    )
+
+    listed = await runtime.call_tool("Process", {"action": "list"})
+
+    assert listed.isError is False
+    assert listed.content
+    assert isinstance(listed.content[0], TextContent)
+    payload = json.loads(listed.content[0].text)
+    assert [process["process_id"] for process in payload["processes"]] == [
+        "process-1",
+        "process-2",
+    ]
+    assert [process["command"] for process in payload["processes"]] == [
+        "service-one",
+        "service-two",
+    ]
+    assert all(process["status"] == "running" for process in payload["processes"])
+    assert all(process["lifecycle"] == "persistent" for process in payload["processes"])
+    assert all("os_process_id" not in process for process in payload["processes"])
+    assert all("output_spool_path" not in process for process in payload["processes"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("arguments", "expected_error"),
+    [
+        (
+            {"action": "list", "process_id": "process-1"},
+            "'process_id' must be omitted",
+        ),
+        (
+            {"action": "list", "wait_sec": 10},
+            "'wait_sec' must be omitted",
+        ),
+        (
+            {"action": "status"},
+            "'process_id' argument is required",
+        ),
+    ],
+)
+async def test_minimal_process_list_validates_discriminated_arguments(
+    arguments: dict[str, Any],
+    expected_error: str,
+) -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+    )
+
+    result = await runtime.call_tool("Process", arguments)
+
+    assert result.isError is True
+    assert result.content
+    assert isinstance(result.content[0], TextContent)
+    assert expected_error in result.content[0].text
 
 
 @pytest.mark.parametrize("action", ["status", "stop"])

@@ -24,6 +24,7 @@ class Provider(Enum):
     ANTHROPIC = ("anthropic", "Anthropic")
     ANTHROPIC_VERTEX = ("anthropic-vertex", "Anthropic (Vertex)")
     DEEPSEEK = ("deepseek", "Deepseek")
+    ZAI = ("zai", "Z.ai")
     FAST_AGENT = ("fast-agent", "fast-agent-internal")
     GENERIC = ("generic", "Generic")
     GOOGLE_OAI = ("googleoai", "GoogleOAI")  # For Google through OpenAI libraries

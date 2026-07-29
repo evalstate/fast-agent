@@ -1286,6 +1286,17 @@ class ToolDisplay:
         tool_call_id: str | None,
     ) -> PreparedToolCallDisplay:
         action = str(metadata.get("action") or "process")
+        if action == "list":
+            return PreparedToolCallDisplay(
+                content=Text("list managed processes", style="bold"),
+                right_info=self._build_tool_right_info("list", tool_call_id),
+                bottom_items=None,
+                highlight_indexes=[],
+                max_item_length=None,
+                truncate_content=False,
+                render_markdown=False,
+            )
+
         process_id = str(metadata.get("process_id") or "process")
         content = Text()
         content.append(action, style="bold")
