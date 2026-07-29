@@ -186,6 +186,115 @@ async def test_handle_auth_challenge_reports_retry_failure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_connection_error_does_not_replay_tool_call() -> None:
+    context = _build_context({"alpha": MCPServerSettings(name="alpha")})
+    aggregator = MCPAggregator(
+        server_names=["alpha"],
+        connection_persistence=True,
+        context=context,
+    )
+    call_count = 0
+
+    class _ToolClient:
+        async def call_tool(self, **kwargs):
+            nonlocal call_count
+            del kwargs
+            call_count += 1
+            raise ConnectionError("response lost after dispatch")
+
+    class _ReconnectedClient:
+        async def call_tool(self, **kwargs):
+            nonlocal call_count
+            del kwargs
+            call_count += 1
+            return CallToolResult(content=[TextContent(type="text", text="replayed")])
+
+    class _PersistentManager:
+        reconnect_count = 0
+
+        async def get_server(self, *args, **kwargs):
+            del args, kwargs
+            return SimpleNamespace(client=_ToolClient())
+
+        async def reconnect_server(self, *args, **kwargs):
+            del args, kwargs
+            self.reconnect_count += 1
+            return SimpleNamespace(client=_ReconnectedClient())
+
+    manager = _PersistentManager()
+    aggregator._persistent_connection_manager = cast("MCPConnectionManager", manager)
+
+    result = await aggregator._execute_on_server(
+        "alpha",
+        "tools/call",
+        "write",
+        "call_tool",
+        method_args={"name": "write", "arguments": {}},
+        error_factory=lambda message: CallToolResult(
+            is_error=True,
+            content=[TextContent(type="text", text=message)],
+        ),
+    )
+
+    assert result.is_error is True
+    assert isinstance(result.content[0], TextContent)
+    assert "response lost after dispatch" in result.content[0].text
+    assert call_count == 1
+    assert manager.reconnect_count == 1
+
+
+@pytest.mark.asyncio
+async def test_connection_error_replays_list_operation_once() -> None:
+    context = _build_context({"alpha": MCPServerSettings(name="alpha")})
+    aggregator = MCPAggregator(
+        server_names=["alpha"],
+        connection_persistence=True,
+        context=context,
+    )
+    call_count = 0
+
+    class _DisconnectedClient:
+        async def list_tools(self):
+            nonlocal call_count
+            call_count += 1
+            raise ConnectionError("connection dropped")
+
+    class _ReconnectedClient:
+        async def list_tools(self):
+            nonlocal call_count
+            call_count += 1
+            return ListToolsResult(
+                tools=[Tool(name="echo", input_schema={"type": "object"})]
+            )
+
+    class _PersistentManager:
+        reconnect_count = 0
+
+        async def get_server(self, *args, **kwargs):
+            del args, kwargs
+            return SimpleNamespace(client=_DisconnectedClient())
+
+        async def reconnect_server(self, *args, **kwargs):
+            del args, kwargs
+            self.reconnect_count += 1
+            return SimpleNamespace(client=_ReconnectedClient())
+
+    manager = _PersistentManager()
+    aggregator._persistent_connection_manager = cast("MCPConnectionManager", manager)
+
+    result = await aggregator._execute_on_server(
+        "alpha",
+        "tools/list",
+        "",
+        "list_tools",
+    )
+
+    assert [tool.name for tool in result.tools] == ["echo"]
+    assert call_count == 2
+    assert manager.reconnect_count == 1
+
+
+@pytest.mark.asyncio
 async def test_initialize_server_retries_with_oauth_after_401(monkeypatch) -> None:
     registry = ServerRegistry()
     registry.registry = {
@@ -277,6 +386,7 @@ async def test_execute_on_server_nonpersistent_retries_with_oauth_after_401(
         "tools/list",
         "",
         "list_tools",
+        error_factory=lambda _: ListToolsResult(tools=[]),
     )
 
     assert isinstance(result, ListToolsResult)

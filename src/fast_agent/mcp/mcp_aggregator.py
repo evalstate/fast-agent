@@ -101,6 +101,19 @@ logger = get_logger(__name__)  # This will be replaced per-instance when agent_n
 
 type MCPOperationClient = MCPClientConnection
 
+_CONNECTION_ERROR_REPLAY_SAFE_METHODS = frozenset(
+    {
+        "complete",
+        "get_prompt",
+        "list_prompts",
+        "list_resource_templates",
+        "list_resources",
+        "list_tools",
+        "read_directory",
+        "read_resource",
+    }
+)
+
 
 def _display_tool_id(tool_id: str | None) -> str:
     return format_tool_call_id(tool_id) or "unknown"
@@ -1840,11 +1853,8 @@ class MCPAggregator(ContextDependent):
         async def try_execute(client: MCPOperationClient) -> R:
             return await self._execute_session_method(
                 client,
-                server_name=server_name,
-                operation_name=operation_name,
                 method_name=method_name,
                 method_args=method_args,
-                error_factory=error_factory,
                 progress_callback=progress_callback,
             )
 
@@ -1854,10 +1864,23 @@ class MCPAggregator(ContextDependent):
         try:
             result = await self._execute_initial_server_operation(server_name, try_execute)
             success_flag = True
-        except ConnectionError:
-            recovery = await self._handle_connection_error(server_name, try_execute, error_factory)
-            result = recovery.result
-            success_flag = recovery.success
+        except ConnectionError as exc:
+            if method_name not in _CONNECTION_ERROR_REPLAY_SAFE_METHODS:
+                await self._reconnect_for_future_operations(server_name, method_name)
+                result = self._handle_session_method_error(
+                    exc=exc,
+                    server_name=server_name,
+                    operation_name=operation_name,
+                    method_name=method_name,
+                    error_factory=error_factory,
+                )
+                success_flag = False
+            else:
+                recovery = await self._handle_connection_error(
+                    server_name, try_execute, error_factory
+                )
+                result = recovery.result
+                success_flag = recovery.success
         except ServerSessionTerminatedError as exc:
             recovery = await self._handle_session_terminated(
                 server_name, try_execute, error_factory, exc
@@ -1872,8 +1895,14 @@ class MCPAggregator(ContextDependent):
                 result = recovery.result
                 success_flag = recovery.success
             else:
+                result = self._handle_session_method_error(
+                    exc=exc,
+                    server_name=server_name,
+                    operation_name=operation_name,
+                    method_name=method_name,
+                    error_factory=error_factory,
+                )
                 success_flag = False
-                raise
         finally:
             if success_flag is not None:
                 await self._record_server_call(server_name, operation_type, success_flag)
@@ -1890,39 +1919,25 @@ class MCPAggregator(ContextDependent):
         self,
         client: MCPOperationClient,
         *,
-        server_name: str,
-        operation_name: str,
         method_name: str,
         method_args: dict[str, Any] | None,
-        error_factory: Callable[[str], R] | None,
         progress_callback: ProgressFnT | None,
     ) -> R:
-        try:
-            if method_name in {"call_tool", "read_resource", "get_prompt"}:
-                kwargs = self._server_method_kwargs(method_name, method_args)
-                if method_name == "call_tool":
-                    result = await client.call_tool(
-                        progress_callback=progress_callback,
-                        **kwargs,
-                    )
-                elif method_name == "read_resource":
-                    result = await client.read_resource(**kwargs)
-                else:
-                    result = await client.get_prompt(**kwargs)
-                return cast("R", result)
+        if method_name in {"call_tool", "read_resource", "get_prompt"}:
+            kwargs = self._server_method_kwargs(method_name, method_args)
+            if method_name == "call_tool":
+                result = await client.call_tool(
+                    progress_callback=progress_callback,
+                    **kwargs,
+                )
+            elif method_name == "read_resource":
+                result = await client.read_resource(**kwargs)
+            else:
+                result = await client.get_prompt(**kwargs)
+            return cast("R", result)
 
-            method = getattr(client, method_name)
-            return cast("R", await method(**self._server_method_kwargs(method_name, method_args)))
-        except (ConnectionError, ServerSessionTerminatedError):
-            raise
-        except Exception as e:
-            return self._handle_session_method_error(
-                exc=e,
-                server_name=server_name,
-                operation_name=operation_name,
-                method_name=method_name,
-                error_factory=error_factory,
-            )
+        method = getattr(client, method_name)
+        return cast("R", await method(**self._server_method_kwargs(method_name, method_args)))
 
     @staticmethod
     def _server_method_kwargs(
@@ -2152,6 +2167,26 @@ class MCPAggregator(ContextDependent):
             if error_factory:
                 return _ServerOperationRecovery(result=error_factory(error_msg), success=False)
             raise RuntimeError(error_msg) from e
+
+    async def _reconnect_for_future_operations(
+        self,
+        server_name: str,
+        method_name: str,
+    ) -> None:
+        if not self.connection_persistence:
+            return
+
+        try:
+            manager = self._require_connection_manager()
+            await manager.reconnect_server(
+                server_name,
+                callback_runtime=self._create_callback_runtime(server_name),
+            )
+        except Exception as exc:
+            logger.warning(
+                f"MCP server {server_name} failed to reconnect after non-replayable "
+                f"{method_name}: {exc}"
+            )
 
     async def _handle_session_terminated(
         self,
