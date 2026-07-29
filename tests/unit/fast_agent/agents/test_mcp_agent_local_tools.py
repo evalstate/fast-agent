@@ -158,7 +158,8 @@ class StubLLM:
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
         self.resolved_model = SimpleNamespace(
-            max_output_tokens=ModelDatabase.get_max_output_tokens(model_name)
+            max_output_tokens=ModelDatabase.get_max_output_tokens(model_name),
+            model_params=ModelDatabase.get_model_params(model_name),
         )
         self.instruction = ""
         self.default_request_params = RequestParams()
