@@ -47,12 +47,21 @@ so those remote channel rows are omitted rather than inferred.
 ### Configuration
 
 When a transport activity timeline is available, it can be tailored in
-`fast-agent.yaml` via the `mcp_timeline` block:
+`fast-agent.yaml` under `mcp.diagnostics.timeline`:
 
 ```yaml
-mcp_timeline:
-  steps: 20         # number of buckets rendered on the timeline
-  step_seconds: 30  # duration of each bucket (supports values like "45s" or "2m")
+mcp:
+  diagnostics:
+    enabled: true
+    timeline:
+      steps: 20         # number of buckets rendered on the timeline
+      step_seconds: 30  # duration of each bucket (supports "45s" or "2m")
 ```
 
-These values flow through to both `fast-agent check` and the in-session `/mcp` display. When multiple events occur in the same bucket, higher priority states replace lower ones using this order: `error` → `disabled/request` → `response` → `notification/ping` → `none`. This keeps significant events (such as errors and requests) visible even if a subsequent ping lands in the same interval.
+Set `mcp.diagnostics.enabled` to `false` to disable MCP diagnostics collection.
+Timeline values flow through to both `fast-agent check` and the in-session
+`/mcp` display. When multiple events occur in the same bucket, higher priority
+states replace lower ones using this order: `error` → `disabled/request` →
+`response` → `notification/ping` → `none`. This keeps significant events (such
+as errors and requests) visible even if a subsequent ping lands in the same
+interval.

@@ -32,9 +32,6 @@ model_references:
     fast: "gpt-5-mini?reasoning=low"
     plan: "claude-sonnet-4-6"
 
-# Whether to automatically enable Sampling. Model selection precedence is Agent > Default.
-auto_sampling: true
-
 # Number of times to retry transient LLM API errors (falls back to FAST_AGENT_RETRIES env)
 llm_retries: 2
 
@@ -459,11 +456,22 @@ MCP Servers are defined under the `mcp.servers` section:
 runtime targets via `mcp_connect`; those are resolved at startup and do not need
 to be prelisted here.
 
-You can define servers in canonical form (`transport`/`url`/`command`) or with
-the shorthand `target` field:
+The MCP section contains server defaults, client behavior, diagnostics, and
+named servers:
 
 ```yaml
 mcp:
+  defaults:
+    protocol_mode: auto
+    reconnect_on_disconnect: true
+    include_instructions: true
+  client:
+    auto_sampling: true
+  diagnostics:
+    enabled: true
+    timeline:
+      steps: 20
+      step_seconds: 30
   servers:
     githubcopilot:
       target: "https://api.githubcopilot.com/mcp/"
@@ -476,30 +484,38 @@ mcp:
       load_on_start: false
 ```
 
-You can also provide target-first entries as a list under `mcp.targets`. This
-matches AgentCard-style runtime target declarations while still normalizing to
-canonical named servers:
+The `mcp.servers` map key is the canonical server name used by agents and
+workflows. Omit `name` from the server block; if present, it must match the map
+key.
+
+Each server may use either `target` shorthand or expanded source fields:
 
 ```yaml
 mcp:
-  targets:
-    - target: "https://demo.hf.space"
-    - target: "@modelcontextprotocol/server-filesystem /workspace"
-      name: "filesystem"
+  servers:
+    shorthand:
+      target: "@modelcontextprotocol/server-filesystem /workspace"
       load_on_start: false
+    expanded:
+      transport: http
+      url: "https://demo.hf.space"
 ```
 
-`mcp.targets` entries normalize into `mcp.servers` aliases. If both
-`mcp.targets` and `mcp.servers` define the same name, the explicit
-`mcp.servers.<name>` entry wins.
-
-When `target` is used, explicit fields override target-derived defaults.
-For example, `transport`, `url`, `headers`, and `auth` on the server entry take
-precedence over derived values.
+`target` cannot be combined with the expanded source fields `transport`, `url`,
+`command`, `args`, or `connector_id`. Non-source settings such as `headers`,
+`auth`, `protocol_mode`, and `load_on_start` may accompany it.
 
 `target` must be a pure target string. Do not embed fast-agent CLI flags
 (`--auth`, `--oauth`, `--timeout`, etc.) inside `target`; use structured fields
 like `headers` and `auth` instead.
+
+`mcp.defaults` applies `protocol_mode`, `reconnect_on_disconnect`, and
+`include_instructions` only when omitted from a server. `mcp.client` contains
+client behavior such as `auto_sampling`. `mcp.diagnostics` controls diagnostics
+collection and timeline display.
+
+See [Migrate MCP configuration](../mcp/migration.md) for the legacy path
+migration command.
 
 ### Provider-managed remote MCP
 
@@ -762,12 +778,15 @@ mcp_ui_mode: "enabled"  # "disabled", "enabled", or "auto"
 mcp_ui_output_dir: ".fast-agent/ui"  # Output directory for generated HTML files
 ```
 
-## MCP Timeline Settings
+## MCP Diagnostics Settings
 
 ```yaml
-mcp_timeline:
-  steps: 20
-  step_seconds: 30  # seconds per bucket (also supports strings like "30s", "2m")
+mcp:
+  diagnostics:
+    enabled: true
+    timeline:
+      steps: 20
+      step_seconds: 30  # seconds per bucket; strings like "30s" and "2m" also work
 ```
 
 ## Skills Settings

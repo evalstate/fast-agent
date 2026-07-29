@@ -89,6 +89,7 @@ nav = [
   ] },
   { "MCP" = [
     { "Overview" = "mcp/index.md" },
+    { "Migrate MCP Configuration" = "mcp/migration.md" },
     { "Client" = [
       { "Connect to Servers" = "mcp/client-servers.md" },
       { "Connect with OAuth" = "mcp/mcp-oauth.md" },

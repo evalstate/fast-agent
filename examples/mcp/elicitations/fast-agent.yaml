@@ -12,27 +12,27 @@ logger:
 
 # MCP Server Configuration
 mcp:
-  targets:
+  servers:
     # Forms demo server - interactive form examples
-    - name: elicitation_forms_server
+    elicitation_forms_server:
       target: "uv run elicitation_forms_server.py"
       elicitation:
         mode: "forms" # Shows forms to users (default)
 
     # Account creation server - for CALL_TOOL demos
-    - name: elicitation_account_server
+    elicitation_account_server:
       target: "uv run elicitation_account_server.py"
       elicitation:
         mode: "forms"
 
     # Game character server - for custom handler demos
-    - name: elicitation_game_server
+    elicitation_game_server:
       target: "uv run elicitation_game_server.py"
       elicitation:
         mode: "forms"
 
     # URL elicitation server - for out-of-band interactions (OAuth, payments, etc.)
-    - name: url_elicitation_server
+    url_elicitation_server:
       target: "uv run url_elicitation_server.py"
       elicitation:
         mode: "forms" # Combined handler supports both form and URL modes

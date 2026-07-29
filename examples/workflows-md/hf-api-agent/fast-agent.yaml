@@ -22,11 +22,6 @@
 # mcp_ui_output_dir: ".fast-agent/ui"  # Where to write MCP-UI HTML files (relative to CWD if not absolute)
 # mcp_ui_mode: enabled
 
-# MCP timeline display (adjust activity window/intervals in MCP UI + fast-agent check)
-mcp_timeline:
-  steps: 20 # number of timeline buckets to render
-  step_seconds: 15 # seconds per bucket (accepts values like "45s", "2m")
-
 #shell_execution:
 # length of time before terminating subprocess
 #  timeout_seconds: 20
@@ -43,7 +38,7 @@ logger:
   # level: "debug" | "info" | "warning" | "error"
   # type: "none" | "console" | "file" | "http"
   # path: "/path/to/logfile.jsonl"
-  level : debug
+  level: debug
   type: file
   # Switch the progress display on or off
   progress_display: true
@@ -62,15 +57,21 @@ logger:
 
 # MCP Servers (target shorthand)
 mcp:
-  targets:
-    - name: fetch
+  servers:
+    fetch:
       target: "uvx mcp-server-fetch"
-    - name: filesystem
+    filesystem:
       target: "npx -y @modelcontextprotocol/server-filesystem ."
-    - name: huggingface
+    huggingface:
       target: "https://huggingface.co/mcp?login"
       # headers:
       # "Authorization": "Bearer ${ENV_VAR}"
+
+  # MCP timeline display (adjust activity window/intervals in MCP UI + fast-agent check)
+  diagnostics:
+    timeline:
+      steps: 20 # number of timeline buckets to render
+      step_seconds: 15 # seconds per bucket (accepts values like "45s", "2m")
 
 # Skills configuration
 skills:

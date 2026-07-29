@@ -71,11 +71,6 @@ compaction:
 # mcp_ui_output_dir: ".fast-agent/ui"  # Where to write MCP-UI HTML files (relative to CWD if not absolute)
 # mcp_ui_mode: enabled
 
-# MCP timeline display (adjust activity window/intervals in MCP UI + fast-agent check)
-mcp_timeline:
-  steps: 20 # number of timeline buckets to render
-  step_seconds: 15 # seconds per bucket (accepts values like "45s", "2m")
-
 anthropic:
   thinking_enabled: true
   thinking_budget_tokens: 1024
@@ -137,14 +132,31 @@ logger:
   # Wrap Syntax-rendered code blocks instead of cropping at the terminal edge
   code_word_wrap: true
 
-# MCP Servers (target shorthand)
+# MCP client configuration and named servers
 mcp:
-  targets:
-    - name: fetch
+  # Defaults applied when a server omits these fields
+  defaults:
+    protocol_mode: auto # auto, modern, or legacy
+    reconnect_on_disconnect: true
+    include_instructions: true
+
+  client:
+    auto_sampling: true
+
+  diagnostics:
+    enabled: true
+    timeline:
+      steps: 20 # number of timeline buckets to render
+      step_seconds: 15 # seconds per bucket (accepts values like "45s", "2m")
+
+  # Map keys are canonical server names. `target` is shorthand for the
+  # expanded transport/url or command/args source fields.
+  servers:
+    fetch:
       target: "uvx mcp-server-fetch"
-    - name: filesystem
+    filesystem:
       target: "npx -y @modelcontextprotocol/server-filesystem ."
-    - name: huggingface
+    huggingface:
       target: "https://huggingface.co/mcp?login"
       # protocol_mode: auto # auto (default), modern, or legacy
       # headers:

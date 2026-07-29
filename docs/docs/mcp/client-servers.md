@@ -24,10 +24,21 @@ fast-agent --stdio /path/to/stdio-server # STDIO Server
 
 MCP Servers are configured in the `fast-agent.yaml` file. Secrets can be kept in `fast-agent.secrets.yaml`, which follows the same format (**fast-agent** merges the contents of the two files).
 
-`mcp.servers.<name>` supports canonical server blocks and shorthand `target` entries:
+The canonical MCP configuration is nested under `mcp`:
 
 ```yaml
 mcp:
+  defaults:
+    protocol_mode: auto
+    reconnect_on_disconnect: true
+    include_instructions: true
+  client:
+    auto_sampling: true
+  diagnostics:
+    enabled: true
+    timeline:
+      steps: 20
+      step_seconds: 30
   servers:
     remote_api:
       target: "https://api.example.com/mcp"
@@ -38,23 +49,38 @@ mcp:
       protocol_mode: auto
 ```
 
-You can also supply a list of target-first entries via `mcp.targets`:
+The key under `mcp.servers` is the server's canonical name. Use that key in
+agent `servers` lists; do not add a separate `name` field.
+
+Each server uses either a shorthand `target` or expanded source fields:
 
 ```yaml
 mcp:
-  targets:
-    - target: "https://demo.hf.space"
-    - target: "@modelcontextprotocol/server-filesystem /workspace"
-      name: "filesystem"
+  servers:
+    filesystem:
+      target: "@modelcontextprotocol/server-filesystem /workspace"
       load_on_start: false
+    remote_api:
+      transport: http
+      url: "https://api.example.com/mcp"
+      headers:
+        Authorization: "Bearer ${EXAMPLE_TOKEN}"
 ```
 
-`mcp.targets` entries are normalized into named `mcp.servers` aliases. If both
-forms define the same alias, the explicit `mcp.servers.<name>` entry wins.
+`target` is mutually exclusive with the expanded source fields `transport`,
+`url`, `command`, `args`, and `connector_id`. Other settings such as `headers`,
+`auth`, `protocol_mode`, and `load_on_start` can accompany a `target`.
 
 `target` must be a pure target string (URL/package/command only). Do not embed
 fast-agent CLI flags like `--auth`/`--oauth` inside `target`; use `headers` and
 `auth` fields instead.
+
+`mcp.defaults` supplies `protocol_mode`, `reconnect_on_disconnect`, and
+`include_instructions` when a server omits them. `mcp.client` controls client
+behavior such as automatic sampling, while `mcp.diagnostics` controls
+diagnostics collection and timeline display.
+
+For legacy configuration, see [Migrate MCP configuration](migration.md).
 
 ## Protocol selection
 

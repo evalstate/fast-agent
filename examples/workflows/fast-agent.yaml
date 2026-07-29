@@ -9,14 +9,14 @@ logger:
   truncate_tools: true
 
 mcp:
-  targets:
-    - name: filesystem
+  servers:
+    filesystem:
       # On windows update the target to use `node` and the absolute path to the server.
       # Use `npm i -g @modelcontextprotocol/server-filesystem` to install the server globally.
       # Use `npm -g root` to find the global node_modules path.`
       # target: "node c:/Program Files/nodejs/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js ."
       target: "npx -y @modelcontextprotocol/server-filesystem ."
-    - name: fetch
+    fetch:
       target: "uvx mcp-server-fetch"
-    - name: time
+    time:
       target: "uvx mcp-server-time"
