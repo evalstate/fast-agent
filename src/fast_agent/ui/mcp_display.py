@@ -16,8 +16,6 @@ from fast_agent.utils.text import strip_casefold
 from fast_agent.utils.time import format_compact_duration, format_two_unit_duration
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
     from fast_agent.mcp.mcp_aggregator import ServerStatus
     from fast_agent.mcp.transport_tracking import ChannelSnapshot
 
@@ -81,7 +79,6 @@ class _ChannelSummaryLayout:
     default_bucket_count: int
     metrics_prefix_width: int
     is_stdio: bool
-    health_insert_label: str | None
 
 
 # Centralized color configuration
@@ -497,12 +494,6 @@ def _utc_datetime_or_none(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
-def _get_ping_attempts(status: ServerStatus) -> int:
-    ok = status.ping_ok_count or 0
-    fail = status.ping_fail_count or 0
-    return ok + fail
-
-
 def _timeline_symbol_for_state(state: str, *, is_stdio: bool = False) -> str:
     if state in _TIMELINE_BASE_SYMBOLS:
         return _TIMELINE_BASE_SYMBOLS[state]
@@ -515,60 +506,31 @@ def _timeline_color_map(*, is_stdio: bool) -> dict[str, str]:
     return TIMELINE_COLORS_STDIO if is_stdio else TIMELINE_COLORS
 
 
-def _normalise_timeline_states(
-    bucket_states: Iterable[str] | None,
-    bucket_count: int,
-) -> list[str]:
-    states = list(bucket_states or [])
-    if len(states) < bucket_count:
-        states.extend(["none"] * (bucket_count - len(states)))
-    elif len(states) > bucket_count:
-        states = states[-bucket_count:]
-    return states
-
-
 def _build_channel_entries(status: ServerStatus) -> list[_ChannelSummaryEntry]:
     snapshot = status.transport_channels
     if snapshot is None:
         return []
 
     transport_lower = strip_casefold(status.transport or "")
-    post_json_channel = snapshot.post_json or snapshot.post
-    http_channels = [snapshot.get, snapshot.post_sse, post_json_channel]
-    stdio_channel = snapshot.stdio
+    entries: list[_ChannelSummaryEntry] = []
+    if snapshot.get is not None:
+        entries.append(_ChannelSummaryEntry("GET (SSE)", "◀", snapshot.get))
+    if snapshot.post_sse is not None:
+        entries.append(_ChannelSummaryEntry("POST (SSE)", "▶", snapshot.post_sse))
 
-    if any(channel is not None for channel in http_channels):
-        entries = [
-            _ChannelSummaryEntry("GET (SSE)", "◀", snapshot.get),
-            _ChannelSummaryEntry("POST (SSE)", "▶", snapshot.post_sse),
-        ]
-        if transport_lower != "sse":
-            entries.append(_ChannelSummaryEntry("POST (JSON)", "▶", post_json_channel))
+    post_json_channel = snapshot.post_json
+    if post_json_channel is None and snapshot.post_sse is None:
+        post_json_channel = snapshot.post
+    if transport_lower != "sse" and post_json_channel is not None:
+        entries.append(_ChannelSummaryEntry("POST (JSON)", "▶", post_json_channel))
+
+    if entries:
         return entries
 
-    if stdio_channel is None:
+    if snapshot.stdio is None:
         return []
 
-    return [_ChannelSummaryEntry("STDIO", "⇄", stdio_channel)]
-
-
-def _get_channel_health_insert_label(
-    status: ServerStatus,
-    entries: list[_ChannelSummaryEntry],
-) -> str | None:
-    if status.ping_interval_seconds is None:
-        return None
-
-    label_names = [entry.label for entry in entries]
-    if "POST (JSON)" in label_names:
-        return "POST (JSON)"
-    if "POST (SSE)" in label_names:
-        return "POST (SSE)"
-    if "STDIO" in label_names:
-        return "STDIO"
-    if label_names:
-        return label_names[-1]
-    return None
+    return [_ChannelSummaryEntry("STDIO", "⇄", snapshot.stdio)]
 
 
 def _build_channel_summary_layout(
@@ -591,7 +553,6 @@ def _build_channel_summary_layout(
         default_bucket_count=default_bucket_count,
         metrics_prefix_width=metrics_prefix_width,
         is_stdio=is_stdio,
-        health_insert_label=_get_channel_health_insert_label(status, entries),
     )
 
 
@@ -765,49 +726,6 @@ def _append_channel_metrics(
     line.append(ping, style=ping_style)
 
 
-def _render_channel_health_row(
-    status: ServerStatus,
-    indent: str,
-    *,
-    layout: _ChannelSummaryLayout,
-) -> None:
-    line = Text(indent)
-    line.append("│ ", style="dim")
-    state = _get_health_state(status)
-    line.append(SYMBOL_PING, style=state.style)
-    line.append(f" {'HEALTH':<13}", style=state.style)
-
-    bucket_seconds = status.ping_activity_bucket_seconds or layout.default_bucket_seconds
-    bucket_count = status.ping_activity_bucket_count or layout.default_bucket_count
-    line.append(f"{_format_timeline_label(bucket_seconds * bucket_count)} ", style="dim")
-
-    color_map = _timeline_color_map(is_stdio=layout.is_stdio)
-    for bucket_state in _normalise_timeline_states(status.ping_activity_buckets, bucket_count):
-        color = color_map.get(bucket_state, "dim")
-        symbol = _timeline_symbol_for_state(bucket_state, is_stdio=layout.is_stdio)
-        line.append(symbol, style=f"bold {color}")
-
-    line.append(" now", style="dim")
-    ping_attempts = _get_ping_attempts(status)
-    if layout.is_stdio:
-        activity = str(ping_attempts).rjust(8) if ping_attempts > 0 else "-".rjust(8)
-        activity_style = Colours.TEXT_DEFAULT if ping_attempts > 0 else Colours.TEXT_DIM
-        line.append(f"  {activity}", style=activity_style)
-    else:
-        line.append("  ", style="dim")
-        line.append("-".rjust(5), style=Colours.TEXT_DIM)
-        line.append(" ", style="dim")
-        line.append("-".rjust(5), style=Colours.TEXT_DIM)
-        line.append(" ", style="dim")
-        line.append("-".rjust(5), style=Colours.TEXT_DIM)
-        line.append(" ", style="dim")
-        ping = str(ping_attempts).rjust(5) if ping_attempts > 0 else "-".rjust(5)
-        ping_style = Colours.TEXT_DEFAULT if ping_attempts > 0 else Colours.TEXT_DIM
-        line.append(ping, style=ping_style)
-
-    _status_console().print(line)
-
-
 def _render_single_channel_row(
     entry: _ChannelSummaryEntry,
     indent: str,
@@ -905,15 +823,10 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
     _render_channel_summary_header(indent, layout)
 
     errors: list[_ChannelErrorEntry] = []
-    health_inserted = False
     for entry in entries:
         error = _render_single_channel_row(entry, indent, layout=layout)
         if error is not None:
             errors.append(error)
-
-        if layout.health_insert_label == entry.label and not health_inserted:
-            _render_channel_health_row(status, indent, layout=layout)
-            health_inserted = True
 
     _render_channel_errors(errors, indent)
     _render_channel_footer(entries, indent, is_stdio=layout.is_stdio)

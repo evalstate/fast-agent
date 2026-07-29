@@ -190,7 +190,7 @@ def test_channel_arrow_style_preserves_status_precedence(
     assert _channel_arrow_style(channel) == expected_style
 
 
-def test_render_channel_summary_shows_health_row_and_errors() -> None:
+def test_render_channel_summary_shows_observed_channels_and_errors() -> None:
     status = ServerStatus(
         server_name="demo",
         transport="http",
@@ -235,9 +235,41 @@ def test_render_channel_summary_shows_health_row_and_errors() -> None:
     assert "HTTP" in output
     assert "GET (SSE)" in output
     assert "POST (JSON)" in output
-    assert "HEALTH" in output
+    assert "HEALTH" not in output
     assert "gateway timeout (500)" in output
     assert "legend:" in output
+
+
+def test_render_channel_summary_hides_unobserved_and_aggregate_channels() -> None:
+    post_sse = ChannelSnapshot(
+        state="open",
+        request_count=6,
+        activity_buckets=["request"],
+    )
+    status = ServerStatus(
+        server_name="demo",
+        transport="http",
+        ping_interval_seconds=30,
+        transport_channels=TransportSnapshot(
+            post=post_sse,
+            post_sse=post_sse,
+            activity_bucket_seconds=30,
+            activity_bucket_count=4,
+        ),
+    )
+
+    original_console = _set_console_size()
+    try:
+        with console.console.capture() as capture:
+            _render_channel_summary(status, indent="  ", total_width=100)
+        output = capture.get()
+    finally:
+        _restore_console_size(original_console)
+
+    assert "POST (SSE)" in output
+    assert "GET (SSE)" not in output
+    assert "POST (JSON)" not in output
+    assert "HEALTH" not in output
 
 
 def test_render_channel_summary_uses_legacy_post_channel() -> None:
