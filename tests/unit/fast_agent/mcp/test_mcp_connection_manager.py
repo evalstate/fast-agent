@@ -385,6 +385,12 @@ async def test_get_server_cancellation_cleans_up_pending_connection(
 ) -> None:
     manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
     server_conn = _make_server_connection()
+    lifecycle_complete = asyncio.Event()
+
+    async def _run_lifecycle() -> None:
+        await server_conn.wait_for_shutdown_request()
+        lifecycle_complete.set()
+        server_conn._lifecycle_complete_event.set()
 
     async def _fake_launch_server(
         *,
@@ -398,6 +404,7 @@ async def test_get_server_cancellation_cleans_up_pending_connection(
         del server_name, callback_runtime, startup_timeout_seconds
         del trigger_oauth, oauth_event_handler, allow_oauth_paste_fallback
         manager.running_servers["demo"] = server_conn
+        asyncio.create_task(_run_lifecycle())
         return server_conn
 
     monkeypatch.setattr(manager, "launch_server", _fake_launch_server)
@@ -419,6 +426,7 @@ async def test_get_server_cancellation_cleans_up_pending_connection(
     assert "demo" not in manager.running_servers
     assert server_conn._shutdown_event.is_set()
     assert server_conn._oauth_abort_event.is_set()
+    assert lifecycle_complete.is_set()
 
 
 @pytest.mark.asyncio
@@ -481,6 +489,7 @@ async def test_get_server_startup_timeout_cancels_blocked_lifecycle(
     assert "demo" not in manager.running_servers
     assert server_conn._shutdown_event.is_set()
     assert server_conn._oauth_abort_event.is_set()
+    assert server_conn._lifecycle_complete_event.is_set()
 
 
 @pytest.mark.asyncio
@@ -665,6 +674,10 @@ async def test_get_server_stdio_timeout_includes_recent_stderr(
     server_conn.record_stdio_stderr("npm notice downloading desktop-commander")
     server_conn.record_stdio_stderr("npm warn request took longer than expected")
 
+    async def _run_lifecycle() -> None:
+        await server_conn.wait_for_shutdown_request()
+        server_conn._lifecycle_complete_event.set()
+
     async def _fake_launch_server(
         *,
         server_name: str,
@@ -677,6 +690,7 @@ async def test_get_server_stdio_timeout_includes_recent_stderr(
         del server_name, callback_runtime, startup_timeout_seconds
         del trigger_oauth, oauth_event_handler, allow_oauth_paste_fallback
         manager.running_servers["demo"] = server_conn
+        asyncio.create_task(_run_lifecycle())
         return server_conn
 
     monkeypatch.setattr(manager, "launch_server", _fake_launch_server)
@@ -723,7 +737,7 @@ async def test_connection_manager_exit_skips_grace_sleep_without_running_servers
 
 
 @pytest.mark.asyncio
-async def test_connection_manager_exit_waits_briefly_after_requesting_shutdown(
+async def test_connection_manager_exit_needs_no_fixed_shutdown_sleep(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _RunningServersManager(MCPConnectionManager):
@@ -736,19 +750,85 @@ async def test_connection_manager_exit_waits_briefly_after_requesting_shutdown(
     manager._task_group_active = True
     manager._task_group = task_group
     manager._tg = task_group
-    sleep_calls: list[float] = []
+    async def _unexpected_sleep(_delay: float) -> None:
+        raise AssertionError("lifecycle completion replaces fixed shutdown sleeps")
 
-    async def _fake_sleep(delay: float) -> None:
-        sleep_calls.append(delay)
-
-    monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(asyncio, "sleep", _unexpected_sleep)
 
     await manager.__aexit__(None, None, None)
 
-    assert sleep_calls == [0.5]
     assert manager._task_group_active is False
     assert manager._task_group is None
     assert manager._tg is None
+
+
+@pytest.mark.asyncio
+async def test_disconnect_server_waits_for_lifecycle_cleanup() -> None:
+    manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
+    server_conn = _make_server_connection()
+    manager.running_servers["demo"] = server_conn
+    cleanup_started = asyncio.Event()
+    allow_cleanup = asyncio.Event()
+
+    async def _run_lifecycle() -> None:
+        await server_conn.wait_for_shutdown_request()
+        cleanup_started.set()
+        await allow_cleanup.wait()
+        server_conn._lifecycle_complete_event.set()
+
+    lifecycle_task = asyncio.create_task(_run_lifecycle())
+    disconnect_task = asyncio.create_task(manager.disconnect_server("demo"))
+
+    await cleanup_started.wait()
+    assert not disconnect_task.done()
+    assert manager.running_servers["demo"] is server_conn
+
+    allow_cleanup.set()
+    await disconnect_task
+    await lifecycle_task
+
+    assert "demo" not in manager.running_servers
+
+
+@pytest.mark.asyncio
+async def test_reconnect_does_not_overlap_old_runtime_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
+    old_conn = _make_server_connection()
+    new_conn = _make_server_connection()
+    new_conn.client = cast("Any", object())
+    manager.running_servers["demo"] = old_conn
+    cleanup_started = asyncio.Event()
+    allow_cleanup = asyncio.Event()
+    launch_started = asyncio.Event()
+
+    async def _run_old_lifecycle() -> None:
+        await old_conn.wait_for_shutdown_request()
+        cleanup_started.set()
+        await allow_cleanup.wait()
+        old_conn._lifecycle_complete_event.set()
+
+    async def _fake_launch_and_wait_for_server(**_kwargs: Any) -> ServerConnection:
+        launch_started.set()
+        manager.running_servers["demo"] = new_conn
+        return new_conn
+
+    lifecycle_task = asyncio.create_task(_run_old_lifecycle())
+    monkeypatch.setattr(manager, "_launch_and_wait_for_server", _fake_launch_and_wait_for_server)
+    reconnect_task = asyncio.create_task(
+        manager.reconnect_server("demo", callback_runtime=_callback_runtime())
+    )
+
+    await cleanup_started.wait()
+    assert not launch_started.is_set()
+
+    allow_cleanup.set()
+    assert await reconnect_task is new_conn
+    await lifecycle_task
+
+    assert launch_started.is_set()
+    assert manager.running_servers["demo"] is new_conn
 
 
 def test_is_oauth_timeout_message_requires_real_timeout_markers() -> None:

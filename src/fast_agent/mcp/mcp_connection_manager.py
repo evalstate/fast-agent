@@ -378,10 +378,12 @@ class ServerConnection:
 
         # Signal we want to shut down
         self._shutdown_event = Event()
+        self._lifecycle_complete_event = Event()
 
         # Track error state
         self._error_occurred = False
         self._error_message = None
+        self._lifecycle_error: Exception | None = None
 
         # Server instructions from initialization
         self.server_instructions: str | None = None
@@ -431,11 +433,21 @@ class ServerConnection:
         if self._lifecycle_cancel_scope is not None:
             self._lifecycle_cancel_scope.cancel()
 
+    def shutdown_lifecycle(self) -> None:
+        """Shut down gracefully once initialized, or cancel blocked startup."""
+        self.request_shutdown()
+        if not self.is_initialized():
+            self.cancel_lifecycle()
+
     async def wait_for_shutdown_request(self) -> None:
         """
         Wait until the shutdown event is set.
         """
         await self._shutdown_event.wait()
+
+    async def wait_for_lifecycle_completion(self) -> None:
+        """Wait until the lifecycle task has released all runtime resources."""
+        await self._lifecycle_complete_event.wait()
 
     async def initialize_client(self) -> None:
         """
@@ -687,9 +699,11 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
     with CancelScope() as cancel_scope:
         server_conn._lifecycle_cancel_scope = cancel_scope
         try:
-            await _run_server_lifecycle(server_conn)
+            if not server_conn._shutdown_event.is_set():
+                await _run_server_lifecycle(server_conn)
         finally:
             server_conn._lifecycle_cancel_scope = None
+            server_conn._lifecycle_complete_event.set()
 
 
 async def _run_server_lifecycle(server_conn: ServerConnection) -> None:
@@ -832,6 +846,7 @@ def _record_http_lifecycle_error(
         },
     )
     server_conn._error_occurred = True
+    server_conn._lifecycle_error = http_exc
     server_conn._error_message = (
         f"HTTP Error: {http_exc.response.status_code} "
         f"{http_exc.response.reason_phrase} for URL: {http_exc.request.url}"
@@ -845,6 +860,7 @@ def _record_oauth_cancelled_shutdown(
 ) -> None:
     logger.debug(f"{server_conn.server_name}: OAuth authorization cancelled during shutdown")
     server_conn._error_occurred = True
+    server_conn._lifecycle_error = exc
     server_conn._error_message = str(exc)
     server_conn._initialized_event.set()
 
@@ -859,6 +875,7 @@ def _record_lifecycle_error(server_conn: ServerConnection, exc: Exception) -> No
         },
     )
     server_conn._error_occurred = True
+    server_conn._lifecycle_error = exc
     server_conn._error_message = _lifecycle_error_message(server_conn, exc)
     server_conn._initialized_event.set()
 
@@ -998,23 +1015,16 @@ class MCPConnectionManager(ContextDependent):
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Ensure clean shutdown of all connections before exiting."""
         try:
-            # First request all servers to shutdown
-            had_running_servers = await self.disconnect_all()
-
-            # Add a small delay only when live servers were asked to shut down.
-            if had_running_servers:
-                with suppress(asyncio.CancelledError):
-                    await asyncio.sleep(0.5)
-
-            # Then close the task group if it's active
+            await self.disconnect_all()
+        finally:
             if self._task_group_active:
                 assert self._task_group is not None
-                await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
-                self._task_group_active = False
-                self._task_group = None
-                self._tg = None
-        except Exception:
-            logger.exception("Error during connection manager shutdown")
+                try:
+                    await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+                finally:
+                    self._task_group_active = False
+                    self._task_group = None
+                    self._tg = None
 
     def _suppress_mcp_sse_errors(self) -> None:
         """Suppress MCP library's 'Error in sse_reader' messages."""
@@ -1460,22 +1470,10 @@ class MCPConnectionManager(ContextDependent):
         try:
             await _wait_for_initialized_with_startup_budget(server_conn, startup_timeout_seconds)
         except asyncio.CancelledError:
-            server_conn.cancel_lifecycle()
-            async with self._lock:
-                current = self.running_servers.get(server_name)
-                if current is server_conn:
-                    self.running_servers.pop(server_name, None)
-                self._server_oauth_mode.pop(server_name, None)
-                self._server_oauth_active.pop(server_name, None)
+            await self._clear_running_server_state(server_name, server_conn)
             raise
         except TimeoutError as exc:
-            server_conn.cancel_lifecycle()
-            async with self._lock:
-                current = self.running_servers.get(server_name)
-                if current is server_conn:
-                    self.running_servers.pop(server_name, None)
-                self._server_oauth_mode.pop(server_name, None)
-                self._server_oauth_active.pop(server_name, None)
+            await self._clear_running_server_state(server_name, server_conn)
             raise ServerInitializationError(
                 (
                     f"MCP Server: '{server_name}': {timeout_action} timed out after "
@@ -1494,13 +1492,14 @@ class MCPConnectionManager(ContextDependent):
         server_name: str,
         server_conn: ServerConnection,
     ) -> None:
-        server_conn.cancel_lifecycle()
         async with self._lock:
+            server_conn.shutdown_lifecycle()
+            await server_conn.wait_for_lifecycle_completion()
             current = self.running_servers.get(server_name)
             if current is server_conn:
                 self.running_servers.pop(server_name, None)
-            self._server_oauth_mode.pop(server_name, None)
-            self._server_oauth_active.pop(server_name, None)
+                self._server_oauth_mode.pop(server_name, None)
+                self._server_oauth_active.pop(server_name, None)
 
     async def _retry_server_with_oauth(
         self,
@@ -1519,7 +1518,6 @@ class MCPConnectionManager(ContextDependent):
         )
         self._oauth_required_servers.add(server_name)
         await self._clear_running_server_state(server_name, server_conn)
-        await asyncio.sleep(0.1)
         return await self._launch_and_wait_for_server(
             server_name=server_name,
             callback_runtime=callback_runtime,
@@ -1584,10 +1582,11 @@ class MCPConnectionManager(ContextDependent):
             if server_conn.is_healthy():
                 return server_conn
             logger.info(f"{server_name}: Server exists but is unhealthy, recreating...")
-            self.running_servers.pop(server_name)
+            server_conn.shutdown_lifecycle()
+            await server_conn.wait_for_lifecycle_completion()
+            self.running_servers.pop(server_name, None)
             self._server_oauth_mode.pop(server_name, None)
             self._server_oauth_active.pop(server_name, None)
-            server_conn.request_shutdown()
             return None
 
     async def _healthy_or_retry_server(
@@ -1632,7 +1631,7 @@ class MCPConnectionManager(ContextDependent):
             raise ServerInitializationError(
                 f"MCP Server: '{server_name}': OAuth authorization timed out.",
                 "Authorization was not completed in time; retry /mcp connect.",
-            )
+            ) from server_conn._lifecycle_error
 
         if _is_oauth_registration_404_message(formatted_error):
             raise ServerInitializationError(
@@ -1641,18 +1640,18 @@ class MCPConnectionManager(ContextDependent):
                     formatted_error,
                     server_conn.server_config.url,
                 ),
-            )
+            ) from server_conn._lifecycle_error
 
         if _is_stdio_startup_error(server_conn, formatted_error):
             raise ServerInitializationError(
                 f"MCP Server: '{server_name}': Failed to start stdio server.",
                 _append_stdio_stderr_details(server_conn, formatted_error),
-            )
+            ) from server_conn._lifecycle_error
 
         raise ServerInitializationError(
             f"MCP Server: '{server_name}': Failed to initialize - see details. Check fast-agent.yaml?",
             _append_stdio_stderr_details(server_conn, formatted_error),
-        )
+        ) from server_conn._lifecycle_error
 
     @staticmethod
     def _server_initialization_error_text(error_msg: str | list[str]) -> str:
@@ -1682,14 +1681,16 @@ class MCPConnectionManager(ContextDependent):
         logger.info(f"{server_name}: Detaching MCP client runtime...")
 
         async with self._lock:
-            server_conn = self.running_servers.pop(server_name, None)
-            self._server_oauth_mode.pop(server_name, None)
-            self._server_oauth_active.pop(server_name, None)
-        if server_conn:
-            server_conn.request_shutdown()
-            logger.info(f"{server_name}: Shutdown signal sent (lifecycle task will exit).")
-        else:
-            logger.info(f"{server_name}: No attached runtime found. Skipping shutdown")
+            server_conn = self.running_servers.get(server_name)
+            if server_conn:
+                server_conn.shutdown_lifecycle()
+                await server_conn.wait_for_lifecycle_completion()
+                self.running_servers.pop(server_name, None)
+                self._server_oauth_mode.pop(server_name, None)
+                self._server_oauth_active.pop(server_name, None)
+                logger.info(f"{server_name}: Attached runtime shut down.")
+            else:
+                logger.info(f"{server_name}: No attached runtime found. Skipping shutdown")
 
     async def reconnect_server(
         self,
@@ -1717,9 +1718,6 @@ class MCPConnectionManager(ContextDependent):
 
         # First, disconnect the existing connection
         await self.disconnect_server(server_name)
-
-        # Brief pause to allow cleanup
-        await asyncio.sleep(0.1)
 
         server_conn = await self._launch_and_wait_for_server(
             server_name=server_name,
@@ -1759,7 +1757,7 @@ class MCPConnectionManager(ContextDependent):
                 raise ServerInitializationError(
                     f"MCP Server: '{server_name}': OAuth authorization timed out during reconnect.",
                     "Authorization was not completed in time; retry /mcp connect.",
-                )
+                ) from server_conn._lifecycle_error
             if isinstance(error_msg, list):
                 formatted_error = "\n".join(error_msg)
             else:
@@ -1771,40 +1769,36 @@ class MCPConnectionManager(ContextDependent):
                     _format_oauth_registration_404_details(
                         formatted_error, server_conn.server_config.url
                     ),
-                )
+                ) from server_conn._lifecycle_error
 
             if _is_stdio_startup_error(server_conn, formatted_error):
                 raise ServerInitializationError(
                     f"MCP Server: '{server_name}': Failed to start stdio server during reconnect.",
                     _append_stdio_stderr_details(server_conn, formatted_error),
-                )
+                ) from server_conn._lifecycle_error
 
             raise ServerInitializationError(
                 f"MCP Server: '{server_name}': Failed to reconnect - see details.",
                 _append_stdio_stderr_details(server_conn, formatted_error),
-            )
+            ) from server_conn._lifecycle_error
 
         logger.info(f"{server_name}: Reconnection successful")
         return server_conn
 
     async def disconnect_all(self) -> bool:
         """Disconnect all servers that are running under this connection manager."""
-        # Get a copy of servers to shutdown
-        servers_to_shutdown = []
-
         async with self._lock:
             if not self.running_servers:
                 return False
 
-            # Make a copy of the servers to shut down
             servers_to_shutdown = list(self.running_servers.items())
-            # Clear the dict immediately to prevent any new access
+            for name, conn in servers_to_shutdown:
+                logger.info(f"{name}: Requesting shutdown...")
+                conn.shutdown_lifecycle()
+            await asyncio.gather(
+                *(conn.wait_for_lifecycle_completion() for _, conn in servers_to_shutdown)
+            )
             self.running_servers.clear()
             self._server_oauth_mode.clear()
             self._server_oauth_active.clear()
-
-        # Release the lock before waiting for servers to shut down
-        for name, conn in servers_to_shutdown:
-            logger.info(f"{name}: Requesting shutdown...")
-            conn.request_shutdown()
         return True
