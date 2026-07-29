@@ -157,6 +157,13 @@ class ModelSelectionCatalog:
                 model="zai.glm-5.2",
             ),
         ),
+        Provider.MOONSHOT: (
+            CatalogModelEntry(
+                alias="kimik3",
+                display_label="Kimi K3",
+                model="moonshot.kimi-k3",
+            ),
+        ),
         Provider.OPENROUTER: (),
         Provider.ALIYUN: (
             CatalogModelEntry(alias="qwen-turbo", model="aliyun.qwen-turbo", fast=True),

@@ -89,6 +89,12 @@ anthropic:
 #   # base_url: "https://api.z.ai/api/paas/v4/"
 #   # default_model: "glm-5.2"
 
+# Native Moonshot Chat Completions provider:
+# moonshot:
+#   api_key: "${MOONSHOT_API_KEY}"
+#   # base_url: "https://api.moonshot.ai/v1"
+#   # default_model: "kimi-k3"
+
 #shell_execution:
 # model-facing shell tools: minimal_process (Bash/Process, default) or native
 # (legacy execute/poll_process/terminate_process compatibility)

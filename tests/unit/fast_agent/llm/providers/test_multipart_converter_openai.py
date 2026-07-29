@@ -59,6 +59,13 @@ def image_url_part(message: Mapping[str, object], index: int = 0) -> dict[str, o
     return cast("dict[str, object]", image_url)
 
 
+def video_url_part(message: Mapping[str, object], index: int = 0) -> dict[str, object]:
+    part = content_parts(message)[index]
+    video_url = part.get("video_url")
+    assert isinstance(video_url, dict)
+    return cast("dict[str, object]", video_url)
+
+
 def file_part(message: Mapping[str, object], index: int = 0) -> dict[str, object]:
     part = content_parts(message)[index]
     file_obj = part.get("file")
@@ -235,6 +242,40 @@ class TestOpenAIUserConverter(unittest.TestCase):
             image_url_part(openai_msg)["url"],
             "https://example.com/image.jpg",
         )
+
+    def test_embedded_video_resource_conversion(self):
+        video_base64 = base64.b64encode(b"fake_video_data").decode("utf-8")
+        video_resource = BlobResourceContents(
+            uri=AnyUrl("file:///tmp/clip.mp4"),
+            mimeType="video/mp4",
+            blob=video_base64,
+        )
+        embedded_resource = EmbeddedResource(type="resource", resource=video_resource)
+        multipart = PromptMessageExtended(role="user", content=[embedded_resource])
+
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        openai_msg = openai_msgs[0]
+
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "video_url")
+        self.assertEqual(
+            video_url_part(openai_msg)["url"],
+            f"data:video/mp4;base64,{video_base64}",
+        )
+
+    def test_unsupported_video_mime_remains_a_binary_placeholder(self):
+        video_base64 = base64.b64encode(b"fake_video_data").decode("utf-8")
+        video_resource = BlobResourceContents(
+            uri=AnyUrl("file:///tmp/clip.custom"),
+            mimeType="video/x-custom",
+            blob=video_base64,
+        )
+        embedded_resource = EmbeddedResource(type="resource", resource=video_resource)
+        multipart = PromptMessageExtended(role="user", content=[embedded_resource])
+
+        openai_msg = OpenAIConverter.convert_to_openai(multipart)[0]
+
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "text")
+        self.assertIn("Binary resource", text_part(openai_msg))
 
     def test_linked_resource_conversion(self):
         """Test conversion of text-based EmbeddedResource to OpenAI text content with fastagent:file tags."""

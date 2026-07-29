@@ -178,6 +178,25 @@ def test_openai_responses_uses_its_required_typed_details() -> None:
     assert turn.completion == CompletionTokenUsage(total=300, reasoning=120)
 
 
+def test_openai_chat_accepts_top_level_cached_tokens() -> None:
+    usage = CompletionUsage.model_validate(
+        {
+            "prompt_tokens": 3_000,
+            "completion_tokens": 300,
+            "total_tokens": 3_300,
+            "cached_tokens": 2_048,
+        }
+    )
+
+    turn = usage_from_openai_chat(
+        usage,
+        provider=Provider.MOONSHOT,
+        model="kimi-k3",
+    )
+
+    assert turn.prompt.cache_read == 2_048
+
+
 def test_openai_responses_preserves_overlapping_cache_subsets() -> None:
     usage = ResponseUsage.model_validate(
         {

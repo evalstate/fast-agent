@@ -148,6 +148,10 @@ class ResolvedModelSpec:
         effective_request_params = request_params
         config = self.model_config
 
+        if config.max_tokens is not None:
+            target = effective_request_params or RequestParams()
+            effective_request_params = target.model_copy(update={"maxTokens": config.max_tokens})
+
         sampling_updates = {
             field_name: value
             for field_name, value in {
