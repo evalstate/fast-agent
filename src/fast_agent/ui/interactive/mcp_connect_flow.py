@@ -9,12 +9,11 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from rich import print as rich_print
 from rich.text import Text
 
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.mcp.connect_targets import ParsedMcpConnectRequest, infer_server_name
-from fast_agent.ui.console import console, ensure_blocking_console
+from fast_agent.ui.console import console, ensure_blocking_console, rich_print
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext

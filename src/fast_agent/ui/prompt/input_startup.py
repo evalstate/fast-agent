@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from rich import print as rich_print
 from rich.markup import escape as escape_markup
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.commands.protocols import HfDisplayInfoProvider
+from fast_agent.ui.console import rich_print
 from fast_agent.ui.message_primitives import MessageType
 from fast_agent.ui.model_shortcuts import build_model_shortcut_hints
 from fast_agent.ui.prompt.status_bar import resolve_active_llm

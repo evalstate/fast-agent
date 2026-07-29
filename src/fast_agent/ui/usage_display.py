@@ -8,16 +8,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
 from fast_agent.llm.model_display_name import resolve_llm_display_name
+from fast_agent.ui.console import SurrogateSafeConsole
 from fast_agent.ui.context_usage_display import normalize_context_usage_percent
 from fast_agent.utils.count_display import format_compact_count
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+
+    from rich.console import Console
 
     from fast_agent.interfaces import FastAgentLLMProtocol
     from fast_agent.llm.usage_tracking import TurnUsage, UsageSummary
@@ -354,10 +356,10 @@ def display_usage_report(
     if usage_data is None:
         return
 
-    console = Console()
-    _print_usage_header(console)
-    console.print(_usage_table(usage_data, subdued_colors=subdued_colors))
-    console.print()
+    usage_console = SurrogateSafeConsole()
+    _print_usage_header(usage_console)
+    usage_console.print(_usage_table(usage_data, subdued_colors=subdued_colors))
+    usage_console.print()
 
 
 def finalize_usage_report(
