@@ -1,5 +1,7 @@
 import shlex
 
+import pytest
+
 from fast_agent.commands.mcp_command_intents import MCP_SERVER_NAME_ACTIONS, MCP_TOP_LEVEL_ACTIONS
 from fast_agent.ui.command_payloads import (
     CommandError,
@@ -13,6 +15,7 @@ from fast_agent.ui.command_payloads import (
 )
 from fast_agent.ui.enhanced_prompt import parse_special_input
 from fast_agent.ui.prompt import parser as prompt_parser
+from fast_agent.ui.prompt.input import show_mcp_status
 
 
 def test_mcp_server_command_table_covers_name_based_commands() -> None:
@@ -27,7 +30,20 @@ def test_mcp_token_parser_table_covers_non_connect_top_level_actions() -> None:
 
 def test_parse_mcp_status_backwards_compatible() -> None:
     result = parse_special_input("/mcp")
-    assert isinstance(result, ShowMcpStatusCommand)
+    assert result == ShowMcpStatusCommand(deprecated_alias=False)
+
+
+def test_parse_mcpstatus_marks_deprecated_alias() -> None:
+    result = parse_special_input("/mcpstatus")
+    assert result == ShowMcpStatusCommand(deprecated_alias=True)
+
+
+@pytest.mark.asyncio
+async def test_mcpstatus_warning_precedes_status_output(capsys) -> None:
+    await show_mcp_status("main", None, deprecated_alias=True)
+
+    output = capsys.readouterr().out
+    assert output.index("/mcpstatus is deprecated") < output.index("No agent provider")
 
 
 def test_parse_mcp_list() -> None:

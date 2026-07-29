@@ -5,6 +5,21 @@ description: Migrate from removed Smart agents to opt-in built-in subagents in f
 
 # Migrating to 0.10
 
+## MCP configuration and commands
+
+MCP servers now use the canonical `mcp.servers` map. Preview and apply the
+round-trip migration with:
+
+```bash
+fast-agent config migrate-mcp fast-agent.yaml
+fast-agent config migrate-mcp fast-agent.yaml --write
+```
+
+The write command preserves the exact original as `fast-agent.yaml.bak`. Use
+`/mcp attach NAME` for configured definitions and `/connect TARGET` for ad-hoc
+connections. See [Migrate MCP Configuration](../mcp/migration.md) for the
+before/after schema and conflict rules.
+
 ## Breaking change: Smart agents are removed
 
 fast-agent 0.10 removes Smart agents, the model-visible `smart` tool, and the

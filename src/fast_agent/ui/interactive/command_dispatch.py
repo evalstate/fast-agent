@@ -184,6 +184,7 @@ _CommandRouteKind = Literal[
     "catalog_action",
     "mcp_list",
     "mcp_server",
+    "mcp_status",
     "process_view",
     "value",
 ]
@@ -255,7 +256,7 @@ _COMMAND_OUTCOME_ROUTES: tuple[_CommandOutcomeRoute, ...] = (
     _CommandOutcomeRoute(
         ShowMcpStatusCommand,
         "display",
-        "agent_name",
+        "mcp_status",
         display_handlers.handle_show_mcp_status,
     ),
     _CommandOutcomeRoute(
@@ -421,6 +422,14 @@ def _command_route_handler(
                 manager=prompt_provider,
                 agent_name=agent,
             )
+        )
+
+    if route.kind == "mcp_status":
+        status_payload = cast("ShowMcpStatusCommand", payload)
+        return partial(
+            route.handler,
+            agent_name=agent,
+            deprecated_alias=status_payload.deprecated_alias,
         )
 
     if route.kind == "mcp_server":

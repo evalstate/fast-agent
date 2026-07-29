@@ -156,7 +156,12 @@ async def execute_harness_command(agent: ToolAgent, command: str) -> str:
                 f"Unsupported /{command_name} arguments",
                 f"The harness tool currently supports only `/{command_name}`.",
             )
-        return "# mcpstatus\n\n" + await _render_status(agent)
+        warning = (
+            "> **Deprecated:** `/mcpstatus` is deprecated; use `/mcp` or `/mcp status`.\n\n"
+            if command_name == "mcpstatus"
+            else ""
+        )
+        return f"# {command_name}\n\n{warning}" + await _render_status(agent)
 
     handler = _COMMAND_HANDLERS.get(command_name)
     if handler is None:

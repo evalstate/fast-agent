@@ -357,7 +357,7 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         ),
         _simple_command_entry(
             "mcpstatus",
-            summary="Show MCP server connection status",
+            summary="Deprecated alias for /mcp status",
             usage="/mcpstatus",
             examples=["/mcpstatus"],
         ),

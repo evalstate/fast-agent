@@ -50,7 +50,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /process [--history] - Show active or retained finished shell processes",
             "  /mcp           - Show detailed MCP server status for the active agent",
             "  /mcp status    - Show detailed MCP server status for the active agent",
-            "  /mcpstatus     - Compatibility alias for /mcp status",
+            "  /mcpstatus     - Deprecated compatibility alias for /mcp status",
             "  /mcp list      - List configured and attached MCP servers",
             "  /mcp attach <name> - Attach a configured MCP server",
             "  /mcp connect <target> - Connect an ad-hoc MCP target",
