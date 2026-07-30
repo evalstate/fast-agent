@@ -144,9 +144,7 @@ class MoonshotLLM(OpenAICompatibleLLM):
                 else OPENAI_CHAT_VIDEO_MIME_TYPES
             )
             if data is None or mime_type not in supported_mime_types:
-                raise ValueError(
-                    f"Moonshot could not embed supported {part_type} media from {url}"
-                )
+                raise ValueError(f"Moonshot could not embed supported {part_type} media from {url}")
             encoded = base64.b64encode(data).decode("ascii")
             updated_content.append(
                 {
