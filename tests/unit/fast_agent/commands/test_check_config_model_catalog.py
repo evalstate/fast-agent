@@ -100,6 +100,24 @@ def test_show_provider_model_catalog_openai_all_includes_openai_family(capsys) -
     assert _collapse(additional_model) in collapsed_output
 
 
+def test_show_provider_model_catalog_zai_includes_curated_model(capsys) -> None:
+    show_provider_model_catalog("zai")
+
+    output = capsys.readouterr().out
+    assert "Z.ai model catalog (curated)" in output
+    assert "zaiglm" in output
+    assert "zai.glm-5.2" in _collapse(output)
+
+
+def test_show_provider_model_catalog_moonshot_includes_curated_model(capsys) -> None:
+    show_provider_model_catalog("moonshot")
+
+    output = capsys.readouterr().out
+    assert "Moonshot model catalog (curated)" in output
+    assert "kimik3" in output
+    assert "moonshot.kimi-k3" in _collapse(output)
+
+
 def test_show_models_overview_includes_provider_args_and_named_aliases(
     tmp_path: Path,
     capsys,
@@ -130,6 +148,7 @@ def test_show_models_overview_includes_provider_args_and_named_aliases(
     assert "Provider Arg" in output
     assert "Active" in output
     assert "openai" in output
+    assert "zai" in output
     assert "Named Model Aliases" in output
     assert "$system.fast" in output
     assert "responses.gpt-5-mini?reasoning=low" in output

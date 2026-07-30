@@ -216,6 +216,26 @@ def test_model_query_temperature():
     assert config.temperature == 0.35
 
 
+def test_model_query_max_tokens() -> None:
+    config = ModelFactory.parse_model_string("zai/glm-5.2?reasoning=max&max_tokens=48000")
+
+    assert config.provider == Provider.ZAI
+    assert config.model_name == "glm-5.2"
+    assert config.max_tokens == 48_000
+
+
+def test_model_query_max_tokens_aliases_preserve_url_order() -> None:
+    config = ModelFactory.parse_model_string("zai/glm-5.2?maxTokens=32000&max_tokens=48000")
+
+    assert config.max_tokens == 48_000
+
+
+@pytest.mark.parametrize("value", ["", "0", "-1", "1.5", "many"])
+def test_invalid_max_tokens_query(value: str) -> None:
+    with pytest.raises(ModelConfigError, match="Invalid max_tokens query value"):
+        ModelFactory.parse_model_string(f"zai/glm-5.2?max_tokens={value}")
+
+
 def test_model_query_temp_alias():
     config = ModelFactory.parse_model_string("gpt-5?temp=0.2")
     assert config.temperature == 0.2
@@ -832,6 +852,13 @@ def test_builtin_glm_alias_uses_glm_52_default() -> None:
     assert legacy.model_name == "zai-org/GLM-5:novita"
 
 
+def test_zaiglm_alias_uses_native_zai_provider() -> None:
+    config = ModelFactory.parse_model_string("zaiglm")
+
+    assert config.provider == Provider.ZAI
+    assert config.model_name == "glm-5.2"
+
+
 def test_opus_alias_resolves_to_current_catalog_model():
     opus_entry = next(
         entry
@@ -1177,6 +1204,22 @@ def test_factory_passes_temperature_query_to_request_params():
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
     assert llm.default_request_params.temperature == 0.42
+
+
+def test_factory_passes_max_tokens_query_to_request_params() -> None:
+    factory = ModelFactory.create_factory("zai/glm-5.2?reasoning=max&max_tokens=48000")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+
+    assert llm.default_request_params.max_tokens == 48_000
+
+
+def test_factory_max_tokens_query_overrides_explicit_request_params() -> None:
+    factory = ModelFactory.create_factory("zai/glm-5.2?reasoning=max&max_tokens=48000")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent, request_params=RequestParams(max_tokens=16_000))
+
+    assert llm.default_request_params.max_tokens == 48_000
 
 
 def test_model_sampling_query_aliases_preserve_url_order() -> None:

@@ -481,6 +481,32 @@ def test_build_snapshot_places_deepseek_under_llamacpp() -> None:
     )
 
 
+def test_build_snapshot_includes_native_zai_provider() -> None:
+    snapshot = build_snapshot(config_payload={})
+    option = next(
+        provider
+        for provider in snapshot.providers
+        if provider.option_key == Provider.ZAI.config_name
+    )
+
+    assert option.provider is Provider.ZAI
+    assert [entry.alias for entry in option.curated_entries] == ["zaiglm"]
+    assert [entry.model for entry in option.curated_entries] == ["zai.glm-5.2"]
+
+
+def test_build_snapshot_includes_native_moonshot_provider() -> None:
+    snapshot = build_snapshot(config_payload={})
+    option = next(
+        provider
+        for provider in snapshot.providers
+        if provider.option_key == Provider.MOONSHOT.config_name
+    )
+
+    assert option.provider is Provider.MOONSHOT
+    assert [entry.alias for entry in option.curated_entries] == ["kimik3"]
+    assert [entry.model for entry in option.curated_entries] == ["moonshot.kimi-k3"]
+
+
 def test_build_snapshot_uses_xai_brand_casing() -> None:
     snapshot = build_snapshot(config_payload={})
     option = next(

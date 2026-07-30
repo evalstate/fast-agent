@@ -27,14 +27,15 @@ MAX_LEVEL = MAX_GAUGE_LEVEL
 
 
 # Default mapping for effort scales that do not match a dedicated 4-step scale.
-# Levels are 0–4 (see MAX_GAUGE_LEVEL). high and xhigh share level 4; xhigh turns
-# red when it is the highest allowed effort (see _effort_color).
+# Levels are 0–4 (see MAX_GAUGE_LEVEL). medium and high share level 3 (⣶),
+# distinguished by green/yellow; xhigh and max share level 4 (⣿), distinguished
+# by yellow/red. xhigh turns red when it is the highest allowed effort.
 EFFORT_LEVEL_MAPPING = {
     "none": 0,
     "minimal": 1,
     "low": 2,
     "medium": 3,
-    "high": 4,
+    "high": 3,
     "xhigh": 4,
     "max": 4,
 }
@@ -43,7 +44,7 @@ EFFORT_COLOR_MAPPING = {
     "none": INACTIVE_COLOR,
     "minimal": "ansigreen",
     "low": "ansigreen",
-    "medium": "ansiyellow",
+    "medium": "ansigreen",
     "high": "ansiyellow",
     "xhigh": "ansiyellow",
     "max": "ansired",

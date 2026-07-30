@@ -98,6 +98,14 @@ _PROVIDER_CATALOG_SCOPES_BY_KEY: dict[str, ProviderCatalogScope] = {
         display_name="Deepseek",
         providers=(Provider.DEEPSEEK,),
     ),
+    "zai": ProviderCatalogScope(
+        display_name="Z.ai",
+        providers=(Provider.ZAI,),
+    ),
+    "moonshot": ProviderCatalogScope(
+        display_name="Moonshot",
+        providers=(Provider.MOONSHOT,),
+    ),
     "aliyun": ProviderCatalogScope(
         display_name="Aliyun",
         providers=(Provider.ALIYUN,),
@@ -133,6 +141,7 @@ _PROVIDER_CATALOG_VISIBLE_CHOICES: tuple[str, ...] = (
     "anthropic-vertex",
     "google",
     "deepseek",
+    "zai",
     "aliyun",
     "huggingface",
     "xai",

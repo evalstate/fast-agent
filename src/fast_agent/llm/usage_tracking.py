@@ -260,6 +260,11 @@ def usage_from_openai_chat(
     )
     prompt_details = usage.prompt_tokens_details
     completion_details = usage.completion_tokens_details
+    cache_read = prompt_details.cached_tokens if prompt_details is not None else None
+    if cache_read is None and usage.model_extra:
+        raw_cached_tokens = usage.model_extra.get("cached_tokens")
+        if isinstance(raw_cached_tokens, int):
+            cache_read = raw_cached_tokens
     return TurnUsage(
         provider=provider,
         upstream_provider=upstream_provider,
@@ -267,7 +272,7 @@ def usage_from_openai_chat(
         model=model,
         prompt=PromptTokenUsage(
             total=usage.prompt_tokens,
-            cache_read=prompt_details.cached_tokens if prompt_details is not None else None,
+            cache_read=cache_read,
             cache_write=(prompt_details.cache_write_tokens if prompt_details is not None else None),
         ),
         completion=CompletionTokenUsage(

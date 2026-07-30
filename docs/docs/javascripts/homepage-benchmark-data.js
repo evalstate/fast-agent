@@ -95,6 +95,23 @@ window.fastAgentBenchmark = {
           url: "https://hub.harborframework.com/datasets/terminal-bench/terminal-bench-2-1/6/leaderboards/main/rows/6d091468-3fda-4cbf-ba1c-645b0f522e97",
         },
         {
+          fastAgent: true,
+          harness: "fast-agent",
+          label: "fast-agent / Grok 4.5",
+          model: "Grok 4.5 · high",
+          score: 80.45,
+          cost: 0.359173,
+          tokensIn: "192.30M",
+          tokensOut: "5.88M",
+          date: "2026-07-27",
+          attempts: "445 trials · PR #180",
+          note:
+            "fast-agent 0.9.25. Accuracy, cost, and tokens aggregated from the seven linked Harbor source jobs.",
+          disclaimer: "Provisional result pending Terminal-Bench leaderboard review.",
+          disclaimerLabel: "Provisional",
+          url: "https://github.com/harbor-framework/terminal-bench-2-1/pull/180",
+        },
+        {
           harness: "Claude Code",
           model: "Opus 4.8 · high",
           score: 78.88,

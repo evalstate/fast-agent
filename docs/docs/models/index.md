@@ -211,7 +211,7 @@ provider.model_name[?reasoning=value][&query=value...]
 - **model_name**: the model or deployment name
 - **query parameters**: provider/model-specific overrides such as `reasoning`, `structured`,
   `context`, `transport`, `service_tier`, `temperature` (`temp` alias), `web_search`,
-  `web_fetch`, `x_search`, `task_budget`, and `streaming_timeout`
+  `web_fetch`, `x_search`, `task_budget`, `max_tokens`, and `streaming_timeout`
 
 Examples:
 
@@ -263,6 +263,17 @@ Set the maximum time between provider stream events with `streaming_timeout`:
 The value must be a positive, finite number of seconds or `none`. An explicit
 request-level `RequestParams(streaming_timeout=...)` value takes precedence over the model-string
 default.
+
+### Output token limit
+
+Set the positive per-response output-token limit with `max_tokens`:
+
+- `zai/glm-5.2?reasoning=max&max_tokens=48000`
+- `responses.gpt-5.5?max_tokens=64000`
+
+The model-string value overrides the model metadata default and an explicit
+`RequestParams(maxTokens=...)` value. Providers normalize it to their wire-level request field;
+for native Z.ai Chat Completions this is `max_tokens`.
 
 ### Temperature and sampling
 

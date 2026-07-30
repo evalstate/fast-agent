@@ -156,6 +156,17 @@ def test_process_lifecycle_tool_calls_use_compact_display() -> None:
             },
             name="dev",
         )
+        display.show_tool_call(
+            tool_name="Process",
+            tool_args={"action": "list"},
+            metadata={
+                "variant": "shell_process",
+                "action": "list",
+                "process_id": None,
+                "wait_sec": None,
+            },
+            name="dev",
+        )
 
     rendered = capture.get()
     compact_rendered = " ".join(rendered.split())
@@ -164,6 +175,7 @@ def test_process_lifecycle_tool_calls_use_compact_display() -> None:
     ) in compact_rendered
     assert "pid 4321" not in rendered
     assert "terminate process-4" in rendered
+    assert "list managed processes" in rendered
     assert "'process_id'" not in rendered
 
 

@@ -144,6 +144,9 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         if self._uses_glm_52_reasoning_effort(arguments.get("model")):
             self._apply_glm_52_reasoning_effort(arguments)
             return
+        if self._uses_kimi_k3_reasoning_effort(arguments.get("model")):
+            self._apply_kimi_k3_reasoning_effort(arguments)
+            return
         if self._uses_gemma4_cerebras_reasoning_effort(arguments.get("model")):
             self._apply_gemma4_cerebras_reasoning_effort(arguments)
             return
@@ -197,6 +200,29 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         else:
             extra_body["disable_reasoning"] = disable_reasoning
         arguments["extra_body"] = extra_body
+
+    def _apply_kimi_k3_reasoning_effort(self, arguments: dict[str, Any]) -> None:
+        spec = self.reasoning_effort_spec
+        setting = self.reasoning_effort or (spec.default if spec else None)
+        effort = "max"
+        if (
+            setting is not None
+            and setting.kind == "effort"
+            and isinstance(setting.value, str)
+            and setting.value in {"low", "high", "max"}
+        ):
+            effort = setting.value
+
+        arguments["reasoning_effort"] = effort
+        extra_body_raw = arguments.get("extra_body")
+        if not isinstance(extra_body_raw, dict):
+            return
+        extra_body_raw.pop("thinking", None)
+        extra_body_raw.pop("chat_template_kwargs", None)
+        if extra_body_raw:
+            arguments["extra_body"] = extra_body_raw
+        else:
+            arguments.pop("extra_body", None)
 
     def _apply_gemma4_cerebras_reasoning_effort(self, arguments: dict[str, Any]) -> None:
         spec = self.reasoning_effort_spec
@@ -289,6 +315,12 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         if not model:
             return False
         return ModelDatabase.normalize_model_name(model) == "zai-org/glm-5.2"
+
+    @staticmethod
+    def _uses_kimi_k3_reasoning_effort(model: str | None) -> bool:
+        if not model:
+            return False
+        return ModelDatabase.normalize_model_name(model) == "moonshotai/kimi-k3"
 
     def _uses_gemma4_cerebras_reasoning_effort(self, model: str | None) -> bool:
         if not model:

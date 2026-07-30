@@ -317,6 +317,18 @@ def test_catalog_lists_legacy_aliases_when_configured() -> None:
     assert "glm47" not in current_aliases
 
 
+def test_huggingface_curated_catalog_includes_both_kimi_k3_routes() -> None:
+    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
+    aliases = {"Kimi K3 (fireworks-ai)", "Kimi K3 (together)"}
+    kimi_k3_entries = [entry for entry in entries if entry.alias in aliases]
+
+    assert [(entry.display_label, entry.model) for entry in kimi_k3_entries] == [
+        ("Kimi K3 (fireworks-ai)", "hf.moonshotai/Kimi-K3:fireworks-ai"),
+        ("Kimi K3 (together)", "hf.moonshotai/Kimi-K3:together"),
+    ]
+    assert all(entry.current for entry in kimi_k3_entries)
+
+
 def test_list_all_models_for_provider() -> None:
     openai_models = ModelSelectionCatalog.list_all_models(Provider.OPENAI)
     assert "gpt-4.1" in openai_models

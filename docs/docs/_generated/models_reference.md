@@ -75,9 +75,11 @@
 | `minimax25` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `minimax25?reasoning=off` | — | — |
 | `minimax27` | `hf` | Text | `json` (schema) | — | — | — |
 | `minimax` | `hf` | Text, Vision | `json` (schema) | — | — | — |
+| `moonshotai/kimi-k3` | `hf` | Text, Vision | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `moonshotai/kimi-k3.max` | — | — |
 | `qwen35` | `hf` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen35?reasoning=off` | — | — |
 | `qwen36` | `hf` | Text | — | toggle: `on`, `off`<br>Example: `qwen36?reasoning=off` | — | — |
 | `muse` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `muse.medium` | — | — |
+| `kimik3` | `moonshot` | Text, Vision, Video | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `kimik3.max` | — | — |
 | `gpt-4.1-2025-04-14` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4.1-mini-2025-04-14` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4.1-mini` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
@@ -115,3 +117,4 @@
 | `responses.o3-pro` | `responses` | Text | `json` (schema) | — | — | — |
 | `grok43` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok43.low` | — | — |
 | `grok` | `xai` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `grok.low` | — | — |
+| `zaiglm` | `zai` | Text | `json` (object) | effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `zaiglm.max` | — | — |
