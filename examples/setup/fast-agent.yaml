@@ -89,6 +89,12 @@ anthropic:
 #   # base_url: "https://api.z.ai/api/paas/v4/"
 #   # default_model: "glm-5.2"
 
+# Native Moonshot Chat Completions provider:
+# moonshot:
+#   api_key: "${MOONSHOT_API_KEY}"
+#   # base_url: "https://api.moonshot.ai/v1"
+#   # default_model: "kimi-k3"
+
 #shell_execution:
 # model-facing shell tools: minimal_process (Bash/Process, default) or native
 # (legacy execute/poll_process/terminate_process compatibility)
@@ -104,9 +110,9 @@ anthropic:
 #  output_display_lines: 5  # default
 # show shell command output in console (false to suppress bash output)
 #  show_bash: true
-# model-facing shell output preview bytes; omitted uses a catalog override (Grok
-# 4.5: 16000) or the 8192 global default; null uses automatic model sizing
-#  output_byte_limit: 8192
+# model-facing shell output preview bytes; omitted uses a catalog override or
+# the 16000 global default; null uses automatic model sizing
+#  output_byte_limit: 16000
 # retain complete truncated output in private session-scoped temporary files
 #  retain_truncated_output: true
 # maximum retained bytes per shell process

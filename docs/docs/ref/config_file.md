@@ -785,7 +785,7 @@ shell_execution:
   timeout_seconds: 90
   warning_interval_seconds: 30
   interactive_use_pty: true  # Use PTY for interactive prompt shell commands
-  output_byte_limit: 8192  # Explicit value; omit for catalog/default selection, null for auto
+  output_byte_limit: 16000  # Explicit value; omit for catalog/default selection, null for auto
   retain_truncated_output: true
   retained_output_max_bytes: 2097152  # Per shell process
   retained_output_temp_directory: null  # Optional parent directory
@@ -802,9 +802,9 @@ compatibility escape hatch for the legacy `execute`, `poll_process`, and
 `terminate_process` schemas; both profiles use the same managed-process runtime.
 
 When `output_byte_limit` is omitted, a model-catalog override is used when
-available, followed by the global 8192-byte default. Grok 4.5 uses a
-16,000-byte catalog default. An explicit positive value always wins. Set the
-field to `null` to use automatic sizing from model output-token metadata.
+available, followed by the global 16,000-byte default. An explicit positive
+value always wins. Set the field to `null` to use automatic sizing from model
+output-token metadata.
 
 When `retain_truncated_output` is enabled, fast-agent creates a private
 session-scoped directory and lazily writes a `0600` file only when a shell

@@ -617,7 +617,7 @@ def test_minimal_process_profile_exposes_only_bash_and_process() -> None:
 def test_shell_output_retention_product_defaults() -> None:
     settings = ShellSettings()
 
-    assert settings.output_byte_limit == 8192
+    assert settings.output_byte_limit == 16_000
     assert settings.retain_truncated_output is True
     assert settings.retained_output_max_bytes == 2 * 1024 * 1024
     assert settings.retained_output_temp_directory is None

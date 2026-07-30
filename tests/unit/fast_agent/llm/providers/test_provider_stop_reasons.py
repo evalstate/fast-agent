@@ -58,6 +58,7 @@ def test_bedrock_unknown_stop_reason_defaults_to_end_turn_with_warning() -> None
     [
         ("length", LlmStopReason.MAX_TOKENS),
         ("content_filter", LlmStopReason.SAFETY),
+        ("sensitive", LlmStopReason.SAFETY),
         ("stop", LlmStopReason.END_TURN),
     ],
 )

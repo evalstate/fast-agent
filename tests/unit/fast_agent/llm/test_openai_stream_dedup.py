@@ -44,6 +44,8 @@ class StubToolCallDelta:
 @dataclass
 class StubDelta:
     content: str | None = None
+    reasoning_content: str | None = None
+    reasoning: str | None = None
     tool_calls: list[StubToolCallDelta] | None = None
     role: str | None = None
     function_call: object | None = None
@@ -154,3 +156,58 @@ async def test_tool_streaming_survives_cumulative_content() -> None:
     assert "delta" in event_types
     assert "stop" in event_types
     assert event_types.index("start") < event_types.index("stop")
+
+
+@pytest.mark.asyncio
+async def test_manual_stream_accumulates_interleaved_reasoning_content_and_tools() -> None:
+    llm = OpenAILLM(context=Context(), model="glm-5.2")
+    chunks = [
+        StubChunk(
+            [
+                StubChoice(
+                    StubDelta(
+                        content="answer-",
+                        reasoning_content="think-1",
+                        tool_calls=[
+                            StubToolCallDelta(
+                                index=0,
+                                id="tool-1",
+                                function=StubFunction(
+                                    name="do_work",
+                                    arguments='{"x":',
+                                ),
+                            )
+                        ],
+                    )
+                )
+            ]
+        ),
+        StubChunk(
+            [
+                StubChoice(
+                    StubDelta(
+                        content="done",
+                        reasoning_content="think-2",
+                        tool_calls=[
+                            StubToolCallDelta(
+                                index=0,
+                                function=StubFunction(arguments="1}"),
+                            )
+                        ],
+                    )
+                )
+            ]
+        ),
+        StubChunk([StubChoice(StubDelta(), finish_reason="tool_calls")]),
+    ]
+
+    completion, reasoning = await llm._process_stream_manual(
+        _stream_chunks(chunks),
+        "glm-5.2",
+    )
+
+    assert completion.choices[0].message.content == "answer-done"
+    assert reasoning == ["think-1", "think-2"]
+    assert completion.choices[0].message.tool_calls[0].id == "tool-1"
+    assert completion.choices[0].message.tool_calls[0].function.name == "do_work"
+    assert completion.choices[0].message.tool_calls[0].function.arguments == '{"x":1}'

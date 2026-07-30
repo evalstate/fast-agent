@@ -157,12 +157,33 @@ class ModelSelectionCatalog:
                 model="zai.glm-5.2",
             ),
         ),
+        Provider.MOONSHOT: (
+            CatalogModelEntry(
+                alias="kimik3",
+                display_label="Kimi K3",
+                model="moonshot.kimi-k3",
+            ),
+        ),
         Provider.OPENROUTER: (),
         Provider.ALIYUN: (
             CatalogModelEntry(alias="qwen-turbo", model="aliyun.qwen-turbo", fast=True),
             CatalogModelEntry(alias="qwen3-max", model="aliyun.qwen3-max"),
         ),
         Provider.HUGGINGFACE: (
+            CatalogModelEntry(
+                alias="Kimi K3 (fireworks-ai)",
+                display_label="Kimi K3 (fireworks-ai)",
+                description="image-only HF route",
+                model="hf.moonshotai/Kimi-K3:fireworks-ai",
+                current=True,
+            ),
+            CatalogModelEntry(
+                alias="Kimi K3 (together)",
+                display_label="Kimi K3 (together)",
+                description="image-only HF route",
+                model="hf.moonshotai/Kimi-K3:together",
+                current=True,
+            ),
             CatalogModelEntry(
                 alias="GLM 5.2 (zai-org)",
                 display_label="GLM 5.2 (zai-org)",

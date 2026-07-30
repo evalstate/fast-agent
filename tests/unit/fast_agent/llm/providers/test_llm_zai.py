@@ -152,6 +152,18 @@ def test_zai_reasoning_effort_is_forwarded() -> None:
     assert request["extra_body"] == {"thinking": {"type": "enabled"}}
 
 
+def test_zai_reasoning_request_uses_max_tokens() -> None:
+    llm = ZaiLLM(context=Context(config=Settings()), model="glm-5.2")
+
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}],
+        None,
+        RequestParams(model="glm-5.2", maxTokens=48_000),
+    )
+
+    assert request["max_tokens"] == 48_000
+
+
 def test_zai_enables_incremental_tool_streaming_only_for_streamed_tool_requests() -> None:
     llm = ZaiLLM(
         context=Context(config=Settings()),

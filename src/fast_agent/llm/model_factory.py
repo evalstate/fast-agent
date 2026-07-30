@@ -78,6 +78,7 @@ _STRUCTURED_TOOL_QUERY_KEYS = (
 )
 _WEB_TOOL_QUERY_KEYS = ("web_search", "x_search", "web_fetch")
 _TASK_BUDGET_QUERY_KEYS = ("task_budget", "taskBudget")
+_MAX_TOKENS_QUERY_KEYS = ("max_tokens", "maxTokens")
 _SAMPLING_QUERY_KEYS = {
     "temperature": ("temperature", "temp"),
     "top_p": ("top_p", "topP"),
@@ -92,6 +93,7 @@ SUPPORTED_MODEL_QUERY_KEYS = frozenset(
         *_STRUCTURED_TOOL_QUERY_KEYS,
         *_WEB_TOOL_QUERY_KEYS,
         *_TASK_BUDGET_QUERY_KEYS,
+        *_MAX_TOKENS_QUERY_KEYS,
         *(key for key_group in _SAMPLING_QUERY_KEYS.values() for key in key_group),
     )
 )
@@ -105,6 +107,7 @@ _PROVIDER_CLASS_PATHS: dict[Provider, tuple[str, str]] = {
     Provider.OPENAI: ("fast_agent.llm.provider.openai.llm_openai", "OpenAILLM"),
     Provider.DEEPSEEK: ("fast_agent.llm.provider.openai.llm_deepseek", "DeepSeekLLM"),
     Provider.ZAI: ("fast_agent.llm.provider.openai.llm_zai", "ZaiLLM"),
+    Provider.MOONSHOT: ("fast_agent.llm.provider.openai.llm_moonshot", "MoonshotLLM"),
     Provider.GENERIC: ("fast_agent.llm.provider.openai.llm_generic", "GenericLLM"),
     Provider.GOOGLE_OAI: ("fast_agent.llm.provider.openai.llm_google_oai", "GoogleOaiLLM"),
     Provider.GOOGLE: ("fast_agent.llm.provider.google.llm_google_native", "GoogleNativeLLM"),
@@ -160,6 +163,7 @@ class ModelConfig(BaseModel):
     web_fetch: bool | None = None
     task_budget_tokens: int | None = None
     task_budget_configured: bool = False
+    max_tokens: int | None = None
     temperature: float | None = None
     top_p: float | None = None
     top_k: int | None = None
@@ -187,6 +191,7 @@ class ModelQueryOverrides:
     web_fetch: bool | None = None
     task_budget_tokens: int | None = None
     task_budget_configured: bool = False
+    max_tokens: int | None = None
     temperature: float | None = None
     top_p: float | None = None
     top_k: int | None = None
@@ -224,6 +229,7 @@ class ModelQueryOverrides:
                 else defaults.task_budget_tokens
             ),
             task_budget_configured=self.task_budget_configured or defaults.task_budget_configured,
+            max_tokens=coalesce(self.max_tokens, defaults.max_tokens),
             temperature=coalesce(self.temperature, defaults.temperature),
             top_p=coalesce(self.top_p, defaults.top_p),
             top_k=coalesce(self.top_k, defaults.top_k),
@@ -269,6 +275,7 @@ class ParsedModelSpec:
             web_fetch=self.query_overrides.web_fetch,
             task_budget_tokens=self.query_overrides.task_budget_tokens,
             task_budget_configured=self.query_overrides.task_budget_configured,
+            max_tokens=self.query_overrides.max_tokens,
             temperature=self.query_overrides.temperature,
             top_p=self.query_overrides.top_p,
             top_k=self.query_overrides.top_k,
@@ -363,6 +370,24 @@ def _parse_int_query(
         raise ModelConfigError(
             f"Invalid {label} query value: '{raw_value}' in '{model_spec}'"
         ) from exc
+
+
+def _parse_positive_int_query(
+    query_params: ModelQueryPairs,
+    model_spec: str,
+    *,
+    keys: tuple[str, ...],
+    label: str,
+) -> int | None:
+    value = _parse_int_query(query_params, model_spec, keys=keys, label=label)
+    if value is None:
+        return None
+    if value <= 0:
+        raw_value = _collect_query_values(query_params, keys)[-1]
+        raise ModelConfigError(
+            f"Invalid {label} query value: '{raw_value}' in '{model_spec}'. Use a positive integer."
+        )
+    return value
 
 
 def _parse_bool_query(raw_value: str, query_key: str, model_spec: str) -> bool:
@@ -574,6 +599,12 @@ def _parse_query_overrides(
         web_fetch=web_tool_overrides["web_fetch"],
         task_budget_tokens=task_budget_tokens,
         task_budget_configured=task_budget_configured,
+        max_tokens=_parse_positive_int_query(
+            query_params,
+            model_spec,
+            keys=_MAX_TOKENS_QUERY_KEYS,
+            label="max_tokens",
+        ),
         temperature=_parse_float_query(
             query_params,
             model_spec,
@@ -871,6 +902,7 @@ class ModelFactory:
         "kimi27code": (
             "hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
         ),
+        "kimik3": "moonshot.kimi-k3",
         "kimithink": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
         "gpt-oss": "hf.openai/gpt-oss-120b:cerebras",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",

@@ -27,6 +27,8 @@ from openai.types.chat import (
     ChatCompletionUserMessageParam,
 )
 from openai.types.chat.chat_completion_message_tool_call import Function
+from openai.types.completion_usage import CompletionUsage
+from pydantic import BaseModel
 from pydantic_core import from_json
 
 from fast_agent.constants import FAST_AGENT_SAFETY_DETAILS, REASONING
@@ -78,7 +80,7 @@ _logger = get_logger(__name__)
 
 
 class EmptyStreamError(RuntimeError):
-    """Raised when a streaming response yields no chunks."""
+    """Raised when a response yields no usable assistant completion."""
 
 
 DEFAULT_OPENAI_MODEL = "gpt-5-mini"
@@ -86,6 +88,7 @@ DEFAULT_REASONING_EFFORT = "low"
 OPENAI_FINISH_REASON_MAP: dict[str, LlmStopReason] = {
     "length": LlmStopReason.MAX_TOKENS,
     "content_filter": LlmStopReason.SAFETY,
+    "sensitive": LlmStopReason.SAFETY,
 }
 
 
@@ -99,10 +102,27 @@ class _OpenAIChoicesHolder(Protocol):
     choices: Any
 
 
-def _openai_usage(value: object) -> Any | None:
-    if not isinstance(value, _OpenAIUsageHolder):
+def _coerce_openai_usage(value: object) -> CompletionUsage | None:
+    if isinstance(value, CompletionUsage):
+        return value
+    if isinstance(value, dict):
+        return CompletionUsage.model_validate(value)
+    return None
+
+
+def _openai_usage(value: object) -> CompletionUsage | None:
+    if isinstance(value, _OpenAIUsageHolder):
+        usage = _coerce_openai_usage(value.usage)
+        if usage is not None:
+            return usage
+
+    choices = _openai_choices(value)
+    if not isinstance(choices, list) or not choices:
         return None
-    return value.usage
+    choice = choices[0]
+    if not isinstance(choice, BaseModel) or not choice.model_extra:
+        return None
+    return _coerce_openai_usage(choice.model_extra.get("usage"))
 
 
 def _openai_choices(value: object) -> Any | None:
@@ -841,6 +861,11 @@ class OpenAILLM(
             notified_tool_indices,
             model=model,
         )
+        self._raise_if_empty_completion(
+            final_completion,
+            reasoning_segments.parts(),
+            source="OpenAI streaming response",
+        )
 
         return final_completion, reasoning_segments.parts()
 
@@ -1020,6 +1045,51 @@ class OpenAILLM(
         final_completion.usage = state.usage_data
         return final_completion
 
+    @staticmethod
+    def _message_reasoning_parts(message: ChatCompletionMessage) -> list[str]:
+        model_extra = message.model_extra or {}
+        reasoning_text = OpenAILLM._extract_reasoning_text(
+            reasoning=model_extra.get("reasoning"),
+            reasoning_content=model_extra.get("reasoning_content"),
+        )
+        return [reasoning_text] if reasoning_text.strip() else []
+
+    @classmethod
+    def _completion_has_substantive_output(
+        cls,
+        completion: object,
+        reasoning_parts: list[str],
+    ) -> bool:
+        if any(part.strip() for part in reasoning_parts):
+            return True
+
+        choices = _openai_choices(completion)
+        if not isinstance(choices, list) or not choices:
+            return False
+        choice = choices[0]
+        message = choice.message
+        if not isinstance(message, ChatCompletionMessage):
+            return False
+        if isinstance(message.content, str) and message.content.strip():
+            return True
+        if isinstance(message.refusal, str) and message.refusal.strip():
+            return True
+        if message.tool_calls or message.function_call or message.audio:
+            return True
+        return choice.finish_reason in {"content_filter", "sensitive"}
+
+    @classmethod
+    def _raise_if_empty_completion(
+        cls,
+        completion: object,
+        reasoning_parts: list[str],
+        *,
+        source: str,
+    ) -> None:
+        if cls._completion_has_substantive_output(completion, reasoning_parts):
+            return
+        raise EmptyStreamError(f"{source} contained no usable completion")
+
     def _log_manual_stream_usage(
         self,
         state: _ManualOpenAIStreamState,
@@ -1067,6 +1137,12 @@ class OpenAILLM(
 
         self._raise_for_incomplete_manual_tools(state)
         final_completion = self._manual_stream_completion(state)
+        reasoning_parts = state.reasoning_segments.parts()
+        self._raise_if_empty_completion(
+            final_completion,
+            reasoning_parts,
+            source="OpenAI manual streaming response",
+        )
         self._log_manual_stream_usage(state, model)
 
         final_message = final_completion.choices[0].message if final_completion.choices else None
@@ -1077,7 +1153,7 @@ class OpenAILLM(
             model=model,
         )
 
-        return final_completion, state.reasoning_segments.parts()
+        return final_completion, reasoning_parts
 
     def _openai_completion_request(
         self,
@@ -1159,7 +1235,7 @@ class OpenAILLM(
             )
         except EmptyStreamError as exc:
             self.logger.error(
-                "OpenAI stream returned no chunks; retrying without streaming",
+                "OpenAI stream returned no usable completion; retrying without streaming",
                 data={
                     "model": request.model_name,
                     "error": str(exc),
@@ -1168,7 +1244,24 @@ class OpenAILLM(
             response = await client.chat.completions.create(
                 **self._prepare_non_streaming_request(request.arguments)
             )
-            streamed_reasoning = []
+            choices = _openai_choices(response)
+            fallback_message = (
+                choices[0].message
+                if isinstance(choices, list)
+                and choices
+                and isinstance(choices[0].message, ChatCompletionMessage)
+                else None
+            )
+            streamed_reasoning = (
+                self._message_reasoning_parts(fallback_message)
+                if fallback_message is not None
+                else []
+            )
+            self._raise_if_empty_completion(
+                response,
+                streamed_reasoning,
+                source="OpenAI non-streaming fallback response",
+            )
         except TimeoutError:
             self._record_stream_failure(timed_stream.timing)
             if timeout is None:

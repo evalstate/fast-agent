@@ -90,53 +90,22 @@ Supported values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and
 `max`. `none` sends disabled thinking; enabled reasoning is returned separately
 from visible assistant content in `reasoning_content`.
 
-## Context caching and process polling
+### Streaming channel normalization
 
-Z.ai performs automatic context caching and reports hits through
-`usage.prompt_tokens_details.cached_tokens`. The service documentation does not
-publish a fixed or configurable TTL.
+Z.ai streaming deltas can carry `reasoning_content`, visible `content`, and
+`tool_calls`. fast-agent processes each field independently rather than treating
+them as mutually exclusive:
 
-In a controlled GLM-5.2 observation with independent entries and valid controls,
-both prefixes were cached at 300 seconds idle, while both missed at 600 seconds
-and at the longer tested delays. This is operational evidence, not a service
-guarantee.
+- reasoning fragments remain in the structured reasoning channel;
+- visible content fragments remain in assistant content;
+- tool arguments are grouped and concatenated by tool-call index.
 
-For the native Z.ai route, fast-agent therefore uses a 240-second default
-managed-process wait. The margin encourages the next polling turn to occur
-inside the shortest observed cache-hit window. It does not configure or assert
-a 240- or 300-second provider TTL. Hugging Face GLM routes are unchanged.
+This preserves arrival order within each channel and supports alternating or
+same-chunk reasoning, content, and tool deltas. fast-agent does not merge hidden
+reasoning into visible assistant text or assume that the provider must finish
+all reasoning before emitting another delta type.
 
-## Tools and streaming
 
-fast-agent uses the normal streaming Chat Completions tool loop:
-
-1. GLM-5.2 streams a tool call with an ID, function name, and JSON argument
-   fragments.
-2. fast-agent executes the tool and appends a matching tool-result message.
-3. GLM-5.2 streams the final assistant response.
-
-For streamed requests containing tools, fast-agent sends Z.ai's
-`tool_stream: true` extension. This enables incremental `function.arguments`
-deltas instead of waiting for the complete tool call to be buffered. fast-agent
-groups fragments by tool-call index and assembles the JSON arguments before
-execution. The extension is omitted when no tools are present and removed from
-the non-streaming fallback request.
-
-To capture the provider request and raw chunks:
-
-```bash
-FAST_AGENT_LLM_TRACE=1 fast-agent go --no-home \
-  --model "zaiglm?reasoning=medium" \
-  --message "Explain why 17 × 19 equals 323."
-```
-
-Captures are written under `stream-debug/`:
-
-- `*_request.json` contains the normalized provider request;
-- `*_chunks.jsonl` contains each streamed Chat Completions chunk.
-
-Trace files can contain prompts, tool arguments, model output, and usage data.
-Review and sanitize them before sharing or committing fixtures.
 
 ## Structured output
 

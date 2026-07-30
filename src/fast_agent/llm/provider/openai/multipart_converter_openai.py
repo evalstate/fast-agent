@@ -48,6 +48,23 @@ from fast_agent.types import PromptMessageExtended
 
 _logger = get_logger("multipart_converter_openai")
 
+OPENAI_CHAT_VIDEO_MIME_TYPES = frozenset(
+    (
+        "video/mp4",
+        "video/mpeg",
+        "video/mov",
+        "video/quicktime",
+        "video/avi",
+        "video/x-msvideo",
+        "video/x-flv",
+        "video/mpg",
+        "video/webm",
+        "video/wmv",
+        "video/x-ms-wmv",
+        "video/3gpp",
+    )
+)
+
 # Define type aliases for content blocks
 ContentBlock = dict[str, Any]
 McpResourceContents = BlobResourceContents | TextResourceContents
@@ -91,6 +108,10 @@ class OpenAIConverter:
         return (
             mime_type is not None and is_image_mime_type(mime_type) and mime_type != "image/svg+xml"
         )
+
+    @staticmethod
+    def _is_supported_video_type(mime_type: str) -> bool:
+        return mime_type in OPENAI_CHAT_VIDEO_MIME_TYPES
 
     @staticmethod
     def convert_to_openai(
@@ -262,6 +283,8 @@ class OpenAIConverter:
         mime_type = item.mimeType
         if uri and mime_type and OpenAIConverter._is_supported_image_type(mime_type):
             return {"type": "image_url", "image_url": {"url": str(uri)}}
+        if uri and mime_type and OpenAIConverter._is_supported_video_type(mime_type):
+            return {"type": "video_url", "video_url": {"url": str(uri)}}
         if uri and mime_type and is_document_mime_type(mime_type):
             return OpenAIConverter._convert_resource_link_document(item, str(uri))
 
@@ -370,6 +393,14 @@ class OpenAIConverter:
                 is_url=bool(is_url),
             )
 
+        if OpenAIConverter._is_supported_video_type(mime_type):
+            return OpenAIConverter._convert_embedded_video_resource(
+                resource_content,
+                mime_type=mime_type,
+                uri_str=uri_str,
+                is_url=bool(is_url),
+            )
+
         if mime_type == "application/pdf":
             return OpenAIConverter._convert_embedded_pdf_resource(
                 resource_content,
@@ -419,6 +450,25 @@ class OpenAIConverter:
                 "image_url": {"url": f"data:{mime_type};base64,{image_data}"},
             }
         return {"type": "text", "text": f"[Image missing data: {title}]"}
+
+    @staticmethod
+    def _convert_embedded_video_resource(
+        resource_content: McpResourceContents,
+        *,
+        mime_type: str,
+        uri_str: str | None,
+        is_url: bool,
+    ) -> ContentBlock | None:
+        if is_url and uri_str:
+            return {"type": "video_url", "video_url": {"url": uri_str}}
+        if isinstance(resource_content, BlobResourceContents):
+            return {
+                "type": "video_url",
+                "video_url": {
+                    "url": f"data:{mime_type};base64,{resource_content.blob}",
+                },
+            }
+        return None
 
     @staticmethod
     def _convert_embedded_pdf_resource(

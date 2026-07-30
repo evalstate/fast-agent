@@ -149,6 +149,28 @@ class ModelDatabase:
         *DOCUMENT_MIME_TYPES,
     ]
     OPENAI_VISION: ClassVar[list[str]] = ["text/plain", "image/jpeg", "image/png", "image/webp"]
+    KIMI_K3_MULTIMODAL: ClassVar[list[str]] = [
+        "text/plain",
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+        "image/bmp",
+        "image/heic",
+        "image/heif",
+        "video/mp4",
+        "video/mpeg",
+        "video/mov",
+        "video/quicktime",
+        "video/avi",
+        "video/x-msvideo",
+        "video/x-flv",
+        "video/mpg",
+        "video/webm",
+        "video/wmv",
+        "video/x-ms-wmv",
+        "video/3gpp",
+    ]
     ANTHROPIC_MULTIMODAL: ClassVar[list[str]] = [
         "text/plain",
         "image/jpeg",
@@ -265,6 +287,11 @@ class ModelDatabase:
     KIMI_REASONING_TOGGLE_SPEC = ReasoningEffortSpec(
         kind="toggle",
         default=ReasoningEffortSetting(kind="toggle", value=True),
+    )
+    KIMI_K3_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "high", "max"],
+        default=ReasoningEffortSetting(kind="effort", value="max"),
     )
 
     # Groq exposes reasoning as a binary toggle: `reasoning_effort="default"`
@@ -807,6 +834,26 @@ class ModelDatabase:
         default_provider=Provider.HUGGINGFACE,
         model_specific="You have vision capabilities.",
     )
+    KIMI_K3 = ModelParameters(
+        context_window=1_048_576,
+        max_output_tokens=131_072,
+        tokenizes=KIMI_K3_MULTIMODAL,
+        json_mode="schema",
+        structured_tool_policy="no_tools",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=KIMI_K3_REASONING_EFFORT_SPEC,
+        stream_mode="manual",
+        default_provider=Provider.MOONSHOT,
+        model_specific="You have image and video understanding capabilities.",
+        shell_output_byte_limit=16_000,
+    )
+    KIMI_K3_HF = KIMI_K3.model_copy(
+        update={
+            "tokenizes": OPENAI_VISION,
+            "default_provider": Provider.HUGGINGFACE,
+            "model_specific": "You have image understanding capabilities.",
+        }
+    )
 
     GROK_43 = ModelParameters(
         context_window=1_000_000,
@@ -1163,6 +1210,8 @@ class ModelDatabase:
         "moonshotai/kimi-k2.5": KIMI_MOONSHOT_25,
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
         "moonshotai/kimi-k2.7-code": KIMI_MOONSHOT_27_CODE,
+        "moonshotai/kimi-k3": KIMI_K3_HF,
+        "kimi-k3": KIMI_K3,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
         "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,  # tool/reasoning interleave guidance

@@ -44,6 +44,7 @@ The `default_headers` option is available for OpenAI-compatible providers (inclu
 | MetaAI | `metaai` | `META_AI_API_KEY` | Muse Spark Responses API models |
 | DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | Additional provider; OpenAI-format API |
 | Z.ai | `zai` | `ZAI_API_KEY` | Native GLM Chat Completions API |
+| Moonshot | `moonshot` | `MOONSHOT_API_KEY` | Native Kimi Chat Completions API |
 | Aliyun | `aliyun` | `ALIYUN_API_KEY` | Additional provider; DashScope compatible-mode endpoint |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` | Additional provider; routed upstream models |
 | Hugging Face | `hf` or `huggingface` | `HF_TOKEN` | Inference Providers router and HF MCP auth |
@@ -63,5 +64,6 @@ See [Additional Providers](providers/additional/) for the long-tail reference wi
 - [xAI / Grok](providers/xai/) for Grok models, reasoning, web search, and X Search.
 - [MetaAI](providers/metaai/) for Muse Spark Responses API models.
 - [Z.ai](providers/zai/) for native GLM models, reasoning streams, tools, and structured output.
+- [Moonshot](providers/moonshot/) for native Kimi K3 reasoning, streaming, tools, structured output, and vision.
 - [Hugging Face](providers/huggingface/) for Inference Providers routing, curated aliases, and HF MCP authentication.
 - [Additional Providers](providers/additional/) for Groq, DeepSeek, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints.
