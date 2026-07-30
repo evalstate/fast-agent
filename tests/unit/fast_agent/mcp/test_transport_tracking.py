@@ -1,5 +1,11 @@
 import pytest
-from mcp_types import ErrorData, JSONRPCError, JSONRPCRequest, JSONRPCResponse
+from mcp_types import (
+    ErrorData,
+    JSONRPCError,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResponse,
+)
 
 from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName, TransportChannelMetrics
 
@@ -67,6 +73,25 @@ def test_transport_message_counts_are_tallied_by_channel() -> None:
     assert snapshot.resumption.request_count == 1
     assert snapshot.stdio is not None
     assert snapshot.stdio.response_count == 1
+
+
+def test_progress_notification_is_counted_on_request_scoped_sse_channel() -> None:
+    metrics = TransportChannelMetrics()
+    metrics.record_event(
+        ChannelEvent(
+            channel="post-sse",
+            event_type="message",
+            message=JSONRPCNotification(
+                jsonrpc="2.0",
+                method="notifications/progress",
+            ),
+        )
+    )
+
+    snapshot = metrics.snapshot()
+    assert snapshot.post_sse is not None
+    assert snapshot.post_sse.notification_count == 1
+    assert snapshot.post_sse.last_message_summary == "notify notifications/progress"
 
 
 def test_activity_bucket_priority_emits_public_state_strings():

@@ -9,6 +9,8 @@ from mcp_types import (
     ElicitRequestURLParams,
     ElicitResult,
     ListRootsResult,
+    ProgressNotification,
+    ProgressNotificationParams,
     SamplingMessage,
     TextContent,
     ToolListChangedNotification,
@@ -24,6 +26,8 @@ from fast_agent.config import (
 from fast_agent.context import Context
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
+from fast_agent.mcp.mcp_connection_manager import _transport_notification_handler
+from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 
 def _context(*, auto_sampling: bool = False, elicitation_mode: str = "forms") -> Context:
@@ -174,3 +178,50 @@ async def test_runtime_forwards_server_notifications_to_aggregator() -> None:
     await asyncio.sleep(0)
 
     assert received == [("notifier", notification)]
+
+
+@pytest.mark.parametrize(
+    ("transport", "snapshot_name"),
+    [
+        ("http", "post_sse"),
+        ("sse", "get"),
+        ("stdio", "stdio"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_runtime_records_progress_on_bound_transport_channel(
+    transport: str,
+    snapshot_name: str,
+) -> None:
+    metrics = TransportChannelMetrics()
+    config = MCPServerSettings.model_validate(
+        {
+            "name": "progress",
+            "transport": transport,
+            "url": "https://example.com/mcp" if transport != "stdio" else None,
+            "command": "progress-server" if transport == "stdio" else None,
+        }
+    )
+    runtime = MCPClientCallbackRuntime(
+        server_name="progress",
+        server_config=config,
+        transport_notification_handler=_transport_notification_handler(config, metrics),
+        context=_context(),
+    )
+
+    await runtime.message_handler(
+        ProgressNotification(
+            params=ProgressNotificationParams(
+                progress_token="tool-1",
+                progress=1,
+                total=2,
+                message="halfway",
+            )
+        )
+    )
+
+    snapshot = metrics.snapshot()
+    channel = getattr(snapshot, snapshot_name)
+    assert channel is not None
+    assert channel.notification_count == 1
+    assert channel.last_message_summary == "notify notifications/progress"

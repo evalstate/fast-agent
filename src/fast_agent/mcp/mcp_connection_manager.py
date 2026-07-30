@@ -10,6 +10,7 @@ import time
 import traceback
 from collections import deque
 from contextlib import suppress
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, Protocol, runtime_checkable
@@ -20,6 +21,7 @@ from anyio import CancelScope, Event, Lock
 from httpx2 import HTTPStatusError
 from mcp.client.subscriptions import SubscriptionLost
 from mcp.shared.exceptions import MCPError
+from mcp_types import JSONRPCNotification
 
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import ServerInitializationError
@@ -41,7 +43,12 @@ from fast_agent.mcp.oauth_client import (
     OAuthEventHandler,
     OAuthFlowCancelledError,
 )
-from fast_agent.mcp.transport_tracking import ChannelEvent, EventType, TransportChannelMetrics
+from fast_agent.mcp.transport_tracking import (
+    ChannelEvent,
+    ChannelName,
+    EventType,
+    TransportChannelMetrics,
+)
 from fast_agent.utils.commandline import join_commandline
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.text import strip_casefold
@@ -575,6 +582,33 @@ def _record_listen_transport_event(
     )
 
 
+def _transport_notification_handler(
+    config: MCPServerSettings,
+    metrics: TransportChannelMetrics,
+) -> Callable[[str], None]:
+    channel: ChannelName
+    if config.transport == "stdio":
+        channel = "stdio"
+    elif config.transport == "sse":
+        channel = "get"
+    else:
+        channel = "post-sse"
+
+    def record(method: str) -> None:
+        metrics.record_event(
+            ChannelEvent(
+                channel=channel,
+                event_type="message",
+                message=JSONRPCNotification(
+                    jsonrpc="2.0",
+                    method=method,
+                ),
+            )
+        )
+
+    return record
+
+
 def _ping_loop_enabled(server_conn: ServerConnection) -> bool:
     interval = server_conn.server_config.ping_interval_seconds
     return server_conn.protocol_era == "legacy" and bool(interval and interval > 0)
@@ -916,6 +950,14 @@ class MCPConnectionManager(ContextDependent):
         )
 
         transport_metrics = self._launch_transport_metrics(config)
+        connection_callback_runtime = replace(
+            callback_runtime,
+            transport_notification_handler=(
+                _transport_notification_handler(config, transport_metrics)
+                if transport_metrics is not None
+                else None
+            ),
+        )
         server_conn_holder: list[ServerConnection] = []
 
         server_conn = ServerConnection(
@@ -931,7 +973,7 @@ class MCPConnectionManager(ContextDependent):
                 allow_oauth_paste_fallback=allow_oauth_paste_fallback,
                 transport_metrics=transport_metrics,
             ),
-            callback_runtime=callback_runtime,
+            callback_runtime=connection_callback_runtime,
         )
         server_conn_holder.append(server_conn)
 

@@ -57,6 +57,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 type ToolListChangedCallback = Callable[[str], Awaitable[None]]
+type TransportNotificationHandler = Callable[[str], None]
 
 
 @dataclass(slots=True)
@@ -77,6 +78,7 @@ class MCPClientCallbackRuntime:
     aggregator: MCPAggregator | None = None
     context: Context | None = None
     tool_list_changed_callback: ToolListChangedCallback | None = None
+    transport_notification_handler: TransportNotificationHandler | None = None
     effective_elicitation_mode: str = field(init=False)
     client_info: Implementation = field(init=False)
     list_roots_callback: ListRootsFnT | None = field(init=False)
@@ -244,6 +246,8 @@ class MCPClientCallbackRuntime:
         self._pending_url_elicitations = []
 
     async def _handle_message(self, message: object) -> None:
+        if isinstance(message, ProgressNotification) and self.transport_notification_handler:
+            self.transport_notification_handler("notifications/progress")
         if isinstance(message, ToolsListChanged) and self.tool_list_changed_callback is not None:
             asyncio.create_task(self._notify_tool_list_changed())
         if self.aggregator is not None and not isinstance(
