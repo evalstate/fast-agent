@@ -546,6 +546,10 @@ async def _run_subscription_loop(server_conn: ServerConnection) -> None:
                 return
             server_conn.subscription_state = "error"
             _record_listen_transport_event(server_conn, "error", detail=str(exc))
+            if strip_casefold(exc.message).startswith("subscription limit reached"):
+                # Treat server subscription capacity as terminal for now; we may revisit
+                # this retry policy when servers expose more actionable recovery signals.
+                return
         except asyncio.CancelledError:
             raise
         except Exception as exc:

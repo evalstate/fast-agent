@@ -7,6 +7,7 @@ import httpx2
 import pytest
 from anyio import CancelScope
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.exceptions import MCPError
 
 from fast_agent.config import MCPServerAuthSettings, MCPServerSettings, Settings
 from fast_agent.context import Context
@@ -26,10 +27,12 @@ from fast_agent.mcp.mcp_connection_manager import (
     _format_oauth_registration_404_details,
     _is_oauth_registration_404_message,
     _is_oauth_timeout_message,
+    _run_subscription_loop,
     _server_lifecycle_task,
     _wait_for_initialized_with_startup_budget,
 )
 from fast_agent.mcp.oauth_client import OAuthEventHandler
+from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -323,6 +326,39 @@ def _callback_runtime() -> MCPClientCallbackRuntime:
         server_name="test-server",
         server_config=MCPServerSettings(name="test-server", url="http://example.com/mcp"),
     )
+
+
+@pytest.mark.asyncio
+async def test_subscription_limit_error_is_not_retried() -> None:
+    class RejectedSubscription:
+        async def __aenter__(self):
+            raise MCPError(-32000, "Subscription limit reached")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            del exc_type, exc, tb
+            return False
+
+    class SubscriptionLimitClient:
+        def __init__(self) -> None:
+            self.listen_calls = 0
+
+        def listen(self, **kwargs):
+            del kwargs
+            self.listen_calls += 1
+            return RejectedSubscription()
+
+    server_conn = _make_server_connection()
+    client = SubscriptionLimitClient()
+    server_conn.client = cast("Any", client)
+    server_conn.transport_metrics = TransportChannelMetrics()
+
+    await asyncio.wait_for(_run_subscription_loop(server_conn), timeout=0.1)
+
+    assert client.listen_calls == 1
+    assert server_conn.subscription_state == "error"
+    listen = server_conn.transport_metrics.snapshot().listen
+    assert listen is not None
+    assert listen.last_error == "Subscription limit reached"
 
 
 @pytest.mark.asyncio
