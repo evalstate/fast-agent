@@ -49,6 +49,10 @@ async def test_modern_tool_subscription_refreshes_cache(
                 status = (await app.probe.get_server_status())["modern_http"]
                 assert status.protocol_era == "modern"
                 assert status.subscription_state == "open"
+                assert status.transport_channels is not None
+                assert status.transport_channels.listen is not None
+                assert status.transport_channels.listen.state == "open"
+                assert status.transport_channels.listen.request_count == 1
 
                 await app.probe.call_tool("add_dynamic_tool", {})
                 for _ in range(50):
@@ -61,6 +65,9 @@ async def test_modern_tool_subscription_refreshes_cache(
 
                 status = (await app.probe.get_server_status())["modern_http"]
                 assert status.subscription_state == "open"
+                assert status.transport_channels is not None
+                assert status.transport_channels.listen is not None
+                assert status.transport_channels.listen.notification_count >= 1
 
         await run_probe()
     finally:

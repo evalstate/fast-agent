@@ -5,14 +5,14 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import httpx2
 from httpx2 import HTTPStatusError
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, get_default_environment
 from mcp.client.streamable_http import streamable_http_client
-from mcp_types import JSONRPCMessage
+from mcp_types import JSONRPCMessage, JSONRPCRequest
 from pydantic import TypeAdapter, ValidationError
 
 from fast_agent.core.exceptions import walk_exception_chain
@@ -23,7 +23,7 @@ from fast_agent.mcp.hf_auth import add_forwarded_hf_auth_header
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.oauth_client import OAuthEventHandler, build_oauth_provider
 from fast_agent.mcp.stdio_tracking_simple import tracking_stdio_client
-from fast_agent.mcp.transport_tracking import ChannelEvent
+from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.text import strip_casefold
 from fast_agent.utils.transports import uses_mcp_remote_transport
@@ -338,9 +338,23 @@ def _transport_metrics_hook(
     return record
 
 
-def _http_post_channel(request: httpx2.Request) -> Literal["post-json", "post-sse"]:
+def _http_post_channel(
+    request: httpx2.Request,
+    message: JSONRPCMessage | None = None,
+) -> ChannelName:
+    if (
+        isinstance(message, JSONRPCRequest)
+        and strip_casefold(message.method or "") == "subscriptions/listen"
+    ):
+        return "listen"
     accept = strip_casefold(request.headers.get("accept", ""))
     return "post-sse" if "text/event-stream" in accept else "post-json"
+
+
+def _http_request_message(request: httpx2.Request) -> JSONRPCMessage | None:
+    if request.method != "POST" or not request.content:
+        return None
+    return _JSONRPC_MESSAGE_ADAPTER.validate_json(request.content)
 
 
 def _http_diagnostic_hooks(
@@ -378,12 +392,12 @@ def _http_diagnostic_hooks(
                         )
                     )
                 return
-            if request.method != "POST" or not request.content:
+            message = _http_request_message(request)
+            if message is None:
                 return
-            message = _JSONRPC_MESSAGE_ADAPTER.validate_json(request.content)
             metrics.record_event(
                 ChannelEvent(
-                    channel=_http_post_channel(request),
+                    channel=_http_post_channel(request, message),
                     event_type="message",
                     message=message,
                 )
@@ -405,9 +419,13 @@ def _http_diagnostic_hooks(
                     )
                 )
             elif request.method == "POST" and response.status_code >= 400:
+                try:
+                    message = _http_request_message(request)
+                except (ValidationError, ValueError):
+                    message = None
                 metrics.record_event(
                     ChannelEvent(
-                        channel=_http_post_channel(request),
+                        channel=_http_post_channel(request, message),
                         event_type="error",
                         status_code=response.status_code,
                         detail=f"HTTP {response.status_code}",

@@ -139,6 +139,56 @@ def test_resumption_error_only_event_is_visible() -> None:
     assert snapshot.resumption.activity_buckets == ["none", "error"]
 
 
+def test_listen_channel_tracks_requests_notifications_and_state() -> None:
+    metrics = TransportChannelMetrics(bucket_seconds=60, bucket_count=2)
+
+    metrics.record_event(
+        ChannelEvent(
+            channel="listen",
+            event_type="message",
+            message=JSONRPCRequest(
+                jsonrpc="2.0",
+                id="listen-1",
+                method="subscriptions/listen",
+            ),
+        )
+    )
+    metrics.record_event(ChannelEvent(channel="listen", event_type="connect"))
+    metrics.record_event(
+        ChannelEvent(
+            channel="listen",
+            event_type="message",
+            detail="ToolsListChanged",
+        )
+    )
+
+    snapshot = metrics.snapshot()
+    assert snapshot.listen is not None
+    assert snapshot.listen.state == "open"
+    assert snapshot.listen.request_count == 1
+    assert snapshot.listen.notification_count == 1
+    assert snapshot.listen.last_message_summary == "ToolsListChanged"
+    assert snapshot.listen.activity_buckets == ["none", "request"]
+
+
+def test_unsupported_listen_channel_is_hidden() -> None:
+    metrics = TransportChannelMetrics()
+    metrics.record_event(
+        ChannelEvent(
+            channel="listen",
+            event_type="message",
+            message=JSONRPCRequest(
+                jsonrpc="2.0",
+                id="listen-1",
+                method="subscriptions/listen",
+            ),
+        )
+    )
+    metrics.record_event(ChannelEvent(channel="listen", event_type="unsupported"))
+
+    assert metrics.snapshot().listen is None
+
+
 @pytest.mark.parametrize("channel", ["get", "stdio"])
 def test_connect_then_disconnect_only_events_are_visible(channel: ChannelName) -> None:
     metrics = TransportChannelMetrics()

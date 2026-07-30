@@ -272,6 +272,37 @@ def test_render_channel_summary_hides_unobserved_and_aggregate_channels() -> Non
     assert "HEALTH" not in output
 
 
+def test_render_modern_listen_channel_shows_notifications_without_ping() -> None:
+    status = ServerStatus(
+        server_name="demo",
+        transport="http",
+        protocol_era="modern",
+        transport_channels=TransportSnapshot(
+            listen=ChannelSnapshot(
+                state="open",
+                request_count=1,
+                notification_count=3,
+                activity_buckets=["request", "notification"],
+            ),
+            activity_bucket_seconds=30,
+            activity_bucket_count=2,
+        ),
+    )
+
+    original_console = _set_console_size()
+    try:
+        with console.console.capture() as capture:
+            _render_channel_summary(status, indent="  ", total_width=100)
+        output = capture.get()
+    finally:
+        _restore_console_size(original_console)
+
+    assert "LISTEN (SSE)" in output
+    assert "    1     0     3" in strip_ansi(output)
+    assert "notification" in output
+    assert "ping" not in output
+
+
 def test_render_channel_summary_uses_legacy_post_channel() -> None:
     status = ServerStatus(
         server_name="demo",

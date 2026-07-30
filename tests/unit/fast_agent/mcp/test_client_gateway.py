@@ -46,6 +46,8 @@ async def test_http_diagnostic_hooks_track_post_get_and_resumption() -> None:
     assert hooks is not None
 
     async def server(request: httpx2.Request) -> httpx2.Response:
+        if request.content == b"not-json":
+            return httpx2.Response(400, request=request)
         return httpx2.Response(
             405 if request.method == "GET" else 202,
             request=request,
@@ -65,14 +67,34 @@ async def test_http_diagnostic_hooks_track_post_get_and_resumption() -> None:
                 "params": {},
             },
         )
+        await client.post(
+            "https://example.com/mcp",
+            headers={"Accept": "text/event-stream"},
+            json={
+                "jsonrpc": "2.0",
+                "id": "listen-1",
+                "method": "subscriptions/listen",
+                "params": {"notifications": {"toolsListChanged": True}},
+            },
+        )
         await client.get(
             "https://example.com/mcp",
             headers={"Accept": "text/event-stream", "Last-Event-ID": "event-7"},
+        )
+        await client.post(
+            "https://example.com/mcp",
+            headers={"Accept": "application/json"},
+            content=b"not-json",
         )
 
     snapshot = metrics.snapshot()
     assert snapshot.post_json is not None
     assert snapshot.post_json.request_count == 1
+    assert snapshot.post_json.state == "error"
+    assert snapshot.post_json.last_error == "HTTP 400"
+    assert snapshot.post_sse is None
+    assert snapshot.listen is not None
+    assert snapshot.listen.request_count == 1
     assert snapshot.get is not None
     assert snapshot.get.last_status_code == 405
     assert snapshot.resumption is not None

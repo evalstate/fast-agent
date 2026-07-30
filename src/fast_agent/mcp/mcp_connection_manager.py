@@ -41,7 +41,7 @@ from fast_agent.mcp.oauth_client import (
     OAuthEventHandler,
     OAuthFlowCancelledError,
 )
-from fast_agent.mcp.transport_tracking import TransportChannelMetrics
+from fast_agent.mcp.transport_tracking import ChannelEvent, EventType, TransportChannelMetrics
 from fast_agent.utils.commandline import join_commandline
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.text import strip_casefold
@@ -509,6 +509,7 @@ async def _run_subscription_loop(server_conn: ServerConnection) -> None:
         return
     delay = 0.25
     while not server_conn._shutdown_event.is_set():
+        opened = False
         try:
             subscription_context = client.listen(
                 tools_list_changed=True,
@@ -517,30 +518,61 @@ async def _run_subscription_loop(server_conn: ServerConnection) -> None:
             )
             async with subscription_context as subscription:
                 server_conn.subscription_state = "open"
+                opened = True
+                _record_listen_transport_event(server_conn, "connect")
                 delay = 0.25
                 async for event in subscription:
+                    _record_listen_transport_event(
+                        server_conn,
+                        "message",
+                        detail=type(event).__name__,
+                    )
                     await client.callbacks.handle_subscription_event(event)
             server_conn.subscription_state = "closed"
-        except SubscriptionLost:
+        except SubscriptionLost as exc:
             server_conn.subscription_state = "error"
+            _record_listen_transport_event(server_conn, "error", detail=str(exc))
         except MCPError as exc:
             if exc.code == -32601:
                 server_conn.subscription_state = "unsupported"
+                _record_listen_transport_event(server_conn, "unsupported")
                 return
             server_conn.subscription_state = "error"
+            _record_listen_transport_event(server_conn, "error", detail=str(exc))
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
             server_conn.subscription_state = "error"
+            _record_listen_transport_event(server_conn, "error", detail=str(exc))
             logger.debug(
                 "%s: subscription stream failed",
                 server_conn.server_name,
                 exc_info=True,
             )
+        finally:
+            if opened:
+                _record_listen_transport_event(server_conn, "disconnect")
         if server_conn._shutdown_event.is_set():
             return
         await asyncio.sleep(delay)
         delay = min(delay * 2, 5)
+
+
+def _record_listen_transport_event(
+    server_conn: ServerConnection,
+    event_type: EventType,
+    *,
+    detail: str | None = None,
+) -> None:
+    if server_conn.server_config.transport != "http" or server_conn.transport_metrics is None:
+        return
+    server_conn.transport_metrics.record_event(
+        ChannelEvent(
+            channel="listen",
+            event_type=event_type,
+            detail=detail,
+        )
+    )
 
 
 def _ping_loop_enabled(server_conn: ServerConnection) -> bool:

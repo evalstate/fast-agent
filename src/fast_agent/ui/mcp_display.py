@@ -79,6 +79,7 @@ class _ChannelSummaryLayout:
     default_bucket_count: int
     metrics_prefix_width: int
     is_stdio: bool
+    show_ping: bool
 
 
 # Centralized color configuration
@@ -438,6 +439,7 @@ def _has_transport_error(status: ServerStatus) -> bool:
         return False
     channels = [
         snapshot.get,
+        snapshot.listen,
         snapshot.post_json,
         snapshot.post_sse,
         snapshot.post,
@@ -515,6 +517,8 @@ def _build_channel_entries(status: ServerStatus) -> list[_ChannelSummaryEntry]:
     entries: list[_ChannelSummaryEntry] = []
     if snapshot.get is not None:
         entries.append(_ChannelSummaryEntry("GET (SSE)", "◀", snapshot.get))
+    if snapshot.listen is not None:
+        entries.append(_ChannelSummaryEntry("LISTEN (SSE)", "▶", snapshot.listen))
     if snapshot.post_sse is not None:
         entries.append(_ChannelSummaryEntry("POST (SSE)", "▶", snapshot.post_sse))
 
@@ -553,6 +557,7 @@ def _build_channel_summary_layout(
         default_bucket_count=default_bucket_count,
         metrics_prefix_width=metrics_prefix_width,
         is_stdio=is_stdio,
+        show_ping=status.protocol_era != "modern",
     )
 
 
@@ -564,10 +569,13 @@ def _render_channel_summary_header(indent: str, layout: _ChannelSummaryLayout) -
     header.append(header_intro, style="dim")
     dash_count = max(1, layout.metrics_prefix_width - len(header_intro) + 2)
     header.append("─" * dash_count, style="dim")
-    header.append(
-        "  activity" if layout.is_stdio else "  req  resp notif  ping",
-        style="dim",
-    )
+    if layout.is_stdio:
+        metrics_header = "  activity"
+    elif layout.show_ping:
+        metrics_header = "  req  resp notif  ping"
+    else:
+        metrics_header = "  req  resp notif"
+    header.append(metrics_header, style="dim")
     _status_console().print(header)
 
     empty_header = Text(indent)
@@ -682,6 +690,7 @@ def _append_channel_metrics(
     channel: ChannelSnapshot | None,
     *,
     is_stdio: bool,
+    show_ping: bool,
 ) -> None:
     if is_stdio:
         if channel is not None and channel.message_count > 0:
@@ -710,7 +719,10 @@ def _append_channel_metrics(
             metrics_style = Colours.TEXT_DEFAULT
 
     if metrics_style == Colours.TEXT_DIM:
-        line.append(f"  {req} {resp} {notif} {ping}", style=metrics_style)
+        metrics = f"  {req} {resp} {notif}"
+        if show_ping:
+            metrics += f" {ping}"
+        line.append(metrics, style=metrics_style)
         return
 
     ping_style = (
@@ -722,8 +734,9 @@ def _append_channel_metrics(
     line.append(resp, style=metrics_style)
     line.append(" ", style="dim")
     line.append(notif, style=metrics_style)
-    line.append(" ", style="dim")
-    line.append(ping, style=ping_style)
+    if show_ping:
+        line.append(" ", style="dim")
+        line.append(ping, style=ping_style)
 
 
 def _render_single_channel_row(
@@ -743,7 +756,12 @@ def _render_single_channel_row(
     )
 
     _append_channel_timeline(line, entry.channel, layout=layout)
-    _append_channel_metrics(line, entry.channel, is_stdio=layout.is_stdio)
+    _append_channel_metrics(
+        line,
+        entry.channel,
+        is_stdio=layout.is_stdio,
+        show_ping=layout.show_ping,
+    )
     _status_console().print(line)
     return _channel_error_entry(entry.label, entry.channel)
 
@@ -770,6 +788,7 @@ def _render_channel_footer(
     indent: str,
     *,
     is_stdio: bool,
+    show_ping: bool,
 ) -> None:
     has_timelines = any(
         entry.channel is not None and entry.channel.activity_buckets for entry in entries
@@ -794,9 +813,10 @@ def _render_channel_footer(
                 ("response", f"bold {Colours.RESPONSE}"),
                 ("request", f"bold {Colours.REQUEST}"),
                 ("notification", f"bold {Colours.NOTIFICATION}"),
-                ("ping", Colours.PING),
-                ("idle", Colours.IDLE),
             ]
+            if show_ping:
+                legend_map.append(("ping", Colours.PING))
+            legend_map.append(("idle", Colours.IDLE))
 
         for index, (name, color) in enumerate(legend_map):
             if index > 0:
@@ -829,7 +849,12 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
             errors.append(error)
 
     _render_channel_errors(errors, indent)
-    _render_channel_footer(entries, indent, is_stdio=layout.is_stdio)
+    _render_channel_footer(
+        entries,
+        indent,
+        is_stdio=layout.is_stdio,
+        show_ping=layout.show_ping,
+    )
     _status_console().print()
 
 
