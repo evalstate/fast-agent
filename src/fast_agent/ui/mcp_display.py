@@ -520,15 +520,31 @@ def _build_channel_entries(status: ServerStatus) -> list[_ChannelSummaryEntry]:
     if snapshot.get is not None:
         entries.append(_ChannelSummaryEntry("GET (SSE)", "◀", snapshot.get))
     if snapshot.listen is not None:
-        entries.append(_ChannelSummaryEntry("LISTEN (SSE)", "▶", snapshot.listen))
-    if snapshot.post_sse is not None:
-        entries.append(_ChannelSummaryEntry("POST (SSE)", "▶", snapshot.post_sse))
+        entries.append(_ChannelSummaryEntry("LISTEN (SSE)", "◀", snapshot.listen))
 
+    post_sse_channel = snapshot.post_sse
     post_json_channel = snapshot.post_json
-    if post_json_channel is None and snapshot.post_sse is None:
-        post_json_channel = snapshot.post
-    if transport_lower != "sse" and post_json_channel is not None:
+    if post_sse_channel is None and post_json_channel is None and snapshot.post is not None:
+        if snapshot.post.mode == "sse":
+            post_sse_channel = snapshot.post
+        else:
+            post_json_channel = snapshot.post
+
+    has_http_channels = any(
+        channel is not None
+        for channel in (
+            snapshot.get,
+            snapshot.listen,
+            snapshot.post,
+            snapshot.post_sse,
+            snapshot.post_json,
+        )
+    )
+    if transport_lower == "http" or (transport_lower != "sse" and has_http_channels):
+        entries.append(_ChannelSummaryEntry("POST (SSE)", "▶", post_sse_channel))
         entries.append(_ChannelSummaryEntry("POST (JSON)", "▶", post_json_channel))
+    elif post_sse_channel is not None:
+        entries.append(_ChannelSummaryEntry("POST (SSE)", "▶", post_sse_channel))
 
     if entries:
         return entries
@@ -604,7 +620,15 @@ def _channel_is_method_not_allowed(channel: ChannelSnapshot | None) -> bool:
 
 
 def _display_channel_arrow(arrow: str, channel: ChannelSnapshot | None) -> str:
-    if not _channel_is_method_not_allowed(channel):
+    if channel is None:
+        return arrow
+    state = strip_casefold(channel.state or "")
+    if not _channel_is_method_not_allowed(channel) and state not in {
+        "closed",
+        "disabled",
+        "idle",
+        "off",
+    }:
         return arrow
     return {"◀": "◁", "▶": "▷", "⇄": "⇄"}.get(arrow, arrow)
 
@@ -633,9 +657,12 @@ def _channel_label_style(
 ) -> str:
     if channel is None:
         return Colours.TEXT_DIM
-    if _channel_is_method_not_allowed(channel) and "GET" in label:
+    incoming_channel = label.startswith(("GET ", "LISTEN "))
+    if incoming_channel and (
+        _channel_is_method_not_allowed(channel) or arrow_style == Colours.ARROW_OFF
+    ):
         return Colours.TEXT_DIM
-    if arrow_style == Colours.ARROW_ERROR and "GET" in label:
+    if arrow_style == Colours.ARROW_ERROR and incoming_channel:
         return Colours.TEXT_ERROR
     if (
         channel.request_count == 0
@@ -838,7 +865,7 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
     del total_width
 
     entries = _build_channel_entries(status)
-    if not any(entry.channel is not None for entry in entries):
+    if not entries:
         return
 
     layout = _build_channel_summary_layout(status, entries)
@@ -957,15 +984,11 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
 
     protocol_line = Text(indent + "  ")
     protocol = status.protocol_version or "unknown"
-    if status.protocol_era == "modern":
-        protocol += " (modern)"
-    elif status.protocol_era:
-        protocol += f" ({status.protocol_era}"
-        if status.negotiation:
-            protocol += f", {status.negotiation}"
-        if status.protocol_mode != "auto":
-            protocol += f", forced {status.protocol_mode}"
-        protocol += ")"
+    if status.protocol_era:
+        era = status.protocol_era
+        if status.protocol_mode == era:
+            era = f"forced {era}"
+        protocol += f" ({era})"
     protocol_line.append_text(_build_aligned_field("protocol", protocol))
     if status.protocol_era != "modern":
         protocol_line.append("  ", style="dim")

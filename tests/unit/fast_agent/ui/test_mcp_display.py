@@ -252,7 +252,7 @@ def test_render_channel_summary_shows_observed_channels_and_errors() -> None:
     assert "legend:" in output
 
 
-def test_render_channel_summary_hides_unobserved_and_aggregate_channels() -> None:
+def test_render_channel_summary_shows_distinct_post_response_modes() -> None:
     post_sse = ChannelSnapshot(
         state="open",
         request_count=6,
@@ -280,8 +280,29 @@ def test_render_channel_summary_hides_unobserved_and_aggregate_channels() -> Non
 
     assert "POST (SSE)" in output
     assert "GET (SSE)" not in output
-    assert "POST (JSON)" not in output
+    assert "POST (JSON)" in output
+    assert strip_ansi(output).count("     6     0     0") == 1
     assert "HEALTH" not in output
+
+
+def test_render_idle_http_summary_shows_both_post_response_modes() -> None:
+    status = ServerStatus(
+        server_name="demo",
+        transport="http",
+        protocol_era="modern",
+        transport_channels=TransportSnapshot(),
+    )
+
+    original_console = _set_console_size()
+    try:
+        with console.console.capture() as capture:
+            _render_channel_summary(status, indent="  ", total_width=100)
+        output = strip_ansi(capture.get())
+    finally:
+        _restore_console_size(original_console)
+
+    assert "POST (SSE)" in output
+    assert "POST (JSON)" in output
 
 
 def test_render_modern_listen_channel_shows_notifications_without_ping() -> None:
@@ -310,9 +331,35 @@ def test_render_modern_listen_channel_shows_notifications_without_ping() -> None
         _restore_console_size(original_console)
 
     assert "LISTEN (SSE)" in output
+    assert "◀ LISTEN (SSE)" in strip_ansi(output)
     assert "    1     0     3" in strip_ansi(output)
     assert "notification" in output
     assert "ping" not in output
+
+
+def test_render_disconnected_listen_channel_uses_dimmed_incoming_arrow() -> None:
+    status = ServerStatus(
+        server_name="demo",
+        transport="http",
+        protocol_era="modern",
+        transport_channels=TransportSnapshot(
+            listen=ChannelSnapshot(
+                state="off",
+                request_count=1,
+                disconnect_at=datetime.now(timezone.utc),
+            ),
+        ),
+    )
+
+    original_console = _set_console_size()
+    try:
+        with console.console.capture() as capture:
+            _render_channel_summary(status, indent="  ", total_width=100)
+        output = strip_ansi(capture.get())
+    finally:
+        _restore_console_size(original_console)
+
+    assert "◁ LISTEN (SSE)" in output
 
 
 def test_render_channel_summary_uses_legacy_post_channel() -> None:
@@ -414,15 +461,15 @@ async def test_render_mcp_status_renders_server_details_and_calls() -> None:
     assert "mcp calls:" in output
     assert "reconnects:" in output
     assert "STDIO" in output
-    assert "2026-07-28 (modern)" in output
+    assert "2026-07-28 (forced modern)" in output
     assert "session" not in output
     assert "health" not in output
     assert "adopt" not in output
-    assert "forced modern" not in output
+    assert "discover" not in output
 
 
 @pytest.mark.asyncio
-async def test_render_legacy_mcp_status_keeps_negotiation_session_and_health() -> None:
+async def test_render_forced_legacy_status_keeps_session_and_health() -> None:
     agent = _FakeAgent(
         {
             "legacy": ServerStatus(
@@ -447,7 +494,8 @@ async def test_render_legacy_mcp_status_keeps_negotiation_session_and_health() -
     finally:
         _restore_console_size(original_console)
 
-    assert "2025-11-25 (legacy, initialize, forced legacy)" in output
+    assert "2025-11-25 (forced legacy)" in output
+    assert "initialize" not in output
     assert "session" in output
     assert "legacy-session" in output
     assert "health" in output
