@@ -81,6 +81,7 @@ from fast_agent.mcp.tool_result_metadata import (
 )
 from fast_agent.mcp.transport_tracking import TransportSnapshot
 from fast_agent.skills.mcp_registry import (
+    INDEX_URI,
     McpSkillRegistry,
     scan_mcp_skill_registry,
     server_supports_mcp_skills,
@@ -1353,11 +1354,39 @@ class MCPAggregator(ContextDependent):
         config: SkybridgeServerConfig,
         tool_configs: list[SkybridgeToolConfig],
     ) -> None:
+        logger.info(
+            "Scanning MCP app resources",
+            data=build_progress_payload(
+                action=ProgressAction.READING_RESOURCE,
+                server_name=server_name,
+                agent_name=self.agent_name,
+                details="Apps",
+            ),
+        )
         try:
             resources = await self._list_resources_from_server(server_name, check_support=False)
         except Exception as exc:
             config.warnings.append(f"Failed to list resources: {exc}")
+            logger.error(
+                "MCP app resource scan failed",
+                data=build_progress_payload(
+                    action=ProgressAction.FATAL_ERROR,
+                    server_name=server_name,
+                    agent_name=self.agent_name,
+                    details="Apps",
+                    extra={"error_message": str(exc)},
+                ),
+            )
             return
+        logger.info(
+            "MCP app resource scan complete",
+            data=build_progress_payload(
+                action=ProgressAction.RESOURCE_READ,
+                server_name=server_name,
+                agent_name=self.agent_name,
+                details="Apps",
+            ),
+        )
 
         expected_mime_by_uri = {
             str(tool.template_uri): tool.kind.expected_mime_type
@@ -3518,13 +3547,14 @@ class MCPAggregator(ContextDependent):
         if not await self.server_supports_feature(server_name, "resources"):
             raise ValueError(f"Server '{server_name}' does not support resources")
 
+        progress_label = "Skills" if uri == INDEX_URI else uri
         logger.info(
             "Requesting resource",
             data=build_progress_payload(
                 action=ProgressAction.READING_RESOURCE,
                 server_name=server_name,
                 agent_name=self.agent_name,
-                details=uri,
+                details=progress_label,
                 extra={"resource_uri": uri},
             ),
         )
@@ -3554,8 +3584,11 @@ class MCPAggregator(ContextDependent):
                     action=ProgressAction.FATAL_ERROR,
                     server_name=server_name,
                     agent_name=self.agent_name,
-                    details=uri,
-                    extra={"resource_uri": uri, "error_message": str(exc)},
+                    details=progress_label,
+                    extra={
+                        "resource_uri": uri,
+                        "error_message": str(exc),
+                    },
                 ),
             )
             raise
@@ -3569,8 +3602,11 @@ class MCPAggregator(ContextDependent):
                     action=ProgressAction.FATAL_ERROR,
                     server_name=server_name,
                     agent_name=self.agent_name,
-                    details=uri,
-                    extra={"resource_uri": uri, "error_message": str(error)},
+                    details=progress_label,
+                    extra={
+                        "resource_uri": uri,
+                        "error_message": str(error),
+                    },
                 ),
             )
             raise error
@@ -3581,8 +3617,11 @@ class MCPAggregator(ContextDependent):
                 action=ProgressAction.RESOURCE_READ,
                 server_name=server_name,
                 agent_name=self.agent_name,
-                details=uri,
-                extra={"resource_uri": uri, "success": True},
+                details=progress_label,
+                extra={
+                    "resource_uri": uri,
+                    "success": True,
+                },
             ),
         )
 

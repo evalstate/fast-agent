@@ -343,6 +343,8 @@ def _truncate_detail(value: str, max_len: int = 48) -> str:
 
 
 def _build_health_text(status: ServerStatus) -> Text | None:
+    if status.protocol_era == "modern":
+        return None
     interval = status.ping_interval_seconds
     if interval is None:
         return None
@@ -953,24 +955,24 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
 
     _status_console().print(meta_line)
 
-    session_line = Text(indent + "  ")
+    protocol_line = Text(indent + "  ")
     protocol = status.protocol_version or "unknown"
-    if status.protocol_era:
+    if status.protocol_era == "modern":
+        protocol += " (modern)"
+    elif status.protocol_era:
         protocol += f" ({status.protocol_era}"
         if status.negotiation:
             protocol += f", {status.negotiation}"
         if status.protocol_mode != "auto":
             protocol += f", forced {status.protocol_mode}"
         protocol += ")"
-    session_line.append_text(_build_aligned_field("protocol", protocol))
-    session_line.append("  ", style="dim")
-    if status.protocol_era == "modern":
-        session_line.append_text(_build_aligned_field("session", "none (sessionless)"))
-    else:
-        session_line.append_text(
+    protocol_line.append_text(_build_aligned_field("protocol", protocol))
+    if status.protocol_era != "modern":
+        protocol_line.append("  ", style="dim")
+        protocol_line.append_text(
             _build_aligned_field("session", _format_session_id(status.session_id))
         )
-    _status_console().print(session_line)
+    _status_console().print(protocol_line)
 
     health_text = _build_health_text(status)
     if health_text is not None:

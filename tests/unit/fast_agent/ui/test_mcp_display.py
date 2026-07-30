@@ -15,6 +15,7 @@ from fast_agent.ui.mcp_display import (
     SYMBOL_RESPONSE,
     SYMBOL_STDIO_ACTIVITY,
     Colours,
+    _build_health_text,
     _capability_token_style,
     _channel_arrow_style,
     _elicitation_capability_state,
@@ -91,6 +92,17 @@ def test_health_state_uses_newer_ok_ping_when_failed_ping_is_older():
     state = _get_health_state(status)
 
     assert state.label == "ok"
+
+
+def test_modern_health_text_is_omitted_without_legacy_ping_loop() -> None:
+    status = ServerStatus(
+        server_name="modern",
+        protocol_era="modern",
+        ping_interval_seconds=30,
+        ping_max_missed=3,
+    )
+
+    assert _build_health_text(status) is None
 
 
 def test_format_compact_duration_omits_missing_and_non_finite_values() -> None:
@@ -402,8 +414,44 @@ async def test_render_mcp_status_renders_server_details_and_calls() -> None:
     assert "mcp calls:" in output
     assert "reconnects:" in output
     assert "STDIO" in output
+    assert "2026-07-28 (modern)" in output
+    assert "session" not in output
+    assert "health" not in output
+    assert "adopt" not in output
+    assert "forced modern" not in output
+
+
+@pytest.mark.asyncio
+async def test_render_legacy_mcp_status_keeps_negotiation_session_and_health() -> None:
+    agent = _FakeAgent(
+        {
+            "legacy": ServerStatus(
+                server_name="legacy",
+                protocol_mode="legacy",
+                protocol_version="2025-11-25",
+                protocol_era="legacy",
+                negotiation="initialize",
+                session_id="legacy-session",
+                is_connected=True,
+                ping_interval_seconds=0,
+            )
+        },
+        instruction="",
+    )
+
+    original_console = _set_console_size(width=110)
+    try:
+        with console.console.capture() as capture:
+            await render_mcp_status(agent, indent="  ")
+        output = capture.get()
+    finally:
+        _restore_console_size(original_console)
+
+    assert "2025-11-25 (legacy, initialize, forced legacy)" in output
     assert "session" in output
-    assert "modern, adopt, forced modern" in output
+    assert "legacy-session" in output
+    assert "health" in output
+    assert "disabled" in output
 
 
 @pytest.mark.asyncio

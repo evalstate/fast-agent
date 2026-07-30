@@ -3,12 +3,14 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from mcp_types import CompleteResult, Completion, ResourceTemplate
+from mcp_types import CompleteResult, Completion, ReadResourceResult, ResourceTemplate
 
 import fast_agent.mcp.mcp_aggregator as aggregator_module
 from fast_agent.context import Context
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
+from fast_agent.mcp.skybridge import SkybridgeServerConfig
+from fast_agent.skills.mcp_registry import INDEX_URI
 
 
 class _BaseAggregator(MCPAggregator):
@@ -178,3 +180,82 @@ async def test_failed_resource_read_emits_error_completion(monkeypatch, result) 
         ProgressAction.READING_RESOURCE,
         ProgressAction.FATAL_ERROR,
     ]
+
+
+@pytest.mark.asyncio
+async def test_skills_index_progress_uses_compact_label(monkeypatch) -> None:
+    class _ResourceAggregator(_BaseAggregator):
+        async def server_supports_feature(self, server_name: str, feature: str) -> bool:
+            del server_name
+            return feature == "resources"
+
+        async def _execute_on_server(
+            self,
+            server_name: str,
+            operation_type: str,
+            operation_name: str,
+            method_name: str,
+            method_args=None,
+            error_factory=None,
+            progress_callback=None,
+        ):
+            del (
+                server_name,
+                operation_type,
+                operation_name,
+                method_name,
+                method_args,
+                error_factory,
+                progress_callback,
+            )
+            return ReadResourceResult(contents=[])
+
+    events: list[dict[str, object]] = []
+
+    class _Logger:
+        def info(self, message: str, *, data: dict[str, object]) -> None:
+            del message
+            events.append(data)
+
+    aggregator = _ResourceAggregator(
+        server_names=["demo"],
+        connection_persistence=False,
+        context=Context(),
+    )
+    monkeypatch.setattr(aggregator_module, "logger", _Logger())
+
+    await aggregator._get_resource_from_server("demo", INDEX_URI)
+
+    assert [event["details"] for event in events] == ["Skills", "Skills"]
+
+
+@pytest.mark.asyncio
+async def test_app_resource_scan_progress_uses_compact_label(monkeypatch) -> None:
+    class _AppsAggregator(_BaseAggregator):
+        async def _list_resources_from_server(
+            self, server_name: str, *, check_support: bool = True
+        ):
+            del server_name, check_support
+            return []
+
+    events: list[dict[str, object]] = []
+
+    class _Logger:
+        def info(self, message: str, *, data: dict[str, object]) -> None:
+            del message
+            events.append(data)
+
+    aggregator = _AppsAggregator(
+        server_names=["demo"],
+        connection_persistence=False,
+        context=Context(),
+    )
+    monkeypatch.setattr(aggregator_module, "logger", _Logger())
+
+    await aggregator._collect_skybridge_resources(
+        "demo",
+        SkybridgeServerConfig(server_name="demo"),
+        [],
+    )
+
+    assert [event["details"] for event in events] == ["Apps", "Apps"]
