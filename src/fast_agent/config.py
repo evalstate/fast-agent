@@ -303,7 +303,7 @@ class ShellSettings(BaseModel):
         description="Show shell command output on the console",
     )
     output_byte_limit: int | None = Field(
-        default=8192,
+        default=16_000,
         description="Model-facing shell output preview bytes (None = model-based auto)",
     )
     output_byte_limit_selection: Literal["default", "explicit", "auto"] = Field(

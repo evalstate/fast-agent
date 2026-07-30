@@ -61,7 +61,7 @@ DEFAULT_MAX_ITERATIONS = 9999
 DEFAULT_STREAMING_TIMEOUT = 120.0
 """Default idle timeout in seconds between provider streaming events."""
 
-DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 8192
+DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 16_000
 """Baseline byte limit for ACP terminal output when no model info exists."""
 
 TERMINAL_OUTPUT_TOKEN_RATIO = 0.83

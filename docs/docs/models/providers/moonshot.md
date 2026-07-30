@@ -37,6 +37,19 @@ The existing `kimi`, `kimi27code`, `kimi26`, and other Kimi aliases continue
 to use their Hugging Face Inference Providers routes. Existing
 `moonshotai/Kimi-K2.*` repository identifiers also remain Hugging Face routes.
 
+### Hugging Face Inference Providers
+
+Kimi K3 is also available through Hugging Face Inference Providers:
+
+```text
+hf.moonshotai/Kimi-K3:fireworks-ai
+hf.moonshotai/Kimi-K3:together
+```
+
+Both routes accept K3's top-level `reasoning_effort` values (`low`, `high`, and
+`max`), return reasoning separately in `reasoning_content`, and support image
+input. Their HF deployments do not provide usable video input.
+
 ## Configuration
 
 The built-in endpoint and model are:

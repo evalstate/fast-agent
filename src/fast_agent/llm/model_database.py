@@ -847,6 +847,13 @@ class ModelDatabase:
         model_specific="You have image and video understanding capabilities.",
         shell_output_byte_limit=16_000,
     )
+    KIMI_K3_HF = KIMI_K3.model_copy(
+        update={
+            "tokenizes": OPENAI_VISION,
+            "default_provider": Provider.HUGGINGFACE,
+            "model_specific": "You have image understanding capabilities.",
+        }
+    )
 
     GROK_43 = ModelParameters(
         context_window=1_000_000,
@@ -1203,6 +1210,7 @@ class ModelDatabase:
         "moonshotai/kimi-k2.5": KIMI_MOONSHOT_25,
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
         "moonshotai/kimi-k2.7-code": KIMI_MOONSHOT_27_CODE,
+        "moonshotai/kimi-k3": KIMI_K3_HF,
         "kimi-k3": KIMI_K3,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
