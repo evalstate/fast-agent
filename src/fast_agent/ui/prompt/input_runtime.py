@@ -12,11 +12,11 @@ from typing import TYPE_CHECKING, Any, TextIO
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import to_formatted_text
 from prompt_toolkit.styles import Style
-from rich import print as rich_print
 from rich.markup import escape as escape_markup
 
 from fast_agent.ui.agent_identity import is_default_agent_name
 from fast_agent.ui.command_payloads import CommandPayload, EOFCommand, InterruptCommand
+from fast_agent.ui.console import rich_print
 from fast_agent.ui.prompt.keybindings import PromptInputInterrupt
 from fast_agent.ui.prompt_marks import emit_prompt_mark, prompt_mark_sequence
 from fast_agent.ui.terminal_streams import is_tty_stream

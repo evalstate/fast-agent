@@ -10,7 +10,6 @@ from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import Lexer
-from rich import print as rich_print
 from rich.text import Text
 
 from fast_agent.command_actions.accessors import (
@@ -19,6 +18,7 @@ from fast_agent.command_actions.accessors import (
     plugin_commands_for_provider,
 )
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.ui.console import rich_print
 from fast_agent.ui.prompt.attachment_tokens import (
     append_attachment_tokens,
     build_local_attachment_token,

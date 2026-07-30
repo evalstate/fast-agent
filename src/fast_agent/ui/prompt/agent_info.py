@@ -5,13 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
-from rich import print as rich_print
 from rich.text import Text
 
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
 from fast_agent.interfaces import AgentBackedToolProvider, AgentProtocol
 from fast_agent.mcp.types import McpAgentProtocol
+from fast_agent.ui.console import rich_print
 from fast_agent.utils.count_display import plural_label
 
 if TYPE_CHECKING:

@@ -24,8 +24,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from mcp_types import PromptMessage
-from rich import print as rich_print
 from rich.text import Text
+
+from fast_agent.ui.console import rich_print
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp

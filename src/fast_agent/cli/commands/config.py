@@ -478,7 +478,7 @@ def _form_message(action: str, config_path: Path) -> str:
 @app.command("shell")
 def config_shell(config: ConfigOption = None) -> None:
     """Configure shell execution settings interactively."""
-    from rich import print as rprint
+    from fast_agent.ui.console import rich_print as rprint
 
     config_data, config_path = _load_config(config)
     effective_config = _load_effective_config(config)
@@ -528,7 +528,7 @@ def config_shell(config: ConfigOption = None) -> None:
 @app.command("display")
 def config_display(config: ConfigOption = None) -> None:
     """Configure display and markdown rendering settings interactively."""
-    from rich import print as rprint
+    from fast_agent.ui.console import rich_print as rprint
 
     config_data, config_path = _load_config(config)
     effective_config = _load_effective_config(config)
@@ -616,8 +616,9 @@ def config_main(ctx: typer.Context) -> None:
     """
     if ctx.invoked_subcommand is None:
         # Show help if no subcommand
-        from rich import print as rprint
         from rich.table import Table
+
+        from fast_agent.ui.console import rich_print as rprint
 
         rprint("\n[bold]fast-agent config[/bold] - Interactive configuration\n")
 

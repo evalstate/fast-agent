@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, TypeGuard, cast
 
-from rich import print as rich_print
 from rich.text import Text
 
 from fast_agent.a2a.config import A2AAgentConfig
@@ -105,6 +104,7 @@ from fast_agent.ui.command_payloads import (
     UnknownCommand,
     UnpinSessionCommand,
 )
+from fast_agent.ui.console import rich_print
 from fast_agent.ui.history_display import display_history_show
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.prompt.attachment_tokens import (

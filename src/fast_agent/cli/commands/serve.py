@@ -8,7 +8,6 @@ from pathlib import Path  # noqa: TC003 - typer resolves Path annotations at run
 from typing import TYPE_CHECKING
 
 import typer
-from rich.console import Console
 
 from fast_agent.cli.home_helpers import resolve_home_option
 from fast_agent.cli.runtime.request_builders import build_command_run_request
@@ -16,6 +15,7 @@ from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions, McpProtocolOption
 from fast_agent.cli.workspace_helpers import resolve_workspace_option
 from fast_agent.constants import DEFAULT_HOME_DIR
+from fast_agent.ui.console import SurrogateSafeConsole
 
 if TYPE_CHECKING:
     from fast_agent.cli.runtime.run_request import AgentRunRequest
@@ -41,7 +41,7 @@ class MissingShellCwdPolicy(str, Enum):
     ERROR = "error"
 
 
-_WARNING_CONSOLE = Console(stderr=True)
+_WARNING_CONSOLE = SurrogateSafeConsole(stderr=True)
 DEFAULT_HTTP_HOST = "127.0.0.1"
 
 

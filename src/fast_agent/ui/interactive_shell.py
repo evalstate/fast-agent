@@ -10,11 +10,10 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
-from rich import print as rich_print
-
 from fast_agent.config import get_settings
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.tools.execution_environment import ShellExecutionResult
+from fast_agent.ui.console import rich_print
 
 
 @dataclass(slots=True)

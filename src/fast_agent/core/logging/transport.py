@@ -15,7 +15,6 @@ from typing import Any, Protocol
 
 import aiohttp
 from opentelemetry import trace
-from rich import print
 from rich.json import JSON
 from rich.text import Text
 
@@ -23,7 +22,7 @@ from fast_agent.config import LoggerSettings
 from fast_agent.core.logging.events import Event, EventFilter
 from fast_agent.core.logging.json_serializer import JSONSerializer
 from fast_agent.core.logging.listeners import EventListener, LifecycleAwareListener
-from fast_agent.ui.console import console
+from fast_agent.ui.console import console, rich_print
 from fast_agent.utils.async_utils import ensure_event_loop, gather_with_cancel
 
 
@@ -181,7 +180,7 @@ class FileTransport(FilteredEventTransport):
                 f.flush()  # Ensure writing to disk
         except IOError as e:
             # Log error without recursion
-            print(f"Error writing to log file {self.filepath}: {e}")
+            rich_print(f"Error writing to log file {self.filepath}: {e}")
 
     async def close(self) -> None:
         """Clean up resources if needed."""
@@ -269,12 +268,12 @@ class HTTPTransport(FilteredEventTransport):
             async with self._session.post(self.endpoint, json=events_data) as response:
                 if response.status >= 400:
                     text = await response.text()
-                    print(
+                    rich_print(
                         f"Error sending log events to {self.endpoint}. "
                         f"Status: {response.status}, Response: {text}"
                     )
         except Exception as e:
-            print(f"Error sending log events to {self.endpoint}: {e}")
+            rich_print(f"Error sending log events to {self.endpoint}: {e}")
         finally:
             self.batch.clear()
 
@@ -394,7 +393,7 @@ class AsyncEventBus:
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass  # Task was cancelled or timed out.
             except Exception as e:
-                print(f"Error cancelling process task: {e}")
+                rich_print(f"Error cancelling process task: {e}")
         self._task = None
 
     async def _drain_queue_before_stop(self, same_loop_task: bool) -> None:
@@ -410,7 +409,7 @@ class AsyncEventBus:
             except asyncio.TimeoutError:
                 self._discard_queued_events(queue)
             except Exception as e:
-                print(f"Error during queue cleanup: {e}")
+                rich_print(f"Error during queue cleanup: {e}")
 
         self._queue = None
 
@@ -433,9 +432,9 @@ class AsyncEventBus:
         try:
             await asyncio.wait_for(listener.stop(), timeout=3.0)
         except asyncio.TimeoutError:
-            print(f"Timeout stopping listener: {listener}")
+            rich_print(f"Timeout stopping listener: {listener}")
         except Exception as e:
-            print(f"Error stopping listener: {e}")
+            rich_print(f"Error stopping listener: {e}")
 
     async def emit(self, event: Event) -> None:
         """Emit an event to all listeners and transport."""
@@ -453,7 +452,7 @@ class AsyncEventBus:
         try:
             await self.transport.send_event(event)
         except Exception as e:
-            print(f"Error in transport.send_event: {e}")
+            rich_print(f"Error in transport.send_event: {e}")
 
         # Then queue for listeners
         if self._queue is not None:
@@ -492,7 +491,7 @@ class AsyncEventBus:
                 self._mark_event_done(event)
                 raise
             except Exception as e:
-                print(f"Error in event processing loop: {e}")
+                rich_print(f"Error in event processing loop: {e}")
                 # Mark task done for this event
                 self._mark_event_done(event)
 
@@ -525,13 +524,13 @@ class AsyncEventBus:
             try:
                 tasks.append(listener.handle_event(event))
             except Exception as e:
-                print(f"Error creating listener task: {e}")
+                rich_print(f"Error creating listener task: {e}")
         return tasks
 
     @staticmethod
     def _print_listener_error(error: Exception) -> None:
-        print(f"Error in listener: {error}")
-        print(
+        rich_print(f"Error in listener: {error}")
+        rich_print(
             "Stacktrace: "
             f"{''.join(traceback.format_exception(type(error), error, error.__traceback__))}"
         )
