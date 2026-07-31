@@ -35,6 +35,7 @@ class ShellOutputBuffer:
     retained_output_max_bytes: int = 0
     retained_output_bytes: int = 0
     retained_output_complete: bool = True
+    extended_guidance: bool = False
 
     def append(self, text: str) -> None:
         output_blob = text.encode("utf-8", errors="replace")
@@ -140,11 +141,16 @@ class ShellOutputBuffer:
                 "temporary-file quota was reached"
             )
         )
+        guidance = (
+            "before drawing conclusions from truncated output, inspect the relevant "
+            "retained content. Avoid reading the entire file unless necessary."
+            if self.extended_guidance
+            else "avoid reading the entire file unless necessary."
+        )
         return (
             f"{completeness} is available during this session at "
             f"{self.retained_output_path}. Use read_text_file for selected line ranges "
-            "or run a targeted search against that file; avoid reading the entire file "
-            "unless necessary."
+            f"or run a targeted search against that file; {guidance}"
         )
 
     def _start_retained(self, triggering_blob: bytes) -> None:

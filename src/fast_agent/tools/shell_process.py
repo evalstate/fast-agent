@@ -203,6 +203,7 @@ class ManagedShellProcess:
     task: asyncio.Task[ShellExecution]
     request: ShellExecutionRequest
     lifecycle: Literal["session", "persistent"]
+    intentional_persistent_background: bool
     callbacks: ShellRuntimeCallbacks
     output_state: ShellOutputBuffer
     display_state: ShellDisplayState
@@ -273,34 +274,45 @@ def build_managed_process_result(
     if output_spool_path is not None:
         sections.append(f"output_spool_path: {output_spool_path}")
     if not process.task.done():
-        if yielded_reason == "background":
-            reason = "started in the background"
+        persistent_background = process.intentional_persistent_background
+        if persistent_background:
+            status_message = "Managed background process is still running."
         elif yielded_reason == "idle":
-            reason = "reached the no-output yield threshold"
+            status_message = (
+                "Command is still running; no completion result is available yet "
+                "because it reached the no-output yield threshold."
+            )
         elif yielded_reason == "foreground":
-            reason = "reached the foreground yield threshold"
+            status_message = (
+                "Command is still running; no completion result is available yet "
+                "because it reached the foreground yield threshold."
+            )
         else:
-            reason = "is still running"
-        status_message = (
-            "Process is still running."
-            if yielded_reason is None
-            else f"Process is still running because it {reason}."
-        )
+            status_message = "Command is still running; no completion result is available yet."
+        if minimal_process_profile and persistent_background:
+            next_action = (
+                "This command was intentionally started with "
+                "run_in_background=true. Do not wait for it to exit; use `process` "
+                "with action='status' to inspect it or action='stop' to terminate it, "
+                "and run readiness checks in a separate `bash` call."
+            )
+        elif minimal_process_profile:
+            next_action = (
+                "Next: call `process` with action='wait' or 'status'. Do not rely "
+                "on partial output or end the task until the command completes."
+            )
+        else:
+            next_action = (
+                f"Use {POLL_PROCESS_TOOL_NAME} to monitor it or "
+                f"{TERMINATE_PROCESS_TOOL_NAME} to stop it."
+            )
         sections.extend(
             [
                 status_message,
                 f"process_id: {process.process_id}",
                 f"elapsed_seconds: {elapsed:.1f}",
                 f"total_output_bytes: {process.output_state.lifetime_output_bytes}",
-                (
-                    "Use Process with action='status' or 'wait' to monitor it, "
-                    "or action='stop' to stop it."
-                    if minimal_process_profile
-                    else (
-                        f"Use {POLL_PROCESS_TOOL_NAME} to monitor it or "
-                        f"{TERMINATE_PROCESS_TOOL_NAME} to stop it."
-                    )
-                ),
+                next_action,
             ]
         )
         if (
