@@ -103,6 +103,51 @@ def test_load_deprecated_smart_type_preserves_explicit_overrides(tmp_path: Path)
     assert config.harness_tools is False
 
 
+def test_local_cards_resolve_nested_environment_and_preserve_file_directives(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    card_path = tmp_path / "local.md"
+    card_path.write_text(
+        "\n".join(
+            [
+                "---",
+                'name: "${LOCAL_AGENT_NAME}"',
+                "mcp_connect:",
+                '  - target: "@example/server"',
+                "    headers:",
+                '      Authorization: "Bearer ${LOCAL_CARD_TOKEN}"',
+                "---",
+                "{{file:instructions.md}}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LOCAL_AGENT_NAME", "local_agent")
+    monkeypatch.setenv("LOCAL_CARD_TOKEN", "token")
+
+    config = load_agent_cards(card_path)[0].agent_data["config"]
+
+    assert config.name == "local_agent"
+    assert config.mcp_connect[0].headers == {"Authorization": "Bearer token"}
+    assert config.instruction == "{{file:instructions.md}}"
+
+
+def test_local_cards_preserve_messages_paths(tmp_path: Path) -> None:
+    history_path = tmp_path / "history.json"
+    history_path.write_text("[]", encoding="utf-8")
+    card_path = tmp_path / "local.yaml"
+    card_path.write_text(
+        "name: local_agent\nmessages: history.json\n",
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)[0]
+
+    assert loaded.message_files == [history_path.resolve()]
+
+
 def test_load_agent_card_parses_mcp_connect_entries(tmp_path: Path) -> None:
     card_path = tmp_path / "mcp_agent.yaml"
     card_path.write_text(

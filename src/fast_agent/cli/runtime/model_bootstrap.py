@@ -61,10 +61,10 @@ def explicit_agent_cards_define_startup_model(
     loaded_cards = []
     temp_paths: list[Path] = []
     try:
-        for path, is_temporary in materialized_agent_card_paths(request.agent_cards):
-            if is_temporary:
+        for path, remote_source in materialized_agent_card_paths(request.agent_cards):
+            if remote_source is not None:
                 temp_paths.append(path)
-            loaded_cards.extend(load_agent_cards(path))
+            loaded_cards.extend(load_agent_cards(path, remote_source=remote_source))
     except Exception:
         return False
     finally:
@@ -82,10 +82,10 @@ def explicit_agent_cards_define_startup_model(
     )
 
 
-def materialized_agent_card_paths(sources: list[str]) -> list[tuple[Path, bool]]:
+def materialized_agent_card_paths(sources: list[str]) -> list[tuple[Path, str | None]]:
     from fast_agent.io.source_resolver import REMOTE_TEXT_SCHEMES, materialize_text_source
 
-    paths: list[tuple[Path, bool]] = []
+    paths: list[tuple[Path, str | None]] = []
     for source in sources:
         parsed = urlparse(source)
         if parsed.scheme in REMOTE_TEXT_SCHEMES:
@@ -93,11 +93,11 @@ def materialized_agent_card_paths(sources: list[str]) -> list[tuple[Path, bool]]
             paths.append(
                 (
                     materialize_text_source(source, label="AgentCard URL", suffix=suffix),
-                    True,
+                    source,
                 )
             )
         else:
-            paths.append((materialize_text_source(source, label="AgentCard source"), False))
+            paths.append((materialize_text_source(source, label="AgentCard source"), None))
     return paths
 
 

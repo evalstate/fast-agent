@@ -6,11 +6,21 @@ import pytest
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import MCPError
-from mcp_types import INVALID_REQUEST, PromptReference
+from mcp_types import (
+    INVALID_REQUEST,
+    BlobResourceContents,
+    EmbeddedResource,
+    PromptReference,
+    TextContent,
+    TextResourceContents,
+)
 
+from fast_agent.config import MCPServerSettings
 from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 from fast_agent.mcp.client_connection import MCPClientConnection
+from fast_agent.mcp.tool_result_metadata import url_elicitation_required_payload
+from fast_agent.mcp.uri_security import is_file_uri
 
 
 class StatefulStreamableHTTPSimulator:
@@ -66,7 +76,127 @@ class StatefulStreamableHTTPSimulator:
         return httpx2.Response(404)
 
 
+class AttachmentResponseSimulator:
+    def __init__(self, uri: str, *, on_result: Callable[[], None] | None = None) -> None:
+        self.uri = uri
+        self.on_result = on_result
+        self.session_id: str | None = None
+
+    async def __call__(self, request: httpx2.Request) -> httpx2.Response:
+        if request.method == "GET":
+            return httpx2.Response(405)
+        if request.method == "DELETE":
+            return httpx2.Response(200)
+
+        payload = json.loads(request.content)
+        assert isinstance(payload, dict)
+        method = payload.get("method")
+        if method == "initialize":
+            self.session_id = "session-1"
+            return httpx2.Response(
+                200,
+                headers={
+                    "content-type": "application/json",
+                    "mcp-session-id": self.session_id,
+                },
+                json={
+                    "jsonrpc": "2.0",
+                    "id": payload["id"],
+                    "result": {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "serverInfo": {"name": "simulator", "version": "1"},
+                    },
+                },
+            )
+        if method == "notifications/initialized":
+            return httpx2.Response(202)
+
+        assert self.session_id is not None, method
+        assert request.headers["mcp-session-id"] == self.session_id
+        if self.on_result is not None:
+            self.on_result()
+        return httpx2.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json={
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "result": self._result_for(method),
+            },
+        )
+
+    def _result_for(self, method: object) -> dict[str, object]:
+        if method == "tools/list":
+            return {"tools": []}
+        resource_link = {
+            "type": "resource_link",
+            "name": "attachment",
+            "uri": self.uri,
+            "mimeType": "text/plain",
+        }
+        if method == "tools/call":
+            return {
+                "content": [
+                    resource_link,
+                    {
+                        "type": "resource",
+                        "resource": {
+                            "uri": self.uri,
+                            "mimeType": "text/plain",
+                            "text": "inline tool text",
+                        },
+                    },
+                ]
+            }
+        if method == "prompts/get":
+            return {
+                "messages": [
+                    {"role": "user", "content": resource_link},
+                    {
+                        "role": "user",
+                        "content": {
+                            "type": "resource",
+                            "resource": {
+                                "uri": self.uri,
+                                "mimeType": "text/plain",
+                                "text": "inline prompt text",
+                            },
+                        },
+                    },
+                ]
+            }
+        assert method == "resources/read"
+        return {
+            "contents": [
+                {
+                    "uri": self.uri,
+                    "mimeType": "text/plain",
+                    "text": "inline resource text",
+                },
+                {
+                    "uri": self.uri,
+                    "mimeType": "application/octet-stream",
+                    "blob": "Ynl0ZXM=",
+                },
+            ]
+        }
+
+
 RequestOperation = Callable[[MCPClientConnection], Awaitable[object]]
+FILE_URI_FORMS = (
+    "file:///x",
+    "file:/x",
+    "file:x",
+    "FILE:///x",
+    "file://localhost/x",
+    "file://[",
+)
+
+
+def test_is_file_uri_fails_closed_for_malformed_file_uri() -> None:
+    assert is_file_uri("file://[")
+    assert not is_file_uri("http://[")
 
 
 def _operations() -> list[object]:
@@ -175,3 +305,115 @@ async def test_sdk_reports_stateful_404_as_session_terminated_invalid_request() 
     await http_client.aclose()
     assert exc_info.value.code == INVALID_REQUEST
     assert exc_info.value.message == "Session terminated"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("uri", FILE_URI_FORMS)
+@pytest.mark.parametrize(
+    "server_config",
+    [
+        None,
+        MCPServerSettings(
+            name="remote-http",
+            transport="http",
+            url="https://example.test/mcp",
+        ),
+        MCPServerSettings(
+            name="remote-sse",
+            transport="sse",
+            url="https://example.test/sse",
+        ),
+        MCPServerSettings(name="local", transport="stdio", command="server"),
+    ],
+)
+async def test_mcp_attachment_ingress_blocks_file_uris_for_every_transport(
+    uri: str,
+    server_config: MCPServerSettings | None,
+) -> None:
+    simulator = AttachmentResponseSimulator(uri)
+    http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(simulator))
+    transport = streamable_http_client("https://example.test/mcp", http_client=http_client)
+    callbacks = MCPClientCallbackRuntime(server_name="test-server", server_config=server_config)
+
+    async with MCPClientConnection(
+        transport,
+        callbacks,
+        protocol_mode="legacy",
+        cache=False,
+    ) as connection:
+        tool_result = await connection.call_tool("attachment")
+        prompt_result = await connection.get_prompt("attachment")
+        read_result = await connection.read_resource(uri)
+
+    await http_client.aclose()
+
+    tool_link, tool_embedded = tool_result.content
+    prompt_link = prompt_result.messages[0].content
+    prompt_embedded = prompt_result.messages[1].content
+    read_text, read_blob = read_result.contents
+
+    assert isinstance(tool_link, TextContent)
+    assert tool_link.text == "[Local file attachment from a remote MCP server was blocked.]"
+    assert isinstance(prompt_link, TextContent)
+    assert prompt_link.text == "[Local file attachment from a remote MCP server was blocked.]"
+
+    assert isinstance(tool_embedded, EmbeddedResource)
+    assert isinstance(tool_embedded.resource, TextResourceContents)
+    assert tool_embedded.resource.text == "inline tool text"
+    assert str(tool_embedded.resource.uri) == "urn:fast-agent:remote-mcp-inline"
+
+    assert isinstance(prompt_embedded, EmbeddedResource)
+    assert isinstance(prompt_embedded.resource, TextResourceContents)
+    assert prompt_embedded.resource.text == "inline prompt text"
+    assert str(prompt_embedded.resource.uri) == "urn:fast-agent:remote-mcp-inline"
+
+    assert isinstance(read_text, TextResourceContents)
+    assert read_text.text == "inline resource text"
+    assert str(read_text.uri) == "urn:fast-agent:remote-mcp-inline"
+    assert isinstance(read_blob, BlobResourceContents)
+    assert read_blob.blob == "Ynl0ZXM="
+    assert str(read_blob.uri) == "urn:fast-agent:remote-mcp-inline"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ("prompts/get", "resources/read"))
+async def test_sanitized_interactive_result_keeps_pending_url_elicitation(
+    method: str,
+) -> None:
+    callbacks = MCPClientCallbackRuntime(server_name="test-server", server_config=None)
+
+    def queue_url_elicitation() -> None:
+        callbacks.queue_url_elicitation(
+            message="Authenticate to continue",
+            url="https://example.test/auth",
+            elicitation_id="auth-1",
+        )
+
+    simulator = AttachmentResponseSimulator(
+        "file:///secret",
+        on_result=queue_url_elicitation,
+    )
+    http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(simulator))
+    transport = streamable_http_client("https://example.test/mcp", http_client=http_client)
+
+    async with MCPClientConnection(
+        transport,
+        callbacks,
+        protocol_mode="legacy",
+        cache=False,
+    ) as connection:
+        if method == "prompts/get":
+            result = await connection.get_prompt("attachment")
+            assert isinstance(result.messages[0].content, TextContent)
+        else:
+            result = await connection.read_resource("file:///secret")
+            assert str(result.contents[0].uri) == "urn:fast-agent:remote-mcp-inline"
+
+    await http_client.aclose()
+
+    payload = url_elicitation_required_payload(result)
+    assert payload is not None
+    assert payload.request_method == method
+    assert [(item.message, item.url, item.elicitation_id) for item in payload.elicitations] == [
+        ("Authenticate to continue", "https://example.test/auth", "auth-1")
+    ]

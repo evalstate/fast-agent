@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import warnings
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -60,6 +61,9 @@ from fast_agent.utils.type_narrowing import is_str_object_dict
 CardTypeSerializer = Callable[[dict[str, Any], AgentCardData, AgentConfig], None]
 
 _HISTORY_DELIMITERS = {"---USER", "---ASSISTANT", "---RESOURCE"}
+_REMOTE_FILE_DIRECTIVE_PATTERN = re.compile(r"(?<!\\)\{\{file(?:_silent)?:[^}]*\}\}")
+_REMOTE_URL_DIRECTIVE_PATTERN = re.compile(r"(?<!\\)\{\{url:(?:https?|hf)://[^}]+\}\}")
+_MAX_REMOTE_URL_INCLUDE_DEPTH = 10
 
 
 @dataclass(frozen=True)
@@ -76,40 +80,54 @@ class _MarkdownCard:
     body: str
 
 
-def load_agent_cards(path: Path) -> list[LoadedAgentCard]:
+def load_agent_cards(path: Path, *, remote_source: str | None = None) -> list[LoadedAgentCard]:
+    """Load local AgentCards, or a materialized remote card with its source URI."""
     path = path.expanduser().resolve()
     if not path.exists():
         raise AgentConfigError(f"AgentCard path not found: {path}")
 
-    if path.is_dir():
-        cards: list[LoadedAgentCard] = []
-        for entry in sorted(path.iterdir()):
-            if entry.is_dir():
-                continue
-            if not is_agent_card_path(entry):
-                continue
-            if is_markdown_agent_card_path(entry) and not _markdown_has_frontmatter(entry):
-                continue
-            cards.extend(_load_agent_card_file(entry))
+    try:
+        if path.is_dir():
+            cards: list[LoadedAgentCard] = []
+            for entry in sorted(path.iterdir()):
+                if entry.is_dir():
+                    continue
+                if not is_agent_card_path(entry):
+                    continue
+                if is_markdown_agent_card_path(entry) and not _markdown_has_frontmatter(entry):
+                    continue
+                cards.extend(_load_agent_card_file(entry, remote_source=remote_source))
+            _ensure_unique_names(cards, path)
+            return cards
+
+        if not is_agent_card_path(path):
+            raise AgentConfigError(f"Unsupported AgentCard file extension: {path}")
+        if path.name == "SKILL.md":
+            raise AgentConfigError(
+                "SKILL.md is an Agent Skill manifest, not an AgentCard",
+                "Use read_text_file/read_skill to inspect skill instructions, or use /skills to manage skills.",
+            )
+        if is_markdown_agent_card_path(path) and not _markdown_has_frontmatter(path):
+            raise AgentConfigError(
+                "AgentCard markdown files must include frontmatter",
+                f"Missing frontmatter in {path}",
+            )
+
+        cards = _load_agent_card_file(path, remote_source=remote_source)
         _ensure_unique_names(cards, path)
         return cards
+    except AgentConfigError as exc:
+        if remote_source is None:
+            raise
+        raise _with_original_source(exc, path, remote_source) from None
 
-    if not is_agent_card_path(path):
-        raise AgentConfigError(f"Unsupported AgentCard file extension: {path}")
-    if path.name == "SKILL.md":
-        raise AgentConfigError(
-            "SKILL.md is an Agent Skill manifest, not an AgentCard",
-            "Use read_text_file/read_skill to inspect skill instructions, or use /skills to manage skills.",
-        )
-    if is_markdown_agent_card_path(path) and not _markdown_has_frontmatter(path):
-        raise AgentConfigError(
-            "AgentCard markdown files must include frontmatter",
-            f"Missing frontmatter in {path}",
-        )
 
-    cards = _load_agent_card_file(path)
-    _ensure_unique_names(cards, path)
-    return cards
+def _with_original_source(error: AgentConfigError, path: Path, source: str) -> AgentConfigError:
+    message = error.message.replace(str(path), source)
+    details = error.details.replace(str(path), source)
+    if source not in message and source not in details:
+        details = f"{details}\nSource: {source}".strip()
+    return AgentConfigError(message, details)
 
 
 def _ensure_unique_names(cards: Iterable[LoadedAgentCard], path: Path) -> None:
@@ -123,7 +141,11 @@ def _ensure_unique_names(cards: Iterable[LoadedAgentCard], path: Path) -> None:
         seen[card.name] = card.path
 
 
-def _load_agent_card_file(path: Path) -> list[LoadedAgentCard]:
+def _load_agent_card_file(
+    path: Path,
+    *,
+    remote_source: str | None = None,
+) -> list[LoadedAgentCard]:
     if path.name == "SKILL.md":
         raise AgentConfigError(
             "SKILL.md is an Agent Skill manifest, not an AgentCard",
@@ -131,15 +153,22 @@ def _load_agent_card_file(path: Path) -> list[LoadedAgentCard]:
         )
 
     if is_yaml_agent_card_path(path):
-        raw = _load_yaml_card(path)
-        return [_build_card_from_data(path, raw, body=None)]
+        raw = _load_yaml_card(path, resolve_environment=remote_source is None)
+        return [_build_card_from_data(path, raw, body=None, remote_source=remote_source)]
     if is_markdown_agent_card_path(path):
-        card = _load_markdown_card(path)
-        return [_build_card_from_data(path, card.metadata, body=card.body)]
+        card = _load_markdown_card(path, resolve_environment=remote_source is None)
+        return [
+            _build_card_from_data(
+                path,
+                card.metadata,
+                body=card.body,
+                remote_source=remote_source,
+            )
+        ]
     raise AgentConfigError(f"Unsupported AgentCard file: {path}")
 
 
-def _load_yaml_card(path: Path) -> dict[str, Any]:
+def _load_yaml_card(path: Path, *, resolve_environment: bool = True) -> dict[str, Any]:
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
@@ -147,13 +176,13 @@ def _load_yaml_card(path: Path) -> dict[str, Any]:
 
     if not isinstance(data, dict):
         raise AgentConfigError(f"AgentCard YAML must be a mapping in {path}")
-    resolved = resolve_env_vars(data)
+    resolved = resolve_env_vars(data) if resolve_environment else data
     if not isinstance(resolved, dict):
         raise AgentConfigError(f"AgentCard YAML must be a mapping in {path}")
     return resolved
 
 
-def _load_markdown_card(path: Path) -> _MarkdownCard:
+def _load_markdown_card(path: Path, *, resolve_environment: bool = True) -> _MarkdownCard:
     try:
         raw_text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
@@ -171,7 +200,7 @@ def _load_markdown_card(path: Path) -> _MarkdownCard:
         raise AgentConfigError(f"Frontmatter must be a mapping in {path}")
 
     body = post.content or ""
-    resolved = resolve_env_vars(dict(metadata))
+    resolved = resolve_env_vars(dict(metadata)) if resolve_environment else dict(metadata)
     if not isinstance(resolved, dict):
         raise AgentConfigError(f"Frontmatter must be a mapping in {path}")
     return _MarkdownCard(metadata=resolved, body=body)
@@ -197,8 +226,10 @@ def _build_card_from_data(
     raw: dict[str, Any],
     *,
     body: str | None,
+    remote_source: str | None = None,
 ) -> LoadedAgentCard:
     raw = dict(raw)
+    _reject_remote_messages(raw, remote_source)
     if apply_legacy_smart_defaults(raw):
         warnings.warn(
             f"{path}: {LEGACY_SMART_TYPE_WARNING}",
@@ -232,6 +263,7 @@ def _build_card_from_data(
         body,
         path,
         default_instruction=DEFAULT_AGENT_INSTRUCTION,
+        remote_source=remote_source,
     )
     description = _ensure_optional_str(raw.get("description"), "description", path)
 
@@ -283,6 +315,7 @@ def _resolve_instruction_field(
     path: Path,
     *,
     default_instruction: str = DEFAULT_AGENT_INSTRUCTION,
+    remote_source: str | None = None,
 ) -> str:
     body_instruction = ""
     if body is not None:
@@ -297,18 +330,52 @@ def _resolve_instruction_field(
     if raw_instruction is not None:
         if not isinstance(raw_instruction, str):
             raise AgentConfigError(f"'instruction' must be a string in {path}")
-        resolved = _resolve_instruction(strip_to_none(raw_instruction) or "")
+        resolved = _resolve_card_instruction(strip_to_none(raw_instruction) or "", remote_source)
         if strip_to_none(resolved) is None:
             raise AgentConfigError(f"'instruction' must not be empty in {path}")
+        _reject_remote_file_directives(resolved, remote_source)
         return resolved
 
     if body_instruction:
-        resolved = _resolve_instruction(body_instruction)
+        resolved = _resolve_card_instruction(body_instruction, remote_source)
         if strip_to_none(resolved) is None:
             raise AgentConfigError(f"Instruction body must not be empty in {path}")
+        _reject_remote_file_directives(resolved, remote_source)
         return resolved
 
     return default_instruction
+
+
+def _resolve_card_instruction(instruction: str, remote_source: str | None) -> str:
+    if remote_source is None:
+        return _resolve_instruction(instruction)
+
+    result = instruction
+    for _ in range(_MAX_REMOTE_URL_INCLUDE_DEPTH):
+        result = _resolve_instruction(result)
+        if not _REMOTE_URL_DIRECTIVE_PATTERN.search(result):
+            return result
+
+    raise AgentConfigError(
+        "Remote AgentCard URL include depth exceeded",
+        f"Source: {remote_source}",
+    )
+
+
+def _reject_remote_file_directives(instruction: str, remote_source: str | None) -> None:
+    if remote_source is not None and _REMOTE_FILE_DIRECTIVE_PATTERN.search(instruction):
+        raise AgentConfigError(
+            "Remote AgentCards cannot use file instruction directives",
+            f"Source: {remote_source}",
+        )
+
+
+def _reject_remote_messages(raw: dict[str, Any], remote_source: str | None) -> None:
+    if remote_source is not None and "messages" in raw:
+        raise AgentConfigError(
+            "Remote AgentCards cannot use the 'messages' field",
+            f"Source: {remote_source}",
+        )
 
 
 def _extract_body_instruction(body: str, path: Path) -> str:

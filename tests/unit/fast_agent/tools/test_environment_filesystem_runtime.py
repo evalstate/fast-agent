@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import logging
+import posixpath
 import struct
+import tempfile
 import zlib
 from io import BytesIO
 from pathlib import Path
@@ -441,6 +443,123 @@ async def test_environment_filesystem_runtime_move_removes_source_file() -> None
     assert result.is_error is False
     assert env.files["/workspace/b.py"] == "print('hello')\n"
     assert "/workspace/a.py" not in env.files
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("destination", ["/workspace/same.txt", "nested/../same.txt"])
+async def test_environment_patch_rejects_move_path_aliases(destination: str) -> None:
+    class ResolvingEnvironment(FakeEnvironment):
+        def __init__(self) -> None:
+            super().__init__()
+            self.reads: list[str] = []
+
+        def resolve_path(self, path: str) -> str:
+            return posixpath.normpath(super().resolve_path(path))
+
+        async def read_text(self, path: str) -> str:
+            self.reads.append(path)
+            return await super().read_text(path)
+
+    env = ResolvingEnvironment()
+    env.files["/workspace/same.txt"] = "before\n"
+    runtime = EnvironmentFilesystemRuntime(env, enable_read=True, enable_apply_patch=True)
+
+    result = await runtime.call_tool(
+        "apply_patch",
+        {
+            "input": (
+                "*** Begin Patch\n"
+                "*** Update File: same.txt\n"
+                f"*** Move to: {destination}\n"
+                "@@\n"
+                "-before\n"
+                "+after\n"
+                "*** End Patch\n"
+            )
+        },
+    )
+
+    assert result.is_error is True
+    assert "resolve to the same environment path /workspace/same.txt" in _text(result)
+    assert env.reads == []
+    assert env.files == {"/workspace/same.txt": "before\n"}
+
+
+@pytest.mark.asyncio
+async def test_environment_patch_allows_repeated_path_spelling() -> None:
+    env = FakeEnvironment()
+    env.files["/workspace/same.txt"] = "before\n"
+    runtime = EnvironmentFilesystemRuntime(env, enable_read=True, enable_apply_patch=True)
+
+    result = await runtime.call_tool(
+        "apply_patch",
+        {
+            "input": (
+                "*** Begin Patch\n"
+                "*** Update File: same.txt\n"
+                "@@\n"
+                "-before\n"
+                "+middle\n"
+                "*** Update File: same.txt\n"
+                "@@\n"
+                "-middle\n"
+                "+after\n"
+                "*** End Patch\n"
+            )
+        },
+    )
+
+    assert result.is_error is False
+    assert env.files["/workspace/same.txt"] == "after\n"
+
+
+@pytest.mark.asyncio
+async def test_environment_patch_staging_confines_paths_and_preserves_path_identity() -> None:
+    with tempfile.NamedTemporaryFile() as canary_file:
+        canary = Path(canary_file.name)
+        canary.write_text("unchanged\n", encoding="utf-8")
+        traversal_path = f"../{canary.name}"
+        env = FakeEnvironment()
+        env.files[f"/workspace/{traversal_path}"] = "remote\n"
+        env.files["/workspace/../source.txt"] = "before\n"
+        env.files["/workspace/../deleted.txt"] = "delete\n"
+        runtime = EnvironmentFilesystemRuntime(env, enable_read=True, enable_apply_patch=True)
+
+        result = await runtime.call_tool(
+            "apply_patch",
+            {
+                "input": (
+                    "*** Begin Patch\n"
+                    f"*** Update File: {traversal_path}\n"
+                    "@@\n"
+                    "-remote\n"
+                    "+updated\n"
+                    "*** Add File: ../added.txt\n"
+                    "+added\n"
+                    "*** Update File: ../source.txt\n"
+                    "*** Move to: ../moved.txt\n"
+                    "@@\n"
+                    "-before\n"
+                    "+after\n"
+                    "*** Delete File: ../deleted.txt\n"
+                    "*** Add File: same.txt\n"
+                    "+relative\n"
+                    "*** Add File: /same.txt\n"
+                    "+absolute\n"
+                    "*** End Patch\n"
+                )
+            },
+        )
+
+        assert result.is_error is False
+        assert canary.read_text(encoding="utf-8") == "unchanged\n"
+        assert env.files[f"/workspace/{traversal_path}"] == "updated\n"
+        assert env.files["/workspace/../added.txt"] == "added\n"
+        assert env.files["/workspace/../moved.txt"] == "after\n"
+        assert "/workspace/../source.txt" not in env.files
+        assert "/workspace/../deleted.txt" not in env.files
+        assert env.files["/workspace/same.txt"] == "relative\n"
+        assert env.files["/same.txt"] == "absolute\n"
 
 
 @pytest.mark.asyncio

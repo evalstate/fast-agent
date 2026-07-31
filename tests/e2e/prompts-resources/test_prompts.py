@@ -22,7 +22,7 @@ async def test_agent_with_simple_prompt(fast_agent, model_name):
         "agent",
         instruction="You are a helpful AI Agent",
         model=model_name,
-        servers=["prompt_server"],
+        servers=["mcp_fixture"],
     )
     async def agent_function():
         async with fast.run() as agent:
@@ -53,7 +53,7 @@ async def test_agent_with_prompt_attachment(fast_agent, model_name):
         "agent",
         instruction="You are a helpful AI Agent",
         model=model_name,
-        servers=["prompt_server"],
+        servers=["mcp_fixture"],
     )
     async def agent_function():
         async with fast.run() as agent:
@@ -84,7 +84,7 @@ async def test_agent_multiturn_prompt(fast_agent, model_name):
         "agent",
         instruction="You are a helpful AI Agent",
         model=model_name,
-        servers=["prompt_server"],
+        servers=["mcp_fixture"],
     )
     async def agent_function():
         async with fast.run() as agent:

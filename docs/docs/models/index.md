@@ -312,11 +312,11 @@ default_model: "gpt-5-mini?reasoning=low"
 
 ## History saving
 
-You can save the conversation history to a file by sending a `***SAVE_HISTORY <filename>` message. This can then be reviewed, edited, loaded, or served with the `prompt-server` or replayed with the `playback` model.
+You can save the conversation history to a file by sending a `***SAVE_HISTORY <filename>` message. This can then be reviewed, edited, loaded with `fast_agent.load_prompt`, exposed by an external MCP prompt server, or replayed with the `playback` model.
 
 !!! Note "File Format / MCP Serialization"
 
-    If the filetype is `json`, fast-agent saves a `{"messages": [...]}` JSON container. It can contain either MCP `PromptMessage` objects (legacy) or `PromptMessageExtended` objects (preserves tool calls, channels, etc). `fast_agent.load_prompt` and `prompt-server` will load either the text or JSON format directly.
+    If the filetype is `json`, fast-agent saves a `{"messages": [...]}` JSON container. It can contain either MCP `PromptMessage` objects (legacy) or `PromptMessageExtended` objects (preserves tool calls, channels, etc). `fast_agent.load_prompt` loads either the text or JSON format directly.
 
 This can be helpful when developing applications to:
 

@@ -9,7 +9,6 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from shutil import rmtree
 from typing import TYPE_CHECKING, Callable, Literal
 
 from fast_agent.core.exceptions import EnvironmentStartupError
@@ -965,90 +964,20 @@ class DockerMountedEnvironment(DockerManagedShellEnvironment):
         timeout_seconds: int = 90,
         warning_interval_seconds: int = 30,
     ) -> None:
-        self._host_workspace = Path(workspace).resolve()
-        self._target = _normalize_container_path(target)
+        workspace_path = Path(workspace).resolve()
+        target_path = _normalize_container_path(target)
         super().__init__(
             image=image,
             container_cli=container_cli,
             shell=shell,
-            cwd=self._target,
-            mounts=(DockerMount(self._host_workspace, self._target, "rw"),),
+            cwd=target_path,
+            mounts=(DockerMount(workspace_path, target_path, "rw"),),
             docker_args=docker_args,
             default_env=default_env,
             remove=remove,
             timeout_seconds=timeout_seconds,
             warning_interval_seconds=warning_interval_seconds,
         )
-
-    def resolve_path(self, path: str) -> str:
-        if path.startswith("/"):
-            return _normalize_container_path(path)
-        return _normalize_container_path(posixpath.join(self.cwd, path))
-
-    async def read_text(self, path: str) -> str:
-        if self.resolve_path(path) in self._temporary_artifact_paths:
-            return await DockerShellEnvironment.read_text(self, path)
-        return self._host_path(path).read_text(encoding="utf-8", errors="replace")
-
-    async def write_text(self, path: str, content: str) -> None:
-        host_path = self._host_path(path)
-        host_path.parent.mkdir(parents=True, exist_ok=True)
-        host_path.write_text(content, encoding="utf-8")
-
-    async def read_bytes(self, path: str) -> bytes:
-        if self.resolve_path(path) in self._temporary_artifact_paths:
-            return await DockerShellEnvironment.read_bytes(self, path)
-        return self._host_path(path).read_bytes()
-
-    async def write_bytes(self, path: str, content: bytes) -> None:
-        host_path = self._host_path(path)
-        host_path.parent.mkdir(parents=True, exist_ok=True)
-        host_path.write_bytes(content)
-
-    async def exists(self, path: str) -> bool:
-        if self.resolve_path(path) in self._temporary_artifact_paths:
-            return await DockerShellEnvironment.exists(self, path)
-        return self._host_path(path).exists()
-
-    async def list_dir(self, path: str) -> list[EnvironmentFileEntry]:
-        host_dir = self._host_path(path)
-        container_dir = self.resolve_path(path)
-        entries: list[EnvironmentFileEntry] = []
-        for child in sorted(host_dir.iterdir(), key=lambda item: item.name):
-            if child.is_symlink():
-                kind = "other"
-            elif child.is_dir():
-                kind = "directory"
-            elif child.is_file():
-                kind = "file"
-            else:
-                kind = "other"
-            entries.append(
-                EnvironmentFileEntry(
-                    path=_normalize_container_path(posixpath.join(container_dir, child.name)),
-                    name=child.name,
-                    kind=kind,
-                )
-            )
-        return entries
-
-    async def mkdir(self, path: str) -> None:
-        self._host_path(path).mkdir(parents=True, exist_ok=True)
-
-    async def remove(self, path: str) -> None:
-        if self.resolve_path(path) in self._temporary_artifact_paths:
-            await DockerShellEnvironment.remove(self, path)
-            return
-        host_path = self._host_path(path)
-        if host_path.is_dir():
-            rmtree(host_path)
-            return
-        host_path.unlink()
-
-    def _host_path(self, path: str) -> Path:
-        container_path = self.resolve_path(path)
-        relative = _relative_to_mount(container_path, self._target)
-        return self._host_workspace / relative
 
 
 __all__ = [
@@ -1083,16 +1012,3 @@ def _parse_docker_directory_entries(payload: bytes) -> list[EnvironmentFileEntry
         kind = "directory" if type_code == "d" else "file" if type_code == "f" else "other"
         entries.append(EnvironmentFileEntry(path=path, name=name, kind=kind))
     return entries
-
-
-def _relative_to_mount(path: str, mount_target: str) -> Path:
-    normalized_path = _normalize_container_path(path)
-    normalized_target = _normalize_container_path(mount_target)
-    if normalized_path == normalized_target:
-        return Path()
-    prefix = f"{normalized_target}/"
-    if not normalized_path.startswith(prefix):
-        raise ValueError(
-            f"Path {path!r} is outside the mounted Docker workspace {normalized_target!r}."
-        )
-    return Path(normalized_path[len(prefix) :])

@@ -44,4 +44,4 @@ Please extract the major colours from this CSS file:
 index.css
 ```
 
-They can either be loaded with `fast_agent.load_prompt`, or delivered via the built-in `prompt-server`.
+They can be loaded with `fast_agent.load_prompt`, or exposed by an external MCP prompt server.

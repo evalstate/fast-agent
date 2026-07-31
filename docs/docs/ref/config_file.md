@@ -871,11 +871,6 @@ mcp:
       command: "uvx"
       args: ["mcp-server-fetch"]
       
-    prompts:
-      transport: "stdio"
-      command: "prompt-server"
-      args: ["prompts/myprompt.txt"]
-      
     filesys:
       transport: "stdio"
       command: "uvx"

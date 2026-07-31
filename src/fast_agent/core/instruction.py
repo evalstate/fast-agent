@@ -80,6 +80,16 @@ def _load_internal_resource(resource_id: str) -> str:
             "Invalid internal resource placeholder",
             "Resource ID must not be empty",
         )
+    if (
+        Path(normalized_id).is_absolute()
+        or normalized_id in {".", ".."}
+        or "/" in normalized_id
+        or "\\" in normalized_id
+    ):
+        raise AgentConfigError(
+            "Invalid internal resource placeholder",
+            "Resource ID must not be absolute, traverse directories, or contain path separators",
+        )
 
     # Source checkout fallback for local development/testing.
     source_resource_path = (

@@ -223,6 +223,17 @@ class TestInstructionBuilderInternalPatterns:
         with pytest.raises(AgentConfigError, match="Unknown internal resource"):
             await builder.build()
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "resource_id",
+        ["/etc/passwd", "../agent_cards", r"..\agent_cards", "agent_cards/model_overlays"],
+    )
+    async def test_internal_pattern_rejects_path_resource_ids(self, resource_id: str):
+        builder = InstructionBuilder(f"{{{{internal:{resource_id}}}}}")
+
+        with pytest.raises(AgentConfigError, match="Invalid internal resource"):
+            await builder.build()
+
 
 class TestInstructionBuilderUrlPatterns:
     """Tests for URL pattern resolution."""

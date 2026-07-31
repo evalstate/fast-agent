@@ -277,29 +277,20 @@ result: PromptMessageExtended = await agent.generate(prompt)
 
 !!! Note "File Format / MCP Serialization"
 
-    If the filetype is `json`, fast-agent saves a `{"messages": [...]}` JSON container. It can contain either MCP `PromptMessage` objects (legacy) or `PromptMessageExtended` objects (preserves tool calls, channels, etc). `fast_agent.load_prompt` and `prompt-server` will load either the text or JSON format directly.
+    If the filetype is `json`, fast-agent saves a `{"messages": [...]}` JSON container. It can contain either MCP `PromptMessage` objects (legacy) or `PromptMessageExtended` objects (preserves tool calls, channels, etc). `fast_agent.load_prompt` loads either the text or JSON format directly.
     See [History Saving](../models/#history-saving) to learn how to save a conversation to a file for editing or playback.
 
 
-### Using the `prompt-server`
+### Using an external MCP prompt server
 
-Prompt files can also be served using the inbuilt `prompt-server`. The `prompt-server` command is installed with `fast-agent` making it convenient to set up and use:
+Use `fast_agent.load_prompt` when your application owns prompt files. To expose prompts or resources through MCP, configure an external MCP server according to that server's installation instructions:
 
 ```yaml title="fast-agent.yaml"
 mcp:
   servers:
     prompts:
-      command: "prompt-server"
-      args: ["prompt_secret_plans.txt"]
+      command: "uvx"
+      args: ["your-mcp-server-package"]
 ```
 
-This configures an MCP Server that will serve a `prompt_secret_plans` MCP Prompt, and `secret_plan.pdf` and `repomix.xml` as MCP Resources.
-
-If arguments are supplied in the template file, these are also handled by the `prompt-server`
-
-```markdown title="prompt_with_args.txt"
----USER
-Hello {{assistant_name}}, how are you?
----ASSISTANT
-Great to meet you {{user_name}} how can I be of assistance?
-```
+The external server defines its available MCP prompts and resources. Prompt arguments are server-specific.

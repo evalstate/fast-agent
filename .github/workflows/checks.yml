@@ -89,15 +89,11 @@ jobs:
           - name: api
             path: tests/integration/api
             args: ""
-          - name: prompt-server
-            path: tests/integration/prompt-server
-            args: ""
           - name: other
             path: tests/integration
             args: >-
               --ignore=tests/integration/acp
               --ignore=tests/integration/api
-              --ignore=tests/integration/prompt-server
     steps:
       - uses: actions/checkout@v4
 

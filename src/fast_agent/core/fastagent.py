@@ -560,7 +560,7 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         temp_path = materialize_text_source(url, label="AgentCard URL", suffix=suffix)
 
         try:
-            cards = load_agent_cards(temp_path)
+            cards = load_agent_cards(temp_path, remote_source=url)
             loaded_names = [card.name for card in cards]
             for card in cards:
                 # Check for conflicts

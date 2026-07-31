@@ -314,6 +314,31 @@ def test_explicit_remote_agent_card_without_model_keeps_startup_model_selection(
     assert _explicit_agent_cards_define_startup_model(request) is False
 
 
+def test_startup_model_preflight_preserves_remote_card_restrictions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.io import source_resolver
+
+    def fake_read_text_source(source: str, *, label: str) -> str:
+        assert source == "hf://buckets/evalstate/demo-bucket/restricted-card.yaml"
+        assert label == "AgentCard URL"
+        return "\n".join(
+            [
+                "name: restricted",
+                "model: passthrough",
+                'instruction: "{{file:typesafe.md}}"',
+                "",
+            ]
+        )
+
+    monkeypatch.setattr(source_resolver, "read_text_source", fake_read_text_source)
+    request = _make_request(
+        agent_cards=["hf://buckets/evalstate/demo-bucket/restricted-card.yaml"]
+    )
+
+    assert _explicit_agent_cards_define_startup_model(request) is False
+
+
 @pytest.mark.parametrize(
     ("model_references", "expected"),
     [

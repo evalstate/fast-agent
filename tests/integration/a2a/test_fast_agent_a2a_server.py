@@ -33,6 +33,7 @@ from mcp_types import (
     BlobResourceContents,
     EmbeddedResource,
     ImageContent,
+    ResourceLink,
     TextContent,
     TextResourceContents,
 )
@@ -1246,6 +1247,87 @@ def test_fast_agent_a2a_server_preserves_raw_file_input_parts() -> None:
     assert str(content.resource.uri) == "attachment:///report.pdf"
     assert content.resource.mime_type == "application/pdf"
     assert content.resource.blob == "JVBERiB0ZXN0IGJ5dGVz"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "file:///x",
+        "file:/x",
+        "file:x",
+        "FILE:///x",
+        "file://localhost/x",
+    ],
+)
+def test_fast_agent_a2a_server_rejects_file_url_input_parts(uri: str) -> None:
+    prompt = _prompt_from_a2a_message(
+        Message(
+            role=Role.ROLE_USER,
+            message_id="file-url-input",
+            parts=[Part(url=uri, media_type="text/plain", filename="attachment")],
+        )
+    )
+
+    assert len(prompt.content) == 1
+    content = prompt.content[0]
+    assert isinstance(content, TextContent)
+    assert content.text == "[Local file URL attachment was rejected.]"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("uri", ("http://[", "https://["))
+def test_fast_agent_a2a_server_falls_back_for_malformed_url_input_parts(uri: str) -> None:
+    prompt = _prompt_from_a2a_message(
+        Message(
+            role=Role.ROLE_USER,
+            message_id="malformed-url-input",
+            parts=[Part(url=uri, media_type="text/plain", filename="attachment")],
+        )
+    )
+
+    assert len(prompt.content) == 1
+    content = prompt.content[0]
+    assert isinstance(content, TextContent)
+    assert content.text == f"[attachment]({uri})"
+
+
+@pytest.mark.integration
+def test_fast_agent_a2a_server_rejects_malformed_file_url_input_part() -> None:
+    prompt = _prompt_from_a2a_message(
+        Message(
+            role=Role.ROLE_USER,
+            message_id="malformed-file-url-input",
+            parts=[Part(url="file://[", media_type="text/plain", filename="attachment")],
+        )
+    )
+
+    assert len(prompt.content) == 1
+    content = prompt.content[0]
+    assert isinstance(content, TextContent)
+    assert content.text == "[Local file URL attachment was rejected.]"
+
+
+@pytest.mark.integration
+def test_fast_agent_a2a_server_preserves_https_url_input_parts() -> None:
+    prompt = _prompt_from_a2a_message(
+        Message(
+            role=Role.ROLE_USER,
+            message_id="https-url-input",
+            parts=[
+                Part(
+                    url="https://example.test/report.pdf",
+                    media_type="application/pdf",
+                    filename="report.pdf",
+                )
+            ],
+        )
+    )
+
+    assert len(prompt.content) == 1
+    content = prompt.content[0]
+    assert isinstance(content, ResourceLink)
+    assert str(content.uri) == "https://example.test/report.pdf"
 
 
 @pytest.mark.integration

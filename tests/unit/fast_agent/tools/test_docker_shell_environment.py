@@ -15,6 +15,7 @@ from fast_agent.tools.docker_shell_environment import (
     DockerShellEnvironment,
 )
 from fast_agent.tools.execution_environment import (
+    EnvironmentFileEntry,
     EnvironmentFilesystemWithBytes,
     EnvironmentTemporaryArtifacts,
     ShellExecutionRequest,
@@ -421,11 +422,11 @@ async def test_docker_concurrent_temporary_artifacts_share_one_directory() -> No
 
 
 @pytest.mark.asyncio
-async def test_mounted_docker_routes_only_owned_artifact_paths_to_container(tmp_path) -> None:
-    class _MountedArtifactEnvironment(DockerMountedEnvironment):
-        def __init__(self) -> None:
-            super().__init__(image="unused", workspace=tmp_path)
-            self.container_reads: list[str] = []
+async def test_mounted_docker_routes_filesystem_operations_through_container(tmp_path) -> None:
+    class _MountedFilesystemSimulator(DockerMountedEnvironment):
+        def __init__(self, workspace: Path) -> None:
+            super().__init__(image="unused", workspace=workspace)
+            self.calls: list[tuple[str, list[str], bytes | None]] = []
 
         async def _docker_shell_bytes(
             self,
@@ -434,21 +435,17 @@ async def test_mounted_docker_routes_only_owned_artifact_paths_to_container(tmp_
             *,
             stdin: bytes | None = None,
         ) -> docker_environment_module._DockerExecResult:
-            del stdin
-            if "mktemp -d" in script:
+            self.calls.append((script, args, stdin))
+            if "exec cat" in script:
                 return docker_environment_module._DockerExecResult(
                     exit_code=0,
-                    stdout=(
-                        b"/tmp/fast-agent-output-private\n"
-                        b"/tmp/fast-agent-output-private/fast-agent-subagent-random.log\n"
-                    ),
+                    stdout=b"container text",
                     stderr="",
                 )
-            if "exec cat" in script:
-                self.container_reads.append(args[0])
+            if "find" in script:
                 return docker_environment_module._DockerExecResult(
                     exit_code=0,
-                    stdout=b"transcript",
+                    stdout=b"f\0/workspace/external/item.txt\0item.txt\0",
                     stderr="",
                 )
             return docker_environment_module._DockerExecResult(
@@ -457,18 +454,37 @@ async def test_mounted_docker_routes_only_owned_artifact_paths_to_container(tmp_
                 stderr="",
             )
 
-    environment = _MountedArtifactEnvironment()
-    artifact = await environment.write_temporary_text(
-        prefix="fast-agent-subagent-",
-        suffix=".log",
-        content="transcript",
-        max_bytes=1024,
-    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    external = tmp_path / "external"
+    external.mkdir()
+    external_file = external / "item.txt"
+    external_file.write_text("host text", encoding="utf-8")
+    (workspace / "external").symlink_to(external, target_is_directory=True)
+    environment = _MountedFilesystemSimulator(workspace)
 
-    assert await environment.read_text(artifact.path) == "transcript"
-    assert environment.container_reads == [artifact.path]
-    with pytest.raises(ValueError, match="outside the mounted Docker workspace"):
-        await environment.read_text("/tmp/unowned.log")
+    assert await environment.read_text("external/item.txt") == "container text"
+    await environment.write_text("external/new.txt", "new text")
+    assert await environment.exists("external/item.txt") is True
+    assert await environment.list_dir("external") == [
+        EnvironmentFileEntry(
+            path="/workspace/external/item.txt",
+            name="item.txt",
+            kind="file",
+        )
+    ]
+    await environment.mkdir("external/directory")
+    await environment.remove("external/item.txt")
+
+    assert [args for _, args, _ in environment.calls] == [
+        ["/workspace/external/item.txt"],
+        ["/workspace/external/new.txt", "/workspace/external"],
+        ["/workspace/external/item.txt"],
+        ["/workspace/external"],
+        ["/workspace/external/directory"],
+        ["/workspace/external/item.txt"],
+    ]
+    assert external_file.read_text(encoding="utf-8") == "host text"
 
 
 @pytest.mark.asyncio

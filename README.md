@@ -628,7 +628,7 @@ Agents with `@agent.tool` or `function_tools=` only see their own tools — glob
 
 ### Multimodal Support
 
-Add Resources to prompts using either the inbuilt `prompt-server` or MCP Types directly. Convenience class are made available to do so simply, for example:
+Add resources to prompts with MCP types directly or through an external MCP resource server. Convenience APIs make this simple, for example:
 
 ```python
 summary: str = await agent.with_resource(

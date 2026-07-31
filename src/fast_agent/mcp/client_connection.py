@@ -12,6 +12,8 @@ from mcp_types import (
     INVALID_REQUEST,
     CallToolResult,
     CompleteResult,
+    ContentBlock,
+    EmbeddedResource,
     GetPromptResult,
     ListPromptsResult,
     ListResourcesResult,
@@ -22,6 +24,7 @@ from mcp_types import (
     ReadResourceResult,
     Request,
     RequestParamsMeta,
+    ResourceLink,
     ResourceTemplateReference,
     TextContent,
 )
@@ -29,13 +32,14 @@ from mcp_types.version import LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
 
 from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.mcp.tool_result_metadata import set_url_elicitation_required_payload
+from fast_agent.mcp.uri_security import SANITIZED_INLINE_RESOURCE_URI, is_file_uri
 from fast_agent.mcp.url_elicitation_required import (
     URLElicitationRequiredDisplayPayload,
     build_url_elicitation_required_display_payload,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
+    from collections.abc import Awaitable, Callable
     from types import TracebackType
 
     from mcp.shared.dispatcher import ProgressFnT
@@ -205,6 +209,7 @@ class MCPClientConnection:
                 progress_callback,
                 meta=meta,
             ),
+            self._sanitize_call_tool_result,
         )
 
     async def read_resource(
@@ -216,6 +221,7 @@ class MCPClientConnection:
         return await self._interactive_operation(
             "resources/read",
             self.client.read_resource(uri, meta=meta),
+            self._sanitize_read_resource_result,
         )
 
     async def get_prompt(
@@ -228,6 +234,7 @@ class MCPClientConnection:
         return await self._interactive_operation(
             "prompts/get",
             self.client.get_prompt(name, arguments, meta=meta),
+            self._sanitize_get_prompt_result,
         )
 
     async def complete(
@@ -264,10 +271,15 @@ class MCPClientConnection:
                 ) from exc
             raise
 
-    async def _interactive_operation(self, method: str, operation: Awaitable[T]) -> T:
+    async def _interactive_operation(
+        self,
+        method: str,
+        operation: Awaitable[T],
+        sanitize: Callable[[T], T],
+    ) -> T:
         self.callbacks.discard_pending_url_elicitations()
         try:
-            result = await self._request(operation)
+            result = sanitize(await self._request(operation))
         except ServerSessionTerminatedError:
             self.callbacks.discard_pending_url_elicitations()
             raise
@@ -316,3 +328,48 @@ class MCPClientConnection:
                     request_method=method,
                 )
                 set_url_elicitation_required_payload(result, payload)
+
+    def _sanitize_call_tool_result(self, result: CallToolResult) -> CallToolResult:
+        content = [self._sanitize_content_block(item) for item in result.content]
+        if all(new is old for new, old in zip(content, result.content, strict=True)):
+            return result
+        return result.model_copy(update={"content": content})
+
+    def _sanitize_get_prompt_result(self, result: GetPromptResult) -> GetPromptResult:
+        messages = [
+            message.model_copy(
+                update={"content": self._sanitize_content_block(message.content)}
+            )
+            for message in result.messages
+        ]
+        if all(
+            new.content is old.content
+            for new, old in zip(messages, result.messages, strict=True)
+        ):
+            return result
+        return result.model_copy(update={"messages": messages})
+
+    def _sanitize_read_resource_result(self, result: ReadResourceResult) -> ReadResourceResult:
+        contents = [
+            resource.model_copy(update={"uri": SANITIZED_INLINE_RESOURCE_URI})
+            if is_file_uri(str(resource.uri))
+            else resource
+            for resource in result.contents
+        ]
+        if all(new is old for new, old in zip(contents, result.contents, strict=True)):
+            return result
+        return result.model_copy(update={"contents": contents})
+
+    @staticmethod
+    def _sanitize_content_block(content: ContentBlock) -> ContentBlock:
+        if isinstance(content, ResourceLink) and is_file_uri(str(content.uri)):
+            return TextContent(
+                type="text",
+                text="[Local file attachment from a remote MCP server was blocked.]",
+            )
+        if isinstance(content, EmbeddedResource) and is_file_uri(str(content.resource.uri)):
+            resource = content.resource.model_copy(
+                update={"uri": SANITIZED_INLINE_RESOURCE_URI}
+            )
+            return content.model_copy(update={"resource": resource})
+        return content
