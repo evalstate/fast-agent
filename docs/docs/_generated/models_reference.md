@@ -51,11 +51,12 @@
 | `gemini3` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3.medium` | — | — |
 | `gemini3flash` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini3flash.medium` | — | — |
 | `gemini` | `google` | Text, Vision, Document, Audio, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gemini.medium` | — | — |
-| `groq.qwen/qwen3-32b` | `groq` | Text | `json` (object) | — | — | — |
 | `moonshotai/kimi-k2-instruct-0905` | `groq` | Text | `json` (schema) | — | — | — |
 | `moonshotai/kimi-k2-thinking` | `groq` | Text | `json` (schema) | — | — | — |
 | `moonshotai/kimi-k2` | `groq` | Text | `json` (schema) | — | — | — |
-| `qwen/qwen3.6-27b` | `groq` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen/qwen3.6-27b?reasoning=off` | — | — |
+| `qwen3-32b` | `groq` | Text | `json` (object) | — | — | — |
+| `qwen3.6-27b` | `groq` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen3.6-27b?reasoning=off` | — | — |
+| `Kimi K3 (together)` | `hf` | Text, Vision | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `Kimi K3 (together).max` | — | — |
 | `deepseek-hf` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek32` | `hf` | Text | `json` (schema) | — | — | — |
 | `gemma4` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `gemma4.none` | — | — |
@@ -75,7 +76,6 @@
 | `minimax25` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `minimax25?reasoning=off` | — | — |
 | `minimax27` | `hf` | Text | `json` (schema) | — | — | — |
 | `minimax` | `hf` | Text, Vision | `json` (schema) | — | — | — |
-| `moonshotai/kimi-k3` | `hf` | Text, Vision | `json` (schema) | effort: `low`, `high`, `max`<br>Example: `moonshotai/kimi-k3.max` | — | — |
 | `qwen35` | `hf` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen35?reasoning=off` | — | — |
 | `qwen36` | `hf` | Text | — | toggle: `on`, `off`<br>Example: `qwen36?reasoning=off` | — | — |
 | `muse` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `muse.medium` | — | — |
@@ -90,7 +90,7 @@
 | `gpt-4o-mini-2024-07-18` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4o-mini` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `gpt-4o` | `openai` | Text, Vision, Document | `json` (schema) | — | — | — |
-| `chat-latest` | `responses` | Text, Vision, Document | `json` (schema) | — | — | — |
+| `chatgpt` | `responses` | Text, Vision, Document | `json` (schema) | — | — | — |
 | `codex` | `responses` | Text, Vision, Document | `json` (schema) | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `codex.medium` | `low`, `medium`, `high`<br>Example: `codex?verbosity=low` | — |
 | `gpt-5-mini` | `responses` | Text, Vision, Document | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gpt-5-mini.medium` | `low`, `medium`, `high`<br>Example: `gpt-5-mini?verbosity=low` | — |
 | `gpt-5-nano-2025-08-07` | `responses` | Text, Vision, Document | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`<br>Example: `gpt-5-nano-2025-08-07.medium` | `low`, `medium`, `high`<br>Example: `gpt-5-nano-2025-08-07?verbosity=low` | — |

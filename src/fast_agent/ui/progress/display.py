@@ -2,14 +2,14 @@
 
 import json
 import os
-import re
 import time
+from collections.abc import Iterable
 from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock, Timer
 from typing import Any
 
-from rich.console import Console
+from rich.console import Console, RenderableType
 from rich.markup import escape as escape_markup
 from rich.progress import Progress, ProgressColumn, Task, TaskID, TextColumn
 from rich.spinner import SPINNERS, Spinner
@@ -27,6 +27,7 @@ from fast_agent.ui.progress.process_poll import (
     format_process_poll_countdown_track,
     render_process_monitor_stats,
 )
+from fast_agent.ui.progress.subagent_table import render_subagent_table
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.time import format_process_elapsed
 from fast_agent.utils.tool_names import (
@@ -62,19 +63,29 @@ _COMPACTING_FRAMES = (
     "   ",
 )
 
-_SUBAGENT_DETAIL_STYLES = (
-    (r"\bturn\s+\d+", "not dim cyan"),
-    (r"\bmodel\s+\S+", "not dim bold white"),
-    (r"\bstarting\b", "not dim green"),
-    (r"\bthinking\b", "not dim bold yellow"),
-    (r"\bprocessing\b", "not dim cyan"),
-    (r"\btool\b", "not dim magenta"),
-    (r"\bfinalizing\b", "not dim blue"),
-    (r"\bin\s+[\d,]+", "not dim blue"),
-    (r"\bout\s+~?\s*[\d,]+", "not dim green"),
-    (r"\bcache\s+\d+%", "not dim magenta"),
-    (r"\btools\s+\d+", "not dim yellow"),
-)
+class _MonitoringProgress(Progress):
+    """Render subagents as a compact table while retaining normal progress rows."""
+
+    def get_renderables(self) -> Iterable[RenderableType]:
+        tasks = list(self.tasks)
+        subagents = [
+            task
+            for task in tasks
+            if task.visible and bool(task.fields.get("is_subagent_monitor"))
+        ]
+        generic = [
+            task
+            for task in tasks
+            if task.visible and not bool(task.fields.get("is_subagent_monitor"))
+        ]
+        if subagents:
+            yield render_subagent_table(
+                subagents,
+                tasks,
+                console_width=self.console.width,
+            )
+        if generic or not subagents:
+            yield self.make_tasks_table(generic)
 
 
 def _ensure_spinners() -> None:
@@ -192,11 +203,7 @@ class DynamicDetailsColumn(ProgressColumn):
         is_process_poll = bool(task.fields.get("is_process_poll"))
         parts: list[str | Text] = []
         if details:
-            parts.append(
-                self._colorize_subagent_details(details)
-                if bool(task.fields.get("is_subagent_monitor"))
-                else details
-            )
+            parts.append(details)
         elapsed_base = task.fields.get("process_elapsed_seconds")
         if is_process_poll:
             local_tick = self._local_tick_seconds(task, "process_snapshot_task_elapsed")
@@ -268,14 +275,6 @@ class DynamicDetailsColumn(ProgressColumn):
                 line.append(part, style=self.style)
         return line
 
-    def _colorize_subagent_details(self, details: str) -> Text:
-        text = Text(details, style=self.style)
-        for pattern, style in _SUBAGENT_DETAIL_STYLES:
-            for match in re.finditer(pattern, details):
-                text.stylize(style, match.start(), match.end())
-        return text
-
-
 class RichProgressDisplay:
     """Rich-based display for progress events."""
 
@@ -292,9 +291,10 @@ class RichProgressDisplay:
         self._taskmap: dict[str, TaskID] = {}
         self._task_kind: dict[str, str] = {}
         self._folded_agent_progress: set[str] = set()
+        self._subagent_row_by_agent: dict[str, str] = {}
         _ensure_spinners()
         self._description_spinner = SpinnerDescriptionColumn(spinner_name=PROGRESS_SPINNER_NAME)
-        self._progress = Progress(
+        self._progress = _MonitoringProgress(
             self._description_spinner,
             TextColumn(
                 text_format="{task.fields[target]}",
@@ -411,7 +411,7 @@ class RichProgressDisplay:
         if getattr(self._progress.live, "_nested", False):
             self._progress.live._nested = False
         for task in self._progress.tasks:
-            task.visible = True
+            task.visible = task.fields.get("process_owner_row") is None
         # Start the Live display before clearing the flag so that
         # update() never runs against an un-started Progress.
         self._progress.start()
@@ -536,6 +536,12 @@ class RichProgressDisplay:
 
     def _drop_task(self, task_name: str, task_id: TaskID) -> None:
         """Remove a task from visible progress tracking and internal maps."""
+        task = next((item for item in self._progress.tasks if item.id == task_id), None)
+        if task is not None and bool(task.fields.get("is_subagent_monitor")):
+            self._release_owned_processes(
+                task_name,
+                promote=task.fields.get("subagent_status") not in {"cancelled", "failed"},
+            )
         self._taskmap.pop(task_name, None)
         self._task_kind.pop(task_name, None)
 
@@ -552,6 +558,30 @@ class RichProgressDisplay:
             if task.id == task_id:
                 task.visible = False
                 break
+
+    def _release_owned_processes(self, owner_row: str, *, promote: bool) -> None:
+        """Promote active monitors, or discard orphaned monitors after child failure."""
+        self._subagent_row_by_agent = {
+            agent_name: row_id
+            for agent_name, row_id in self._subagent_row_by_agent.items()
+            if row_id != owner_row
+        }
+        owned_tasks = [
+            task
+            for task in self._progress.tasks
+            if task.fields.get("process_owner_row") == owner_row
+        ]
+        for task in owned_tasks:
+            task_name = str(task.fields.get("task_name") or "")
+            task_id = self._taskmap.get(task_name)
+            if task.stop_time is not None:
+                continue
+            if not promote:
+                if task_id is not None:
+                    self._drop_task(task_name, task_id)
+                continue
+            task.fields["process_owner_row"] = None
+            task.visible = not self._paused and not self._stopped
 
     @staticmethod
     def _is_internal_shell_tool(tool_name: str | None, server_name: str | None) -> bool:
@@ -743,8 +773,17 @@ class RichProgressDisplay:
             "task_name": task_name,
             "is_process_poll": is_process_poll,
             "is_subagent_monitor": event.tool_event == "subagent_monitor",
+            "agent_name": event.agent_name,
             "is_compacting": event.action == ProgressAction.COMPACTING,
         }
+        if event.subagent_monitor is not None:
+            update_kwargs["subagent_monitor"] = event.subagent_monitor
+        if event.tool_event == "subagent_monitor" and event.action == ProgressAction.READY:
+            update_kwargs["subagent_status"] = (event.details or "").strip().casefold()
+        if is_process_poll:
+            update_kwargs["process_owner_row"] = self._subagent_row_by_agent.get(
+                event.agent_name or ""
+            )
         if event.process_elapsed_seconds is not None:
             update_kwargs["process_elapsed_seconds"] = event.process_elapsed_seconds
         if event.elapsed_seconds is not None:
@@ -898,12 +937,18 @@ class RichProgressDisplay:
 
     def update(self, event: ProgressEvent) -> None:
         """Update the progress display with a new event."""
-        if interactive_display_mode() == "monitor_only" and event.tool_event != "subagent_monitor":
+        is_process_poll = self._is_process_poll_event(event)
+        if (
+            interactive_display_mode() == "monitor_only"
+            and event.tool_event != "subagent_monitor"
+            and not is_process_poll
+        ):
             return
         with self._lock:
             if (
                 event.agent_name in self._folded_agent_progress
                 and event.tool_event != "subagent_monitor"
+                and not is_process_poll
             ):
                 return
             # Skip updates when display is stopped
@@ -940,6 +985,12 @@ class RichProgressDisplay:
             event,
             is_correlated_tool_event=is_correlated_tool_event,
         )
+        if (
+            event.tool_event == "subagent_monitor"
+            and event.action == ProgressAction.RUNNING
+            and event.agent_name
+        ):
+            self._subagent_row_by_agent[event.agent_name] = task_name
         should_drop_tool_task = is_correlated_tool_event and event.tool_terminal
         had_existing_task = task_name in self._taskmap
         task_id = self._task_id_for_event(event, task_name)
@@ -973,6 +1024,10 @@ class RichProgressDisplay:
                 blink_next = not bool(existing.fields.get("process_poll_blink_next"))
             update_kwargs["process_poll_blink_next"] = blink_next
         self._progress.update(task_id, **update_kwargs)
+        if self._is_process_poll_event(event):
+            task = next((item for item in self._progress.tasks if item.id == task_id), None)
+            if task is not None:
+                task.visible = task.fields.get("process_owner_row") is None
         if self._is_process_poll_event(event):
             snapshot_field = "process_snapshot_task_elapsed"
         elif event.elapsed_seconds is not None:

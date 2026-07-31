@@ -339,7 +339,7 @@ async def test_reload_agents_discards_unsaved_live_history_without_session(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "fastagent.config.yaml"
-    config_path.write_text("", encoding="utf-8")
+    config_path.write_text("default_model: passthrough\n", encoding="utf-8")
 
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir()
@@ -380,7 +380,7 @@ async def test_reload_agents_discards_unsaved_live_history_without_session(
 @pytest.mark.asyncio
 async def test_reload_agents_updates_history_when_file_newer(monkeypatch, tmp_path: Path) -> None:
     config_path = tmp_path / "fastagent.config.yaml"
-    config_path.write_text("", encoding="utf-8")
+    config_path.write_text("default_model: passthrough\n", encoding="utf-8")
 
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir()
@@ -427,7 +427,7 @@ async def test_reload_agents_rehydrates_saved_session_not_unsaved_live_history(
     monkeypatch.chdir(tmp_path)
 
     config_path = tmp_path / "fastagent.config.yaml"
-    config_path.write_text("", encoding="utf-8")
+    config_path.write_text("default_model: passthrough\n", encoding="utf-8")
 
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir()

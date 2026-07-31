@@ -162,7 +162,9 @@ fast-agent go --model sonnet
 ```
 
 Because each card uses `model: $system.default`, the selected model comes from
-`--model`, then the home config, then normal provider defaults. If no default is found an interactive model picker is displayed.
+`--model`, then the home `default_model`, then `FAST_AGENT_MODEL`. If none
+resolves, an interactive run opens the model picker. Scripts, services, and
+other unattended runs must configure one of those sources explicitly.
 
 ## Work with multiple agents in the TUI
 

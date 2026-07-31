@@ -18,7 +18,6 @@ from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
     from fast_agent.config import Settings
-    from fast_agent.core.model_resolution import ResolvedModelSpec
     from fast_agent.ui.model_picker_common import ProviderActivation
 
     from .run_request import AgentRunRequest
@@ -142,25 +141,6 @@ def agent_config_defines_startup_model(
         return False
 
     return strip_to_none(resolved_model) is not None
-
-
-def resolve_model_without_hardcoded_default(
-    *,
-    model: str | None,
-    config_default_model: str | None,
-    model_references: Mapping[str, Mapping[str, str]] | None,
-) -> ResolvedModelSpec:
-    """Resolve model precedence without falling back to the hardcoded system default."""
-    from fast_agent.core.model_resolution import resolve_model_spec
-
-    return resolve_model_spec(
-        context=None,
-        model=model,
-        default_model=config_default_model,
-        cli_model=model,
-        fallback_to_hardcoded=False,
-        model_references=model_references,
-    )
 
 
 def load_request_settings(request: AgentRunRequest) -> Settings:
@@ -549,7 +529,6 @@ __all__ = [
     "load_request_settings",
     "persist_model_picker_last_used_selection",
     "resolve_model_picker_initial_selection",
-    "resolve_model_without_hardcoded_default",
     "select_model_from_picker",
     "settings_model_references",
     "should_prompt_for_model_picker",

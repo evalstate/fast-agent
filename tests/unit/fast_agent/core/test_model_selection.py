@@ -55,7 +55,7 @@ class TestGetDefaultModelSource:
                 del os.environ["FAST_AGENT_MODEL"]
 
     def test_no_source_returns_none(self):
-        """When nothing is set, returns None (hardcoded default used)."""
+        """When nothing is configured, no model source is reported."""
         # Store original value if any
         original = os.environ.get("FAST_AGENT_MODEL")
 

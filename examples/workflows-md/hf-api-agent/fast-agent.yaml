@@ -7,10 +7,11 @@
 # Accepts aliases for Anthropic Models: haiku, haiku3, sonnet, sonnet35, opus, opus3, opus46, opus47, opus46, opus47
 # and OpenAI Models: gpt-4.1, gpt-4.1-mini, o1, o1-mini, o3-mini
 #
-# If not specified, defaults to "gpt-5.4-mini?reasoning=low".
-# Can be overriden with a command line switch --model=<model>, or within the Agent constructor.
+# Interactive runs open the model picker when no model is configured.
+# Unattended runs must set default_model, pass --model, set FAST_AGENT_MODEL,
+# or declare a model on the Agent/AgentCard.
 
-#default_model: gpt-5.4-mini?reasoning=low
+# default_model: sonnet
 
 # Number of times to retry transient LLM API errors (falls back to FAST_AGENT_RETRIES env var)
 # llm_retries: 2

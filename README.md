@@ -116,11 +116,15 @@ fast-agent go --url https://hf.co/mcp  # with a remote MCP
 fast-agent go --model=generic.qwen2.5  # use ollama qwen 2.5
 fast-agent go --pack analyst --model haiku  # install/reuse a card pack and launch it
 fast-agent scaffold                    # create an example agent and config files
-uv run agent.py                        # run your first agent
+uv run agent.py                        # run with default_model or FAST_AGENT_MODEL configured
 uv run agent.py --model='gpt-5.4-mini?reasoning=low'    # specify a model
 uv run agent.py --transport http --port 8001  # expose as MCP server (server mode implied)
 fast-agent quickstart workflow  # create "building effective agents" examples
 ```
+
+With no configured model, an interactive run opens the model picker.
+Automation and server runs must pass `--model`, set `FAST_AGENT_MODEL`, configure
+`default_model`, or declare a model on the agent.
 
 For packaged starter agents, use `fast-agent go --pack <name> --model <model>`.
 This installs the pack into the selected fast-agent home if needed, then

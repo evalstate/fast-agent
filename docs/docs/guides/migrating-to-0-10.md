@@ -20,6 +20,40 @@ The write command preserves the exact original as `fast-agent.yaml.bak`. Use
 connections. See [Migrate MCP Configuration](../mcp/migration.md) for the
 before/after schema and conflict rules.
 
+## Breaking change: no implicit default model
+
+fast-agent no longer falls back to `gpt-5.4-mini?reasoning=low` when no model
+is configured. Model resolution now uses, in order:
+
+1. an explicit AgentCard or decorator model;
+2. `--model`;
+3. `default_model` in `fast-agent.yaml`;
+4. `FAST_AGENT_MODEL`.
+
+Interactive, non-resumed runs open the model picker when none of these sources
+resolves. The selected model is recorded as `$system.last_used` for future
+picker initialization. Picker history no longer implicitly satisfies
+`$system.default`; configure `model_references.system.default` when using that
+reference as an unattended default.
+
+`--resume` does not open the picker. It uses the model saved in the session
+snapshot and restores each persisted agent model during hydration.
+
+Unattended runs cannot use the picker. CI, one-shot, `--no-home`, server,
+batch, and programmatic harness runs must configure or pass a model:
+
+```bash
+fast-agent go --model sonnet --message "Summarize the release notes"
+FAST_AGENT_MODEL=sonnet fast-agent serve --transport http
+```
+
+Without a model, startup now fails with `No model configured` and lists the
+supported configuration sources.
+
+MCP sampling follows the same rule. Configure
+`mcp.servers.<name>.sampling.model`, an agent model, or a global model source;
+an empty `sampling: {}` block no longer selects a built-in model.
+
 ## Breaking change: Smart agents are removed
 
 fast-agent 0.10 removes Smart agents, the model-visible `smart` tool, and the

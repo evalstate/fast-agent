@@ -7,15 +7,16 @@
 # Accepts aliases for Anthropic Models: haiku, haiku45, sonnet, sonnet5, sonnet4, sonnet46, claude, opus, opus4, opus5, opus46, opus47, opus48
 # and OpenAI Models: gpt-4.1, gpt-4.1-mini, o1, o1-mini, o3-mini
 #
-# If not specified, defaults to "gpt-5.4-mini?reasoning=low".
-# Can be overriden with a command line switch --model=<model>, or within the Agent constructor.
-
-default_model: gpt-5.4-mini?reasoning=low
+# Interactive runs open the model picker when no model is configured.
+# Unattended runs must set a model here, pass --model, set FAST_AGENT_MODEL,
+# or declare a model on the Agent/AgentCard.
+#
+# default_model: sonnet
 
 # Optional namespaced model references (Phase 1: string targets only)
 # model_references:
 #   system:
-#     default: "responses.gpt-5.4-mini?reasoning=low"
+#     default: "sonnet"
 #     plan: "codexplan"
 #     fast: "claude-haiku-4-5"
 #

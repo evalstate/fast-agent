@@ -15,7 +15,6 @@ from fast_agent.utils.text import strip_str_to_none, strip_to_none
 if TYPE_CHECKING:
     from fast_agent.context import Context
 
-HARDCODED_DEFAULT_MODEL = "gpt-5.4-mini?reasoning=low"
 _MODEL_REFERENCE_PATTERN = re.compile(
     r"^\$(?P<namespace>[A-Za-z_][A-Za-z0-9_-]*)\.(?P<key>[A-Za-z_][A-Za-z0-9_-]*)$"
 )
@@ -116,18 +115,7 @@ def _resolve_reference_recursive(
         raise ModelConfigError(f"Model reference '{token}' could not be resolved", details)
 
     missing = object()
-    if key in namespace_map:
-        raw_value = namespace_map[key]
-    elif key == "default":
-        # ``$<namespace>.default`` falls back to ``$<namespace>.last_used`` when no
-        # explicit ``default`` reference is configured. The model picker persists its
-        # selection as ``$system.last_used``; treating that as the current default
-        # keeps ``default_model: $system.default`` resolvable without a pinned
-        # ``default`` entry. ``$``-valued ``last_used`` entries recurse with the
-        # same cycle protection as a direct lookup.
-        raw_value = namespace_map.get("last_used", missing)
-    else:
-        raw_value = missing
+    raw_value = namespace_map.get(key, missing)
     if raw_value is missing:
         available_keys = ", ".join(sorted(namespace_map.keys()))
         details = f"Unknown key '{key}' in namespace '{namespace}'."
@@ -177,8 +165,6 @@ def _model_resolution_candidates(
     default_model: str | None,
     cli_model: str | None,
     env_var: str,
-    hardcoded_default: str | None,
-    fallback_to_hardcoded: bool,
 ) -> list[ModelCandidate]:
     candidates: list[ModelCandidate] = []
 
@@ -195,7 +181,7 @@ def _model_resolution_candidates(
     add_candidate(cli_model, "CLI --model")
 
     # ``$system.default`` is an explicit placeholder for "use the current default".
-    # Keep it above config/env/hardcoded defaults, but below CLI overrides.
+    # Keep it above config/env defaults, but below CLI overrides.
     if explicit_is_system_default:
         add_candidate(model, "explicit model")
 
@@ -203,9 +189,6 @@ def _model_resolution_candidates(
     add_candidate(config_default, "config file")
 
     add_candidate(os.getenv(env_var), f"environment variable {env_var}")
-
-    if fallback_to_hardcoded:
-        add_candidate(hardcoded_default, "hardcoded default")
 
     return candidates
 
@@ -246,23 +229,20 @@ def resolve_model_spec(
     cli_model: str | None = None,
     *,
     env_var: str = "FAST_AGENT_MODEL",
-    hardcoded_default: str | None = None,
-    fallback_to_hardcoded: bool = True,
     model_references: Mapping[str, Mapping[str, str]] | None = None,
 ) -> ResolvedModelSpec:
     """
     Resolve the model specification and report the source used.
 
     Precedence (lowest to highest):
-        1. Hardcoded default (if enabled)
-        2. Environment variable
-        3. Config file default_model
-        4. CLI --model argument
-        5. Explicit model parameter
+        1. Environment variable
+        2. Config file default_model
+        3. CLI --model argument
+        4. Explicit model parameter
 
     Special case: explicit ``$system.default`` is treated as a "use current
     default" placeholder, so it is evaluated *after* CLI ``--model`` but before
-    config/env/hardcoded fallbacks.
+    config/env fallbacks.
     """
     candidates = _model_resolution_candidates(
         context=context,
@@ -270,8 +250,6 @@ def resolve_model_spec(
         default_model=default_model,
         cli_model=cli_model,
         env_var=env_var,
-        hardcoded_default=hardcoded_default,
-        fallback_to_hardcoded=fallback_to_hardcoded,
     )
     references = (
         model_references if model_references is not None else get_context_model_references(context)

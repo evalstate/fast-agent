@@ -53,7 +53,7 @@ async def resume_session_if_requested(
     request: AgentRunRequest,
 ) -> None:
     validate_resume_request(request)
-    if not request.resume or request.no_home:
+    if request.resume is None or request.no_home:
         return
 
     from fast_agent.ui.enhanced_prompt import queue_startup_markdown_notice, queue_startup_notice

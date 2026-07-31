@@ -35,11 +35,7 @@ from fast_agent.core.agent_card_types import AgentCardData
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
 from fast_agent.core.function_tool_support import custom_class_supports_function_tools
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.model_resolution import (
-    HARDCODED_DEFAULT_MODEL,
-    get_context_cli_model_override,
-    resolve_model_spec,
-)
+from fast_agent.core.model_resolution import get_context_cli_model_override, resolve_model_spec
 from fast_agent.core.validation import (
     get_dependencies_groups,
     is_basic_like_agent_type,
@@ -609,11 +605,10 @@ def get_model_factory(
     Model string is parsed by ModelFactory to determine provider and reasoning effort.
 
     Precedence (lowest to highest):
-        1. Hardcoded default (gpt-5.4-mini?reasoning=low)
-        2. FAST_AGENT_MODEL environment variable
-        3. Config file default_model
-        4. CLI --model argument
-        5. Decorator model parameter
+        1. FAST_AGENT_MODEL environment variable
+        2. Config file default_model
+        3. CLI --model argument
+        4. Decorator model parameter
 
     Args:
         context: Application context
@@ -631,12 +626,12 @@ def get_model_factory(
         model=model,
         default_model=default_model,
         cli_model=cli_model,
-        hardcoded_default=HARDCODED_DEFAULT_MODEL,
     )
     if resolved_model.model is None:
         raise ModelConfigError(
             "No model configured",
-            "Set --model, FAST_AGENT_MODEL, or default_model in config.",
+            "Set an agent model, --model, FAST_AGENT_MODEL, or default_model "
+            "in fast-agent.yaml.",
         )
     logger.info(
         f"Resolved model '{resolved_model.model}' via {resolved_model.source}",
@@ -661,11 +656,11 @@ def get_default_model_source(
 ) -> str | None:
     """
     Determine the source of the default model selection.
-    Returns "environment variable", "config file", or None (if CLI or hardcoded default).
+    Returns "environment variable", "config file", or None for explicit CLI selection.
 
     This is used to display informational messages about where the model
     configuration is coming from. Only shows a message for env var or config file,
-    not for explicit CLI usage or the hardcoded system default.
+    not for explicit CLI usage.
     """
     # CLI model is explicit - no message needed
     if cli_model:
@@ -675,7 +670,6 @@ def get_default_model_source(
         context=None,
         default_model=config_default_model,
         cli_model=None,
-        fallback_to_hardcoded=False,
         model_references=model_references,
     )
     if resolved_model.source == "config file":

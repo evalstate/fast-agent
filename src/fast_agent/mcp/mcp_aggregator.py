@@ -41,11 +41,7 @@ from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.logging.progress_payloads import build_progress_payload
-from fast_agent.core.model_resolution import (
-    HARDCODED_DEFAULT_MODEL,
-    get_context_cli_model_override,
-    resolve_model_spec,
-)
+from fast_agent.core.model_resolution import get_context_cli_model_override, resolve_model_spec
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
@@ -608,19 +604,11 @@ class MCPAggregator(ContextDependent):
 
     def _create_callback_runtime(self, server_name: str) -> MCPClientCallbackRuntime:
         """Build callbacks and agent context for an SDK high-level client."""
-        agent_model: str | None = None
         agent_name: str | None = None
         elicitation_handler = None
         api_key: str | None = None
 
         if self.config:
-            resolved_model = resolve_model_spec(
-                self.context,
-                model=self.config.model,
-                cli_model=get_context_cli_model_override(self.context),
-                hardcoded_default=HARDCODED_DEFAULT_MODEL,
-            )
-            agent_model = resolved_model.model
             agent_name = self.config.name
             elicitation_handler = self.config.elicitation_handler
             api_key = self.config.api_key
@@ -628,7 +616,8 @@ class MCPAggregator(ContextDependent):
         return MCPClientCallbackRuntime(
             server_name=server_name,
             server_config=self._server_config(server_name),
-            agent_model=agent_model,
+            agent_model=self._resolve_callback_agent_model(),
+            agent_model_resolver=self._resolve_callback_agent_model,
             agent_name=agent_name,
             api_key=api_key,
             custom_elicitation_handler=elicitation_handler,
@@ -636,6 +625,15 @@ class MCPAggregator(ContextDependent):
             context=self.context,
             tool_list_changed_callback=self._handle_tool_list_changed,
         )
+
+    def _resolve_callback_agent_model(self) -> str | None:
+        if self.config is None:
+            return None
+        return resolve_model_spec(
+            self.context,
+            model=self.config.model,
+            cli_model=get_context_cli_model_override(self.context),
+        ).model
 
     def _server_config(self, server_name: str) -> MCPServerSettings | None:
         return self._attachment_configs.get(

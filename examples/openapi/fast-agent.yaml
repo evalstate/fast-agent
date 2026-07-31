@@ -7,8 +7,8 @@
 # Accepts aliases for Anthropic Models: haiku, haiku3, sonnet, sonnet35, opus, opus3, opus46, opus47, opus46, opus47
 # and OpenAI Models: gpt-4.1, gpt-4.1-mini, o1, o1-mini, o3-mini
 #
-# If not specified, defaults to "gpt-5.4-mini?reasoning=low".
-# Can be overriden with a command line switch --model=<model>, or within the Agent constructor.
+# This example selects its model explicitly. Override it with --model or change
+# default_model below.
 
 default_model: gpt-5.4-mini?reasoning=low
 # mcp-ui support: disabled, enabled or auto. "auto" opens the web browser on the asset automatically

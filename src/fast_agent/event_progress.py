@@ -32,6 +32,16 @@ class ProgressAction(str, Enum):
     FATAL_ERROR = "Error"
 
 
+class SubagentMonitorSnapshot(BaseModel):
+    """Structured state for one live subagent monitor row."""
+
+    state: str
+    turn: int
+    input_tokens: int
+    output_tokens: int
+    output_estimated: bool = False
+
+
 class ProgressEvent(BaseModel):
     """Represents a progress event converted from a log event."""
 
@@ -60,6 +70,7 @@ class ProgressEvent(BaseModel):
     process_stdout_bytes: int | None = None
     process_stderr_bytes: int | None = None
     elapsed_seconds: float | None = None
+    subagent_monitor: SubagentMonitorSnapshot | None = None
     streaming_tokens: str | None = None  # Special field for streaming token count
     progress: float | None = None  # Current progress value
     total: float | None = None  # Total value for progress calculation

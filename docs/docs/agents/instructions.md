@@ -28,7 +28,7 @@ The following variables are available in System Prompt templates:
 | <nobr>`{{agentType}}`</nobr> | Current agent type |  |
 | <nobr>`{{agentCardPath}}`</nobr> | Source AgentCard path | `(internal)` when not loaded from a card |
 | <nobr>`{{agentCardDir}}`</nobr> | Directory containing the source AgentCard | `(internal)` when not loaded from a card |
-| <nobr>`{{modelReferences}}`</nobr> | Model references | Includes the effective `$system.default` Useful for instructing CLI based subagents |
+| <nobr>`{{modelReferences}}`</nobr> | Model references | Includes `$system.default` when one resolves. Useful for instructing CLI-based subagents |
 | <nobr>`{{model_specific}}`</nobr> | Model-specific prompt guidance from the resolved model catalog entry or model overlay | Empty when the selected model has no model-specific guidance |
 | <nobr>`{{hostPlatform}}`</nobr> | Host platform information |  |
 | <nobr>`{{pythonVer}}`</nobr> | Python version |  |

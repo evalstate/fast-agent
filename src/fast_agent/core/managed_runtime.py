@@ -252,6 +252,8 @@ class ManagedRuntimeMixin:
         self,
         runtime: "RunRuntime",
         instance: "AgentInstance",
+        *,
+        validate_provider_state: bool = True,
     ) -> AgentRefreshResult:
         if runtime.global_prompt_context:
             await self._apply_instruction_context(instance, runtime.global_prompt_context)
@@ -269,7 +271,7 @@ class ManagedRuntimeMixin:
             )
             instance.app.set_session_restore_result(restore_result)
 
-        if not runtime.is_acp_server_mode:
+        if validate_provider_state and not runtime.is_acp_server_mode:
             validate_final_provider_state(instance.agents)
 
         return AgentRefreshResult(

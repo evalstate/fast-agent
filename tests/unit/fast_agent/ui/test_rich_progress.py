@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
-from fast_agent.event_progress import ProgressAction, ProgressEvent
+from fast_agent.event_progress import ProgressAction, ProgressEvent, SubagentMonitorSnapshot
 from fast_agent.ui.display_suppression import suppress_interactive_display
 from fast_agent.ui.progress.display import (
     DynamicDetailsColumn,
@@ -56,6 +56,38 @@ def _task_fields(display: RichProgressDisplay, task_name: str) -> dict[str, Any]
         if task.id == task_id:
             return task.fields
     raise AssertionError(f"Task not found for {task_name}")
+
+
+def _subagent_event(
+    *,
+    action: ProgressAction = ProgressAction.RUNNING,
+    agent_name: str = "parent[reviewer]",
+    label: str = "reviewer",
+    row_id: str = "parent::subagent::outer-call",
+    state: str = "Thinking",
+    turn: int = 2,
+    input_tokens: int = 100,
+    output_tokens: int = 20,
+    output_estimated: bool = False,
+    details: str = "",
+) -> ProgressEvent:
+    return _make_event(
+        action=action,
+        agent_name=agent_name,
+        target=label,
+        instance_name=row_id,
+        tool_name="subagent",
+        tool_event="subagent_monitor",
+        activity=state,
+        details=details,
+        subagent_monitor=SubagentMonitorSnapshot(
+            state=state,
+            turn=turn,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            output_estimated=output_estimated,
+        ),
+    )
 
 
 def test_compacting_track_drains_by_braille_row_then_repeats() -> None:
@@ -678,9 +710,11 @@ class TestAggregatorInitializedVisibility:
                 instance_name="test-agent::subagent::call-1",
                 tool_event="subagent_monitor",
                 activity="Thinking",
-                details=(
-                    "turn  1 · model gpt-5.6-terra · in  58,662 out   7,095 "
-                    "cache  56% · tools 18"
+                subagent_monitor=SubagentMonitorSnapshot(
+                    state="Thinking",
+                    turn=1,
+                    input_tokens=58_662,
+                    output_tokens=7_095,
                 ),
                 elapsed_seconds=2,
             )
@@ -690,21 +724,14 @@ class TestAggregatorInitializedVisibility:
         assert task.start_time is not None
         task.start_time -= 5.5
 
-        rendered = DynamicDetailsColumn().render(task)
+        buffer = io.StringIO()
+        console = Console(file=buffer, force_terminal=False, width=100)
+        console.print(*display._progress.get_renderables())
+        rendered = buffer.getvalue()
 
-        assert rendered.plain == (
-            "turn  1 · model gpt-5.6-terra · in  58,662 out   7,095 "
-            "cache  56% · tools 18 · 0m07s"
-        )
-        styles = {str(span.style) for span in rendered.spans}
-        assert {
-            "not dim cyan",
-            "not dim bold white",
-            "not dim blue",
-            "not dim green",
-            "not dim magenta",
-            "not dim yellow",
-        } <= styles
+        assert "Thinking · 7s" in rendered
+        assert "58,662" in rendered
+        assert "7,095" in rendered
         display.stop()
 
     def test_process_output_activity_fades_then_goes_quiet(self) -> None:
@@ -1135,19 +1162,15 @@ class TestSubagentMonitoringRows:
             )
         )
         display.update(
-            _make_event(
-                action=ProgressAction.RUNNING,
+            _subagent_event(
                 agent_name=child_name,
-                target="reviewer",
-                details="turn 2 · tool · in 100 out 20 cache 80 · tools 1 (read_text_file)",
-                instance_name="parent::subagent::outer-call",
-                tool_name="subagent",
-                tool_event="subagent_monitor",
+                state="tool: read_text_file",
             )
         )
 
         assert set(display._taskmap) == {"parent::subagent::outer-call"}
-        assert "read_text_file" in _task_fields(display, "parent::subagent::outer-call")["details"]
+        snapshot = _task_fields(display, "parent::subagent::outer-call")["subagent_monitor"]
+        assert snapshot.state == "tool: read_text_file"
         display.stop()
 
     def test_monitor_only_scope_folds_generic_child_progress(self) -> None:
@@ -1165,14 +1188,7 @@ class TestSubagentMonitoringRows:
                 )
             )
             display.update(
-                _make_event(
-                    action=ProgressAction.RUNNING,
-                    agent_name="parent[reviewer]",
-                    target="reviewer",
-                    instance_name="parent::subagent::outer-call",
-                    tool_name="subagent",
-                    tool_event="subagent_monitor",
-                )
+                _subagent_event()
             )
 
         assert set(display._taskmap) == {"parent::subagent::outer-call"}
@@ -1184,48 +1200,31 @@ class TestSubagentMonitoringRows:
         display.pause()
 
         display.update(
-            _make_event(
-                action=ProgressAction.MONITORING,
-                agent_name="parent",
-                target="parent",
-                details="1 subagent · scout",
-            )
-        )
-        display.update(
-            _make_event(
-                action=ProgressAction.RUNNING,
+            _subagent_event(
                 agent_name="parent[scout]",
-                target="scout",
-                details="turn 1 · in 3 out 2 cache 1 · tools 0",
-                instance_name="parent::subagent::scout-call",
-                tool_event="subagent_monitor",
+                label="scout",
+                row_id="parent::subagent::scout-call",
+                turn=1,
+                input_tokens=3,
+                output_tokens=2,
             )
         )
         display.update(
-            _make_event(
-                action=ProgressAction.MONITORING,
-                agent_name="parent",
-                target="parent",
-                details="2 subagents · scout, verifier",
-            )
-        )
-        display.update(
-            _make_event(
-                action=ProgressAction.RUNNING,
+            _subagent_event(
                 agent_name="parent[verifier]",
-                target="verifier",
-                details="turn 1 · in 5 out 3 cache 0 · tools 1 (lookup)",
-                instance_name="parent::subagent::verifier-call",
-                tool_event="subagent_monitor",
+                label="verifier",
+                row_id="parent::subagent::verifier-call",
+                state="tool: lookup",
+                turn=1,
+                input_tokens=5,
+                output_tokens=3,
             )
         )
 
         assert set(display._taskmap) == {
-            "parent",
             "parent::subagent::scout-call",
             "parent::subagent::verifier-call",
         }
-        assert _task_fields(display, "parent")["details"] == "2 subagents · scout, verifier"
 
         # Clone initialization owns the logical agent row, not the durable
         # subagent monitor row.
@@ -1256,61 +1255,284 @@ class TestSubagentMonitoringRows:
         )
 
         display.update(
-            _make_event(
-                action=ProgressAction.RUNNING,
+            _subagent_event(
                 agent_name="parent[scout]",
-                target="scout",
-                details="turn 1 · in 3 out 2 cache 1 · tools 0",
-                instance_name="parent::subagent::scout-call",
-                tool_event="subagent_monitor",
-                activity="Thinking",
+                label="scout",
+                row_id="parent::subagent::scout-call",
+                state="Thinking",
+                turn=1,
+                input_tokens=3,
+                output_tokens=2,
             )
         )
-        assert "Thinking" in next(
-            task.description
-            for task in display._progress.tasks
-            if task.id == display._taskmap["parent::subagent::scout-call"]
+        assert (
+            _task_fields(display, "parent::subagent::scout-call")["subagent_monitor"].state
+            == "Thinking"
         )
 
         display.update(
-            _make_event(
+            _subagent_event(
                 action=ProgressAction.READY,
                 agent_name="parent[scout]",
-                target="scout",
-                details="completed",
-                instance_name="parent::subagent::scout-call",
-                tool_event="subagent_monitor",
+                label="scout",
+                row_id="parent::subagent::scout-call",
             )
         )
-        display.update(
-            _make_event(
-                action=ProgressAction.MONITORING,
-                agent_name="parent",
-                target="parent",
-                details="1 subagent · verifier",
-            )
-        )
-        assert set(display._taskmap) == {"parent", "parent::subagent::verifier-call"}
-        assert _task_fields(display, "parent")["details"] == "1 subagent · verifier"
+        assert set(display._taskmap) == {"parent::subagent::verifier-call"}
 
         display.update(
-            _make_event(
+            _subagent_event(
                 action=ProgressAction.READY,
                 agent_name="parent[verifier]",
-                target="verifier",
-                details="completed",
-                instance_name="parent::subagent::verifier-call",
-                tool_event="subagent_monitor",
-            )
-        )
-        display.update(
-            _make_event(
-                action=ProgressAction.READY,
-                agent_name="parent",
-                target="parent",
+                label="verifier",
+                row_id="parent::subagent::verifier-call",
             )
         )
         assert display._taskmap == {}
+        display.stop()
+
+    def test_subagent_process_is_folded_then_promoted(self) -> None:
+        display = _make_display()
+        display.start()
+        row_id = "parent::subagent::outer-call"
+        child_name = "parent[reviewer]"
+        display.fold_agent_progress(child_name)
+        display.update(_subagent_event(agent_name=child_name, row_id=row_id))
+
+        with suppress_interactive_display("monitor_only"):
+            display.update(
+                _make_event(
+                    action=ProgressAction.CALLING_TOOL,
+                    agent_name=child_name,
+                    target="reviewer",
+                    tool_name="poll_process",
+                    correlation_id="poll-1",
+                    process_id="process-41",
+                    process_elapsed_seconds=42,
+                )
+            )
+
+        process_task_name = f"{child_name}::poll-1"
+        process_fields = _task_fields(display, process_task_name)
+        assert process_fields["process_owner_row"] == row_id
+        process_task = next(
+            task
+            for task in display._progress.tasks
+            if task.id == display._taskmap[process_task_name]
+        )
+        assert process_task.visible is False
+
+        display.update(
+            _subagent_event(
+                action=ProgressAction.READY,
+                agent_name=child_name,
+                row_id=row_id,
+            )
+        )
+
+        assert row_id not in display._taskmap
+        assert process_task_name in display._taskmap
+        assert process_task.fields["process_owner_row"] is None
+        assert process_task.visible is True
+        display.stop()
+
+    def test_cancelled_subagent_discards_hidden_process_monitor(self) -> None:
+        display = _make_display()
+        display.start()
+        row_id = "parent::subagent::outer-call"
+        child_name = "parent[reviewer]"
+        display.fold_agent_progress(child_name)
+        display.update(_subagent_event(agent_name=child_name, row_id=row_id))
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                agent_name=child_name,
+                target="reviewer",
+                tool_name="poll_process",
+                correlation_id="poll-1",
+                process_id="process-41",
+                process_elapsed_seconds=42,
+            )
+        )
+        process_task_name = f"{child_name}::poll-1"
+
+        display.update(
+            _subagent_event(
+                action=ProgressAction.READY,
+                agent_name=child_name,
+                row_id=row_id,
+                details="cancelled",
+            )
+        )
+
+        assert row_id not in display._taskmap
+        assert process_task_name not in display._taskmap
+        display.stop()
+
+    def test_terminal_process_poll_is_not_promoted_with_completed_subagent(self) -> None:
+        display = _make_display()
+        display.start()
+        row_id = "parent::subagent::outer-call"
+        child_name = "parent[reviewer]"
+        display.fold_agent_progress(child_name)
+        display.update(_subagent_event(agent_name=child_name, row_id=row_id))
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                agent_name=child_name,
+                target="reviewer",
+                tool_name="poll_process",
+                correlation_id="poll-1",
+                process_id="process-41",
+                process_elapsed_seconds=42,
+                process_wait_seconds=30,
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.TOOL_PROGRESS,
+                agent_name=child_name,
+                target="reviewer",
+                tool_name="poll_process",
+                correlation_id="poll-1",
+                process_id="process-41",
+                process_elapsed_seconds=42,
+                process_wait_seconds=30,
+                tool_terminal=True,
+                process_yield_reason="deadline",
+            )
+        )
+        process_task_name = f"{child_name}::poll-1"
+        process_task = next(
+            task
+            for task in display._progress.tasks
+            if task.id == display._taskmap[process_task_name]
+        )
+        assert process_task.stop_time is not None
+
+        display.update(
+            _subagent_event(
+                action=ProgressAction.READY,
+                agent_name=child_name,
+                row_id=row_id,
+                details="completed",
+            )
+        )
+
+        assert process_task.fields["process_owner_row"] == row_id
+        assert process_task.visible is False
+        display.stop()
+
+    def test_subagent_table_renders_headers_metrics_and_process_summary(self) -> None:
+        buffer = io.StringIO()
+        console = Console(file=buffer, force_terminal=False, width=100)
+        display = RichProgressDisplay(console=console)
+        child_name = "parent[reviewer]"
+        row_id = "parent::subagent::outer-call"
+        display.fold_agent_progress(child_name)
+        display.fold_agent_progress("parent[verifier]")
+        display.update(
+            _subagent_event(
+                agent_name=child_name,
+                label="Review SDK",
+                row_id=row_id,
+                state="tool: read_text_file",
+                turn=3,
+                input_tokens=2_100,
+                output_tokens=812,
+                output_estimated=True,
+            )
+        )
+        display.update(
+            _subagent_event(
+                agent_name="parent[verifier]",
+                label="Verify tests",
+                row_id="parent::subagent::verify-call",
+                state="Thinking",
+                turn=2,
+                input_tokens=1_700,
+                output_tokens=403,
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                agent_name=child_name,
+                target="reviewer",
+                tool_name="poll_process",
+                correlation_id="poll-1",
+                process_id="process-41",
+                process_elapsed_seconds=42,
+            )
+        )
+
+        console.print(*display._progress.get_renderables())
+        rendered = buffer.getvalue()
+
+        assert "Subagents (2)" in rendered
+        assert "subagent" in rendered
+        assert "state" in rendered
+        assert "turn" in rendered
+        assert "in" in rendered
+        assert "out" in rendered
+        assert "processes" in rendered
+        assert "Review SDK" in rendered
+        assert "Verify tests" in rendered
+        assert "tool: read_text_file" in rendered
+        assert "2,100" in rendered
+        assert "~812" in rendered
+        assert "1 · 42s" in rendered
+
+    def test_narrow_subagent_table_keeps_metrics_and_process_header(self) -> None:
+        buffer = io.StringIO()
+        console = Console(file=buffer, force_terminal=False, width=60)
+        display = RichProgressDisplay(console=console)
+        display.update(
+            _subagent_event(
+                label="Review TypeScript SDK",
+                state="tool: read_text_file",
+                turn=3,
+                input_tokens=2_100,
+                output_tokens=812,
+            )
+        )
+
+        console.print(*display._progress.get_renderables())
+        rendered = buffer.getvalue()
+
+        assert "turn" in rendered
+        assert "in" in rendered
+        assert "out" in rendered
+        assert "processes" in rendered
+        assert "2,100" in rendered
+        assert "812" in rendered
+
+    def test_parent_process_remains_standalone_while_subagent_is_active(self) -> None:
+        display = _make_display()
+        display.start()
+        display.update(_subagent_event())
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                agent_name="parent",
+                target="parent",
+                tool_name="poll_process",
+                correlation_id="parent-poll",
+                process_id="process-9",
+                process_elapsed_seconds=5,
+            )
+        )
+
+        process_task_name = "parent::parent-poll"
+        fields = _task_fields(display, process_task_name)
+        process_task = next(
+            task
+            for task in display._progress.tasks
+            if task.id == display._taskmap[process_task_name]
+        )
+
+        assert fields["process_owner_row"] is None
+        assert process_task.visible is True
         display.stop()
 
 

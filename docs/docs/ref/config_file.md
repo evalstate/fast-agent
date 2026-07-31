@@ -81,8 +81,10 @@ Notes:
 - Model reference tokens must match this form exactly: `$<namespace>.<key>` (for example `$system.fast`).
 - Model references can point to other model references (recursive expansion is supported with cycle detection).
 - If a model reference cannot be resolved, fast-agent logs a warning and falls back to the next
-  lower-precedence model source (explicit model → CLI → config → env → hardcoded default).
+  lower-precedence configured model source (explicit model → CLI → config → environment).
   This warning is emitted through the normal logger/event pipeline and may be surfaced in UIs.
+- If no model resolves, interactive startup opens the picker. Unattended runs must supply an
+  AgentCard/decorator model, `--model`, `FAST_AGENT_MODEL`, or `default_model`.
 - If a selected model is not a model reference token (doesn't start with `$`), normal validation behavior
   applies.
 

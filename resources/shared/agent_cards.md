@@ -125,7 +125,7 @@ You can insert these in the **body** or `instruction:`.
 | `\{{agentType}}` | Current agent type |
 | `\{{agentCardPath}}` | Source AgentCard path (if loaded from card) |
 | `\{{agentCardDir}}` | Directory containing the source AgentCard |
-| `\{{modelReferences}}` | Model references, including the effective `$system.default` |
+| `\{{modelReferences}}` | Configured model references, including `$system.default` when resolved |
 | `\{{model_specific}}` | Model-specific prompt guidance from the resolved model catalog entry or model overlay |
 | `\{{serverInstructions}}` | MCP server instructions (if any) |
 | `\{{agentSkills}}` | Formatted skill descriptions |

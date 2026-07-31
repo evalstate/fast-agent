@@ -453,7 +453,6 @@ def _build_common_setup_items(
     system_references = valid_references.get("system", {})
     if (
         "default" not in system_references
-        and "last_used" not in system_references
         and "$system.default" not in hidden_tokens
     ):
         items.append(

@@ -1419,8 +1419,6 @@ async def test_subagent_persists_terminal_failure_and_cancellation(tmp_path) -> 
         ]
         assert failed_child_events[-1].action == ProgressAction.READY
         assert failed_child_events[-1].details == "failed"
-        assert failed_progress.events[-1].agent_name == "failing"
-        assert failed_progress.events[-1].action == ProgressAction.READY
         assert failed_progress._taskmap == {}
 
         entered = asyncio.Event()
@@ -1461,8 +1459,6 @@ async def test_subagent_persists_terminal_failure_and_cancellation(tmp_path) -> 
         ]
         assert cancelled_child_events[-1].action == ProgressAction.READY
         assert cancelled_child_events[-1].details == "cancelled"
-        assert cancelled_progress.events[-1].agent_name == "blocking"
-        assert cancelled_progress.events[-1].action == ProgressAction.READY
         assert cancelled_progress._taskmap == {}
 
         children = manager.list_child_sessions(parent_session)
@@ -1885,6 +1881,11 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
     assert events[0].action == ProgressAction.RUNNING
     assert events[0].target == "brisk-otter"
     assert events[0].activity == "Starting"
+    assert events[0].subagent_monitor is not None
+    assert events[0].subagent_monitor.state == "Starting"
+    assert events[0].subagent_monitor.turn == 0
+    assert events[0].subagent_monitor.input_tokens == 0
+    assert events[0].subagent_monitor.output_tokens == 0
     assert events[0].details == (
         "turn  0 · in       0 out       0 cache   0% · tools 0"
     )
@@ -1895,6 +1896,10 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
     assert any(
         event.action == ProgressAction.RUNNING
         and event.activity == "Processing"
+        and event.subagent_monitor is not None
+        and event.subagent_monitor.turn == 1
+        and event.subagent_monitor.input_tokens == 3
+        and event.subagent_monitor.output_tokens == 2
         and event.details is not None
         and "turn  1" in event.details
         and "model passthrough" in event.details
@@ -1906,6 +1911,8 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
     assert any(
         event.action == ProgressAction.RUNNING
         and event.activity == "Tool"
+        and event.subagent_monitor is not None
+        and event.subagent_monitor.state == "tool: lookup"
         and event.details is not None
         and "tools 1 (lookup)" in event.details
         for event in events
@@ -1956,6 +1963,14 @@ async def test_subagent_monitor_updates_estimated_output_while_streaming() -> No
         "turn  1 · model passthrough · in       0 out ~     1 cache   0% · tools 0",
         "turn  1 · model passthrough · in       0 out ~     9 cache   0% · tools 0",
     ]
+    live_snapshots = [
+        event.subagent_monitor
+        for event in events
+        if event.action == ProgressAction.RUNNING
+        and event.subagent_monitor is not None
+        and event.subagent_monitor.output_estimated
+    ]
+    assert [snapshot.output_tokens for snapshot in live_snapshots] == [3, 1, 9]
     assert any(
         event.action == ProgressAction.RUNNING
         and event.activity == "Processing"
@@ -2001,7 +2016,6 @@ async def test_parallel_subagent_monitor_rows_have_distinct_identity_and_cleanup
         "parent[brisk-otter-2]",
     }
     assert set(progress._taskmap) == {
-        "parent",
         "parent::subagent::call-a",
         "parent::subagent::call-b",
     }
@@ -2018,17 +2032,12 @@ async def test_parallel_subagent_monitor_rows_have_distinct_identity_and_cleanup
     assert set(rows_by_name) == {"parent[brisk-otter]", "parent[brisk-otter-2]"}
     assert {events[0].correlation_id for events in rows_by_name.values()} == {"call-a", "call-b"}
     assert all(events[0].action == ProgressAction.RUNNING for events in rows_by_name.values())
+    assert all(events[0].subagent_monitor is not None for events in rows_by_name.values())
     assert all(
         events[0].details
         == "turn  0 · in       0 out       0 cache   0% · tools 0"
         for events in rows_by_name.values()
     )
     assert all(events[-1].action == ProgressAction.READY for events in rows_by_name.values())
-    parent_events = [event for event in progress.events if event.agent_name == "parent"]
-    assert any(
-        event.action == ProgressAction.MONITORING
-        and event.details == "2 subagents · brisk-otter, brisk-otter-2"
-        for event in parent_events
-    )
-    assert parent_events[-1].action == ProgressAction.READY
+    assert not [event for event in progress.events if event.agent_name == "parent"]
     assert progress._taskmap == {}

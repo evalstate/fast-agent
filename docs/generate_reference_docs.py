@@ -1259,36 +1259,23 @@ def _load_model_factory_constants(
         if str(repo_root) not in sys.path:
             sys.path.insert(0, str(repo_root))
 
+        from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
         from fast_agent.llm.model_database import ModelDatabase
-        from fast_agent.llm.model_factory import ModelFactory
-        from fast_agent.llm.model_selection import ModelSelectionCatalog
         from fast_agent.llm.provider_types import Provider
 
         provider_names = {provider.value for provider in Provider}
-        model_aliases = {
-            key: value
-            for key, value in ModelFactory.MODEL_PRESETS.items()
-            if isinstance(value, str)
-        }
+        model_aliases = dict(BUILTIN_MODEL_ALIASES)
         default_providers = {
             model_name: provider.value
             for model_name in ModelDatabase.MODELS
             if (provider := ModelDatabase.get_default_provider(model_name)) is not None
         }
-        for entry in ModelSelectionCatalog.list_current_entries():
-            alias = entry.alias.strip()
-            if (
-                alias
-                and alias not in default_providers
-                and not any(character.isspace() for character in alias)
-            ):
-                model_aliases.setdefault(alias, entry.model)
         return model_aliases, default_providers, set(), provider_names
     except Exception:
         pass
 
-    model_factory = repo_root / "src" / "fast_agent" / "llm" / "model_factory.py"
-    tree = ast.parse(model_factory.read_text(encoding="utf-8"))
+    model_aliases_module = repo_root / "src" / "fast_agent" / "llm" / "model_aliases.py"
+    tree = ast.parse(model_aliases_module.read_text(encoding="utf-8"))
 
     provider_map = _provider_name_map(repo_root)
     provider_names: set[str] = set(provider_map.values())
@@ -1298,28 +1285,12 @@ def _load_model_factory_constants(
     effort_suffixes: set[str] = set()
 
     for node in tree.body:
-        if isinstance(node, ast.ClassDef) and node.name == "ModelFactory":
-            for stmt in node.body:
-                if not isinstance(stmt, ast.Assign) or len(stmt.targets) != 1:
-                    continue
-                if not isinstance(stmt.targets[0], ast.Name):
-                    continue
-                target_name = stmt.targets[0].id
-
-                if target_name == "MODEL_PRESETS" and isinstance(stmt.value, ast.Dict):
-                    for k, v in zip(stmt.value.keys, stmt.value.values, strict=True):
-                        if (
-                            isinstance(k, ast.Constant)
-                            and isinstance(k.value, str)
-                            and isinstance(v, ast.Constant)
-                            and isinstance(v.value, str)
-                        ):
-                            model_aliases[k.value] = v.value
-
-                if target_name == "EFFORT_MAP" and isinstance(stmt.value, ast.Dict):
-                    for k in stmt.value.keys:
-                        if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                            effort_suffixes.add(k.value.lower())
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "BUILTIN_MODEL_ALIASES"
+        ):
+            model_aliases = ast.literal_eval(node.value)
 
     return model_aliases, default_providers, effort_suffixes, provider_names
 

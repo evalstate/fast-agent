@@ -108,7 +108,7 @@ class CommonAgentOptions:
             None,
             "--model",
             "--models",
-            help="Override the default model (e.g., haiku, sonnet, gpt-4)",
+            help="Select a model for this run (e.g., haiku, sonnet, gpt-4)",
         )
 
     @staticmethod

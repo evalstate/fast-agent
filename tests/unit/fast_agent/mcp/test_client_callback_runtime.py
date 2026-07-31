@@ -97,10 +97,12 @@ async def test_runtime_sampling_callback_captures_fast_agent_configuration(
     monkeypatch.setattr("fast_agent.mcp.client_callback_runtime.sample", fake_sample)
     app_context = _context()
     server_config = MCPServerSettings(sampling=MCPSamplingSettings(model="configured-model"))
+    current_model = "bootstrap-model"
     runtime = MCPClientCallbackRuntime(
         server_name="sampling-server",
         server_config=server_config,
-        agent_model="agent-model",
+        agent_model="initial-model",
+        agent_model_resolver=lambda: current_model,
         api_key="agent-key",
         context=app_context,
     )
@@ -110,6 +112,7 @@ async def test_runtime_sampling_callback_captures_fast_agent_configuration(
     )
 
     assert runtime.sampling_callback is not None
+    current_model = "restored-model"
     request_context: Any = None
     result = await runtime.sampling_callback(request_context, params)
 
@@ -118,7 +121,7 @@ async def test_runtime_sampling_callback_captures_fast_agent_configuration(
         "params": params,
         "server_name": "sampling-server",
         "server_config": server_config,
-        "agent_model": "agent-model",
+        "agent_model": "restored-model",
         "api_key": "agent-key",
         "app_context": app_context,
     }

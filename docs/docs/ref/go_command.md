@@ -30,7 +30,7 @@ fast-agent go [OPTIONS]
 - `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to directly
 - `--auth TEXT`: Bearer token for authorization with URL-based servers
 - `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers when dynamic client registration is not available
-- `--model`, `--models <model_string>`: Override the default model (e.g., haiku, sonnet, gpt-4)
+- `--model`, `--models <model_string>`: Select a model for this run (e.g., haiku, sonnet, gpt-4)
 - `--model`, `--models <model1>,<model2>,...`: Run one agent per model in parallel and print a side-by-side comparison of responses
 - `--environment`, `-E <name>`: Select a named execution environment from config
 - `--pack`, `--card-pack <name>`: Ensure a named card pack is installed in the selected environment before starting
@@ -66,7 +66,7 @@ not need to inspect Fast-Agent session files or private message channels.
 - `--workspace <path>`: Override the workspace root; when `--home` is omitted, the home defaults to `<workspace>/.fast-agent`
 - `--home <path>`: Use `<path>` as the `.fast-agent` home itself (cards load from `<path>/agent-cards/`); relative paths resolve under the selected workspace
 - `--no-home`: Run in ephemeral mode (disable implicit home card loading, session persistence/resume, and permission-store side effects)
-- `--resume <id|latest>`: Resume the latest session (or a specific session id)
+- `--resume <id|latest>`: Resume the latest session (or a specific session id) and restore its saved model without opening the startup picker
 - `--subagents`: Enable the built-in `subagent` tool for the selected or generated agent
 - `--subagent-model <model_string>`: Enable built-in subagents and force every one to use this model
 - `--prompt-file`, `-p <path or uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to a prompt file to use (either text or JSON)
@@ -126,6 +126,9 @@ fast-agent --npx @modelcontextprotocol/server-everything
 
 # Non-interactive mode with a single message
 fast-agent go --message="What is the weather today?" --model=haiku
+
+# Unattended runs can also select a model through the environment
+FAST_AGENT_MODEL=haiku fast-agent go --message="Summarize this report"
 
 # Attach files or URLs to a one-shot message
 fast-agent go --message "Summarize these" --attach ./report.pdf --attach https://example.com/chart.png --model=haiku

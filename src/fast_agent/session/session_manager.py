@@ -505,6 +505,10 @@ class Session:
         except Exception:
             return snapshot_from_session_info(self.info)
 
+    def load_snapshot(self) -> SessionSnapshot:
+        """Load the typed continuation snapshot for this session."""
+        return self._load_snapshot_or_compatibility()
+
     def is_user_visible(self) -> bool:
         """Return whether this session should appear in interactive session surfaces."""
         if self.has_persisted_content() or is_session_pinned(self.info):

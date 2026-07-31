@@ -627,7 +627,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _resolve_default_model_name(
         self,
         requested_model: str | None,
-        hardcoded_default: str | None,
+        provider_default: str | None,
     ) -> str | None:
         """Resolve model name using explicit value, then provider config, then fallback."""
         normalized_requested = self._normalize_model_name(requested_model)
@@ -638,7 +638,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if config_default:
             return self._resolve_model_references(config_default)
 
-        normalized_fallback = self._normalize_model_name(hardcoded_default)
+        normalized_fallback = self._normalize_model_name(provider_default)
         if not normalized_fallback:
             return None
 
@@ -647,10 +647,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _initialize_default_params_with_model_fallback(
         self,
         kwargs: dict[str, Any],
-        hardcoded_default: str | None,
+        provider_default: str | None,
     ) -> RequestParams:
         """Initialize params via shared model resolution precedence."""
-        chosen_model = self._resolve_default_model_name(kwargs.get("model"), hardcoded_default)
+        chosen_model = self._resolve_default_model_name(kwargs.get("model"), provider_default)
         resolved_kwargs = dict(kwargs)
         if chosen_model is not None:
             resolved_kwargs["model"] = chosen_model

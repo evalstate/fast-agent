@@ -1763,9 +1763,17 @@
       "additionalProperties": true,
       "properties": {
         "model": {
-          "default": "gpt-5-mini?reasoning=low",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
           "title": "Model",
-          "type": "string"
+          "description": "Model used for sampling requests. Falls back to the agent or configured global model."
         }
       },
       "title": "MCPSamplingSettings",

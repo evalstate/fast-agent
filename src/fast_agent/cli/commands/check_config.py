@@ -1466,11 +1466,13 @@ def _render_environment_summary(context: _CheckSummaryContext) -> None:
         )
     else:
         env_table.add_row("Config File", f"[green]Found[/green] ({config_path})")
-        default_model_value = context.config_summary.get(
-            "default_model",
-            "gpt-5.4-mini?reasoning=low (system default)",
+        default_model_value = context.config_summary.get("default_model")
+        default_model_display = (
+            f"[green]{default_model_value}[/green]"
+            if default_model_value
+            else "[yellow]Not configured[/yellow]"
         )
-        env_table.add_row("Default Model", f"[green]{default_model_value}[/green]")
+        env_table.add_row("Default Model", default_model_display)
 
     if context.effective_settings_error:
         env_table.add_row("Effective Config", "[orange_red1]Errors[/orange_red1]")

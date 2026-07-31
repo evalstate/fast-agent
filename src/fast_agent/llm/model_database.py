@@ -1344,6 +1344,10 @@ class ModelDatabase:
             if parsed.provider == Provider.HUGGINGFACE and ":" in model_spec:
                 model_spec = model_spec.rsplit(":", 1)[0]
 
+            normalized = strip_casefold(model_spec)
+            if normalized in cls.MODELS:
+                return normalized
+
             parsed_alias = cls._preset_for_model_name(model_spec)
             if parsed_alias:
                 model_spec = parsed_alias

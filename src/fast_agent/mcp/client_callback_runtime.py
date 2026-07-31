@@ -58,6 +58,7 @@ logger = get_logger(__name__)
 
 type ToolListChangedCallback = Callable[[str], Awaitable[None]]
 type TransportNotificationHandler = Callable[[str], None]
+type AgentModelResolver = Callable[[], str | None]
 
 
 @dataclass(slots=True)
@@ -72,6 +73,7 @@ class MCPClientCallbackRuntime:
     server_name: str | None
     server_config: MCPServerSettings | None
     agent_model: str | None = None
+    agent_model_resolver: AgentModelResolver | None = None
     agent_name: str | None = None
     api_key: str | None = None
     custom_elicitation_handler: ElicitationFnT | None = None
@@ -114,6 +116,11 @@ class MCPClientCallbackRuntime:
             return self.server_config.implementation
         return Implementation(name="fast-agent-mcp", version=version("fast-agent-mcp") or "dev")
 
+    def _current_agent_model(self) -> str | None:
+        if self.agent_model_resolver is not None:
+            return self.agent_model_resolver()
+        return self.agent_model
+
     def _make_list_roots_callback(self) -> ListRootsFnT | None:
         if self.server_config is None or not self.server_config.roots:
             return None
@@ -147,7 +154,7 @@ class MCPClientCallbackRuntime:
             params,
             server_name=self.display_server_name,
             server_config=self.server_config,
-            agent_model=self.agent_model,
+            agent_model=self._current_agent_model(),
             api_key=self.api_key,
             app_context=self._app_context(),
         )
@@ -166,7 +173,7 @@ class MCPClientCallbackRuntime:
             handler = resolve_elicitation_handler(
                 AgentConfig(
                     name=self.agent_name or "unknown",
-                    model=self.agent_model or "unknown",
+                    model=self._current_agent_model() or "unknown",
                     elicitation_handler=None,
                 ),
                 app_context.config,

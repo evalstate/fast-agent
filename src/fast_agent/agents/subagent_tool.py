@@ -31,7 +31,7 @@ from fast_agent.constants import (
 )
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.event_progress import ProgressAction, ProgressEvent
+from fast_agent.event_progress import ProgressAction, ProgressEvent, SubagentMonitorSnapshot
 from fast_agent.llm.model_display_name import resolve_llm_display_name, resolve_model_display_name
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.mcp.prompt import Prompt
@@ -96,7 +96,6 @@ class _SubagentMonitorCoordinator:
     def __init__(self, *, display: ProgressEventDisplay, parent_name: str) -> None:
         self._display = display
         self._parent_name = parent_name
-        self._active: dict[str, _SubagentProgress] = {}
 
     def start(
         self,
@@ -114,21 +113,20 @@ class _SubagentMonitorCoordinator:
         )
         if isinstance(self._display, FoldableProgressEventDisplay):
             self._display.fold_agent_progress(child_name)
-        self._active[child_name] = progress
-        self._emit_parent()
         progress.running(0)
         return progress
 
-    def update_child(self, progress: "_SubagentProgress", details: str) -> None:
+    def update_child(self, progress: "_SubagentProgress") -> None:
         self._emit(
             action=ProgressAction.RUNNING,
             target=progress.label,
             agent_name=progress.child_name,
-            details=details,
+            details=progress.details(),
             activity=progress.activity,
             parent_tool_call_id=progress.parent_tool_call_id,
             row_id=progress.row_id,
             elapsed_seconds=progress.elapsed_seconds,
+            snapshot=progress.snapshot(),
         )
 
     def finish(self, progress: "_SubagentProgress", status: str) -> None:
@@ -140,32 +138,7 @@ class _SubagentMonitorCoordinator:
             parent_tool_call_id=progress.parent_tool_call_id,
             row_id=progress.row_id,
             elapsed_seconds=progress.elapsed_seconds,
-        )
-        self._active.pop(progress.child_name, None)
-        if self._active:
-            self._emit_parent()
-        else:
-            self._emit(
-                action=ProgressAction.READY,
-                target=self._parent_name,
-                agent_name=self._parent_name,
-                details="",
-                parent_tool_call_id=None,
-                row_id=None,
-                elapsed_seconds=None,
-            )
-
-    def _emit_parent(self) -> None:
-        labels = [progress.label for progress in self._active.values()]
-        noun = "subagent" if len(labels) == 1 else "subagents"
-        self._emit(
-            action=ProgressAction.MONITORING,
-            target=self._parent_name,
-            agent_name=self._parent_name,
-            details=f"{len(labels)} {noun} · {', '.join(labels)}",
-            parent_tool_call_id=None,
-            row_id=None,
-            elapsed_seconds=None,
+            snapshot=progress.snapshot(),
         )
 
     def _emit(
@@ -179,6 +152,7 @@ class _SubagentMonitorCoordinator:
         row_id: str | None,
         elapsed_seconds: float | None,
         activity: str | None = None,
+        snapshot: SubagentMonitorSnapshot | None = None,
     ) -> None:
         self._display.update(
             ProgressEvent(
@@ -192,6 +166,7 @@ class _SubagentMonitorCoordinator:
                 tool_event="subagent_monitor" if row_id is not None else None,
                 elapsed_seconds=elapsed_seconds,
                 activity=activity,
+                subagent_monitor=snapshot,
             )
         )
 
@@ -241,7 +216,7 @@ class _SubagentProgress:
 
     def running(self, turn: int) -> None:
         self._turn = turn
-        self._coordinator.update_child(self, self._details())
+        self._coordinator.update_child(self)
 
     def before_llm_call(self, turn: int) -> None:
         self._reset_stream_estimate()
@@ -282,7 +257,7 @@ class _SubagentProgress:
             had_estimate = self._estimated_output_tokens > 0
             self._reset_stream_estimate()
             if had_estimate:
-                self._coordinator.update_child(self, self._details())
+                self._coordinator.update_child(self)
             return
         if chunk.event != "delta" or not chunk.text:
             return
@@ -298,14 +273,27 @@ class _SubagentProgress:
         ):
             return
         self._last_emitted_output_estimate = estimate
-        self._coordinator.update_child(self, self._details())
+        self._coordinator.update_child(self)
 
     def _reset_stream_estimate(self) -> None:
         self._streamed_chars = 0
         self._estimated_output_tokens = 0
         self._last_emitted_output_estimate = 0
 
-    def _details(self) -> str:
+    def snapshot(self) -> SubagentMonitorSnapshot:
+        input_tokens, output_tokens, output_estimated = self._usage()
+        state = self._activity
+        if self._current_tool_name is not None:
+            state = f"tool: {self._current_tool_name}"
+        return SubagentMonitorSnapshot(
+            state=state,
+            turn=self._turn,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            output_estimated=output_estimated,
+        )
+
+    def details(self) -> str:
         tool_details = f"tools {self._tool_count}"
         if self._current_tool_name:
             tool_details = f"{tool_details} ({self._current_tool_name})"
@@ -324,22 +312,37 @@ class _SubagentProgress:
             )
             if model:
                 parts.append(f"model {model}")
-        parts.extend((self._usage_details(), tool_details))
+        input_tokens, output_tokens, output_estimated = self._usage()
+        parts.extend(
+            (
+                _format_usage_details(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cache_percentage=self._cache_percentage(input_tokens),
+                    output_estimated=output_estimated,
+                ),
+                tool_details,
+            )
+        )
         return " · ".join(parts)
 
-    def _usage_details(self) -> str:
+    def _usage(self) -> tuple[int, int, bool]:
         if self._agent is None or self._agent.usage_accumulator is None:
-            return _format_usage_details(input_tokens=0, output_tokens=0, cache_percentage=0)
+            return 0, self._estimated_output_tokens, self._estimated_output_tokens > 0
         summary = self._agent.usage_accumulator.summary
         input_tokens = summary.prompt.total or 0
-        return _format_usage_details(
+        return (
+            input_tokens,
+            (summary.completion.total or 0) + self._estimated_output_tokens,
+            self._estimated_output_tokens > 0,
+        )
+
+    def _cache_percentage(self, input_tokens: int) -> float:
+        if self._agent is None or self._agent.usage_accumulator is None:
+            return 0
+        return _cache_percentage(
+            cache_read=self._agent.usage_accumulator.summary.prompt.cache_read,
             input_tokens=input_tokens,
-            output_tokens=(summary.completion.total or 0) + self._estimated_output_tokens,
-            cache_percentage=_cache_percentage(
-                cache_read=summary.prompt.cache_read,
-                input_tokens=input_tokens,
-            ),
-            output_estimated=self._estimated_output_tokens > 0,
         )
 
 

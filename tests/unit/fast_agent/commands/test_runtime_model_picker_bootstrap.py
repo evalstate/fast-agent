@@ -27,7 +27,6 @@ from fast_agent.cli.runtime.agent_setup import (
     _load_request_settings,
     _persist_model_picker_last_used_selection,
     _resolve_model_picker_initial_selection,
-    _resolve_model_without_hardcoded_default,
     _select_model_from_picker,
     _select_startup_model_if_needed,
     _set_cli_server_overlay_for_selected_agent,
@@ -106,6 +105,23 @@ def _make_request(
     )
 
 
+def _seed_session_model(home: Path, session_id: str, model_spec: str) -> None:
+    from fast_agent.session.session_manager import SessionManager
+    from fast_agent.session.snapshot import SessionAgentSnapshot, snapshot_from_session_info
+
+    manager = SessionManager(home_override=home)
+    session = manager.create_session_with_id(session_id)
+    history_file = "history_agent.json"
+    (session.directory / history_file).write_text("[]", encoding="utf-8")
+    snapshot = snapshot_from_session_info(session.info)
+    snapshot.continuation.active_agent = "agent"
+    snapshot.continuation.agents["agent"] = SessionAgentSnapshot(
+        history_file=history_file,
+        model_spec=model_spec,
+    )
+    session._save_snapshot(snapshot)
+
+
 def test_should_prompt_for_model_picker_in_interactive_tty_startup() -> None:
     request = _make_request(message=None, prompt_file=None)
 
@@ -147,7 +163,12 @@ def test_should_prompt_for_model_picker_when_cards_present() -> None:
 
 
 @pytest.mark.asyncio
-async def test_startup_model_selection_skipped_when_resuming(monkeypatch) -> None:
+@pytest.mark.parametrize("resume", ["__latest__", ""])
+async def test_startup_model_selection_uses_latest_resumed_model(
+    tmp_path: Path,
+    monkeypatch,
+    resume: str,
+) -> None:
     # On --resume the session snapshot owns the model; the startup picker must
     # not run (its selection would be overridden by hydration anyway). Instead
     # a distinctive model source is returned so the startup status notice names
@@ -156,14 +177,17 @@ async def test_startup_model_selection_skipped_when_resuming(monkeypatch) -> Non
         raise AssertionError("model picker must not run during resume")
 
     monkeypatch.setattr("fast_agent.cli.runtime.agent_setup._select_model_from_picker", _fail)
-    request = _make_request(resume="__latest__")
+    request = _make_request(resume=resume)
+    request.home = tmp_path
+    _seed_session_model(tmp_path, "session-latest", "codexresponses.gpt-5.6-sol")
 
     assert await _select_startup_model_if_needed(request) == "session resumption"
-    assert request.model is None
+    assert request.model == "codexresponses.gpt-5.6-sol"
 
 
 @pytest.mark.asyncio
 async def test_startup_model_selection_skipped_when_resuming_named_session(
+    tmp_path: Path,
     monkeypatch,
 ) -> None:
     async def _fail(*args, **kwargs):  # type: ignore[no-untyped-def]
@@ -171,9 +195,11 @@ async def test_startup_model_selection_skipped_when_resuming_named_session(
 
     monkeypatch.setattr("fast_agent.cli.runtime.agent_setup._select_model_from_picker", _fail)
     request = _make_request(resume="session-123")
+    request.home = tmp_path
+    _seed_session_model(tmp_path, "session-123", "anthropic.claude-sonnet-4-5")
 
     assert await _select_startup_model_if_needed(request) == "session resumption"
-    assert request.model is None
+    assert request.model == "anthropic.claude-sonnet-4-5"
 
 
 def test_attach_cli_servers_prefers_typed_default_agent_config() -> None:
@@ -380,57 +406,6 @@ def test_explicit_remote_agent_card_model_reference_only_suppresses_when_availab
         )
         is expected
     )
-
-
-def test_resolve_model_without_hardcoded_default_returns_none_without_sources() -> None:
-    previous = os.environ.pop("FAST_AGENT_MODEL", None)
-    try:
-        resolved_model = _resolve_model_without_hardcoded_default(
-            model=None,
-            config_default_model=None,
-            model_references=None,
-        )
-    finally:
-        if previous is not None:
-            os.environ["FAST_AGENT_MODEL"] = previous
-
-    assert resolved_model.model is None
-    assert resolved_model.source is None
-
-
-def test_resolve_model_without_hardcoded_default_prefers_config_default() -> None:
-    previous = os.environ.pop("FAST_AGENT_MODEL", None)
-    try:
-        resolved_model = _resolve_model_without_hardcoded_default(
-            model=None,
-            config_default_model="openai.gpt-4.1-mini",
-            model_references=None,
-        )
-    finally:
-        if previous is not None:
-            os.environ["FAST_AGENT_MODEL"] = previous
-
-    assert resolved_model.model == "openai.gpt-4.1-mini"
-    assert resolved_model.source == "config file"
-
-
-def test_resolve_model_without_hardcoded_default_uses_environment_variable() -> None:
-    previous = os.environ.get("FAST_AGENT_MODEL")
-    os.environ["FAST_AGENT_MODEL"] = "responses.gpt-5-mini"
-    try:
-        resolved_model = _resolve_model_without_hardcoded_default(
-            model=None,
-            config_default_model=None,
-            model_references=None,
-        )
-    finally:
-        if previous is not None:
-            os.environ["FAST_AGENT_MODEL"] = previous
-        else:
-            os.environ.pop("FAST_AGENT_MODEL", None)
-
-    assert resolved_model.model == "responses.gpt-5-mini"
-    assert resolved_model.source == "environment variable FAST_AGENT_MODEL"
 
 
 @pytest.mark.asyncio
@@ -1196,7 +1171,7 @@ async def test_run_agent_request_persists_and_reloads_last_used_for_shell_mode(
 
 
 @pytest.mark.asyncio
-async def test_run_agent_request_uses_last_used_for_noninteractive_startup(
+async def test_run_agent_request_does_not_use_last_used_for_noninteractive_startup(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -1207,7 +1182,10 @@ async def test_run_agent_request_uses_last_used_for_noninteractive_startup(
     home = workspace / ".cdx"
     home.mkdir(parents=True)
     (home / "fast-agent.yaml").write_text(
-        "default_model: null\nmodel_references:\n  system:\n    last_used: claude-haiku-4-5\n",
+        'default_model: "$system.default"\n'
+        "model_references:\n"
+        "  system:\n"
+        "    last_used: claude-haiku-4-5\n",
         encoding="utf-8",
     )
 
@@ -1242,4 +1220,4 @@ async def test_run_agent_request_uses_last_used_for_noninteractive_startup(
             os.environ["FAST_AGENT_HOME"] = previous_home
         config_module._settings = old_settings
 
-    assert request.model == "claude-haiku-4-5"
+    assert request.model is None

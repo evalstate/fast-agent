@@ -19,7 +19,10 @@ Local models with [**llama.cpp**](providers/llamacpp.md) are directly supported,
 
 #### Model Picker and Defaults
 
-In interactive mode, with no model specified or default configured, **`fast-agent`** shows a model selector on startup, highlighting available models.
+In an interactive, non-resumed run, **`fast-agent`** opens the model picker
+when no model resolves from an AgentCard, `--model`, `default_model`, or
+`FAST_AGENT_MODEL`. The picker is not used for `--resume`; the saved session
+model is restored.
 
 <div
   class="fa-terminal-demo"
@@ -238,7 +241,10 @@ Model specifications follow this precedence order, highest to lowest:
 1. Command-line arguments with `--model`
 1. Default model in `fast-agent.yaml`
 1. `FAST_AGENT_MODEL` environment variable
-1. System default (`gpt-5.4-mini?reasoning=low`)
+
+If none of these sources provides a model, interactive startup opens the
+picker. Unattended, server, batch, and programmatic runs must configure a model
+and otherwise fail with `No model configured`.
 
 ### Reasoning
 

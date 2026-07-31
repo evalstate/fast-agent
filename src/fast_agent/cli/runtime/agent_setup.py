@@ -32,6 +32,9 @@ from fast_agent.utils.filename import sanitize_filename_suffix
 from fast_agent.utils.text import strip_casefold, strip_to_none
 from fast_agent.utils.transports import uses_mcp_remote_transport, uses_protocol_stdio
 
+from .harness_startup import (
+    resume_bootstrap_model as _resume_bootstrap_model,
+)
 from .harness_startup import run_cli_flow, run_parallel_cli_flow
 from .model_bootstrap import (
     agent_config_defines_startup_model as _agent_config_defines_startup_model,
@@ -53,9 +56,6 @@ from .model_bootstrap import (
 )
 from .model_bootstrap import (
     resolve_model_picker_initial_selection as _resolve_model_picker_initial_selection,
-)
-from .model_bootstrap import (
-    resolve_model_without_hardcoded_default as _resolve_model_without_hardcoded_default,
 )
 from .model_bootstrap import (
     select_model_from_picker as _select_model_from_picker,
@@ -870,7 +870,8 @@ async def _select_startup_model_if_needed(request: AgentRunRequest) -> str | Non
     if request.model is not None:
         return None
 
-    if request.resume:
+    if request.resume is not None:
+        request.model = _resume_bootstrap_model(request)
         # Resuming a session: the persisted session snapshot owns the model
         # (restored by session hydration during run). Showing the startup
         # picker here is both misleading and ineffective -- its selection is
@@ -896,9 +897,13 @@ async def _select_startup_model_if_needed(request: AgentRunRequest) -> str | Non
             and _system_default_reference_is_missing(_settings_model_references(settings))
         ),
     )
-    resolved_model = _resolve_model_without_hardcoded_default(
+    from fast_agent.core.model_resolution import resolve_model_spec
+
+    resolved_model = resolve_model_spec(
+        context=None,
         model=request.model,
-        config_default_model=settings.default_model,
+        default_model=settings.default_model,
+        cli_model=request.model,
         model_references=settings.model_references,
     )
 
@@ -937,10 +942,6 @@ async def _select_startup_model_if_needed(request: AgentRunRequest) -> str | Non
         )
         return "model picker"
 
-    initial_selection = _resolve_model_picker_initial_selection(settings=settings)
-    if initial_selection.model_spec:
-        request.model = initial_selection.model_spec
-        return "last used model"
     return None
 
 

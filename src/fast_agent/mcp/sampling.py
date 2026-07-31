@@ -17,9 +17,9 @@ from mcp_types import (
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.model_resolution import (
-    HARDCODED_DEFAULT_MODEL,
     get_context_cli_model_override,
     get_context_model_references,
     resolve_model_reference,
@@ -135,20 +135,13 @@ def _agent_sampling_overrides(
 
 
 def _default_sampling_model(app_context: "Context | None") -> str | None:
-    try:
-        resolved_model = resolve_model_spec(
-            app_context,
-            cli_model=get_context_cli_model_override(app_context),
-            hardcoded_default=HARDCODED_DEFAULT_MODEL,
-        )
-        if resolved_model.model:
-            logger.debug(
-                f"Using {resolved_model.source} model for sampling: {resolved_model.model}"
-            )
-        return resolved_model.model
-    except Exception as e:
-        logger.debug(f"Could not resolve default model for sampling: {e}")
-        return None
+    resolved_model = resolve_model_spec(
+        app_context,
+        cli_model=get_context_cli_model_override(app_context),
+    )
+    if resolved_model.model:
+        logger.debug(f"Using {resolved_model.source} model for sampling: {resolved_model.model}")
+    return resolved_model.model
 
 
 def _select_sampling_model(
@@ -166,8 +159,10 @@ def _select_sampling_model(
             model = _default_sampling_model(app_context)
 
     if model is None:
-        raise ValueError(
-            "No model configured for sampling (server config, agent model, or system default)"
+        raise ModelConfigError(
+            "No model configured for MCP sampling",
+            "Set the server sampling model, an agent model, --model, FAST_AGENT_MODEL, "
+            "or default_model in fast-agent.yaml.",
         )
 
     resolved = resolve_model_reference(model, get_context_model_references(app_context))
