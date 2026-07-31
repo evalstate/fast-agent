@@ -914,6 +914,9 @@ class ShellRuntime:
                 task=task,
                 request=request,
                 lifecycle=parsed.lifecycle,
+                intentional_persistent_background=(
+                    parsed.background and parsed.lifecycle == "persistent"
+                ),
                 callbacks=callbacks,
                 output_state=output_state,
                 display_state=display_state,

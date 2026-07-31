@@ -657,7 +657,13 @@ class ToolDisplay:
             (
                 index
                 for index, line in enumerate(lines)
-                if line.startswith("Process is still running")
+                if line.startswith(
+                    (
+                        "Process is still running",
+                        "Command is still running",
+                        "Managed background process is still running",
+                    )
+                )
             ),
             None,
         )
@@ -719,7 +725,13 @@ class ToolDisplay:
         ):
             return False
         lines = content[0].text.splitlines()
-        return bool(lines) and lines[0].startswith("Process is still running")
+        return bool(lines) and lines[0].startswith(
+            (
+                "Process is still running",
+                "Command is still running",
+                "Managed background process is still running",
+            )
+        )
 
     @staticmethod
     def _structured_tool_result_display_content(

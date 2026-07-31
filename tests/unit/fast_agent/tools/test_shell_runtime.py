@@ -1422,7 +1422,10 @@ async def test_silent_command_yields_alive_then_poll_reports_completion() -> Non
     assert result.isError is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
-    assert "Process is still running" in result.content[0].text
+    assert "Command is still running; no completion result is available yet" in (
+        result.content[0].text
+    )
+    assert "Do not rely on partial output or end the task" in result.content[0].text
     assert "process_id: process-1" in result.content[0].text
     assert environment.requests[0].terminate_after_idle is False
     assert environment.requests[0].retain_output is False
@@ -1430,7 +1433,12 @@ async def test_silent_command_yields_alive_then_poll_reports_completion() -> Non
     running_poll = await runtime.poll_process({"process_id": "process-1"})
     assert running_poll.content is not None
     assert isinstance(running_poll.content[0], TextContent)
-    assert "Process is still running." in running_poll.content[0].text
+    assert "Command is still running; no completion result is available yet." in (
+        running_poll.content[0].text
+    )
+    assert "Next: call `process` with action='wait' or 'status'." in (
+        running_poll.content[0].text
+    )
     assert "because it is still running" not in running_poll.content[0].text
     assert "output_activity: 0 lines / 0 bytes since last poll" in (running_poll.content[0].text)
     assert "no output observed for" in running_poll.content[0].text
@@ -1753,7 +1761,9 @@ async def test_poll_can_buffer_output_until_deadline() -> None:
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert "still working" in result.content[0].text
-    assert "Process is still running." in result.content[0].text
+    assert "Managed background process is still running." in result.content[0].text
+    assert "Do not wait for it to exit" in result.content[0].text
+    assert "run readiness checks in a separate `bash` call" in result.content[0].text
     process_metadata = (result.meta or {})[FAST_AGENT_SHELL_PROCESS_METADATA]
     assert process_metadata["poll_elapsed_seconds"] >= 0.9
     assert process_metadata["poll_deadline_overshoot_seconds"] >= 0
