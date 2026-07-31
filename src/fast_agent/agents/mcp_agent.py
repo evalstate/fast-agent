@@ -897,6 +897,14 @@ class McpAgent(ABC, ToolAgent):
         return int(minor) >= 2
 
     @staticmethod
+    def _prefers_extended_shell_guidance(model_name: str | None) -> bool:
+        """Return True for GPT-5.6-class models."""
+        if not model_name:
+            return False
+        normalized = ModelDatabase.normalize_model_name(model_name)
+        return re.match(r"^gpt-5\.6(?:$|[-.])", normalized) is not None
+
+    @staticmethod
     def _prefers_anthropic_edit_file_model(model_name: str | None) -> bool:
         """Return True for Anthropic-series models."""
         if not model_name:
@@ -1063,6 +1071,10 @@ class McpAgent(ABC, ToolAgent):
 
         if self._shell_runtime is None:
             return
+        self._shell_runtime.set_extended_guidance(
+            self._prefers_extended_shell_guidance(resolve_model_name(llm))
+        )
+        self._bash_tool = self._shell_runtime.tool
         self._shell_runtime.set_process_poll_default_wait_seconds(
             self._model_process_poll_default_wait_seconds(llm)
         )
@@ -1141,6 +1153,9 @@ class McpAgent(ABC, ToolAgent):
             config=self._context.config if self._context else None,
             agent_name=self._name,
             shell_environment=self._shell_environment,
+            extended_guidance=self._prefers_extended_shell_guidance(
+                self._resolve_shell_tool_model_name()
+            ),
         )
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._bash_tool = self._shell_runtime.tool

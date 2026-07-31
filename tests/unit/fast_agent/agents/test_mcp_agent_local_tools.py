@@ -334,7 +334,7 @@ async def test_shell_and_card_tools_are_both_highlighted() -> None:
         content=[TextContent(type="text", text="response")],
         tool_calls={
             "shell": CallToolRequest(
-                    params=CallToolRequestParams(name="bash", arguments={"command": "pwd"})
+                params=CallToolRequestParams(name="bash", arguments={"command": "pwd"})
             ),
             "lsp": CallToolRequest(
                 params=CallToolRequestParams(
@@ -956,6 +956,41 @@ async def test_default_shell_profile_exposes_facades_with_file_tools() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model", "expects_extended_guidance"),
+    [
+        ("gpt-5.6-luna", True),
+        ("openai/gpt-5.6-sol", True),
+        ("deepseek.deepseek-v4-flash", False),
+        ("sonnet", False),
+    ],
+)
+async def test_minimal_shell_extended_guidance_is_gpt56_specific(
+    model: str,
+    expects_extended_guidance: bool,
+) -> None:
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model=model,
+    )
+    agent = McpAgent(config=config, context=Context(config=Settings()))
+
+    tools = {tool.name: tool for tool in (await agent.list_tools()).tools}
+    bash_description = tools["bash"].description or ""
+    process_description = tools["process"].description or ""
+
+    assert ("task-relevant verification" in bash_description) is expects_extended_guidance
+    assert (
+        "before relying on its result or ending the task" in process_description
+    ) is expects_extended_guidance
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
 async def test_minimal_process_planned_metadata_matches_runtime_dispatch() -> None:
     settings = Settings()
     config = AgentConfig(
@@ -1562,7 +1597,7 @@ async def test_shell_tool_use_turn_hides_bottom_bar_and_mentions_shell_access() 
     tool_calls = {
         "1": CallToolRequest(
             params=CallToolRequestParams(
-                        name="bash",
+                name="bash",
                 arguments={"command": "pwd"},
             )
         )
@@ -1795,7 +1830,7 @@ async def test_local_shell_result_is_not_retruncated_by_mcp_result_policy() -> N
         tool_calls={
             "call-1": CallToolRequest(
                 params=CallToolRequestParams(
-                        name="bash",
+                    name="bash",
                     arguments={"command": "emit output"},
                 )
             )

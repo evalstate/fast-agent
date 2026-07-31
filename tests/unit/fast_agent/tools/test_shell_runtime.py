@@ -1436,9 +1436,7 @@ async def test_silent_command_yields_alive_then_poll_reports_completion() -> Non
     assert "Command is still running; no completion result is available yet." in (
         running_poll.content[0].text
     )
-    assert "Next: call `process` with action='wait' or 'status'." in (
-        running_poll.content[0].text
-    )
+    assert "Next: call `process` with action='wait' or 'status'." in (running_poll.content[0].text)
     assert "because it is still running" not in running_poll.content[0].text
     assert "output_activity: 0 lines / 0 bytes since last poll" in (running_poll.content[0].text)
     assert "no output observed for" in running_poll.content[0].text

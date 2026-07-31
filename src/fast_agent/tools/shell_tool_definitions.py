@@ -230,7 +230,21 @@ def build_terminate_process_tool() -> Tool:
     )
 
 
-def build_minimal_bash_tool(*, shell_name: str) -> Tool:
+def build_minimal_bash_tool(*, shell_name: str, extended_guidance: bool = False) -> Tool:
+    process_guidance = (
+        "Foreground commands that take time may yield a managed process ID. "
+        "Do not assume a yielded process completed: use process with `wait` or "
+        "`status` before relying on its output or ending the task, unless it is "
+        "an intentionally persistent service. If output is truncated and a "
+        "retained-output path is reported, inspect the relevant ranges with "
+        "read_text_file or a targeted search before drawing conclusions. Before "
+        "ending, run a task-relevant verification and inspect its result."
+        if extended_guidance
+        else (
+            "Foreground commands that take time may yield a managed process ID; "
+            "use process to inspect, wait for, or stop it."
+        )
+    )
     return Tool(
         name=BASH_TOOL_NAME,
         description=(
@@ -238,14 +252,7 @@ def build_minimal_bash_tool(*, shell_name: str) -> Tool:
             "`run_in_background=true` for a server, service, or other "
             "long-running command; it returns a managed process ID and remains "
             "running for the verifier. Do not use shell `&`, `nohup`, or `disown` "
-            "to detach services. Foreground commands that take time may yield a "
-            "managed process ID. Do not assume a yielded process completed: use "
-            "process with `wait` or `status` before relying on its output or ending "
-            "the task, unless it is an intentionally persistent service. If output "
-            "is truncated and a retained-output path is reported, inspect the "
-            "relevant ranges with read_text_file or a targeted search before drawing "
-            "conclusions. Before ending, run a task-relevant verification and inspect "
-            "its result."
+            f"to detach services. {process_guidance}"
         ),
         inputSchema={
             "type": "object",
@@ -271,7 +278,14 @@ def build_minimal_process_tool(
     *,
     default_wait_seconds: int,
     max_wait_seconds: int,
+    extended_guidance: bool = False,
 ) -> Tool:
+    completion_guidance = (
+        " When bash yields a foreground process ID, use `wait` or `status` until "
+        "completion before relying on its result or ending the task."
+        if extended_guidance
+        else ""
+    )
     return Tool(
         name=PROCESS_TOOL_NAME,
         description=(
@@ -282,9 +296,7 @@ def build_minimal_process_tool(
             "when omitted it uses the configured model-specific polling interval "
             "(with a nonzero fallback when the model has none). "
             f"Use {default_wait_seconds} seconds unless more frequent monitoring "
-            "is needed. When bash yields a foreground process ID, use `wait` or "
-            "`status` until completion before relying on its result or ending the "
-            "task. `stop` terminates the process group."
+            f"is needed.{completion_guidance} `stop` terminates the process group."
         ),
         inputSchema={
             "type": "object",

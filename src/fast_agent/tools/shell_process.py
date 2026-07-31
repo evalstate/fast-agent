@@ -288,9 +288,7 @@ def build_managed_process_result(
                 "because it reached the foreground yield threshold."
             )
         else:
-            status_message = (
-                "Command is still running; no completion result is available yet."
-            )
+            status_message = "Command is still running; no completion result is available yet."
         if minimal_process_profile and persistent_background:
             next_action = (
                 "This command was intentionally started with "
