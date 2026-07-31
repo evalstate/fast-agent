@@ -12,6 +12,7 @@ RESPONSES_TERMINAL_EVENT_TYPES = frozenset(
 RESPONSES_FAILURE_EVENT_TYPES = frozenset({"error", "response.failed"})
 RESPONSES_REASONING_DELTA_EVENT_TYPES = frozenset(
     {
+        "response.reasoning_text.delta",
         "response.reasoning_summary_text.delta",
         "response.reasoning_summary.delta",
     }

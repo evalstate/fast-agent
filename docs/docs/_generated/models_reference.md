@@ -34,11 +34,7 @@
 | `luna` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `luna.medium` | `low`, `medium`, `high`<br>Example: `luna?verbosity=low` | — |
 | `sol` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `sol.medium` | `low`, `medium`, `high`<br>Example: `sol?verbosity=low` | — |
 | `terra` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `terra.medium` | `low`, `medium`, `high`<br>Example: `terra?verbosity=low` | — |
-| `deepseek-chat` | `deepseek` | Text | `json` (object) | — | — | — |
-| `deepseek-reasoner` | `deepseek` | Text | `json` (schema) | effort: `high`, `max`, `off`<br>Example: `deepseek-reasoner.high` | — | — |
-| `deepseek.deepseek-ai/deepseek-v3.1` | `deepseek` | Text | `json` (schema) | — | — | — |
-| `deepseek4flash` | `deepseek` | Text | `json` (object) | effort: `high`, `max`, `off`<br>Example: `deepseek4flash.high` | — | — |
-| `deepseek` | `deepseek` | Text | `json` (object) | effort: `high`, `max`, `off`<br>Example: `deepseek.high` | — | — |
+| `deepseek` | `deepseek` | Text | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek.high` | — | — |
 | `passthrough` | `fast-agent` | Text | `json` (schema) | — | — | — |
 | `playback` | `fast-agent` | Text | `json` (schema) | — | — | — |
 | `silent` | `fast-agent` | Text | `json` (schema) | — | — | — |
@@ -56,6 +52,7 @@
 | `moonshotai/kimi-k2-thinking` | `groq` | Text | `json` (schema) | — | — | — |
 | `moonshotai/kimi-k2` | `groq` | Text | `json` (schema) | — | — | — |
 | `qwen/qwen3.6-27b` | `groq` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen/qwen3.6-27b?reasoning=off` | — | — |
+| `deepseek-ai/deepseek-v3.1` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek-hf` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek32` | `hf` | Text | `json` (schema) | — | — | — |
 | `gemma4` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `gemma4.none` | — | — |

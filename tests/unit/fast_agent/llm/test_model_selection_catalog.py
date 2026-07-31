@@ -105,9 +105,9 @@ def test_current_catalog_entries_match_model_presets_for_shared_aliases() -> Non
             ) == parsed_preset.model_dump(exclude={"provider", "model_name"})
 
 
-def test_deepseek_current_order_prefers_pro_above_flash() -> None:
+def test_deepseek_catalog_exposes_only_responses_model() -> None:
     aliases = ModelSelectionCatalog.list_current_aliases(Provider.DEEPSEEK)
-    assert aliases[:2] == ["deepseek", "deepseek4flash"]
+    assert aliases == ["deepseek"]
 
 
 def test_non_current_aliases_are_listed_but_not_current() -> None:

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from openai import APIError
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.provider.openai.openresponses_streaming import OpenResponsesStreamingMixin
@@ -760,3 +761,41 @@ async def test_incomplete_responses_return_final_payload(
     )
 
     assert returned_response is final_response
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_failed_responses_raise_provider_error_details() -> None:
+    harness = _ResponsesHarness()
+    final_response = SimpleNamespace(
+        status="failed",
+        error=SimpleNamespace(
+            code="server_error",
+            message="DeepSeek generation failed",
+        ),
+        output=[],
+        usage=None,
+    )
+    stream = _FakeResponsesStream(
+        events=[
+            SimpleNamespace(
+                type="response.failed",
+                response=final_response,
+            )
+        ],
+        final_response=final_response,
+    )
+
+    with pytest.raises(APIError, match="DeepSeek generation failed") as exc_info:
+        await harness._process_stream(
+            stream,
+            model="deepseek-v4-flash",
+            capture_filename=None,
+        )
+
+    assert exc_info.value.body == {
+        "error": {
+            "message": "DeepSeek generation failed",
+            "code": "server_error",
+        }
+    }

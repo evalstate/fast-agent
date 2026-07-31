@@ -33,7 +33,7 @@ Run `fast-agent check` after adding credentials to confirm they are visible to f
 | Provider | Config key | API key environment variable | Default endpoint | Model string examples |
 | --- | --- | --- | --- | --- |
 | Groq | `groq` | `GROQ_API_KEY` | `https://api.groq.com/openai/v1` | `groq.openai/gpt-oss-120b` |
-| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | Provider default | `deepseek`, `deepseek.deepseek-chat` |
+| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `https://api.deepseek.com` | `deepseek`, `deepseek.deepseek-v4-flash` |
 | Aliyun | `aliyun` | `ALIYUN_API_KEY` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `qwen-turbo`, `aliyun.qwen3-max` |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` | `openrouter.google/gemini-2.5-pro-exp-03-25:free` |
 | Open Responses | `openresponses` | `OPENRESPONSES_API_KEY` | Your Open Responses endpoint | `openresponses.openai/gpt-oss-120b:groq` |
@@ -74,10 +74,28 @@ deepseek:
 
 ```bash
 fast-agent --model deepseek
-fast-agent --model deepseek.deepseek-chat
+fast-agent --model 'deepseek.deepseek-v4-flash?reasoning=low'
+fast-agent --model 'deepseek?web_search=true'
 ```
 
-DeepSeek uses the official OpenAI-format API. fast-agent handles provider-specific reasoning streams where supported.
+DeepSeek uses its stateless Responses API over SSE. The native provider currently supports only
+`deepseek-v4-flash`; older native `deepseek-chat`, `deepseek-reasoner`, and `deepseek-v4-pro`
+routes have been removed until DeepSeek migrates those models to Responses. The provider supports
+`none`, `low`, `high` (default), and `max` reasoning effort, function tools, structured output,
+and provider-managed web search. Image and file inputs are not supported.
+
+DeepSeek silently ignores stateful Responses fields such as `previous_response_id` and `store`.
+When forcing a specific function with `tool_choice`, use `reasoning=none`; the live API rejects
+that forced-tool combination while thinking is enabled. Normal automatic tool calling supports
+thinking mode.
+
+`max_output_tokens` includes hidden reasoning. Leave generous headroom with `reasoning=max`: one
+live run exhausted an 8,192-token allowance entirely on reasoning without producing visible text,
+while a 32,768-token retry completed after 3,255 reasoning tokens. DeepSeek caching is automatic;
+a controlled repeated-prefix test reused 22,400 of 22,435 input tokens, while changing `user`
+correctly isolated the cache.
+
+Hugging Face aliases such as `deepseek-hf` are separate routes and remain available.
 
 --8<-- "_generated/model_aliases_deepseek.md"
 

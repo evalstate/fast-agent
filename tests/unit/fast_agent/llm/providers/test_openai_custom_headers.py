@@ -198,12 +198,12 @@ class TestLLMDefaultHeadersMethod:
 
     def test_deepseek_llm_default_headers_returns_configured_headers(self):
         """DeepSeek LLM should return headers from deepseek config."""
-        from fast_agent.llm.provider.openai.llm_deepseek import DeepSeekLLM
+        from fast_agent.llm.provider.openai.llm_deepseek import DeepSeekResponsesLLM
 
         headers = {"X-DeepSeek-Custom": "value"}
         settings = Settings.model_validate({"deepseek": {"default_headers": headers}})
         context = Context(config=settings)
-        llm = DeepSeekLLM(context=context)
+        llm = DeepSeekResponsesLLM(context=context)
 
         assert llm._default_headers() == headers
 
