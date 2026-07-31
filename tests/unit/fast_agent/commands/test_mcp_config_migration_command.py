@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import stat
 from pathlib import Path
 
@@ -58,6 +59,58 @@ mcp:
     roundtrip = get_settings(roundtrip_path)
     assert roundtrip.mcp is not None
     assert roundtrip.mcp.servers["docs"].protocol_mode == "modern"
+
+
+def test_show_mcp_reports_legacy_targets_without_traceback(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path,
+        """\
+mcp:
+  targets:
+    - name: docs
+      target: https://alice:secret@example.com/mcp?token=topsecret
+""",
+    )
+
+    result = CliRunner().invoke(config_command.app, ["show-mcp", str(path)])
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "Error loading fast-agent settings:" in result.output
+    assert "`mcp.targets` is no longer supported" in result.output
+    command = shlex.join(
+        ["fast-agent", "config", "migrate-mcp", str(path.resolve()), "--write"]
+    )
+    assert f"`{command}`" in result.output
+    assert "Traceback" not in result.output
+    assert "input_value" not in result.output
+    assert "alice" not in result.output
+    assert "secret" not in result.output
+    assert "topsecret" not in result.output
+
+
+def test_show_mcp_does_not_echo_values_from_custom_validation_errors(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path,
+        """\
+mcp:
+  servers:
+    public:
+      name: alice:secret@example.com?token=topsecret
+      url: https://example.com
+""",
+    )
+
+    result = CliRunner().invoke(config_command.app, ["show-mcp", str(path)])
+
+    assert result.exit_code == 1
+    assert result.output == (
+        "Error loading fast-agent settings: 1 validation error for Settings\n"
+        "mcp: Invalid configuration value\n"
+    )
+    assert "alice" not in result.output
+    assert "secret" not in result.output
+    assert "topsecret" not in result.output
 
 
 def test_migrate_mcp_dry_run_prints_diff_without_mutation(tmp_path: Path) -> None:

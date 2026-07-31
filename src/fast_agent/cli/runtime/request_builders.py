@@ -92,12 +92,11 @@ def normalize_explicit_card_sources(sources: list[str] | None) -> list[str] | No
 
 
 def _default_card_directories(home: Path | None) -> tuple[Path, Path]:
+    from fast_agent.cli.command_support import get_settings_or_exit
     from fast_agent.paths import resolve_home_paths
 
-    if home is not None:
-        home_paths = resolve_home_paths(override=home)
-    else:
-        home_paths = resolve_home_paths()
+    settings = get_settings_or_exit(home=home)
+    home_paths = resolve_home_paths(settings=settings, override=home)
     return home_paths.agent_cards, home_paths.tool_cards
 
 

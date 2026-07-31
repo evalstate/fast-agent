@@ -45,6 +45,7 @@ class ProgressEvent(BaseModel):
     tool_name: str | None = None
     tool_event: str | None = None
     tool_state: str | None = None
+    activity: str | None = None
     tool_terminal: bool = False
     process_elapsed_seconds: float | None = None
     process_command: str | None = None

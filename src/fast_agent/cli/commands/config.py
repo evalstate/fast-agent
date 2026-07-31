@@ -9,6 +9,7 @@ from typing import Annotated, Any, Literal
 import typer
 from ruamel.yaml import YAML
 
+from fast_agent.cli.command_support import get_settings_or_exit
 from fast_agent.cli.mcp_config_migration import (
     MCPConfigMigrationError,
     load_and_migrate_mcp,
@@ -20,7 +21,6 @@ from fast_agent.config import (
     SHELL_WRITE_TEXT_FILE_MODES,
     LoggerSettings,
     ShellSettings,
-    get_settings,
     load_implicit_settings,
     normalize_shell_write_text_file_mode,
 )
@@ -140,7 +140,7 @@ def show_mcp_config(
     ),
 ) -> None:
     """Show redacted MCP server configuration."""
-    settings = get_settings(config)
+    settings = get_settings_or_exit(config)
     mcp = settings.mcp
     payload = (
         {}

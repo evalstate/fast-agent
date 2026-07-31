@@ -677,8 +677,9 @@ class TestAggregatorInitializedVisibility:
                 action=ProgressAction.RUNNING,
                 instance_name="test-agent::subagent::call-1",
                 tool_event="subagent_monitor",
+                activity="Thinking",
                 details=(
-                    "turn  1 · thinking   · in  58,662 out   7,095 "
+                    "turn  1 · model gpt-5.6-terra · in  58,662 out   7,095 "
                     "cache  56% · tools 18"
                 ),
                 elapsed_seconds=2,
@@ -692,13 +693,13 @@ class TestAggregatorInitializedVisibility:
         rendered = DynamicDetailsColumn().render(task)
 
         assert rendered.plain == (
-            "turn  1 · thinking   · in  58,662 out   7,095 "
+            "turn  1 · model gpt-5.6-terra · in  58,662 out   7,095 "
             "cache  56% · tools 18 · 0m07s"
         )
         styles = {str(span.style) for span in rendered.spans}
         assert {
             "not dim cyan",
-            "not dim bold yellow",
+            "not dim bold white",
             "not dim blue",
             "not dim green",
             "not dim magenta",
@@ -1262,9 +1263,10 @@ class TestSubagentMonitoringRows:
                 details="turn 1 · in 3 out 2 cache 1 · tools 0",
                 instance_name="parent::subagent::scout-call",
                 tool_event="subagent_monitor",
+                activity="Thinking",
             )
         )
-        assert "Running" in next(
+        assert "Thinking" in next(
             task.description
             for task in display._progress.tasks
             if task.id == display._taskmap["parent::subagent::scout-call"]

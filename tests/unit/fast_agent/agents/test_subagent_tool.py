@@ -32,6 +32,7 @@ from fast_agent.event_progress import ProgressAction, ProgressEvent
 from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import (
     CompletionTokenUsage,
     PromptTokenUsage,
@@ -338,6 +339,31 @@ class ToolUsingLLM(PassthroughLLM):
                 },
             )
         return Prompt.assistant("done")
+
+
+class StreamingUsageLLM(PassthroughLLM):
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        del multipart_messages, request_params, tools, is_template
+        self._notify_stream_listeners(StreamChunk(text="discarded"))
+        self._notify_stream_listeners(StreamChunk(event="rollback"))
+        self._notify_stream_listeners(StreamChunk(text="live"))
+        self._notify_stream_listeners(StreamChunk(text="x" * 32))
+        self.usage_accumulator.add_turn(
+            TurnUsage(
+                provider=Provider.FAST_AGENT,
+                usage_schema=UsageSchema.OPENAI_CHAT,
+                model="passthrough",
+                prompt=PromptTokenUsage(total=7),
+                completion=CompletionTokenUsage(total=10),
+            )
+        )
+        return Prompt.assistant("live output after retry")
 
 
 class TrackingToolAgent(ToolAgent):
@@ -1858,14 +1884,20 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
     assert "parent[brisk-otter]" in progress._folded_agent_progress
     assert events[0].action == ProgressAction.RUNNING
     assert events[0].target == "brisk-otter"
+    assert events[0].activity == "Starting"
     assert events[0].details == (
-        "turn  0 · starting   · in       0 out       0 cache   0% · tools 0"
+        "turn  0 · in       0 out       0 cache   0% · tools 0"
     )
     assert {event.correlation_id for event in events} == {"parent-call"}
+    assert {"Starting", "Thinking", "Processing", "Tool", "Finalizing"} <= {
+        event.activity for event in events
+    }
     assert any(
         event.action == ProgressAction.RUNNING
+        and event.activity == "Processing"
         and event.details is not None
         and "turn  1" in event.details
+        and "model passthrough" in event.details
         and "in       3" in event.details
         and "out       2" in event.details
         and "cache  33%" in event.details
@@ -1873,6 +1905,7 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
     )
     assert any(
         event.action == ProgressAction.RUNNING
+        and event.activity == "Tool"
         and event.details is not None
         and "tools 1 (lookup)" in event.details
         for event in events
@@ -1888,6 +1921,48 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
     )
     assert events[-1].action == ProgressAction.READY
     assert progress._taskmap == {}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_subagent_monitor_updates_estimated_output_while_streaming() -> None:
+    progress = RecordingProgressDisplay()
+    parent = ToolAgent(AgentConfig("parent", model="passthrough", subagents=True))
+    await parent.attach_llm(
+        lambda agent, **kwargs: StreamingUsageLLM(name=agent.name, **kwargs)
+    )
+    assert install_subagent_tool(
+        parent,
+        progress_display=progress,
+        label_generator=lambda: "brisk-otter",
+    )
+
+    await parent.call_tool(
+        SUBAGENT_TOOL_NAME,
+        {"message": "research"},
+        tool_use_id="parent-call",
+    )
+
+    events = [event for event in progress.events if event.agent_name == "parent[brisk-otter]"]
+    live_details = [
+        event.details
+        for event in events
+        if event.action == ProgressAction.RUNNING
+        and event.details is not None
+        and "out ~" in event.details
+    ]
+    assert live_details == [
+        "turn  1 · model passthrough · in       0 out ~     3 cache   0% · tools 0",
+        "turn  1 · model passthrough · in       0 out ~     1 cache   0% · tools 0",
+        "turn  1 · model passthrough · in       0 out ~     9 cache   0% · tools 0",
+    ]
+    assert any(
+        event.action == ProgressAction.RUNNING
+        and event.activity == "Processing"
+        and event.details is not None
+        and "in       7 out      10 cache   0%" in event.details
+        for event in events
+    )
 
 
 @pytest.mark.unit
@@ -1945,7 +2020,7 @@ async def test_parallel_subagent_monitor_rows_have_distinct_identity_and_cleanup
     assert all(events[0].action == ProgressAction.RUNNING for events in rows_by_name.values())
     assert all(
         events[0].details
-        == "turn  0 · starting   · in       0 out       0 cache   0% · tools 0"
+        == "turn  0 · in       0 out       0 cache   0% · tools 0"
         for events in rows_by_name.values()
     )
     assert all(events[-1].action == ProgressAction.READY for events in rows_by_name.values())

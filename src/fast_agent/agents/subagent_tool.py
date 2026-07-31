@@ -32,6 +32,7 @@ from fast_agent.constants import (
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction, ProgressEvent
+from fast_agent.llm.model_display_name import resolve_llm_display_name, resolve_model_display_name
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.session import (
@@ -50,6 +51,7 @@ if TYPE_CHECKING:
 
     from fast_agent.agents.tool_runner import ToolRunner
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.llm.stream_types import StreamChunk
     from fast_agent.session.session_manager import SessionManager
     from fast_agent.tools.transient_artifacts import TransientArtifactResult
     from fast_agent.types import PromptMessageExtended
@@ -59,6 +61,7 @@ SUBAGENT_TOOL_METADATA = {"fast_agent": {"builtin": SUBAGENT_TOOL_NAME}}
 logger = get_logger(__name__)
 _SHUTDOWN_TIMEOUT_SECONDS = 10.0
 _FINALIZATION_TIMEOUT_SECONDS = 15.0
+_STREAM_UPDATE_TOKEN_INTERVAL = 8
 
 _DESCRIPTION = (
     "Run a focused subagent in a clean context. It inherits your instruction and available "
@@ -122,6 +125,7 @@ class _SubagentMonitorCoordinator:
             target=progress.label,
             agent_name=progress.child_name,
             details=details,
+            activity=progress.activity,
             parent_tool_call_id=progress.parent_tool_call_id,
             row_id=progress.row_id,
             elapsed_seconds=progress.elapsed_seconds,
@@ -174,6 +178,7 @@ class _SubagentMonitorCoordinator:
         parent_tool_call_id: str | None,
         row_id: str | None,
         elapsed_seconds: float | None,
+        activity: str | None = None,
     ) -> None:
         self._display.update(
             ProgressEvent(
@@ -186,6 +191,7 @@ class _SubagentMonitorCoordinator:
                 tool_name=SUBAGENT_TOOL_NAME,
                 tool_event="subagent_monitor" if row_id is not None else None,
                 elapsed_seconds=elapsed_seconds,
+                activity=activity,
             )
         )
 
@@ -211,27 +217,41 @@ class _SubagentProgress:
         self._turn = 0
         self._tool_count = 0
         self._current_tool_name: str | None = None
-        self._activity = "starting"
+        self._activity = "Starting"
         self._started_at = time.monotonic()
+        self._streamed_chars = 0
+        self._estimated_output_tokens = 0
+        self._last_emitted_output_estimate = 0
+        self._remove_stream_listener: Callable[[], None] | None = None
 
     def attach(self, agent: ToolAgent) -> None:
         self._agent = agent
+        if agent.llm is not None:
+            self._remove_stream_listener = agent.llm.add_stream_listener(
+                self._observe_stream_chunk
+            )
 
     @property
     def elapsed_seconds(self) -> float:
         return time.monotonic() - self._started_at
+
+    @property
+    def activity(self) -> str:
+        return self._activity
 
     def running(self, turn: int) -> None:
         self._turn = turn
         self._coordinator.update_child(self, self._details())
 
     def before_llm_call(self, turn: int) -> None:
+        self._reset_stream_estimate()
         self._current_tool_name = None
-        self._activity = "thinking"
+        self._activity = "Thinking"
         self.running(turn)
 
     def after_llm_call(self, turn: int) -> None:
-        self._activity = "processing"
+        self._reset_stream_estimate()
+        self._activity = "Processing"
         self.running(turn)
 
     def before_tool_call(self, turn: int, tool_names: list[str]) -> None:
@@ -239,33 +259,73 @@ class _SubagentProgress:
         self._current_tool_name = (
             tool_names[0] if len(tool_names) == 1 else f"{len(tool_names)} tools"
         )
-        self._activity = "tool"
+        self._activity = "Tool"
         self.running(turn)
 
     def after_tool_call(self, turn: int) -> None:
         self._current_tool_name = None
-        self._activity = "processing"
+        self._activity = "Processing"
         self.running(turn)
 
     def finalizing(self) -> None:
-        self._activity = "finalizing"
+        self._activity = "Finalizing"
         self.running(self._turn)
 
     def finish(self, status: str) -> None:
+        if self._remove_stream_listener is not None:
+            self._remove_stream_listener()
+            self._remove_stream_listener = None
         self._coordinator.finish(self, status)
+
+    def _observe_stream_chunk(self, chunk: StreamChunk) -> None:
+        if chunk.event == "rollback":
+            had_estimate = self._estimated_output_tokens > 0
+            self._reset_stream_estimate()
+            if had_estimate:
+                self._coordinator.update_child(self, self._details())
+            return
+        if chunk.event != "delta" or not chunk.text:
+            return
+
+        self._streamed_chars += len(chunk.text)
+        estimate = max(1, (self._streamed_chars + 3) // 4)
+        if estimate == self._estimated_output_tokens:
+            return
+        self._estimated_output_tokens = estimate
+        if (
+            self._last_emitted_output_estimate > 0
+            and estimate - self._last_emitted_output_estimate < _STREAM_UPDATE_TOKEN_INTERVAL
+        ):
+            return
+        self._last_emitted_output_estimate = estimate
+        self._coordinator.update_child(self, self._details())
+
+    def _reset_stream_estimate(self) -> None:
+        self._streamed_chars = 0
+        self._estimated_output_tokens = 0
+        self._last_emitted_output_estimate = 0
 
     def _details(self) -> str:
         tool_details = f"tools {self._tool_count}"
         if self._current_tool_name:
             tool_details = f"{tool_details} ({self._current_tool_name})"
-        return " · ".join(
-            (
-                f"turn {self._turn:>2}",
-                f"{self._activity:<10}",
-                self._usage_details(),
-                tool_details,
+        parts = [f"turn {self._turn:>2}"]
+        if self._agent is not None:
+            model_spec = self._agent.config.model
+            accumulator = self._agent.usage_accumulator
+            if not model_spec and accumulator is not None and accumulator.turns:
+                model_spec = accumulator.turns[-1].model
+            model = resolve_llm_display_name(
+                self._agent.llm,
+                max_len=24,
+            ) or resolve_model_display_name(
+                model_spec,
+                max_len=24,
             )
-        )
+            if model:
+                parts.append(f"model {model}")
+        parts.extend((self._usage_details(), tool_details))
+        return " · ".join(parts)
 
     def _usage_details(self) -> str:
         if self._agent is None or self._agent.usage_accumulator is None:
@@ -274,11 +334,12 @@ class _SubagentProgress:
         input_tokens = summary.prompt.total or 0
         return _format_usage_details(
             input_tokens=input_tokens,
-            output_tokens=summary.completion.total or 0,
+            output_tokens=(summary.completion.total or 0) + self._estimated_output_tokens,
             cache_percentage=_cache_percentage(
                 cache_read=summary.prompt.cache_read,
                 input_tokens=input_tokens,
             ),
+            output_estimated=self._estimated_output_tokens > 0,
         )
 
 
@@ -287,10 +348,11 @@ def _format_usage_details(
     input_tokens: int,
     output_tokens: int,
     cache_percentage: float,
+    output_estimated: bool = False,
 ) -> str:
     return (
         f"in {input_tokens:>7,} "
-        f"out {output_tokens:>7,} "
+        f"out {'~' if output_estimated else ' '}{output_tokens:>6,} "
         f"cache {cache_percentage:>3.0f}%"
     )
 

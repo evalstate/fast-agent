@@ -64,13 +64,14 @@ _COMPACTING_FRAMES = (
 
 _SUBAGENT_DETAIL_STYLES = (
     (r"\bturn\s+\d+", "not dim cyan"),
+    (r"\bmodel\s+\S+", "not dim bold white"),
     (r"\bstarting\b", "not dim green"),
     (r"\bthinking\b", "not dim bold yellow"),
     (r"\bprocessing\b", "not dim cyan"),
     (r"\btool\b", "not dim magenta"),
     (r"\bfinalizing\b", "not dim blue"),
     (r"\bin\s+[\d,]+", "not dim blue"),
-    (r"\bout\s+[\d,]+", "not dim green"),
+    (r"\bout\s+~?\s*[\d,]+", "not dim green"),
     (r"\bcache\s+\d+%", "not dim magenta"),
     (r"\btools\s+\d+", "not dim yellow"),
 )
@@ -687,6 +688,8 @@ class RichProgressDisplay:
         if cls._is_process_poll_event(event):
             return "Monitoring"
         if event.action == ProgressAction.RUNNING:
+            if event.tool_event == "subagent_monitor" and event.activity:
+                return event.activity
             return "Running"
         return event.action.value.strip()
 
