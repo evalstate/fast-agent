@@ -240,7 +240,7 @@ def build_minimal_bash_tool(*, shell_name: str) -> Tool:
             "running for the verifier. Do not use shell `&`, `nohup`, or `disown` "
             "to detach services. Foreground commands that take time may yield a "
             "managed process ID. Do not assume a yielded process completed: use "
-            "Process with `wait` or `status` before relying on its output or ending "
+            "process with `wait` or `status` before relying on its output or ending "
             "the task, unless it is an intentionally persistent service. If output "
             "is truncated and a retained-output path is reported, inspect the "
             "relevant ranges with read_text_file or a targeted search before drawing "
@@ -275,14 +275,14 @@ def build_minimal_process_tool(
     return Tool(
         name=PROCESS_TOOL_NAME,
         description=(
-            "List, inspect, wait for, or stop managed processes returned by Bash. "
+            "List, inspect, wait for, or stop managed processes returned by bash. "
             "`list` returns all retained processes in creation order and takes no "
             "process ID. "
             "`status` returns immediately. `wait` accepts an optional `wait_sec`; "
             "when omitted it uses the configured model-specific polling interval "
             "(with a nonzero fallback when the model has none). "
             f"Use {default_wait_seconds} seconds unless more frequent monitoring "
-            "is needed. When Bash yields a foreground process ID, use `wait` or "
+            "is needed. When bash yields a foreground process ID, use `wait` or "
             "`status` until completion before relying on its result or ending the "
             "task. `stop` terminates the process group."
         ),
@@ -292,7 +292,7 @@ def build_minimal_process_tool(
                 "process_id": {
                     "type": "string",
                     "description": (
-                        "Managed process ID returned by Bash. Required for status, "
+                        "Managed process ID returned by bash. Required for status, "
                         "wait, and stop; omit for list."
                     ),
                 },
@@ -444,7 +444,7 @@ def parse_minimal_bash_arguments(
     _reject_unknown_arguments(
         payload,
         _MINIMAL_BASH_ARGUMENTS,
-        tool_name="Bash",
+        tool_name="bash",
     )
     run_in_background = payload.get("run_in_background", False)
     if type(run_in_background) is not bool:
@@ -464,8 +464,8 @@ def parse_minimal_bash_arguments(
         raise ValueError(
             "Shell-level backgrounding was not executed.\n"
             "Submit only the long-running service command with "
-            "run_in_background=true. Use Process to inspect or stop it, "
-            "and run readiness checks in a separate Bash call."
+            "run_in_background=true. Use process to inspect or stop it, "
+            "and run readiness checks in a separate bash call."
         )
     return ShellExecuteArguments(
         command=command,
@@ -487,7 +487,7 @@ def parse_minimal_process_arguments(
     _reject_unknown_arguments(
         payload,
         _MINIMAL_PROCESS_ARGUMENTS,
-        tool_name="Process",
+        tool_name="process",
     )
     action = payload.get("action", "status")
     if action not in {"list", "status", "wait", "stop"}:

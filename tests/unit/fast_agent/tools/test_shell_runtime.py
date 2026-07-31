@@ -586,7 +586,7 @@ def test_minimal_process_profile_exposes_only_bash_and_process() -> None:
         config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
     )
 
-    assert [tool.name for tool in runtime.tools] == ["Bash", "Process"]
+    assert [tool.name for tool in runtime.tools] == ["bash", "process"]
     assert runtime.tool is not None
     assert set(runtime.tool.inputSchema["properties"]) == {
         "command",

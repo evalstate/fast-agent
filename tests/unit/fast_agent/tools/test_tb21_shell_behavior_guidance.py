@@ -9,11 +9,12 @@ from fast_agent.tools.shell_tool_definitions import (
 
 def test_minimal_bash_guidance_requires_managed_process_and_output_followup() -> None:
     tool = build_minimal_bash_tool(shell_name="bash")
+    assert tool.name == "bash"
     assert tool.description is not None
     description = tool.description
 
     assert "Do not assume a yielded process completed" in description
-    assert "Process with `wait` or `status`" in description
+    assert "process with `wait` or `status`" in description
     assert "retained-output path" in description
     assert "read_text_file" in description
     assert "task-relevant verification" in description
@@ -25,6 +26,7 @@ def test_minimal_process_guidance_requires_completion_check() -> None:
         default_wait_seconds=240,
         max_wait_seconds=250,
     )
+    assert tool.name == "process"
     assert tool.description is not None
     description = tool.description
 

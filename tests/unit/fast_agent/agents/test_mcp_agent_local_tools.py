@@ -334,7 +334,7 @@ async def test_shell_and_card_tools_are_both_highlighted() -> None:
         content=[TextContent(type="text", text="response")],
         tool_calls={
             "shell": CallToolRequest(
-                params=CallToolRequestParams(name="Bash", arguments={"command": "pwd"})
+                    params=CallToolRequestParams(name="bash", arguments={"command": "pwd"})
             ),
             "lsp": CallToolRequest(
                 params=CallToolRequestParams(
@@ -468,8 +468,8 @@ async def test_shell_can_include_local_read_text_file_when_enabled(tmp_path: Pat
     agent = McpAgent(config=config, context=Context(config=settings))
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
-    assert "Bash" in tool_names
-    assert "Process" in tool_names
+    assert "bash" in tool_names
+    assert "process" in tool_names
     assert "read_text_file" in tool_names
     assert "write_text_file" in tool_names
     assert "edit_file" in tool_names
@@ -742,8 +742,8 @@ async def test_local_read_text_file_option_is_enabled_by_default() -> None:
     agent = McpAgent(config=config, context=Context())
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
-    assert "Bash" in tool_names
-    assert "Process" in tool_names
+    assert "bash" in tool_names
+    assert "process" in tool_names
     assert "read_text_file" in tool_names
     assert "write_text_file" in tool_names
     assert "edit_file" in tool_names
@@ -944,8 +944,8 @@ async def test_default_shell_profile_exposes_facades_with_file_tools() -> None:
     agent = McpAgent(config=config, context=Context(config=settings))
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
-    assert "Bash" in tool_names
-    assert "Process" in tool_names
+    assert "bash" in tool_names
+    assert "process" in tool_names
     assert "execute" not in tool_names
     assert "poll_process" not in tool_names
     assert "terminate_process" not in tool_names
@@ -967,7 +967,7 @@ async def test_minimal_process_planned_metadata_matches_runtime_dispatch() -> No
     agent = McpAgent(config=config, context=Context(config=settings))
 
     bash_metadata = agent._metadata_for_planned_tool(
-        tool_name="Bash",
+        tool_name="bash",
         tool_args={"command": "service", "run_in_background": True},
         local_tool=None,
         is_external_runtime_tool=False,
@@ -979,7 +979,7 @@ async def test_minimal_process_planned_metadata_matches_runtime_dispatch() -> No
     assert bash_metadata["lifecycle"] == "persistent"
 
     status_metadata = agent._metadata_for_planned_tool(
-        tool_name="Process",
+        tool_name="process",
         tool_args={"process_id": "process-1", "action": "status"},
         local_tool=None,
         is_external_runtime_tool=False,
@@ -991,7 +991,7 @@ async def test_minimal_process_planned_metadata_matches_runtime_dispatch() -> No
     assert status_metadata["wait_sec"] == 0
 
     stop_metadata = agent._metadata_for_planned_tool(
-        tool_name="Process",
+        tool_name="process",
         tool_args={"process_id": "process-1", "action": "stop"},
         local_tool=None,
         is_external_runtime_tool=False,
@@ -1562,7 +1562,7 @@ async def test_shell_tool_use_turn_hides_bottom_bar_and_mentions_shell_access() 
     tool_calls = {
         "1": CallToolRequest(
             params=CallToolRequestParams(
-                name="Bash",
+                        name="bash",
                 arguments={"command": "pwd"},
             )
         )
@@ -1795,7 +1795,7 @@ async def test_local_shell_result_is_not_retruncated_by_mcp_result_policy() -> N
         tool_calls={
             "call-1": CallToolRequest(
                 params=CallToolRequestParams(
-                    name="Bash",
+                        name="bash",
                     arguments={"command": "emit output"},
                 )
             )

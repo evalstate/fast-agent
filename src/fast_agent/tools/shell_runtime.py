@@ -504,7 +504,7 @@ class ShellRuntime:
         tool_name: str,
         arguments: dict[str, Any],
     ) -> _ManagedProcessOperation:
-        if tool_name == PROCESS_TOOL_NAME and self._minimal_process_profile:
+        if tool_name.casefold() == PROCESS_TOOL_NAME and self._minimal_process_profile:
             try:
                 parsed = parse_minimal_process_arguments(
                     arguments,
@@ -1360,7 +1360,7 @@ class ShellRuntime:
         defer_display_to_tool_result: bool = False,
     ) -> CallToolResult:
         """Dispatch one model-facing shell lifecycle tool."""
-        if name == BASH_TOOL_NAME and self._minimal_process_profile:
+        if name.casefold() == BASH_TOOL_NAME and self._minimal_process_profile:
             try:
                 parsed = parse_minimal_bash_arguments(arguments)
             except ValueError as exc:
@@ -1371,7 +1371,7 @@ class ShellRuntime:
                 show_tool_call_id=show_tool_call_id,
                 defer_display_to_tool_result=defer_display_to_tool_result,
             )
-        if name == PROCESS_TOOL_NAME and self._minimal_process_profile:
+        if name.casefold() == PROCESS_TOOL_NAME and self._minimal_process_profile:
             try:
                 parsed_process = parse_minimal_process_arguments(
                     arguments,

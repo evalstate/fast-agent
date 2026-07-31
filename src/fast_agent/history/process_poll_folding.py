@@ -26,6 +26,7 @@ from fast_agent.utils.tool_names import (
     EXECUTE_TOOL_NAME,
     POLL_PROCESS_TOOL_NAME,
     PROCESS_TOOL_NAME,
+    matches_tool_name,
 )
 
 if TYPE_CHECKING:
@@ -69,10 +70,10 @@ def _single_poll_call(
         return None
     call_id, request = next(iter(calls.items()))
     arguments = request.params.arguments or {}
-    if request.params.name == POLL_PROCESS_TOOL_NAME:
+    if matches_tool_name(request.params.name, POLL_PROCESS_TOOL_NAME):
         wait_sec = arguments.get("wait_sec")
         wake_on_output = arguments.get("wake_on_output", False)
-    elif request.params.name == PROCESS_TOOL_NAME:
+    elif matches_tool_name(request.params.name, PROCESS_TOOL_NAME):
         action = arguments.get("action", "status")
         if action not in {"status", "wait"}:
             return None
@@ -109,7 +110,10 @@ def _managed_process_start_id(
     calls = request.tool_calls or {}
     results = result.tool_results or {}
     for call_id, call in calls.items():
-        if call.params.name not in {EXECUTE_TOOL_NAME, BASH_TOOL_NAME}:
+        if not (
+            matches_tool_name(call.params.name, EXECUTE_TOOL_NAME)
+            or matches_tool_name(call.params.name, BASH_TOOL_NAME)
+        ):
             continue
         tool_result = results.get(call_id)
         if tool_result is None:
