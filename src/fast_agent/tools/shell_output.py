@@ -143,8 +143,9 @@ class ShellOutputBuffer:
         return (
             f"{completeness} is available during this session at "
             f"{self.retained_output_path}. Use read_text_file for selected line ranges "
-            "or run a targeted search against that file; avoid reading the entire file "
-            "unless necessary."
+            "or run a targeted search against that file; before drawing conclusions "
+            "from truncated output, inspect the relevant retained content. Avoid "
+            "reading the entire file unless necessary."
         )
 
     def _start_retained(self, triggering_blob: bytes) -> None:
