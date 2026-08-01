@@ -438,16 +438,16 @@ def test_model_database_supports_mime_basic():
     )
     assert ModelDatabase.supports_mime("gpt-4o", "document/pdf", provider=Provider.OPENAI)
     assert not ModelDatabase.supports_mime(
-        "deepseek-chat",
+        "deepseek-v4-flash",
         "document/pdf",
         provider=Provider.OPENAI,
     )
 
     # Text-only models should not support images
-    assert not ModelDatabase.supports_mime("deepseek-chat", "image/png")
-    assert not ModelDatabase.supports_mime("deepseek-chat", "pdf")
+    assert not ModelDatabase.supports_mime("deepseek-v4-flash", "image/png")
+    assert not ModelDatabase.supports_mime("deepseek-v4-flash", "pdf")
     assert not ModelDatabase.supports_mime(
-        "deepseek-chat",
+        "deepseek-v4-flash",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 

@@ -206,6 +206,7 @@ class ResolvedModelSpec:
             Provider.CODEX_RESPONSES,
             Provider.XAI,
             Provider.META_AI,
+            Provider.DEEPSEEK,
             Provider.GOOGLE,
         }:
             kwargs["web_search"] = config.web_search

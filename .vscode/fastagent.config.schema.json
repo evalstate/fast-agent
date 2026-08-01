@@ -800,7 +800,7 @@
     },
     "DeepSeekSettings": {
       "additionalProperties": true,
-      "description": "Settings for using DeepSeek models in the fast-agent application.",
+      "description": "Settings for using DeepSeek's Responses API.",
       "properties": {
         "api_key": {
           "anyOf": [
@@ -856,6 +856,31 @@
           "default": null,
           "description": "Custom headers for all API requests",
           "title": "Default Headers"
+        },
+        "reasoning": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReasoningEffortSetting"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "DeepSeek reasoning effort: none, low, high, or max",
+          "title": "Reasoning"
+        },
+        "web_search": {
+          "$ref": "#/$defs/OpenAIWebSearchSettings"
         }
       },
       "title": "DeepSeekSettings",
@@ -2345,6 +2370,69 @@
       "title": "MetaAIWebSearchSettings",
       "type": "object"
     },
+    "MoonshotSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using Moonshot models in the fast-agent application.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Moonshot API key",
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Override API endpoint",
+          "title": "Base Url"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Default model when Moonshot provider is selected without an explicit model",
+          "title": "Default Model"
+        },
+        "default_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Custom headers for all API requests",
+          "title": "Default Headers"
+        }
+      },
+      "title": "MoonshotSettings",
+      "type": "object"
+    },
     "OpenAISettings": {
       "additionalProperties": true,
       "description": "Settings for using OpenAI models in the fast-agent application.",
@@ -3065,9 +3153,20 @@
               "type": "null"
             }
           ],
-          "default": 8192,
+          "default": 16000,
           "description": "Model-facing shell output preview bytes (None = model-based auto)",
           "title": "Output Byte Limit"
+        },
+        "output_byte_limit_selection": {
+          "default": "default",
+          "enum": [
+            "default",
+            "explicit",
+            "auto"
+          ],
+          "internal": true,
+          "title": "Output Byte Limit Selection",
+          "type": "string"
         },
         "retain_truncated_output": {
           "default": true,
@@ -3845,7 +3944,7 @@
         }
       ],
       "default": null,
-      "description": "Settings for using DeepSeek models in the fast-agent application"
+      "description": "Settings for using DeepSeek's Responses API"
     },
     "zai": {
       "anyOf": [
@@ -3858,6 +3957,18 @@
       ],
       "default": null,
       "description": "Settings for using Z.ai models in the fast-agent application"
+    },
+    "moonshot": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MoonshotSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using Moonshot models in the fast-agent application"
     },
     "google": {
       "anyOf": [

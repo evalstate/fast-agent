@@ -1344,7 +1344,7 @@ class CodexResponsesSettings(ResponsesProviderSettingsBase):
 
 
 class DeepSeekSettings(BaseModel):
-    """Settings for using DeepSeek models in the fast-agent application."""
+    """Settings for using DeepSeek's Responses API."""
 
     api_key: str | None = Field(default=None, description="DeepSeek API key")
     base_url: str | None = Field(default=None, description="Override API endpoint")
@@ -1356,6 +1356,11 @@ class DeepSeekSettings(BaseModel):
         default=None,
         description="Custom headers for all API requests",
     )
+    reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
+        default=None,
+        description="DeepSeek reasoning effort: none, low, high, or max",
+    )
+    web_search: OpenAIWebSearchSettings = Field(default_factory=OpenAIWebSearchSettings)
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -2254,7 +2259,7 @@ class Settings(BaseSettings):
     """Settings for using Codex Responses models in the fast-agent application"""
 
     deepseek: DeepSeekSettings | None = None
-    """Settings for using DeepSeek models in the fast-agent application"""
+    """Settings for using DeepSeek's Responses API"""
 
     zai: ZaiSettings | None = None
     """Settings for using Z.ai models in the fast-agent application"""

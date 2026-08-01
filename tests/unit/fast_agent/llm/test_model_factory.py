@@ -932,10 +932,10 @@ def test_gemini35_flash_aliases_resolve_to_current_google_flash(alias: str):
     assert config.model_name == "gemini-3.5-flash"
 
 
-def test_deepseek_alias_resolves_to_direct_deepseek_v4_pro():
+def test_deepseek_alias_resolves_to_deepseek_responses_model():
     config = ModelFactory.parse_model_string("deepseek")
     assert config.provider == Provider.DEEPSEEK
-    assert config.model_name == "deepseek-v4-pro"
+    assert config.model_name == "deepseek-v4-flash"
 
 
 def test_deepseek_hf_aliases_resolve_to_hf_deepseek_v4_pro():
@@ -945,23 +945,29 @@ def test_deepseek_hf_aliases_resolve_to_hf_deepseek_v4_pro():
         assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:together"
 
 
-def test_deepseek_direct_aliases_resolve_to_official_provider():
-    config = ModelFactory.parse_model_string("deepseek-v4-pro")
-    assert config.provider == Provider.DEEPSEEK
-    assert config.model_name == "deepseek-v4-pro"
-
-    for alias in ("deepseek4", "deepseek4pro", "deepseekv4pro"):
-        config = ModelFactory.parse_model_string(alias)
-        assert config.provider == Provider.DEEPSEEK
-        assert config.model_name == "deepseek-v4-pro"
-
-    config = ModelFactory.parse_model_string("deepseek4flash")
+def test_deepseek_responses_model_resolves_to_official_provider():
+    config = ModelFactory.parse_model_string("deepseek-v4-flash")
     assert config.provider == Provider.DEEPSEEK
     assert config.model_name == "deepseek-v4-flash"
 
-    config = ModelFactory.parse_model_string("deepseek4pro-direct")
-    assert config.provider == Provider.DEEPSEEK
-    assert config.model_name == "deepseek-v4-pro"
+
+@pytest.mark.parametrize(
+    "legacy_model",
+    (
+        "deepseek4",
+        "deepseek4pro",
+        "deepseekv4pro",
+        "deepseek-direct",
+        "deepseek4flash",
+        "deepseek4pro-direct",
+        "deepseek-reasoner",
+        "deepseek-v4-pro",
+        "deepseek-chat",
+    ),
+)
+def test_legacy_native_deepseek_models_are_rejected(legacy_model: str):
+    with pytest.raises(ModelConfigError, match="Unknown model or provider"):
+        ModelFactory.parse_model_string(legacy_model)
 
 
 def test_hf_routed_gpt_oss_alias_resolves_model_metadata():

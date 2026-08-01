@@ -95,7 +95,7 @@ _PROVIDER_CATALOG_SCOPES_BY_KEY: dict[str, ProviderCatalogScope] = {
         providers=(Provider.GOOGLE,),
     ),
     "deepseek": ProviderCatalogScope(
-        display_name="Deepseek",
+        display_name="DeepSeek",
         providers=(Provider.DEEPSEEK,),
     ),
     "zai": ProviderCatalogScope(

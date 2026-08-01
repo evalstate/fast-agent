@@ -123,17 +123,10 @@ class ModelSelectionCatalog:
         ),
         Provider.META_AI: (_builtin_entry("Muse Spark 1.1"),),
         Provider.DEEPSEEK: (
-            _builtin_entry("deepseek", display_label="DeepSeek V4 Pro"),
             _builtin_entry(
-                "deepseek4flash",
+                "deepseek",
                 display_label="DeepSeek V4 Flash",
                 fast=True,
-            ),
-            CatalogModelEntry(
-                alias="deepseek3",
-                model="deepseek.deepseek-chat",
-                fast=True,
-                current=False,
             ),
         ),
         Provider.ZAI: (_builtin_entry("zaiglm", display_label="GLM 5.2"),),

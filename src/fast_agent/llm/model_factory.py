@@ -106,7 +106,10 @@ _PROVIDER_CLASS_PATHS: dict[Provider, tuple[str, str]] = {
         "AnthropicVertexLLM",
     ),
     Provider.OPENAI: ("fast_agent.llm.provider.openai.llm_openai", "OpenAILLM"),
-    Provider.DEEPSEEK: ("fast_agent.llm.provider.openai.llm_deepseek", "DeepSeekLLM"),
+    Provider.DEEPSEEK: (
+        "fast_agent.llm.provider.openai.llm_deepseek",
+        "DeepSeekResponsesLLM",
+    ),
     Provider.ZAI: ("fast_agent.llm.provider.openai.llm_zai", "ZaiLLM"),
     Provider.MOONSHOT: ("fast_agent.llm.provider.openai.llm_moonshot", "MoonshotLLM"),
     Provider.GENERIC: ("fast_agent.llm.provider.openai.llm_generic", "GenericLLM"),

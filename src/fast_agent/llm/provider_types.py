@@ -23,7 +23,7 @@ class Provider(Enum):
 
     ANTHROPIC = ("anthropic", "Anthropic")
     ANTHROPIC_VERTEX = ("anthropic-vertex", "Anthropic (Vertex)")
-    DEEPSEEK = ("deepseek", "Deepseek")
+    DEEPSEEK = ("deepseek", "DeepSeek")
     ZAI = ("zai", "Z.ai")
     MOONSHOT = ("moonshot", "Moonshot")
     FAST_AGENT = ("fast-agent", "fast-agent-internal")

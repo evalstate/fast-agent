@@ -24,6 +24,7 @@ def test_responses_failure_events_are_explicit() -> None:
 
 
 def test_responses_delta_events_are_explicit() -> None:
+    assert is_responses_reasoning_delta_event("response.reasoning_text.delta") is True
     assert is_responses_reasoning_delta_event("response.reasoning_summary_text.delta") is True
     assert is_responses_reasoning_delta_event("response.reasoning_summary.delta") is True
     assert is_responses_reasoning_delta_event("response.reasoning.delta") is False

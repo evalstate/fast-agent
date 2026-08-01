@@ -4,8 +4,11 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+import httpx
+from openai import APIError
 from openai.types.responses import (
     ResponseReasoningSummaryTextDeltaEvent,
+    ResponseReasoningTextDeltaEvent,
     ResponseTextDeltaEvent,
 )
 
@@ -17,6 +20,7 @@ from fast_agent.llm.provider.openai._stream_capture import (
     save_stream_chunk as _save_stream_chunk,
 )
 from fast_agent.llm.provider.openai.responses_events import (
+    is_responses_failure_event,
     is_responses_reasoning_delta_event,
     is_responses_terminal_event,
     is_responses_text_delta_event,
@@ -593,7 +597,8 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         model: str,
     ) -> tuple[bool, int]:
         if not isinstance(
-            event, ResponseReasoningSummaryTextDeltaEvent
+            event,
+            (ResponseReasoningSummaryTextDeltaEvent, ResponseReasoningTextDeltaEvent),
         ) and not is_responses_reasoning_delta_event(event_type):
             return False, reasoning_chars
 
@@ -733,6 +738,21 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             if is_responses_terminal_event(event_type):
                 final_response = getattr(event, "response", None) or final_response
                 continue
+            if is_responses_failure_event(event_type):
+                response = getattr(event, "response", None)
+                error = getattr(response, "error", None)
+                message = getattr(error, "message", None)
+                code = getattr(error, "code", None)
+                if not isinstance(message, str) or not message:
+                    message = "Responses stream failed."
+                body: dict[str, Any] = {"message": message}
+                if isinstance(code, str) and code:
+                    body["code"] = code
+                raise APIError(
+                    message,
+                    request=httpx.Request("POST", "https://responses.invalid/responses"),
+                    body={"error": body},
+                )
             if self._handle_responses_tool_stream_event(
                 event=event,
                 event_type=event_type,
