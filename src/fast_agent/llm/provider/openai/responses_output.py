@@ -443,6 +443,14 @@ class ResponsesOutputMixin:
                 if not isinstance(part_text, str) or not part_text:
                     continue
                 summary_parts.append(part_text)
+            if not summary_parts:
+                content = getattr(output_item, "content", None) or []
+                for part in content:
+                    if getattr(part, "type", None) != "reasoning_text":
+                        continue
+                    part_text = getattr(part, "text", None)
+                    if isinstance(part_text, str) and part_text:
+                        summary_parts.append(part_text)
             summary_text = join_reasoning_summary_parts(summary_parts)
             if summary_text.strip():
                 reasoning_blocks.append(text_content(summary_text.strip()))

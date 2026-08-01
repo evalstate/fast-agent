@@ -1,120 +1,113 @@
-from typing import Any
+from __future__ import annotations
 
-from fast_agent.interfaces import ModelT
-from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
+from typing import TYPE_CHECKING, Any, cast
+
+from fast_agent.constants import REASONING
+from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.llm.provider.openai.responses import ResponsesLLM
+from fast_agent.llm.provider.openai.web_tools import (
+    ResolvedOpenAIWebSearch,
+    build_web_search_tool,
+)
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.reasoning_effort import ReasoningEffortLevel, ReasoningEffortSetting
-from fast_agent.types import RequestParams
+from fast_agent.mcp.helpers.content_helpers import get_text
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
+    from mcp import Tool
+    from mcp.types import ContentBlock
+
+    from fast_agent.config import DeepSeekSettings
+    from fast_agent.llm.provider.openai.responses import ResponsesTransport
+    from fast_agent.types import RequestParams
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
-_DEEPSEEK_REASONING_EFFORT_MAP: dict[ReasoningEffortLevel, ReasoningEffortLevel | None] = {
-    "none": None,
-    "minimal": "high",
-    "low": "high",
-    "medium": "high",
-    "high": "high",
-    "xhigh": "max",
-    "max": "max",
-}
 
 
-def _normalize_deepseek_reasoning_setting(
-    setting: ReasoningEffortSetting,
-) -> ReasoningEffortSetting:
-    if setting.kind != "effort":
-        return setting
+class DeepSeekResponsesLLM(ResponsesLLM):
+    """LLM implementation for DeepSeek's stateless Responses API."""
 
-    if not isinstance(setting.value, str) or setting.value not in _DEEPSEEK_REASONING_EFFORT_MAP:
-        return setting
+    config_section: str | None = "deepseek"
 
-    effort = _DEEPSEEK_REASONING_EFFORT_MAP[setting.value]
-    if effort is None:
-        if setting.value == "none":
-            return ReasoningEffortSetting(kind="toggle", value=False)
-        return setting
-    return ReasoningEffortSetting(kind="effort", value=effort)
+    def __init__(self, provider: Provider = Provider.DEEPSEEK, **kwargs: Any) -> None:
+        provider = kwargs.pop("provider", provider)
+        self.config_section = "deepseek"
+        super().__init__(provider=provider, **kwargs)
 
+        model = self.default_request_params.model
+        if model != DEFAULT_DEEPSEEK_MODEL:
+            raise ModelConfigError(
+                "DeepSeek Responses currently supports only "
+                f"'{DEFAULT_DEEPSEEK_MODEL}', got '{model}'."
+            )
 
-class DeepSeekLLM(OpenAICompatibleLLM):
-    def __init__(self, **kwargs) -> None:
-        kwargs.pop("provider", None)
-        super().__init__(provider=Provider.DEEPSEEK, **kwargs)
+    def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
+        return self._initialize_default_params_with_model_fallback(
+            kwargs,
+            DEFAULT_DEEPSEEK_MODEL,
+        )
 
-    def _initialize_default_params(self, kwargs: dict) -> RequestParams:
-        """Initialize Deepseek-specific default parameters"""
-        return self._initialize_default_params_with_model_fallback(kwargs, DEFAULT_DEEPSEEK_MODEL)
+    def _provider_config_fallback_sections(self) -> tuple[str, ...]:
+        return ()
+
+    def _default_transport_setting(self) -> ResponsesTransport:
+        return "sse"
+
+    @property
+    def service_tier_supported(self) -> bool:
+        return False
+
+    def _deepseek_settings(self) -> DeepSeekSettings | None:
+        return cast("DeepSeekSettings | None", self._get_provider_config())
 
     def _provider_base_url(self) -> str:
-        base_url = None
-        if self.context.config and self.context.config.deepseek:
-            base_url = self.context.config.deepseek.base_url
+        settings = self._deepseek_settings()
+        if settings is not None and settings.base_url:
+            return settings.base_url
+        return DEEPSEEK_BASE_URL
 
-        return base_url if base_url else DEEPSEEK_BASE_URL
+    def _provider_default_headers(self) -> dict[str, str] | None:
+        settings = self._deepseek_settings()
+        return settings.default_headers if settings is not None else None
 
-    def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
-        if setting is not None:
-            setting = _normalize_deepseek_reasoning_setting(setting)
-        super().set_reasoning_effort(setting)
-
-    def _resolve_reasoning_effort(self) -> str | None:
-        setting = self.reasoning_effort
-        if setting is None:
-            return "high"
-        if setting.kind == "toggle":
-            return None if setting.value is False else "high"
-        if setting.kind == "budget":
-            self.logger.warning("Ignoring budget reasoning setting for DeepSeek models.")
-            return "high"
-        if isinstance(setting.value, str) and setting.value in _DEEPSEEK_REASONING_EFFORT_MAP:
-            return _DEEPSEEK_REASONING_EFFORT_MAP[setting.value]
-        return "high"
-
-    def _prepare_api_request(
+    def _build_web_search_tool(
         self,
-        messages,
-        tools: list | None,
-        request_params: RequestParams,
-    ) -> dict[str, Any]:
-        arguments = super()._prepare_api_request(messages, tools, request_params)
-        if self._reasoning_mode != "reasoning_content":
-            return arguments
+        resolved_web_search: ResolvedOpenAIWebSearch,
+    ) -> dict[str, Any] | None:
+        payload = build_web_search_tool(resolved_web_search)
+        return {"type": "web_search"} if payload is not None else None
 
+    def _apply_response_reasoning(self, base_args: dict[str, Any]) -> None:
         effort = self._resolve_reasoning_effort()
-        extra_body_raw = arguments.get("extra_body", {})
-        extra_body: dict[str, Any] = extra_body_raw if isinstance(extra_body_raw, dict) else {}
-        extra_body["thinking"] = {"type": "enabled" if effort else "disabled"}
-        arguments["extra_body"] = extra_body
-        if effort:
-            arguments["reasoning_effort"] = effort
-        else:
-            arguments.pop("reasoning_effort", None)
-        return arguments
+        base_args["reasoning"] = {"effort": effort or "none"}
 
-    def _build_structured_prompt_instruction(self, model: type[ModelT]) -> str | None:
-        full_schema = model.model_json_schema()
-        properties = full_schema.get("properties", {})
-        required_fields = set(full_schema.get("required", []))
+    def _extract_encrypted_reasoning_items(
+        self,
+        channels: Mapping[str, Iterable[ContentBlock]] | None,
+    ) -> list[dict[str, Any]]:
+        if not channels:
+            return []
+        reasoning_blocks = channels.get(REASONING)
+        if not reasoning_blocks:
+            return []
 
-        format_lines = ["{"]
-        for field_name, field_info in properties.items():
-            field_type = field_info.get("type", "string")
-            description = field_info.get("description", "")
-            line = f'  "{field_name}": "{field_type}"'
-            if description:
-                line += f"  // {description}"
-            if field_name in required_fields:
-                line += "  // REQUIRED"
-            format_lines.append(line)
-        format_lines.append("}")
-        format_description = "\n".join(format_lines)
+        content = [
+            {"type": "reasoning_text", "text": text}
+            for block in reasoning_blocks
+            if (text := get_text(block))
+        ]
+        return [{"type": "reasoning", "content": content}] if content else []
 
-        return f"""YOU MUST RESPOND WITH A JSON OBJECT IN EXACTLY THIS FORMAT:
-{format_description}
-
-IMPORTANT RULES:
-- Respond ONLY with the JSON object, no other text
-- Do NOT include "properties" or "schema" wrappers
-- Do NOT use code fences or markdown
-- The response must be valid JSON that matches the format above
-- All required fields must be included"""
+    def _build_response_args(
+        self,
+        input_items: list[dict[str, Any]],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+    ) -> dict[str, Any]:
+        args = super()._build_response_args(input_items, request_params, tools)
+        # DeepSeek is stateless and silently ignores these OpenAI-only controls.
+        for field in ("include", "parallel_tool_calls", "service_tier", "store"):
+            args.pop(field, None)
+        return args

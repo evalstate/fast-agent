@@ -311,7 +311,7 @@ class ModelDatabase:
 
     DEEPSEEK_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
-        allowed_efforts=["high", "max"],
+        allowed_efforts=["none", "low", "high", "max"],
         allow_toggle_disable=True,
         default=ReasoningEffortSetting(kind="effort", value="high"),
     )
@@ -693,29 +693,8 @@ class ModelDatabase:
         context_window=1_048_576,
         max_output_tokens=393_216,
         tokenizes=TEXT_ONLY,
-        json_mode="object",
-        reasoning="reasoning_content",
-        reasoning_effort_spec=DEEPSEEK_REASONING_EFFORT_SPEC,
-        default_provider=Provider.DEEPSEEK,
-    )
-
-    DEEPSEEK_V4_PRO = DEEPSEEK_V4_FLASH.model_copy()
-
-    DEEPSEEK_CHAT_STANDARD = DEEPSEEK_V4_FLASH.model_copy(
-        update={
-            "reasoning": None,
-            "reasoning_effort_spec": None,
-            "max_output_tokens": 8192,
-            "fast": True,
-        }
-    )
-
-    DEEPSEEK_REASONER = ModelParameters(
-        context_window=1_048_576,
-        max_output_tokens=393_216,
-        tokenizes=TEXT_ONLY,
         json_mode="schema",
-        reasoning="reasoning_content",
+        reasoning="openai",
         reasoning_effort_spec=DEEPSEEK_REASONING_EFFORT_SPEC,
         default_provider=Provider.DEEPSEEK,
     )
@@ -980,6 +959,7 @@ class ModelDatabase:
         tokenizes=TEXT_ONLY,
         json_mode="schema",
         structured_tool_policy="no_tools",
+        default_provider=Provider.HUGGINGFACE,
     )
 
     HF_PROVIDER_DEEPSEEK32 = ModelParameters(
@@ -989,6 +969,7 @@ class ModelDatabase:
         json_mode="schema",
         structured_tool_policy="no_tools",
         reasoning="gpt_oss",
+        default_provider=Provider.HUGGINGFACE,
     )
 
     HF_PROVIDER_DEEPSEEK4_PRO = ModelParameters(
@@ -1185,10 +1166,7 @@ class ModelDatabase:
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
         # DeepSeek Models
-        "deepseek-chat": _with_fast(DEEPSEEK_CHAT_STANDARD),
-        "deepseek-reasoner": DEEPSEEK_REASONER,
         "deepseek-v4-flash": _with_fast(DEEPSEEK_V4_FLASH),
-        "deepseek-v4-pro": DEEPSEEK_V4_PRO,
         # Z.ai models
         "glm-5.2": GLM_5_2.model_copy(update={"default_provider": Provider.ZAI}),
         # Google Gemini Models (vanilla aliases and versioned)
