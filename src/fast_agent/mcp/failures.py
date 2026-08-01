@@ -6,6 +6,7 @@ import asyncio
 import re
 from dataclasses import dataclass, field
 from typing import Literal
+from urllib.parse import urlsplit
 
 import httpx2
 from mcp.client.auth import OAuthFlowError, OAuthRegistrationError
@@ -54,6 +55,7 @@ type MCPFailureKind = Literal[
 type MCPFailureRetry = Literal["never", "user_action", "safe_once"]
 type MCPFailureFormat = Literal["terminal", "markdown", "cli"]
 
+_GITHUB_COPILOT_HOST = "githubcopilot.com"
 _URL_RE = re.compile(r"https?://[^\s<>\"'`]+", re.IGNORECASE)
 _SECRET_RE = re.compile(
     r"(?i)\b(authorization|x-api-key|api[_-]?key|cookie|client[_-]?secret|"
@@ -210,6 +212,19 @@ def _failure_detail(outer: BaseException, selected: BaseException) -> str | None
     return redact_mcp_failure_text(detail) if detail else None
 
 
+def _is_github_copilot_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    hostname = parsed.hostname
+    return bool(
+        parsed.scheme in {"http", "https"}
+        and hostname
+        and (hostname == _GITHUB_COPILOT_HOST or hostname.endswith(f".{_GITHUB_COPILOT_HOST}"))
+    )
+
+
 def _failure_remediation(
     kind: MCPFailureKind,
     *,
@@ -240,7 +255,7 @@ def _failure_remediation(
                 "Configure `--client-metadata-url <https-url>` (CIMD) or use bearer "
                 "authentication with `--auth <token>`, then retry."
             )
-            if "githubcopilot.com" in input_ref.casefold():
+            if _is_github_copilot_url(input_ref):
                 guidance += " GitHub Copilot MCP commonly requires `--auth $GITHUB_TOKEN`."
         if surface == "acp_connect":
             guidance += " Use the ACP client's Stop/Cancel action to cancel an in-flight attempt."

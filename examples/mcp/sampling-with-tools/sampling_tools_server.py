@@ -46,7 +46,9 @@ SECRET_PROMPT = "Call the get_secret tool to retrieve the secret code, then tell
 def request_secret() -> Sample:
     return Sample(
         max_tokens=256,
-        messages=[SamplingMessage(role="user", content=TextContent(type="text", text=SECRET_PROMPT))],
+        messages=[
+            SamplingMessage(role="user", content=TextContent(type="text", text=SECRET_PROMPT))
+        ],
         tools=[SECRET_CODE_TOOL],
         tool_choice=ToolChoice(mode="required"),
     )

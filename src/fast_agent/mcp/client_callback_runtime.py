@@ -8,10 +8,6 @@ from dataclasses import dataclass, field
 from importlib.metadata import version
 from typing import TYPE_CHECKING, cast
 
-from mcp.client.subscriptions import (
-    ServerEvent,
-    ToolsListChanged,
-)
 from mcp_types import (
     CreateMessageRequestParams,
     CreateMessageResult,
@@ -23,6 +19,7 @@ from mcp_types import (
     Root,
     SamplingCapability,
     SamplingToolsCapability,
+    ToolListChangedNotification,
 )
 from pydantic import FileUrl
 
@@ -46,6 +43,7 @@ if TYPE_CHECKING:
         MessageHandlerFnT,
         SamplingFnT,
     )
+    from mcp.client.subscriptions import ServerEvent
 
     from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
@@ -256,7 +254,10 @@ class MCPClientCallbackRuntime:
     async def _handle_message(self, message: object) -> None:
         if isinstance(message, ProgressNotification) and self.transport_notification_handler:
             self.transport_notification_handler("notifications/progress")
-        if isinstance(message, ToolsListChanged) and self.tool_list_changed_callback is not None:
+        if (
+            isinstance(message, ToolListChangedNotification)
+            and self.tool_list_changed_callback is not None
+        ):
             asyncio.create_task(self._notify_tool_list_changed())
         if self.aggregator is not None and not isinstance(
             message, ProgressNotification | Exception

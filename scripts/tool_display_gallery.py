@@ -178,9 +178,7 @@ def main() -> None:
     layouts: tuple[Layout, ...] = (
         ("compact", "full") if args.layout == "compare" else (args.layout,)
     )
-    content = "\n\n".join(
-        f"## {layout.title()}\n\n{render(layout)}" for layout in layouts
-    )
+    content = "\n\n".join(f"## {layout.title()}\n\n{render(layout)}" for layout in layouts)
     content = (
         "# Tool display gallery\n\n"
         "Generated with `COLUMNS=100 uv run scripts/tool_display_gallery.py --layout compare`.\n\n"

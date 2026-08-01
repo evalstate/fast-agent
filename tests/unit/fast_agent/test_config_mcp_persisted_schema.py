@@ -1,15 +1,29 @@
 from __future__ import annotations
 
 import pytest
+from mcp_types import Implementation
 from pydantic import ValidationError
 
-from fast_agent.config import get_settings
+from fast_agent.config import MCPServerSettings, get_settings
 
 
 def _write_config(tmp_path, text: str):
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(text, encoding="utf-8")
     return config_path
+
+
+def test_mcp_server_implementation_mapping_is_validated() -> None:
+    settings = MCPServerSettings.model_validate(
+        {
+            "command": "server",
+            "implementation": {"name": "spoof", "version": "9.9.9"},
+        }
+    )
+
+    assert isinstance(settings.implementation, Implementation)
+    assert settings.implementation.name == "spoof"
+    assert settings.implementation.version == "9.9.9"
 
 
 def test_get_settings_loads_nested_mcp_schema_and_applies_layered_defaults(tmp_path) -> None:

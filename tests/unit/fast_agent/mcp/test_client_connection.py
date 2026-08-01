@@ -157,11 +157,9 @@ class MixedResponseStreamableHTTPSimulator:
                 "content": [
                     {
                         "type": "text",
-                        "text": "evalstate"
-                        if params["name"] == "whoami"
-                        else "generated image",
+                        "text": "evalstate" if params["name"] == "whoami" else "generated image",
                     }
-                ]
+                ],
             },
         }
         if params["name"] == "whoami":

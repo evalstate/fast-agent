@@ -482,10 +482,7 @@ class ToolDisplay:
                 groups.setdefault(self._parallel_call_identity(request), []).append(request)
 
         aggregated_ids = {
-            id(request)
-            for group in groups.values()
-            if len(group) > 1
-            for request in group
+            id(request) for group in groups.values() if len(group) > 1 for request in group
         }
         rendered_groups: set[tuple[str | None, ...]] = set()
         for request in requests:
@@ -586,10 +583,7 @@ class ToolDisplay:
                 groups.setdefault(self._parallel_result_identity(request), []).append(request)
 
         aggregated_ids = {
-            id(request)
-            for group in groups.values()
-            if len(group) > 1
-            for request in group
+            id(request) for group in groups.values() if len(group) > 1 for request in group
         }
         rendered_groups: set[tuple[str | None, ...]] = set()
         for request in requests:

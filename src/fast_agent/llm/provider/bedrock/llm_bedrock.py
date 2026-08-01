@@ -1695,9 +1695,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     "with existing tool use or tool results"
                 )
             return
-        if (
-            sampling_tool_choice is not None
-            and schema_choice not in (ToolSchemaType.ANTHROPIC, ToolSchemaType.DEFAULT)
+        if sampling_tool_choice is not None and schema_choice not in (
+            ToolSchemaType.ANTHROPIC,
+            ToolSchemaType.DEFAULT,
         ):
             raise ValueError("Bedrock sampling tool choice requires native tool support")
 

@@ -92,12 +92,7 @@ def render_assistant_images_for_settings(
     settings: TerminalImageSettings | None,
     content: Sequence[object] | PromptMessageExtended | None,
 ) -> RenderableType | None:
-    if (
-        settings is None
-        or content is None
-        or not settings.enabled
-        or settings.backend == "none"
-    ):
+    if settings is None or content is None or not settings.enabled or settings.backend == "none":
         return None
 
     blocks: Sequence[object]
@@ -121,12 +116,7 @@ def render_tool_result_images_for_settings(
     settings: TerminalImageSettings | None,
     content: Sequence[object] | None,
 ) -> RenderableType | None:
-    if (
-        settings is None
-        or content is None
-        or not settings.enabled
-        or settings.backend == "none"
-    ):
+    if settings is None or content is None or not settings.enabled or settings.backend == "none":
         return None
     return render_image_items(settings, extract_image_render_items(content))
 

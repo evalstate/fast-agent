@@ -142,10 +142,7 @@ def test_tool_result_handling(
     ],
 ) -> str:
     """Complete a second sampling turn when the model requests a tool."""
-    return (
-        f"Multi-turn completed: stopReason={result.stop_reason}, "
-        f"response={text_content(result)}"
-    )
+    return f"Multi-turn completed: stopReason={result.stop_reason}, response={text_content(result)}"
 
 
 if __name__ == "__main__":

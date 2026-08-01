@@ -65,6 +65,7 @@ mcp:
     dynamic_tool:
       command: "uv"
       args: ["run", "mcp_dynamic_tools.py"]
+      protocol_mode: legacy
     progress_test:
       command: "uv"
       args: ["run", "mcp_progress_server.py"]

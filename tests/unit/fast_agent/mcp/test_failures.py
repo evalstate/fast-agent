@@ -1,4 +1,5 @@
 import httpx2
+import pytest
 from mcp.client.auth import OAuthRegistrationError
 
 from fast_agent.core.exceptions import ServerInitializationError
@@ -66,6 +67,36 @@ def test_explicit_auth_rejection_does_not_offer_oauth_override() -> None:
     assert "supplied credentials" in failure.remediation.casefold()
     assert "OAuth" not in failure.remediation
     assert "secret" not in render_mcp_failure(failure)
+
+
+@pytest.mark.parametrize(
+    ("input_ref", "has_copilot_hint"),
+    [
+        ("https://githubcopilot.com/mcp/", True),
+        ("https://api.githubcopilot.com/mcp/", True),
+        ("https://preview.api.githubcopilot.com/mcp/", True),
+        ("https://githubcopilot.com.attacker.example/mcp/", False),
+        ("https://notgithubcopilot.com/mcp/", False),
+        ("https://example.com/mcp?next=https://api.githubcopilot.com/mcp/", False),
+        ("https://example.com/githubcopilot.com/mcp/", False),
+        ("githubcopilot.com", False),
+        ("https://[invalid", False),
+    ],
+)
+def test_oauth_registration_copilot_guidance_requires_copilot_hostname(
+    input_ref: str,
+    has_copilot_hint: bool,
+) -> None:
+    failure = classify_mcp_failure(
+        OAuthRegistrationError("Registration failed"),
+        server_name="copilot",
+        origin="session",
+        surface="terminal_connect",
+        input_ref=input_ref,
+    )
+
+    assert failure.remediation is not None
+    assert ("GitHub Copilot MCP" in failure.remediation) is has_copilot_hint
 
 
 def test_connection_failure_is_safe_to_retry_once() -> None:

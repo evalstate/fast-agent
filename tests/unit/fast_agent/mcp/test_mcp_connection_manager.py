@@ -1010,9 +1010,7 @@ def _subscription_server(
             },
         ),
         (
-            _modern_discovery(
-                {"resources": {"subscribe": False, "listChanged": True}}
-            ),
+            _modern_discovery({"resources": {"subscribe": False, "listChanged": True}}),
             {
                 "tools_list_changed": False,
                 "prompts_list_changed": False,
@@ -1048,9 +1046,7 @@ async def test_modern_listener_capability_matrix(
     await wait_task
 
     assert client.listen_calls == ([] if expected_filter is None else [expected_filter])
-    assert server_conn.subscription_state == (
-        "disabled" if expected_filter is None else "open"
-    )
+    assert server_conn.subscription_state == ("disabled" if expected_filter is None else "open")
 
 
 @pytest.mark.asyncio
@@ -1133,9 +1129,7 @@ async def test_initial_attachment_commit_rotates_to_materialized_resource_uris()
 @pytest.mark.asyncio
 async def test_resource_events_rotate_serial_listener_without_planned_backoff() -> None:
     client = _ListenerClientSimulator(
-        _modern_discovery(
-            {"resources": {"subscribe": True, "listChanged": True}}
-        ),
+        _modern_discovery({"resources": {"subscribe": True, "listChanged": True}}),
         scripts=[
             [],
             [ResourcesListChanged()],

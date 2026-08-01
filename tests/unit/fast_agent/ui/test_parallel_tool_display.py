@@ -119,8 +119,12 @@ def test_compact_parallel_aggregation_preserves_identity_and_exclusions() -> Non
 
     with console.console.capture() as capture:
         for tool_name in ("execute", "read_text_file", "apply_patch", "edit_file"):
-            display.show_parallel_tool_calls([_call(tool_name=tool_name), _call(tool_name=tool_name)])
-        display.show_parallel_tool_calls([_call(show_hook_indicator=True), _call(show_hook_indicator=True)])
+            display.show_parallel_tool_calls(
+                [_call(tool_name=tool_name), _call(tool_name=tool_name)]
+            )
+        display.show_parallel_tool_calls(
+            [_call(show_hook_indicator=True), _call(show_hook_indicator=True)]
+        )
         display.show_parallel_tool_results([_result("", result=error), _result("", result=error)])
         display.show_parallel_tool_results(
             [_result("", result=structured), _result("", result=structured)]

@@ -70,8 +70,7 @@ def test_compact_mcp_call_and_result_are_summary_only() -> None:
     rendered = " ".join(capture.get().split())
     assert "▎◀ agent tool (MCP) huggingface hf_fs · id: call_…456789" in rendered
     assert (
-        "▎▶ agent tool (MCP) huggingface hf_fs · text only 17 chars · 12.0s · "
-        "id: call_…456789"
+        "▎▶ agent tool (MCP) huggingface hf_fs · text only 17 chars · 12.0s · id: call_…456789"
     ) in rendered
     assert "datasets/example" not in rendered
     assert "large result body" not in rendered
@@ -150,9 +149,7 @@ def test_compact_shell_collapses_result_to_inverse_exit_summary() -> None:
         )
 
     rendered = " ".join(capture.get().split())
-    assert (
-        "▎◀ dev bash (/bin/bash) | yield 10s idle / 30s total · id: call_…456789"
-    ) in rendered
+    assert ("▎◀ dev bash (/bin/bash) | yield 10s idle / 30s total · id: call_…456789") in rendered
     assert "uv run scripts/lint.py" in rendered
     assert "lint passed" not in rendered
     assert "text only" not in rendered

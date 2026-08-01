@@ -662,10 +662,7 @@ def test_tool_stream_edit_file_preview_formats_partial_json() -> None:
         {
             "tool_name": "edit_file",
             "tool_use_id": "tool-edit-2",
-            "chunk": (
-                '{"path":"src/example.py","old_string":"old = 1\\n",'
-                '"new_string":"new = 2'
-            ),
+            "chunk": ('{"path":"src/example.py","old_string":"old = 1\\n","new_string":"new = 2'),
         },
     )
 

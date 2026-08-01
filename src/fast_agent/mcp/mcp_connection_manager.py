@@ -530,9 +530,7 @@ def _subscription_filter(server_conn: ServerConnection) -> _ModernSubscriptionFi
         return None
     capabilities = discover_result.capabilities
     tools_list_changed = bool(capabilities.tools and capabilities.tools.list_changed is True)
-    prompts_list_changed = bool(
-        capabilities.prompts and capabilities.prompts.list_changed is True
-    )
+    prompts_list_changed = bool(capabilities.prompts and capabilities.prompts.list_changed is True)
     resources = discover_result.capabilities.resources
     resources_list_changed = bool(resources and resources.list_changed is True)
     resource_subscription_capable = bool(resources and resources.subscribe is True)
@@ -567,9 +565,7 @@ def _subscription_filter_fully_honored(
         return False
     if requested.resources_list_changed and honored.resources_list_changed is not True:
         return False
-    return set(requested.resource_subscriptions).issubset(
-        honored.resource_subscriptions or ()
-    )
+    return set(requested.resource_subscriptions).issubset(honored.resource_subscriptions or ())
 
 
 async def _run_subscription_loop(server_conn: ServerConnection) -> None:
@@ -616,9 +612,7 @@ async def _run_subscription_loop(server_conn: ServerConnection) -> None:
                         if fully_honored:
                             event = await anext(subscription)
                         else:
-                            async with asyncio.timeout(
-                                PARTIAL_SUBSCRIPTION_REFRESH_SECONDS
-                            ):
+                            async with asyncio.timeout(PARTIAL_SUBSCRIPTION_REFRESH_SECONDS):
                                 event = await anext(subscription)
                     except TimeoutError:
                         refreshed_uris = (
@@ -626,8 +620,7 @@ async def _run_subscription_loop(server_conn: ServerConnection) -> None:
                         )
                         if (
                             subscription_filter.resource_subscription_capable
-                            and refreshed_uris
-                            != subscription_filter.resource_subscriptions
+                            and refreshed_uris != subscription_filter.resource_subscriptions
                         ):
                             server_conn.subscription_state = "rotating"
                             planned_rotation = True

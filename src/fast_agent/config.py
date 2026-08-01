@@ -8,15 +8,9 @@ import re
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
-# Importing the MCP Implementation type eagerly pulls in the full MCP server
-# stack (uvicorn, Starlette, etc.) which slows down startup. We only need the
-# type for annotations, so avoid the runtime import.
-if TYPE_CHECKING:
-    from mcp import Implementation
-else:  # pragma: no cover - used only to satisfy type checkers
-    Implementation = Any
+from mcp_types import Implementation
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict

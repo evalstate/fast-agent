@@ -114,7 +114,9 @@ class ServiceAppointment(BaseModel):
 
 
 def request_event_registration() -> Elicit[EventRegistration]:
-    return Elicit("Register for the fast-agent conference - fill out your details", EventRegistration)
+    return Elicit(
+        "Register for the fast-agent conference - fill out your details", EventRegistration
+    )
 
 
 def request_product_review() -> Elicit[ProductReview]:

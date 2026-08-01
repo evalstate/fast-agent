@@ -210,18 +210,12 @@ def test_automatic_sixel_backend_uses_viewport_aware_renderer(monkeypatch) -> No
 
     monkeypatch.setattr(terminal_image_renderer, "import_module", import_backend)
 
-    assert (
-        terminal_image_renderer._resolve_textual_image_class("auto")
-        is ViewportAwareSixelImage
-    )
+    assert terminal_image_renderer._resolve_textual_image_class("auto") is ViewportAwareSixelImage
     assert (
         terminal_image_renderer._resolve_textual_image_class("textual-image")
         is ViewportAwareSixelImage
     )
-    assert (
-        terminal_image_renderer._resolve_textual_image_class("sixel")
-        is ViewportAwareSixelImage
-    )
+    assert terminal_image_renderer._resolve_textual_image_class("sixel") is ViewportAwareSixelImage
 
 
 def test_sixel_image_height_stays_within_cursor_safe_viewport(monkeypatch) -> None:

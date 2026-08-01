@@ -183,6 +183,25 @@ async def test_runtime_forwards_server_notifications_to_aggregator() -> None:
     assert received == [("notifier", notification)]
 
 
+@pytest.mark.asyncio
+async def test_runtime_dispatches_legacy_tool_list_notification() -> None:
+    refreshed = asyncio.Event()
+
+    async def refresh(server_name: str) -> None:
+        assert server_name == "dynamic"
+        refreshed.set()
+
+    runtime = MCPClientCallbackRuntime(
+        server_name="dynamic",
+        server_config=None,
+        tool_list_changed_callback=refresh,
+        context=_context(),
+    )
+
+    await runtime.message_handler(ToolListChangedNotification())
+    await asyncio.wait_for(refreshed.wait(), timeout=1)
+
+
 @pytest.mark.parametrize(
     ("transport", "snapshot_name"),
     [
