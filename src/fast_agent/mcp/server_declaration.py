@@ -148,9 +148,7 @@ class MCPServerDeclaration(BaseModel):
 
         if defaults:
             updates = {
-                field: value
-                for field, value in defaults.items()
-                if field not in source_fields
+                field: value for field, value in defaults.items() if field not in source_fields
             }
             if updates:
                 settings = settings.model_copy(update=updates)

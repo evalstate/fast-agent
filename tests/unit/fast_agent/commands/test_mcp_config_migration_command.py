@@ -78,9 +78,7 @@ mcp:
     assert isinstance(result.exception, SystemExit)
     assert "Error loading fast-agent settings:" in result.output
     assert "`mcp.targets` is no longer supported" in result.output
-    command = shlex.join(
-        ["fast-agent", "config", "migrate-mcp", str(path.resolve()), "--write"]
-    )
+    command = shlex.join(["fast-agent", "config", "migrate-mcp", str(path.resolve()), "--write"])
     assert f"`{command}`" in result.output
     assert "Traceback" not in result.output
     assert "input_value" not in result.output
@@ -208,9 +206,7 @@ mcp:
 """,
     ],
 )
-def test_migrate_mcp_refuses_duplicate_or_inferred_collisions(
-    tmp_path: Path, targets: str
-) -> None:
+def test_migrate_mcp_refuses_duplicate_or_inferred_collisions(tmp_path: Path, targets: str) -> None:
     path = _write(tmp_path, f"mcp:\n  targets:{targets}")
     original = path.read_bytes()
 
@@ -292,9 +288,7 @@ mcp:
         ),
     ],
 )
-def test_migrate_mcp_reports_malformed_structures(
-    tmp_path: Path, text: str, message: str
-) -> None:
+def test_migrate_mcp_reports_malformed_structures(tmp_path: Path, text: str, message: str) -> None:
     path = _write(tmp_path, text)
 
     result = _run(path)

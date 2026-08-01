@@ -43,6 +43,7 @@ _STATUS_CONSOLE: ContextVar[Console | None] = ContextVar("_STATUS_CONSOLE", defa
 def _status_console() -> Console:
     return _STATUS_CONSOLE.get() or console.console
 
+
 _ELICITATION_MODE_STATES: dict[str, CapabilityState] = {
     "auto-cancel": "red",
     "none": False,

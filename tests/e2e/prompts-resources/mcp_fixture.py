@@ -32,9 +32,7 @@ def with_attachment() -> list[Message]:
             "Very well thank you, can I help you by summarising documents?",
             role="assistant",
         ),
-        Message(
-            "Can you summarise this document please. Make sure to include the company name."
-        ),
+        Message("Can you summarise this document please. Make sure to include the company name."),
         Message(_pdf_resource()),
     ]
 

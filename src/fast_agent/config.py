@@ -886,8 +886,7 @@ class MCPSettings(BaseModel):
             existing_declarations
             if isinstance(existing_declarations, dict)
             and all(
-                isinstance(item, MCPServerDeclaration)
-                for item in existing_declarations.values()
+                isinstance(item, MCPServerDeclaration) for item in existing_declarations.values()
             )
             else declarations
         )
@@ -2132,8 +2131,7 @@ def _migrate_legacy_mcp_settings_values(values: Any) -> Any:
         canonical_path = f"mcp.{section_name}.{canonical_key}"
         if canonical_present:
             raise ValueError(
-                f"`{legacy_key}` and `{canonical_path}` cannot both be set; "
-                f"remove `{legacy_key}`."
+                f"`{legacy_key}` and `{canonical_path}` cannot both be set; remove `{legacy_key}`."
             )
 
         warnings.warn(
@@ -2347,9 +2345,7 @@ class Settings(BaseSettings):
     def __init__(self, **values: Any) -> None:
         raw_mcp = values.get("mcp")
         source_declarations = (
-            dict(raw_mcp.server_declarations)
-            if isinstance(raw_mcp, MCPSettings)
-            else None
+            dict(raw_mcp.server_declarations) if isinstance(raw_mcp, MCPSettings) else None
         )
         if isinstance(raw_mcp, MCPSettings):
             migrated_values = _migrate_legacy_mcp_settings_values(values)

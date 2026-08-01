@@ -166,9 +166,7 @@ def _print_secrets_next_steps(created: list[str]) -> None:
         "1. Add your API keys to fast-agent.secrets.yaml, or set environment variables. Use [cyan]fast-agent check[/cyan] to verify."
     )
     console.print("2. Keep fast-agent.secrets.yaml secure and never commit it to version control")
-    console.print(
-        "3. Set default_model in fast-agent.yaml for unattended runs, or pass --model"
-    )
+    console.print("3. Set default_model in fast-agent.yaml for unattended runs, or pass --model")
 
 
 def _print_scaffold_result(

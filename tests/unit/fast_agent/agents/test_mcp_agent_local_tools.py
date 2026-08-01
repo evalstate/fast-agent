@@ -112,23 +112,17 @@ def _bottom_items(call: _DisplayCall) -> list[str]:
 
 
 def test_shell_edit_tool_flags_follow_mode_contract() -> None:
-    assert ShellEditToolFlags.from_mode(
-        ShellEditToolMode.WRITE_TEXT_FILE
-    ) == ShellEditToolFlags(
+    assert ShellEditToolFlags.from_mode(ShellEditToolMode.WRITE_TEXT_FILE) == ShellEditToolFlags(
         write_text_file=True,
         apply_patch=False,
         edit_file=True,
     )
-    assert ShellEditToolFlags.from_mode(
-        ShellEditToolMode.EDIT_FILE
-    ) == ShellEditToolFlags(
+    assert ShellEditToolFlags.from_mode(ShellEditToolMode.EDIT_FILE) == ShellEditToolFlags(
         write_text_file=False,
         apply_patch=False,
         edit_file=True,
     )
-    assert ShellEditToolFlags.from_mode(
-        ShellEditToolMode.APPLY_PATCH
-    ) == ShellEditToolFlags(
+    assert ShellEditToolFlags.from_mode(ShellEditToolMode.APPLY_PATCH) == ShellEditToolFlags(
         write_text_file=False,
         apply_patch=True,
         edit_file=False,
@@ -249,9 +243,7 @@ async def test_local_plain_dict_tool_suppresses_structured_content() -> None:
 
 
 @pytest.mark.asyncio
-async def test_local_explicit_function_tool_preserves_native_structured_content() -> (
-    None
-):
+async def test_local_explicit_function_tool_preserves_native_structured_content() -> None:
     def add(a: int, b: int) -> int:
         return a + b
 
@@ -484,9 +476,7 @@ async def test_shell_output_limit_falls_back_when_llm_has_no_resolved_model() ->
 
     agent._on_llm_attached(cast("Any", StubLLMWithoutResolvedModel("gpt-4.1")))
 
-    assert shell_runtime.output_byte_limit == calculate_terminal_output_limit_for_model(
-        "gpt-4.1"
-    )
+    assert shell_runtime.output_byte_limit == calculate_terminal_output_limit_for_model("gpt-4.1")
 
     await agent._aggregator.close()
 
@@ -592,9 +582,7 @@ async def test_local_filesystem_edit_tools_report_completion_to_tool_handler(
 ) -> None:
     class RecordingToolHandler:
         def __init__(self) -> None:
-            self.starts: list[
-                tuple[str, str, dict[str, object] | None, str | None]
-            ] = []
+            self.starts: list[tuple[str, str, dict[str, object] | None, str | None]] = []
             self.completions: list[tuple[str, bool, str | None]] = []
 
         async def on_tool_start(
@@ -748,7 +736,9 @@ async def test_shell_can_include_apply_patch_when_model_prefers_it(
     assert "write_text_file" not in tool_names
     assert "edit_file" not in tool_names
 
-    patch_text = "*** Begin Patch\n*** Update File: notes.txt\n@@\n-one\n+ONE\n two\n*** End Patch\n"
+    patch_text = (
+        "*** Begin Patch\n*** Update File: notes.txt\n@@\n-one\n+ONE\n two\n*** End Patch\n"
+    )
     result = await agent.call_tool("apply_patch", {"input": patch_text})
 
     assert result.is_error is False
@@ -763,9 +753,7 @@ async def test_shell_can_include_apply_patch_when_model_prefers_it(
 @pytest.mark.asyncio
 async def test_local_read_text_file_option_requires_shell_runtime() -> None:
     settings = Settings(shell_execution=ShellSettings(enable_read_text_file=True))
-    config = AgentConfig(
-        name="test", instruction="Instruction", servers=[], shell=False
-    )
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=False)
     agent = McpAgent(config=config, context=Context(config=settings))
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
@@ -914,9 +902,7 @@ async def test_write_text_file_auto_mode_uses_context_default_model_when_agent_m
 
 @pytest.mark.asyncio
 async def test_apply_patch_mode_explicitly_enables_tool() -> None:
-    settings = Settings(
-        shell_execution=ShellSettings(write_text_file_mode="apply_patch")
-    )
+    settings = Settings(shell_execution=ShellSettings(write_text_file_mode="apply_patch"))
     config = AgentConfig(
         name="test",
         instruction="Instruction",
@@ -1083,9 +1069,7 @@ async def test_minimal_process_planned_metadata_matches_runtime_dispatch() -> No
 
 
 @pytest.mark.asyncio
-async def test_write_text_file_mode_off_disables_tool_even_for_non_codex_models() -> (
-    None
-):
+async def test_write_text_file_mode_off_disables_tool_even_for_non_codex_models() -> None:
     settings = Settings(shell_execution=ShellSettings(write_text_file_mode="off"))
     config = AgentConfig(
         name="test",
@@ -1128,9 +1112,7 @@ async def test_skills_fallback_to_read_skill_when_local_read_text_file_disabled(
     manifests = SkillRegistry.load_directory(skills_root)
 
     settings = Settings(
-        shell_execution=ShellSettings(
-            enable_read_text_file=False, write_text_file_mode="on"
-        )
+        shell_execution=ShellSettings(enable_read_text_file=False, write_text_file_mode="on")
     )
     config = AgentConfig(
         name="test",
@@ -1152,9 +1134,7 @@ async def test_skills_fallback_to_read_skill_when_local_read_text_file_disabled(
 
 
 @pytest.mark.asyncio
-async def test_acp_filesystem_runtime_injection_augments_local_shell_edit_tools() -> (
-    None
-):
+async def test_acp_filesystem_runtime_injection_augments_local_shell_edit_tools() -> None:
     class ACPFilesystemRuntime:
         def __init__(self) -> None:
             self.tools = [
@@ -1185,9 +1165,7 @@ async def test_acp_filesystem_runtime_injection_augments_local_shell_edit_tools(
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del arguments, tool_use_id
-            return CallToolResult(
-                content=[TextContent(type="text", text="acp")], is_error=False
-            )
+            return CallToolResult(content=[TextContent(type="text", text="acp")], is_error=False)
 
         async def write_text_file(
             self,
@@ -1197,9 +1175,7 @@ async def test_acp_filesystem_runtime_injection_augments_local_shell_edit_tools(
             del tool_use_id
             assert arguments is not None
             return CallToolResult(
-                content=[
-                    TextContent(type="text", text=f"acp-write:{arguments['path']}")
-                ],
+                content=[TextContent(type="text", text=f"acp-write:{arguments['path']}")],
                 is_error=False,
             )
 
@@ -1368,7 +1344,9 @@ async def test_acp_filesystem_runtime_injection_preserves_local_apply_patch_for_
     assert "apply_patch" in tool_names
     assert "edit_file" not in tool_names
 
-    patch_text = "*** Begin Patch\n*** Update File: notes.txt\n@@\n-one\n+ONE\n two\n*** End Patch\n"
+    patch_text = (
+        "*** Begin Patch\n*** Update File: notes.txt\n@@\n-one\n+ONE\n two\n*** End Patch\n"
+    )
     result = await agent.call_tool("apply_patch", {"input": patch_text})
 
     assert result.is_error is False
@@ -1378,9 +1356,7 @@ async def test_acp_filesystem_runtime_injection_preserves_local_apply_patch_for_
 
 
 @pytest.mark.asyncio
-async def test_unprefixed_read_text_file_routes_to_namespaced_mcp_when_local_fs_available() -> (
-    None
-):
+async def test_unprefixed_read_text_file_routes_to_namespaced_mcp_when_local_fs_available() -> None:
     class RecordingFilesystemRuntime:
         def __init__(self) -> None:
             self.tools = [
@@ -1402,9 +1378,7 @@ async def test_unprefixed_read_text_file_routes_to_namespaced_mcp_when_local_fs_
         ) -> CallToolResult:
             del tool_use_id
             self.read_calls.append(arguments)
-            return CallToolResult(
-                content=[TextContent(type="text", text="local")], is_error=False
-            )
+            return CallToolResult(content=[TextContent(type="text", text="local")], is_error=False)
 
         async def write_text_file(
             self,
@@ -1438,9 +1412,7 @@ async def test_unprefixed_read_text_file_routes_to_namespaced_mcp_when_local_fs_
                 is_error=True,
             )
 
-    config = AgentConfig(
-        name="test", instruction="Instruction", servers=[], shell=False
-    )
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=False)
     agent = McpAgent(config=config, context=Context())
     agent._filesystem_runtime = cast("Any", RecordingFilesystemRuntime())
 
@@ -1454,12 +1426,8 @@ async def test_unprefixed_read_text_file_routes_to_namespaced_mcp_when_local_fs_
         server_name="docs",
         namespaced_tool_name="docs__read_text_file",
     )
-    agent._aggregator._namespaced_tool_map = {
-        namespaced_tool.namespaced_tool_name: namespaced_tool
-    }
-    agent._aggregator._server_to_tool_map = {
-        namespaced_tool.server_name: [namespaced_tool]
-    }
+    agent._aggregator._namespaced_tool_map = {namespaced_tool.namespaced_tool_name: namespaced_tool}
+    agent._aggregator._server_to_tool_map = {namespaced_tool.server_name: [namespaced_tool]}
 
     mcp_calls: list[str] = []
 
@@ -1481,9 +1449,7 @@ async def test_unprefixed_read_text_file_routes_to_namespaced_mcp_when_local_fs_
     ) -> CallToolResult:
         del arguments, tool_use_id, request_tool_handler
         mcp_calls.append(name)
-        return CallToolResult(
-            content=[TextContent(type="text", text="mcp")], is_error=False
-        )
+        return CallToolResult(content=[TextContent(type="text", text="mcp")], is_error=False)
 
     async def fake_get_skybridge_config(server_name: str) -> None:
         del server_name
@@ -1559,9 +1525,7 @@ async def test_unprefixed_write_text_file_routes_to_namespaced_mcp_when_local_fs
         ) -> CallToolResult:
             del tool_use_id
             self.write_calls.append(arguments)
-            return CallToolResult(
-                content=[TextContent(type="text", text="local")], is_error=False
-            )
+            return CallToolResult(content=[TextContent(type="text", text="local")], is_error=False)
 
         def metadata(self) -> dict[str, object]:
             return {"variant": "local_filesystem"}
@@ -1584,9 +1548,7 @@ async def test_unprefixed_write_text_file_routes_to_namespaced_mcp_when_local_fs
                 is_error=True,
             )
 
-    config = AgentConfig(
-        name="test", instruction="Instruction", servers=[], shell=False
-    )
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=False)
     agent = McpAgent(config=config, context=Context())
     agent._filesystem_runtime = cast("Any", RecordingFilesystemRuntime())
 
@@ -1606,12 +1568,8 @@ async def test_unprefixed_write_text_file_routes_to_namespaced_mcp_when_local_fs
         server_name="docs",
         namespaced_tool_name="docs__write_text_file",
     )
-    agent._aggregator._namespaced_tool_map = {
-        namespaced_tool.namespaced_tool_name: namespaced_tool
-    }
-    agent._aggregator._server_to_tool_map = {
-        namespaced_tool.server_name: [namespaced_tool]
-    }
+    agent._aggregator._namespaced_tool_map = {namespaced_tool.namespaced_tool_name: namespaced_tool}
+    agent._aggregator._server_to_tool_map = {namespaced_tool.server_name: [namespaced_tool]}
 
     mcp_calls: list[str] = []
 
@@ -1633,9 +1591,7 @@ async def test_unprefixed_write_text_file_routes_to_namespaced_mcp_when_local_fs
     ) -> CallToolResult:
         del arguments, tool_use_id, request_tool_handler
         mcp_calls.append(name)
-        return CallToolResult(
-            content=[TextContent(type="text", text="mcp")], is_error=False
-        )
+        return CallToolResult(content=[TextContent(type="text", text="mcp")], is_error=False)
 
     async def fake_get_skybridge_config(server_name: str) -> None:
         del server_name
@@ -1708,9 +1664,7 @@ async def test_shell_tool_use_turn_hides_bottom_bar_and_mentions_shell_access() 
 
 
 @pytest.mark.asyncio
-async def test_read_text_file_tool_use_turn_hides_bottom_bar_without_extra_message() -> (
-    None
-):
+async def test_read_text_file_tool_use_turn_hides_bottom_bar_without_extra_message() -> None:
     config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
     agent = McpAgent(config=config, context=Context())
     capture_display = CaptureDisplay()
@@ -1743,9 +1697,7 @@ async def test_read_text_file_tool_use_turn_hides_bottom_bar_without_extra_messa
 
 
 @pytest.mark.asyncio
-async def test_grok_catalog_shell_output_limit_applies_when_setting_is_omitted() -> (
-    None
-):
+async def test_grok_catalog_shell_output_limit_applies_when_setting_is_omitted() -> None:
     settings = Settings(shell_execution=ShellSettings())
     config = AgentConfig(
         name="test",
@@ -1764,9 +1716,7 @@ async def test_grok_catalog_shell_output_limit_applies_when_setting_is_omitted()
 
 
 @pytest.mark.asyncio
-async def test_grok_uses_minimal_process_default_and_preserves_native_override() -> (
-    None
-):
+async def test_grok_uses_minimal_process_default_and_preserves_native_override() -> None:
     minimal_agent = McpAgent(
         config=AgentConfig(
             name="minimal",
@@ -1809,9 +1759,7 @@ async def test_grok_uses_minimal_process_default_and_preserves_native_override()
 
 
 @pytest.mark.asyncio
-async def test_default_shell_output_limit_returns_after_switching_away_from_grok() -> (
-    None
-):
+async def test_default_shell_output_limit_returns_after_switching_away_from_grok() -> None:
     settings = Settings(shell_execution=ShellSettings())
     config = AgentConfig(
         name="test",
@@ -1859,9 +1807,7 @@ async def test_explicit_null_shell_output_limit_uses_automatic_model_sizing() ->
 async def test_explicit_shell_output_limit_overrides_grok_catalog(
     configured_limit: int,
 ) -> None:
-    settings = Settings(
-        shell_execution=ShellSettings(output_byte_limit=configured_limit)
-    )
+    settings = Settings(shell_execution=ShellSettings(output_byte_limit=configured_limit))
     config = AgentConfig(
         name="test",
         instruction="Instruction",
@@ -1915,9 +1861,7 @@ async def test_local_shell_result_is_not_retruncated_by_mcp_result_policy() -> N
         request_params: RequestParams | None = None,
     ) -> CallToolResult:
         del name, arguments, tool_use_id, request_tool_handler, request_params
-        return CallToolResult(
-            content=[TextContent(type="text", text=output)], is_error=False
-        )
+        return CallToolResult(content=[TextContent(type="text", text=output)], is_error=False)
 
     agent.call_tool = cast("Any", fake_call_tool)
     agent._model_tool_output_byte_limit = cast("Any", lambda _llm=None: 40)
@@ -1973,9 +1917,7 @@ async def test_shell_startup_warns_when_configured_cwd_is_file(tmp_path: Path) -
     )
     agent = McpAgent(config=config, context=Context())
 
-    assert any(
-        "shell cwd that is not a directory" in warning for warning in agent.warnings
-    )
+    assert any("shell cwd that is not a directory" in warning for warning in agent.warnings)
 
     await agent._aggregator.close()
 
@@ -2019,9 +1961,7 @@ async def test_shell_call_forwards_parallel_display_flags() -> None:
                     "defer_display_to_tool_result": defer_display_to_tool_result,
                 }
             )
-            return CallToolResult(
-                content=[TextContent(type="text", text="ok")], is_error=False
-            )
+            return CallToolResult(content=[TextContent(type="text", text="ok")], is_error=False)
 
         async def call_tool(
             self,
@@ -2096,9 +2036,7 @@ async def test_parallel_shell_results_display_in_tool_call_order() -> None:
                 await asyncio.sleep(0.01)
 
             result = CallToolResult(
-                content=[
-                    TextContent(type="text", text=f"{command}\nprocess exit code was 0")
-                ],
+                content=[TextContent(type="text", text=f"{command}\nprocess exit code was 0")],
                 is_error=False,
             )
             update_tool_result_display_metadata(
@@ -2154,14 +2092,10 @@ async def test_parallel_shell_results_display_in_tool_call_order() -> None:
         content=[TextContent(type="text", text="run tools")],
         tool_calls={
             "call-1": CallToolRequest(
-                params=CallToolRequestParams(
-                    name="execute", arguments={"command": "first"}
-                )
+                params=CallToolRequestParams(name="execute", arguments={"command": "first"})
             ),
             "call-2": CallToolRequest(
-                params=CallToolRequestParams(
-                    name="execute", arguments={"command": "second"}
-                )
+                params=CallToolRequestParams(name="execute", arguments={"command": "second"})
             ),
         },
     )
@@ -2247,9 +2181,7 @@ async def test_read_text_file_tool_call_header_is_suppressed() -> None:
             del args, kwargs
             self.result_count += 1
 
-    config = AgentConfig(
-        name="test", instruction="Instruction", servers=[], shell=False
-    )
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=False)
     agent = McpAgent(config=config, context=Context())
     agent._filesystem_runtime = cast("Any", RecordingFilesystemRuntime())
     recording_display = RecordingDisplay()
@@ -2277,9 +2209,7 @@ async def test_read_text_file_tool_call_header_is_suppressed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_parallel_read_text_file_results_use_file_read_label_without_ids() -> (
-    None
-):
+async def test_parallel_read_text_file_results_use_file_read_label_without_ids() -> None:
     class RecordingFilesystemRuntime:
         def __init__(self) -> None:
             self.tools = [
@@ -2348,14 +2278,10 @@ async def test_parallel_read_text_file_results_use_file_read_label_without_ids()
 
         def show_tool_result(self, *args: object, **kwargs: object) -> None:
             self.results.append(cast("CallToolResult", kwargs["result"]))
-            self.result_tool_call_ids.append(
-                cast("str | None", kwargs.get("tool_call_id"))
-            )
+            self.result_tool_call_ids.append(cast("str | None", kwargs.get("tool_call_id")))
             self.result_type_labels.append(cast("str | None", kwargs.get("type_label")))
 
-    config = AgentConfig(
-        name="test", instruction="Instruction", servers=[], shell=False
-    )
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=False)
     agent = McpAgent(config=config, context=Context())
     agent._filesystem_runtime = cast("Any", RecordingFilesystemRuntime())
     recording_display = RecordingDisplay()

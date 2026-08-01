@@ -187,9 +187,7 @@ class MCPClientConnection:
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
     ) -> ListResourceTemplatesResult:
-        return await self._request(
-            self.client.list_resource_templates(cursor=cursor, meta=meta)
-        )
+        return await self._request(self.client.list_resource_templates(cursor=cursor, meta=meta))
 
     async def call_tool(
         self,
@@ -252,9 +250,7 @@ class MCPClientConnection:
         cursor: str | None = None,
     ) -> ListResourcesResult:
         request = DirectoryReadRequest(params=DirectoryReadRequestParams(uri=uri, cursor=cursor))
-        return await self._request(
-            self.client.session.send_request(request, ListResourcesResult)
-        )
+        return await self._request(self.client.session.send_request(request, ListResourcesResult))
 
     async def _request(self, operation: Awaitable[T]) -> T:
         try:
@@ -337,14 +333,11 @@ class MCPClientConnection:
 
     def _sanitize_get_prompt_result(self, result: GetPromptResult) -> GetPromptResult:
         messages = [
-            message.model_copy(
-                update={"content": self._sanitize_content_block(message.content)}
-            )
+            message.model_copy(update={"content": self._sanitize_content_block(message.content)})
             for message in result.messages
         ]
         if all(
-            new.content is old.content
-            for new, old in zip(messages, result.messages, strict=True)
+            new.content is old.content for new, old in zip(messages, result.messages, strict=True)
         ):
             return result
         return result.model_copy(update={"messages": messages})
@@ -368,8 +361,6 @@ class MCPClientConnection:
                 text="[Local file attachment from a remote MCP server was blocked.]",
             )
         if isinstance(content, EmbeddedResource) and is_file_uri(str(content.resource.uri)):
-            resource = content.resource.model_copy(
-                update={"uri": SANITIZED_INLINE_RESOURCE_URI}
-            )
+            resource = content.resource.model_copy(update={"uri": SANITIZED_INLINE_RESOURCE_URI})
             return content.model_copy(update={"resource": resource})
         return content

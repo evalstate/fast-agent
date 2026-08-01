@@ -1174,9 +1174,7 @@ class MCPConnectionManager(ContextDependent):
             and (
                 _is_http_auth_challenge_error(
                     error,
-                    response_challenged=bool(
-                        server_conn and server_conn._auth_challenge_received
-                    ),
+                    response_challenged=bool(server_conn and server_conn._auth_challenge_received),
                 )
             )
         )

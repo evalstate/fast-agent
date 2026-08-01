@@ -143,9 +143,7 @@ async def test_sync_agent_card_mcp_connect_registers_runtime_server(tmp_path: Pa
         assert server_cfg.args == ["@foo/bar"]
 
         registry_cfg = (
-            context.server_registry.registry.get(internal_name)
-            if context.server_registry
-            else None
+            context.server_registry.registry.get(internal_name) if context.server_registry else None
         )
         assert registry_cfg is not None
         assert registry_cfg.command == "npx"
@@ -248,9 +246,7 @@ async def test_unrelated_cards_can_use_same_visible_mcp_namespace(tmp_path: Path
         assert cfg is not None
         assert cfg.mcp is not None
         card_servers = {
-            name: server
-            for name, server in cfg.mcp.servers.items()
-            if name.startswith("card-")
+            name: server for name, server in cfg.mcp.servers.items() if name.startswith("card-")
         }
         assert len(card_servers) == 2
         assert {server.name for server in card_servers.values()} == {"docs"}

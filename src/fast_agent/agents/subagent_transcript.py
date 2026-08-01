@@ -118,9 +118,7 @@ def _render_tool_calls(sections: list[str], message: PromptMessageExtended) -> N
 
 def _render_tool_results(sections: list[str], message: PromptMessageExtended) -> None:
     for call_id, result in (message.tool_results or {}).items():
-        sections.extend(
-            ("", f"=== TOOL RESULT {call_id} error={str(result.is_error).lower()} ===")
-        )
+        sections.extend(("", f"=== TOOL RESULT {call_id} error={str(result.is_error).lower()} ==="))
         text = tool_result_text_for_llm(result)
         if text:
             sections.append(_normalize_lines(text))

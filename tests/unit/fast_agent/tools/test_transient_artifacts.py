@@ -100,9 +100,7 @@ async def test_local_transient_store_is_private_unique_and_parent_scoped(tmp_pat
     assert second_path.read_text(encoding="utf-8") == "second transcript"
     assert not partial.artifact.complete
     assert partial.artifact.retained_bytes <= 65
-    assert partial_path.read_text(encoding="utf-8").endswith(
-        TRANSIENT_ARTIFACT_QUOTA_MARKER
-    )
+    assert partial_path.read_text(encoding="utf-8").endswith(TRANSIENT_ARTIFACT_QUOTA_MARKER)
     assert "temporary-file quota was reached" in partial.notice
     if first_path.stat().st_mode & 0o777:
         assert first_path.stat().st_mode & 0o777 == 0o600

@@ -46,9 +46,7 @@ _NPX_PACKAGE_VALUE_OPTIONS = frozenset({"--package", "-p"})
 _UVX_PACKAGE_VALUE_OPTIONS = frozenset({"--from"})
 
 _WHOLE_SINGLE_QUOTED_ARG_PATTERN = re.compile(r"(^|\s)'([^']+)'(?=\s|$)")
-_AUTH_ENV_BRACED_RE = re.compile(
-    r"^\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::(?P<default>.*))?\}$"
-)
+_AUTH_ENV_BRACED_RE = re.compile(r"^\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::(?P<default>.*))?\}$")
 _AUTH_ENV_SIMPLE_RE = re.compile(r"^\$(?P<name>[A-Za-z_][A-Za-z0-9_]*)$")
 
 
@@ -202,9 +200,7 @@ def _validate_timeout(value: str) -> float:
 def _validate_protocol_mode(value: str) -> McpProtocolMode:
     normalized = strip_casefold(value)
     if normalized not in {"auto", "modern", "legacy"}:
-        raise ValueError(
-            "Invalid value for --protocol: expected one of auto, modern, or legacy"
-        )
+        raise ValueError("Invalid value for --protocol: expected one of auto, modern, or legacy")
     return normalized
 
 

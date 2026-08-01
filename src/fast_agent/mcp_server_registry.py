@@ -45,9 +45,7 @@ class ServerRegistry:
         self._capabilities: dict[str, ServerCapabilities] = {}
         self._config = config
         loaded = config.mcp.servers if config is not None and config.mcp is not None else {}
-        self.registry = {
-            name: settings.model_copy(deep=True) for name, settings in loaded.items()
-        }
+        self.registry = {name: settings.model_copy(deep=True) for name, settings in loaded.items()}
         self._origins: dict[str, ServerOrigin] = dict.fromkeys(self.registry, "central")
         self._runtime_owners: dict[str, set[str]] = {}
         self._attachment_owners: dict[str, set[str]] = {}
@@ -109,9 +107,7 @@ class ServerRegistry:
         ]
         if conflicts:
             name, origin = conflicts[0]
-            raise ValueError(
-                f"Card MCP server '{name}' collides with {origin} configuration"
-            )
+            raise ValueError(f"Card MCP server '{name}' collides with {origin} configuration")
         for name in [name for name, origin in self._origins.items() if origin == "card"]:
             self.registry.pop(name, None)
             self._origins.pop(name, None)
@@ -195,9 +191,7 @@ class ServerRegistry:
         """Return cached capabilities for a server, or None if not yet initialized."""
         return self._capabilities.get(server_name)
 
-    def set_server_capabilities(
-        self, server_name: str, capabilities: "ServerCapabilities"
-    ) -> None:
+    def set_server_capabilities(self, server_name: str, capabilities: "ServerCapabilities") -> None:
         self._capabilities[server_name] = capabilities
 
     def clear_server_capabilities(self, server_name: str) -> None:

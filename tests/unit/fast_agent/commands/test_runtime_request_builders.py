@@ -101,8 +101,7 @@ def test_build_agent_run_request_includes_client_metadata_url_in_url_server_auth
     assert server_config.auth is not None
     assert server_config.auth.oauth is True
     assert (
-        server_config.auth.client_metadata_url
-        == "https://example.com/oauth/client-metadata.json"
+        server_config.auth.client_metadata_url == "https://example.com/oauth/client-metadata.json"
     )
 
 
@@ -163,7 +162,9 @@ def test_startup_mcp_targets_share_ordered_naming_auth_and_protocol_semantics() 
     assert {config.protocol_mode for config in configs} == {"legacy"}
     assert request.server_list == list(request.startup_mcp_servers)
     assert request.mcp_startup_notices[-1] == "Startup MCP server 'python': python server.py"
-    assert any("Automatic '/mcp' suffixing is deprecated" in item for item in request.mcp_startup_notices)
+    assert any(
+        "Automatic '/mcp' suffixing is deprecated" in item for item in request.mcp_startup_notices
+    )
 
 
 def test_startup_url_parity_is_case_insensitive_and_notices_are_redacted() -> None:

@@ -34,9 +34,7 @@ def test_console_escapes_surrogates_and_preserves_valid_unicode() -> None:
 
     console.print("valid 😀 malformed \ud83d\ude00 \ud800 \udfff")
 
-    assert _stream_text(buffer, stream).splitlines() == [
-        "valid 😀 malformed 😀 \\ud800 \\udfff"
-    ]
+    assert _stream_text(buffer, stream).splitlines() == ["valid 😀 malformed 😀 \\ud800 \\udfff"]
 
 
 def test_console_file_direct_write_is_surrogate_safe() -> None:

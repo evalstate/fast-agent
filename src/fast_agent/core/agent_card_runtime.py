@@ -846,12 +846,12 @@ class AgentCardRuntimeMixin:
                     defaults,
                 )
                 existing_name = namespace_servers.get(resolved.name)
-                existing = effective_servers.get(existing_name) if existing_name is not None else None
+                existing = (
+                    effective_servers.get(existing_name) if existing_name is not None else None
+                )
                 if existing is not None and existing_name not in all_dynamic_server_names:
                     origin = (
-                        "central"
-                        if existing_name in (self._base_mcp_servers or {})
-                        else "runtime"
+                        "central" if existing_name in (self._base_mcp_servers or {}) else "runtime"
                     )
                     raise AgentConfigError(
                         f"MCP server ownership collision for '{resolved.name}'.",

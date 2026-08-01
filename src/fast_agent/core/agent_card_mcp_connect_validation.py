@@ -103,9 +103,7 @@ def _protocol_mode(
     if value is None:
         return None
     if not isinstance(value, str) or value not in _PROTOCOL_MODES:
-        errors.append(
-            f"'{field_path}.protocol_mode' must be one of auto, modern, legacy"
-        )
+        errors.append(f"'{field_path}.protocol_mode' must be one of auto, modern, legacy")
         return None
     return value
 
@@ -143,9 +141,7 @@ def _parse_entry(
     explicit_name = _optional_non_empty_string(raw_entry, field_path, "name", errors)
     connector_id = _optional_non_empty_string(raw_entry, field_path, "connector_id", errors)
     if implicit_name is not None and explicit_name is not None and explicit_name != implicit_name:
-        errors.append(
-            f"'{field_path}.name' must match mapping key '{implicit_name}' when provided"
-        )
+        errors.append(f"'{field_path}.name' must match mapping key '{implicit_name}' when provided")
     name = implicit_name or explicit_name
 
     if target is None and connector_id is None:
@@ -155,9 +151,7 @@ def _parse_entry(
     elif target is not None and connector_id is not None:
         errors.append(f"'{field_path}' must set exactly one of 'target' or 'connector_id'")
     if connector_id is not None and name is None:
-        errors.append(
-            f"'{field_path}.name' must be a non-empty string when connector_id is set"
-        )
+        errors.append(f"'{field_path}.name' must be a non-empty string when connector_id is set")
 
     entry = MCPConnectTarget(
         target=target,
@@ -187,8 +181,7 @@ def parse_mcp_connect_entries(value: Any) -> ParsedMCPConnect:
     if isinstance(value, list):
         source_form: MCPConnectSourceForm = "list"
         raw_entries = [
-            (f"mcp_connect[{index}]", None, raw_entry)
-            for index, raw_entry in enumerate(value)
+            (f"mcp_connect[{index}]", None, raw_entry) for index, raw_entry in enumerate(value)
         ]
     elif isinstance(value, dict):
         source_form = "mapping"

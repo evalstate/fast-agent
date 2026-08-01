@@ -630,8 +630,7 @@ def get_model_factory(
     if resolved_model.model is None:
         raise ModelConfigError(
             "No model configured",
-            "Set an agent model, --model, FAST_AGENT_MODEL, or default_model "
-            "in fast-agent.yaml.",
+            "Set an agent model, --model, FAST_AGENT_MODEL, or default_model in fast-agent.yaml.",
         )
     logger.info(
         f"Resolved model '{resolved_model.model}' via {resolved_model.source}",

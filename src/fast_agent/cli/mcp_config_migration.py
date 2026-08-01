@@ -165,9 +165,7 @@ def _move_legacy_setting(
 
     canonical_path = f"mcp.{section_name}.{canonical_key}"
     if canonical_key in section:
-        raise MCPConfigMigrationError(
-            f"`{legacy_key}` and `{canonical_path}` cannot both be set"
-        )
+        raise MCPConfigMigrationError(f"`{legacy_key}` and `{canonical_path}` cannot both be set")
 
     section[canonical_key] = document[legacy_key]
     _move_comment(document, legacy_key, section, canonical_key)

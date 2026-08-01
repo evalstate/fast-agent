@@ -63,8 +63,7 @@ async def test_mounted_docker_routes_owned_temporary_artifact_to_container(tmp_p
             max_bytes=2 * 1024 * 1024,
         )
         assert (
-            await environment.read_text(artifact.path)
-            == "FAST_AGENT_MOUNTED_TRANSCRIPT_MARKER\n"
+            await environment.read_text(artifact.path) == "FAST_AGENT_MOUNTED_TRANSCRIPT_MARKER\n"
         )
         search = await environment.execute(
             ShellExecutionRequest(

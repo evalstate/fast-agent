@@ -54,11 +54,7 @@ def _context(*, reconnect_on_disconnect: bool = False) -> Context:
 
 async def _progress(events: list[Event]) -> list[ProgressEvent]:
     await asyncio.sleep(0)
-    return [
-        progress
-        for event in events
-        if (progress := convert_log_event(event)) is not None
-    ]
+    return [progress for event in events if (progress := convert_log_event(event)) is not None]
 
 
 @pytest.mark.asyncio
@@ -76,9 +72,7 @@ async def test_auth_escalation_failure_emits_progress_without_changing_result(
         context=_context(),
         name="assistant",
     )
-    aggregator._persistent_connection_manager = cast(
-        "MCPConnectionManager", _FailingManager()
-    )
+    aggregator._persistent_connection_manager = cast("MCPConnectionManager", _FailingManager())
 
     async def try_execute(client) -> None:
         raise AssertionError(client)
@@ -161,9 +155,7 @@ async def test_session_terminated_with_reconnect_disabled_emits_failure(
         original_error,
     )
 
-    assert recovery.result == (
-        "MCP server alpha session terminated - reconnection not enabled"
-    )
+    assert recovery.result == ("MCP server alpha session terminated - reconnection not enabled")
     assert recovery.success is False
     progress = await _progress(recovery_events)
     assert [(event.action, event.details) for event in progress] == [

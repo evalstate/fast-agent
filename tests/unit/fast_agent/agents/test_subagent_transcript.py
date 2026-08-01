@@ -70,7 +70,10 @@ def test_subagent_transcript_renders_searchable_turns_without_channels() -> None
     assert "=== USER TEXT ===\ndelegated\ninput" in rendered
     assert "=== ASSISTANT TEXT ===\nI will inspect" in rendered
     assert "=== TOOL CALL call_1 Bash ===" in rendered
-    assert json.dumps(call.params.arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":")) in rendered
+    assert (
+        json.dumps(call.params.arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        in rendered
+    )
     assert "=== TOOL RESULT call_1 error=true ===\nline one\nline two" in rendered
     assert "[image mime_type=image/png encoded_chars=4]" in rendered
     assert "=== ASSISTANT TEXT ===\nfinal answer" in rendered

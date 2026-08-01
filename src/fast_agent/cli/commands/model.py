@@ -451,10 +451,7 @@ def _build_common_setup_items(
     items: list[ModelReferenceSetupItem] = []
     hidden_tokens = suppressed_tokens or set()
     system_references = valid_references.get("system", {})
-    if (
-        "default" not in system_references
-        and "$system.default" not in hidden_tokens
-    ):
+    if "default" not in system_references and "$system.default" not in hidden_tokens:
         items.append(
             ModelReferenceSetupItem(
                 token="$system.default",

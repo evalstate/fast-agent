@@ -1128,6 +1128,7 @@ def _configure_card_agents(
         fast._handle_error(exc)
         raise typer.Exit(1) from exc
 
+
 def _default_managed_mcp_agent_names(fast: Any) -> list[str]:
     names = [
         name

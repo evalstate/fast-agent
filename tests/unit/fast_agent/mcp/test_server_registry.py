@@ -22,9 +22,7 @@ def test_loaded_settings_are_deep_copied_and_tracked_as_central() -> None:
         args=["original"],
         env={"TOKEN": "original"},
     )
-    settings = Settings.model_construct(
-        mcp=MCPSettings.model_construct(servers={"demo": loaded})
-    )
+    settings = Settings.model_construct(mcp=MCPSettings.model_construct(servers={"demo": loaded}))
 
     registry = ServerRegistry(settings)
     registered = registry.get_server_config("demo")

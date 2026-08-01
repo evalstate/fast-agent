@@ -503,8 +503,7 @@ async def test_handle_mcp_attach_and_connect_use_distinct_config_sources() -> No
     )
 
     assert any(
-        "Attached configured MCP server 'docs': https://docs.example.com/mcp."
-        in str(msg.text)
+        "Attached configured MCP server 'docs': https://docs.example.com/mcp." in str(msg.text)
         for msg in attach_outcome.messages
     )
     assert manager.last_config is None
@@ -516,7 +515,9 @@ async def test_handle_mcp_attach_and_connect_use_distinct_config_sources() -> No
         request=_request("docs"),
     )
 
-    assert any("Connected MCP server 'docs' (stdio)." in str(msg.text) for msg in connect_outcome.messages)
+    assert any(
+        "Connected MCP server 'docs' (stdio)." in str(msg.text) for msg in connect_outcome.messages
+    )
     assert manager.last_config is not None
     assert manager.last_config.command == "docs"
     assert manager.last_config.args == []
@@ -628,8 +629,7 @@ async def test_handle_mcp_connect_url_auto_appends_mcp_suffix() -> None:
 
     assert any("Connected MCP server" in str(msg.text) for msg in outcome.messages)
     assert any(
-        "Automatic '/mcp' suffixing is deprecated" in str(msg.text)
-        for msg in outcome.messages
+        "Automatic '/mcp' suffixing is deprecated" in str(msg.text) for msg in outcome.messages
     )
     assert manager.last_config is not None
     assert manager.last_config.url == "https://example.com/api/mcp"

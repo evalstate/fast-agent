@@ -212,7 +212,7 @@ def test_attach_cli_servers_prefers_typed_default_agent_config() -> None:
         agents={
             "fallback": {"config": fallback_config},
             "primary": {"config": default_config},
-        }
+        },
     )
     request = _make_request()
     request.server_list = ["existing", "from-cli"]
@@ -225,9 +225,7 @@ def test_attach_cli_servers_prefers_typed_default_agent_config() -> None:
 
     assert default_config.servers == ["existing"]
     assert fallback_config.servers == []
-    assert fast.app.context.runtime_mcp_server_names == {
-        "primary": ("existing", "from-cli")
-    }
+    assert fast.app.context.runtime_mcp_server_names == {"primary": ("existing", "from-cli")}
 
 
 def test_attach_cli_servers_prefers_explicit_agent_over_default() -> None:
@@ -240,7 +238,7 @@ def test_attach_cli_servers_prefers_explicit_agent_over_default() -> None:
         agents={
             "primary": {"config": default_config},
             "target": {"config": explicit_config},
-        }
+        },
     )
     request = _make_request()
     request.agent_name = "target"
@@ -254,9 +252,7 @@ def test_attach_cli_servers_prefers_explicit_agent_over_default() -> None:
 
     assert default_config.servers == []
     assert explicit_config.servers == ["existing"]
-    assert fast.app.context.runtime_mcp_server_names == {
-        "target": ("existing", "from-cli")
-    }
+    assert fast.app.context.runtime_mcp_server_names == {"target": ("existing", "from-cli")}
 
 
 def test_attach_cli_servers_skips_tool_only_fallback_agent() -> None:
@@ -269,7 +265,7 @@ def test_attach_cli_servers_skips_tool_only_fallback_agent() -> None:
         agents={
             "tool": {"config": tool_config, "tool_only": True},
             "runnable": {"config": runnable_config},
-        }
+        },
     )
     request = _make_request()
     request.server_list = ["from-cli"]
@@ -358,9 +354,7 @@ def test_startup_model_preflight_preserves_remote_card_restrictions(
         )
 
     monkeypatch.setattr(source_resolver, "read_text_source", fake_read_text_source)
-    request = _make_request(
-        agent_cards=["hf://buckets/evalstate/demo-bucket/restricted-card.yaml"]
-    )
+    request = _make_request(agent_cards=["hf://buckets/evalstate/demo-bucket/restricted-card.yaml"])
 
     assert _explicit_agent_cards_define_startup_model(request) is False
 

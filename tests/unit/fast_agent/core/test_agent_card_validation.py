@@ -220,8 +220,7 @@ def test_scan_agent_cards_rejects_invalid_mcp_connect_protocol_mode(tmp_path: Pa
 
     assert len(results) == 1
     assert any(
-        "protocol_mode' must be one of auto, modern, legacy" in error
-        for error in results[0].errors
+        "protocol_mode' must be one of auto, modern, legacy" in error for error in results[0].errors
     )
 
 
@@ -246,10 +245,7 @@ def test_scan_agent_cards_rejects_mcp_connect_process_fields(tmp_path: Path) -> 
     results = scan_agent_card_directory(tmp_path)
 
     assert len(results) == 1
-    assert any(
-        "unsupported keys: args, command, cwd, env" in error
-        for error in results[0].errors
-    )
+    assert any("unsupported keys: args, command, cwd, env" in error for error in results[0].errors)
 
 
 def test_scan_agent_cards_reports_unparseable_mcp_connect_entry(tmp_path: Path) -> None:

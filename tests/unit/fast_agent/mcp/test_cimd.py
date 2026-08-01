@@ -361,8 +361,7 @@ class TestCallbackServerPortFallback:
         try:
             server.start()
             callback_url = (
-                f"{server.get_redirect_uri()}?code=abc&state=xyz"
-                "&iss=https%3A%2F%2Fissuer.example"
+                f"{server.get_redirect_uri()}?code=abc&state=xyz&iss=https%3A%2F%2Fissuer.example"
             )
             with urllib.request.urlopen(callback_url) as response:
                 assert response.status == 200

@@ -293,9 +293,7 @@ def test_go_preserves_repeated_and_comma_separated_mcp_urls(monkeypatch) -> None
         "two_example",
         "three_example",
     ]
-    assert {
-        config.protocol_mode for config in request.startup_mcp_servers.values()
-    } == {"modern"}
+    assert {config.protocol_mode for config in request.startup_mcp_servers.values()} == {"modern"}
 
 
 def test_go_rejects_invalid_mcp_protocol() -> None:
@@ -305,7 +303,7 @@ def test_go_rejects_invalid_mcp_protocol() -> None:
     )
 
     assert result.exit_code == 2
-    assert "Invalid value for '--mcp-protocol'" in result.output
+    assert "Invalid value for '--mcp-protocol'" in strip_ansi(result.output)
 
 
 def test_go_workspace_sets_default_home_base(monkeypatch, tmp_path: Path) -> None:

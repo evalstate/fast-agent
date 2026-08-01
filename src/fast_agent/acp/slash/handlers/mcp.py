@@ -245,9 +245,7 @@ def _summarize_connect_outcome(outcome) -> _ConnectOutcomeSummary:
     has_error = any(msg.channel == "error" for msg in outcome.messages)
     if has_error:
         first_error = next((msg for msg in outcome.messages if msg.channel == "error"), None)
-        failure = (
-            first_error.metadata.get("mcp_failure") if first_error is not None else None
-        )
+        failure = first_error.metadata.get("mcp_failure") if first_error is not None else None
         failure_details = (
             render_mcp_failure(failure, output_format="markdown")
             if isinstance(failure, MCPFailure)

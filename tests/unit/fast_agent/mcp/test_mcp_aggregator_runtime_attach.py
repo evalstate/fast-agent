@@ -354,9 +354,7 @@ async def test_attachment_discovery_failure_rolls_back_transaction(
                 progress_callback,
             )
             if method_name == "list_tools":
-                return ListToolsResult(
-                    tools=[Tool(name="staged", input_schema={"type": "object"})]
-                )
+                return ListToolsResult(tools=[Tool(name="staged", input_schema={"type": "object"})])
             if method_name == "list_prompts":
                 if failure == "cancel":
                     raise asyncio.CancelledError
@@ -496,11 +494,7 @@ async def test_attachment_reconnect_override_is_local_and_not_published() -> Non
 @pytest.mark.asyncio
 async def test_detach_removes_only_runtime_owned_definition() -> None:
     context = _build_context(
-        {
-            "central": MCPServerSettings(
-                name="central", transport="stdio", command="echo"
-            )
-        }
+        {"central": MCPServerSettings(name="central", transport="stdio", command="echo")}
     )
     assert context.server_registry is not None
     context.server_registry.register_card(
@@ -548,7 +542,7 @@ async def test_interactive_startup_definition_transfers_to_attachment_owner() ->
                 tools=[],
                 prompts=[],
                 skill_registry=None,
-                    skybridge=SkybridgeServerConfig(server_name="runtime"),
+                skybridge=SkybridgeServerConfig(server_name="runtime"),
                 capabilities=ServerCapabilities(),
             ),
         ),
@@ -587,6 +581,7 @@ async def test_card_tool_refresh_preserves_visible_namespace() -> None:
         connection_persistence=False,
         context=context,
     )
+
     class _SilentDisplay(ConsoleDisplay):
         async def show_tool_update(
             self,

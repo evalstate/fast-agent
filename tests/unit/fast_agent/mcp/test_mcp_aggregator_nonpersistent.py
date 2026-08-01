@@ -181,9 +181,7 @@ async def test_connection_error_replays_list_operation_once() -> None:
         async def list_tools(self):
             nonlocal call_count
             call_count += 1
-            return ListToolsResult(
-                tools=[Tool(name="echo", input_schema={"type": "object"})]
-            )
+            return ListToolsResult(tools=[Tool(name="echo", input_schema={"type": "object"})])
 
     class _PersistentManager:
         reconnect_count = 0

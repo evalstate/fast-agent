@@ -675,13 +675,10 @@ class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
                 if result in {"stop", "found"}:
                     break
 
-            discovered_issuer = (
-                self.context.auth_server_url
-                or (
-                    str(self.context.oauth_metadata.issuer)
-                    if self.context.oauth_metadata is not None
-                    else None
-                )
+            discovered_issuer = self.context.auth_server_url or (
+                str(self.context.oauth_metadata.issuer)
+                if self.context.oauth_metadata is not None
+                else None
             )
             if (
                 self.context.client_info is not None

@@ -57,9 +57,7 @@ def test_setup_config_compaction_defaults_match_settings() -> None:
 
 
 def test_setup_config_uses_current_anthropic_reasoning_setting() -> None:
-    parsed = yaml.safe_load(
-        Path("examples/setup/fast-agent.yaml").read_text(encoding="utf-8")
-    )
+    parsed = yaml.safe_load(Path("examples/setup/fast-agent.yaml").read_text(encoding="utf-8"))
 
     assert parsed["anthropic"]["reasoning"] is None
     assert "thinking_enabled" not in parsed["anthropic"]

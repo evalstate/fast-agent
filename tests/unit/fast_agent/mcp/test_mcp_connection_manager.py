@@ -288,9 +288,7 @@ async def test_server_lifecycle_sets_initialized_on_startup_failure():
     server_conn = ServerConnection(
         server_name="test-server",
         server_config=MCPServerSettings(name="test-server", url="http://example.com/mcp"),
-        client_connection_factory=cast(
-            "Callable[[], MCPClientConnection]", DummyTransportContext
-        ),
+        client_connection_factory=cast("Callable[[], MCPClientConnection]", DummyTransportContext),
         callback_runtime=_callback_runtime(),
     )
 
@@ -314,9 +312,7 @@ def _make_server_connection() -> ServerConnection:
     return ServerConnection(
         server_name="test-server",
         server_config=MCPServerSettings(name="test-server", url="http://example.com/mcp"),
-        client_connection_factory=cast(
-            "Callable[[], MCPClientConnection]", DummyTransportContext
-        ),
+        client_connection_factory=cast("Callable[[], MCPClientConnection]", DummyTransportContext),
         callback_runtime=_callback_runtime(),
     )
 
@@ -655,7 +651,7 @@ async def test_get_server_formats_stdio_missing_executable_without_traceback(
         return _FailingStdioClient()
 
     monkeypatch.setattr(
-            "fast_agent.mcp.client_gateway.tracking_stdio_client",
+        "fast_agent.mcp.client_gateway.tracking_stdio_client",
         _failing_stdio_client,
     )
 
@@ -706,7 +702,7 @@ async def test_get_server_formats_stdio_missing_cwd_without_traceback(
     missing_cwd = str(tmp_path / "missing-dir")
 
     monkeypatch.setattr(
-            "fast_agent.mcp.client_gateway.tracking_stdio_client",
+        "fast_agent.mcp.client_gateway.tracking_stdio_client",
         _failing_stdio_client,
     )
 
@@ -834,6 +830,7 @@ async def test_connection_manager_exit_needs_no_fixed_shutdown_sleep(
     await task_group.__aenter__()
     manager._task_group_active = True
     manager._task_group = task_group
+
     async def _unexpected_sleep(_delay: float) -> None:
         raise AssertionError("lifecycle completion replaces fixed shutdown sleeps")
 

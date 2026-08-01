@@ -75,9 +75,7 @@ def test_wrapping_mcp_settings_preserves_source_declarations_and_provenance() ->
     wrapped = Settings(mcp=original)
 
     assert wrapped.mcp is not None
-    assert wrapped.mcp.source_server_view() == {
-        "docs": {"target": "https://example.com/mcp"}
-    }
+    assert wrapped.mcp.source_server_view() == {"docs": {"target": "https://example.com/mcp"}}
     assert wrapped.mcp.effective_server_view()["docs"]["_provenance"]["url"] == "target"
 
 
@@ -141,7 +139,7 @@ def test_config_mcp_target_shorthand_preserves_operational_siblings() -> None:
                         "reconnect_on_disconnect": True,
                         "headers": {"Authorization": "Bearer override"},
                     }
-                }
+                },
             }
         }
     )

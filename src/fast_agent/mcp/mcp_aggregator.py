@@ -741,9 +741,7 @@ class MCPAggregator(ContextDependent):
         server_names.update(self._attached_server_names)
         server_names.update(self._attachment_configs)
         for server_name in server_names:
-            attachment_owned = (
-                self._attachment_owner in registry.get_attachment_owners(server_name)
-            )
+            attachment_owned = self._attachment_owner in registry.get_attachment_owners(server_name)
             if attachment_owned:
                 registry.release_attachment(
                     server_name,
@@ -754,11 +752,7 @@ class MCPAggregator(ContextDependent):
                     server_name,
                     owner=self._runtime_definition_owner,
                 )
-            if (
-                attachment_owned
-                and disconnect
-                and self._persistent_connection_manager is not None
-            ):
+            if attachment_owned and disconnect and self._persistent_connection_manager is not None:
                 await self._persistent_connection_manager.disconnect_server(server_name)
 
     async def _fetch_server_tools(self, server_name: str) -> list[Tool]:
@@ -1174,10 +1168,7 @@ class MCPAggregator(ContextDependent):
             server_name,
             owner=self._attachment_owner,
         )
-        if (
-            self.connection_persistence
-            and self._persistent_connection_manager is not None
-        ):
+        if self.connection_persistence and self._persistent_connection_manager is not None:
             await self._persistent_connection_manager.disconnect_server(server_name)
 
         async with self._tool_map_lock:
@@ -1233,11 +1224,7 @@ class MCPAggregator(ContextDependent):
         scoped_servers.update(self.server_names)
         if server_name in scoped_servers:
             return server_name
-        matches = [
-            key
-            for key in scoped_servers
-            if self.server_display_name(key) == server_name
-        ]
+        matches = [key for key in scoped_servers if self.server_display_name(key) == server_name]
         if len(matches) == 1:
             return matches[0]
         return server_name
@@ -1685,10 +1672,7 @@ class MCPAggregator(ContextDependent):
             True if the server exists, False otherwise
         """
         server_name = self._resolve_server_key(server_name)
-        valid = (
-            server_name in self.server_names
-            or server_name in self._attachment_configs
-        )
+        valid = server_name in self.server_names or server_name in self._attachment_configs
         if not valid:
             logger.debug(f"Server '{server_name}' not found")
         return valid
@@ -2129,11 +2113,7 @@ class MCPAggregator(ContextDependent):
 
     def _auto_sampling_mode(self) -> Literal["auto", "off"]:
         auto_sampling = True
-        if (
-            self.context
-            and self.context.config is not None
-            and self.context.config.mcp is not None
-        ):
+        if self.context and self.context.config is not None and self.context.config.mcp is not None:
             auto_sampling = self.context.config.mcp.client.auto_sampling
         return "auto" if auto_sampling else "off"
 
@@ -2383,9 +2363,9 @@ class MCPAggregator(ContextDependent):
         config = self._server_config(server_name)
         if config is None:
             return False
-        return resolve_oauth_mode(
-            config, trigger_oauth=None
-        ) == "auto" and is_http_auth_challenge(exc)
+        return resolve_oauth_mode(config, trigger_oauth=None) == "auto" and is_http_auth_challenge(
+            exc
+        )
 
     def _log_server_progress(
         self,
@@ -2398,9 +2378,7 @@ class MCPAggregator(ContextDependent):
             server_name=server_name,
             agent_name=self.agent_name,
             details=details,
-            extra={"error_message": details}
-            if action == ProgressAction.FATAL_ERROR
-            else None,
+            extra={"error_message": details} if action == ProgressAction.FATAL_ERROR else None,
         )
         log = logger.error if action == ProgressAction.FATAL_ERROR else logger.info
         log("MCP server recovery", data=payload)
@@ -3400,9 +3378,7 @@ class MCPAggregator(ContextDependent):
                 return
             async with self._attachment_locks.setdefault(server_name, Lock()):
                 if server_name not in self._attached_server_names:
-                    logger.debug(
-                        f"Ignoring tool-list change for unattached server '{server_name}'"
-                    )
+                    logger.debug(f"Ignoring tool-list change for unattached server '{server_name}'")
                     return
                 logger.info(f"Tool list changed for server '{server_name}', refreshing tools")
                 await self._refresh_server_tools(server_name)

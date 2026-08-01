@@ -58,7 +58,5 @@ async def gen_client(
         hooks=hooks,
     ) as connection:
         if publish_capabilities and connection.server_capabilities is not None:
-            server_registry.set_server_capabilities(
-                server_name, connection.server_capabilities
-            )
+            server_registry.set_server_capabilities(server_name, connection.server_capabilities)
         yield connection
