@@ -36,6 +36,7 @@ class ShellOutputBuffer:
     retained_output_max_bytes: int = 0
     retained_output_bytes: int = 0
     retained_output_complete: bool = True
+    extended_guidance: bool = False
 
     def append(self, text: str) -> None:
         output_blob = text.encode("utf-8", errors="replace")
@@ -133,12 +134,18 @@ class ShellOutputBuffer:
     def _truncation_guidance(self) -> str:
         if self.retained_output_path is None or not self.retained_output_path.exists():
             return _OUTPUT_LIMIT_GUIDANCE
-        return format_retained_artifact_notice(
+        notice = format_retained_artifact_notice(
             path=str(self.retained_output_path),
             retained_bytes=self.retained_output_bytes,
             complete=self.retained_output_complete,
             description="output",
         )
+        if self.extended_guidance:
+            return (
+                f"{notice} Also, before drawing conclusions from truncated output, "
+                "inspect the relevant retained content."
+            )
+        return notice
 
     def _start_retained(self, triggering_blob: bytes) -> None:
         if self.retained_output_path is None or self.retained_output_max_bytes <= 0:

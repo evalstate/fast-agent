@@ -596,13 +596,13 @@ async def test_mcp_agent_routes_file_tools_to_injected_execution_environment() -
     agent = McpAgent(config=config, context=Context(), shell_environment=env)
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
-    assert "Bash" in tool_names
-    assert "Process" in tool_names
+    assert "bash" in tool_names
+    assert "process" in tool_names
     assert "read_text_file" in tool_names
     assert "apply_patch" in tool_names
 
     read = await agent.call_tool("read_text_file", {"path": "remote.txt"})
-    shell = await agent.call_tool("Bash", {"command": "pwd"})
+    shell = await agent.call_tool("bash", {"command": "pwd"})
 
     assert read.is_error is False
     assert _text(read) == "remote file\n"
@@ -626,8 +626,8 @@ async def test_mcp_agent_does_not_expose_host_file_tools_for_shell_only_environm
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
 
-    assert "Bash" in tool_names
-    assert "Process" in tool_names
+    assert "bash" in tool_names
+    assert "process" in tool_names
     assert "read_text_file" not in tool_names
     assert "write_text_file" not in tool_names
     assert "apply_patch" not in tool_names

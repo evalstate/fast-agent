@@ -8,8 +8,8 @@ from fast_agent.utils.action_normalization import normalize_action_token
 EXECUTE_TOOL_NAME = "execute"
 POLL_PROCESS_TOOL_NAME = "poll_process"
 TERMINATE_PROCESS_TOOL_NAME = "terminate_process"
-BASH_TOOL_NAME = "Bash"
-PROCESS_TOOL_NAME = "Process"
+BASH_TOOL_NAME = "bash"
+PROCESS_TOOL_NAME = "process"
 SHELL_EXECUTION_TOOL_NAMES = frozenset(
     {
         EXECUTE_TOOL_NAME,
