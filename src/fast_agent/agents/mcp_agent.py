@@ -557,9 +557,7 @@ class McpAgent(ABC, ToolAgent):
         visible_status: dict[str, ServerStatus] = {}
         for server_name, status in status_map.items():
             visible_name = self._aggregator.server_display_name(server_name)
-            visible_status[visible_name] = status.model_copy(
-                update={"server_name": visible_name}
-            )
+            visible_status[visible_name] = status.model_copy(update={"server_name": visible_name})
         return visible_status
 
     async def attach_mcp_server(
@@ -626,6 +624,8 @@ class McpAgent(ABC, ToolAgent):
         """Record and hide built-in subagent directives after rendering."""
         directive = resolve_subagent_directive(instruction)
         self._subagent_directive_found |= directive.found
+        if self.config.subagent_child:
+            return directive.subagent_instruction
         return directive.instruction
 
     def _clone_config(self) -> AgentConfig:

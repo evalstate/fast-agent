@@ -212,6 +212,7 @@ class InspectingLLM(PassthroughLLM):
     def __init__(self, agent: ToolAgent, **kwargs) -> None:
         super().__init__(**kwargs)
         self.agent = agent
+        self.captured_instruction = agent.instruction
 
     async def _apply_prompt_provider_specific(
         self,
@@ -496,12 +497,25 @@ async def test_subagent_inherits_tools_without_recursion_or_parent_hooks() -> No
         parent_hook_calls += 1
 
     created: list[InspectingLLM] = []
-    parent = ToolAgent(AgentConfig("parent", subagents=True), [read_note])
+    parent = ToolAgent(
+        AgentConfig(
+            "parent",
+            instruction=(
+                "Shared rules.\n"
+                "<!-- fast-agent-subagents\n"
+                "Use terra for analysis.\n"
+                "-->\n"
+                "Stay concise."
+            ),
+        ),
+        [read_note],
+    )
     parent.tool_runner_hooks = ToolRunnerHooks(before_llm_call=before_llm_call)
     await parent.attach_llm(inspecting_factory(created))
 
     assert install_subagent_tool(parent)
     assert install_subagent_tool(parent)
+    assert "Use terra for analysis." in parent.instruction
 
     result = await parent.call_tool(SUBAGENT_TOOL_NAME, {"message": "inspect"})
     text = get_text(result.content[0])
@@ -513,6 +527,12 @@ async def test_subagent_inherits_tools_without_recursion_or_parent_hooks() -> No
     assert "hooks=True" in text
     assert parent_hook_calls == 0
     assert len(created) == 2
+    assert "Shared rules." in created[1].captured_instruction
+    assert "Stay concise." in created[1].captured_instruction
+    assert "Use terra for analysis." not in created[1].captured_instruction
+    assert SUBAGENT_TOOL_NAME not in {
+        tool.name for tool in (await created[1].agent.list_tools()).tools
+    }
     assert parent.usage_accumulator is not None
     assert parent.usage_accumulator.summary.prompt.total == 3
     assert parent.subagent_usage_accumulator.summary.prompt.total == 3
@@ -1882,13 +1902,12 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
     assert events[0].target == "brisk-otter"
     assert events[0].activity == "Starting"
     assert events[0].subagent_monitor is not None
+    assert events[0].subagent_monitor.model is None
     assert events[0].subagent_monitor.state == "Starting"
     assert events[0].subagent_monitor.turn == 0
     assert events[0].subagent_monitor.input_tokens == 0
     assert events[0].subagent_monitor.output_tokens == 0
-    assert events[0].details == (
-        "turn  0 · in       0 out       0 cache   0% · tools 0"
-    )
+    assert events[0].details == ("turn  0 · in       0 out       0 cache   0% · tools 0")
     assert {event.correlation_id for event in events} == {"parent-call"}
     assert {"Starting", "Thinking", "Processing", "Tool", "Finalizing"} <= {
         event.activity for event in events
@@ -1897,6 +1916,7 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
         event.action == ProgressAction.RUNNING
         and event.activity == "Processing"
         and event.subagent_monitor is not None
+        and event.subagent_monitor.model == "passthrough"
         and event.subagent_monitor.turn == 1
         and event.subagent_monitor.input_tokens == 3
         and event.subagent_monitor.output_tokens == 2
@@ -1935,9 +1955,7 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
 async def test_subagent_monitor_updates_estimated_output_while_streaming() -> None:
     progress = RecordingProgressDisplay()
     parent = ToolAgent(AgentConfig("parent", model="passthrough", subagents=True))
-    await parent.attach_llm(
-        lambda agent, **kwargs: StreamingUsageLLM(name=agent.name, **kwargs)
-    )
+    await parent.attach_llm(lambda agent, **kwargs: StreamingUsageLLM(name=agent.name, **kwargs))
     assert install_subagent_tool(
         parent,
         progress_display=progress,
@@ -1971,6 +1989,7 @@ async def test_subagent_monitor_updates_estimated_output_while_streaming() -> No
         and event.subagent_monitor.output_estimated
     ]
     assert [snapshot.output_tokens for snapshot in live_snapshots] == [3, 1, 9]
+    assert {snapshot.model for snapshot in live_snapshots} == {"passthrough"}
     assert any(
         event.action == ProgressAction.RUNNING
         and event.activity == "Processing"
@@ -2034,8 +2053,7 @@ async def test_parallel_subagent_monitor_rows_have_distinct_identity_and_cleanup
     assert all(events[0].action == ProgressAction.RUNNING for events in rows_by_name.values())
     assert all(events[0].subagent_monitor is not None for events in rows_by_name.values())
     assert all(
-        events[0].details
-        == "turn  0 · in       0 out       0 cache   0% · tools 0"
+        events[0].details == "turn  0 · in       0 out       0 cache   0% · tools 0"
         for events in rows_by_name.values()
     )
     assert all(events[-1].action == ProgressAction.READY for events in rows_by_name.values())

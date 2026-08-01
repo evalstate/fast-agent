@@ -479,12 +479,14 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         *,
         name: str | None = None,
         model: str | None = None,
+        for_subagent: bool = False,
     ) -> Self:
         """Create a detached agent with an optional model and no parent hooks."""
         return await self._spawn_detached_instance(
             name=name,
             model=model,
             copy_hooks=False,
+            for_subagent=for_subagent,
         )
 
     async def _spawn_detached_instance(
@@ -493,6 +495,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         name: str | None,
         model: str | None,
         copy_hooks: bool,
+        for_subagent: bool = False,
     ) -> Self:
         """Create a fresh agent instance with its own MCP/LLM stack."""
 
@@ -502,6 +505,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         if not copy_hooks:
             new_config.lifecycle_hooks = None
             new_config.harness_tools = False
+        if for_subagent:
+            new_config.subagent_child = True
+            new_config.subagents = False
+            new_config.subagent_activation_source = None
 
         constructor_kwargs = self._clone_constructor_kwargs()
         clone = type(self)(config=new_config, context=self.context, **constructor_kwargs)

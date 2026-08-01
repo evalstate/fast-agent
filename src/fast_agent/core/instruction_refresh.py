@@ -376,6 +376,9 @@ async def rebuild_agent_instruction(
             new_instruction = agent.process_rendered_instruction(new_instruction)
 
         agent.set_instruction(new_instruction)
+        from fast_agent.agents.subagent_tool import install_subagent_tool
+
+        install_subagent_tool(agent)
         rebuilt_instruction = True
 
         if (

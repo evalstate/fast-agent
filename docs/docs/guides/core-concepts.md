@@ -308,6 +308,11 @@ standalone directive `<!-- fast-agent-subagents -->` to `AGENTS.md`. fast-agent
 strips the directive before calling the model. Explicit `--no-subagents` or
 `subagents: false` settings still disable the tool.
 
+The directive may contain parent-only instructions. For example,
+`<!-- fast-agent-subagents` followed by `use terra for analysis` and `-->`
+enables delegation and includes that text in the parent system prompt, but
+excludes the entire comment from built-in subagent prompts.
+
 For a plain Python function, add it to an agent with `function_tools`:
 
 ```python title="tools.py"

@@ -28,6 +28,7 @@ def test_resolve_subagent_directive_strips_exact_standalone_lines(directive: str
 
     assert resolved.found is True
     assert resolved.instruction == "Before\nAfter"
+    assert resolved.subagent_instruction == "Before\nAfter"
 
 
 def test_resolve_subagent_directive_ignores_prose_and_longer_tokens() -> None:
@@ -40,6 +41,27 @@ def test_resolve_subagent_directive_ignores_prose_and_longer_tokens() -> None:
 
     assert resolved.found is False
     assert resolved.instruction == instruction
+    assert resolved.subagent_instruction == instruction
+
+
+def test_multiline_directive_body_is_parent_only() -> None:
+    instruction = "Before\n<!-- fast-agent-subagents\nuse terra for analysis\n-->\nAfter"
+
+    resolved = resolve_subagent_directive(instruction)
+
+    assert resolved.found is True
+    assert resolved.instruction == "Before\nuse terra for analysis\nAfter"
+    assert resolved.subagent_instruction == "Before\nAfter"
+
+
+def test_unclosed_multiline_directive_is_ignored() -> None:
+    instruction = "<!-- fast-agent-subagents\nuse terra for analysis"
+
+    resolved = resolve_subagent_directive(instruction)
+
+    assert resolved.found is False
+    assert resolved.instruction == instruction
+    assert resolved.subagent_instruction == instruction
 
 
 @pytest.mark.asyncio
@@ -94,7 +116,7 @@ def test_explicit_enable_keeps_configuration_as_activation_source() -> None:
 
 
 @pytest.mark.asyncio
-async def test_mcp_directive_is_removed_from_source_template_and_clones() -> None:
+async def test_mcp_directive_template_is_projected_when_rendered() -> None:
     template = "fast-agent-subagents\nWorkspace: {{workspaceRoot}}"
     config = AgentConfig("dev", instruction=template)
     agent = McpAgent(config)
@@ -102,7 +124,7 @@ async def test_mcp_directive_is_removed_from_source_template_and_clones() -> Non
     await agent.initialize()
 
     assert install_subagent_tool(agent) is True
-    assert SUBAGENT_DIRECTIVE not in agent.instruction_template
+    assert agent.instruction_template == template
     assert SUBAGENT_DIRECTIVE not in agent.instruction
     assert config.instruction == template
 
@@ -111,7 +133,7 @@ async def test_mcp_directive_is_removed_from_source_template_and_clones() -> Non
 
     clone = await agent.spawn_isolated_instance()
     try:
-        assert clone.instruction_template == "Workspace: {{workspaceRoot}}"
+        assert clone.instruction_template == template
         assert clone.instruction == "Workspace: /second"
     finally:
         await clone.shutdown()
@@ -121,7 +143,7 @@ async def test_mcp_directive_is_removed_from_source_template_and_clones() -> Non
 @pytest.mark.asyncio
 async def test_mcp_directive_from_include_is_stripped_after_every_render(tmp_path: Path) -> None:
     (tmp_path / "AGENTS.md").write_text(
-        "fast-agent-subagents\nIncluded rules.",
+        "<!-- fast-agent-subagents\nUse terra for analysis.\n-->\nIncluded rules.",
         encoding="utf-8",
     )
     template = "Project rules:\n{{file_silent:AGENTS.md}}"
@@ -132,6 +154,7 @@ async def test_mcp_directive_from_include_is_stripped_after_every_render(tmp_pat
     assert install_subagent_tool(agent) is True
     assert agent.instruction_template == template
     assert SUBAGENT_DIRECTIVE not in agent.instruction
+    assert "Use terra for analysis." in agent.instruction
     assert "Included rules." in agent.instruction
 
     await rebuild_agent_instruction(agent)
@@ -141,7 +164,40 @@ async def test_mcp_directive_from_include_is_stripped_after_every_render(tmp_pat
     try:
         assert clone.instruction_template == template
         assert SUBAGENT_DIRECTIVE not in clone.instruction
+        assert "Use terra for analysis." in clone.instruction
         assert "Included rules." in clone.instruction
     finally:
         await clone.shutdown()
+
+    child = await agent.spawn_isolated_instance(for_subagent=True)
+    try:
+        assert child.config.subagent_child is True
+        assert child.config.subagents is False
+        assert SUBAGENT_DIRECTIVE not in child.instruction
+        assert "Use terra for analysis." not in child.instruction
+        assert "Included rules." in child.instruction
+    finally:
+        await child.shutdown()
         await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_mcp_refresh_can_enable_subagents_from_updated_include(tmp_path: Path) -> None:
+    agents_file = tmp_path / "AGENTS.md"
+    agents_file.write_text("Included rules.", encoding="utf-8")
+    agent = McpAgent(AgentConfig("dev", instruction="Project rules:\n{{file_silent:AGENTS.md}}"))
+    agent.set_instruction_context({"workspaceRoot": str(tmp_path)})
+    await agent.initialize()
+
+    assert install_subagent_tool(agent) is False
+    agents_file.write_text(
+        "<!-- fast-agent-subagents\nUse terra for analysis.\n-->\nIncluded rules.",
+        encoding="utf-8",
+    )
+
+    await rebuild_agent_instruction(agent)
+
+    assert agent.config.subagents is True
+    assert "Use terra for analysis." in agent.instruction
+    assert SUBAGENT_TOOL_NAME in {tool.name for tool in (await agent.list_tools()).tools}
+    await agent.shutdown()

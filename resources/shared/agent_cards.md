@@ -85,9 +85,21 @@ parent waits for all results.
 
 An exact standalone `fast-agent-subagents` line or
 `<!-- fast-agent-subagents -->` comment in the resolved system instruction
-enables the tool only when `subagents` is unset. The directive is stripped
-before the model sees the instruction. Explicit `--no-subagents` and
+enables the tool only when `subagents` is unset. The marker is stripped before
+the model sees the instruction. Explicit `--no-subagents` and
 `subagents: false` settings always win.
+
+A multiline comment can also carry instructions for the parent agent:
+
+```markdown
+<!-- fast-agent-subagents
+use terra for analysis
+-->
+```
+
+The comment enables the tool and its body is included in the parent agent's
+system instruction. The complete block, including its body, is excluded from
+built-in subagent instructions.
 
 ## Harness tools
 

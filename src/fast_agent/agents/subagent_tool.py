@@ -202,9 +202,7 @@ class _SubagentProgress:
     def attach(self, agent: ToolAgent) -> None:
         self._agent = agent
         if agent.llm is not None:
-            self._remove_stream_listener = agent.llm.add_stream_listener(
-                self._observe_stream_chunk
-            )
+            self._remove_stream_listener = agent.llm.add_stream_listener(self._observe_stream_chunk)
 
     @property
     def elapsed_seconds(self) -> float:
@@ -286,6 +284,7 @@ class _SubagentProgress:
         if self._current_tool_name is not None:
             state = f"tool: {self._current_tool_name}"
         return SubagentMonitorSnapshot(
+            model=self._model_display_name(),
             state=state,
             turn=self._turn,
             input_tokens=input_tokens,
@@ -298,20 +297,8 @@ class _SubagentProgress:
         if self._current_tool_name:
             tool_details = f"{tool_details} ({self._current_tool_name})"
         parts = [f"turn {self._turn:>2}"]
-        if self._agent is not None:
-            model_spec = self._agent.config.model
-            accumulator = self._agent.usage_accumulator
-            if not model_spec and accumulator is not None and accumulator.turns:
-                model_spec = accumulator.turns[-1].model
-            model = resolve_llm_display_name(
-                self._agent.llm,
-                max_len=24,
-            ) or resolve_model_display_name(
-                model_spec,
-                max_len=24,
-            )
-            if model:
-                parts.append(f"model {model}")
+        if model := self._model_display_name():
+            parts.append(f"model {model}")
         input_tokens, output_tokens, output_estimated = self._usage()
         parts.extend(
             (
@@ -325,6 +312,21 @@ class _SubagentProgress:
             )
         )
         return " · ".join(parts)
+
+    def _model_display_name(self) -> str | None:
+        if self._agent is None:
+            return None
+        model_spec = self._agent.config.model
+        accumulator = self._agent.usage_accumulator
+        if not model_spec and accumulator is not None and accumulator.turns:
+            model_spec = accumulator.turns[-1].model
+        return resolve_llm_display_name(
+            self._agent.llm,
+            max_len=24,
+        ) or resolve_model_display_name(
+            model_spec,
+            max_len=24,
+        )
 
     def _usage(self) -> tuple[int, int, bool]:
         if self._agent is None or self._agent.usage_accumulator is None:
@@ -382,8 +384,6 @@ def install_subagent_tool(
     if not isinstance(agent, ToolAgent):
         return False
     if isinstance(agent, McpAgent):
-        source_instruction = agent.process_rendered_instruction(agent.instruction_template)
-        agent.set_instruction_template(source_instruction)
         agent.set_instruction(agent.process_rendered_instruction(agent.instruction))
         directive_found = agent.subagent_directive_found
     else:
@@ -473,9 +473,8 @@ def install_subagent_tool(
             clone = await agent.spawn_isolated_instance(
                 name=child_name,
                 model=model,
+                for_subagent=True,
             )
-            clone.config.subagents = False
-            clone.config.subagent_activation_source = None
             clone.set_session_history_persistence_enabled(False)
             clone.remove_tool(SUBAGENT_TOOL_NAME)
             clone.load_message_history([])

@@ -11,6 +11,8 @@ from fast_agent.event_progress import SubagentMonitorSnapshot
 from fast_agent.utils.count_display import format_compact_count
 from fast_agent.utils.time import format_compact_duration
 
+_MODEL_WIDTH = 20
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
@@ -22,45 +24,62 @@ def render_subagent_table(
     process_tasks: Iterable[Task],
     *,
     console_width: int,
+    spinner_frame: Text,
 ) -> Table:
     """Render one stable row per active subagent."""
-    narrow = console_width < 72
+    show_processes = console_width >= 98
+    show_output = console_width >= 84
+    show_input = console_width >= 74
+    show_turn = console_width >= 64
+    detail_width = (
+        40
+        if show_processes
+        else 34
+        if show_output
+        else 30
+        if show_input
+        else 28
+        if show_turn
+        else max(8, console_width - 22)
+    )
     table = Table(
-        title=f"Subagents ({len(subagent_tasks)})",
-        title_justify="left",
-        title_style="bold",
         box=None,
         padding=(0, 1),
         pad_edge=False,
-        expand=True,
+        expand=False,
     )
     table.add_column(
         "subagent",
-        min_width=8,
-        max_width=14 if narrow else 24,
-        ratio=2,
+        width=15,
         overflow="ellipsis",
         no_wrap=True,
     )
     table.add_column(
-        "state",
-        min_width=8,
-        max_width=14 if narrow else 28,
-        ratio=2,
+        "",
+        width=3,
+        justify="center",
+        no_wrap=True,
+    )
+    table.add_column(
+        "detail",
+        width=detail_width,
         overflow="ellipsis",
         no_wrap=True,
     )
-    table.add_column("turn", width=4, justify="right", style="cyan", no_wrap=True)
-    table.add_column("in", width=7, justify="right", style="blue", no_wrap=True)
-    table.add_column("out", width=7, justify="right", style="green", no_wrap=True)
-    table.add_column(
-        "processes",
-        min_width=4,
-        max_width=11,
-        justify="right",
-        style="magenta",
-        no_wrap=True,
-    )
+    if show_turn:
+        table.add_column("turn", width=4, justify="right", style="cyan", no_wrap=True)
+    if show_input:
+        table.add_column("in", width=7, justify="right", style="blue", no_wrap=True)
+    if show_output:
+        table.add_column("out", width=7, justify="right", style="green", no_wrap=True)
+    if show_processes:
+        table.add_column(
+            "processes",
+            width=9,
+            justify="right",
+            style="magenta",
+            no_wrap=True,
+        )
 
     process_list = list(process_tasks)
     for task in subagent_tasks:
@@ -68,18 +87,24 @@ def render_subagent_table(
         if not isinstance(snapshot, SubagentMonitorSnapshot):
             continue
         task_name = str(task.fields.get("task_name") or "")
-        table.add_row(
+        row: list[str | Text] = [
             Text(str(task.fields.get("target") or task_name), style="bold white"),
-            _state_text(snapshot, task),
-            str(snapshot.turn),
-            format_compact_count(snapshot.input_tokens, significant_digits=4),
-            (
+            spinner_frame,
+            _detail_text(snapshot, task),
+        ]
+        if show_turn:
+            row.append(str(snapshot.turn))
+        if show_input:
+            row.append(format_compact_count(snapshot.input_tokens, significant_digits=4))
+        if show_output:
+            row.append(
                 f"~{format_compact_count(snapshot.output_tokens, significant_digits=4)}"
                 if snapshot.output_estimated
                 else format_compact_count(snapshot.output_tokens, significant_digits=4)
-            ),
-            _process_summary(process_list, owner_row=task_name),
-        )
+            )
+        if show_processes:
+            row.append(_process_summary(process_list, owner_row=task_name))
+        table.add_row(*row)
     return table
 
 
@@ -93,9 +118,7 @@ def _process_summary(tasks: Sequence[Task], *, owner_row: str) -> str:
     if not owned:
         return "—"
 
-    elapsed_values = [
-        elapsed for task in owned if (elapsed := _process_elapsed(task)) is not None
-    ]
+    elapsed_values = [elapsed for task in owned if (elapsed := _process_elapsed(task)) is not None]
     elapsed = max(elapsed_values) if elapsed_values else None
     elapsed_label = format_compact_duration(elapsed)
     return f"{len(owned)} · {elapsed_label}" if elapsed_label is not None else str(len(owned))
@@ -112,15 +135,16 @@ def _process_elapsed(task: Task) -> float | None:
     return float(value) + local_tick
 
 
-def _state_text(snapshot: SubagentMonitorSnapshot, task: Task) -> Text:
-    text = Text(snapshot.state, style=_state_style(snapshot.state))
+def _detail_text(snapshot: SubagentMonitorSnapshot, task: Task) -> Text:
+    text = Text(snapshot.model or "—", style="cyan" if snapshot.model else "dim")
+    text.truncate(_MODEL_WIDTH, overflow="ellipsis", pad=True)
+    text.append(" · ", style="dim")
+    text.append(snapshot.state, style=_state_style(snapshot.state))
     elapsed = task.fields.get("elapsed_seconds")
     if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool):
         snapshot_elapsed = task.fields.get("elapsed_snapshot_task_elapsed")
         local_tick = 0.0
-        if isinstance(snapshot_elapsed, (int, float)) and not isinstance(
-            snapshot_elapsed, bool
-        ):
+        if isinstance(snapshot_elapsed, (int, float)) and not isinstance(snapshot_elapsed, bool):
             local_tick = max((task.elapsed or 0.0) - float(snapshot_elapsed), 0.0)
         elapsed_label = format_compact_duration(float(elapsed) + local_tick)
         if elapsed_label is not None:

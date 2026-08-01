@@ -117,6 +117,7 @@ class AgentConfig:
         default=None,
         init=False,
     )
+    subagent_child: bool = field(default=False, init=False, repr=False)
     elicitation_handler: ElicitationFnT | None = None
     api_key: str | None = None
     function_tools: FunctionToolsConfig = None  # Local Python function tools

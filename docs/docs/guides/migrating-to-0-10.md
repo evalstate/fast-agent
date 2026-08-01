@@ -124,9 +124,20 @@ For repository-level activation, add an exact standalone directive to
 <!-- fast-agent-subagents -->
 ```
 
-The directive is removed from the model-visible instruction. It only applies
-when `subagents` is unset; `--no-subagents` and `subagents: false` take
-precedence.
+The marker itself is removed from the model-visible instruction. It only
+applies when `subagents` is unset; `--no-subagents` and `subagents: false`
+take precedence.
+
+The comment may also contain parent-only instructions:
+
+```md
+<!-- fast-agent-subagents
+use terra for analysis
+-->
+```
+
+The body remains in the parent system instruction, but the complete comment is
+excluded from built-in subagent instructions.
 
 ## Update cards and automation
 

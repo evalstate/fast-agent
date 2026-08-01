@@ -138,6 +138,17 @@ standalone directive to the system prompt or an embedded `AGENTS.md`:
 
 fast-agent removes the directive before sending the instruction to the model.
 It only enables subagents when the AgentCard leaves `subagents` unset.
+
+The comment can include instructions intended only for the parent agent:
+
+```md
+<!-- fast-agent-subagents
+use terra for analysis
+-->
+```
+
+The body is included in the parent system instruction, while the complete
+comment is excluded from built-in subagent instructions.
 `--no-subagents` and `subagents: false` always win.
 
 ## Enable harness tools

@@ -36,8 +36,7 @@ from fast_agent.utils.tool_names import (
     matches_tool_name,
 )
 
-# Braille pulses moving through a 3-cell track. Registered on first use via
-# _ensure_spinners().
+# Braille pulses moving through a 3-cell track.
 PROGRESS_SPINNER_NAME = "braille_dense"
 _BRAILLE_DENSE = {
     "interval": 110,
@@ -54,6 +53,27 @@ _BRAILLE_DENSE = {
     ],
 }
 
+# A two-dot ribbon sampled from sine across a 3-cell (6×4 dot) braille canvas.
+# Decreasing phase produces a continuous right-moving wave with no blank frames.
+SUBAGENT_SPINNER_NAME = "braille_sine"
+_BRAILLE_SINE = {
+    "interval": 100,
+    "frames": [
+        "⡼⢷⣤",
+        "⡼⢻⣤",
+        "⣰⠻⣆",
+        "⣠⠟⣧",
+        "⣀⡞⢷",
+        "⣤⡼⢻",
+        "⣤⡴⠻",
+        "⢶⣰⠻",
+        "⢻⣤⠟",
+        "⠻⣆⡞",
+        "⠛⣧⡼",
+        "⠞⢷⣰",
+    ],
+}
+
 _COMPACTING_FRAME_SECONDS = 0.18
 _COMPACTING_FRAMES = (
     "⣿⣿⣿",
@@ -63,15 +83,23 @@ _COMPACTING_FRAMES = (
     "   ",
 )
 
+
 class _MonitoringProgress(Progress):
     """Render subagents as a compact table while retaining normal progress rows."""
+
+    def __init__(
+        self,
+        *columns: str | ProgressColumn,
+        subagent_spinner: Spinner,
+        **kwargs: Any,
+    ) -> None:
+        self._subagent_spinner = subagent_spinner
+        super().__init__(*columns, **kwargs)
 
     def get_renderables(self) -> Iterable[RenderableType]:
         tasks = list(self.tasks)
         subagents = [
-            task
-            for task in tasks
-            if task.visible and bool(task.fields.get("is_subagent_monitor"))
+            task for task in tasks if task.visible and bool(task.fields.get("is_subagent_monitor"))
         ]
         generic = [
             task
@@ -79,10 +107,14 @@ class _MonitoringProgress(Progress):
             if task.visible and not bool(task.fields.get("is_subagent_monitor"))
         ]
         if subagents:
+            spinner_frame = self._subagent_spinner.render(self.get_time())
             yield render_subagent_table(
                 subagents,
                 tasks,
                 console_width=self.console.width,
+                spinner_frame=(
+                    spinner_frame if isinstance(spinner_frame, Text) else Text(str(spinner_frame))
+                ),
             )
         if generic or not subagents:
             yield self.make_tasks_table(generic)
@@ -90,6 +122,7 @@ class _MonitoringProgress(Progress):
 
 def _ensure_spinners() -> None:
     SPINNERS.setdefault(PROGRESS_SPINNER_NAME, _BRAILLE_DENSE)
+    SPINNERS.setdefault(SUBAGENT_SPINNER_NAME, _BRAILLE_SINE)
 
 
 def _format_compacting_track(elapsed_seconds: float) -> str:
@@ -275,6 +308,7 @@ class DynamicDetailsColumn(ProgressColumn):
                 line.append(part, style=self.style)
         return line
 
+
 class RichProgressDisplay:
     """Rich-based display for progress events."""
 
@@ -294,6 +328,7 @@ class RichProgressDisplay:
         self._subagent_row_by_agent: dict[str, str] = {}
         _ensure_spinners()
         self._description_spinner = SpinnerDescriptionColumn(spinner_name=PROGRESS_SPINNER_NAME)
+        self._subagent_spinner = Spinner(SUBAGENT_SPINNER_NAME, style="progress.spinner")
         self._progress = _MonitoringProgress(
             self._description_spinner,
             TextColumn(
@@ -315,6 +350,7 @@ class RichProgressDisplay:
                     no_wrap=True,
                 ),
             ),
+            subagent_spinner=self._subagent_spinner,
             console=self.console,
             transient=False,
         )

@@ -6,8 +6,9 @@ import threading
 import time
 from typing import Any
 
-from rich.console import Console
+from rich.console import Console, RenderableType
 from rich.live import Live
+from rich.spinner import Spinner
 from rich.text import Text
 
 from fast_agent.event_progress import ProgressAction, ProgressEvent, SubagentMonitorSnapshot
@@ -19,6 +20,16 @@ from fast_agent.ui.progress.display import (
     _format_compacting_track,
 )
 from fast_agent.utils.time import format_process_elapsed
+
+
+class _CountingSpinner(Spinner):
+    def __init__(self) -> None:
+        super().__init__("dots")
+        self.render_count = 0
+
+    def render(self, time: float) -> RenderableType:
+        self.render_count += 1
+        return Text("abc")
 
 
 def _make_event(
@@ -69,6 +80,7 @@ def _subagent_event(
     input_tokens: int = 100,
     output_tokens: int = 20,
     output_estimated: bool = False,
+    model: str | None = "gpt-5.6-terra",
     details: str = "",
 ) -> ProgressEvent:
     return _make_event(
@@ -81,6 +93,7 @@ def _subagent_event(
         activity=state,
         details=details,
         subagent_monitor=SubagentMonitorSnapshot(
+            model=model,
             state=state,
             turn=turn,
             input_tokens=input_tokens,
@@ -464,6 +477,14 @@ class TestAggregatorInitializedVisibility:
         assert spinner.name == "braille_dense"
         assert "⢸⡇ " in spinner.frames
 
+    def test_subagents_use_sine_spinner_without_changing_ordinary_progress(self) -> None:
+        display = _make_display()
+
+        assert display._description_spinner.spinner.name == "braille_dense"
+        assert display._progress._subagent_spinner.name == "braille_sine"
+        assert "⡼⢷⣤" in display._progress._subagent_spinner.frames
+        assert all(frame.strip() for frame in display._progress._subagent_spinner.frames)
+
     def test_process_poll_countdown_track_replaces_pulse_spinner(self) -> None:
         display = RichProgressDisplay(
             console=Console(file=io.StringIO(), force_terminal=True),
@@ -702,7 +723,9 @@ class TestAggregatorInitializedVisibility:
         display.stop()
 
     def test_subagent_elapsed_time_ticks_between_monitor_events(self) -> None:
-        display = _make_display()
+        display = RichProgressDisplay(
+            console=Console(file=io.StringIO(), force_terminal=False, width=100)
+        )
         display.start()
         display.update(
             _make_event(
@@ -1187,9 +1210,7 @@ class TestSubagentMonitoringRows:
                     correlation_id="inner-call",
                 )
             )
-            display.update(
-                _subagent_event()
-            )
+            display.update(_subagent_event())
 
         assert set(display._taskmap) == {"parent::subagent::outer-call"}
         display.stop()
@@ -1427,6 +1448,9 @@ class TestSubagentMonitoringRows:
         buffer = io.StringIO()
         console = Console(file=buffer, force_terminal=False, width=100)
         display = RichProgressDisplay(console=console)
+        spinner = _CountingSpinner()
+        display._description_spinner.spinner = spinner
+        display._progress._subagent_spinner = spinner
         child_name = "parent[reviewer]"
         row_id = "parent::subagent::outer-call"
         display.fold_agent_progress(child_name)
@@ -1452,6 +1476,7 @@ class TestSubagentMonitoringRows:
                 turn=2,
                 input_tokens=1_700,
                 output_tokens=403,
+                model="gpt-5.3-codex-spark",
             )
         )
         display.update(
@@ -1465,25 +1490,40 @@ class TestSubagentMonitoringRows:
                 process_elapsed_seconds=42,
             )
         )
+        display.update(
+            _make_event(
+                action=ProgressAction.SENDING,
+                agent_name="parent",
+                target="ripgrep_spark [1]",
+            )
+        )
 
         console.print(*display._progress.get_renderables())
         rendered = buffer.getvalue()
 
-        assert "Subagents (2)" in rendered
         assert "subagent" in rendered
-        assert "state" in rendered
+        assert "detail" in rendered
         assert "turn" in rendered
         assert "in" in rendered
         assert "out" in rendered
         assert "processes" in rendered
         assert "Review SDK" in rendered
         assert "Verify tests" in rendered
-        assert "tool: read_text_file" in rendered
+        assert "gpt-5.6-terra" in rendered
+        assert "gpt-5.3-codex-spark" in rendered
+        spinner_columns = [line.index("abc") for line in rendered.splitlines() if "abc" in line]
+        assert len(spinner_columns) == 3
+        assert len(set(spinner_columns)) == 1
+        assert spinner.render_count == 2
+        assert "tool: read_text_" in rendered
+        review_row = next(line for line in rendered.splitlines() if "Review SDK" in line)
+        verify_row = next(line for line in rendered.splitlines() if "Verify tests" in line)
+        assert review_row.index("tool:") == verify_row.index("Thinking")
         assert "2,100" in rendered
         assert "~812" in rendered
         assert "1 · 42s" in rendered
 
-    def test_narrow_subagent_table_keeps_metrics_and_process_header(self) -> None:
+    def test_narrow_subagent_table_keeps_core_columns_and_drops_metrics(self) -> None:
         buffer = io.StringIO()
         console = Console(file=buffer, force_terminal=False, width=60)
         display = RichProgressDisplay(console=console)
@@ -1500,12 +1540,12 @@ class TestSubagentMonitoringRows:
         console.print(*display._progress.get_renderables())
         rendered = buffer.getvalue()
 
-        assert "turn" in rendered
-        assert "in" in rendered
-        assert "out" in rendered
-        assert "processes" in rendered
-        assert "2,100" in rendered
-        assert "812" in rendered
+        assert "de" in rendered
+        assert "gp" in rendered
+        assert "turn" not in rendered
+        assert "processes" not in rendered
+        assert "2,100" not in rendered
+        assert "812" not in rendered
 
     def test_parent_process_remains_standalone_while_subagent_is_active(self) -> None:
         display = _make_display()

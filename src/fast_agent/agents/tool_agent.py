@@ -10,6 +10,7 @@ from fastmcp.tools import FunctionTool, ToolResult
 from mcp_types import CallToolResult, ContentBlock, ListToolsResult, Tool
 
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.subagent_directive import resolve_subagent_directive
 from fast_agent.agents.subagent_labels import requested_subagent_display_label
 from fast_agent.agents.tool_call_planning import (
     PlannedToolCall,
@@ -86,6 +87,9 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             context: Optional runtime context.
         """
         super().__init__(config=config, context=context)
+        if self.config.subagent_child:
+            directive = resolve_subagent_directive(self.instruction)
+            self.set_instruction(directive.subagent_instruction)
 
         self._execution_tools: dict[str, FunctionTool] = {}
         self._tool_schemas: list[Tool] = []
@@ -116,6 +120,17 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 fast_tool = build_default_function_tool(tool)
             else:
                 logger.warning(f"Skipping unknown tool type: {type(tool)}")
+                continue
+
+            fast_agent_meta = (
+                fast_tool.meta.get("fast_agent") if isinstance(fast_tool.meta, dict) else None
+            )
+            if (
+                self.config.subagent_child
+                and fast_tool.name == BUILTIN_SUBAGENT_TOOL_NAME
+                and isinstance(fast_agent_meta, dict)
+                and fast_agent_meta.get("builtin") == BUILTIN_SUBAGENT_TOOL_NAME
+            ):
                 continue
 
             self.add_tool(fast_tool)
