@@ -555,6 +555,7 @@ class StreamingMessageHandle:
         header_right: str = "",
         tool_header_name: str | None = None,
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None = None,
+        stream_edit_previews: bool = True,
         progress_display: Any = None,
         performance_hook: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
@@ -572,6 +573,7 @@ class StreamingMessageHandle:
         self._setup_segment_rendering(
             tool_metadata_resolver=tool_metadata_resolver,
             use_plain_text=use_plain_text,
+            stream_edit_previews=stream_edit_previews,
         )
         refresh_rate = self._stream_refresh_rate()
         self._setup_render_timing(
@@ -592,12 +594,14 @@ class StreamingMessageHandle:
         *,
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None,
         use_plain_text: bool,
+        stream_edit_previews: bool,
     ) -> None:
         self._segment_assembler = StreamSegmentAssembler(
             base_kind="plain" if use_plain_text else "markdown",
             tool_prefix=self._tool_header_prefix_plain,
             tool_metadata_resolver=tool_metadata_resolver,
             apply_patch_preview_max_lines=self._display.apply_patch_preview_max_lines,
+            stream_edit_previews=stream_edit_previews,
         )
         self._markdown_truncator = MarkdownTruncator(
             target_height_ratio=1.0,

@@ -122,6 +122,7 @@ from fast_agent.types import (
 from fast_agent.ui import console
 from fast_agent.ui.message_display_helpers import resolve_highlight_indexes
 from fast_agent.ui.shell_notice import format_shell_notice
+from fast_agent.ui.tool_display import ToolCallDisplayRequest, ToolResultDisplayRequest
 from fast_agent.utils.async_utils import gather_with_cancel
 from fast_agent.utils.numeric import positive_int_or_none
 from fast_agent.utils.text import strip_casefold, strip_to_none
@@ -179,6 +180,10 @@ class _PlannedMcpToolCall:
     display_tool_name: str
     namespaced_tool: NamespacedTool | None
     candidate_namespaced_tool: NamespacedTool | None
+    bottom_items: list[str] | None
+    highlight_indexes: list[int]
+    source_label: str | None
+    server_name: str | None
     is_local_shell: bool = False
     metadata: dict[str, Any] | None = None
 
@@ -1832,6 +1837,13 @@ class McpAgent(ABC, ToolAgent):
         )
 
         if should_parallel and planned_calls:
+            self.display.show_parallel_tool_calls(
+                [
+                    request
+                    for call in planned_calls
+                    if (request := self._planned_mcp_tool_call_display_request(call)) is not None
+                ]
+            )
             await self._run_parallel_planned_tool_calls(
                 planned_calls,
                 request_params=request_params,
@@ -1846,6 +1858,22 @@ class McpAgent(ABC, ToolAgent):
                 tool_loop_error=tool_loop_error,
             )
 
+        for call in planned_calls:
+            display_request = self._planned_mcp_tool_call_display_request(call)
+            if display_request is not None:
+                self.display.show_tool_call(
+                    display_request.tool_name,
+                    display_request.tool_args,
+                    bottom_items=display_request.bottom_items,
+                    highlight_indexes=display_request.highlight_indexes,
+                    max_item_length=display_request.max_item_length,
+                    name=display_request.name,
+                    metadata=display_request.metadata,
+                    tool_call_id=display_request.tool_call_id,
+                    source_label=display_request.source_label,
+                    server_name=display_request.server_name,
+                    show_hook_indicator=display_request.show_hook_indicator,
+                )
         await self._run_sequential_planned_tool_calls(
             planned_calls,
             request_params=request_params,
@@ -1946,6 +1974,7 @@ class McpAgent(ABC, ToolAgent):
             self._show_shell_tool_call_id = previous_shell_tool_call_id_setting
             self._defer_shell_display_to_tool_result = previous_shell_display_setting
 
+        display_requests: list[ToolResultDisplayRequest] = []
         for call, item in zip(planned_calls, results, strict=True):
             if isinstance(item, BaseException):
                 self.logger.error(f"MCP tool {call.display_tool_name} failed: {item}")
@@ -1956,7 +1985,7 @@ class McpAgent(ABC, ToolAgent):
                 duration_ms = 0.0
             else:
                 _, result, duration_ms = item
-            await self._record_planned_tool_result(
+            display_request = await self._record_planned_tool_result(
                 call,
                 result,
                 duration_ms=duration_ms,
@@ -1964,6 +1993,9 @@ class McpAgent(ABC, ToolAgent):
                 tool_timings=tool_timings,
                 parallel=True,
             )
+            if display_request is not None:
+                display_requests.append(display_request)
+        self.display.show_parallel_tool_results(display_requests)
 
     async def _run_sequential_planned_tool_calls(
         self,
@@ -1979,7 +2011,7 @@ class McpAgent(ABC, ToolAgent):
                     call,
                     request_params=request_params,
                 )
-                await self._record_planned_tool_result(
+                display_request = await self._record_planned_tool_result(
                     call,
                     result,
                     duration_ms=duration_ms,
@@ -1987,6 +2019,8 @@ class McpAgent(ABC, ToolAgent):
                     tool_timings=tool_timings,
                     parallel=False,
                 )
+                if display_request is not None:
+                    self._show_tool_result_display_request(display_request)
                 self.logger.debug(f"MCP tool {call.display_tool_name} executed successfully")
             except Exception as e:
                 self.logger.error(f"MCP tool {call.display_tool_name} failed: {e}")
@@ -1994,7 +2028,7 @@ class McpAgent(ABC, ToolAgent):
                     content=[TextContent(type="text", text=f"Error: {e!s}")],
                     is_error=True,
                 )
-                await self._record_planned_tool_result(
+                display_request = await self._record_planned_tool_result(
                     call,
                     error_result,
                     duration_ms=0.0,
@@ -2002,6 +2036,8 @@ class McpAgent(ABC, ToolAgent):
                     tool_timings=tool_timings,
                     parallel=False,
                 )
+                if display_request is not None:
+                    self._show_tool_result_display_request(display_request)
 
     async def _execute_mcp_planned_tool_call(
         self,
@@ -2028,7 +2064,7 @@ class McpAgent(ABC, ToolAgent):
         tool_results: dict[str, CallToolResult],
         tool_timings: dict[str, ToolTimingInfo],
         parallel: bool,
-    ) -> None:
+    ) -> ToolResultDisplayRequest | None:
         if not call.is_local_shell:
             result = truncate_tool_result_for_llm(
                 result,
@@ -2047,28 +2083,42 @@ class McpAgent(ABC, ToolAgent):
         )
 
         if display_metadata.get("suppress_display", False):
-            return
+            return None
         if self._is_builtin_subagent_tool(call.metadata):
             await self._show_subagent_result(result)
-            return
+            return None
 
-        result_tool_call_id = None
-        if parallel:
-            result_tool_call_id = self._tool_result_call_id(
-                display_tool_name=call.display_tool_name,
-                correlation_id=call.correlation_id,
-                parallel=True,
-            )
+        result_tool_call_id = self._tool_result_call_id(
+            display_tool_name=call.display_tool_name,
+            correlation_id=call.correlation_id,
+            parallel=parallel,
+        )
 
-        self.display.show_tool_result(
-            name=self._name,
+        return ToolResultDisplayRequest(
             result=result,
+            name=self._name,
             tool_name=call.display_tool_name,
             skybridge_config=await self._skybridge_config_for_planned_tool(call),
             timing_ms=duration_ms,
             tool_call_id=result_tool_call_id,
             type_label=self._tool_result_type_label(call.display_tool_name),
+            source_label=call.source_label,
+            server_name=call.server_name,
             show_hook_indicator=self.has_after_tool_call_hook,
+        )
+
+    def _show_tool_result_display_request(self, request: ToolResultDisplayRequest) -> None:
+        self.display.show_tool_result(
+            request.result,
+            name=request.name,
+            tool_name=request.tool_name,
+            skybridge_config=request.skybridge_config,
+            timing_ms=request.timing_ms,
+            tool_call_id=request.tool_call_id,
+            type_label=request.type_label,
+            source_label=request.source_label,
+            server_name=request.server_name,
+            show_hook_indicator=request.show_hook_indicator,
         )
 
     async def _skybridge_config_for_planned_tool(
@@ -2103,6 +2153,7 @@ class McpAgent(ABC, ToolAgent):
         available_tools: list[str],
         should_parallel: bool,
     ) -> _PlannedMcpToolCall:
+        del should_parallel
         tool_name = tool_request.params.name
         tool_args = tool_request.params.arguments or {}
         namespaced_tool = namespaced_tools.get(tool_name)
@@ -2144,16 +2195,14 @@ class McpAgent(ABC, ToolAgent):
             is_filesystem_runtime_tool=is_filesystem_runtime_tool,
             route_to_namespaced_candidate=route_to_namespaced_candidate,
         )
-        display_tool_name = self._show_mcp_planned_tool_call(
+        display_tool_name, bottom_items, highlight_indexes = self._prepare_tool_display(
             tool_name=tool_name,
-            tool_args=tool_args,
             namespaced_tool=namespaced_tool,
             candidate_namespaced_tool=candidate_namespaced_tool,
             local_tool=local_tool,
-            available_tools=available_tools,
-            metadata=metadata,
-            tool_call_id=correlation_id if should_parallel else None,
+            fallback_order=self._unique_preserving_order(available_tools),
         )
+        active_namespaced = namespaced_tool or candidate_namespaced_tool
         execution_tool_name = (
             candidate_namespaced_tool.namespaced_tool_name
             if route_to_namespaced_candidate and candidate_namespaced_tool is not None
@@ -2167,6 +2216,14 @@ class McpAgent(ABC, ToolAgent):
             display_tool_name=display_tool_name,
             namespaced_tool=namespaced_tool,
             candidate_namespaced_tool=candidate_namespaced_tool,
+            bottom_items=bottom_items,
+            highlight_indexes=highlight_indexes,
+            source_label=(
+                "MCP"
+                if active_namespaced is not None
+                else self._tool_display_source_label(display_tool_name, metadata)
+            ),
+            server_name=active_namespaced.server_name if active_namespaced is not None else None,
             is_local_shell=(
                 self._bash_tool is not None
                 and tool_name == self._bash_tool.name
@@ -2266,43 +2323,28 @@ class McpAgent(ABC, ToolAgent):
             return self._jsonable_tool_metadata(self._tool_display_metadata(tool_name))
         return None
 
-    def _show_mcp_planned_tool_call(
+    def _planned_mcp_tool_call_display_request(
         self,
-        *,
-        tool_name: str,
-        tool_args: dict[str, Any],
-        namespaced_tool: NamespacedTool | None,
-        candidate_namespaced_tool: NamespacedTool | None,
-        local_tool: Any | None,
-        available_tools: list[str],
-        metadata: dict[str, Any] | None,
-        tool_call_id: str | None,
-    ) -> str:
-        display_tool_name, bottom_items, highlight_indexes = self._prepare_tool_display(
-            tool_name=tool_name,
-            namespaced_tool=namespaced_tool,
-            candidate_namespaced_tool=candidate_namespaced_tool,
-            local_tool=local_tool,
-            fallback_order=self._unique_preserving_order(available_tools),
-        )
-        if self._is_read_text_file_tool_name(display_tool_name):
-            return display_tool_name
-        if self._is_builtin_subagent_tool(metadata):
-            self._show_subagent_message(tool_args)
-            return display_tool_name
-
-        self.display.show_tool_call(
-            name=self._name,
-            tool_args=tool_args,
-            bottom_items=bottom_items,
-            tool_name=display_tool_name,
-            highlight_indexes=highlight_indexes,
+        call: _PlannedMcpToolCall,
+    ) -> ToolCallDisplayRequest | None:
+        if self._is_read_text_file_tool_name(call.display_tool_name):
+            return None
+        if self._is_builtin_subagent_tool(call.metadata):
+            self._show_subagent_message(call.tool_args)
+            return None
+        return ToolCallDisplayRequest(
+            tool_name=call.display_tool_name,
+            tool_args=call.tool_args,
+            bottom_items=call.bottom_items,
+            highlight_indexes=call.highlight_indexes,
             max_item_length=12,
-            metadata=metadata,
-            tool_call_id=tool_call_id,
+            name=self._name,
+            metadata=call.metadata,
+            tool_call_id=call.correlation_id,
+            source_label=call.source_label,
+            server_name=call.server_name,
             show_hook_indicator=self.has_before_tool_call_hook,
         )
-        return display_tool_name
 
     def _prepare_tool_display(
         self,
@@ -2419,10 +2461,7 @@ class McpAgent(ABC, ToolAgent):
         correlation_id: str,
         parallel: bool,
     ) -> str | None:
-        if not parallel:
-            return None
-        if cls._is_read_text_file_tool_name(display_tool_name):
-            return None
+        del display_tool_name, parallel
         return correlation_id
 
     @staticmethod

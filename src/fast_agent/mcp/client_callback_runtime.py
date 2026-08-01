@@ -9,8 +9,6 @@ from importlib.metadata import version
 from typing import TYPE_CHECKING, cast
 
 from mcp.client.subscriptions import (
-    PromptsListChanged,
-    ResourcesListChanged,
     ServerEvent,
     ToolsListChanged,
 )
@@ -81,6 +79,7 @@ class MCPClientCallbackRuntime:
     context: Context | None = None
     tool_list_changed_callback: ToolListChangedCallback | None = None
     transport_notification_handler: TransportNotificationHandler | None = None
+    subscription_ready: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     effective_elicitation_mode: str = field(init=False)
     client_info: Implementation = field(init=False)
     list_roots_callback: ListRootsFnT | None = field(init=False)
@@ -94,6 +93,8 @@ class MCPClientCallbackRuntime:
     )
 
     def __post_init__(self) -> None:
+        if self.aggregator is None:
+            self.subscription_ready.set()
         self.client_info = self._client_implementation()
         self.list_roots_callback = self._make_list_roots_callback()
         self.sampling_callback = self._make_sampling_callback()
@@ -284,12 +285,27 @@ class MCPClientCallbackRuntime:
             )
 
     async def handle_subscription_event(self, event: ServerEvent) -> None:
-        """Refresh aggregator indexes for a modern subscription event."""
+        """Bridge a typed modern subscription event to authoritative derived state."""
         if self.aggregator is None:
             return
-        if isinstance(event, ToolsListChanged):
-            await self.aggregator._handle_tool_list_changed(self.display_server_name)
-        elif isinstance(event, PromptsListChanged):
-            await self.aggregator._fetch_and_cache_prompts(self.display_server_name)
-        elif isinstance(event, ResourcesListChanged):
-            await self.aggregator._refresh_server_resources(self.display_server_name)
+        await self.aggregator.handle_subscription_event(self.display_server_name, event)
+
+    def subscription_resource_uris(self) -> tuple[str, ...]:
+        """Return the aggregator's canonical materialized UI resource selection."""
+        if self.aggregator is None:
+            return ()
+        return self.aggregator.selected_materialized_resource_uris(self.display_server_name)
+
+    async def refresh_subscription_state(self) -> tuple[str, ...]:
+        """Force authoritative attached discovery after a listen acknowledgment."""
+        if self.aggregator is None:
+            return ()
+        return await self.aggregator.refresh_subscription_state(self.display_server_name)
+
+    async def wait_until_subscription_ready(self) -> None:
+        """Wait until initial attachment discovery has been committed."""
+        await self.subscription_ready.wait()
+
+    def mark_subscription_ready(self) -> None:
+        """Release the listener after initial attachment discovery commits."""
+        self.subscription_ready.set()

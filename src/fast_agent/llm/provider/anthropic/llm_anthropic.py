@@ -114,7 +114,10 @@ from fast_agent.llm.tool_tracking import ToolCallTracker
 from fast_agent.llm.usage_tracking import usage_from_anthropic
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES, guess_mime_type, normalize_mime_type
 from fast_agent.mcp.prompt import Prompt
-from fast_agent.mcp.provider_management import build_anthropic_provider_managed_mcp_payload
+from fast_agent.mcp.provider_management import (
+    ProviderManagedToolState,
+    build_anthropic_provider_managed_mcp_payload,
+)
 from fast_agent.tool_activity_presentation import build_tool_activity_presentation
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -2043,6 +2046,15 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if self.instruction or params.system_prompt:
             base_args["system"] = self.instruction or params.system_prompt
 
+        if request_tools:
+            match params.sampling_tool_choice:
+                case "auto":
+                    base_args["tool_choice"] = {"type": "auto"}
+                case "required":
+                    base_args["tool_choice"] = {"type": "any"}
+                case "none":
+                    base_args["tool_choice"] = {"type": "none"}
+
         if structured_mode == "tool_use":
             if self._is_thinking_enabled(model) and self._requires_explicit_thinking_field(model):
                 if auto_tool_use_fallback:
@@ -2764,6 +2776,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         structured_model: type[ModelT] | None,
         structured: _AnthropicStructuredMode,
         tools: list[Tool] | None,
+        *,
+        include_provider_tools: bool,
     ) -> tuple[list[BetaToolParam], list[str], Any]:
         available_tools = await self._prepare_tools(
             model,
@@ -2773,11 +2787,17 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             structured_mode=structured.mode,
             auto_tool_use_fallback=structured.auto_tool_use_fallback,
         )
-        web_tools, web_tool_betas = self._prepare_web_tools(model)
+        if include_provider_tools:
+            web_tools, web_tool_betas = self._prepare_web_tools(model)
+            provider_mcp_payload = build_anthropic_provider_managed_mcp_payload(
+                self.provider_managed_mcp_state
+            )
+        else:
+            web_tools, web_tool_betas = [], []
+            provider_mcp_payload = build_anthropic_provider_managed_mcp_payload(
+                ProviderManagedToolState()
+            )
         request_tools = [*available_tools, *web_tools]
-        provider_mcp_payload = build_anthropic_provider_managed_mcp_payload(
-            self.provider_managed_mcp_state
-        )
         if provider_mcp_payload.tools:
             request_tools.extend(cast("list[BetaToolParam]", provider_mcp_payload.tools))
         return request_tools, list(web_tool_betas), provider_mcp_payload
@@ -2845,6 +2865,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             structured_model,
             structured,
             tools,
+            include_provider_tools=request.params.sampling_tool_choice is None,
         )
 
         base_args, thinking_enabled = self._build_anthropic_base_args(

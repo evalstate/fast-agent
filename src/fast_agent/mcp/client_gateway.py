@@ -339,7 +339,7 @@ def _transport_metrics_hook(
 
 
 def _http_post_channel(
-    request: httpx2.Request,
+    response: httpx2.Response,
     message: JSONRPCMessage | None = None,
 ) -> ChannelName:
     if (
@@ -347,8 +347,8 @@ def _http_post_channel(
         and strip_casefold(message.method or "") == "subscriptions/listen"
     ):
         return "listen"
-    accept = strip_casefold(request.headers.get("accept", ""))
-    return "post-sse" if "text/event-stream" in accept else "post-json"
+    content_type = strip_casefold(response.headers.get("content-type", ""))
+    return "post-sse" if content_type.startswith("text/event-stream") else "post-json"
 
 
 def _http_request_message(request: httpx2.Request) -> JSONRPCMessage | None:
@@ -391,22 +391,13 @@ def _http_diagnostic_hooks(
                             detail=request.headers["last-event-id"],
                         )
                     )
-                return
-            message = _http_request_message(request)
-            if message is None:
-                return
-            metrics.record_event(
-                ChannelEvent(
-                    channel=_http_post_channel(request, message),
-                    event_type="message",
-                    message=message,
-                )
-            )
-        except (ValidationError, ValueError):
-            logger.debug("%s: could not classify HTTP MCP request", server_name)
+        except Exception:
+            logger.debug("%s: HTTP diagnostics hook failed", server_name, exc_info=True)
 
     async def capture_response(response: httpx2.Response) -> None:
         try:
+            if response.is_redirect:
+                return
             request = response.request
             if request.method == "GET":
                 event_type = "error" if response.status_code >= 400 else "connect"
@@ -418,19 +409,29 @@ def _http_diagnostic_hooks(
                         detail=f"HTTP {response.status_code}",
                     )
                 )
-            elif request.method == "POST" and response.status_code >= 400:
+            elif request.method == "POST":
                 try:
                     message = _http_request_message(request)
                 except (ValidationError, ValueError):
                     message = None
-                metrics.record_event(
-                    ChannelEvent(
-                        channel=_http_post_channel(request, message),
-                        event_type="error",
-                        status_code=response.status_code,
-                        detail=f"HTTP {response.status_code}",
+                channel = _http_post_channel(response, message)
+                if message is not None:
+                    metrics.record_event(
+                        ChannelEvent(
+                            channel=channel,
+                            event_type="message",
+                            message=message,
+                        )
                     )
-                )
+                if response.status_code >= 400:
+                    metrics.record_event(
+                        ChannelEvent(
+                            channel=channel,
+                            event_type="error",
+                            status_code=response.status_code,
+                            detail=f"HTTP {response.status_code}",
+                        )
+                    )
         except Exception:
             logger.debug("%s: HTTP diagnostics hook failed", server_name, exc_info=True)
 

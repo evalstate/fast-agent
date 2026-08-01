@@ -76,6 +76,107 @@ class StatefulStreamableHTTPSimulator:
         return httpx2.Response(404)
 
 
+class MixedResponseStreamableHTTPSimulator:
+    def __init__(self) -> None:
+        self.session_id: str | None = None
+
+    async def __call__(self, request: httpx2.Request) -> httpx2.Response:
+        if request.method == "GET":
+            return httpx2.Response(405)
+        if request.method == "DELETE":
+            return httpx2.Response(200)
+
+        payload = json.loads(request.content)
+        assert isinstance(payload, dict)
+        method = payload.get("method")
+        if method == "initialize":
+            self.session_id = "session-1"
+            return httpx2.Response(
+                200,
+                headers={
+                    "content-type": "application/json",
+                    "mcp-session-id": self.session_id,
+                },
+                json={
+                    "jsonrpc": "2.0",
+                    "id": payload["id"],
+                    "result": {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "serverInfo": {"name": "simulator", "version": "1"},
+                    },
+                },
+            )
+        if method == "notifications/initialized":
+            return httpx2.Response(202)
+        if method == "server/discover":
+            return httpx2.Response(
+                200,
+                headers={"content-type": "application/json; charset=utf-8"},
+                json={
+                    "jsonrpc": "2.0",
+                    "id": payload["id"],
+                    "result": {
+                        "supportedVersions": ["2026-07-28"],
+                        "capabilities": {"tools": {"listChanged": False}},
+                        "resultType": "complete",
+                    },
+                },
+            )
+        if method == "tools/list":
+            return httpx2.Response(
+                200,
+                headers={"content-type": "application/json; charset=utf-8"},
+                json={
+                    "jsonrpc": "2.0",
+                    "id": payload["id"],
+                    "result": {
+                        "resultType": "complete",
+                        "cacheScope": "private",
+                        "ttlMs": 0,
+                        "tools": [
+                            {"name": "whoami", "inputSchema": {"type": "object"}},
+                            {
+                                "name": "generate_image",
+                                "inputSchema": {"type": "object"},
+                            },
+                        ],
+                    },
+                },
+            )
+
+        assert request.headers["accept"] == "application/json, text/event-stream"
+        params = payload["params"]
+        assert isinstance(params, dict)
+        assert method == "tools/call"
+        result = {
+            "jsonrpc": "2.0",
+            "id": payload["id"],
+            "result": {
+                "resultType": "complete",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "evalstate"
+                        if params["name"] == "whoami"
+                        else "generated image",
+                    }
+                ]
+            },
+        }
+        if params["name"] == "whoami":
+            return httpx2.Response(
+                200,
+                headers={"content-type": "application/json; charset=utf-8"},
+                json=result,
+            )
+        return httpx2.Response(
+            200,
+            headers={"content-type": "text/event-stream; charset=utf-8"},
+            text=f"event: message\ndata: {json.dumps(result)}\n\n",
+        )
+
+
 class AttachmentResponseSimulator:
     def __init__(self, uri: str, *, on_result: Callable[[], None] | None = None) -> None:
         self.uri = uri
@@ -305,6 +406,30 @@ async def test_sdk_reports_stateful_404_as_session_terminated_invalid_request() 
     await http_client.aclose()
     assert exc_info.value.code == INVALID_REQUEST
     assert exc_info.value.message == "Session terminated"
+
+
+@pytest.mark.asyncio
+async def test_streamable_http_accepts_json_and_sse_responses_on_one_endpoint() -> None:
+    simulator = MixedResponseStreamableHTTPSimulator()
+    http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(simulator))
+    transport = streamable_http_client("https://example.test/mcp", http_client=http_client)
+    callbacks = MCPClientCallbackRuntime(server_name="test-server", server_config=None)
+
+    async with MCPClientConnection(
+        transport,
+        callbacks,
+        protocol_mode="modern",
+        cache=False,
+    ) as connection:
+        whoami = await connection.call_tool("whoami")
+        image = await connection.call_tool("generate_image")
+
+    await http_client.aclose()
+
+    assert isinstance(whoami.content[0], TextContent)
+    assert whoami.content[0].text == "evalstate"
+    assert isinstance(image.content[0], TextContent)
+    assert image.content[0].text == "generated image"
 
 
 @pytest.mark.asyncio

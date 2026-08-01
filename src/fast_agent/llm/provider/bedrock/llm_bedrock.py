@@ -32,6 +32,7 @@ from fast_agent.llm.reasoning_effort import (
     parse_reasoning_setting,
     validate_reasoning_setting,
 )
+from fast_agent.llm.request_params import SamplingToolChoicePolicy
 from fast_agent.llm.usage_tracking import usage_from_bedrock
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -439,6 +440,7 @@ class BedrockAttemptConfig:
     has_tool_results: bool
     has_tool_use: bool
     reasoning_budget: int
+    sampling_tool_choice: SamplingToolChoicePolicy | None
 
 
 @dataclass
@@ -1684,11 +1686,30 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         *,
         has_tool_results: bool,
         has_tool_use: bool,
+        sampling_tool_choice: SamplingToolChoicePolicy | None,
     ) -> None:
+        if sampling_tool_choice == "none":
+            if has_tool_results or has_tool_use:
+                raise ValueError(
+                    "Bedrock cannot continue MCP sampling toolChoice 'none' "
+                    "with existing tool use or tool results"
+                )
+            return
+        if (
+            sampling_tool_choice is not None
+            and schema_choice not in (ToolSchemaType.ANTHROPIC, ToolSchemaType.DEFAULT)
+        ):
+            raise ValueError("Bedrock sampling tool choice requires native tool support")
+
         needs_noop = has_tool_results or has_tool_use
         if schema_choice in (ToolSchemaType.ANTHROPIC, ToolSchemaType.DEFAULT):
             if isinstance(tools_payload, list) and tools_payload:
-                converse_args["toolConfig"] = {"tools": tools_payload}
+                tool_config: dict[str, Any] = {"tools": tools_payload}
+                if sampling_tool_choice == "auto":
+                    tool_config["toolChoice"] = {"auto": {}}
+                elif sampling_tool_choice == "required":
+                    tool_config["toolChoice"] = {"any": {}}
+                converse_args["toolConfig"] = tool_config
             elif needs_noop:
                 converse_args["toolConfig"] = {"tools": [self._noop_tool_spec()]}
         elif needs_noop:
@@ -2005,14 +2026,20 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             schema_choice,
             tool_list,
         )
+        if params.sampling_tool_choice == "none":
+            tools_payload = None
         system_mode = (
             self.capabilities.get(model) or ModelCapabilities()
         ).system_mode or SystemMode.SYSTEM
-        system_text = self._bedrock_system_text_for_attempt(
-            base_system_text,
-            model,
-            schema_choice,
-            tools_payload,
+        system_text = (
+            base_system_text
+            if params.sampling_tool_choice == "none"
+            else self._bedrock_system_text_for_attempt(
+                base_system_text,
+                model,
+                schema_choice,
+                tools_payload,
+            )
         )
         self._apply_bedrock_system_text(
             converse_args,
@@ -2042,6 +2069,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             tools_payload,
             has_tool_results=has_tool_results,
             has_tool_use=has_tool_use,
+            sampling_tool_choice=params.sampling_tool_choice,
         )
         reasoning_budget = self._apply_bedrock_inference_config(
             converse_args,
@@ -2059,6 +2087,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             has_tool_results=has_tool_results,
             has_tool_use=has_tool_use,
             reasoning_budget=reasoning_budget,
+            sampling_tool_choice=params.sampling_tool_choice,
         )
 
     def _try_non_streaming_fallback(
@@ -2130,6 +2159,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 attempt.tools_payload,
                 has_tool_results=attempt.has_tool_results,
                 has_tool_use=attempt.has_tool_use,
+                sampling_tool_choice=attempt.sampling_tool_choice,
             )
             if attempt.has_tool_use:
                 self._inject_orphaned_tool_results(converse_args["messages"])

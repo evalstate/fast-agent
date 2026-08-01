@@ -13,6 +13,7 @@ from mcp_types import ResourceLink
 from fast_agent.llm.request_params import (
     RequestParams,
     ResponseMode,
+    SamplingToolChoicePolicy,
     StructuredToolPolicy,
     ToolResultMode,
 )
@@ -63,6 +64,7 @@ __all__ = [
     "RequestParams",
     "ResourceLink",
     "ResponseMode",
+    "SamplingToolChoicePolicy",
     "StructuredToolPolicy",
     "ToolResultMode",
     "ToolTimingInfo",

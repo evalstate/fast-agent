@@ -305,6 +305,27 @@ def test_render_idle_http_summary_shows_both_post_response_modes() -> None:
     assert "POST (JSON)" in output
 
 
+def test_render_disabled_listen_channel_uses_disabled_style() -> None:
+    status = ServerStatus(
+        server_name="demo",
+        transport="http",
+        protocol_era="modern",
+        subscription_state="disabled",
+        transport_channels=TransportSnapshot(),
+    )
+
+    original_console = _set_console_size()
+    try:
+        with console.console.capture() as capture:
+            _render_channel_summary(status, indent="  ", total_width=100)
+        output = strip_ansi(capture.get())
+    finally:
+        _restore_console_size(original_console)
+
+    assert "◁ LISTEN (SSE)" in output
+    assert "    -     -     -" in output
+
+
 def test_render_modern_listen_channel_shows_notifications_without_ping() -> None:
     status = ServerStatus(
         server_name="demo",

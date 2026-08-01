@@ -94,6 +94,9 @@ class _CaptureDisplay(ConsoleDisplay):
         metadata: dict[str, Any] | None = None,
         tool_call_id: str | None = None,
         type_label: str | None = None,
+        source_label: str | None = None,
+        server_name: str | None = None,
+        request_count: int = 1,
         show_hook_indicator: bool = False,
     ) -> None:
         self.event_order.append("tool_call")
@@ -108,6 +111,9 @@ class _CaptureDisplay(ConsoleDisplay):
                 "metadata": metadata,
                 "tool_call_id": tool_call_id,
                 "type_label": type_label,
+                "source_label": source_label,
+                "server_name": server_name,
+                "request_count": request_count,
                 "show_hook_indicator": show_hook_indicator,
             }
         )
@@ -122,6 +128,8 @@ class _CaptureDisplay(ConsoleDisplay):
         tool_call_id: str | None = None,
         type_label: str | None = None,
         truncate_content: bool = True,
+        source_label: str | None = None,
+        server_name: str | None = None,
         show_hook_indicator: bool = False,
     ) -> None:
         self.event_order.append("tool_result")
@@ -135,6 +143,8 @@ class _CaptureDisplay(ConsoleDisplay):
                 "tool_call_id": tool_call_id,
                 "type_label": type_label,
                 "truncate_content": truncate_content,
+                "source_label": source_label,
+                "server_name": server_name,
                 "show_hook_indicator": show_hook_indicator,
             }
         )

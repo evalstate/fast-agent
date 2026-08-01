@@ -22,4 +22,5 @@ mcp:
     sampling_test:
       command: "uv"
       args: ["run", "sampling_test_server.py"]
+      protocol_mode: legacy
       # No explicit sampling configuration - should fail with auto_sampling=false

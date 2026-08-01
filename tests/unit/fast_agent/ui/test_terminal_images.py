@@ -1,8 +1,13 @@
 import base64
+from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
 from mcp_types import ImageContent, TextContent
+from rich.console import Console
+from rich.measure import Measurement
+from textual_image._terminal import CellSize
+from textual_image.renderable import sixel as textual_sixel_renderer
 
 from fast_agent.command_actions.models import PluginCommandActionImage
 from fast_agent.config import LoggerSettings, Settings, TerminalImageSettings
@@ -20,6 +25,7 @@ from fast_agent.ui.terminal_images import (
     render_tool_result_images,
 )
 from fast_agent.ui.terminal_images import renderer as terminal_image_renderer
+from fast_agent.ui.terminal_images import sixel as sixel_renderer
 
 _PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
@@ -134,6 +140,21 @@ def test_render_assistant_images_returns_none_for_none_backend() -> None:
     assert renderable is None
 
 
+def test_tool_result_images_ignore_assistant_only_switch() -> None:
+    config = Settings(
+        logger=LoggerSettings(
+            terminal_images=TerminalImageSettings(
+                enabled=True,
+                backend="unicode",
+                render_assistant=False,
+            )
+        )
+    )
+
+    assert render_assistant_images(config, [_image_content()]) is None
+    assert render_tool_result_images(config, [_image_content()]) is not None
+
+
 @pytest.mark.parametrize(
     "settings",
     [
@@ -168,6 +189,77 @@ def test_textual_image_backend_missing_class_disables_rendering(monkeypatch) -> 
 
     assert terminal_image_renderer._resolve_textual_image_class("auto") is DummyImage
     assert terminal_image_renderer._resolve_textual_image_class("kitty") is None
+
+
+def test_automatic_sixel_backend_uses_viewport_aware_renderer(monkeypatch) -> None:
+    class SixelImage:
+        pass
+
+    class ViewportAwareSixelImage:
+        pass
+
+    module = SimpleNamespace(
+        Image=SixelImage,
+        SixelImage=SixelImage,
+    )
+
+    def import_backend(name: str):
+        if name == "fast_agent.ui.terminal_images.sixel":
+            return SimpleNamespace(ViewportAwareSixelImage=ViewportAwareSixelImage)
+        return module
+
+    monkeypatch.setattr(terminal_image_renderer, "import_module", import_backend)
+
+    assert (
+        terminal_image_renderer._resolve_textual_image_class("auto")
+        is ViewportAwareSixelImage
+    )
+    assert (
+        terminal_image_renderer._resolve_textual_image_class("textual-image")
+        is ViewportAwareSixelImage
+    )
+    assert (
+        terminal_image_renderer._resolve_textual_image_class("sixel")
+        is ViewportAwareSixelImage
+    )
+
+
+def test_sixel_image_height_stays_within_cursor_safe_viewport(monkeypatch) -> None:
+    def cell_size() -> CellSize:
+        return CellSize(10, 20)
+
+    monkeypatch.setattr(sixel_renderer, "get_cell_size", cell_size)
+    monkeypatch.setattr(textual_sixel_renderer, "get_cell_size", cell_size)
+    image = sixel_renderer.ViewportAwareSixelImage(
+        BytesIO(_PNG_BYTES),
+        width="80%",
+        height="auto",
+    )
+    console = Console(width=80, height=24, force_terminal=True)
+
+    segments = list(console.render(image, console.options))
+    save_cursor_index = next(
+        index for index, segment in enumerate(segments) if segment.text == "\x1b7"
+    )
+
+    assert save_cursor_index == 23
+    assert all(segment.text == " " * 46 + "\n" for segment in segments[:save_cursor_index])
+    assert segments[save_cursor_index + 1].text == "\x1b[23A"
+    assert Measurement.get(console, console.options, image) == Measurement(46, 46)
+
+    for start_row in (1, 12, 24):
+        scroll_count = max(0, start_row + save_cursor_index - console.height)
+        image_row_after_scroll = start_row - scroll_count
+        cursor_row_before_rewind = min(console.height, start_row + save_cursor_index)
+        assert cursor_row_before_rewind - save_cursor_index == image_row_after_scroll
+
+
+def test_sixel_image_is_suppressed_without_a_cursor_safe_row() -> None:
+    image = sixel_renderer.ViewportAwareSixelImage(BytesIO(_PNG_BYTES))
+    console = Console(width=80, height=1, force_terminal=True)
+
+    assert list(console.render(image, console.options)) == []
+    assert Measurement.get(console, console.options, image) == Measurement(0, 0)
 
 
 def test_render_content_blocks_summarizes_images_without_base64_payload() -> None:

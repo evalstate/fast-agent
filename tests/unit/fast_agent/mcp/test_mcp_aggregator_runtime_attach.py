@@ -3,10 +3,14 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from mcp.client import CacheMode
 from mcp_types import (
+    ListPromptsResult,
+    ListResourcesResult,
     ListToolsResult,
     Prompt,
     ReadResourceResult,
+    Resource,
     ServerCapabilities,
     TextResourceContents,
     Tool,
@@ -14,6 +18,7 @@ from mcp_types import (
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.context import Context
+from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 from fast_agent.mcp.mcp_aggregator import (
     MCPAggregator,
     MCPAttachOptions,
@@ -287,8 +292,12 @@ async def test_runtime_server_is_published_only_after_discovery() -> None:
             raise AssertionError(f"Unexpected MCP method: {method_name}")
 
         async def _evaluate_skybridge_for_server(
-            self, server_name: str
+            self,
+            server_name: str,
+            *,
+            cache_mode: CacheMode = "use",
         ) -> tuple[str, SkybridgeServerConfig]:
+            del cache_mode
             return server_name, SkybridgeServerConfig(server_name=server_name)
 
     aggregator = _CapabilityAwareAggregator(
@@ -558,6 +567,118 @@ async def test_interactive_startup_definition_transfers_to_attachment_owner() ->
 
 
 @pytest.mark.asyncio
+async def test_subscription_refresh_uses_public_refresh_mode_and_commits_canonical_uris() -> None:
+    context = _build_context(
+        {"alpha": MCPServerSettings(name="alpha", transport="stdio", command="echo")}
+    )
+
+    class _RefreshContractAggregator(MCPAggregator):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+            self.fail_resource_list = False
+
+        async def get_capabilities(self, server_name: str) -> ServerCapabilities:
+            del server_name
+            return ServerCapabilities.model_validate(
+                {
+                    "tools": {"listChanged": True},
+                    "prompts": {"listChanged": True},
+                    "resources": {"subscribe": True, "listChanged": True},
+                }
+            )
+
+        async def _execute_on_server(
+            self,
+            server_name: str,
+            operation_type: str,
+            operation_name: str,
+            method_name: str,
+            method_args=None,
+            error_factory=None,
+            progress_callback=None,
+        ):
+            del (
+                server_name,
+                operation_type,
+                operation_name,
+                error_factory,
+                progress_callback,
+            )
+            args = dict(method_args or {})
+            self.calls.append((method_name, args))
+            if method_name == "list_tools":
+                tool = Tool.model_validate(
+                    {
+                        "name": "render",
+                        "inputSchema": {"type": "object"},
+                        "_meta": {
+                            "ui": {
+                                "resourceUri": "ui://component/app",
+                                "visibility": ["model", "app"],
+                            }
+                        },
+                    }
+                )
+                return ListToolsResult(tools=[tool])
+            if method_name == "list_prompts":
+                return ListPromptsResult(prompts=[Prompt(name="draft")])
+            if method_name == "list_resources":
+                if self.fail_resource_list:
+                    raise RuntimeError("transient resource-list failure")
+                return ListResourcesResult(
+                    resources=[
+                        Resource(name="App", uri="ui://component/app"),
+                    ]
+                )
+            if method_name == "read_resource":
+                return ReadResourceResult(
+                    contents=[
+                        TextResourceContents(
+                            uri="ui://component/app",
+                            mime_type="text/html;profile=mcp-app",
+                            text="<html />",
+                        )
+                    ]
+                )
+            raise AssertionError(method_name)
+
+    aggregator = _RefreshContractAggregator(
+        server_names=["alpha"],
+        connection_persistence=False,
+        context=context,
+    )
+    aggregator._attached_server_names = ["alpha"]
+    runtime = MCPClientCallbackRuntime(
+        server_name="alpha",
+        server_config=context.server_registry.get_server_config("alpha")
+        if context.server_registry
+        else None,
+        aggregator=aggregator,
+    )
+
+    uris = await runtime.refresh_subscription_state()
+
+    assert uris == ("ui://component/app",)
+    assert aggregator.selected_materialized_resource_uris("alpha") == uris
+    assert set(aggregator._namespaced_tool_map) == {"alpha__render"}
+    assert [prompt.name for prompt in aggregator._prompt_cache["alpha"]] == ["draft"]
+    assert [method for method, _ in aggregator.calls] == [
+        "list_tools",
+        "list_prompts",
+        "list_resources",
+        "read_resource",
+    ]
+    assert all(args["cache_mode"] == "refresh" for _, args in aggregator.calls)
+
+    committed = aggregator._skybridge_configs["alpha"]
+    aggregator.fail_resource_list = True
+    with pytest.raises(RuntimeError, match="transient resource-list failure"):
+        await runtime.refresh_subscription_state()
+    assert aggregator._skybridge_configs["alpha"] is committed
+
+
+@pytest.mark.asyncio
 async def test_card_tool_refresh_preserves_visible_namespace() -> None:
     context = _build_context({})
     assert context.server_registry is not None
@@ -707,7 +828,13 @@ async def test_attached_result_uses_cached_mcp_skill_registry() -> None:
     context = _build_context({})
 
     class _NoResultRegistryScanAggregator(MCPAggregator):
-        async def _scan_mcp_skill_registry(self, server_name: str):
+        async def _scan_mcp_skill_registry(
+            self,
+            server_name: str,
+            *,
+            cache_mode: CacheMode = "use",
+        ):
+            del cache_mode
             raise AssertionError(f"unexpected registry scan from result for {server_name}")
 
     aggregator = _NoResultRegistryScanAggregator(
@@ -782,8 +909,12 @@ async def test_refresh_attached_server_cache_discovers_mcp_skill_registry() -> N
             raise AssertionError(f"Unexpected MCP method: {method_name}")
 
         async def _evaluate_skybridge_for_server(
-            self, server_name: str
+            self,
+            server_name: str,
+            *,
+            cache_mode: CacheMode = "use",
         ) -> tuple[str, SkybridgeServerConfig]:
+            del cache_mode
             return server_name, SkybridgeServerConfig(server_name=server_name)
 
     aggregator = _RegistryCachingAggregator(

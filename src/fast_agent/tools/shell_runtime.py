@@ -642,9 +642,14 @@ class ShellRuntime:
         *,
         defer_display_to_tool_result: bool,
         display_line_limit: int | None = None,
+        respect_tool_display: bool = True,
     ) -> ShellDisplayState:
+        compact_summary_only = respect_tool_display and self._compact_shell_summary_only()
         use_live_shell_display = (
-            self._show_bash_output and not defer_display_to_tool_result and display_tools_enabled()
+            self._show_bash_output
+            and not defer_display_to_tool_result
+            and not compact_summary_only
+            and display_tools_enabled()
         )
         state = ShellDisplayState(
             use_live_shell_display=use_live_shell_display,
@@ -656,6 +661,12 @@ class ShellRuntime:
             state.display_tail_limit = display_window.tail_lines
             state.display_tail_buffer = deque(maxlen=max(display_window.tail_lines, 1))
         return state
+
+    def _compact_shell_summary_only(self) -> bool:
+        return self._config is not None and (
+            self._display.tool_display_layout == "compact"
+            and self._display.tool_display_settings.results != "all"
+        )
 
     def _maybe_print_truncation_notice(
         self,
@@ -831,7 +842,8 @@ class ShellRuntime:
             )
 
         suppress_display = True
-        if defer_display_to_tool_result and self._show_bash_output:
+        compact_summary_only = self._compact_shell_summary_only()
+        if (defer_display_to_tool_result or compact_summary_only) and self._show_bash_output:
             suppress_display = False
         update_tool_result_display_metadata(
             result,
@@ -853,6 +865,7 @@ class ShellRuntime:
         output_byte_limit: int | None,
         defer_display_to_tool_result: bool,
         display_line_limit: int | None,
+        respect_tool_display: bool = True,
     ) -> _ShellRuntimeExecution:
         output_state = ShellOutputBuffer(
             output_byte_limit=(
@@ -866,6 +879,7 @@ class ShellRuntime:
         display_state = self._build_display_state(
             defer_display_to_tool_result=defer_display_to_tool_result,
             display_line_limit=display_line_limit,
+            respect_tool_display=respect_tool_display,
         )
         execution = await self._environment.execute(
             ShellExecutionRequest(
@@ -1636,6 +1650,7 @@ class ShellRuntime:
             output_byte_limit=None,
             defer_display_to_tool_result=False,
             display_line_limit=None,
+            respect_tool_display=False,
         )
         execution = runtime_execution.execution
         output_state = runtime_execution.output_state

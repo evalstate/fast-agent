@@ -337,10 +337,23 @@ async def display_history_turn(
     turn_index: int | None = None,
     total_turns: int | None = None,
 ) -> None:
+    from fast_agent.config import Settings
     from fast_agent.ui.console_display import ConsoleDisplay
 
+    replay_config = config or Settings()
+    replay_config = replay_config.model_copy(
+        update={
+            "logger": replay_config.logger.model_copy(
+                update={
+                    "tool_display": replay_config.logger.tool_display.model_copy(
+                        update={"layout": "full"}
+                    )
+                }
+            )
+        }
+    )
     context = _HistoryTurnDisplayContext(
-        display=cast("_HistoryDisplay", ConsoleDisplay(config=config)),
+        display=cast("_HistoryDisplay", ConsoleDisplay(config=replay_config)),
         agent_name=agent_name,
         turn_index=turn_index,
         total_turns=total_turns,

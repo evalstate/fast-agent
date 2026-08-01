@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import os
 import re
+import sys
 from contextlib import suppress
 from importlib.resources import files
 from pathlib import Path
@@ -149,6 +150,21 @@ def _open_blocking_tty(stream: IO[str]) -> IO[str] | None:
     return os.fdopen(tty_fd, "w", buffering=1, encoding="utf-8", errors="replace")
 
 
+def _redirect_standard_stream_to_blocking_tty(
+    source_fd: int,
+    blocking_stream: IO[str],
+) -> None:
+    for stream in (sys.__stdout__, sys.__stderr__):
+        if stream is None:
+            continue
+        try:
+            if stream.fileno() == source_fd:
+                os.dup2(blocking_stream.fileno(), source_fd)
+                return
+        except (OSError, ValueError):
+            continue
+
+
 def ensure_blocking_console() -> None:
     """
     Ensure the shared console writes to a blocking TTY stream when stdout/stderr
@@ -166,6 +182,7 @@ def ensure_blocking_console() -> None:
     if _blocking_console_file is None or _blocking_console_file.closed:
         _blocking_console_file = _open_blocking_tty(current_file)
     if _blocking_console_file is not None:
+        _redirect_standard_stream_to_blocking_tty(current_file.fileno(), _blocking_console_file)
         console.file = _blocking_console_file
 
 

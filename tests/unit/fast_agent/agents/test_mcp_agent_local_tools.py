@@ -42,6 +42,7 @@ from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
+from fast_agent.ui.tool_display import ToolCallDisplayRequest, ToolResultDisplayRequest
 from fast_agent.utils.tool_names import (
     BASH_TOOL_NAME,
     EXECUTE_TOOL_NAME,
@@ -2080,6 +2081,19 @@ async def test_parallel_shell_results_display_in_tool_call_order() -> None:
                 if isinstance(block, TextContent):
                     self.result_text.append(block.text)
 
+        def show_parallel_tool_calls(self, requests: list[object]) -> None:
+            for request in requests:
+                assert isinstance(request, ToolCallDisplayRequest)
+                self.show_tool_call(request.tool_name, request.tool_args)
+
+        def show_parallel_tool_results(self, requests: list[object]) -> None:
+            for request in requests:
+                assert isinstance(request, ToolResultDisplayRequest)
+                self.show_tool_result(
+                    result=request.result,
+                    tool_call_id=request.tool_call_id,
+                )
+
     config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
     agent = McpAgent(config=config, context=Context())
     agent._shell_runtime = cast("Any", RecordingShellRuntime())
@@ -2281,6 +2295,18 @@ async def test_parallel_read_text_file_results_use_file_read_label_without_ids()
             self.result_tool_call_ids.append(cast("str | None", kwargs.get("tool_call_id")))
             self.result_type_labels.append(cast("str | None", kwargs.get("type_label")))
 
+        def show_parallel_tool_calls(self, requests: list[object]) -> None:
+            del requests
+
+        def show_parallel_tool_results(self, requests: list[object]) -> None:
+            for request in requests:
+                assert isinstance(request, ToolResultDisplayRequest)
+                self.show_tool_result(
+                    result=request.result,
+                    tool_call_id=request.tool_call_id,
+                    type_label=request.type_label,
+                )
+
     config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=False)
     agent = McpAgent(config=config, context=Context())
     agent._filesystem_runtime = cast("Any", RecordingFilesystemRuntime())
@@ -2309,7 +2335,7 @@ async def test_parallel_read_text_file_results_use_file_read_label_without_ids()
     await agent.run_tools(request)
 
     assert recording_display.result_type_labels == ["file read", "file read"]
-    assert recording_display.result_tool_call_ids == [None, None]
+    assert recording_display.result_tool_call_ids == ["call-1", "call-2"]
     assert [
         tool_result_display_metadata(result).get("read_text_file_line")
         for result in recording_display.results

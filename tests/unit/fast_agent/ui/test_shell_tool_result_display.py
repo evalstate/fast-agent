@@ -9,8 +9,12 @@ from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.shell_output_truncation import SHELL_OUTPUT_TRUNCATION_MARKER
 
 
+def _full_display(config: Settings | None = None) -> ConsoleDisplay:
+    return ConsoleDisplay(config=config, tool_display_layout="full")
+
+
 def test_shell_tool_result_uses_styled_exit_line() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[TextContent(type="text", text="hello\nprocess exit code was 0")],
         is_error=False,
@@ -34,7 +38,7 @@ def test_shell_tool_result_uses_styled_exit_line() -> None:
 
 
 def test_shell_tool_result_no_output_adds_no_output_detail() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[TextContent(type="text", text="process exit code was 0")],
         is_error=False,
@@ -57,7 +61,7 @@ def test_shell_tool_result_no_output_adds_no_output_detail() -> None:
 
 
 def test_poll_process_result_hides_process_metadata_and_keeps_exit_banner() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[
             TextContent(
@@ -80,7 +84,7 @@ def test_poll_process_result_hides_process_metadata_and_keeps_exit_banner() -> N
 
 
 def test_running_process_result_uses_compact_lifecycle_line() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[
             TextContent(
@@ -112,7 +116,7 @@ def test_running_process_result_uses_compact_lifecycle_line() -> None:
 
 
 def test_quiet_running_poll_result_is_not_rendered() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[
             TextContent(
@@ -145,7 +149,7 @@ def test_quiet_running_poll_result_is_not_rendered() -> None:
 
 
 def test_process_non_poll_result_is_rendered() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[TextContent(type="text", text="Process is still running.")],
         is_error=False,
@@ -158,7 +162,7 @@ def test_process_non_poll_result_is_rendered() -> None:
 
 
 def test_managed_process_poll_uses_shared_elapsed_format() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     progress_display.set_default_agent_name("dev")
 
     try:
@@ -185,7 +189,7 @@ def test_managed_process_poll_uses_shared_elapsed_format() -> None:
 
 
 def test_terminate_process_result_uses_compact_lifecycle_line() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[
             TextContent(
@@ -205,7 +209,7 @@ def test_terminate_process_result_uses_compact_lifecycle_line() -> None:
 
 
 def test_shell_tool_result_truncates_with_head_and_tail_windows() -> None:
-    display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=6)))
+    display = _full_display(Settings(shell_execution=ShellSettings(output_display_lines=6)))
     output_lines = [f"out-{i:02d}" for i in range(1, 11)]
     result_text = "\n".join([*output_lines, "process exit code was 0"])
     result = CallToolResult(content=[TextContent(type="text", text=result_text)], is_error=False)
@@ -235,7 +239,7 @@ def test_shell_tool_result_truncates_with_head_and_tail_windows() -> None:
 
 
 def test_shell_tool_result_parallel_deferred_uses_source_line_count() -> None:
-    display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=4)))
+    display = _full_display(Settings(shell_execution=ShellSettings(output_display_lines=4)))
     output_lines = [f"line-{i}" for i in range(1, 13)]
     result_text = "\n".join([*output_lines, "process exit code was 0"])
     result = CallToolResult(content=[TextContent(type="text", text=result_text)], is_error=False)
@@ -260,7 +264,7 @@ def test_shell_tool_result_parallel_deferred_uses_source_line_count() -> None:
 
 
 def test_tool_result_prefers_structured_content_over_many_text_blocks() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[
             TextContent(type="text", text='{"id":"a"}'),
@@ -283,7 +287,7 @@ def test_tool_result_prefers_structured_content_over_many_text_blocks() -> None:
 
 
 def test_tool_result_prefers_structured_content_when_text_blocks_disagree() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[
             TextContent(type="text", text='{"id":"a","status":"closed"}'),
@@ -310,7 +314,7 @@ def test_tool_result_prefers_structured_content_when_text_blocks_disagree() -> N
 
 
 def test_structured_tool_result_shows_transport_timing_and_structured_footer() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     result = CallToolResult(
         content=[TextContent(type="text", text='{"ok": true}')],
         structured_content={"ok": True},

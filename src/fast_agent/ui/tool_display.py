@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
@@ -18,6 +19,8 @@ from fast_agent.mcp.tool_result_metadata import (
     tool_result_display_metadata,
 )
 from fast_agent.tools.apply_patch_tool import extract_apply_patch_input, is_apply_patch_tool_name
+from fast_agent.tools.edit_file_tool import EDIT_FILE_TOOL_NAME
+from fast_agent.tools.tool_sources import FAST_AGENT_TOOL_SOURCE_META, TOOL_SOURCE_LABELS
 from fast_agent.ui import console
 from fast_agent.ui.apply_patch_preview import (
     build_apply_patch_preview,
@@ -28,6 +31,7 @@ from fast_agent.ui.apply_patch_preview import (
     shell_syntax_language,
     style_apply_patch_preview_text,
 )
+from fast_agent.ui.edit_file_preview import build_edit_file_preview, format_edit_file_preview
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 from fast_agent.ui.shell_output_truncation import (
     format_shell_output_line_count,
@@ -47,7 +51,7 @@ from fast_agent.utils.tool_names import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Sequence
 
     from mcp_types import CallToolResult
     from rich.console import RenderableType
@@ -107,6 +111,37 @@ class PreparedToolCallDisplay:
     max_item_length: int | None
     truncate_content: bool = True
     render_markdown: bool | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallDisplayRequest:
+    tool_name: str
+    tool_args: dict[str, Any] | None
+    bottom_items: list[str] | None = None
+    highlight_indexes: list[int] | None = None
+    max_item_length: int | None = None
+    name: str | None = None
+    metadata: dict[str, Any] | None = None
+    tool_call_id: str | None = None
+    type_label: str = "tool call"
+    source_label: str | None = None
+    server_name: str | None = None
+    show_hook_indicator: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultDisplayRequest:
+    result: "CallToolResult"
+    name: str | None = None
+    tool_name: str | None = None
+    skybridge_config: "SkybridgeServerConfig | None" = None
+    timing_ms: float | None = None
+    tool_call_id: str | None = None
+    type_label: str | None = None
+    truncate_content: bool = True
+    source_label: str | None = None
+    server_name: str | None = None
+    show_hook_indicator: bool = False
 
 
 _TRANSPORT_METADATA_LABELS: dict[str, str] = {
@@ -224,6 +259,460 @@ class ToolDisplay:
             return tool_name[7:]
         return tool_name
 
+    @staticmethod
+    def _base_tool_name(tool_name: str) -> str:
+        if "__" in tool_name:
+            return tool_name.split("__", 1)[1]
+        return ToolDisplay._display_tool_name(tool_name)
+
+    @staticmethod
+    def _metadata_source_label(metadata: Mapping[str, Any]) -> str | None:
+        source = metadata.get(FAST_AGENT_TOOL_SOURCE_META)
+        return TOOL_SOURCE_LABELS.get(source) if source in TOOL_SOURCE_LABELS else None
+
+    @staticmethod
+    def _compact_event_line(
+        *,
+        message_type: MessageType,
+        name: str | None,
+        identity: str,
+        annotations: list[str],
+        is_error: bool = False,
+        show_hook_indicator: bool = False,
+    ) -> Text:
+        config = MESSAGE_CONFIGS[message_type]
+        color = "red" if is_error else config["block_color"]
+        line = Text()
+        line.append("▎", style=color)
+        line.append(config["arrow"], style=config["arrow_style"])
+        if show_hook_indicator:
+            line.append(" ◆", style=color)
+        if name:
+            line.append(f" {name}", style=color)
+        line.append(f" {identity}")
+        if annotations:
+            line.append(" · ", style="dim")
+            line.append(" · ".join(annotations), style="dim")
+        return line
+
+    @staticmethod
+    def _compact_tool_identity(
+        *,
+        tool_name: str,
+        metadata: Mapping[str, Any],
+        source_label: str | None,
+        server_name: str | None,
+    ) -> str:
+        variant = metadata.get("variant")
+        normalized_name = normalize_tool_name(tool_name)
+        if variant == "shell":
+            shell_name = str(metadata.get("shell_name") or "bash")
+            shell_path = metadata.get("shell_path")
+            identity = shell_name
+            if isinstance(shell_path, str) and shell_path and shell_path != shell_name:
+                identity += f" ({shell_path})"
+            if metadata.get("background"):
+                return f"{identity} | backgrounded"
+            idle = metadata.get("idle_yield_seconds")
+            total = metadata.get("foreground_yield_seconds")
+            timeout = metadata.get("timeout_seconds")
+            if idle and total:
+                return f"{identity} | yield {idle}s idle / {total}s total"
+            if idle:
+                return f"{identity} | idle yield {idle}s"
+            if timeout:
+                return f"{identity} | timeout {timeout}s"
+            return identity
+        if variant == "shell_process":
+            action = str(metadata.get("action") or "process")
+            if action == "list":
+                return "process list"
+            process_id = str(metadata.get("process_id") or "process")
+            return f"process {action} {process_id}"
+        if normalized_name in {POLL_PROCESS_TOOL_NAME, PROCESS_TOOL_NAME, "terminate_process"}:
+            return "process"
+        if is_shell_execution_tool(tool_name):
+            return "bash"
+        if is_read_text_file_tool_name(tool_name):
+            return "file read"
+        if is_apply_patch_tool_name(tool_name) or normalized_name == EDIT_FILE_TOOL_NAME:
+            return f"edit {ToolDisplay._base_tool_name(tool_name)}"
+
+        source = source_label or ToolDisplay._metadata_source_label(metadata)
+        parts = ["tool"]
+        if source:
+            parts.append(f"({source})")
+        if server_name:
+            parts.append(server_name)
+        parts.append(ToolDisplay._base_tool_name(tool_name))
+        return " ".join(parts)
+
+    @staticmethod
+    def _compact_shell_annotations(
+        metadata: Mapping[str, Any],
+        *,
+        tool_call_id: str | None,
+    ) -> list[str]:
+        annotations: list[str] = []
+        working_dir = metadata.get("working_dir_display") or metadata.get("working_dir")
+        if isinstance(working_dir, str) and working_dir:
+            annotations.append(f"cwd: {working_dir}")
+        if short_id := format_tool_call_id(tool_call_id):
+            annotations.append(f"id: {short_id}")
+        return annotations
+
+    def _compact_call_annotations(
+        self,
+        *,
+        metadata: Mapping[str, Any],
+        tool_call_id: str | None,
+        request_count: int,
+    ) -> list[str]:
+        if metadata.get("variant") == "shell":
+            return self._compact_shell_annotations(metadata, tool_call_id=tool_call_id)
+        annotations = [f"{request_count} requests"] if request_count > 1 else []
+        if short_id := format_tool_call_id(tool_call_id):
+            annotations.append(f"id: {short_id}")
+        return annotations
+
+    def _show_compact_tool_call(
+        self,
+        *,
+        prepared: PreparedToolCallDisplay,
+        tool_name: str,
+        metadata: Mapping[str, Any],
+        name: str | None,
+        tool_call_id: str | None,
+        source_label: str | None,
+        server_name: str | None,
+        request_count: int,
+        show_hook_indicator: bool,
+    ) -> None:
+        identity = self._compact_tool_identity(
+            tool_name=tool_name,
+            metadata=metadata,
+            source_label=source_label,
+            server_name=server_name,
+        )
+        line = self._compact_event_line(
+            message_type=MessageType.TOOL_CALL,
+            name=name,
+            identity=identity,
+            annotations=self._compact_call_annotations(
+                metadata=metadata,
+                tool_call_id=tool_call_id,
+                request_count=request_count,
+            ),
+            show_hook_indicator=show_hook_indicator,
+        )
+        console.ensure_blocking_console()
+        console.console.print(line, markup=self._markup)
+
+        arguments = self._display.tool_display_settings.arguments
+        show_body = arguments == "all" or (
+            arguments == "auto"
+            and request_count == 1
+            and (
+                metadata.get("variant") == "shell"
+                or is_apply_patch_tool_name(tool_name)
+                or normalize_tool_name(tool_name) == EDIT_FILE_TOOL_NAME
+            )
+        )
+        if not show_body:
+            return
+        content = prepared.content
+        if metadata.get("variant") == "shell" and isinstance(content, Syntax):
+            command = metadata.get("command")
+            if isinstance(command, str):
+                content = Text("$ ", style="magenta")
+                content.append(command.rstrip())
+        self._display._display_content(
+            content,
+            prepared.truncate_content,
+            False,
+            MessageType.TOOL_CALL,
+            check_markdown_markers=False,
+            render_markdown=prepared.render_markdown,
+        )
+
+    @staticmethod
+    def _parallel_call_identity(request: ToolCallDisplayRequest) -> tuple[str | None, ...]:
+        return (
+            request.name,
+            request.source_label,
+            request.server_name,
+            request.tool_name,
+        )
+
+    @staticmethod
+    def _parallel_result_identity(request: ToolResultDisplayRequest) -> tuple[str | None, ...]:
+        return (
+            request.name,
+            request.source_label,
+            request.server_name,
+            request.tool_name,
+        )
+
+    @staticmethod
+    def _is_generic_tool(tool_name: str | None, metadata: Mapping[str, Any] | None = None) -> bool:
+        normalized_name = normalize_tool_name(tool_name)
+        if metadata and metadata.get("variant") in {"shell", "shell_process"}:
+            return False
+        return not (
+            is_shell_execution_tool(tool_name)
+            or is_read_text_file_tool_name(tool_name)
+            or is_apply_patch_tool_name(tool_name or "")
+            or normalized_name == EDIT_FILE_TOOL_NAME
+        )
+
+    def _can_aggregate_parallel_call(self, request: ToolCallDisplayRequest) -> bool:
+        return (
+            self._display.tool_display_layout == "compact"
+            and self._display.tool_display_settings.aggregate_parallel
+            and self._display.tool_display_settings.arguments != "all"
+            and not request.show_hook_indicator
+            and self._is_generic_tool(request.tool_name, request.metadata)
+        )
+
+    def show_parallel_tool_calls(self, requests: "Sequence[ToolCallDisplayRequest]") -> None:
+        """Render a parallel call batch, compacting identical safe requests."""
+        groups: dict[tuple[str | None, ...], list[ToolCallDisplayRequest]] = {}
+        for request in requests:
+            if self._can_aggregate_parallel_call(request):
+                groups.setdefault(self._parallel_call_identity(request), []).append(request)
+
+        aggregated_ids = {
+            id(request)
+            for group in groups.values()
+            if len(group) > 1
+            for request in group
+        }
+        rendered_groups: set[tuple[str | None, ...]] = set()
+        for request in requests:
+            identity = self._parallel_call_identity(request)
+            group = groups.get(identity)
+            if id(request) in aggregated_ids:
+                if identity in rendered_groups:
+                    continue
+                rendered_groups.add(identity)
+                self.show_tool_call(
+                    request.tool_name,
+                    request.tool_args,
+                    bottom_items=request.bottom_items,
+                    highlight_indexes=request.highlight_indexes,
+                    max_item_length=request.max_item_length,
+                    name=request.name,
+                    metadata=request.metadata,
+                    type_label=request.type_label,
+                    source_label=request.source_label,
+                    server_name=request.server_name,
+                    request_count=len(group or []),
+                )
+                continue
+            self.show_tool_call(
+                request.tool_name,
+                request.tool_args,
+                bottom_items=request.bottom_items,
+                highlight_indexes=request.highlight_indexes,
+                max_item_length=request.max_item_length,
+                name=request.name,
+                metadata=request.metadata,
+                tool_call_id=request.tool_call_id,
+                type_label=request.type_label,
+                source_label=request.source_label,
+                server_name=request.server_name,
+                show_hook_indicator=request.show_hook_indicator,
+            )
+
+    @staticmethod
+    def _generic_text_result_char_count(result: "CallToolResult") -> int | None:
+        from mcp_types import TextContent
+
+        if result.is_error or result.structured_content is not None:
+            return None
+        if get_tool_result_media_preview(result):
+            return None
+        content = result.content
+        text_blocks = [block for block in content if isinstance(block, TextContent)]
+        if not text_blocks or len(text_blocks) != len(content):
+            return None
+        return sum(len(block.text) for block in text_blocks)
+
+    def _can_aggregate_parallel_result(self, request: ToolResultDisplayRequest) -> bool:
+        return (
+            self._display.tool_display_layout == "compact"
+            and self._display.tool_display_settings.aggregate_parallel
+            and self._display.tool_display_settings.results != "all"
+            and not request.show_hook_indicator
+            and self._is_generic_tool(request.tool_name)
+            and self._generic_text_result_char_count(request.result) is not None
+        )
+
+    def _show_compact_parallel_result(
+        self,
+        requests: "Sequence[ToolResultDisplayRequest]",
+    ) -> None:
+        first = requests[0]
+        char_count = sum(
+            char_count
+            for request in requests
+            if (char_count := self._generic_text_result_char_count(request.result)) is not None
+        )
+        annotations = [
+            f"{format_count(len(requests), 'result')}, {format_count(char_count, 'char')}"
+        ]
+        timings = [request.timing_ms for request in requests if request.timing_ms is not None]
+        if timings:
+            annotations.append(self._display._format_elapsed(max(timings) / 1000))
+        line = self._compact_event_line(
+            message_type=MessageType.TOOL_RESULT,
+            name=first.name,
+            identity=self._compact_tool_identity(
+                tool_name=first.tool_name or "tool",
+                metadata={},
+                source_label=first.source_label,
+                server_name=first.server_name,
+            ),
+            annotations=annotations,
+        )
+        console.ensure_blocking_console()
+        console.console.print(line, markup=self._markup)
+
+    def show_parallel_tool_results(self, requests: "Sequence[ToolResultDisplayRequest]") -> None:
+        """Render a parallel result batch, compacting safe generic text results."""
+        groups: dict[tuple[str | None, ...], list[ToolResultDisplayRequest]] = {}
+        for request in requests:
+            if self._can_aggregate_parallel_result(request):
+                groups.setdefault(self._parallel_result_identity(request), []).append(request)
+
+        aggregated_ids = {
+            id(request)
+            for group in groups.values()
+            if len(group) > 1
+            for request in group
+        }
+        rendered_groups: set[tuple[str | None, ...]] = set()
+        for request in requests:
+            identity = self._parallel_result_identity(request)
+            group = groups.get(identity)
+            if id(request) in aggregated_ids:
+                if identity in rendered_groups:
+                    continue
+                rendered_groups.add(identity)
+                self._show_compact_parallel_result(group or [])
+                continue
+            self.show_tool_result(
+                request.result,
+                name=request.name,
+                tool_name=request.tool_name,
+                skybridge_config=request.skybridge_config,
+                timing_ms=request.timing_ms,
+                tool_call_id=request.tool_call_id,
+                type_label=request.type_label or "tool result",
+                truncate_content=request.truncate_content,
+                source_label=request.source_label,
+                server_name=request.server_name,
+                show_hook_indicator=request.show_hook_indicator,
+            )
+
+    def _compact_result_body_visible(
+        self,
+        *,
+        result: "CallToolResult",
+        tool_name: str | None,
+    ) -> bool:
+        result_policy = self._display.tool_display_settings.results
+        if result_policy == "all":
+            return True
+        if is_read_text_file_tool_name(tool_name) or result_policy == "none":
+            return False
+        if normalize_tool_name(tool_name) in {
+            POLL_PROCESS_TOOL_NAME,
+            PROCESS_TOOL_NAME,
+            "terminate_process",
+        }:
+            return True
+        if is_shell_execution_tool(tool_name):
+            return False
+        if result.is_error:
+            return True
+        return False
+
+    def _show_compact_tool_result(
+        self,
+        *,
+        result: "CallToolResult",
+        name: str | None,
+        tool_name: str | None,
+        status: str,
+        display_content: object,
+        truncate_content: bool,
+        render_markdown: bool | None,
+        additional_message: Text | None,
+        post_content: "RenderableType | None",
+        bottom_metadata: list[str] | None,
+        tool_call_id: str | None,
+        source_label: str | None,
+        server_name: str | None,
+        show_hook_indicator: bool,
+        is_skybridge_tool: bool,
+        structured_content: object,
+        skybridge_resource_uri: str | None,
+    ) -> None:
+        result_policy = self._display.tool_display_settings.results
+        collapse_shell_exit = (
+            result_policy != "all"
+            and is_shell_execution_tool(tool_name)
+            and additional_message is not None
+            and not show_hook_indicator
+            and structured_content is None
+        )
+        console.ensure_blocking_console()
+        if collapse_shell_exit:
+            console.console.print(additional_message, markup=self._markup)
+            if post_content is not None:
+                console.console.print(post_content, markup=self._markup)
+            return
+
+        identity = self._compact_tool_identity(
+            tool_name=tool_name or "tool",
+            metadata={},
+            source_label=source_label,
+            server_name=server_name,
+        )
+        annotations = [status, *(bottom_metadata or [])]
+        if short_id := format_tool_call_id(tool_call_id):
+            annotations.append(f"id: {short_id}")
+        line = self._compact_event_line(
+            message_type=MessageType.TOOL_RESULT,
+            name=name,
+            identity=identity,
+            annotations=annotations,
+            is_error=result.is_error,
+            show_hook_indicator=show_hook_indicator,
+        )
+        console.console.print(line, markup=self._markup)
+
+        show_body = self._compact_result_body_visible(result=result, tool_name=tool_name)
+        if show_body:
+            self._display._display_content(
+                display_content,
+                truncate_content,
+                result.is_error,
+                MessageType.TOOL_RESULT,
+                check_markdown_markers=False,
+                render_markdown=render_markdown,
+            )
+        if additional_message and (show_body or is_shell_execution_tool(tool_name)):
+            console.console.print(additional_message, markup=self._markup)
+        if post_content is not None:
+            console.console.print(post_content, markup=self._markup)
+        if is_skybridge_tool:
+            self._render_skybridge_structured_content(
+                structured_content=structured_content,
+                resource_uri=skybridge_resource_uri,
+            )
+
     @classmethod
     def _normalize_tool_footer_items(
         cls,
@@ -278,14 +767,13 @@ class ToolDisplay:
     def _extract_exit_code_line(lines: list[str]) -> ShellOutputExitCodeExtraction:
         if not lines:
             return ShellOutputExitCodeExtraction(lines=lines, exit_code_line=None)
-        index = len(lines) - 1
-        while index >= 0 and not lines[index].strip():
-            index -= 1
-        if index < 0:
-            return ShellOutputExitCodeExtraction(lines=lines, exit_code_line=None)
-        candidate = lines[index].strip()
-        if candidate.startswith(("[Exit code:", "process exit code was")):
-            return ShellOutputExitCodeExtraction(lines=lines[:index], exit_code_line=candidate)
+        for index in range(len(lines) - 1, -1, -1):
+            candidate = lines[index].strip()
+            if candidate.startswith(("[Exit code:", "process exit code was")):
+                return ShellOutputExitCodeExtraction(
+                    lines=[*lines[:index], *lines[index + 1 :]],
+                    exit_code_line=candidate,
+                )
         return ShellOutputExitCodeExtraction(lines=lines, exit_code_line=None)
 
     @staticmethod
@@ -832,15 +1320,24 @@ class ToolDisplay:
         result: "CallToolResult",
     ) -> ToolResultDisplayMetadata:
         metadata = dict(tool_result_display_metadata(result))
+        process_metadata = (result.meta or {}).get(FAST_AGENT_SHELL_PROCESS_METADATA)
+        if not isinstance(process_metadata, Mapping):
+            process_metadata = {}
+        output_line_count = cls._optional_nonnegative_int_attribute(
+            metadata,
+            "output_line_count",
+        )
+        if output_line_count is None:
+            output_line_count = cls._optional_nonnegative_int_attribute(
+                dict(process_metadata),
+                "output_line_count",
+            )
         return ToolResultDisplayMetadata(
             read_text_file_path=cls._optional_string_metadata(metadata, "read_text_file_path"),
             read_text_file_line=cls._optional_int_metadata(metadata, "read_text_file_line"),
             read_text_file_limit=cls._optional_int_metadata(metadata, "read_text_file_limit"),
             transport_channel=cls._optional_string_metadata(metadata, "transport_channel"),
-            output_line_count=cls._optional_nonnegative_int_attribute(
-                metadata,
-                "output_line_count",
-            ),
+            output_line_count=output_line_count,
         )
 
     def _tool_result_status(
@@ -1068,6 +1565,8 @@ class ToolDisplay:
         tool_call_id: str | None = None,
         type_label: str = "tool result",
         truncate_content: bool = True,
+        source_label: str | None = None,
+        server_name: str | None = None,
         show_hook_indicator: bool = False,
     ) -> None:
         """Display a tool result in the console."""
@@ -1143,6 +1642,35 @@ class ToolDisplay:
                     self._display.terminal_image_settings,
                     image_content,
                 )
+
+            if self._display.tool_display_layout == "compact":
+                successful_read = is_read_text_file_tool_name(tool_name) and not result.is_error
+                if (
+                    successful_read
+                    and not self._display.tool_display_settings.show_successful_file_reads
+                    and post_content is None
+                ):
+                    return
+                self._show_compact_tool_result(
+                    result=result,
+                    name=name,
+                    tool_name=tool_name,
+                    status=status,
+                    display_content=display_content,
+                    truncate_content=truncate_content,
+                    render_markdown=read_text_display.render_markdown,
+                    additional_message=additional_message,
+                    post_content=post_content,
+                    bottom_metadata=bottom_metadata,
+                    tool_call_id=tool_call_id,
+                    source_label=source_label,
+                    server_name=server_name,
+                    show_hook_indicator=show_hook_indicator,
+                    is_skybridge_tool=skybridge_details.is_skybridge_tool,
+                    structured_content=structured_content,
+                    skybridge_resource_uri=skybridge_details.resource_uri,
+                )
+                return
 
             if has_structured:
                 self._render_structured_tool_result(
@@ -1369,6 +1897,18 @@ class ToolDisplay:
             patch_text.append("(no apply_patch input provided)", style="dim")
         return patch_text
 
+    def _edit_file_tool_call_content(self, tool_args: dict[str, Any]) -> Text:
+        preview = build_edit_file_preview(tool_args)
+        if preview is None:
+            return Text("(incomplete edit_file arguments)", style="dim")
+        return style_apply_patch_preview_text(
+            format_edit_file_preview(
+                preview,
+                max_lines=self._display.apply_patch_preview_max_lines,
+            ),
+            default_style="dim",
+        )
+
     def _prepare_tool_call_display(
         self,
         *,
@@ -1427,6 +1967,17 @@ class ToolDisplay:
                 render_markdown=False,
             )
 
+        if normalize_tool_name(tool_name) == EDIT_FILE_TOOL_NAME:
+            return PreparedToolCallDisplay(
+                content=self._edit_file_tool_call_content(tool_args),
+                right_info=right_info,
+                bottom_items=normalized_bottom_items,
+                highlight_indexes=highlight_indexes,
+                max_item_length=max_item_length,
+                truncate_content=False,
+                render_markdown=False,
+            )
+
         content: object = tool_args
         truncate_content = True
         if is_read_text_file_tool_name(tool_name):
@@ -1456,6 +2007,9 @@ class ToolDisplay:
         metadata: dict[str, Any] | None = None,
         tool_call_id: str | None = None,
         type_label: str = "tool call",
+        source_label: str | None = None,
+        server_name: str | None = None,
+        request_count: int = 1,
         show_hook_indicator: bool = False,
     ) -> None:
         """Display a tool call header and body."""
@@ -1554,6 +2108,22 @@ class ToolDisplay:
                 tool_call_id=tool_call_id,
                 type_label=type_label,
             )
+
+            if self._display.tool_display_layout == "compact":
+                if is_read_text_file_tool_name(tool_name):
+                    return
+                self._show_compact_tool_call(
+                    prepared=prepared,
+                    tool_name=tool_name,
+                    metadata=metadata,
+                    name=name,
+                    tool_call_id=tool_call_id,
+                    source_label=source_label,
+                    server_name=server_name,
+                    request_count=request_count,
+                    show_hook_indicator=show_hook_indicator,
+                )
+                return
 
             self._display.display_message(
                 content=prepared.content,

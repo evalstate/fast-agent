@@ -965,16 +965,20 @@ class ResponsesLLM(
         if tools_payload:
             base_args["tools"] = tools_payload
 
-        self._append_provider_managed_tools(base_args)
-        self._append_web_search_tool(base_args)
+        if request_params.sampling_tool_choice is None:
+            self._append_provider_managed_tools(base_args)
+            self._append_web_search_tool(base_args)
         self._apply_response_reasoning(base_args)
         self._apply_response_max_tokens(base_args, request_params)
         self._apply_response_text_options(base_args, request_params)
         self._apply_response_service_tier(base_args, request_params, model)
 
-        return self.prepare_provider_arguments(
+        arguments = self.prepare_provider_arguments(
             base_args, request_params, self.RESPONSES_EXCLUDE_FIELDS
         )
+        if request_params.sampling_tool_choice is not None and tools_payload:
+            arguments["tool_choice"] = request_params.sampling_tool_choice
+        return arguments
 
     def _responses_completion_context(
         self,

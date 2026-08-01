@@ -855,6 +855,7 @@ def generate_tui_runtime_reference() -> str:
         LoggerSettings,
         ShellSettings,
         TerminalImageSettings,
+        ToolDisplaySettings,
         TUISettings,
     )
     from fast_agent.constants import DOCUMENTED_ENV_VARS
@@ -862,6 +863,7 @@ def generate_tui_runtime_reference() -> str:
     setting_sources = {
         "logger": LoggerSettings,
         "logger.terminal_images": TerminalImageSettings,
+        "logger.tool_display": ToolDisplaySettings,
         "shell_execution": ShellSettings,
         "tui": TUISettings,
     }
@@ -877,6 +879,12 @@ def generate_tui_runtime_reference() -> str:
         "logger.render_fences_with_syntax",
         "logger.code_word_wrap",
         "logger.apply_patch_preview_max_lines",
+        "logger.tool_display.layout",
+        "logger.tool_display.arguments",
+        "logger.tool_display.results",
+        "logger.tool_display.show_successful_file_reads",
+        "logger.tool_display.stream_edit_previews",
+        "logger.tool_display.aggregate_parallel",
         "logger.terminal_images.enabled",
         "logger.terminal_images.backend",
         "logger.terminal_images.width",
@@ -903,8 +911,22 @@ def generate_tui_runtime_reference() -> str:
         "logger.render_fences_with_syntax": "Render Markdown code fences with Rich Syntax.",
         "logger.code_word_wrap": "Wrap Syntax-rendered code blocks instead of cropping.",
         "logger.apply_patch_preview_max_lines": "Maximum lines to show in apply_patch previews.",
+        "logger.tool_display.layout": "Compact summary-first or full legacy tool rendering.",
+        "logger.tool_display.arguments": "Tool argument body visibility.",
+        "logger.tool_display.results": "Tool result body visibility.",
+        "logger.tool_display.show_successful_file_reads": (
+            "Show successful complete file-read activity in compact layout."
+        ),
+        "logger.tool_display.stream_edit_previews": (
+            "Stream apply_patch/edit_file previews for the primary agent or all agents."
+        ),
+        "logger.tool_display.aggregate_parallel": (
+            "Aggregate safe parallel calls to the same generic tool."
+        ),
         "logger.terminal_images.enabled": "Render image content in capable terminals.",
-        "logger.terminal_images.backend": "Terminal image backend to use.",
+        "logger.terminal_images.backend": (
+            "Terminal image backend; automatic Sixel rendering is fitted to the viewport."
+        ),
         "logger.terminal_images.width": "Image render width.",
         "logger.terminal_images.height": "Image render height.",
         "shell_execution.tool_profile": "Model-facing Bash/Process contract.",

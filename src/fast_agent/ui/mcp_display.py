@@ -11,13 +11,13 @@ from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 from rich.console import Console
 from rich.text import Text
 
+from fast_agent.mcp.transport_tracking import ChannelSnapshot
 from fast_agent.ui import console
 from fast_agent.utils.text import strip_casefold
 from fast_agent.utils.time import format_compact_duration, format_two_unit_duration
 
 if TYPE_CHECKING:
     from fast_agent.mcp.mcp_aggregator import ServerStatus
-    from fast_agent.mcp.transport_tracking import ChannelSnapshot
 
 
 @runtime_checkable
@@ -520,8 +520,15 @@ def _build_channel_entries(status: ServerStatus) -> list[_ChannelSummaryEntry]:
     entries: list[_ChannelSummaryEntry] = []
     if snapshot.get is not None:
         entries.append(_ChannelSummaryEntry("GET (SSE)", "◀", snapshot.get))
-    if snapshot.listen is not None:
-        entries.append(_ChannelSummaryEntry("LISTEN (SSE)", "◀", snapshot.listen))
+    listen_channel = snapshot.listen
+    if (
+        listen_channel is None
+        and transport_lower == "http"
+        and strip_casefold(status.subscription_state or "") == "disabled"
+    ):
+        listen_channel = ChannelSnapshot(state="disabled")
+    if listen_channel is not None:
+        entries.append(_ChannelSummaryEntry("LISTEN (SSE)", "◀", listen_channel))
 
     post_sse_channel = snapshot.post_sse
     post_json_channel = snapshot.post_json

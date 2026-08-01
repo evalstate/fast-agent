@@ -19,4 +19,8 @@ async def test_roots_returned(fast_agent):
             assert "test_data" in result
             assert "file://no/alias" in result  # no alias.
 
+            status = (await agent.foo.get_server_status())["roots_test"]
+            assert status.protocol_mode == "modern"
+            assert status.protocol_era == "modern"
+
     await agent_function()

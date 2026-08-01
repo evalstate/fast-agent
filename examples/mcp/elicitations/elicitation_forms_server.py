@@ -1,107 +1,142 @@
-"""
-MCP Server for Basic Elicitation Forms Demo
+"""MCPServer form-elicitation demo using modern resolver APIs."""
 
-This server provides various elicitation resources that demonstrate
-different form types and validation patterns.
-"""
+from typing import Annotated, TypedDict, cast
 
-import logging
-import sys
-from typing import TypedDict, cast
-
-from fastmcp import FastMCP
-from fastmcp.server.dependencies import get_context
-from fastmcp.server.elicitation import (
+from mcp.server.mcpserver import (
     AcceptedElicitation,
     CancelledElicitation,
     DeclinedElicitation,
+    Elicit,
+    ElicitationResult,
+    MCPServer,
+    Resolve,
 )
 from pydantic import BaseModel, Field
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    stream=sys.stderr,
-)
-logger = logging.getLogger("elicitation_forms_server")
-
-# Create MCP server
-mcp = FastMCP("Elicitation Forms Demo Server")
-
 
 class TitledEnumOption(TypedDict):
-    """Type definition for oneOf/anyOf schema options."""
-
     const: str
     title: str
 
 
-def _create_enum_schema_options(data: dict[str, str]) -> list[TitledEnumOption]:
-    """Convert a dictionary to oneOf/anyOf schema format.
-
-    Args:
-        data: Dictionary mapping enum values to display titles
-
-    Returns:
-        List of schema options with 'const' and 'title' fields
-
-    Example:
-        >>> _create_enum_schema_options({"dark": "Dark Mode", "light": "Light Mode"})
-        [{"const": "dark", "title": "Dark Mode"}, {"const": "light", "title": "Light Mode"}]
-    """
-    options: list[TitledEnumOption] = [
-        cast("TitledEnumOption", {"const": k, "title": v}) for k, v in data.items()
-    ]
-    return options
+def enum_schema_options(data: dict[str, str]) -> list[TitledEnumOption]:
+    return [cast("TitledEnumOption", {"const": key, "title": value}) for key, value in data.items()]
 
 
-@mcp.resource(uri="elicitation://event-registration")
-async def event_registration() -> str:
-    """Register for a tech conference event."""
-    workshop_names = {
-        "ai_basics": "AI Fundamentals",
-        "llm_apps": "Building LLM Applications",
-        "prompt_eng": "Prompt Engineering",
-        "rag_systems": "RAG Systems",
-        "fine_tuning": "Model Fine-tuning",
-        "deployment": "Production Deployment",
-    }
+WORKSHOPS = {
+    "ai_basics": "AI Fundamentals",
+    "llm_apps": "Building LLM Applications",
+    "prompt_eng": "Prompt Engineering",
+    "rag_systems": "RAG Systems",
+    "fine_tuning": "Model Fine-tuning",
+    "deployment": "Production Deployment",
+}
+CATEGORIES = {
+    "electronics": "Electronics",
+    "books": "Books & Media",
+    "clothing": "Clothing",
+    "home": "Home & Garden",
+    "sports": "Sports & Outdoors",
+}
+THEMES = {"light": "Light Theme", "dark": "Dark Theme", "auto": "Auto (System)"}
 
-    class EventRegistration(BaseModel):
-        name: str = Field(description="Your full name", min_length=2, max_length=100)
-        email: str = Field(description="Your email address", json_schema_extra={"format": "email"})
-        company_website: str = Field(
-            "",
-            description="Your company website (optional)",
-            json_schema_extra={"format": "uri"},
-        )
-        workshops: list[str] = Field(
-            description="Select the workshops you want to attend",
-            min_length=1,
-            max_length=3,
-            json_schema_extra={
-                "items": {
-                    "enum": list(workshop_names.keys()),
-                    "enumNames": list(workshop_names.values()),
-                },
-                "uniqueItems": True,
-            },
-        )
-        event_date: str = Field(
-            description="Which event date works for you?", json_schema_extra={"format": "date"}
-        )
-        dietary_requirements: str = Field(
-            "",
-            description="Any dietary requirements? (optional)",
-            max_length=200,
-        )
 
-    result = await get_context().elicit(
-        "Register for the fast-agent conference - fill out your details",
-        EventRegistration,
+class EventRegistration(BaseModel):
+    name: str = Field(description="Your full name", min_length=2, max_length=100)
+    email: str = Field(description="Your email address", json_schema_extra={"format": "email"})
+    company_website: str = Field(
+        "", description="Your company website (optional)", json_schema_extra={"format": "uri"}
+    )
+    workshops: list[str] = Field(
+        description="Select the workshops you want to attend",
+        min_length=1,
+        max_length=3,
+        json_schema_extra={
+            "items": {"enum": list(WORKSHOPS), "enumNames": list(WORKSHOPS.values())},
+            "uniqueItems": True,
+        },
+    )
+    event_date: str = Field(
+        description="Which event date works for you?", json_schema_extra={"format": "date"}
+    )
+    dietary_requirements: str = Field(
+        "", description="Any dietary requirements? (optional)", max_length=200
     )
 
+
+class ProductReview(BaseModel):
+    rating: int = Field(description="Rate this product (1-5 stars)", ge=1, le=5)
+    satisfaction: float = Field(
+        description="Overall satisfaction score (0.0-10.0)", ge=0.0, le=10.0
+    )
+    category: str = Field(
+        description="What type of product is this?",
+        json_schema_extra={"oneOf": enum_schema_options(CATEGORIES)},
+    )
+    review_text: str = Field(
+        default="Great product!",
+        description="Tell us about your experience",
+        min_length=10,
+        max_length=1000,
+    )
+
+
+class AccountSettings(BaseModel):
+    email_notifications: bool = Field(True, description="Receive email notifications?")
+    marketing_emails: bool = Field(False, description="Subscribe to marketing emails?")
+    theme: str = Field(
+        "dark",
+        description="Choose your theme",
+        json_schema_extra={"oneOf": enum_schema_options(THEMES)},
+    )
+    privacy_public: bool = Field(False, description="Make your profile public?")
+    items_per_page: int = Field(25, description="Items to show per page (10-100)", ge=10, le=100)
+
+
+class ServiceAppointment(BaseModel):
+    customer_name: str = Field(description="Your full name", min_length=2, max_length=50)
+    phone_number: str = Field(
+        "555-", description="Contact phone number", min_length=10, max_length=20
+    )
+    vehicle_type: str = Field(
+        default="sedan",
+        description="What type of vehicle do you have?",
+        json_schema_extra={
+            "enum": ["sedan", "suv", "truck", "motorcycle", "other"],
+            "enumNames": ["Sedan", "SUV/Crossover", "Truck", "Motorcycle", "Other"],
+        },
+    )
+    needs_loaner: bool = Field(description="Do you need a loaner vehicle?")
+    appointment_time: str = Field(
+        description="Preferred appointment date and time", json_schema_extra={"format": "date-time"}
+    )
+    priority_service: bool = Field(False, description="Is this an urgent repair?")
+
+
+def request_event_registration() -> Elicit[EventRegistration]:
+    return Elicit("Register for the fast-agent conference - fill out your details", EventRegistration)
+
+
+def request_product_review() -> Elicit[ProductReview]:
+    return Elicit("Share your product review - Help others make informed decisions!", ProductReview)
+
+
+def request_account_settings() -> Elicit[AccountSettings]:
+    return Elicit("Update your account settings", AccountSettings)
+
+
+def request_service_appointment() -> Elicit[ServiceAppointment]:
+    return Elicit("Schedule your vehicle service appointment", ServiceAppointment)
+
+
+server = MCPServer("Elicitation Forms Demo Server")
+
+
+@server.tool()
+def event_registration(
+    result: Annotated[ElicitationResult[EventRegistration], Resolve(request_event_registration)],
+) -> str:
+    """Register for a tech conference event."""
     match result:
         case AcceptedElicitation(data=data):
             lines = [
@@ -112,166 +147,86 @@ async def event_registration() -> str:
                 f"🍽️ Dietary Requirements: {data.dietary_requirements or 'None'}",
                 f"🎓 Workshops ({len(data.workshops)} selected):",
             ]
-            for workshop in data.workshops:
-                lines.append(f"   • {workshop_names.get(workshop, workshop)}")
-            response = "\n".join(lines)
+            lines.extend(f"   • {WORKSHOPS.get(workshop, workshop)}" for workshop in data.workshops)
+            return "\n".join(lines)
         case DeclinedElicitation():
-            response = "Registration declined - no ticket reserved"
+            return "Registration declined - no ticket reserved"
         case CancelledElicitation():
-            response = "Registration cancelled - please try again later"
+            return "Registration cancelled - please try again later"
+    raise AssertionError(f"Unexpected elicitation result: {result}")
 
-    return response
 
-
-@mcp.resource(uri="elicitation://product-review")
-async def product_review() -> str:
+@server.tool()
+def product_review(
+    result: Annotated[ElicitationResult[ProductReview], Resolve(request_product_review)],
+) -> str:
     """Submit a product review with rating and comments."""
-    categories = {
-        "electronics": "Electronics",
-        "books": "Books & Media",
-        "clothing": "Clothing",
-        "home": "Home & Garden",
-        "sports": "Sports & Outdoors",
-    }
-
-    class ProductReview(BaseModel):
-        rating: int = Field(description="Rate this product (1-5 stars)", ge=1, le=5)
-        satisfaction: float = Field(
-            description="Overall satisfaction score (0.0-10.0)", ge=0.0, le=10.0
-        )
-        category: str = Field(
-            description="What type of product is this?",
-            json_schema_extra={"oneOf": _create_enum_schema_options(categories)},
-        )
-        review_text: str = Field(
-            description="Tell us about your experience",
-            default="""Great product!
-Here's what I loved:
-
-- Excellent build quality
-- Fast shipping
-- Works as advertised
-
-One minor issue:
-- Instructions could be clearer
-
-Overall, highly recommended!""",
-            min_length=10,
-            max_length=1000,
-        )
-
-    result = await get_context().elicit(
-        "Share your product review - Help others make informed decisions!",
-        ProductReview,
-    )
-
     match result:
         case AcceptedElicitation(data=data):
-            stars = "⭐" * data.rating
-            lines = [
-                "🎯 Product Review Submitted!",
-                f"⭐ Rating: {stars} ({data.rating}/5)",
-                f"📊 Satisfaction: {data.satisfaction}/10.0",
-                f"📦 Category: {categories.get(data.category, data.category)}",
-                f"💬 Review: {data.review_text}",
-            ]
-            response = "\n".join(lines)
+            return "\n".join(
+                [
+                    "🎯 Product Review Submitted!",
+                    f"⭐ Rating: {'⭐' * data.rating} ({data.rating}/5)",
+                    f"📊 Satisfaction: {data.satisfaction}/10.0",
+                    f"📦 Category: {CATEGORIES.get(data.category, data.category)}",
+                    f"💬 Review: {data.review_text}",
+                ]
+            )
         case DeclinedElicitation():
-            response = "Review declined - no feedback submitted"
+            return "Review declined - no feedback submitted"
         case CancelledElicitation():
-            response = "Review cancelled - you can submit it later"
+            return "Review cancelled - you can submit it later"
+    raise AssertionError(f"Unexpected elicitation result: {result}")
 
-    return response
 
-
-@mcp.resource(uri="elicitation://account-settings")
-async def account_settings() -> str:
-    """Configure your account settings and preferences."""
-
-    themes = {"light": "Light Theme", "dark": "Dark Theme", "auto": "Auto (System)"}
-
-    class AccountSettings(BaseModel):
-        email_notifications: bool = Field(True, description="Receive email notifications?")
-        marketing_emails: bool = Field(False, description="Subscribe to marketing emails?")
-        theme: str = Field(
-            "dark",
-            description="Choose your preferred theme",
-            json_schema_extra={"oneOf": _create_enum_schema_options(themes)},
-        )
-        privacy_public: bool = Field(False, description="Make your profile public?")
-        items_per_page: int = Field(
-            25, description="Items to show per page (10-100)", ge=10, le=100
-        )
-
-    result = await get_context().elicit("Update your account settings", AccountSettings)
-
+@server.tool()
+def account_settings(
+    result: Annotated[ElicitationResult[AccountSettings], Resolve(request_account_settings)],
+) -> str:
+    """Configure account settings and preferences."""
     match result:
         case AcceptedElicitation(data=data):
-            lines = [
-                "⚙️ Account Settings Updated!",
-                f"📧 Email notifications: {'On' if data.email_notifications else 'Off'}",
-                f"📬 Marketing emails: {'On' if data.marketing_emails else 'Off'}",
-                f"🎨 Theme: {themes.get(data.theme, data.theme)}",
-                f"👥 Public profile: {'Yes' if data.privacy_public else 'No'}",
-                f"📄 Items per page: {data.items_per_page}",
-            ]
-            response = "\n".join(lines)
+            return "\n".join(
+                [
+                    "⚙️ Account Settings Updated!",
+                    f"📧 Email notifications: {'On' if data.email_notifications else 'Off'}",
+                    f"📬 Marketing emails: {'On' if data.marketing_emails else 'Off'}",
+                    f"🎨 Theme: {THEMES.get(data.theme, data.theme)}",
+                    f"👥 Public profile: {'Yes' if data.privacy_public else 'No'}",
+                    f"📄 Items per page: {data.items_per_page}",
+                ]
+            )
         case DeclinedElicitation():
-            response = "Settings unchanged - keeping current preferences"
+            return "Settings unchanged - keeping current preferences"
         case CancelledElicitation():
-            response = "Settings update cancelled"
+            return "Settings update cancelled"
+    raise AssertionError(f"Unexpected elicitation result: {result}")
 
-    return response
 
-
-@mcp.resource(uri="elicitation://service-appointment")
-async def service_appointment() -> str:
+@server.tool()
+def service_appointment(
+    result: Annotated[ElicitationResult[ServiceAppointment], Resolve(request_service_appointment)],
+) -> str:
     """Schedule a car service appointment."""
-
-    class ServiceAppointment(BaseModel):
-        customer_name: str = Field(description="Your full name", min_length=2, max_length=50)
-        phone_number: str = Field(
-            "555-", description="Contact phone number", min_length=10, max_length=20
-        )
-        vehicle_type: str = Field(
-            default="sedan",
-            description="What type of vehicle do you have?",
-            json_schema_extra={
-                "enum": ["sedan", "suv", "truck", "motorcycle", "other"],
-                "enumNames": ["Sedan", "SUV/Crossover", "Truck", "Motorcycle", "Other"],
-            },
-        )
-        needs_loaner: bool = Field(description="Do you need a loaner vehicle?")
-        appointment_time: str = Field(
-            description="Preferred appointment date and time",
-            json_schema_extra={"format": "date-time"},
-        )
-        priority_service: bool = Field(False, description="Is this an urgent repair?")
-
-    result = await get_context().elicit(
-        "Schedule your vehicle service appointment", ServiceAppointment
-    )
-
     match result:
         case AcceptedElicitation(data=data):
-            lines = [
-                "🔧 Service Appointment Scheduled!",
-                f"👤 Customer: {data.customer_name}",
-                f"📞 Phone: {data.phone_number}",
-                f"🚗 Vehicle: {data.vehicle_type.title()}",
-                f"🚙 Loaner needed: {'Yes' if data.needs_loaner else 'No'}",
-                f"📅 Appointment: {data.appointment_time}",
-                f"⚡ Priority service: {'Yes' if data.priority_service else 'No'}",
-            ]
-            response = "\n".join(lines)
+            return "\n".join(
+                [
+                    "🔧 Service Appointment Scheduled!",
+                    f"👤 Customer: {data.customer_name}",
+                    f"📞 Phone: {data.phone_number}",
+                    f"🚗 Vehicle: {data.vehicle_type.title()}",
+                    f"🚙 Loaner needed: {'Yes' if data.needs_loaner else 'No'}",
+                    f"📅 Appointment: {data.appointment_time}",
+                    f"⚡ Priority service: {'Yes' if data.priority_service else 'No'}",
+                ]
+            )
         case DeclinedElicitation():
-            response = "Appointment cancelled - call us when you're ready!"
+            return "Appointment cancelled - call us when you're ready!"
         case CancelledElicitation():
-            response = "Appointment scheduling cancelled"
-
-    return response
+            return "Appointment scheduling cancelled"
+    raise AssertionError(f"Unexpected elicitation result: {result}")
 
 
 if __name__ == "__main__":
-    logger.info("Starting elicitation forms demo server...")
-    mcp.run()
+    server.run(transport="stdio")

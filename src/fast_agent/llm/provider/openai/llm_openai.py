@@ -1581,6 +1581,8 @@ class OpenAILLM(
         arguments: dict[str, str] = self.prepare_provider_arguments(
             base_args, request_params, self.OPENAI_EXCLUDE_FIELDS.union(self.BASE_EXCLUDE_FIELDS)
         )
+        if request_params.sampling_tool_choice is not None and tools:
+            arguments["tool_choice"] = request_params.sampling_tool_choice
         return arguments
 
     @staticmethod

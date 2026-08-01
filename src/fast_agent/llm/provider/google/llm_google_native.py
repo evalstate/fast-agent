@@ -38,6 +38,7 @@ from fast_agent.llm.reasoning_effort import (
     format_reasoning_setting,
     parse_reasoning_setting,
 )
+from fast_agent.llm.request_params import SamplingToolChoicePolicy
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.tool_call_errors import format_incomplete_tool_call_error
 from fast_agent.llm.tool_tracking import ToolCallTracker
@@ -917,11 +918,12 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         tools: list[McpTool] | None,
         *,
         suppress_tools: bool,
+        sampling_tool_choice: SamplingToolChoicePolicy | None = None,
     ) -> types.ToolListUnion:
         available_tools: types.ToolListUnion = []
         if tools and not suppress_tools:
             available_tools.extend(self._converter.convert_to_google_tools(tools))
-        if self.web_search_enabled:
+        if self.web_search_enabled and sampling_tool_choice is None:
             available_tools.append(types.Tool(google_search=types.GoogleSearch()))
         return available_tools
 
@@ -948,9 +950,17 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if available_tools:
             generate_content_config.tools = available_tools
             if tools and not suppress_tools:
+                function_calling_mode = {
+                    "auto": types.FunctionCallingConfigMode.AUTO,
+                    "required": types.FunctionCallingConfigMode.ANY,
+                    "none": types.FunctionCallingConfigMode.NONE,
+                }.get(
+                    request_params.sampling_tool_choice,
+                    types.FunctionCallingConfigMode.AUTO,
+                )
                 generate_content_config.tool_config = types.ToolConfig(
                     function_calling_config=types.FunctionCallingConfig(
-                        mode=types.FunctionCallingConfigMode.AUTO,
+                        mode=function_calling_mode,
                     ),
                     include_server_side_tool_invocations=bool(self.web_search_enabled),
                 )
@@ -1220,7 +1230,11 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         self._log_chat_progress(self.chat_turn(), model=request_params.model)
 
         suppress_tools = self._google_suppress_tools(request_params, tools, suppress_tools)
-        available_tools = self._google_available_tools(tools, suppress_tools=suppress_tools)
+        available_tools = self._google_available_tools(
+            tools,
+            suppress_tools=suppress_tools,
+            sampling_tool_choice=request_params.sampling_tool_choice,
+        )
         generate_content_config = self._google_generate_content_config(
             request_params,
             tools=tools,

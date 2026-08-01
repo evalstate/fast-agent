@@ -6,13 +6,14 @@ import json
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
-from mcp.client import CacheConfig, Client, Transport
+from mcp.client import CacheConfig, CacheMode, Client, Transport
 from mcp.shared.exceptions import MCPError
 from mcp_types import (
     INVALID_REQUEST,
     CallToolResult,
     CompleteResult,
     ContentBlock,
+    DiscoverResult,
     EmbeddedResource,
     GetPromptResult,
     ListPromptsResult,
@@ -130,7 +131,7 @@ class MCPClientConnection:
         return self.client.instructions
 
     @property
-    def discover_result(self):
+    def discover_result(self) -> DiscoverResult | None:
         return self.client.session.discover_result
 
     @property
@@ -162,32 +163,48 @@ class MCPClientConnection:
         *,
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
     ) -> ListToolsResult:
-        return await self._request(self.client.list_tools(cursor=cursor, meta=meta))
+        return await self._request(
+            self.client.list_tools(cursor=cursor, meta=meta, cache_mode=cache_mode)
+        )
 
     async def list_prompts(
         self,
         *,
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
     ) -> ListPromptsResult:
-        return await self._request(self.client.list_prompts(cursor=cursor, meta=meta))
+        return await self._request(
+            self.client.list_prompts(cursor=cursor, meta=meta, cache_mode=cache_mode)
+        )
 
     async def list_resources(
         self,
         *,
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
     ) -> ListResourcesResult:
-        return await self._request(self.client.list_resources(cursor=cursor, meta=meta))
+        return await self._request(
+            self.client.list_resources(cursor=cursor, meta=meta, cache_mode=cache_mode)
+        )
 
     async def list_resource_templates(
         self,
         *,
         cursor: str | None = None,
         meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
     ) -> ListResourceTemplatesResult:
-        return await self._request(self.client.list_resource_templates(cursor=cursor, meta=meta))
+        return await self._request(
+            self.client.list_resource_templates(
+                cursor=cursor,
+                meta=meta,
+                cache_mode=cache_mode,
+            )
+        )
 
     async def call_tool(
         self,
@@ -215,10 +232,11 @@ class MCPClientConnection:
         uri: str,
         *,
         meta: RequestParamsMeta | None = None,
+        cache_mode: CacheMode = "use",
     ) -> ReadResourceResult:
         return await self._interactive_operation(
             "resources/read",
-            self.client.read_resource(uri, meta=meta),
+            self.client.read_resource(uri, meta=meta, cache_mode=cache_mode),
             self._sanitize_read_resource_result,
         )
 

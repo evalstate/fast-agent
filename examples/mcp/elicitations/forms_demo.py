@@ -3,7 +3,7 @@ Quick Start: Elicitation Forms Demo
 
 This example demonstrates the elicitation forms feature of fast-agent.
 
-When Read Resource requests are sent to the MCP Server, it generates an Elicitation
+When tool calls are sent to the MCP Server, it generates an Elicitation
 which creates a form for the user to fill out.
 The results are returned to the demo program which prints out the results in a rich format.
 """
@@ -14,7 +14,6 @@ from rich.console import Console
 from rich.panel import Panel
 
 from fast_agent import FastAgent
-from fast_agent.mcp.helpers.content_helpers import get_resource_text
 
 fast = FastAgent("Elicitation Forms Demo", quiet=True)
 console = Console()
@@ -39,9 +38,9 @@ async def main():
             "[dim]Demonstrates: string validation, email format, URL format, date format, "
             "multi-select enums[/dim]"
         )
-        result = await agent["forms-demo"].get_resource("elicitation://event-registration")
+        result_text = await agent["forms-demo"].send("***CALL_TOOL event_registration {}")
 
-        if result_text := get_resource_text(result):
+        if result_text:
             panel = Panel(
                 result_text,
                 title="🎫 Registration Confirmation",
@@ -57,9 +56,9 @@ async def main():
         console.print(
             "[dim]Demonstrates: number validation (range), radio selection, multiline text[/dim]"
         )
-        result = await agent.get_resource("elicitation://product-review")
+        result_text = await agent["forms-demo"].send("***CALL_TOOL product_review {}")
 
-        if result_text := get_resource_text(result):
+        if result_text:
             review_panel = Panel(
                 result_text, title="🛍️ Product Review", border_style="cyan", expand=False
             )
@@ -70,9 +69,9 @@ async def main():
         console.print(
             "[dim]Demonstrates: boolean selections, radio selection, number validation[/dim]"
         )
-        result = await agent.get_resource("elicitation://account-settings")
+        result_text = await agent["forms-demo"].send("***CALL_TOOL account_settings {}")
 
-        if result_text := get_resource_text(result):
+        if result_text:
             settings_panel = Panel(
                 result_text, title="⚙️ Account Settings", border_style="blue", expand=False
             )
@@ -83,9 +82,9 @@ async def main():
         console.print(
             "[dim]Demonstrates: string validation, radio selection, boolean, datetime format[/dim]"
         )
-        result = await agent.get_resource("elicitation://service-appointment")
+        result_text = await agent["forms-demo"].send("***CALL_TOOL service_appointment {}")
 
-        if result_text := get_resource_text(result):
+        if result_text:
             appointment_panel = Panel(
                 result_text, title="🔧 Appointment Confirmed", border_style="magenta", expand=False
             )

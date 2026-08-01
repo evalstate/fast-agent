@@ -244,5 +244,5 @@ class CodexResponsesLLM(ResponsesLLM):
             self.logger.debug(
                 "Dropping max_output_tokens for Codex responses; parameter unsupported by API"
             )
-        args["tool_choice"] = "auto"
+        args["tool_choice"] = request_params.sampling_tool_choice or "auto"
         return args

@@ -87,8 +87,9 @@ async def test_custom_elicitation_handler(fast_agent):
     )
     async def agent_function():
         async with fast.run() as agent:
+            app = agent["custom-handler-agent"]
             # First check that elicitation capability is advertised
-            capabilities_result = await agent.get_resource("elicitation://client-capabilities")
+            capabilities_result = await app.call_tool("client_capabilities", {})
             capabilities_text = str(capabilities_result)
 
             # Should have elicitation capability
@@ -97,12 +98,16 @@ async def test_custom_elicitation_handler(fast_agent):
             )
 
             # Now test the actual elicitation with our custom handler
-            result = await agent.get_resource("elicitation://user-profile")
+            result = await app.call_tool("user_profile", {})
             result_str = str(result)
 
             # Verify we got expected test data from our custom handler
             assert "Test User" in result_str, f"Custom handler not used, got: {result_str}"
             assert "test@example.com" in result_str, f"Custom handler not used, got: {result_str}"
+
+            status = (await app.get_server_status())["resource_forms"]
+            assert status.protocol_mode == "modern"
+            assert status.protocol_era == "modern"
 
     await agent_function()
 
@@ -120,8 +125,9 @@ async def test_forms_mode_capability_advertisement(fast_agent):
     )
     async def agent_function():
         async with fast.run() as agent:
+            app = agent["forms-agent"]
             # Check capabilities - should have elicitation capability
-            capabilities_result = await agent.get_resource("elicitation://client-capabilities")
+            capabilities_result = await app.call_tool("client_capabilities", {})
             capabilities_text = str(capabilities_result)
 
             # Should advertise elicitation capability in forms mode
@@ -145,8 +151,9 @@ async def test_elicitation_precedence_decorator_over_config(fast_agent):
     )
     async def agent_function():
         async with fast.run() as agent:
+            app = agent["precedence-test-agent"]
             # Test actual elicitation behavior
-            result = await agent.get_resource("elicitation://user-profile")
+            result = await app.call_tool("user_profile", {})
             result_str = str(result)
 
             # Should get test data from our custom handler, not config behavior

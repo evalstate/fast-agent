@@ -105,13 +105,17 @@ class SamplingConverter:
         Returns:
             RequestParams suitable for use with LLM.generate_prompt
         """
+        sampling_tool_choice = params.tool_choice.mode if params.tool_choice else "auto"
+        if sampling_tool_choice == "required" and not params.tools:
+            raise ValueError("MCP sampling toolChoice 'required' requires at least one tool")
+
         return RequestParams(
             max_tokens=params.max_tokens,
             system_prompt=params.system_prompt,
             temperature=params.temperature,
             stop_sequences=params.stop_sequences,
             model_preferences=params.model_preferences,
-            # Add any other parameters needed
+            sampling_tool_choice=sampling_tool_choice,
         )
 
     @staticmethod

@@ -80,7 +80,7 @@ def test_shell_tool_call_renders_code_without_markdown_padding() -> None:
     rendered_lines = capture.get().splitlines()
     command_lines = [line for line in rendered_lines if "echo hi" in line]
     assert command_lines
-    assert any(line.startswith("echo hi") for line in command_lines)
+    assert any(line.startswith("$ echo hi") for line in command_lines)
 
 
 def test_shell_tool_call_header_includes_timeout() -> None:
@@ -175,7 +175,7 @@ def test_process_lifecycle_tool_calls_use_compact_display() -> None:
     ) in compact_rendered
     assert "pid 4321" not in rendered
     assert "terminate process-4" in rendered
-    assert "list managed processes" in rendered
+    assert "process list" in rendered
     assert "'process_id'" not in rendered
 
 

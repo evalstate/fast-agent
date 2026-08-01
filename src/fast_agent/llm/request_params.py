@@ -19,6 +19,7 @@ else:
 ResponseMode: TypeAlias = Literal["inherit", "postprocess", "passthrough"]
 ToolResultMode: TypeAlias = Literal["postprocess", "passthrough", "selectable"]
 StructuredToolPolicy: TypeAlias = Literal["auto", "always", "defer", "no_tools"]
+SamplingToolChoicePolicy: TypeAlias = Literal["auto", "required", "none"]
 _RESPONSE_MODE_TOOL_RESULT_MODES: dict[ResponseMode, ToolResultMode | None] = {
     "inherit": None,
     "postprocess": "postprocess",
@@ -120,6 +121,14 @@ class RequestParams(CreateMessageRequestParams):
       present, useful for models that otherwise answer JSON instead of calling a
       required tool.
     - ``no_tools``: suppress regular tools and produce one structured response.
+    """
+
+    sampling_tool_choice: SamplingToolChoicePolicy | None = None
+    """
+    MCP sampling tool-choice policy, translated at the provider boundary.
+
+    The inherited MCP ``tools`` and ``tool_choice`` fields remain transport
+    inputs only and must not be forwarded as provider arguments.
     """
 
     template_vars: dict[str, Any] = Field(default_factory=dict)

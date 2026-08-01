@@ -28,6 +28,11 @@ from fast_agent.ui.apply_patch_preview import (
     is_shell_execution_tool,
     shell_syntax_language,
 )
+from fast_agent.ui.edit_file_preview import (
+    build_edit_file_preview,
+    build_partial_edit_file_preview,
+    format_edit_file_preview,
+)
 from fast_agent.utils.reasoning_stream_parser import ReasoningSegment, ReasoningStreamParser
 from fast_agent.utils.text import strip_casefold
 
@@ -417,6 +422,7 @@ class ToolStreamState:
     segment_index: int | None
     tool_metadata: Mapping[str, Any] | None = None
     apply_patch_preview_max_lines: int | None = None
+    stream_edit_previews: bool = True
     preserve_details: bool = False
     raw_text: str = ""
     display_text: str = ""
@@ -456,10 +462,15 @@ class ToolStreamState:
         )
 
     def has_apply_patch_preview(self) -> bool:
+        if not self.stream_edit_previews:
+            return False
         tool_name = self.tool_name or "tool"
         stripped_text = self.raw_text.strip()
         if not stripped_text:
             return False
+
+        if tool_name == "edit_file":
+            return self._edit_file_preview() is not None
 
         if is_apply_patch_tool_name(tool_name):
             return build_apply_patch_preview_from_input(
@@ -523,6 +534,11 @@ class ToolStreamState:
         return f"{header_prefix} {tool_name}\n" if header_prefix else f"{tool_name}\n"
 
     def _render_args_text(self, *, tool_name: str, pretty: bool) -> str:
+        if self.stream_edit_previews:
+            edit_file_preview = self._edit_file_preview()
+            if edit_file_preview is not None:
+                return edit_file_preview
+
         args_text = self._apply_patch_args_text(tool_name)
         if not self.raw_text.strip():
             return args_text
@@ -539,6 +555,8 @@ class ToolStreamState:
         return args_text
 
     def _apply_patch_args_text(self, tool_name: str) -> str:
+        if not self.stream_edit_previews:
+            return self.display_text
         if not is_apply_patch_tool_name(tool_name):
             return self.display_text
 
@@ -560,6 +578,8 @@ class ToolStreamState:
         return self.display_text
 
     def _shell_args_text(self, parsed_args: dict[str, Any]) -> str | None:
+        if not self.stream_edit_previews:
+            return None
         command = parsed_args.get("command")
         if not isinstance(command, str):
             return None
@@ -580,6 +600,8 @@ class ToolStreamState:
         )
 
     def _partial_shell_args_text(self, tool_name: str) -> str | None:
+        if not self.stream_edit_previews:
+            return None
         if not is_shell_execution_tool(tool_name):
             return None
 
@@ -588,6 +610,35 @@ class ToolStreamState:
             return None
         return build_partial_apply_patch_preview(
             extracted.value,
+            max_lines=self.apply_patch_preview_max_lines,
+        )
+
+    def _edit_file_preview(self) -> str | None:
+        if self.tool_name != "edit_file":
+            return None
+
+        parsed_args = _parse_json_value(self.raw_text)
+        if isinstance(parsed_args, dict):
+            preview = build_edit_file_preview(parsed_args)
+            if preview is not None:
+                return format_edit_file_preview(
+                    preview,
+                    max_lines=self.apply_patch_preview_max_lines,
+                )
+
+        fields = {
+            field_name: extract_partial_json_string_field(self.raw_text, field_name=field_name)
+            for field_name in ("path", "old_string", "new_string")
+        }
+        preview = build_partial_edit_file_preview(
+            path=fields["path"].value if fields["path"] else None,
+            old_string=fields["old_string"].value if fields["old_string"] else None,
+            new_string=fields["new_string"].value if fields["new_string"] else None,
+        )
+        if preview is None:
+            return None
+        return format_edit_file_preview(
+            preview,
             max_lines=self.apply_patch_preview_max_lines,
         )
 
@@ -977,6 +1028,7 @@ class StreamSegmentAssembler:
         tool_prefix: str,
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None = None,
         apply_patch_preview_max_lines: int | None = None,
+        stream_edit_previews: bool = True,
     ) -> None:
         self._base_kind = base_kind
         self._buffer = StreamSegmentBuffer(base_kind)
@@ -985,6 +1037,7 @@ class StreamSegmentAssembler:
         self._tool_prefix = tool_prefix
         self._tool_metadata_resolver = tool_metadata_resolver
         self._apply_patch_preview_max_lines = apply_patch_preview_max_lines
+        self._stream_edit_previews = stream_edit_previews
         self._tool_states: dict[str, ToolStreamState] = {}
         self._fallback_tool_counter = 0
         self._last_tool_id: str | None = None
@@ -1292,6 +1345,7 @@ class StreamSegmentAssembler:
             segment_index=segment_index,
             tool_metadata=tool_metadata,
             apply_patch_preview_max_lines=self._apply_patch_preview_max_lines,
+            stream_edit_previews=self._stream_edit_previews,
             preserve_details=preserve_details,
         )
         self._tool_states[tool_use_id] = state

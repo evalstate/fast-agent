@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -48,8 +49,21 @@ async def test_http_diagnostic_hooks_track_post_get_and_resumption() -> None:
     async def server(request: httpx2.Request) -> httpx2.Response:
         if request.content == b"not-json":
             return httpx2.Response(400, request=request)
+        if request.method == "POST":
+            payload = json.loads(request.content)
+            assert isinstance(payload, dict)
+            content_type = (
+                "text/event-stream; charset=utf-8"
+                if payload["method"] in {"tools/call", "subscriptions/listen"}
+                else "application/json; charset=utf-8"
+            )
+            return httpx2.Response(
+                200,
+                headers={"content-type": content_type},
+                request=request,
+            )
         return httpx2.Response(
-            405 if request.method == "GET" else 202,
+            405,
             request=request,
         )
 
@@ -59,7 +73,7 @@ async def test_http_diagnostic_hooks_track_post_get_and_resumption() -> None:
     ) as client:
         await client.post(
             "https://example.com/mcp",
-            headers={"Accept": "application/json"},
+            headers={"Accept": "application/json, text/event-stream"},
             json={
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -69,7 +83,17 @@ async def test_http_diagnostic_hooks_track_post_get_and_resumption() -> None:
         )
         await client.post(
             "https://example.com/mcp",
-            headers={"Accept": "text/event-stream"},
+            headers={"Accept": "application/json, text/event-stream"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "generate_image", "arguments": {}},
+            },
+        )
+        await client.post(
+            "https://example.com/mcp",
+            headers={"Accept": "application/json, text/event-stream"},
             json={
                 "jsonrpc": "2.0",
                 "id": "listen-1",
@@ -92,7 +116,8 @@ async def test_http_diagnostic_hooks_track_post_get_and_resumption() -> None:
     assert snapshot.post_json.request_count == 1
     assert snapshot.post_json.state == "error"
     assert snapshot.post_json.last_error == "HTTP 400"
-    assert snapshot.post_sse is None
+    assert snapshot.post_sse is not None
+    assert snapshot.post_sse.request_count == 1
     assert snapshot.listen is not None
     assert snapshot.listen.request_count == 1
     assert snapshot.get is not None
@@ -100,6 +125,50 @@ async def test_http_diagnostic_hooks_track_post_get_and_resumption() -> None:
     assert snapshot.resumption is not None
     assert snapshot.resumption.request_count == 1
     assert snapshot.resumption.last_message_summary == "event-7"
+
+
+@pytest.mark.asyncio
+async def test_http_diagnostic_hooks_classify_only_final_redirect_response() -> None:
+    metrics = TransportChannelMetrics()
+    hooks = _http_diagnostic_hooks(
+        "docs",
+        MCPClientHooks(transport_metrics=metrics),
+    )
+    assert hooks is not None
+
+    async def server(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path == "/mcp":
+            return httpx2.Response(
+                307,
+                headers={"location": "/tools"},
+                request=request,
+            )
+        return httpx2.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            request=request,
+        )
+
+    async with httpx2.AsyncClient(
+        transport=httpx2.MockTransport(server),
+        event_hooks=hooks,
+        follow_redirects=True,
+    ) as client:
+        await client.post(
+            "https://example.com/mcp",
+            headers={"Accept": "application/json, text/event-stream"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "generate_image", "arguments": {}},
+            },
+        )
+
+    snapshot = metrics.snapshot()
+    assert snapshot.post_json is None
+    assert snapshot.post_sse is not None
+    assert snapshot.post_sse.request_count == 1
 
 
 @pytest.mark.asyncio

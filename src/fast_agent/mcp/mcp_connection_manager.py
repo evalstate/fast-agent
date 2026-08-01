@@ -10,7 +10,7 @@ import time
 import traceback
 from collections import deque
 from contextlib import suppress
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, Protocol, runtime_checkable
@@ -21,7 +21,7 @@ from anyio import CancelScope, Event, Lock
 from httpx2 import HTTPStatusError
 from mcp.client.subscriptions import SubscriptionLost
 from mcp.shared.exceptions import MCPError
-from mcp_types import JSONRPCNotification
+from mcp_types import JSONRPCNotification, SubscriptionFilter
 
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import ServerInitializationError
@@ -66,6 +66,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 STDIO_STDERR_BUFFER_LINES = 12
+PARTIAL_SUBSCRIPTION_REFRESH_SECONDS = 5.0
 OAuthMode = str
 
 
@@ -488,8 +489,10 @@ async def _run_server_lifecycle(server_conn: ServerConnection) -> None:
 
 async def _wait_for_shutdown_with_optional_ping(server_conn: ServerConnection) -> None:
     subscription_task: asyncio.Task[None] | None = None
-    if server_conn.protocol_era == "modern":
+    if _subscription_filter(server_conn) is not None:
         subscription_task = asyncio.create_task(_run_subscription_loop(server_conn))
+    elif server_conn.protocol_era == "modern":
+        server_conn.subscription_state = "disabled"
     if not _ping_loop_enabled(server_conn):
         ping_task = None
     else:
@@ -509,6 +512,66 @@ async def _wait_for_shutdown_with_optional_ping(server_conn: ServerConnection) -
                 await subscription_task
 
 
+@dataclass(frozen=True, slots=True)
+class _ModernSubscriptionFilter:
+    tools_list_changed: bool
+    prompts_list_changed: bool
+    resources_list_changed: bool
+    resource_subscriptions: tuple[str, ...]
+    resource_subscription_capable: bool
+
+
+def _subscription_filter(server_conn: ServerConnection) -> _ModernSubscriptionFilter | None:
+    client = server_conn.client
+    if client is None:
+        return None
+    discover_result = client.discover_result
+    if discover_result is None:
+        return None
+    capabilities = discover_result.capabilities
+    tools_list_changed = bool(capabilities.tools and capabilities.tools.list_changed is True)
+    prompts_list_changed = bool(
+        capabilities.prompts and capabilities.prompts.list_changed is True
+    )
+    resources = discover_result.capabilities.resources
+    resources_list_changed = bool(resources and resources.list_changed is True)
+    resource_subscription_capable = bool(resources and resources.subscribe is True)
+    resource_subscriptions = (
+        server_conn._callback_runtime.subscription_resource_uris()
+        if resource_subscription_capable
+        else ()
+    )
+    if not (
+        tools_list_changed
+        or prompts_list_changed
+        or resources_list_changed
+        or resource_subscription_capable
+    ):
+        return None
+    return _ModernSubscriptionFilter(
+        tools_list_changed=tools_list_changed,
+        prompts_list_changed=prompts_list_changed,
+        resources_list_changed=resources_list_changed,
+        resource_subscriptions=resource_subscriptions,
+        resource_subscription_capable=resource_subscription_capable,
+    )
+
+
+def _subscription_filter_fully_honored(
+    requested: _ModernSubscriptionFilter,
+    honored: SubscriptionFilter,
+) -> bool:
+    if requested.tools_list_changed and honored.tools_list_changed is not True:
+        return False
+    if requested.prompts_list_changed and honored.prompts_list_changed is not True:
+        return False
+    if requested.resources_list_changed and honored.resources_list_changed is not True:
+        return False
+    return set(requested.resource_subscriptions).issubset(
+        honored.resource_subscriptions or ()
+    )
+
+
 async def _run_subscription_loop(server_conn: ServerConnection) -> None:
     client = server_conn.client
     if client is None:
@@ -516,25 +579,76 @@ async def _run_subscription_loop(server_conn: ServerConnection) -> None:
         return
     delay = 0.25
     while not server_conn._shutdown_event.is_set():
+        subscription_filter = _subscription_filter(server_conn)
+        if subscription_filter is None:
+            server_conn.subscription_state = "disabled"
+            return
         opened = False
+        planned_rotation = False
         try:
+            server_conn.subscription_state = "connecting"
             subscription_context = client.listen(
-                tools_list_changed=True,
-                prompts_list_changed=True,
-                resources_list_changed=True,
+                tools_list_changed=subscription_filter.tools_list_changed,
+                prompts_list_changed=subscription_filter.prompts_list_changed,
+                resources_list_changed=subscription_filter.resources_list_changed,
+                resource_subscriptions=subscription_filter.resource_subscriptions,
             )
             async with subscription_context as subscription:
-                server_conn.subscription_state = "open"
+                await server_conn._callback_runtime.wait_until_subscription_ready()
+                refreshed_uris = await server_conn._callback_runtime.refresh_subscription_state()
+                if (
+                    subscription_filter.resource_subscription_capable
+                    and refreshed_uris != subscription_filter.resource_subscriptions
+                ):
+                    server_conn.subscription_state = "rotating"
+                    planned_rotation = True
+                    continue
+                fully_honored = _subscription_filter_fully_honored(
+                    subscription_filter,
+                    subscription.honored,
+                )
+                server_conn.subscription_state = "open" if fully_honored else "partial"
                 opened = True
                 _record_listen_transport_event(server_conn, "connect")
                 delay = 0.25
-                async for event in subscription:
+                while True:
+                    try:
+                        if fully_honored:
+                            event = await anext(subscription)
+                        else:
+                            async with asyncio.timeout(
+                                PARTIAL_SUBSCRIPTION_REFRESH_SECONDS
+                            ):
+                                event = await anext(subscription)
+                    except TimeoutError:
+                        refreshed_uris = (
+                            await server_conn._callback_runtime.refresh_subscription_state()
+                        )
+                        if (
+                            subscription_filter.resource_subscription_capable
+                            and refreshed_uris
+                            != subscription_filter.resource_subscriptions
+                        ):
+                            server_conn.subscription_state = "rotating"
+                            planned_rotation = True
+                            break
+                        continue
+                    except StopAsyncIteration:
+                        break
                     _record_listen_transport_event(
                         server_conn,
                         "message",
                         detail=type(event).__name__,
                     )
-                    await client.callbacks.handle_subscription_event(event)
+                    await server_conn._callback_runtime.handle_subscription_event(event)
+                    if (
+                        subscription_filter.resource_subscription_capable
+                        and server_conn._callback_runtime.subscription_resource_uris()
+                        != subscription_filter.resource_subscriptions
+                    ):
+                        server_conn.subscription_state = "rotating"
+                        planned_rotation = True
+                        break
             server_conn.subscription_state = "closed"
         except SubscriptionLost as exc:
             server_conn.subscription_state = "error"
@@ -565,6 +679,8 @@ async def _run_subscription_loop(server_conn: ServerConnection) -> None:
                 _record_listen_transport_event(server_conn, "disconnect")
         if server_conn._shutdown_event.is_set():
             return
+        if planned_rotation:
+            continue
         await asyncio.sleep(delay)
         delay = min(delay * 2, 5)
 

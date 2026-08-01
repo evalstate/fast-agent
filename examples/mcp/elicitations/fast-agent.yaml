@@ -16,18 +16,21 @@ mcp:
     # Forms demo server - interactive form examples
     elicitation_forms_server:
       target: "uv run elicitation_forms_server.py"
+      protocol_mode: modern
       elicitation:
         mode: "forms" # Shows forms to users (default)
 
     # Account creation server - for CALL_TOOL demos
     elicitation_account_server:
       target: "uv run elicitation_account_server.py"
+      protocol_mode: legacy
       elicitation:
         mode: "forms"
 
     # Game character server - for custom handler demos
     elicitation_game_server:
       target: "uv run elicitation_game_server.py"
+      protocol_mode: legacy
       elicitation:
         mode: "forms"
 

@@ -10,12 +10,14 @@ def _make_assembler(
     *,
     tool_metadata_resolver=None,
     apply_patch_preview_max_lines=None,
+    stream_edit_previews=True,
 ) -> StreamSegmentAssembler:
     return StreamSegmentAssembler(
         base_kind="markdown",
         tool_prefix="->",
         tool_metadata_resolver=tool_metadata_resolver,
         apply_patch_preview_max_lines=apply_patch_preview_max_lines,
+        stream_edit_previews=stream_edit_previews,
     )
 
 
@@ -622,6 +624,92 @@ def test_tool_stream_apply_patch_preview_respects_line_limit() -> None:
     )
 
     assert "(+2 more lines)" in assembler.segments[0].text
+
+
+def test_tool_stream_edit_file_preview_formats_complete_arguments() -> None:
+    assembler = _make_assembler()
+
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "edit_file",
+            "tool_use_id": "tool-edit-1",
+            "chunk": json.dumps(
+                {
+                    "path": "src/example.py",
+                    "old_string": "old = 1\n",
+                    "new_string": "new = 2\n",
+                    "replace_all": True,
+                }
+            ),
+        },
+    )
+
+    segment = assembler.segments[0]
+    assert segment.apply_patch_preview
+    assert "edit_file preview: src/example.py (all matches)" in segment.text
+    assert "--- src/example.py" in segment.text
+    assert "+++ src/example.py" in segment.text
+    assert "-old = 1" in segment.text
+    assert "+new = 2" in segment.text
+
+
+def test_tool_stream_edit_file_preview_formats_partial_json() -> None:
+    assembler = _make_assembler()
+
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "edit_file",
+            "tool_use_id": "tool-edit-2",
+            "chunk": (
+                '{"path":"src/example.py","old_string":"old = 1\\n",'
+                '"new_string":"new = 2'
+            ),
+        },
+    )
+
+    segment = assembler.segments[0]
+    assert segment.apply_patch_preview
+    assert "edit_file preview: src/example.py (partial)" in segment.text
+    assert "-old = 1" in segment.text
+    assert "+new = 2" in segment.text
+
+
+def test_tool_stream_edit_preview_gate_keeps_regular_tool_text() -> None:
+    assembler = _make_assembler(stream_edit_previews=False)
+    patch = "*** Begin Patch\n*** Add File: a.txt\n+new\n*** End Patch\n"
+
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "apply_patch",
+            "tool_use_id": "tool-patch-gated",
+            "chunk": patch,
+        },
+    )
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "edit_file",
+            "tool_use_id": "tool-edit-gated",
+            "chunk": json.dumps(
+                {
+                    "path": "a.txt",
+                    "old_string": "old",
+                    "new_string": "new",
+                }
+            ),
+        },
+    )
+
+    patch_segment, edit_segment = assembler.segments
+    assert not patch_segment.apply_patch_preview
+    assert "apply_patch preview:" not in patch_segment.text
+    assert "*** Begin Patch" in patch_segment.text
+    assert not edit_segment.apply_patch_preview
+    assert "edit_file preview:" not in edit_segment.text
+    assert '"old_string": "old"' in edit_segment.text
 
 
 def test_tool_stream_code_preview_uses_namespaced_tool_metadata() -> None:

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import io
+import os
+import sys
 
 from rich.progress import Progress
 
-from fast_agent.ui.console import SurrogateSafeConsole
+from fast_agent.ui.console import (
+    SurrogateSafeConsole,
+    _redirect_standard_stream_to_blocking_tty,
+)
 
 
 class _CountingStream(io.StringIO):
@@ -76,3 +81,31 @@ def test_progress_stop_does_not_crash_on_surrogate_description() -> None:
     progress.stop()
 
     assert "😀" in _stream_text(buffer, stream)
+
+
+def test_original_stdout_is_redirected_to_blocking_stream(monkeypatch) -> None:
+    source_read, source_write = os.pipe()
+    target_read, target_write = os.pipe()
+    source = os.fdopen(source_write, "w", buffering=1, encoding="utf-8", closefd=False)
+    target = os.fdopen(target_write, "w", buffering=1, encoding="utf-8", closefd=False)
+    os.set_blocking(source_write, False)
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(sys, "__stdout__", source)
+            _redirect_standard_stream_to_blocking_tty(source_write, target)
+
+            assert os.get_blocking(source_write)
+            active_stdout = sys.__stdout__
+            assert active_stdout is not None
+            active_stdout.write("kitty")
+            active_stdout.flush()
+
+        assert os.read(target_read, 5) == b"kitty"
+    finally:
+        source.close()
+        target.close()
+        os.close(source_read)
+        os.close(source_write)
+        os.close(target_read)
+        os.close(target_write)

@@ -1,13 +1,20 @@
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
 import httpx2
 import pytest
 from anyio import CancelScope
 from mcp.client.streamable_http import streamable_http_client
+from mcp.client.subscriptions import (
+    ResourcesListChanged,
+    ResourceUpdated,
+    SubscriptionLost,
+)
 from mcp.shared.exceptions import MCPError
+from mcp_types import DiscoverResult, SubscriptionFilter
 
 from fast_agent.config import MCPServerAuthSettings, MCPServerSettings, Settings
 from fast_agent.context import Context
@@ -30,13 +37,12 @@ from fast_agent.mcp.mcp_connection_manager import (
     _run_subscription_loop,
     _server_lifecycle_task,
     _wait_for_initialized_with_startup_budget,
+    _wait_for_shutdown_with_optional_ping,
 )
 from fast_agent.mcp.oauth_client import OAuthEventHandler
 from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from fast_agent.mcp.client_connection import MCPClientConnection
 
 
@@ -335,6 +341,13 @@ async def test_subscription_limit_error_is_not_retried() -> None:
             return False
 
     class SubscriptionLimitClient:
+        discover_result = DiscoverResult.model_validate(
+            {
+                "supportedVersions": ["2026-07-28"],
+                "capabilities": {"tools": {"listChanged": True}},
+            }
+        )
+
         def __init__(self) -> None:
             self.listen_calls = 0
 
@@ -840,6 +853,327 @@ async def test_connection_manager_exit_needs_no_fixed_shutdown_sleep(
 
     assert manager._task_group_active is False
     assert manager._task_group is None
+
+
+class _DerivedStateSimulator:
+    def __init__(
+        self,
+        *,
+        refresh_states: list[tuple[str, ...]] | None = None,
+        event_states: list[tuple[str, ...]] | None = None,
+    ) -> None:
+        self.current_uris: tuple[str, ...] = ()
+        self.refresh_states = list(refresh_states or [])
+        self.event_states = list(event_states or [])
+        self.refresh_count = 0
+        self.events: list[object] = []
+
+    def selected_materialized_resource_uris(self, server_name: str) -> tuple[str, ...]:
+        del server_name
+        return self.current_uris
+
+    async def refresh_subscription_state(self, server_name: str) -> tuple[str, ...]:
+        del server_name
+        self.refresh_count += 1
+        if self.refresh_states:
+            self.current_uris = self.refresh_states.pop(0)
+        return self.current_uris
+
+    async def handle_subscription_event(self, server_name: str, event: object) -> None:
+        del server_name
+        self.events.append(event)
+        if self.event_states:
+            self.current_uris = self.event_states.pop(0)
+
+
+class _ListenerContextSimulator:
+    def __init__(
+        self,
+        client: "_ListenerClientSimulator",
+        events: list[object],
+        honored: SubscriptionFilter,
+    ) -> None:
+        self.client = client
+        self.events = list(events)
+        self.honored = honored
+
+    async def __aenter__(self):
+        self.client.active_listeners += 1
+        self.client.max_active_listeners = max(
+            self.client.max_active_listeners,
+            self.client.active_listeners,
+        )
+        self.client.listen_opened.set()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        del exc_type, exc, tb
+        self.client.active_listeners -= 1
+        return False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self.events:
+            event = self.events.pop(0)
+            if isinstance(event, BaseException):
+                raise event
+            return event
+        await self.client.hold_open.wait()
+        raise StopAsyncIteration
+
+
+class _ListenerClientSimulator:
+    def __init__(
+        self,
+        discover_result: DiscoverResult | None,
+        *,
+        scripts: list[list[object]] | None = None,
+        honored_filters: list[SubscriptionFilter] | None = None,
+    ) -> None:
+        self.discover_result = discover_result
+        self.scripts = list(scripts or [])
+        self.honored_filters = list(honored_filters or [])
+        self.listen_calls: list[dict[str, Any]] = []
+        self.listen_opened = asyncio.Event()
+        self.hold_open = asyncio.Event()
+        self.active_listeners = 0
+        self.max_active_listeners = 0
+
+    def listen(self, **kwargs: Any) -> _ListenerContextSimulator:
+        self.listen_calls.append(kwargs)
+        events = self.scripts.pop(0) if self.scripts else []
+        honored = (
+            self.honored_filters.pop(0)
+            if self.honored_filters
+            else SubscriptionFilter.model_validate(kwargs)
+        )
+        return _ListenerContextSimulator(self, events, honored)
+
+
+async def _wait_until(predicate: Callable[[], bool]) -> None:
+    while not predicate():
+        await asyncio.sleep(0.001)
+
+
+def _modern_discovery(capabilities: dict[str, object]) -> DiscoverResult:
+    return DiscoverResult.model_validate(
+        {
+            "supportedVersions": ["2026-07-28"],
+            "capabilities": capabilities,
+        }
+    )
+
+
+def _subscription_server(
+    client: _ListenerClientSimulator,
+    derived_state: _DerivedStateSimulator,
+    *,
+    ready: bool = True,
+) -> ServerConnection:
+    server_conn = _make_server_connection()
+    server_conn.client = cast("Any", client)
+    server_conn.protocol_era = "modern"
+    server_conn._callback_runtime = MCPClientCallbackRuntime(
+        server_name="test-server",
+        server_config=server_conn.server_config,
+        aggregator=cast("Any", derived_state),
+    )
+    if ready:
+        server_conn._callback_runtime.mark_subscription_ready()
+    return server_conn
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("discover_result", "expected_filter"),
+    [
+        (None, None),
+        (_modern_discovery({}), None),
+        (
+            _modern_discovery({"tools": {"listChanged": True}}),
+            {
+                "tools_list_changed": True,
+                "prompts_list_changed": False,
+                "resources_list_changed": False,
+                "resource_subscriptions": (),
+            },
+        ),
+        (
+            _modern_discovery({"prompts": {"listChanged": True}}),
+            {
+                "tools_list_changed": False,
+                "prompts_list_changed": True,
+                "resources_list_changed": False,
+                "resource_subscriptions": (),
+            },
+        ),
+        (
+            _modern_discovery(
+                {"resources": {"subscribe": False, "listChanged": True}}
+            ),
+            {
+                "tools_list_changed": False,
+                "prompts_list_changed": False,
+                "resources_list_changed": True,
+                "resource_subscriptions": (),
+            },
+        ),
+        (
+            _modern_discovery({"resources": {"subscribe": True}}),
+            {
+                "tools_list_changed": False,
+                "prompts_list_changed": False,
+                "resources_list_changed": False,
+                "resource_subscriptions": (),
+            },
+        ),
+    ],
+)
+async def test_modern_listener_capability_matrix(
+    discover_result: DiscoverResult | None,
+    expected_filter: dict[str, Any] | None,
+) -> None:
+    client = _ListenerClientSimulator(discover_result)
+    server_conn = _subscription_server(client, _DerivedStateSimulator())
+
+    wait_task = asyncio.create_task(_wait_for_shutdown_with_optional_ping(server_conn))
+    if expected_filter is None:
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+    else:
+        await asyncio.wait_for(client.listen_opened.wait(), timeout=1)
+    server_conn.request_shutdown()
+    await wait_task
+
+    assert client.listen_calls == ([] if expected_filter is None else [expected_filter])
+    assert server_conn.subscription_state == (
+        "disabled" if expected_filter is None else "open"
+    )
+
+
+@pytest.mark.asyncio
+async def test_dropped_subscription_epoch_converges_after_reack_refresh() -> None:
+    client = _ListenerClientSimulator(
+        _modern_discovery({"tools": {"listChanged": True}}),
+        scripts=[
+            [SubscriptionLost("simulated dropped epoch")],
+            [],
+        ],
+    )
+    derived_state = _DerivedStateSimulator(
+        refresh_states=[("ui://epoch/one",), ("ui://epoch/two",)]
+    )
+    server_conn = _subscription_server(client, derived_state)
+
+    wait_task = asyncio.create_task(_wait_for_shutdown_with_optional_ping(server_conn))
+    await asyncio.wait_for(
+        _wait_until(lambda: derived_state.refresh_count == 2),
+        timeout=1,
+    )
+    server_conn.request_shutdown()
+    await wait_task
+
+    assert derived_state.current_uris == ("ui://epoch/two",)
+    assert len(client.listen_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_partial_subscription_acknowledgment_reports_degraded_state() -> None:
+    client = _ListenerClientSimulator(
+        _modern_discovery({"tools": {"listChanged": True}}),
+        honored_filters=[SubscriptionFilter()],
+    )
+    derived_state = _DerivedStateSimulator()
+    server_conn = _subscription_server(client, derived_state)
+
+    wait_task = asyncio.create_task(_wait_for_shutdown_with_optional_ping(server_conn))
+    await asyncio.wait_for(
+        _wait_until(lambda: server_conn.subscription_state == "partial"),
+        timeout=1,
+    )
+    server_conn.request_shutdown()
+    await wait_task
+
+    assert derived_state.refresh_count == 1
+    assert len(client.listen_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_initial_attachment_commit_rotates_to_materialized_resource_uris() -> None:
+    client = _ListenerClientSimulator(
+        _modern_discovery({"resources": {"subscribe": True}}),
+        scripts=[[], []],
+    )
+    derived_state = _DerivedStateSimulator(
+        refresh_states=[
+            ("ui://component/initial",),
+            ("ui://component/initial",),
+        ]
+    )
+    server_conn = _subscription_server(client, derived_state, ready=False)
+
+    wait_task = asyncio.create_task(_wait_for_shutdown_with_optional_ping(server_conn))
+    await asyncio.wait_for(client.listen_opened.wait(), timeout=1)
+    assert derived_state.refresh_count == 0
+
+    server_conn._callback_runtime.mark_subscription_ready()
+    await asyncio.wait_for(_wait_until(lambda: len(client.listen_calls) == 2), timeout=1)
+    server_conn.request_shutdown()
+    await wait_task
+
+    assert [call["resource_subscriptions"] for call in client.listen_calls] == [
+        (),
+        ("ui://component/initial",),
+    ]
+    assert client.max_active_listeners == 1
+
+
+@pytest.mark.asyncio
+async def test_resource_events_rotate_serial_listener_without_planned_backoff() -> None:
+    client = _ListenerClientSimulator(
+        _modern_discovery(
+            {"resources": {"subscribe": True, "listChanged": True}}
+        ),
+        scripts=[
+            [],
+            [ResourcesListChanged()],
+            [ResourceUpdated(uri="ui://component/two")],
+            [],
+        ],
+    )
+    derived_state = _DerivedStateSimulator(
+        refresh_states=[
+            ("ui://component/one",),
+            ("ui://component/one",),
+            ("ui://component/two",),
+            ("ui://component/three",),
+        ],
+        event_states=[
+            ("ui://component/two",),
+            ("ui://component/three",),
+        ],
+    )
+    server_conn = _subscription_server(client, derived_state)
+
+    wait_task = asyncio.create_task(_wait_for_shutdown_with_optional_ping(server_conn))
+    await asyncio.wait_for(_wait_until(lambda: len(client.listen_calls) == 4), timeout=0.2)
+    server_conn.request_shutdown()
+    await wait_task
+
+    assert [call["resource_subscriptions"] for call in client.listen_calls] == [
+        (),
+        ("ui://component/one",),
+        ("ui://component/two",),
+        ("ui://component/three",),
+    ]
+    assert [type(event) for event in derived_state.events] == [
+        ResourcesListChanged,
+        ResourceUpdated,
+    ]
+    assert client.max_active_listeners == 1
+    assert client.active_listeners == 0
 
 
 @pytest.mark.asyncio

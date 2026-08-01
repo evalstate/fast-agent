@@ -535,6 +535,9 @@ class ToolEventCapturingDisplay(CapturingConsoleDisplay):
         metadata: dict[str, object] | None = None,
         tool_call_id: str | None = None,
         type_label: str | None = None,
+        source_label: str | None = None,
+        server_name: str | None = None,
+        request_count: int = 1,
         show_hook_indicator: bool = False,
     ) -> None:
         del (
@@ -546,6 +549,9 @@ class ToolEventCapturingDisplay(CapturingConsoleDisplay):
             metadata,
             tool_call_id,
             type_label,
+            source_label,
+            server_name,
+            request_count,
             show_hook_indicator,
         )
         self.events.append(f"tool_call:{tool_name}")
@@ -560,6 +566,8 @@ class ToolEventCapturingDisplay(CapturingConsoleDisplay):
         tool_call_id: str | None = None,
         type_label: str | None = None,
         truncate_content: bool = True,
+        source_label: str | None = None,
+        server_name: str | None = None,
         show_hook_indicator: bool = False,
     ) -> None:
         del (
@@ -570,6 +578,8 @@ class ToolEventCapturingDisplay(CapturingConsoleDisplay):
             tool_call_id,
             type_label,
             truncate_content,
+            source_label,
+            server_name,
             show_hook_indicator,
         )
         self.events.append(f"tool_result:{tool_name}")

@@ -1672,7 +1672,7 @@ class TerminalImageSettings(BaseModel):
         "unicode",
         "none",
     ] = "auto"
-    """Terminal image backend to use."""
+    """Terminal image backend; automatic Sixel rendering is fitted to the viewport."""
 
     width: TerminalImageSize = "80%"
     """Image render width: cells, percentage (e.g. '80%'), 'auto', or null."""
@@ -1704,6 +1704,28 @@ class TerminalImageSettings(BaseModel):
             if stripped.isdecimal():
                 return int(stripped)
         raise ValueError("terminal image size must be an integer, percentage, 'auto', or null")
+
+
+class ToolDisplaySettings(BaseModel):
+    """Tool call/result presentation settings."""
+
+    layout: Literal["compact", "full"] = "compact"
+    """Compact summary-first transcript or the full legacy tool cards."""
+
+    arguments: Literal["auto", "all", "none"] = "auto"
+    """Tool argument bodies: specialized defaults, all, or none."""
+
+    results: Literal["auto", "all", "none"] = "auto"
+    """Tool result bodies: specialized defaults, all, or none."""
+
+    show_successful_file_reads: bool = False
+    """Show successful complete read_text_file activity in compact layout."""
+
+    stream_edit_previews: Literal["off", "primary", "all"] = "primary"
+    """Stream apply_patch/edit_file previews for no agents, the primary agent, or all agents."""
+
+    aggregate_parallel: bool = True
+    """Aggregate safe parallel calls to the same generic tool."""
 
 
 class TUISettings(BaseModel):
@@ -1788,6 +1810,8 @@ class LoggerSettings(BaseModel):
     """Wrap Syntax-rendered code blocks instead of cropping at the viewport edge"""
     terminal_images: TerminalImageSettings = Field(default_factory=TerminalImageSettings)
     """Render image content in capable terminals."""
+    tool_display: ToolDisplaySettings = Field(default_factory=ToolDisplaySettings)
+    """Configure compact/full tool call and result presentation."""
     apply_patch_preview_max_lines: int | None = Field(
         default=120,
         description=(

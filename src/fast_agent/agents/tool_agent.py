@@ -39,9 +39,11 @@ from fast_agent.mcp.tool_result_metadata import (
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 from fast_agent.tools.invocation_context import local_tool_invocation_context
+from fast_agent.tools.tool_sources import FAST_AGENT_TOOL_SOURCE_META, TOOL_SOURCE_LABELS
 from fast_agent.tools.transient_artifacts import TransientArtifactStore
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams, ToolTimingInfo
 from fast_agent.ui.message_display_helpers import resolve_highlight_indexes
+from fast_agent.ui.tool_display import ToolCallDisplayRequest, ToolResultDisplayRequest
 from fast_agent.utils.async_utils import gather_with_cancel
 
 if TYPE_CHECKING:
@@ -267,6 +269,25 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             return 0
         return sum(
             1 for _, tool_request in tool_call_items if tool_request.params.name in agent_tool_names
+        )
+
+    def _tool_display_source_label(
+        self,
+        tool_name: str,
+        metadata: Mapping[str, Any] | None,
+    ) -> str | None:
+        if tool_name in self._card_tool_names:
+            return "Card"
+        if tool_name in self._agent_tools:
+            return "Agent"
+        if metadata is None:
+            return None
+        source = metadata.get(FAST_AGENT_TOOL_SOURCE_META)
+        if not isinstance(source, str):
+            return None
+        return next(
+            (label for key, label in TOOL_SOURCE_LABELS.items() if key == source),
+            None,
         )
 
     def _agent_tool_description(
@@ -670,33 +691,59 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             )
         return plan.planned_calls, None
 
-    def _show_planned_tool_call(
+    def _planned_tool_call_display_request(
         self,
         planned_call: PlannedToolCall,
         *,
         available_tools: list[str],
         tool_metadata: dict[str, dict[str, Any]],
-        parallel: bool,
-    ) -> None:
+    ) -> ToolCallDisplayRequest | None:
         metadata = self._jsonable_tool_metadata(self._tool_display_metadata(planned_call.name))
         if metadata:
             tool_metadata[planned_call.correlation_id] = metadata
 
         if self._is_builtin_subagent_tool(metadata):
             self._show_subagent_message(planned_call.arguments)
-            return
+            return None
 
-        self.display.show_tool_call(
-            name=self.name,
+        return ToolCallDisplayRequest(
             tool_args=planned_call.arguments,
             bottom_items=available_tools,
             tool_name=planned_call.name,
             highlight_indexes=resolve_highlight_indexes(available_tools, planned_call.name),
             max_item_length=12,
+            name=self.name,
             metadata=metadata,
-            tool_call_id=planned_call.correlation_id if parallel else None,
+            tool_call_id=planned_call.correlation_id,
+            source_label=self._tool_display_source_label(planned_call.name, metadata),
             show_hook_indicator=self.has_before_tool_call_hook,
         )
+
+    def _show_planned_tool_call(
+        self,
+        planned_call: PlannedToolCall,
+        *,
+        available_tools: list[str],
+        tool_metadata: dict[str, dict[str, Any]],
+    ) -> None:
+        request = self._planned_tool_call_display_request(
+            planned_call,
+            available_tools=available_tools,
+            tool_metadata=tool_metadata,
+        )
+        if request is not None:
+            self.display.show_tool_call(
+                request.tool_name,
+                request.tool_args,
+                bottom_items=request.bottom_items,
+                highlight_indexes=request.highlight_indexes,
+                max_item_length=request.max_item_length,
+                name=request.name,
+                metadata=request.metadata,
+                tool_call_id=request.tool_call_id,
+                source_label=request.source_label,
+                show_hook_indicator=request.show_hook_indicator,
+            )
 
     @staticmethod
     def _is_builtin_subagent_tool(metadata: Mapping[str, Any] | None) -> bool:
@@ -715,6 +762,28 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             name=f"{self.name} → {requested_subagent_display_label(arguments.get('label'))}",
         )
 
+    async def _tool_result_display_request(
+        self,
+        planned_call: PlannedToolCall,
+        result: CallToolResult,
+        *,
+        duration_ms: float,
+        tool_call_id: str | None,
+    ) -> ToolResultDisplayRequest | None:
+        metadata = self._tool_display_metadata(planned_call.name)
+        if self._is_builtin_subagent_tool(metadata):
+            await self._show_subagent_result(result)
+            return None
+        return ToolResultDisplayRequest(
+            result=result,
+            name=self.name,
+            tool_name=planned_call.name,
+            timing_ms=duration_ms,
+            tool_call_id=tool_call_id,
+            source_label=self._tool_display_source_label(planned_call.name, metadata),
+            show_hook_indicator=self.has_after_tool_call_hook,
+        )
+
     async def _show_tool_result(
         self,
         planned_call: PlannedToolCall,
@@ -723,18 +792,22 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         duration_ms: float,
         tool_call_id: str | None,
     ) -> None:
-        metadata = self._tool_display_metadata(planned_call.name)
-        if self._is_builtin_subagent_tool(metadata):
-            await self._show_subagent_result(result)
-            return
-        self.display.show_tool_result(
-            name=self.name,
-            result=result,
-            tool_name=planned_call.name,
-            timing_ms=duration_ms,
+        request = await self._tool_result_display_request(
+            planned_call,
+            result,
+            duration_ms=duration_ms,
             tool_call_id=tool_call_id,
-            show_hook_indicator=self.has_after_tool_call_hook,
         )
+        if request is not None:
+            self.display.show_tool_result(
+                request.result,
+                name=request.name,
+                tool_name=request.tool_name,
+                timing_ms=request.timing_ms,
+                tool_call_id=request.tool_call_id,
+                source_label=request.source_label,
+                show_hook_indicator=request.show_hook_indicator,
+            )
 
     async def _show_subagent_result(
         self,
@@ -810,6 +883,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         results = await gather_with_cancel(run_one(call) for call in planned_calls)
         tool_results: dict[str, CallToolResult] = {}
         tool_timings: dict[str, ToolTimingInfo] = {}
+        display_requests: list[ToolResultDisplayRequest] = []
         for planned_call, item in zip(planned_calls, results, strict=False):
             if isinstance(item, BaseException):
                 result = CallToolResult(
@@ -825,12 +899,15 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 timing_ms=duration_ms,
                 transport_channel=None,
             )
-            await self._show_tool_result(
+            display_request = await self._tool_result_display_request(
                 planned_call,
                 result,
                 duration_ms=duration_ms,
                 tool_call_id=planned_call.correlation_id,
             )
+            if display_request is not None:
+                display_requests.append(display_request)
+        self.display.show_parallel_tool_results(display_requests)
         return tool_results, tool_timings
 
     async def _run_sequential_tool_calls(
@@ -855,7 +932,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 planned_call,
                 result,
                 duration_ms=duration_ms,
-                tool_call_id=None,
+                tool_call_id=planned_call.correlation_id,
             )
         return tool_results, tool_timings
 
@@ -890,13 +967,19 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         )
 
         if should_parallel and planned_calls:
-            for planned_call in planned_calls:
-                self._show_planned_tool_call(
-                    planned_call,
-                    available_tools=available_tools,
-                    tool_metadata=tool_metadata,
-                    parallel=True,
+            display_requests = [
+                display_request
+                for planned_call in planned_calls
+                if (
+                    display_request := self._planned_tool_call_display_request(
+                        planned_call,
+                        available_tools=available_tools,
+                        tool_metadata=tool_metadata,
+                    )
                 )
+                is not None
+            ]
+            self.display.show_parallel_tool_calls(display_requests)
             executed_results, executed_timings = await self._run_parallel_tool_calls(
                 planned_calls,
                 request_params=request_params,
@@ -916,7 +999,6 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 planned_call,
                 available_tools=available_tools,
                 tool_metadata=tool_metadata,
-                parallel=False,
             )
         executed_results, executed_timings = await self._run_sequential_tool_calls(
             planned_calls,

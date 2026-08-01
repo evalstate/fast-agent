@@ -17,7 +17,7 @@ from mcp_types import TextContent
 
 import fast_agent.tools.local_shell_executor as local_shell_executor
 import fast_agent.tools.shell_runtime as shell_runtime_module
-from fast_agent.config import Settings, ShellSettings
+from fast_agent.config import LoggerSettings, Settings, ShellSettings, ToolDisplaySettings
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     FAST_AGENT_SHELL_PROCESS_METADATA,
@@ -2834,6 +2834,27 @@ async def test_execute_no_output_shows_compact_exit_banner_detail() -> None:
 
 
 @pytest.mark.asyncio
+async def test_compact_tool_shell_defers_live_output_to_result_summary() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        config=Settings(),
+        shell_environment=_DirectShellEnvironment(
+            stream_output=True,
+            stdout="hidden compact output\n",
+        ),
+    )
+
+    with console.console.capture() as capture:
+        result = await runtime.execute({"command": "compact-output"})
+
+    assert "hidden compact output" not in capture.get()
+    assert tool_result_display_metadata(result).get("suppress_display") is False
+    assert isinstance(result.content[0], TextContent)
+    assert "hidden compact output" in result.content[0].text
+
+
+@pytest.mark.asyncio
 async def test_execute_direct_shell_displays_streamed_output_once() -> None:
     logger = logging.getLogger("shell-runtime-test")
     runtime = ShellRuntime(
@@ -2935,7 +2956,10 @@ async def test_execute_live_display_truncates_with_head_and_tail_windows() -> No
         activation_reason="test",
         logger=logger,
         timeout_seconds=10,
-        config=Settings(shell_execution=ShellSettings(output_display_lines=6, show_bash=True)),
+        config=Settings(
+            logger=LoggerSettings(tool_display=ToolDisplaySettings(results="all")),
+            shell_execution=ShellSettings(output_display_lines=6, show_bash=True),
+        ),
     )
 
     command = f'"{sys.executable}" -c "for i in range(1, 11): print(\'out-{{0:02d}}\'.format(i))"'

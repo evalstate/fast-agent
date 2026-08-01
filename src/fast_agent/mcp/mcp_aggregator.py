@@ -15,6 +15,8 @@ from typing import (
 )
 
 from mcp import GetPromptResult, ReadResourceResult
+from mcp.client import CacheMode
+from mcp.client.subscriptions import ServerEvent
 from mcp.shared.dispatcher import ProgressFnT
 from mcp.shared.exceptions import MCPError
 from mcp_types import (
@@ -155,6 +157,7 @@ class _PromptNameResolution:
 @dataclass(frozen=True, slots=True)
 class _AttachedRegistryScanClient:
     aggregator: "MCPAggregator"
+    cache_mode: CacheMode = "use"
 
     async def get_capabilities(self, server_name: str) -> ServerCapabilities | None:
         return await self.aggregator.get_capabilities(server_name)
@@ -167,7 +170,11 @@ class _AttachedRegistryScanClient:
     ) -> ReadResourceResult:
         if server_name is None:
             raise ValueError("server_name is required for attached registry scans")
-        return await self.aggregator._get_resource_from_server(server_name, resource_uri)
+        return await self.aggregator._get_resource_from_server(
+            server_name,
+            resource_uri,
+            cache_mode=self.cache_mode,
+        )
 
 
 METHOD_NOT_FOUND_ERROR_CODE = -32601
@@ -755,7 +762,12 @@ class MCPAggregator(ContextDependent):
             if attachment_owned and disconnect and self._persistent_connection_manager is not None:
                 await self._persistent_connection_manager.disconnect_server(server_name)
 
-    async def _fetch_server_tools(self, server_name: str) -> list[Tool]:
+    async def _fetch_server_tools(
+        self,
+        server_name: str,
+        *,
+        cache_mode: CacheMode = "use",
+    ) -> list[Tool]:
         supports_tools = await self.server_supports_feature(server_name, "tools")
         if not supports_tools:
             logger.debug(
@@ -768,7 +780,7 @@ class MCPAggregator(ContextDependent):
                 operation_type="tools/list",
                 operation_name="",
                 method_name="list_tools",
-                method_args={},
+                method_args={"cache_mode": cache_mode} if cache_mode != "use" else {},
             )
             return result.tools or []
         except Exception as e:
@@ -784,6 +796,7 @@ class MCPAggregator(ContextDependent):
         server_name: str,
         *,
         strict: bool = False,
+        cache_mode: CacheMode = "use",
     ) -> list[Prompt]:
         if not await self.server_supports_feature(server_name, "prompts"):
             logger.debug(f"Server '{server_name}' does not support prompts")
@@ -795,7 +808,7 @@ class MCPAggregator(ContextDependent):
                 operation_type="prompts/list",
                 operation_name="",
                 method_name="list_prompts",
-                method_args={},
+                method_args={"cache_mode": cache_mode} if cache_mode != "use" else {},
             )
             return result.prompts
         except Exception as e:
@@ -855,10 +868,11 @@ class MCPAggregator(ContextDependent):
             server_name,
             owner=self._attachment_owner,
         )
+        callback_runtime: MCPClientCallbackRuntime | None = None
         try:
             await self._clear_capabilities_for_forced_reconnect(server_name, attach_options)
             if self.connection_persistence:
-                await self._connect_persistent_server(
+                callback_runtime = await self._connect_persistent_server(
                     server_name,
                     resolved_config,
                     attach_options,
@@ -869,6 +883,8 @@ class MCPAggregator(ContextDependent):
                 discovery,
                 runtime_config=server_config,
             )
+            if callback_runtime is not None:
+                callback_runtime.mark_subscription_ready()
         except BaseException:
             self._attachment_configs.pop(server_name, None)
             await self._rollback_server_attachment(
@@ -962,7 +978,7 @@ class MCPAggregator(ContextDependent):
         server_name: str,
         server_config: MCPServerSettings,
         attach_options: MCPAttachOptions,
-    ) -> None:
+    ) -> MCPClientCallbackRuntime:
         logger.info(
             f"Creating attached MCP client runtime for server: {server_name}",
             data={
@@ -974,21 +990,40 @@ class MCPAggregator(ContextDependent):
 
         manager = self._require_connection_manager()
         connect = manager.reconnect_server if attach_options.force_reconnect else manager.get_server
+        callback_runtime = self._create_callback_runtime(server_name)
         server_conn = await connect(
             server_name,
             server_config=server_config,
-            callback_runtime=self._create_callback_runtime(server_name),
+            callback_runtime=callback_runtime,
             startup_timeout_seconds=attach_options.startup_timeout_seconds,
             trigger_oauth=attach_options.trigger_oauth,
             oauth_event_handler=attach_options.oauth_event_handler,
             allow_oauth_paste_fallback=attach_options.allow_oauth_paste_fallback,
         )
         await self._record_connection_negotiation(server_name, server_conn)
+        return server_conn._callback_runtime
 
-    async def _discover_server_attachment(self, server_name: str) -> _AttachmentDiscovery:
-        tools = await self._fetch_server_tools(server_name)
-        prompts = await self._fetch_server_prompts(server_name, strict=True)
-        mcp_skill_registry = await self._scan_mcp_skill_registry(server_name)
+    async def _discover_server_attachment(
+        self,
+        server_name: str,
+        *,
+        cache_mode: CacheMode = "use",
+    ) -> _AttachmentDiscovery:
+        if cache_mode == "use":
+            tools = await self._fetch_server_tools(server_name)
+            prompts = await self._fetch_server_prompts(server_name, strict=True)
+            mcp_skill_registry = await self._scan_mcp_skill_registry(server_name)
+        else:
+            tools = await self._fetch_server_tools(server_name, cache_mode=cache_mode)
+            prompts = await self._fetch_server_prompts(
+                server_name,
+                strict=True,
+                cache_mode=cache_mode,
+            )
+            mcp_skill_registry = await self._scan_mcp_skill_registry(
+                server_name,
+                cache_mode=cache_mode,
+            )
         namespace = self.server_display_name(server_name)
         namespaced_tools = [
             NamespacedTool(
@@ -1000,7 +1035,13 @@ class MCPAggregator(ContextDependent):
         ]
         self._staged_discovery_tools[server_name] = namespaced_tools
         try:
-            _, skybridge_config = await self._evaluate_skybridge_for_server(server_name)
+            if cache_mode == "use":
+                _, skybridge_config = await self._evaluate_skybridge_for_server(server_name)
+            else:
+                _, skybridge_config = await self._evaluate_skybridge_for_server(
+                    server_name,
+                    cache_mode=cache_mode,
+                )
         finally:
             self._staged_discovery_tools.pop(server_name, None)
         return _AttachmentDiscovery(
@@ -1062,10 +1103,49 @@ class MCPAggregator(ContextDependent):
                 if server_name not in self._attached_server_names:
                     self._attached_server_names.append(server_name)
 
-    async def _refresh_attached_server_cache(self, server_name: str) -> SkybridgeServerConfig:
-        discovery = await self._discover_server_attachment(server_name)
+    async def _refresh_attached_server_cache(
+        self,
+        server_name: str,
+        *,
+        cache_mode: CacheMode = "use",
+    ) -> SkybridgeServerConfig:
+        discovery = await self._discover_server_attachment(server_name, cache_mode=cache_mode)
         await self._commit_server_attachment(server_name, discovery)
         return discovery.skybridge
+
+    def selected_materialized_resource_uris(self, server_name: str) -> tuple[str, ...]:
+        """Return canonical materialized UI resource URIs for modern updates."""
+        config = self._skybridge_configs.get(self._resolve_server_key(server_name))
+        if config is None:
+            return ()
+        return tuple(sorted({str(resource.uri) for resource in config.ui_resources}))
+
+    async def refresh_subscription_state(self, server_name: str) -> tuple[str, ...]:
+        """Force and atomically commit authoritative state for an acknowledged listener."""
+        server_name = self._resolve_server_key(server_name)
+        async with self._lifecycle_lock:
+            if self._closed:
+                return ()
+            async with self._attachment_locks.setdefault(server_name, Lock()):
+                if server_name not in self._attached_server_names:
+                    return ()
+                await self._refresh_attached_server_cache(
+                    server_name,
+                    cache_mode="refresh",
+                )
+                return self.selected_materialized_resource_uris(server_name)
+
+    async def handle_subscription_event(
+        self,
+        server_name: str,
+        event: ServerEvent,
+    ) -> None:
+        """Converge all attached derived state for a modern level-triggered event."""
+        logger.debug(
+            "Refreshing authoritative MCP state after subscription event",
+            data={"server_name": server_name, "event": type(event).__name__},
+        )
+        await self.refresh_subscription_state(server_name)
 
     async def _rollback_server_attachment(
         self,
@@ -1251,6 +1331,8 @@ class MCPAggregator(ContextDependent):
     async def _evaluate_skybridge_for_server(
         self,
         server_name: str,
+        *,
+        cache_mode: CacheMode = "use",
     ) -> tuple[str, SkybridgeServerConfig]:
         """Inspect a single server for Skybridge-compatible resources."""
         config = SkybridgeServerConfig(server_name=server_name)
@@ -1268,7 +1350,13 @@ class MCPAggregator(ContextDependent):
         if not supports_resources:
             return server_name, config
 
-        await self._collect_skybridge_resources(server_name, config, tool_configs)
+        await self._collect_skybridge_resources(
+            server_name,
+            config,
+            tool_configs,
+            cache_mode=cache_mode,
+            strict=cache_mode == "refresh",
+        )
         self._link_skybridge_tools_to_resources(config, tool_configs)
         self._warn_if_app_resources_are_unexposed(server_name, config, tool_configs)
         config.tools = tool_configs
@@ -1338,6 +1426,9 @@ class MCPAggregator(ContextDependent):
         server_name: str,
         config: SkybridgeServerConfig,
         tool_configs: list[SkybridgeToolConfig],
+        *,
+        cache_mode: CacheMode = "use",
+        strict: bool = False,
     ) -> None:
         logger.info(
             "Scanning MCP app resources",
@@ -1349,7 +1440,17 @@ class MCPAggregator(ContextDependent):
             ),
         )
         try:
-            resources = await self._list_resources_from_server(server_name, check_support=False)
+            if cache_mode == "use":
+                resources = await self._list_resources_from_server(
+                    server_name,
+                    check_support=False,
+                )
+            else:
+                resources = await self._list_resources_from_server(
+                    server_name,
+                    check_support=False,
+                    cache_mode=cache_mode,
+                )
         except Exception as exc:
             config.warnings.append(f"Failed to list resources: {exc}")
             logger.error(
@@ -1362,6 +1463,8 @@ class MCPAggregator(ContextDependent):
                     extra={"error_message": str(exc)},
                 ),
             )
+            if strict:
+                raise
             return
         logger.info(
             "MCP app resource scan complete",
@@ -1385,13 +1488,25 @@ class MCPAggregator(ContextDependent):
                 continue
 
             config.ui_resources.append(sky_resource)
-            await self._read_skybridge_resource(
-                server_name,
-                uri_str,
-                sky_resource,
-                config,
-                expected_mime_by_uri,
-            )
+            if cache_mode == "use":
+                await self._read_skybridge_resource(
+                    server_name,
+                    uri_str,
+                    sky_resource,
+                    config,
+                    expected_mime_by_uri,
+                    strict=strict,
+                )
+            else:
+                await self._read_skybridge_resource(
+                    server_name,
+                    uri_str,
+                    sky_resource,
+                    config,
+                    expected_mime_by_uri,
+                    cache_mode=cache_mode,
+                    strict=strict,
+                )
 
     @staticmethod
     def _skybridge_resource_candidate(
@@ -1427,16 +1542,25 @@ class MCPAggregator(ContextDependent):
         sky_resource: SkybridgeResourceConfig,
         config: SkybridgeServerConfig,
         expected_mime_by_uri: dict[str, str],
+        *,
+        cache_mode: CacheMode = "use",
+        strict: bool = False,
     ) -> None:
         try:
-            read_result: ReadResourceResult = await self._get_resource_from_server(
-                server_name,
-                uri_str,
-            )
+            if cache_mode == "use":
+                read_result = await self._get_resource_from_server(server_name, uri_str)
+            else:
+                read_result = await self._get_resource_from_server(
+                    server_name,
+                    uri_str,
+                    cache_mode=cache_mode,
+                )
         except Exception as exc:
             warning = f"Failed to read resource '{uri_str}': {exc}"
             sky_resource.warning = warning
             config.warnings.append(warning)
+            if strict:
+                raise
             return
 
         self._apply_skybridge_resource_contents(sky_resource, read_result)
@@ -1622,8 +1746,13 @@ class MCPAggregator(ContextDependent):
             logger.debug(f"Error getting capabilities for server '{server_name}': {e}")
             return None
 
-    async def _scan_mcp_skill_registry(self, server_name: str) -> McpSkillRegistry | None:
-        client = _AttachedRegistryScanClient(self)
+    async def _scan_mcp_skill_registry(
+        self,
+        server_name: str,
+        *,
+        cache_mode: CacheMode = "use",
+    ) -> McpSkillRegistry | None:
+        client = _AttachedRegistryScanClient(self, cache_mode=cache_mode)
         return await scan_mcp_skill_registry(
             client,
             server_name,
@@ -2406,6 +2535,7 @@ class MCPAggregator(ContextDependent):
                     **self._attachment_manager_kwargs(server_name),
                 )
                 await self._record_connection_negotiation(server_name, server_connection)
+                server_connection._callback_runtime.mark_subscription_ready()
                 client = server_connection.client
                 if client is None:
                     raise RuntimeError(f"MCP client runtime not initialized for '{server_name}'")
@@ -2458,6 +2588,7 @@ class MCPAggregator(ContextDependent):
                     **self._attachment_manager_kwargs(server_name),
                 )
                 await self._record_connection_negotiation(server_name, server_connection)
+                server_connection._callback_runtime.mark_subscription_ready()
                 client = server_connection.client
                 if client is None:
                     raise RuntimeError(f"MCP client runtime not initialized for '{server_name}'")
@@ -2526,6 +2657,7 @@ class MCPAggregator(ContextDependent):
                 **self._attachment_manager_kwargs(server_name),
             )
             await self._record_connection_negotiation(server_name, server_connection)
+            server_connection._callback_runtime.mark_subscription_ready()
             self._log_server_progress(ProgressAction.READY, server_name, "reconnected")
         except Exception as exc:
             self._log_server_progress(
@@ -2577,6 +2709,7 @@ class MCPAggregator(ContextDependent):
                     **self._attachment_manager_kwargs(server_name),
                 )
                 await self._record_connection_negotiation(server_name, server_connection)
+                server_connection._callback_runtime.mark_subscription_ready()
                 client = server_connection.client
                 if client is None:
                     raise RuntimeError(f"MCP client runtime not initialized for '{server_name}'")
@@ -3508,6 +3641,7 @@ class MCPAggregator(ContextDependent):
         method_name: str,
         noun: str,
         extra_args: dict[str, Any] | None = None,
+        cache_mode: CacheMode | None = None,
     ) -> Any:
         """Shared implementation behind ``get_resource`` and ``read_directory``.
 
@@ -3541,6 +3675,8 @@ class MCPAggregator(ContextDependent):
         method_args: dict[str, Any] = {"uri": uri_value}
         if extra_args:
             method_args.update(extra_args)
+        if cache_mode is not None and method_name == "read_resource":
+            method_args["cache_mode"] = cache_mode
 
         try:
             result = await self._execute_on_server(
@@ -3602,7 +3738,11 @@ class MCPAggregator(ContextDependent):
         return result
 
     async def _get_resource_from_server(
-        self, server_name: str, resource_uri: str
+        self,
+        server_name: str,
+        resource_uri: str,
+        *,
+        cache_mode: CacheMode = "use",
     ) -> ReadResourceResult:
         """Internal helper method to get a resource from a specific server."""
         return await self._execute_resource_read(
@@ -3611,6 +3751,7 @@ class MCPAggregator(ContextDependent):
             operation_type="resources/read",
             method_name="read_resource",
             noun="Resource",
+            cache_mode=cache_mode if cache_mode != "use" else None,
         )
 
     async def read_directory(
@@ -3653,7 +3794,11 @@ class MCPAggregator(ContextDependent):
         )
 
     async def _list_resources_from_server(
-        self, server_name: str, *, check_support: bool = True
+        self,
+        server_name: str,
+        *,
+        check_support: bool = True,
+        cache_mode: CacheMode = "use",
     ) -> list[Any]:
         """
         Internal helper method to list resources from a specific server.
@@ -3673,7 +3818,7 @@ class MCPAggregator(ContextDependent):
             operation_type="resources/list",
             operation_name="",
             method_name="list_resources",
-            method_args={},
+            method_args={"cache_mode": cache_mode} if cache_mode != "use" else {},
         )
 
         return result.resources

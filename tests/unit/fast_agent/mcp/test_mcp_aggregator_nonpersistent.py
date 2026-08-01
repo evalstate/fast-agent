@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from mcp.client import CacheMode
 from mcp.shared.exceptions import MCPError as McpError
 from mcp_types import (
     CallToolResult,
@@ -135,9 +136,14 @@ async def test_connection_error_does_not_replay_tool_call() -> None:
             return SimpleNamespace(client=_ToolClient(), negotiation="adopt")
 
         async def reconnect_server(self, *args, **kwargs):
+            callback_runtime = kwargs["callback_runtime"]
             del args, kwargs
             self.reconnect_count += 1
-            return SimpleNamespace(client=_ReconnectedClient(), negotiation="adopt")
+            return SimpleNamespace(
+                client=_ReconnectedClient(),
+                negotiation="adopt",
+                _callback_runtime=callback_runtime,
+            )
 
     manager = _PersistentManager()
     aggregator._persistent_connection_manager = cast("MCPConnectionManager", manager)
@@ -191,9 +197,14 @@ async def test_connection_error_replays_list_operation_once() -> None:
             return SimpleNamespace(client=_DisconnectedClient(), negotiation="adopt")
 
         async def reconnect_server(self, *args, **kwargs):
+            callback_runtime = kwargs["callback_runtime"]
             del args, kwargs
             self.reconnect_count += 1
-            return SimpleNamespace(client=_ReconnectedClient(), negotiation="adopt")
+            return SimpleNamespace(
+                client=_ReconnectedClient(),
+                negotiation="adopt",
+                _callback_runtime=callback_runtime,
+            )
 
     manager = _PersistentManager()
     aggregator._persistent_connection_manager = cast("MCPConnectionManager", manager)
@@ -689,8 +700,12 @@ async def test_attach_server_force_reconnect_refreshes_capabilities_cache(
             raise AssertionError(f"Unexpected MCP method: {method_name}")
 
         async def _evaluate_skybridge_for_server(
-            self, server_name: str
+            self,
+            server_name: str,
+            *,
+            cache_mode: CacheMode = "use",
         ) -> tuple[str, SkybridgeServerConfig]:
+            del cache_mode
             return server_name, SkybridgeServerConfig(server_name=server_name)
 
     aggregator = _ReconnectAwareAggregator(

@@ -107,8 +107,16 @@ async def test_connection_recovery_emits_started_and_succeeded(
 ) -> None:
     class _Manager:
         async def reconnect_server(self, server_name, callback_runtime):
-            del server_name, callback_runtime
-            return type("_Connection", (), {"client": object(), "negotiation": "adopt"})()
+            del server_name
+            return type(
+                "_Connection",
+                (),
+                {
+                    "client": object(),
+                    "negotiation": "adopt",
+                    "_callback_runtime": callback_runtime,
+                },
+            )()
 
     aggregator = MCPAggregator(
         server_names=["alpha"],
@@ -172,8 +180,16 @@ async def test_session_reconnect_retry_exhaustion_emits_terminal_failure(
 ) -> None:
     class _Manager:
         async def reconnect_server(self, server_name, callback_runtime):
-            del server_name, callback_runtime
-            return type("_Connection", (), {"client": object(), "negotiation": "adopt"})()
+            del server_name
+            return type(
+                "_Connection",
+                (),
+                {
+                    "client": object(),
+                    "negotiation": "adopt",
+                    "_callback_runtime": callback_runtime,
+                },
+            )()
 
     aggregator = MCPAggregator(
         server_names=["alpha"],

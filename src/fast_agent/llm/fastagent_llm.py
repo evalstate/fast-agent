@@ -132,6 +132,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     PARAM_SERVICE_TIER = "service_tier"
     PARAM_STRUCTURED_SCHEMA = "structured_schema"
     PARAM_STRUCTURED_TOOL_POLICY = "structured_tool_policy"
+    PARAM_SAMPLING_TOOL_CHOICE = "sampling_tool_choice"
+    PARAM_MCP_TOOLS = "tools"
+    PARAM_MCP_TOOL_CHOICE = "tool_choice"
 
     # Base set of fields that should always be excluded
     BASE_EXCLUDE_FIELDS: ClassVar[set[str]] = {
@@ -144,6 +147,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         PARAM_SERVICE_TIER,
         PARAM_STRUCTURED_SCHEMA,
         PARAM_STRUCTURED_TOOL_POLICY,
+        PARAM_SAMPLING_TOOL_CHOICE,
+        PARAM_MCP_TOOLS,
+        PARAM_MCP_TOOL_CHOICE,
     }
 
     """

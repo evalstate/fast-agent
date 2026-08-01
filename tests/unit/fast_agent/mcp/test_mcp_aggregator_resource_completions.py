@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pytest
 from mcp_types import CompleteResult, Completion, ReadResourceResult, ResourceTemplate
@@ -11,6 +12,9 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
 from fast_agent.mcp.skybridge import SkybridgeServerConfig
 from fast_agent.skills.mcp_registry import INDEX_URI
+
+if TYPE_CHECKING:
+    from mcp.client import CacheMode
 
 
 class _BaseAggregator(MCPAggregator):
@@ -233,9 +237,13 @@ async def test_skills_index_progress_uses_compact_label(monkeypatch) -> None:
 async def test_app_resource_scan_progress_uses_compact_label(monkeypatch) -> None:
     class _AppsAggregator(_BaseAggregator):
         async def _list_resources_from_server(
-            self, server_name: str, *, check_support: bool = True
+            self,
+            server_name: str,
+            *,
+            check_support: bool = True,
+            cache_mode: CacheMode = "use",
         ):
-            del server_name, check_support
+            del server_name, check_support, cache_mode
             return []
 
     events: list[dict[str, object]] = []

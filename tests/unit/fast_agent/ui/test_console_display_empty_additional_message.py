@@ -227,8 +227,8 @@ def test_reasoning_only_turn_does_not_emit_extra_gap_before_tool_result() -> Non
         return capture.get()
 
     rendered = asyncio.run(_render())
-    assert "Inspecting agent failure tracking\n\n▎▶ dev" in rendered
-    assert "Inspecting agent failure tracking\n\n\n▎▶ dev" not in rendered
+    assert "Inspecting agent failure tracking\n▎▶ dev" in rendered
+    assert "Inspecting agent failure tracking\n\n▎▶ dev" not in rendered
 
 
 def test_reasoning_then_text_has_single_blank_separator() -> None:
