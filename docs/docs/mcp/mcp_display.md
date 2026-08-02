@@ -8,8 +8,7 @@ social:
 ---
 
 Use `/mcp` or `/mcp status` to inspect attached MCP servers in detail. Use
-`/mcp list` for the shorter configured-and-attached inventory. `/mcpstatus`
-remains a terminal compatibility alias.
+`/mcp list` for the shorter configured-and-attached inventory.
 
 Protocol era and transport are separate concepts. A remote Streamable HTTP
 endpoint can negotiate modern or legacy protocol behavior; a legacy protocol
@@ -123,8 +122,18 @@ Cast asset:
 
 The first lines identify the server implementation, version, client, and
 negotiated protocol era. A forced mode is shown as `(forced modern)` or
-`(forced legacy)`. Internal negotiation steps such as discovery, adoption, and
-initialization are not printed.
+`(forced legacy)`. The protocol label reports the negotiated result rather than
+printing internal negotiation steps separately.
+
+Successful negotiation requests are included in `mcp calls:` alongside normal
+operations. Automatic modern negotiation records `discover`; legacy
+negotiation records `initialize`. Forced-modern `adopt` is a local protocol
+choice rather than an outgoing request, so it is not counted. Reconnecting
+increments the negotiation request that is actually sent.
+
+```text
+mcp calls: discover:1, list_tools:1, tool:2
+```
 
 For modern-era connections, `/mcp` omits Session and legacy Health fields.
 Non-modern displays include Session; it contains the observed

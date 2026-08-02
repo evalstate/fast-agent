@@ -173,9 +173,9 @@ fast-agent's MCP client and therefore does not accept this setting.
 - `/mcp disconnect <name>` detaches a server.
 - `/mcp reconnect <name>` reconnects the attached server using its existing target.
 
-In the terminal and ACP, bare `/mcp` is a shortcut for detailed status.
-`/mcpstatus` remains available in the terminal for compatibility. ACP exposes
-`/mcp list` for inventory and top-level `/connect` for ad-hoc targets.
+In the terminal and ACP, bare `/mcp` is a shortcut for detailed status. Both
+surfaces expose `/mcp list` for inventory and top-level `/connect` for ad-hoc
+targets.
 
 ## AgentCard runtime MCP connections (`mcp_connect`)
 

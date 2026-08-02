@@ -42,7 +42,6 @@ mcp:
 - Runtime commands are now explicit: `/mcp attach docs` attaches the configured
   `docs` definition; `/connect TARGET` and `/mcp connect TARGET` always create
   an ad-hoc session definition. `/mcp` and `/mcp status` show status.
-- `/mcpstatus` remains available temporarily and emits a deprecation warning.
 - Startup `--url` is repeatable. Prefer one flag per URL; comma-separated input
   is temporary compatibility behavior.
 - Current schema: [Connect to MCP Servers](client-servers.md) and
