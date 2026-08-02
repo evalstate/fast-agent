@@ -1362,6 +1362,21 @@ def _agent_command_completions(
     return results
 
 
+def _subagents_command_completions(
+    completer: "AgentCompleter",
+    text: str,
+    text_lower: str,
+) -> list[Completion] | None:
+    if not text_lower.startswith("/subagents "):
+        return None
+    _parts, _remainder, results, _needs_subcommand_only = _command_completion_context(
+        completer,
+        command_name="subagents",
+        text=text,
+    )
+    return results
+
+
 def _tools_command_completions(
     completer: "AgentCompleter",
     text: str,
@@ -1412,6 +1427,7 @@ def command_completions(
         _mcp_command_completions,
         _card_command_completions,
         _agent_command_completions,
+        _subagents_command_completions,
     )
     for provider in providers:
         result = provider(completer, text, text_lower)

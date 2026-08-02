@@ -47,8 +47,11 @@ from fast_agent.session import (
     SessionChildLinkSnapshot,
     SessionExecutionStatus,
     get_active_session_manager,
+    subagent_alias_slug,
+    subagent_task_preview,
 )
 from fast_agent.session.history_agent import HistoryAgent
+from fast_agent.session.subagent_runs import SUBAGENT_ALIAS_KEY, SUBAGENT_ORDINAL_KEY
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 from fast_agent.tools.invocation_context import get_local_tool_invocation_context
 from fast_agent.ui.display_suppression import suppress_interactive_display
@@ -490,8 +493,14 @@ def install_subagent_tool(
         )
         context = get_local_tool_invocation_context()
         parent_tool_call_id = context.tool_use_id if context is not None else None
-        child_session = _create_child_session(agent)
-        child_name = f"{agent.name}[{resolved_label}]"
+        child_session = _create_child_session(
+            agent,
+            alias_slug=subagent_alias_slug(label=label, task=message),
+            label=resolved_label,
+            task_preview=subagent_task_preview(message),
+        )
+        child_alias = _child_subagent_alias(child_session)
+        child_name = f"{agent.name}[{child_alias or resolved_label}]"
         clone: ToolAgent | None = None
         status: SessionExecutionStatus = "running"
         response_text = ""
@@ -585,6 +594,7 @@ def install_subagent_tool(
                 FAST_AGENT_SUBAGENT_RESULT_METADATA: _subagent_result_metadata(
                     child_session=child_session,
                     child_name=child_name,
+                    child_alias=child_alias,
                     requested_label=label,
                     label=resolved_label,
                     clone=clone,
@@ -706,6 +716,36 @@ def install_subagent_tool(
     return True
 
 
+def subagent_tool_enabled(agent: object) -> bool:
+    if not isinstance(agent, ToolAgent):
+        return False
+    tool = agent._execution_tools.get(SUBAGENT_TOOL_NAME)
+    return tool is not None and tool.meta == SUBAGENT_TOOL_METADATA
+
+
+def set_subagent_tool_enabled(agent: object, enabled: bool) -> bool:
+    """Apply a runtime-only subagent tool override."""
+    if not isinstance(agent, ToolAgent) or agent.config.tool_only or agent.config.subagent_child:
+        return False
+    source = agent.config.subagent_activation_source
+    if (
+        enabled
+        and agent.config.subagents is False
+        and source in {"configuration", "cli"}
+    ):
+        return False
+    existing = agent._execution_tools.get(SUBAGENT_TOOL_NAME)
+    if enabled and existing is not None and existing.meta != SUBAGENT_TOOL_METADATA:
+        return False
+    if not enabled and agent.config.subagents is False and source in {"configuration", "cli"}:
+        install_subagent_tool(agent)
+        return not subagent_tool_enabled(agent)
+    agent.config.subagents = enabled
+    agent.config.subagent_activation_source = "runtime"
+    install_subagent_tool(agent)
+    return subagent_tool_enabled(agent) is enabled
+
+
 def _subagent_child_input(
     message: str,
     current_user_message: CurrentUserMessage | None,
@@ -752,7 +792,13 @@ def _escape_user_text(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _create_child_session(agent: ToolAgent) -> Session | None:
+def _create_child_session(
+    agent: ToolAgent,
+    *,
+    alias_slug: str,
+    label: str,
+    task_preview: str,
+) -> Session | None:
     """Create a child persistence target when this invocation has an active parent."""
     manager: SessionManager | None = (
         agent.context.session_manager if agent.context is not None else None
@@ -780,6 +826,9 @@ def _create_child_session(agent: ToolAgent) -> Session | None:
                 parent_agent_name=agent.name,
                 parent_tool_call_id=context.tool_use_id if context is not None else None,
             ),
+            alias_slug=alias_slug,
+            label=label,
+            task_preview=task_preview,
         )
     except Exception as exc:
         logger.warning(
@@ -787,6 +836,13 @@ def _create_child_session(agent: ToolAgent) -> Session | None:
             data={"parent_session": parent.info.name, "error": str(exc)},
         )
         return None
+
+
+def _child_subagent_alias(child_session: Session | None) -> str | None:
+    if child_session is None:
+        return None
+    alias = child_session.info.metadata.get(SUBAGENT_ALIAS_KEY)
+    return alias if isinstance(alias, str) else None
 
 
 @contextmanager
@@ -1056,6 +1112,7 @@ def _subagent_result_metadata(
     *,
     child_session: Session | None,
     child_name: str,
+    child_alias: str | None,
     requested_label: str | None,
     label: str,
     clone: ToolAgent | None,
@@ -1087,6 +1144,12 @@ def _subagent_result_metadata(
     metadata: dict[str, object] = {
         "child_session_id": child_session.info.name if child_session is not None else None,
         "child_agent_name": child_name,
+        "alias": child_alias,
+        "ordinal": (
+            child_session.info.metadata.get(SUBAGENT_ORDINAL_KEY)
+            if child_session is not None
+            else None
+        ),
         "requested_label": requested_label,
         "label": label,
         "parent_tool_call_id": parent_tool_call_id,

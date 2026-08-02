@@ -321,6 +321,7 @@ class AgentCompleter(Completer):
             "session": "Manage sessions (/session list|new|resume|title|fork|delete|pin|unpin|export)",
             "card": _catalog_command_description("card"),
             "agent": _catalog_command_description("agent"),
+            "subagents": _catalog_command_description("subagents"),
             "reload": "Reload AgentCards from disk",
             "help": "Show commands and shortcuts",
             "EXIT": "Exit fast-agent, terminating any running workflows",

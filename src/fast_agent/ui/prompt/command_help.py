@@ -5,7 +5,16 @@ from __future__ import annotations
 from fast_agent.commands.command_catalog import CommandSpec, get_command_spec
 from fast_agent.commands.session_export_help import SESSION_EXPORT_USAGE
 
-CATALOG_HELP_COMMANDS = ("skills", "packs", "plugins", "model", "agent", "card", "check")
+CATALOG_HELP_COMMANDS = (
+    "skills",
+    "packs",
+    "plugins",
+    "model",
+    "agent",
+    "subagents",
+    "card",
+    "check",
+)
 
 
 def _catalog_help_lines(command_names: tuple[str, ...]) -> list[str]:

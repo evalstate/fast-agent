@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from filelock import FileLock
+
 from fast_agent.constants import DEFAULT_HOME_DIR
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.paths import resolve_home_paths
@@ -35,6 +37,13 @@ from fast_agent.session.snapshot import (
     load_session_snapshot,
     session_info_from_snapshot,
     snapshot_from_session_info,
+)
+from fast_agent.session.subagent_runs import (
+    SUBAGENT_ALIAS_KEY,
+    SUBAGENT_LABEL_KEY,
+    SUBAGENT_ORDINAL_KEY,
+    SUBAGENT_TASK_PREVIEW_KEY,
+    format_subagent_alias,
 )
 from fast_agent.session.trajectory import TRAJECTORIES_DIR
 from fast_agent.utils.async_utils import run_coroutine
@@ -57,6 +66,7 @@ SESSION_ID_PATTERN = re.compile(
     rf"^(?:[A-Za-z0-9]{{{SESSION_ID_LENGTH}}}|\d{{10}}-[A-Za-z0-9]{{{SESSION_ID_LENGTH}}})$"
 )
 SESSION_LOCK_FILENAME = ".session.lock"
+SUBAGENT_ALIAS_LOCK_FILENAME = ".subagents.lock"
 SESSION_LOCK_STALE_SECONDS = 300
 HISTORY_PREFIX = "history_"
 HISTORY_SUFFIX = ".json"
@@ -785,6 +795,10 @@ class SessionManager:
         self,
         parent: Session,
         child_link: SessionChildLinkSnapshot,
+        *,
+        alias_slug: str | None = None,
+        label: str | None = None,
+        task_preview: str | None = None,
     ) -> Session:
         """Create a detached, non-resumable child below an existing session."""
         if parent.manager is not self:
@@ -794,38 +808,76 @@ class SessionManager:
 
         children_dir = parent.directory / "children"
         children_dir.mkdir(parents=True, exist_ok=True)
-        while True:
-            child_id = self._generate_session_id()
-            child_dir = children_dir / child_id
-            try:
-                child_dir.mkdir()
-            except FileExistsError:
-                continue
-            break
+        lock = FileLock(children_dir / SUBAGENT_ALIAS_LOCK_FILENAME, timeout=5)
+        with lock:
+            ordinal = self._next_subagent_ordinal(children_dir) if alias_slug is not None else None
+            while True:
+                child_id = self._generate_session_id()
+                child_dir = children_dir / child_id
+                try:
+                    child_dir.mkdir()
+                except FileExistsError:
+                    continue
+                break
 
-        now = datetime.now()
-        child = Session(
-            SessionInfo(
-                name=child_id,
-                created_at=now,
-                last_activity=now,
-                history_files=[],
-                metadata={},
-            ),
-            child_dir,
-            manager=self,
-        )
-        snapshot = snapshot_from_session_info(child.info)
-        snapshot.execution.resumable = False
-        snapshot.execution.child_link = child_link
-        snapshot.execution.status = "running"
-        snapshot.execution.started_at = now
-        child._save_snapshot(snapshot)
+            now = datetime.now()
+            metadata: dict[str, Any] = {}
+            if ordinal is not None and alias_slug is not None:
+                metadata[SUBAGENT_ALIAS_KEY] = format_subagent_alias(ordinal, alias_slug)
+                metadata[SUBAGENT_ORDINAL_KEY] = ordinal
+                if label is not None:
+                    metadata[SUBAGENT_LABEL_KEY] = label
+                if task_preview is not None:
+                    metadata[SUBAGENT_TASK_PREVIEW_KEY] = task_preview
+            child = Session(
+                SessionInfo(
+                    name=child_id,
+                    created_at=now,
+                    last_activity=now,
+                    history_files=[],
+                    metadata=metadata,
+                ),
+                child_dir,
+                manager=self,
+            )
+            snapshot = snapshot_from_session_info(child.info)
+            snapshot.execution.resumable = False
+            snapshot.execution.child_link = child_link
+            snapshot.execution.status = "running"
+            snapshot.execution.started_at = now
+            try:
+                child._save_snapshot(snapshot)
+            except Exception:
+                shutil.rmtree(child_dir, ignore_errors=True)
+                raise
         logger.info(
             "Created child session",
-            data={"parent_session": parent.info.name, "child_session": child_id},
+            data={
+                "parent_session": parent.info.name,
+                "child_session": child_id,
+                "subagent_alias": metadata.get(SUBAGENT_ALIAS_KEY),
+            },
         )
         return child
+
+    @staticmethod
+    def _next_subagent_ordinal(children_dir: pathlib.Path) -> int:
+        ordinals: list[int] = []
+        child_count = 0
+        for child_dir in children_dir.iterdir():
+            metadata_file = child_dir / "session.json"
+            if not child_dir.is_dir() or not metadata_file.exists():
+                continue
+            child_count += 1
+            try:
+                with metadata_file.open(encoding="utf-8") as handle:
+                    snapshot = load_session_snapshot(json.load(handle))
+            except Exception:
+                continue
+            ordinal = snapshot.metadata.extras.get(SUBAGENT_ORDINAL_KEY)
+            if isinstance(ordinal, int) and ordinal > 0:
+                ordinals.append(ordinal)
+        return max(max(ordinals, default=0), child_count) + 1
 
     def list_child_sessions(self, parent: Session) -> list[Session]:
         """Return child sessions without changing the active root session."""

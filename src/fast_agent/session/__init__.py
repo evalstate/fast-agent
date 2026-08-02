@@ -59,6 +59,13 @@ from .snapshot import (
     snapshot_from_session_info,
     synthesize_legacy_session_snapshot,
 )
+from .subagent_runs import (
+    SubagentRun,
+    format_subagent_alias,
+    subagent_alias_slug,
+    subagent_run_from_session,
+    subagent_task_preview,
+)
 from .trace_export_errors import (
     InvalidSessionExportTargetError,
     SessionExportAgentNotFoundError,
@@ -120,6 +127,7 @@ __all__ = [
     "SessionTimingSummarySnapshot",
     "SessionTraceExporter",
     "SessionUsageSummarySnapshot",
+    "SubagentRun",
     "TraceExportError",
     "UnsupportedTraceExportFormatError",
     "apply_session_window",
@@ -131,6 +139,7 @@ __all__ = [
     "format_history_summary",
     "format_session_agent_label",
     "format_session_entries",
+    "format_subagent_alias",
     "get_session_history_window",
     "get_active_session_manager",
     "get_session_manager",
@@ -141,6 +150,9 @@ __all__ = [
     "resolve_session_for_save",
     "session_info_from_snapshot",
     "snapshot_from_session_info",
+    "subagent_alias_slug",
+    "subagent_run_from_session",
+    "subagent_task_preview",
     "summarize_session_histories",
     "synthesize_legacy_session_snapshot",
 ]

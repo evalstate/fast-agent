@@ -49,6 +49,7 @@ ModelCommandAction = Literal[
     "unknown",
 ]
 ModelCommandActionCategory = Literal["value", "manager"]
+SubagentsCommandAction = Literal["list", "status", "on", "off", "toggle", "help", "unknown"]
 _ExportValueName = Literal[
     "agent",
     "output",
@@ -149,6 +150,33 @@ def parse_model_command_intent(
             )
         return ModelCommandIntent(action=action, argument=argument)
     return ModelCommandIntent(action="unknown", argument=argument, raw_subcommand=subcmd)
+
+
+@dataclass(frozen=True, slots=True)
+class SubagentsCommandIntent:
+    action: SubagentsCommandAction
+    error: str | None = None
+
+
+def parse_subagents_command_intent(remainder: str | None) -> SubagentsCommandIntent:
+    tokens, error = _strict_command_tokens(remainder, command_name="subagents")
+    if error is not None:
+        return SubagentsCommandIntent(action="unknown", error=error)
+    if not tokens:
+        return SubagentsCommandIntent(action="list")
+    if len(tokens) != 1:
+        return SubagentsCommandIntent(
+            action="unknown",
+            error="Usage: /subagents [list|status|on|off|toggle|help]",
+        )
+
+    action = normalize_command_action("subagents", tokens[0])
+    if action in {"list", "status", "on", "off", "toggle", "help"}:
+        return SubagentsCommandIntent(action=cast("SubagentsCommandAction", action))
+    return SubagentsCommandIntent(
+        action="unknown",
+        error=f"Unknown /subagents action: {tokens[0]}",
+    )
 
 
 AgentCommandAction = Literal["status", "list", "use", "tool_add", "tool_remove", "unknown"]

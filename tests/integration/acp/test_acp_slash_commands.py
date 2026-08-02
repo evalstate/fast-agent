@@ -241,6 +241,7 @@ async def test_slash_command_available_commands() -> None:
     assert "clear" in command_names
     assert "history" in command_names
     assert "session" in command_names
+    assert "subagents" in command_names
 
     # Check status command structure
     status_cmd = next(cmd for cmd in commands if cmd.name == "status")

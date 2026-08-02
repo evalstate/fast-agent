@@ -35,6 +35,7 @@ from fast_agent.commands.handlers import prompts as prompt_handlers
 from fast_agent.commands.handlers import session_export as session_export_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
+from fast_agent.commands.handlers import subagents as subagents_handlers
 from fast_agent.commands.handlers import tools as tools_handlers
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.session_export_help import render_session_export_help_markdown
@@ -100,6 +101,7 @@ from fast_agent.ui.command_payloads import (
     ShowSystemCommand,
     ShowUsageCommand,
     SkillsCommand,
+    SubagentsCommand,
     SwitchAgentCommand,
     TitleSessionCommand,
     UnknownCommand,
@@ -1570,6 +1572,34 @@ async def _dispatch_agent_card_payload(
             return None
 
 
+async def _dispatch_subagents_payload(
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+    session_manager: "SessionManager | None",
+) -> DispatchResult | None:
+    if not isinstance(payload, SubagentsCommand):
+        return None
+
+    result = DispatchResult(handled=True)
+    if payload.error is not None:
+        _print_styled(payload.error, "red")
+        return result
+    context = build_command_context(
+        prompt_provider,
+        agent,
+        session_manager=session_manager,
+    )
+    outcome = await subagents_handlers.handle_subagents_command(
+        context,
+        agent_name=agent,
+        action=payload.action,
+    )
+    await emit_command_outcome(context, outcome)
+    return result
+
+
 async def _dispatch_reload_payload(
     owner: "InteractivePrompt",
     payload: CommandPayload,
@@ -1744,6 +1774,15 @@ async def dispatch_command_payload(
             _DispatchStep(
                 name="session command",
                 run=lambda: _dispatch_session_payload(
+                    payload,
+                    prompt_provider=prompt_provider,
+                    agent=agent,
+                    session_manager=session_manager,
+                ),
+            ),
+            _DispatchStep(
+                name="subagents command",
+                run=lambda: _dispatch_subagents_payload(
                     payload,
                     prompt_provider=prompt_provider,
                     agent=agent,

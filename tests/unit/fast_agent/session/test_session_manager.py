@@ -21,6 +21,7 @@ from fast_agent.session import (
     load_session_snapshot,
     reset_session_manager,
     set_session_manager,
+    subagent_run_from_session,
 )
 
 if TYPE_CHECKING:
@@ -607,6 +608,41 @@ def test_root_session_list_excludes_child_linked_snapshots(tmp_path) -> None:
     expected = {parent.info.name, non_resumable_root.info.name}
     assert {info.name for info in manager.list_sessions()} == expected
     assert {info.name for info in manager.list_sessions(include_empty=False)} == expected
+
+
+def test_child_subagent_aliases_are_numbered_per_parent_session(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    parent = manager.create_session()
+    link = SessionChildLinkSnapshot(
+        parent_session_id=parent.info.name,
+        parent_agent_name="parent",
+    )
+
+    first = manager.create_child_session(
+        parent,
+        link,
+        alias_slug="investigate_item",
+        label="Investigate item",
+        task_preview="Investigate item",
+    )
+    second = manager.create_child_session(
+        parent,
+        link,
+        alias_slug="review_api",
+        label="Review API",
+        task_preview="Review API",
+    )
+
+    first_run = subagent_run_from_session(parent, first)
+    second_run = subagent_run_from_session(parent, second)
+    assert first_run is not None
+    assert second_run is not None
+    assert (first_run.alias, first_run.ordinal) == ("01_investigate_item", 1)
+    assert (second_run.alias, second_run.ordinal) == ("02_review_api", 2)
 
 
 def test_resume_session_includes_hydrator_warnings_in_notices(tmp_path) -> None:

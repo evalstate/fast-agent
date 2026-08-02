@@ -40,6 +40,7 @@ from fast_agent.acp.slash.handlers import plugins as plugins_slash_handlers
 from fast_agent.acp.slash.handlers import session as session_slash_handlers
 from fast_agent.acp.slash.handlers import skills as skills_slash_handlers
 from fast_agent.acp.slash.handlers import status as status_slash_handlers
+from fast_agent.acp.slash.handlers import subagents as subagents_slash_handlers
 from fast_agent.acp.slash.handlers import tools as tools_slash_handlers
 from fast_agent.command_actions import (
     PluginCommandActionContext,
@@ -387,6 +388,12 @@ class SlashCommandHandler:
                 description="Show, select, or connect runtime agents",
                 handler=self._handle_agent,
                 input_hint="[status|list|use <name>|tool add <name>|tool remove <name>]",
+            ),
+            _BuiltinSlashCommandSpec(
+                name="subagents",
+                description="List subagent runs or control the built-in tool",
+                handler=self._handle_subagents,
+                input_hint="[list|status|on|off|toggle|help]",
             ),
             _BuiltinSlashCommandSpec(
                 name="mcp",
@@ -940,6 +947,9 @@ class SlashCommandHandler:
 
     async def _handle_agent(self, arguments: str | None = None) -> str:
         return await cards_slash_handlers.handle_agent(self, arguments)
+
+    async def _handle_subagents(self, arguments: str | None = None) -> str:
+        return await subagents_slash_handlers.handle_subagents(self, arguments)
 
     async def _handle_mcp(self, arguments: str | None = None) -> str:
         return await mcp_slash_handlers.handle_mcp(self, arguments)

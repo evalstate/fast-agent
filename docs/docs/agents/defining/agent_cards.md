@@ -126,6 +126,29 @@ The model calls `subagent(message, model?, label?, include_user_message?)`. Each
   all results; and
 - persists its complete transcript as a nested, non-resumable child session.
 
+Persisted runs receive a short alias scoped to the parent session:
+
+```text
+01_investigate_item
+02_review_api_contract
+```
+
+The ordinal is allocated when the run starts. The slug comes from the supplied
+label, or from the task when no label is supplied, and is normalized to bounded
+lowercase ASCII. Use `/subagents` to list runs in the current session:
+
+```text
+/subagents
+/subagents status
+/subagents off
+/subagents on
+/subagents toggle
+```
+
+`on`, `off`, and `toggle` are runtime-only overrides for the current agent.
+They do not rewrite its AgentCard, and `on` does not override an explicit
+AgentCard or CLI disable.
+
 The tool returns the child's final response first. When the active execution
 environment supports private temporary artifacts, it also returns a temporary
 path to a bounded, line-oriented transcript. The parent can search that file or

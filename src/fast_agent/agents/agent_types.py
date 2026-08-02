@@ -66,7 +66,7 @@ FunctionToolConfig: TypeAlias = (
 )
 
 FunctionToolsConfig: TypeAlias = list[FunctionToolConfig] | None
-SubagentActivationSource: TypeAlias = Literal["configuration", "cli", "instruction"]
+SubagentActivationSource: TypeAlias = Literal["configuration", "cli", "instruction", "runtime"]
 MCPConnectSourceForm: TypeAlias = Literal["list", "mapping"]
 
 

@@ -1622,7 +1622,7 @@ async def test_subagent_persists_terminal_failure_and_cancellation(tmp_path) -> 
         )
         assert failed.is_error
         failed_child_events = [
-            event for event in failed_progress.events if event.agent_name == "failing[brisk-otter]"
+            event for event in failed_progress.events if event.agent_name == "failing[01_fail]"
         ]
         assert failed_child_events[-1].action == ProgressAction.READY
         assert failed_child_events[-1].details == "failed"
@@ -1662,7 +1662,7 @@ async def test_subagent_persists_terminal_failure_and_cancellation(tmp_path) -> 
         cancelled_child_events = [
             event
             for event in cancelled_progress.events
-            if event.agent_name == "blocking[brisk-otter]"
+            if event.agent_name == "blocking[02_cancel]"
         ]
         assert cancelled_child_events[-1].action == ProgressAction.READY
         assert cancelled_child_events[-1].details == "cancelled"
@@ -1679,7 +1679,7 @@ async def test_subagent_persists_terminal_failure_and_cancellation(tmp_path) -> 
             statuses[call_id] = snapshot.execution.status
             if call_id == "tool-cancelled":
                 active_agent = snapshot.continuation.active_agent
-                assert active_agent == "blocking[brisk-otter]"
+                assert active_agent == "blocking[02_cancel]"
                 history_file = snapshot.continuation.agents[active_agent].history_file
                 assert history_file is not None
                 assert (child.directory / history_file).exists()
@@ -1728,7 +1728,9 @@ async def test_subagent_live_display_uses_chat_panels_and_preserves_result_metad
         assert result_message.channels["fast-agent-tool-metadata"]
         assert result.meta is not None
         details = result.meta[FAST_AGENT_SUBAGENT_RESULT_METADATA]
-        assert details["child_agent_name"] == "parent[research-pal]"
+        assert details["child_agent_name"] == "parent[01_research_pal]"
+        assert details["alias"] == "01_research_pal"
+        assert details["ordinal"] == 1
         assert details["requested_label"] == "research-pal"
         assert details["label"] == "research-pal"
         assert details["model_spec"] == "passthrough"
@@ -1753,7 +1755,7 @@ async def test_subagent_live_display_uses_chat_panels_and_preserves_result_metad
                 "assistant",
                 {
                     "message": text,
-                    "name": "subagent: research-pal",
+                    "name": "subagent: 01_research_pal",
                     "model": "passthrough",
                     "bottom_items": [f"session {children[0].info.name}"],
                 },
@@ -1806,8 +1808,8 @@ async def test_parallel_subagent_live_display_keeps_call_and_session_identity(tm
         assert {
             call_id: details["child_agent_name"] for call_id, details in details_by_call.items()
         } == {
-            "call-a": "parent[brisk-otter]",
-            "call-b": "parent[brisk-otter-2]",
+            "call-a": "parent[01_first_task]",
+            "call-b": "parent[02_second_task]",
         }
         assert len({details["child_session_id"] for details in details_by_call.values()}) == 2
         assert not [event for event, _ in display.events if event.startswith("tool_")]
@@ -1816,8 +1818,8 @@ async def test_parallel_subagent_live_display_keeps_call_and_session_identity(tm
             "parent → subagent",
         ]
         assert {payload["name"] for event, payload in display.events if event == "assistant"} == {
-            "subagent: brisk-otter",
-            "subagent: brisk-otter-2",
+            "subagent: 01_first_task",
+            "subagent: 02_second_task",
         }
 
         children = manager.list_child_sessions(parent_session)
@@ -1884,7 +1886,7 @@ async def test_mcp_subagent_live_display_uses_chat_panels_for_supplied_label(tmp
                 "assistant",
                 {
                     "message": text,
-                    "name": "subagent: research-pal",
+                    "name": "subagent: 01_research_pal",
                     "model": "passthrough",
                     "bottom_items": [f"session {details['child_session_id']}"],
                 },
@@ -1957,7 +1959,7 @@ async def test_mcp_parallel_subagent_live_display_keeps_generated_call_identity(
                 "assistant",
                 {
                     "message": generated_text,
-                    "name": f"subagent: {generated_details['label']}",
+                    "name": f"subagent: {generated_details['alias']}",
                     "model": "passthrough",
                     "bottom_items": [f"session {generated_details['child_session_id']}"],
                 },
@@ -1966,7 +1968,7 @@ async def test_mcp_parallel_subagent_live_display_keeps_generated_call_identity(
                 "assistant",
                 {
                     "message": supplied_text,
-                    "name": "subagent: reviewer",
+                    "name": "subagent: 02_reviewer",
                     "model": "passthrough",
                     "bottom_items": [f"session {supplied_details['child_session_id']}"],
                 },
@@ -2015,7 +2017,7 @@ async def test_mcp_subagent_error_result_uses_assistant_panel(tmp_path) -> None:
                 "assistant",
                 {
                     "message": "Error: simulated failure",
-                    "name": "subagent: reviewer",
+                    "name": "subagent: 01_reviewer",
                     "model": "passthrough",
                     "bottom_items": [f"session {details['child_session_id']}"],
                 },

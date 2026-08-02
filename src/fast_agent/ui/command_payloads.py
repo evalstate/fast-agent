@@ -302,6 +302,13 @@ class AgentCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class SubagentsCommand(CommandBase):
+    action: str
+    error: str | None = None
+    kind: Literal["subagents_command"] = "subagents_command"
+
+
+@dataclass(frozen=True, slots=True)
 class ListSessionsCommand(CommandBase):
     show_help: bool = False
     kind: Literal["list_sessions"] = "list_sessions"
@@ -510,6 +517,7 @@ CommandPayload = (
     | CardCommand
     | ReloadAgentsCommand
     | AgentCommand
+    | SubagentsCommand
     | ListSessionsCommand
     | CreateSessionCommand
     | SwitchSessionCommand

@@ -501,6 +501,7 @@ def _resolve_subagent_activation_source(agent: "AgentProtocol | None") -> str | 
         "cli": "CLI",
         "configuration": "configuration",
         "instruction": "instruction directive",
+        "runtime": "runtime override",
     }[source]
 
 

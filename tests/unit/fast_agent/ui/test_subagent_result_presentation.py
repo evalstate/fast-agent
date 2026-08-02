@@ -12,6 +12,7 @@ def test_build_subagent_result_presentation_uses_result_metadata() -> None:
         content=[TextContent(type="text", text="done")],
         meta={
             FAST_AGENT_SUBAGENT_RESULT_METADATA: {
+                "alias": "01_audit",
                 "label": "Audit",
                 "child_agent_name": "child",
                 "model_spec": "provider.model",
@@ -24,7 +25,7 @@ def test_build_subagent_result_presentation_uses_result_metadata() -> None:
 
     assert presentation == SubagentResultPresentation(
         message_text="done",
-        name="subagent: Audit",
+        name="subagent: 01_audit",
         model="provider.model",
         bottom_items=["session session-1"],
         highlight_indexes=[0],

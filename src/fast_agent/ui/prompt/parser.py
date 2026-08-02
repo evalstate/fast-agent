@@ -21,6 +21,7 @@ from fast_agent.commands.shared_command_intents import (
     parse_current_agent_history_intent,
     parse_model_command_intent,
     parse_session_command_intent,
+    parse_subagents_command_intent,
 )
 from fast_agent.mcp.connect_targets import parse_connect_command_text
 from fast_agent.ui.command_payloads import (
@@ -79,6 +80,7 @@ from fast_agent.ui.command_payloads import (
     ShowSystemCommand,
     ShowUsageCommand,
     SkillsCommand,
+    SubagentsCommand,
     SwitchAgentCommand,
     TitleSessionCommand,
     UnknownCommand,
@@ -502,6 +504,11 @@ def _parse_connect_alias_command(remainder: str) -> McpConnectCommand:
     )
 
 
+def _parse_subagents_command(remainder: str) -> SubagentsCommand:
+    intent = parse_subagents_command_intent(remainder)
+    return SubagentsCommand(action=intent.action, error=intent.error)
+
+
 def _single_token_or_raw_argument(remainder: str, tokens: list[str]) -> str:
     raw_argument = remainder[len(tokens[0]) :].strip()
     if len(tokens) == 2:
@@ -710,6 +717,7 @@ _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
     "session": _parse_session_command,
     "card": _parse_card_command,
     "agent": _parse_agent_command,
+    "subagents": _parse_subagents_command,
     "mcp": _parse_mcp_command,
     "connect": _parse_connect_alias_command,
     "prompt": _parse_prompt_command,

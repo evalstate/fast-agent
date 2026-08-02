@@ -1592,7 +1592,16 @@ def test_command_completion_descriptions_avoid_parenthetical_plurals() -> None:
 def test_catalogued_command_completion_descriptions_use_catalog_actions() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
-    for command_name in ("model", "check", "skills", "packs", "plugins", "agent", "card"):
+    for command_name in (
+        "model",
+        "check",
+        "skills",
+        "packs",
+        "plugins",
+        "agent",
+        "subagents",
+        "card",
+    ):
         spec = get_command_spec(command_name)
         assert spec is not None
         expected_examples: list[str] = [f"/{command_name}"]
@@ -1604,6 +1613,15 @@ def test_catalogued_command_completion_descriptions_use_catalog_actions() -> Non
         assert completer.commands[command_name] == (
             f"{spec.summary} ({', '.join(expected_examples)})"
         )
+
+
+def test_get_completions_for_subagents_actions() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+    doc = Document("/subagents ", cursor_position=len("/subagents "))
+
+    names = [completion.text for completion in completer.get_completions(doc, None)]
+
+    assert names == ["list", "status", "on", "off", "toggle", "help"]
 
 
 def test_top_level_completion_includes_canonical_model_and_check() -> None:

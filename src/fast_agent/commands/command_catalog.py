@@ -565,6 +565,45 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
         ),
     ),
     CommandSpec(
+        command="subagents",
+        summary="List subagent runs and control the built-in tool",
+        usage="/subagents [list|status|on|off|toggle|help]",
+        actions=(
+            CommandActionSpec(
+                action="list",
+                help="List subagent runs in the current session",
+                usage="/subagents list",
+            ),
+            CommandActionSpec(
+                action="status",
+                help="Show subagent tool state for the current agent",
+                usage="/subagents status",
+            ),
+            CommandActionSpec(
+                action="on",
+                help="Enable the subagent tool for the current runtime",
+                usage="/subagents on",
+            ),
+            CommandActionSpec(
+                action="off",
+                help="Disable new subagent runs for the current runtime",
+                usage="/subagents off",
+            ),
+            CommandActionSpec(
+                action="toggle",
+                help="Toggle the subagent tool for the current runtime",
+                usage="/subagents toggle",
+            ),
+            CommandActionSpec(
+                action="help",
+                aliases=("--help", "-h"),
+                help="Show subagents command usage",
+            ),
+        ),
+        default_action="list",
+        examples=("/subagents status", "/subagents off", "/subagents on"),
+    ),
+    CommandSpec(
         command="model",
         summary="Model inspection, switching, and runtime settings",
         usage="/model [status|reasoning|task_budget|verbosity|fast|web_search|x_search|web_fetch|switch|doctor|references|catalog|help] [args]",
