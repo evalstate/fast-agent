@@ -13,29 +13,16 @@ logger:
 # MCP Server Configuration
 mcp:
   servers:
-    # Forms demo server - interactive form examples
-    elicitation_forms_server:
-      target: "uv run elicitation_forms_server.py"
+    # Modern MCP server: elicitation occurs while processing the tool request.
+    sandbox_server:
+      target: "uv run sandbox_server.py"
       protocol_mode: modern
       elicitation:
-        mode: "forms" # Shows forms to users (default)
-
-    # Account creation server - for CALL_TOOL demos
-    elicitation_account_server:
-      target: "uv run elicitation_account_server.py"
-      protocol_mode: legacy
-      elicitation:
         mode: "forms"
 
-    # Game character server - for custom handler demos
-    elicitation_game_server:
-      target: "uv run elicitation_game_server.py"
-      protocol_mode: legacy
+    # Modern URL elicitation; url_demo.py supplies an explicit consent handler.
+    url_server:
+      target: "uv run url_server.py"
+      protocol_mode: modern
       elicitation:
         mode: "forms"
-
-    # URL elicitation server - for out-of-band interactions (OAuth, payments, etc.)
-    url_elicitation_server:
-      target: "uv run url_elicitation_server.py"
-      elicitation:
-        mode: "forms" # Combined handler supports both form and URL modes

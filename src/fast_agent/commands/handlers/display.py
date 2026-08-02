@@ -129,7 +129,6 @@ async def handle_show_mcp_status(
     ctx: CommandContext,
     *,
     agent_name: str,
-    deprecated_alias: bool = False,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
     from fast_agent.ui.enhanced_prompt import show_mcp_status
@@ -137,7 +136,6 @@ async def handle_show_mcp_status(
     await show_mcp_status(
         agent_name,
         cast("AgentApp", ctx.agent_provider),
-        deprecated_alias=deprecated_alias,
     )
     return outcome
 

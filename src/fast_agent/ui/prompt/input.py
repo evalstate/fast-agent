@@ -197,16 +197,7 @@ def queue_startup_markdown_notice(
 async def show_mcp_status(
     agent_name: str,
     agent_provider: "AgentApp | None",
-    *,
-    deprecated_alias: bool = False,
 ) -> None:
-    if deprecated_alias:
-        rich_print(
-            Text(
-                "/mcpstatus is deprecated; use /mcp or /mcp status.",
-                style="yellow",
-            )
-        )
     if agent_provider is None:
         rich_print("[red]No agent provider available[/red]")
         return

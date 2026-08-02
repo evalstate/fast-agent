@@ -12,6 +12,16 @@ mcp:
       transport: stdio
       elicitation:
         mode: none
+    sandbox_example:
+      command: uv
+      args: [run, ../../../examples/mcp/elicitations/sandbox_server.py]
+      transport: stdio
+      protocol_mode: modern
+    url_example:
+      command: uv
+      args: [run, ../../../examples/mcp/elicitations/url_server.py]
+      transport: stdio
+      protocol_mode: modern
     forced_modern:
       command: uv
       args: [run, mrtr_server.py]

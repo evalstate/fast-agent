@@ -340,12 +340,6 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
             usage="/load <file>",
             examples=["/load history.json"],
         ),
-        _simple_command_entry(
-            "mcpstatus",
-            summary="Deprecated alias for /mcp status",
-            usage="/mcpstatus",
-            examples=["/mcpstatus"],
-        ),
         {
             "name": "process",
             "summary": "Show managed shell processes",

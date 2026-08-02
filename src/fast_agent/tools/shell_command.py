@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import posixpath
 import re
+import shlex
 from collections import deque
 from dataclasses import dataclass
 from typing import Literal
@@ -18,6 +19,7 @@ class ShellHeredocBody:
     start: int
     end: int
     target_path: str | None
+    stdin_interpreter: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +35,7 @@ class _PendingHeredoc:
     strip_tabs: bool
     body_start: int
     target_path: str | None
+    stdin_interpreter: str | None
 
 
 def _heredoc_declarations(
@@ -205,8 +208,26 @@ def _heredoc_redirect_target(line: str, declaration: _HeredocDeclaration) -> str
     return _shell_redirect_target(line[start:end])
 
 
+def _heredoc_stdin_interpreter(
+    line: str,
+    declaration: _HeredocDeclaration,
+) -> str | None:
+    start, end = _shell_command_span(line, declaration.start)
+    try:
+        tokens = shlex.split(line[start:end], posix=True)
+    except ValueError:
+        return None
+    declaration_index = next(
+        (index for index, token in enumerate(tokens) if token.startswith("<<")),
+        None,
+    )
+    if len(tokens) != 3 or declaration_index != 2 or tokens[1] != "-":
+        return None
+    return posixpath.basename(tokens[0]).casefold()
+
+
 def shell_heredoc_bodies(command: str) -> list[ShellHeredocBody]:
-    """Return completed heredoc body spans and their static redirect targets."""
+    """Return completed heredoc bodies with static output or stdin-interpreter hints."""
     bodies: list[ShellHeredocBody] = []
     pending: deque[_PendingHeredoc] = deque()
     quote: str | None = None
@@ -226,6 +247,7 @@ def shell_heredoc_bodies(command: str) -> list[ShellHeredocBody]:
                             start=current.body_start,
                             end=offset,
                             target_path=current.target_path,
+                            stdin_interpreter=current.stdin_interpreter,
                         )
                     )
                 pending.popleft()
@@ -238,6 +260,11 @@ def shell_heredoc_bodies(command: str) -> list[ShellHeredocBody]:
         target_path = (
             _heredoc_redirect_target(line, declarations[0]) if len(declarations) == 1 else None
         )
+        stdin_interpreter = (
+            _heredoc_stdin_interpreter(line, declarations[0])
+            if len(declarations) == 1
+            else None
+        )
         for index, declaration in enumerate(declarations):
             pending.append(
                 _PendingHeredoc(
@@ -245,6 +272,7 @@ def shell_heredoc_bodies(command: str) -> list[ShellHeredocBody]:
                     strip_tabs=declaration.strip_tabs,
                     body_start=line_end if index == 0 else -1,
                     target_path=target_path,
+                    stdin_interpreter=stdin_interpreter,
                 )
             )
         offset = line_end

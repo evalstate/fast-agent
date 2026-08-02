@@ -159,6 +159,21 @@ def _hf_image_generation_scenario() -> TerminalCastScenario:
     )
 
 
+def _elicitation_sandbox_scenario() -> TerminalCastScenario:
+    return TerminalCastScenario(
+        name="elicitation-sandbox",
+        title="Modern request-scoped MCP elicitation",
+        output=ASSETS / "mcp" / "elicitation-sandbox.cast",
+        cols=int(os.environ.get("FAST_AGENT_ELICITATION_DEMO_COLS", "96")),
+        rows=int(os.environ.get("FAST_AGENT_ELICITATION_DEMO_ROWS", "24")),
+        idle_time_limit=float(
+            os.environ.get("FAST_AGENT_ELICITATION_DEMO_IDLE_TIME_LIMIT", "1.3")
+        ),
+        prompt="",
+        shell_command="uv run sandbox_demo.py",
+        notes="Runs the simulated t4-small quickstart with modern MCP request retries.",
+    )
+
 
 def _mcp_inspect_legacy_scenario() -> TerminalCastScenario:
     return TerminalCastScenario(
@@ -187,6 +202,7 @@ def _scenarios() -> dict[str, TerminalCastScenario]:
         _skills_slash_commands_scenario(),
         _skills_over_mcp_scenario(),
         _hf_image_generation_scenario(),
+        _elicitation_sandbox_scenario(),
         _mcp_inspect_legacy_scenario(),
     ]
     return {scenario.name: scenario for scenario in scenarios}
@@ -860,6 +876,58 @@ tmux attach-session -t "$SESSION" || true
 """
 
 
+def _elicitation_sandbox_record_script(scenario: TerminalCastScenario) -> str:
+    startup_wait = os.environ.get("FAST_AGENT_ELICITATION_DEMO_STARTUP_WAIT", "4")
+    field_wait = os.environ.get("FAST_AGENT_ELICITATION_DEMO_FIELD_WAIT", "0.45")
+    final_wait = os.environ.get("FAST_AGENT_ELICITATION_DEMO_FINAL_WAIT", "2")
+    typing_delay = os.environ.get("FAST_AGENT_ELICITATION_DEMO_TYPING_DELAY", "0.045")
+    session = f"fast_agent_docs_{scenario.name.replace('-', '_')}"
+    command = scenario.shell_command.replace("'", "'\"'\"'")
+    workdir = ROOT / "examples" / "mcp" / "elicitations"
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION='{session}'
+
+type_slow() {{
+  local target="$1"
+  local text="$2"
+  local delay="$3"
+  local i char
+  for (( i=0; i<${{#text}}; i++ )); do
+    char="${{text:i:1}}"
+    tmux send-keys -l -t "$target" "$char"
+    sleep "$delay"
+  done
+}}
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
+  "cd '{workdir}' && unset ENVIRONMENT_DIR FAST_AGENT_HOME FAST_AGENT_RUNTIME_HOME FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV NO_COLOR && PS1='' TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 bash --noprofile --norc"
+tmux set-option -t "$SESSION" status off >/dev/null
+
+(
+  sleep 1
+  type_slow "$SESSION" '{command}' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  sleep {startup_wait}
+  tmux send-keys -t "$SESSION" Down
+  sleep {field_wait}
+  tmux send-keys -t "$SESSION" Down Space
+  sleep {field_wait}
+  tmux send-keys -t "$SESSION" Tab Home Delete 2
+  sleep {field_wait}
+  tmux send-keys -t "$SESSION" Tab Home Delete Delete Delete
+  type_slow "$SESSION" '1.00' {typing_delay}
+  sleep {field_wait}
+  tmux send-keys -t "$SESSION" Tab Enter
+  sleep {final_wait}
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+) &
+
+tmux attach-session -t "$SESSION" || true
+"""
+
 
 def _required_assets() -> list[Path]:
     return [
@@ -921,6 +989,8 @@ def _record_script(scenario: TerminalCastScenario) -> str:
         return _hf_image_generation_record_script(scenario)
     if scenario.name == "mcp-inspect-legacy":
         return _mcp_inspect_legacy_record_script(scenario)
+    if scenario.name == "elicitation-sandbox":
+        return _elicitation_sandbox_record_script(scenario)
 
     typing_delay = os.environ.get("FAST_AGENT_TUI_DEMO_TYPING_DELAY", "0.055")
     shell_delay = os.environ.get("FAST_AGENT_TUI_DEMO_SHELL_TYPING_DELAY", "0.045")

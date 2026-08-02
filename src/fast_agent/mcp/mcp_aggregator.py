@@ -1967,8 +1967,8 @@ class MCPAggregator(ContextDependent):
         server_name: str,
         server_conn: ServerConnection,
     ) -> None:
-        if server_conn.negotiation == "initialize":
-            await self._record_server_call(server_name, "initialize", True)
+        if server_conn.negotiation in {"discover", "initialize"}:
+            await self._record_server_call(server_name, server_conn.negotiation, True)
 
     async def _record_reconnect(self, server_name: str) -> None:
         """Record a successful server reconnection."""

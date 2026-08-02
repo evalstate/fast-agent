@@ -271,7 +271,7 @@ def show_input_help_banner(
         """CTRL+C[dim] to interrupt generation or background waiting, [/dim]CTRL+D[dim] to exit.[/dim]\n"""
         """CTRL+Space[dim] or [/dim]Tab[dim] for path completion.[/dim]\n"""
         f"""{attachment_hint} F10[dim] to clear.[/dim]\n"""
-        """[dim]Use '[/dim]/[dim]' for commands, '[/dim]![dim]' for shell. '[/dim]#[dim]' to query, '[/dim]@[dim]' to switch agents[/dim]\n"""
+        """[dim]Use '[/dim][bold]/[/bold][dim]' for commands, '[/dim][bold]![/bold][dim]' for shell. '[/dim][bold]#[/bold][dim]' to query, '[/dim][bold]@[/bold][dim]' to switch agents[/dim]\n"""
     )
 
 

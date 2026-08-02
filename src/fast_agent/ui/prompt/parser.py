@@ -175,7 +175,6 @@ _SIMPLE_SLASH_FACTORIES: dict[str, _NoArgumentCommandFactory] = {
     "usage": ShowUsageCommand,
     "markdown": ShowMarkdownCommand,
     "reload": ReloadAgentsCommand,
-    "mcpstatus": lambda: ShowMcpStatusCommand(deprecated_alias=True),
     "environment": EnvironmentCommand,
     "prompts": ListPromptsCommand,
     "exit": lambda: "EXIT",

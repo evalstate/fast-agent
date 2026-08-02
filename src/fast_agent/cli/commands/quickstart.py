@@ -51,9 +51,9 @@ _NEXT_STEP_MESSAGES: dict[str, tuple[str, ...]] = {
     ),
     "elicitations": (
         "1. Go to the `elicitations` subdirectory (cd elicitations)",
-        "2. Try the forms demo: uv run forms_demo.py",
-        "3. Run the game character creator: uv run game_character.py",
-        "4. Try out-of-band URL elicitation: uv run url_elicitation_demo.py",
+        "2. Start a simulated t4-small sandbox: uv run sandbox_demo.py",
+        "3. Override form handling: uv run custom_handler_demo.py",
+        "4. Try modern URL elicitation: uv run url_demo.py",
         "Check [cyan][link=https://fast-agent.ai/mcp/elicitations/]https://fast-agent.ai/mcp/elicitations/[/link][/cyan] for more details",
     ),
 }
@@ -112,22 +112,18 @@ _EXAMPLE_CONFIGS = {
     ),
     "elicitations": ExampleConfig(
         description=(
-            "Interactive form examples using MCP elicitations feature.\n"
-            "Demonstrates forms, tool-call requests, custom handlers, and out-of-band\n"
-            "URL flows. Creates examples in an 'elicitations' subdirectory."
+            "Modern request-scoped MCP elicitation examples.\n"
+            "Demonstrates forms, custom handlers, and URL navigation consent while an\n"
+            "originating tool request is active. Creates an 'elicitations' subdirectory."
         ),
         files=[
-            "elicitation_account_server.py",
-            "elicitation_forms_server.py",
-            "elicitation_game_server.py",
+            "custom_handler_demo.py",
             "fast-agent.yaml",
             "fast-agent.secrets.yaml.example",
-            "forms_demo.py",
-            "game_character.py",
-            "game_character_handler.py",
-            "tool_call.py",
-            "url_elicitation_demo.py",
-            "url_elicitation_server.py",
+            "sandbox_demo.py",
+            "sandbox_server.py",
+            "url_demo.py",
+            "url_server.py",
         ],
         create_subdir=True,
         path_in_examples=["mcp", "elicitations"],
