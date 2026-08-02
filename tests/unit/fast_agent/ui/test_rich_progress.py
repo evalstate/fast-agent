@@ -81,6 +81,7 @@ def _subagent_event(
     output_tokens: int = 20,
     output_estimated: bool = False,
     model: str | None = "gpt-5.6-terra",
+    context_percentage: float | None = None,
     details: str = "",
 ) -> ProgressEvent:
     return _make_event(
@@ -94,6 +95,7 @@ def _subagent_event(
         details=details,
         subagent_monitor=SubagentMonitorSnapshot(
             model=model,
+            context_percentage=context_percentage,
             state=state,
             turn=turn,
             input_tokens=input_tokens,
@@ -1476,7 +1478,8 @@ class TestSubagentMonitoringRows:
                 turn=2,
                 input_tokens=1_700,
                 output_tokens=403,
-                model="gpt-5.3-codex-spark",
+                model="gpt-5.3-codex-spark-with-long-suffix",
+                context_percentage=11.0,
             )
         )
         display.update(
@@ -1510,7 +1513,8 @@ class TestSubagentMonitoringRows:
         assert "Review SDK" in rendered
         assert "Verify tests" in rendered
         assert "gpt-5.6-terra" in rendered
-        assert "gpt-5.3-codex-spark" in rendered
+        assert "gpt-5.3-cod" in rendered
+        assert "(11%)" in rendered
         spinner_columns = [line.index("abc") for line in rendered.splitlines() if "abc" in line]
         assert len(spinner_columns) == 3
         assert len(set(spinner_columns)) == 1
@@ -1518,7 +1522,10 @@ class TestSubagentMonitoringRows:
         assert "tool: read_text_" in rendered
         review_row = next(line for line in rendered.splitlines() if "Review SDK" in line)
         verify_row = next(line for line in rendered.splitlines() if "Verify tests" in line)
+        header_row = next(line for line in rendered.splitlines() if "detail" in line)
+        assert header_row.index("detail") == verify_row.index("Thinking")
         assert review_row.index("tool:") == verify_row.index("Thinking")
+        assert verify_row.index("(11%)") < verify_row.index("Thinking")
         assert "2,100" in rendered
         assert "~812" in rendered
         assert "1 · 42s" in rendered

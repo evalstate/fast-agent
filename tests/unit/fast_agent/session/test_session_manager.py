@@ -578,6 +578,37 @@ def test_child_sessions_are_nested_discoverable_and_do_not_change_current_sessio
     assert snapshot.execution.completed_at is None
 
 
+def test_root_session_list_excludes_child_linked_snapshots(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    parent = manager.create_session()
+    parent.set_title("Parent")
+    child = manager.create_child_session(
+        parent,
+        SessionChildLinkSnapshot(
+            parent_session_id=parent.info.name,
+            parent_agent_name="parent",
+            parent_tool_call_id="tool-123",
+        ),
+    )
+    (child.directory / "history_subagent.json").write_text("[]")
+    non_resumable_root = manager.create_session()
+    non_resumable_root.set_title("Non-resumable root")
+    root_metadata = non_resumable_root.directory / "session.json"
+    root_snapshot = json.loads(root_metadata.read_text())
+    root_snapshot["execution"]["resumable"] = False
+    root_metadata.write_text(json.dumps(root_snapshot))
+
+    child.directory.rename(manager.base_dir / child.info.name)
+
+    expected = {parent.info.name, non_resumable_root.info.name}
+    assert {info.name for info in manager.list_sessions()} == expected
+    assert {info.name for info in manager.list_sessions(include_empty=False)} == expected
+
+
 def test_resume_session_includes_hydrator_warnings_in_notices(tmp_path) -> None:
     manager = SessionManager(
         cwd=tmp_path,

@@ -7,16 +7,28 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import pytest
 from fastmcp.exceptions import ValidationError
-from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, Tool
+from mcp_types import (
+    CallToolRequest,
+    CallToolRequestParams,
+    CallToolResult,
+    ImageContent,
+    TextContent,
+    Tool,
+)
 from rich.console import Console, Group
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.current_user_message import (
+    get_current_user_message,
+    snapshot_current_user_message,
+)
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.subagent_tool import (
     SUBAGENT_TOOL_NAME,
     _default_progress_display,
     _finalize_subagent_run,
+    _subagent_child_input,
     _SubagentMonitorCoordinator,
     install_subagent_tool,
 )
@@ -39,7 +51,7 @@ from fast_agent.llm.usage_tracking import (
     TurnUsage,
     UsageSchema,
 )
-from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.helpers.content_helpers import get_text, text_content
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp_server_registry import ServerRegistry
@@ -246,6 +258,51 @@ class InspectingLLM(PassthroughLLM):
         return Prompt.assistant(
             f"{multipart_messages[-1].last_text()} | tools={tool_names} | hooks={hooks is not None}"
         )
+
+
+class UserContextForwardingLLM(PassthroughLLM):
+    def __init__(
+        self,
+        agent: ToolAgent,
+        child_inputs: list[PromptMessageExtended],
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.agent = agent
+        self.child_inputs = child_inputs
+        self._turn = 0
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        del request_params, tools, is_template
+        if self.agent.config.subagent_child:
+            self.child_inputs.append(multipart_messages[-1].model_copy(deep=True))
+            return Prompt.assistant("child response")
+
+        self._turn += 1
+        if self._turn == 1:
+            return Prompt.assistant(
+                "delegate",
+                stop_reason=LlmStopReason.TOOL_USE,
+                tool_calls={
+                    "subagent-call": CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(
+                            name=SUBAGENT_TOOL_NAME,
+                            arguments={
+                                "message": "explicit task",
+                                "include_user_message": True,
+                            },
+                        ),
+                    )
+                },
+            )
+        return Prompt.assistant("parent response")
 
 
 class BlockingLLM(PassthroughLLM):
@@ -1034,8 +1091,11 @@ async def test_subagent_label_schema_and_tool_boundary_validation() -> None:
 
     schema = tool.parameters
     label_schema = schema["properties"]["label"]
-    assert set(schema["properties"]) == {"message", "model", "label"}
+    include_user_message_schema = schema["properties"]["include_user_message"]
+    assert set(schema["properties"]) == {"message", "model", "label", "include_user_message"}
     assert "display label" in label_schema["description"]
+    assert include_user_message_schema["default"] is False
+    assert include_user_message_schema["type"] == "boolean"
     assert schema["$defs"]["SubagentLabel"] == {
         "maxLength": 32,
         "minLength": 1,
@@ -1064,10 +1124,127 @@ def test_subagent_schema_and_description_follow_forced_model_config() -> None:
 
     normal_tool = normal._execution_tools[SUBAGENT_TOOL_NAME]
     forced_tool = forced._execution_tools[SUBAGENT_TOOL_NAME]
-    assert set(normal_tool.parameters["properties"]) == {"message", "model", "label"}
-    assert set(forced_tool.parameters["properties"]) == {"message", "label"}
+    assert set(normal_tool.parameters["properties"]) == {
+        "message",
+        "model",
+        "label",
+        "include_user_message",
+    }
+    assert set(forced_tool.parameters["properties"]) == {
+        "message",
+        "label",
+        "include_user_message",
+    }
+    assert forced_tool.parameters["properties"]["include_user_message"]["default"] is False
     assert forced_tool.description is not None
     assert "fixed model `passthrough`" in forced_tool.description
+    assert normal_tool.description is not None
+    assert "latest external user text and attachments" in normal_tool.description
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_subagent_forwards_escaped_current_user_text_without_task_wrapper() -> None:
+    child_inputs: list[PromptMessageExtended] = []
+    parent = ToolAgent(AgentConfig("parent", model="passthrough", subagents=True))
+    await parent.attach_llm(
+        lambda agent, **kwargs: UserContextForwardingLLM(agent, child_inputs, **kwargs)
+    )
+    assert install_subagent_tool(parent)
+
+    await parent.generate(Prompt.user("external & <context> >"))
+
+    assert get_current_user_message() is None
+    assert len(child_inputs) == 1
+    child_input = child_inputs[0]
+    assert child_input.role == "user"
+    assert child_input.content == [
+        text_content(
+            "explicit task\n\n<included_user_context>\n"
+            "external &amp; &lt;context&gt; &gt;\n"
+            "</included_user_context>"
+        )
+    ]
+    child_text = child_input.content[0]
+    assert isinstance(child_text, TextContent)
+    assert "<subagent_task>" not in child_text.text
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_subagent_forwards_current_user_multipart_content_in_order() -> None:
+    attachment = ImageContent(type="image", data="YWJj", mime_type="image/png")
+    current_user_message = snapshot_current_user_message(
+        [
+            PromptMessageExtended(
+                role="user",
+                content=[text_content("before & <"), attachment, text_content("after >")],
+            )
+        ]
+    )
+    assert current_user_message is not None
+
+    child_input = _subagent_child_input("explicit task", current_user_message)
+    assert child_input.content == [
+        text_content("explicit task\n\n<included_user_context>\n"),
+        text_content("before &amp; &lt;"),
+        attachment,
+        text_content("after &gt;"),
+        text_content("\n</included_user_context>"),
+    ]
+    assert child_input.content[2] is not attachment
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_subagent_user_context_never_falls_back_to_history_or_templates() -> None:
+    child_inputs: list[PromptMessageExtended] = []
+    parent = ToolAgent(AgentConfig("parent", model="passthrough", subagents=True))
+    await parent.attach_llm(
+        lambda agent, **kwargs: UserContextForwardingLLM(agent, child_inputs, **kwargs)
+    )
+    parent.load_message_history([Prompt.user("history must not be forwarded")])
+    assert install_subagent_tool(parent)
+
+    result = await parent.call_tool(
+        SUBAGENT_TOOL_NAME,
+        {"message": "explicit task", "include_user_message": True},
+    )
+
+    assert result.is_error
+    assert get_text(result.content[0]) == (
+        "Error: include_user_message requires an active external user message."
+    )
+    assert child_inputs == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_subagent_user_context_trajectory_records_effective_child_input() -> None:
+    child_inputs: list[PromptMessageExtended] = []
+    parent = ToolAgent(AgentConfig("parent", model="passthrough", subagents=True))
+    await parent.attach_llm(
+        lambda agent, **kwargs: UserContextForwardingLLM(agent, child_inputs, **kwargs)
+    )
+    parent.enable_subagent_trajectory_capture()
+    assert install_subagent_tool(parent, label_generator=lambda: "context")
+
+    await parent.generate(Prompt.user("source & <context>"))
+
+    assert len(parent.subagent_trajectory_records) == 1
+    record = parent.subagent_trajectory_records[0]
+    assert record.tool_arguments == {
+        "message": "explicit task",
+        "label": "context",
+        "include_user_message": True,
+    }
+    assert record.effective_tool_arguments == record.tool_arguments
+    assert record.rendered_child_input == (
+        "explicit task\n\n<included_user_context>\n"
+        "source &amp; &lt;context&gt;\n"
+        "</included_user_context>"
+    )
+    assert record.messages[0] == child_inputs[0]
 
 
 @pytest.mark.unit
@@ -1927,6 +2104,7 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
         and event.activity == "Processing"
         and event.subagent_monitor is not None
         and event.subagent_monitor.model == "passthrough"
+        and event.subagent_monitor.context_percentage == pytest.approx(0.0005)
         and event.subagent_monitor.turn == 1
         and event.subagent_monitor.input_tokens == 3
         and event.subagent_monitor.output_tokens == 2

@@ -5,6 +5,8 @@ from mcp_types import (
     CallToolResult,
     TextContent,
 )
+from rich.console import Group
+from rich.syntax import Syntax
 
 from fast_agent.config import LoggerSettings, Settings, ShellSettings, ToolDisplaySettings
 from fast_agent.constants import FAST_AGENT_SHELL_PROCESS_METADATA
@@ -160,7 +162,81 @@ def test_compact_shell_collapses_result_to_inverse_exit_summary() -> None:
     command_lines = [
         line for line in capture.get().splitlines() if "uv run scripts/lint.py" in line
     ]
-    assert command_lines == ["$ uv run scripts/lint.py"]
+    assert [line.strip() for line in command_lines] == ["uv run scripts/lint.py"]
+
+
+def test_compact_background_shell_result_identifies_started_process() -> None:
+    display = _display()
+    result = CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text=(
+                    "effective_lifecycle: persistent\n"
+                    "Managed background process is still running.\n"
+                    "process_id: process-7\n"
+                    "elapsed_seconds: 0.1\n"
+                    "Use process to inspect it."
+                ),
+            )
+        ],
+        is_error=False,
+        meta={
+            FAST_AGENT_SHELL_PROCESS_METADATA: {
+                "process_id": "process-7",
+                "lifecycle": "persistent",
+                "process_status": "running",
+                "process_yield_reason": "background",
+            }
+        },
+    )
+
+    with console.console.capture() as capture:
+        display.show_tool_result(
+            result,
+            name="dev",
+            tool_name="Bash",
+            timing_ms=71,
+            tool_call_id="call_abcdef0123456789",
+        )
+
+    rendered = " ".join(capture.get().split())
+    assert "▎▶ dev bash · started process-7 · 71ms · id: call_…456789" in rendered
+    assert "text only" not in rendered
+    assert "effective_lifecycle" not in rendered
+    assert "Use process" not in rendered
+
+
+def test_shell_heredoc_uses_language_block_for_static_output_file() -> None:
+    display = _display()
+    command = (
+        "cat > example.py <<'PY'\n"
+        "from pathlib import Path\n"
+        "print(Path.cwd())\n"
+        "PY\n"
+        "python example.py"
+    )
+
+    content = display._tool_display._shell_tool_call_content(
+        command=command,
+        tool_args={"command": command},
+        metadata={"shell_name": "bash", "shell_path": "/bin/bash"},
+    )
+
+    assert isinstance(content, Group)
+    syntaxes = [renderable for renderable in content.renderables if isinstance(renderable, Syntax)]
+    lexer_names: list[str] = []
+    for syntax in syntaxes:
+        lexer = syntax.lexer
+        assert lexer is not None
+        lexer_name = lexer.name
+        assert isinstance(lexer_name, str)
+        lexer_names.append(lexer_name)
+    assert lexer_names == [
+        "Bash",
+        "Python",
+        "Bash",
+    ]
 
 
 def test_compact_completed_process_collapses_to_exit_summary() -> None:

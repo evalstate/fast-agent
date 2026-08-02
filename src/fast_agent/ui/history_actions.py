@@ -13,15 +13,14 @@ from rich.text import Text
 from fast_agent.agents.subagent_labels import requested_subagent_display_label
 from fast_agent.constants import (
     BUILTIN_SUBAGENT_TOOL_NAME,
-    FAST_AGENT_SUBAGENT_RESULT_METADATA,
     FAST_AGENT_TOOL_METADATA,
 )
 from fast_agent.history.tool_activities import display_remote_tool_activities
-from fast_agent.mcp.helpers.content_helpers import tool_result_text_for_llm
 from fast_agent.ui.citation_display import (
     render_sources_pre_content,
     web_tool_badges,
 )
+from fast_agent.ui.subagent_result_presentation import build_subagent_result_presentation
 from fast_agent.utils.tool_names import (
     is_read_text_file_tool_name as is_read_text_file_tool_name_shared,
 )
@@ -267,23 +266,13 @@ class _HistoryTurnDisplayContext:
             )
 
     async def _display_subagent_result(self, result: "CallToolResult") -> None:
-        details = _subagent_result_details(result)
-        label = details.get("label")
-        child_name = details.get("child_agent_name")
-        model_spec = details.get("model_spec")
-        child_session_id = details.get("child_session_id")
-        display_label = label if isinstance(label, str) else child_name
-        name = f"subagent: {display_label}" if isinstance(display_label, str) else "subagent"
-        model = model_spec if isinstance(model_spec, str) else None
-        bottom_items = (
-            [f"session {child_session_id}"] if isinstance(child_session_id, str) else None
-        )
+        presentation = build_subagent_result_presentation(result)
         await self.display.show_assistant_message(
-            message_text=tool_result_text_for_llm(result),
-            name=name,
-            model=model,
-            bottom_items=bottom_items,
-            highlight_indexes=[0] if bottom_items else None,
+            message_text=presentation.message_text,
+            name=presentation.name,
+            model=presentation.model,
+            bottom_items=presentation.bottom_items,
+            highlight_indexes=presentation.highlight_indexes,
         )
 
 
@@ -292,14 +281,6 @@ def _is_builtin_subagent_tool(metadata: JsonObject | None) -> bool:
         return False
     builtin = _json_object(metadata.get("fast_agent"))
     return builtin is not None and builtin.get("builtin") == BUILTIN_SUBAGENT_TOOL_NAME
-
-
-def _subagent_result_details(result: "CallToolResult") -> JsonObject:
-    meta = result.meta
-    if not isinstance(meta, Mapping):
-        return {}
-    details = _json_object(meta.get(FAST_AGENT_SUBAGENT_RESULT_METADATA))
-    return {} if details is None else details
 
 
 def _append_web_activity_badges(additional_message: Text | None, badges: list[str]) -> Text | None:

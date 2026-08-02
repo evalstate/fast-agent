@@ -36,6 +36,7 @@ class SubagentMonitorSnapshot(BaseModel):
     """Structured state for one live subagent monitor row."""
 
     model: str | None = None
+    context_percentage: float | None = None
     state: str
     turn: int
     input_tokens: int

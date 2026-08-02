@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -143,12 +144,6 @@ class _ServerOperationRecovery(Generic[R]):
 
 
 @dataclass(frozen=True, slots=True)
-class _ResourceNameResolution:
-    server_name: str | None
-    local_name: str
-
-
-@dataclass(frozen=True, slots=True)
 class _PromptNameResolution:
     server_name: str | None
     local_name: str
@@ -205,6 +200,79 @@ class NamespacedTool(BaseModel):
     tool: Tool
     server_name: str
     namespaced_tool_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolNameResolution:
+    server_name: str | None
+    local_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class MCPToolCatalog:
+    """Read-only snapshot of the aggregator's discovered MCP tools."""
+
+    _by_namespaced_name: Mapping[str, NamespacedTool]
+    _by_server: Mapping[str, tuple[NamespacedTool, ...]]
+    _server_names: tuple[str, ...]
+
+    @classmethod
+    def snapshot(
+        cls,
+        *,
+        by_namespaced_name: Mapping[str, NamespacedTool],
+        by_server: Mapping[str, Iterable[NamespacedTool]],
+        server_names: Iterable[str],
+    ) -> "MCPToolCatalog":
+        return cls(
+            _by_namespaced_name=MappingProxyType(dict(by_namespaced_name)),
+            _by_server=MappingProxyType(
+                {server_name: tuple(tools) for server_name, tools in by_server.items()}
+            ),
+            _server_names=tuple(server_names),
+        )
+
+    def namespaced_tool(self, name: str) -> NamespacedTool | None:
+        return self._by_namespaced_name.get(name)
+
+    def first_tool_named(self, local_name: str) -> NamespacedTool | None:
+        return next(
+            (
+                namespaced_tool
+                for namespaced_tool in self._by_namespaced_name.values()
+                if namespaced_tool.tool.name == local_name
+            ),
+            None,
+        )
+
+    def server_tool_names(self, server_name: str) -> tuple[str, ...]:
+        return tuple(
+            namespaced_tool.tool.name for namespaced_tool in self._by_server.get(server_name, ())
+        )
+
+    def resolve_tool_name(self, name: str) -> ToolNameResolution:
+        if namespaced_tool := self.namespaced_tool(name):
+            return ToolNameResolution(
+                server_name=namespaced_tool.server_name,
+                local_name=namespaced_tool.tool.name,
+            )
+
+        if is_namespaced_name(name):
+            for server_name in self._server_names:
+                if name.startswith(f"{server_name}{SEP}"):
+                    return ToolNameResolution(
+                        server_name=server_name,
+                        local_name=name[len(server_name) + len(SEP) :],
+                    )
+
+        for server_name, tools in self._by_server.items():
+            if any(namespaced_tool.tool.name == name for namespaced_tool in tools):
+                return ToolNameResolution(server_name=server_name, local_name=name)
+
+        return ToolNameResolution(
+            server_name=self._server_names[0] if self._server_names else None,
+            local_name=name,
+        )
 
 
 @dataclass
@@ -2572,37 +2640,17 @@ class MCPAggregator(ContextDependent):
     async def _handle_connection_error(
         self,
         server_name: str,
-        try_execute: Callable,
+        try_execute: Callable[[MCPOperationClient], Awaitable[R]],
         error_factory: Callable[[str], R] | None,
     ) -> _ServerOperationRecovery[R]:
         """Handle ConnectionError by attempting to reconnect to the server."""
         self._log_server_progress(ProgressAction.CONNECTING, server_name, "reconnecting")
 
         try:
-            if self.connection_persistence:
-                # Force disconnect and create fresh connection
-                manager = self._require_connection_manager()
-                server_connection = await manager.reconnect_server(
-                    server_name,
-                    callback_runtime=self._create_callback_runtime(server_name),
-                    **self._attachment_manager_kwargs(server_name),
-                )
-                await self._record_connection_negotiation(server_name, server_connection)
-                server_connection._callback_runtime.mark_subscription_ready()
-                client = server_connection.client
-                if client is None:
-                    raise RuntimeError(f"MCP client runtime not initialized for '{server_name}'")
-                result = await try_execute(client)
-            else:
-                # For on-demand clients, create a fresh runtime.
-                server_registry = self._require_server_registry()
-                async with gen_client(
-                    server_name,
-                    server_registry=server_registry,
-                    callback_runtime=self._create_callback_runtime(server_name),
-                    **self._attachment_client_kwargs(server_name),
-                ) as client:
-                    result = await try_execute(client)
+            result = await self._reconnect_and_replay_server_operation(
+                server_name,
+                try_execute,
+            )
 
             # Success!
             self._log_server_progress(ProgressAction.READY, server_name, "reconnected")
@@ -2635,6 +2683,34 @@ class MCPAggregator(ContextDependent):
             if error_factory:
                 return _ServerOperationRecovery(result=error_factory(error_msg), success=False)
             raise RuntimeError(error_msg) from e
+
+    async def _reconnect_and_replay_server_operation(
+        self,
+        server_name: str,
+        try_execute: Callable[[MCPOperationClient], Awaitable[R]],
+    ) -> R:
+        if self.connection_persistence:
+            manager = self._require_connection_manager()
+            server_connection = await manager.reconnect_server(
+                server_name,
+                callback_runtime=self._create_callback_runtime(server_name),
+                **self._attachment_manager_kwargs(server_name),
+            )
+            await self._record_connection_negotiation(server_name, server_connection)
+            server_connection._callback_runtime.mark_subscription_ready()
+            client = server_connection.client
+            if client is None:
+                raise RuntimeError(f"MCP client runtime not initialized for '{server_name}'")
+            return await try_execute(client)
+
+        server_registry = self._require_server_registry()
+        async with gen_client(
+            server_name,
+            server_registry=server_registry,
+            callback_runtime=self._create_callback_runtime(server_name),
+            **self._attachment_client_kwargs(server_name),
+        ) as client:
+            return await try_execute(client)
 
     async def _reconnect_for_future_operations(
         self,
@@ -2673,7 +2749,7 @@ class MCPAggregator(ContextDependent):
     async def _handle_session_terminated(
         self,
         server_name: str,
-        try_execute: Callable,
+        try_execute: Callable[[MCPOperationClient], Awaitable[R]],
         error_factory: Callable[[str], R] | None,
         exc: ServerSessionTerminatedError,
     ) -> _ServerOperationRecovery[R]:
@@ -2701,29 +2777,10 @@ class MCPAggregator(ContextDependent):
         )
 
         try:
-            if self.connection_persistence:
-                manager = self._require_connection_manager()
-                server_connection = await manager.reconnect_server(
-                    server_name,
-                    callback_runtime=self._create_callback_runtime(server_name),
-                    **self._attachment_manager_kwargs(server_name),
-                )
-                await self._record_connection_negotiation(server_name, server_connection)
-                server_connection._callback_runtime.mark_subscription_ready()
-                client = server_connection.client
-                if client is None:
-                    raise RuntimeError(f"MCP client runtime not initialized for '{server_name}'")
-                result = await try_execute(client)
-            else:
-                # For on-demand clients, create a fresh runtime.
-                server_registry = self._require_server_registry()
-                async with gen_client(
-                    server_name,
-                    server_registry=server_registry,
-                    callback_runtime=self._create_callback_runtime(server_name),
-                    **self._attachment_client_kwargs(server_name),
-                ) as client:
-                    result = await try_execute(client)
+            result = await self._reconnect_and_replay_server_operation(
+                server_name,
+                try_execute,
+            )
 
             # Success! Record the reconnection
             await self._record_reconnect(server_name)
@@ -2759,53 +2816,15 @@ class MCPAggregator(ContextDependent):
                 return _ServerOperationRecovery(result=error_factory(error_msg), success=False)
             raise RuntimeError(error_msg) from e
 
-    async def _parse_resource_name(
-        self,
-        name: str,
-        resource_type: str,
-    ) -> _ResourceNameResolution:
-        """
-        Parse a possibly namespaced resource name into server name and local resource name.
-
-        Args:
-            name: The resource name, possibly namespaced
-            resource_type: Type of resource (for error messages), e.g. "tool", "prompt"
-
-        Returns:
-            Server name plus local resource name.
-        """
-        # First, check if this is a direct hit in our namespaced tool map
-        # This handles both namespaced and non-namespaced direct lookups
-        if resource_type == "tool" and name in self._namespaced_tool_map:
-            namespaced_tool = self._namespaced_tool_map[name]
-            return _ResourceNameResolution(
-                server_name=namespaced_tool.server_name,
-                local_name=namespaced_tool.tool.name,
-            )
-
-        # Next, attempt to interpret as a namespaced name
-        if is_namespaced_name(name):
-            # Try to match against known server names, handling server names with hyphens
-            for server_name in self.server_names:
-                if name.startswith(f"{server_name}{SEP}"):
-                    local_name = name[len(server_name) + len(SEP) :]
-                    return _ResourceNameResolution(server_name=server_name, local_name=local_name)
-
-            # If no server name matched, it might be a tool with a hyphen in its name
-            # Fall through to the next checks
-
-        # For tools, search all servers for the tool by exact name match
-        if resource_type == "tool":
-            for server_name, tools in self._server_to_tool_map.items():
-                for namespaced_tool in tools:
-                    if namespaced_tool.tool.name == name:
-                        return _ResourceNameResolution(server_name=server_name, local_name=name)
-
-        # For all other resource types, use the first server
-        return _ResourceNameResolution(
-            server_name=self.server_names[0] if self.server_names else None,
-            local_name=name,
+    def tool_catalog(self) -> MCPToolCatalog:
+        return MCPToolCatalog.snapshot(
+            by_namespaced_name=self._namespaced_tool_map,
+            by_server=self._server_to_tool_map,
+            server_names=self.server_names,
         )
+
+    def resolve_tool_name(self, name: str) -> ToolNameResolution:
+        return self.tool_catalog().resolve_tool_name(name)
 
     async def call_tool(
         self,
@@ -2828,7 +2847,7 @@ class MCPAggregator(ContextDependent):
             await self.load_servers()
 
         # Use the common parser to get server and tool name
-        tool_name_resolution = await self._parse_resource_name(name, "tool")
+        tool_name_resolution = self.resolve_tool_name(name)
         server_name = tool_name_resolution.server_name
         local_tool_name = tool_name_resolution.local_name
 

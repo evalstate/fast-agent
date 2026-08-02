@@ -9,6 +9,11 @@ from typing import TYPE_CHECKING, Any
 from fastmcp.tools import FunctionTool, ToolResult
 from mcp_types import CallToolResult, ContentBlock, ListToolsResult, Tool
 
+from fast_agent.agents.current_user_message import (
+    reset_current_user_message,
+    set_current_user_message,
+    snapshot_current_user_message,
+)
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.subagent_directive import resolve_subagent_directive
 from fast_agent.agents.subagent_labels import requested_subagent_display_label
@@ -22,7 +27,6 @@ from fast_agent.agents.tool_result_channels import build_tool_result_message
 from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks, _ToolLoopAgent
 from fast_agent.constants import (
     BUILTIN_SUBAGENT_TOOL_NAME,
-    FAST_AGENT_SUBAGENT_RESULT_METADATA,
     HUMAN_INPUT_TOOL_NAME,
     should_parallelize_tool_calls,
 )
@@ -30,7 +34,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import LlmAgentProtocol, ToolRunnerHookCapable
 from fast_agent.llm.structured_schema import validate_json_schema_definition
-from fast_agent.mcp.helpers.content_helpers import get_text, text_content, tool_result_text_for_llm
+from fast_agent.mcp.helpers.content_helpers import get_text, text_content
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.tool_result_metadata import (
     set_url_elicitation_required_payload,
@@ -43,6 +47,7 @@ from fast_agent.tools.tool_sources import FAST_AGENT_TOOL_SOURCE_META, TOOL_SOUR
 from fast_agent.tools.transient_artifacts import TransientArtifactStore
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams, ToolTimingInfo
 from fast_agent.ui.message_display_helpers import resolve_highlight_indexes
+from fast_agent.ui.subagent_result_presentation import build_subagent_result_presentation
 from fast_agent.ui.tool_display import ToolCallDisplayRequest, ToolResultDisplayRequest
 from fast_agent.utils.async_utils import gather_with_cancel
 
@@ -442,43 +447,47 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         Generate a response using the LLM, and handle tool calls if necessary.
         Messages are already normalized to list[PromptMessageExtended].
         """
-        use_history = (
-            request_params.use_history
-            if request_params is not None and "use_history" in request_params.model_fields_set
-            else self.config.use_history
-        )
-        has_tool_results = any(message.tool_results for message in messages)
-        if use_history and not has_tool_results:
-            history_state = ToolRunner.reconcile_interrupted_history(
-                self,
-                use_history=use_history,
-            )
-            if history_state.status == "appended_interrupted_tool_result":
-                logger.warning(
-                    "History ended with unanswered tool call; auto-healed by "
-                    "appending interrupted tool result marker.",
-                    data={
-                        "history_before": history_state.history_before,
-                        "history_after": history_state.history_after,
-                    },
-                )
-
-        if tools is None:
-            tools = (await self.list_tools()).tools
-
-        runner = ToolRunner(
-            agent=self,
-            messages=messages,
-            request_params=request_params,
-            tools=tools,
-            hooks=self._build_tool_runner_hooks(request_params),
-        )
+        current_user_token = set_current_user_message(snapshot_current_user_message(messages))
         try:
-            return await runner.until_done()
+            use_history = (
+                request_params.use_history
+                if request_params is not None and "use_history" in request_params.model_fields_set
+                else self.config.use_history
+            )
+            has_tool_results = any(message.tool_results for message in messages)
+            if use_history and not has_tool_results:
+                history_state = ToolRunner.reconcile_interrupted_history(
+                    self,
+                    use_history=use_history,
+                )
+                if history_state.status == "appended_interrupted_tool_result":
+                    logger.warning(
+                        "History ended with unanswered tool call; auto-healed by "
+                        "appending interrupted tool result marker.",
+                        data={
+                            "history_before": history_state.history_before,
+                            "history_after": history_state.history_after,
+                        },
+                    )
+
+            if tools is None:
+                tools = (await self.list_tools()).tools
+
+            runner = ToolRunner(
+                agent=self,
+                messages=messages,
+                request_params=request_params,
+                tools=tools,
+                hooks=self._build_tool_runner_hooks(request_params),
+            )
+            try:
+                return await runner.until_done()
+            finally:
+                self.last_turn_messages = [
+                    message.model_copy(deep=True) for message in runner.turn_messages
+                ]
         finally:
-            self.last_turn_messages = [
-                message.model_copy(deep=True) for message in runner.turn_messages
-            ]
+            reset_current_user_message(current_user_token)
 
     async def structured_schema_impl(
         self,
@@ -813,32 +822,14 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         self,
         result: CallToolResult,
     ) -> None:
-        details = self._subagent_result_details(result)
-        label = details.get("label")
-        child_name = details.get("child_agent_name")
-        model_spec = details.get("model_spec")
-        child_session_id = details.get("child_session_id")
-        display_label = label if isinstance(label, str) else child_name
-        name = f"subagent: {display_label}" if isinstance(display_label, str) else "subagent"
-        model = model_spec if isinstance(model_spec, str) else None
-        bottom_items = (
-            [f"session {child_session_id}"] if isinstance(child_session_id, str) else None
-        )
+        presentation = build_subagent_result_presentation(result)
         await self.display.show_assistant_message(
-            message_text=tool_result_text_for_llm(result),
-            name=name,
-            model=model,
-            bottom_items=bottom_items,
-            highlight_indexes=[0] if bottom_items else None,
+            message_text=presentation.message_text,
+            name=presentation.name,
+            model=presentation.model,
+            bottom_items=presentation.bottom_items,
+            highlight_indexes=presentation.highlight_indexes,
         )
-
-    @staticmethod
-    def _subagent_result_details(result: CallToolResult) -> Mapping[str, Any]:
-        meta = result.meta
-        if not isinstance(meta, Mapping):
-            return {}
-        details = meta.get(FAST_AGENT_SUBAGENT_RESULT_METADATA)
-        return details if isinstance(details, Mapping) else {}
 
     async def _execute_planned_tool_call(
         self,

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
+from rich.console import Group
 from rich.markup import escape as escape_markup
 from rich.syntax import Syntax
 from rich.text import Text
@@ -20,6 +21,7 @@ from fast_agent.mcp.tool_result_metadata import (
 )
 from fast_agent.tools.apply_patch_tool import extract_apply_patch_input, is_apply_patch_tool_name
 from fast_agent.tools.edit_file_tool import EDIT_FILE_TOOL_NAME
+from fast_agent.tools.shell_command import shell_heredoc_bodies
 from fast_agent.tools.tool_sources import FAST_AGENT_TOOL_SOURCE_META, TOOL_SOURCE_LABELS
 from fast_agent.ui import console
 from fast_agent.ui.apply_patch_preview import (
@@ -420,14 +422,8 @@ class ToolDisplay:
         )
         if not show_body:
             return
-        content = prepared.content
-        if metadata.get("variant") == "shell" and isinstance(content, Syntax):
-            command = metadata.get("command")
-            if isinstance(command, str):
-                content = Text("$ ", style="magenta")
-                content.append(command.rstrip())
         self._display._display_content(
-            content,
+            prepared.content,
             prepared.truncate_content,
             False,
             MessageType.TOOL_CALL,
@@ -1341,6 +1337,12 @@ class ToolDisplay:
         tool_name: str | None,
         metadata: ToolResultDisplayMetadata,
     ) -> str:
+        if background_status := self._background_process_launch_status(
+            result,
+            tool_name=tool_name,
+        ):
+            return background_status
+
         if is_read_text_file_tool_name(tool_name) and not result.is_error:
             return self._read_text_file_header_status(
                 metadata.read_text_file_path,
@@ -1349,6 +1351,25 @@ class ToolDisplay:
             )
 
         return self._default_tool_result_status(result)
+
+    @staticmethod
+    def _background_process_launch_status(
+        result: "CallToolResult",
+        *,
+        tool_name: str | None,
+    ) -> str | None:
+        if result.is_error or not is_shell_execution_tool(tool_name):
+            return None
+        process_metadata = (result.meta or {}).get(FAST_AGENT_SHELL_PROCESS_METADATA)
+        if not isinstance(process_metadata, Mapping):
+            return None
+        if (
+            process_metadata.get("process_status") != "running"
+            or process_metadata.get("process_yield_reason") != "background"
+        ):
+            return None
+        process_id = strip_str_to_none(process_metadata.get("process_id"))
+        return f"started {process_id}" if process_id else None
 
     @staticmethod
     def _transport_metadata_label(channel: str) -> str:
@@ -1738,9 +1759,40 @@ class ToolDisplay:
             metadata.get("shell_name"),
             shell_path=cast("str | None", metadata.get("shell_path")),
         )
+        heredoc_bodies = [
+            (body, language)
+            for body in shell_heredoc_bodies(command)
+            if body.target_path
+            and (
+                language := self._READ_TEXT_FILE_LANGUAGE_BY_EXTENSION.get(
+                    Path(body.target_path).suffix.lower()
+                )
+            )
+            and command[body.start : body.end].strip()
+        ]
+        if not heredoc_bodies:
+            return self._shell_syntax(command.rstrip(), shell_language)
+
+        renderables: list[Syntax] = []
+        cursor = 0
+        for body, language in heredoc_bodies:
+            if shell_text := command[cursor : body.start].rstrip():
+                renderables.append(self._shell_syntax(shell_text, shell_language))
+            renderables.append(
+                self._shell_syntax(
+                    command[body.start : body.end].rstrip("\r\n"),
+                    language,
+                )
+            )
+            cursor = body.end
+        if shell_text := command[cursor:].rstrip():
+            renderables.append(self._shell_syntax(shell_text, shell_language))
+        return Group(*renderables)
+
+    def _shell_syntax(self, code: str, language: str) -> Syntax:
         return Syntax(
-            command.rstrip(),
-            shell_language,
+            code,
+            language,
             theme=self._display.code_style,
             line_numbers=False,
             word_wrap=self._display.code_word_wrap,

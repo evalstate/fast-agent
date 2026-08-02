@@ -4,7 +4,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fast_agent.constants import FAST_AGENT_RUNTIME_HOME
+from fast_agent.cli.workspace_helpers import resolve_workspace_option
+from fast_agent.constants import DEFAULT_HOME_DIR, FAST_AGENT_RUNTIME_HOME
 
 if TYPE_CHECKING:
     import typer
@@ -70,3 +71,18 @@ def resolve_home_option(
     if set_env_var:
         _set_home_for_context(ctx, resolved)
     return resolved
+
+
+def resolve_workspace_and_home_options(
+    ctx: typer.Context | None,
+    *,
+    workspace: Path | None,
+    home: Path | None,
+    no_home: bool = False,
+) -> tuple[Path | None, Path | None]:
+    resolved_workspace = resolve_workspace_option(ctx, workspace)
+    home_option = home
+    if home_option is None and resolved_workspace is not None and not no_home:
+        home_option = resolved_workspace / DEFAULT_HOME_DIR
+    resolved_home = resolve_home_option(ctx, home_option, set_env_var=not no_home)
+    return resolved_workspace, resolved_home

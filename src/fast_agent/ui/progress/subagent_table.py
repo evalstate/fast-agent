@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 from rich.table import Table
@@ -12,6 +13,8 @@ from fast_agent.utils.count_display import format_compact_count
 from fast_agent.utils.time import format_compact_duration
 
 _MODEL_WIDTH = 20
+_DETAIL_SEPARATOR = " · "
+_DETAIL_HEADER = f"{' ' * (_MODEL_WIDTH + len(_DETAIL_SEPARATOR))}detail"
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -61,7 +64,7 @@ def render_subagent_table(
         no_wrap=True,
     )
     table.add_column(
-        "detail",
+        _DETAIL_HEADER,
         width=detail_width,
         overflow="ellipsis",
         no_wrap=True,
@@ -137,8 +140,11 @@ def _process_elapsed(task: Task) -> float | None:
 
 def _detail_text(snapshot: SubagentMonitorSnapshot, task: Task) -> Text:
     text = Text(snapshot.model or "—", style="cyan" if snapshot.model else "dim")
+    context_suffix = _context_suffix(snapshot.context_percentage)
+    text.truncate(_MODEL_WIDTH - len(context_suffix), overflow="ellipsis")
+    text.append(context_suffix, style="blue")
     text.truncate(_MODEL_WIDTH, overflow="ellipsis", pad=True)
-    text.append(" · ", style="dim")
+    text.append(_DETAIL_SEPARATOR, style="dim")
     text.append(snapshot.state, style=_state_style(snapshot.state))
     elapsed = task.fields.get("elapsed_seconds")
     if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool):
@@ -150,6 +156,14 @@ def _detail_text(snapshot: SubagentMonitorSnapshot, task: Task) -> Text:
         if elapsed_label is not None:
             text.append(f" · {elapsed_label}", style="dim")
     return text
+
+
+def _context_suffix(context_percentage: float | None) -> str:
+    if context_percentage is None or not math.isfinite(context_percentage):
+        return ""
+    safe_percentage = max(context_percentage, 0.0)
+    label = "100%+" if safe_percentage >= 100 else f"{min(round(safe_percentage), 99)}%"
+    return f" ({label})"
 
 
 def _state_style(state: str) -> str:

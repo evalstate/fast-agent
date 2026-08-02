@@ -5,13 +5,19 @@ from __future__ import annotations
 import asyncio
 import time
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Annotated, Protocol, cast, runtime_checkable
 
 from fastmcp.tools import ToolResult
+from mcp_types import TextContent
 from pydantic import Field
 
+from fast_agent.agents.current_user_message import (
+    CurrentUserMessage,
+    get_current_user_message,
+)
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.subagent_directive import resolve_subagent_directive
 from fast_agent.agents.subagent_labels import (
@@ -21,6 +27,7 @@ from fast_agent.agents.subagent_labels import (
 )
 from fast_agent.agents.subagent_transcript import (
     SubagentTranscriptMetadata,
+    render_subagent_input,
     render_subagent_transcript,
 )
 from fast_agent.agents.tool_agent import ToolAgent
@@ -68,7 +75,9 @@ _DESCRIPTION = (
     "capabilities, except it does not receive this subagent tool. Give it a complete task and "
     "all necessary context. The tool returns its final answer and, when available, a temporary "
     "path to its complete transcript. The optional model overrides "
-    "the current model for this run. The optional label is a short display name for this run."
+    "the current model for this run. The optional label is a short display name for this run. "
+    "The optional include_user_message forwards the latest external user text and attachments, "
+    "but no history, to the subagent; this may send content to another model or provider."
 )
 
 
@@ -285,6 +294,7 @@ class _SubagentProgress:
             state = f"tool: {self._current_tool_name}"
         return SubagentMonitorSnapshot(
             model=self._model_display_name(),
+            context_percentage=self._context_percentage(),
             state=state,
             turn=self._turn,
             input_tokens=input_tokens,
@@ -346,6 +356,11 @@ class _SubagentProgress:
             cache_read=self._agent.usage_accumulator.summary.prompt.cache_read,
             input_tokens=input_tokens,
         )
+
+    def _context_percentage(self) -> float | None:
+        if self._agent is None or self._agent.usage_accumulator is None:
+            return None
+        return self._agent.usage_accumulator.context_usage_percentage
 
 
 def _format_usage_details(
@@ -443,10 +458,31 @@ def install_subagent_tool(
                 )
             ),
         ] = None,
+        include_user_message: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Include the latest external user text and attachments, but no history. "
+                    "This may forward content to another model or provider."
+                )
+            ),
+        ] = False,
         *,
         model_source: str,
     ) -> ToolResult:
         """Run a complete task in a fresh one-shot child agent."""
+        current_user_message = get_current_user_message() if include_user_message else None
+        if include_user_message and current_user_message is None:
+            return ToolResult(
+                content=[
+                    text_content(
+                        "Error: include_user_message requires an active external user message."
+                    )
+                ],
+                is_error=True,
+            )
+        child_input = _subagent_child_input(message, current_user_message)
+        rendered_child_input = render_subagent_input(child_input)
         resolved_label = resolve_subagent_label(
             label,
             used_labels=used_labels,
@@ -484,7 +520,7 @@ def install_subagent_tool(
                 _subagent_progress_hooks(progress),
             )
             with _child_chat_suppressed(clone):
-                response = await clone.generate([Prompt.user(message)])
+                response = await clone.generate([child_input])
             status = "completed"
             response_text = response.last_text() or ""
         except asyncio.CancelledError as exc:
@@ -504,8 +540,11 @@ def install_subagent_tool(
                     status=status,
                     progress=progress,
                     message=message,
+                    child_input=child_input,
+                    rendered_child_input=rendered_child_input,
                     requested_model=model,
                     label=resolved_label,
+                    include_user_message=include_user_message,
                     parent_tool_call_id=parent_tool_call_id,
                     started_at=started_at,
                     cancellation_requested=cancellation_requested,
@@ -587,11 +626,21 @@ def install_subagent_tool(
                     )
                 ),
             ] = None,
+            include_user_message: Annotated[
+                bool,
+                Field(
+                    description=(
+                        "Include the latest external user text and attachments, but no history. "
+                        "This may forward content to another model or provider."
+                    )
+                ),
+            ] = False,
         ) -> ToolResult:
             return await _run_subagent(
                 message,
                 model,
                 label,
+                include_user_message,
                 model_source="tool_override" if model is not None else "parent",
             )
 
@@ -617,12 +666,22 @@ def install_subagent_tool(
                     )
                 ),
             ] = None,
+            include_user_message: Annotated[
+                bool,
+                Field(
+                    description=(
+                        "Include the latest external user text and attachments, but no history. "
+                        "This may forward content to another model or provider."
+                    )
+                ),
+            ] = False,
         ) -> ToolResult:
             del model
             return await _run_subagent(
                 message,
                 forced_model,
                 label,
+                include_user_message,
                 model_source="agent_card",
             )
 
@@ -630,7 +689,9 @@ def install_subagent_tool(
             "Run a focused subagent in a clean context. It inherits your instruction and "
             "available capabilities, except it does not receive this subagent tool. Give it a "
             f"complete task and all necessary context. Each run uses the fixed model "
-            f"`{forced_model}`. The optional label is a short display name for this run."
+            f"`{forced_model}`. The optional label is a short display name for this run. The "
+            "optional include_user_message forwards the latest external user text and "
+            "attachments, but no history, and may send content to another model or provider."
         )
 
     tool = build_default_function_tool(
@@ -643,6 +704,52 @@ def install_subagent_tool(
         tool.parameters["properties"].pop("model", None)
     agent.add_tool(tool, replace=False)
     return True
+
+
+def _subagent_child_input(
+    message: str,
+    current_user_message: CurrentUserMessage | None,
+) -> PromptMessageExtended:
+    """Build the child user message, preserving external multipart content."""
+    from fast_agent.types import PromptMessageExtended
+
+    if current_user_message is None:
+        return Prompt.user(message)
+
+    content = current_user_message.content
+    text_blocks = [block for block in content if isinstance(block, TextContent)]
+    if len(text_blocks) == len(content):
+        user_text = "\n".join(block.text for block in text_blocks)
+        return PromptMessageExtended(
+            role="user",
+            content=[
+                text_content(
+                    f"{message}\n\n<included_user_context>\n"
+                    f"{_escape_user_text(user_text)}\n"
+                    "</included_user_context>"
+                )
+            ],
+        )
+
+    included_content = [
+        text_content(_escape_user_text(block.text))
+        if isinstance(block, TextContent)
+        else deepcopy(block)
+        for block in content
+    ]
+    return PromptMessageExtended(
+        role="user",
+        content=[
+            text_content(f"{message}\n\n<included_user_context>\n"),
+            *included_content,
+            text_content("\n</included_user_context>"),
+        ],
+    )
+
+
+def _escape_user_text(text: str) -> str:
+    """Escape only the XML characters used by the context envelope."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _create_child_session(agent: ToolAgent) -> Session | None:
@@ -705,8 +812,11 @@ async def _finalize_subagent_run(
     status: SessionExecutionStatus,
     progress: _SubagentProgress,
     message: str,
+    child_input: PromptMessageExtended | None = None,
+    rendered_child_input: str | None = None,
     requested_model: str | None,
     label: str,
+    include_user_message: bool = False,
     parent_tool_call_id: str | None,
     started_at: str,
     cancellation_requested: asyncio.Event,
@@ -716,6 +826,10 @@ async def _finalize_subagent_run(
     progress.finalizing()
     result = _SubagentFinalizationResult()
     effective_status = status
+    effective_child_input = child_input or _subagent_child_input(message, None)
+    effective_rendered_child_input = rendered_child_input or render_subagent_input(
+        effective_child_input
+    )
     try:
         try:
             async with asyncio.timeout(finalization_timeout_seconds):
@@ -736,7 +850,8 @@ async def _finalize_subagent_run(
                         child_messages=child_messages,
                         child_name=child_name,
                         status=effective_status,
-                        message=message,
+                        child_input=effective_child_input,
+                        rendered_child_input=effective_rendered_child_input,
                         label=label,
                     )
                 if cancellation_requested.is_set():
@@ -749,8 +864,10 @@ async def _finalize_subagent_run(
                     child_name=child_name,
                     status=effective_status,
                     message=message,
+                    rendered_child_input=effective_rendered_child_input,
                     requested_model=requested_model,
                     label=label,
+                    include_user_message=include_user_message,
                     parent_tool_call_id=parent_tool_call_id,
                     started_at=started_at,
                     child_messages=child_messages,
@@ -778,7 +895,8 @@ async def _write_subagent_transcript(
     child_messages: list[PromptMessageExtended],
     child_name: str,
     status: SessionExecutionStatus,
-    message: str,
+    child_input: PromptMessageExtended,
+    rendered_child_input: str,
     label: str,
 ) -> _SubagentFinalizationResult:
     store = parent.transient_artifact_store()
@@ -791,7 +909,8 @@ async def _write_subagent_transcript(
     try:
         model_name, provider = _subagent_model_metadata(clone)
         content = render_subagent_transcript(
-            delegated_input=message,
+            delegated_input=rendered_child_input,
+            delegated_message=child_input,
             messages=child_messages,
             metadata=SubagentTranscriptMetadata(
                 child_agent=child_name,
@@ -844,8 +963,10 @@ async def _persist_subagent_run(
     child_name: str,
     status: SessionExecutionStatus,
     message: str,
+    rendered_child_input: str,
     requested_model: str | None,
     label: str,
+    include_user_message: bool,
     parent_tool_call_id: str | None,
     started_at: str,
     child_messages: list[PromptMessageExtended],
@@ -874,7 +995,11 @@ async def _persist_subagent_run(
     elif clone is not None and child_messages and parent.subagent_trajectory_capture_enabled:
         from fast_agent.session.trajectory import TrajectoryRecord, new_trajectory_id
 
-        tool_arguments: dict[str, object] = {"message": message, "label": label}
+        tool_arguments: dict[str, object] = {
+            "message": message,
+            "label": label,
+            "include_user_message": include_user_message,
+        }
         if requested_model is not None:
             tool_arguments["model"] = requested_model
         usage = clone.usage_accumulator
@@ -893,8 +1018,8 @@ async def _persist_subagent_run(
                 completed_at=datetime.now(timezone.utc).isoformat(),
                 tool_input_schema=None,
                 tool_arguments=tool_arguments,
-                effective_tool_arguments=tool_arguments,
-                rendered_child_input=message,
+                effective_tool_arguments=dict(tool_arguments),
+                rendered_child_input=rendered_child_input,
                 messages=child_messages,
                 usage_summary=usage.get_summary() if usage is not None else None,
                 model_name=model_name,

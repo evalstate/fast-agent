@@ -3,6 +3,7 @@ from __future__ import annotations
 import posixpath
 import re
 from collections import deque
+from dataclasses import dataclass
 from typing import Literal
 
 type ShellDetachmentKind = Literal["none", "ambiguous", "service_detach"]
@@ -12,11 +13,33 @@ _HEREDOC_PATTERN = re.compile(
 )
 
 
+@dataclass(frozen=True, slots=True)
+class ShellHeredocBody:
+    start: int
+    end: int
+    target_path: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _HeredocDeclaration:
+    delimiter: str
+    strip_tabs: bool
+    start: int
+
+
+@dataclass(slots=True)
+class _PendingHeredoc:
+    delimiter: str
+    strip_tabs: bool
+    body_start: int
+    target_path: str | None
+
+
 def _heredoc_declarations(
     line: str,
     quote: str | None,
-) -> tuple[list[tuple[str, bool]], str | None]:
-    declarations: list[tuple[str, bool]] = []
+) -> tuple[list[_HeredocDeclaration], str | None]:
+    declarations: list[_HeredocDeclaration] = []
     escaped = False
     index = 0
     while index < len(line):
@@ -40,11 +63,20 @@ def _heredoc_declarations(
             escaped = True
             index += 1
             continue
+        if char == "#" and (index == 0 or line[index - 1].isspace()):
+            break
         if char == "<" and (index == 0 or line[index - 1] != "<"):
             match = _HEREDOC_PATTERN.match(line, index)
             if match is not None:
                 delimiter = next(group for group in match.groups() if group is not None)
-                declarations.append((delimiter, match.group(0).startswith("<<-")))
+                if line.rfind("((", 0, index) <= line.rfind("))", 0, index):
+                    declarations.append(
+                        _HeredocDeclaration(
+                            delimiter=delimiter,
+                            strip_tabs=match.group(0).startswith("<<-"),
+                            start=index,
+                        )
+                    )
                 index = match.end()
                 continue
         index += 1
@@ -68,8 +100,156 @@ def _without_heredoc_bodies(command: str) -> str:
             continue
         kept.append(line)
         declarations, quote = _heredoc_declarations(line, quote)
-        delimiters.extend(declarations)
+        delimiters.extend(
+            (declaration.delimiter, declaration.strip_tabs) for declaration in declarations
+        )
     return "".join(kept)
+
+
+def _shell_command_span(line: str, position: int) -> tuple[int, int]:
+    start = 0
+    end = len(line)
+    quote: str | None = None
+    escaped = False
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if escaped:
+            escaped = False
+        elif quote is not None:
+            if char == "\\" and quote == '"':
+                escaped = True
+            elif char == quote:
+                quote = None
+        elif char in {"'", '"'}:
+            quote = char
+        elif char in {";", "|", "&"}:
+            separator_end = index + (1 if index + 1 >= len(line) or line[index + 1] != char else 2)
+            if index < position:
+                start = separator_end
+            else:
+                end = index
+                break
+            index = separator_end - 1
+        index += 1
+    return start, end
+
+
+def _shell_redirect_target(command: str) -> str | None:
+    quote: str | None = None
+    escaped = False
+    target_path: str | None = None
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if escaped:
+            escaped = False
+            index += 1
+            continue
+        if quote is not None:
+            if char == "\\" and quote == '"':
+                escaped = True
+            elif char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char != ">":
+            index += 1
+            continue
+
+        fd_start = index
+        while fd_start > 0 and command[fd_start - 1].isdigit():
+            fd_start -= 1
+        file_descriptor = command[fd_start:index]
+        if file_descriptor and file_descriptor != "1":
+            index += 1
+            continue
+
+        index += 2 if command.startswith(">>", index) else 1
+        while index < len(command) and command[index].isspace():
+            index += 1
+        if index >= len(command):
+            return None
+
+        target_quote = command[index] if command[index] in {"'", '"'} else None
+        if target_quote is not None:
+            target_start = index + 1
+            target_end = command.find(target_quote, target_start)
+            if target_end < 0:
+                return None
+            target = command[target_start:target_end]
+            if target_quote == '"' and any(character in target for character in "$`"):
+                return None
+            index = target_end + 1
+        else:
+            target_start = index
+            while index < len(command) and not command[index].isspace():
+                if command[index] in ";&|<>":
+                    break
+                index += 1
+            target = command[target_start:index]
+            if any(character in target for character in "$`*?[]{}()"):
+                return None
+        if not target:
+            return None
+        target_path = target
+    return target_path
+
+
+def _heredoc_redirect_target(line: str, declaration: _HeredocDeclaration) -> str | None:
+    start, end = _shell_command_span(line, declaration.start)
+    return _shell_redirect_target(line[start:end])
+
+
+def shell_heredoc_bodies(command: str) -> list[ShellHeredocBody]:
+    """Return completed heredoc body spans and their static redirect targets."""
+    bodies: list[ShellHeredocBody] = []
+    pending: deque[_PendingHeredoc] = deque()
+    quote: str | None = None
+    offset = 0
+
+    for line in command.splitlines(keepends=True):
+        line_end = offset + len(line)
+        if pending:
+            current = pending[0]
+            candidate = line.rstrip("\r\n")
+            if current.strip_tabs:
+                candidate = candidate.lstrip("\t")
+            if candidate == current.delimiter:
+                if current.body_start >= 0:
+                    bodies.append(
+                        ShellHeredocBody(
+                            start=current.body_start,
+                            end=offset,
+                            target_path=current.target_path,
+                        )
+                    )
+                pending.popleft()
+                if pending:
+                    pending[0].body_start = line_end
+            offset = line_end
+            continue
+
+        declarations, quote = _heredoc_declarations(line, quote)
+        target_path = (
+            _heredoc_redirect_target(line, declarations[0]) if len(declarations) == 1 else None
+        )
+        for index, declaration in enumerate(declarations):
+            pending.append(
+                _PendingHeredoc(
+                    delimiter=declaration.delimiter,
+                    strip_tabs=declaration.strip_tabs,
+                    body_start=line_end if index == 0 else -1,
+                    target_path=target_path,
+                )
+            )
+        offset = line_end
+
+    return bodies
 
 
 def _command_chunks(words: list[tuple[str, bool]]) -> list[list[str]]:

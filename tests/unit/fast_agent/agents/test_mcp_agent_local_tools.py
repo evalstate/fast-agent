@@ -444,6 +444,43 @@ async def test_shell_output_limit_refreshes_after_llm_attach() -> None:
 
 
 @pytest.mark.asyncio
+async def test_shell_stream_metadata_is_available_before_arguments_complete() -> None:
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
+    agent = McpAgent(config=config, context=Context())
+    shell_runtime = agent.shell_runtime
+    assert shell_runtime is not None
+    shell_tool = shell_runtime.tool
+    assert shell_tool is not None
+
+    metadata = agent.resolve_stream_tool_metadata(shell_tool.name)
+
+    assert metadata is not None
+    assert metadata["variant"] == "shell"
+    assert metadata["shell_name"]
+    assert metadata["command"] is None
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_process_stream_metadata_is_not_rendered_as_shell_code() -> None:
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
+    agent = McpAgent(config=config, context=Context())
+    shell_runtime = agent.shell_runtime
+    assert shell_runtime is not None
+    shell_tool = shell_runtime.tool
+    assert shell_tool is not None
+    process_tool = next(tool for tool in shell_runtime.tools if tool.name != shell_tool.name)
+
+    metadata = agent.resolve_stream_tool_metadata(process_tool.name)
+
+    assert metadata is not None
+    assert metadata["variant"] == "shell_process"
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
 async def test_attach_media_auto_enables_after_anthropic_llm_attach() -> None:
     config = AgentConfig(
         name="test",
@@ -2065,11 +2102,14 @@ async def test_parallel_shell_results_display_in_tool_call_order() -> None:
 
     class RecordingDisplay:
         def __init__(self) -> None:
+            self.call_ids: list[str | None] = []
             self.result_ids: list[str | None] = []
             self.result_text: list[str] = []
 
         def show_tool_call(self, *args: object, **kwargs: object) -> None:
-            return None
+            tool_call_id = kwargs.get("tool_call_id")
+            assert tool_call_id is None or isinstance(tool_call_id, str)
+            self.call_ids.append(tool_call_id)
 
         def show_tool_result(self, *args: object, **kwargs: object) -> None:
             tool_call_id = kwargs.get("tool_call_id")
@@ -2084,7 +2124,11 @@ async def test_parallel_shell_results_display_in_tool_call_order() -> None:
         def show_parallel_tool_calls(self, requests: list[object]) -> None:
             for request in requests:
                 assert isinstance(request, ToolCallDisplayRequest)
-                self.show_tool_call(request.tool_name, request.tool_args)
+                self.show_tool_call(
+                    request.tool_name,
+                    request.tool_args,
+                    tool_call_id=request.tool_call_id,
+                )
 
         def show_parallel_tool_results(self, requests: list[object]) -> None:
             for request in requests:
@@ -2117,6 +2161,7 @@ async def test_parallel_shell_results_display_in_tool_call_order() -> None:
     await agent.run_tools(request)
 
     # Even though "second" completes sooner, display order should follow tool-call order.
+    assert recording_display.call_ids == ["call-1", "call-2"]
     assert recording_display.result_ids == ["call-1", "call-2"]
     assert recording_display.result_text[0].startswith("first")
     assert recording_display.result_text[1].startswith("second")

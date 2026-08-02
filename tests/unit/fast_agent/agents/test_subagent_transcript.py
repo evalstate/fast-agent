@@ -12,6 +12,7 @@ from mcp_types import (
 
 from fast_agent.agents.subagent_transcript import (
     SubagentTranscriptMetadata,
+    render_subagent_input,
     render_subagent_transcript,
 )
 from fast_agent.mcp.helpers.content_helpers import text_content
@@ -91,3 +92,32 @@ def test_subagent_transcript_renders_searchable_turns_without_channels() -> None
             provider="codexresponses",
         ),
     )
+
+
+@pytest.mark.unit
+def test_subagent_transcript_skips_matching_multipart_child_input_once() -> None:
+    child_input = PromptMessageExtended(
+        role="user",
+        content=[
+            text_content("task\n\n<included_user_context>\n"),
+            ImageContent(type="image", data="YWJj", mime_type="image/png"),
+            text_content("\n</included_user_context>"),
+        ],
+    )
+
+    rendered = render_subagent_transcript(
+        delegated_input=render_subagent_input(child_input),
+        delegated_message=child_input,
+        messages=[child_input, Prompt.assistant("done")],
+        metadata=SubagentTranscriptMetadata(
+            child_agent="parent[research]",
+            label="research",
+            status="completed",
+            model="passthrough",
+            provider="fast-agent",
+        ),
+    )
+
+    assert rendered.count("task\n\n<included_user_context>") == 1
+    assert rendered.count("[image mime_type=image/png encoded_chars=4]") == 1
+    assert rendered.count("</included_user_context>") == 1

@@ -595,6 +595,45 @@ async def _export_failed_one_shot_atif(
     )
 
 
+async def _run_one_shot_with_failed_atif(
+    agent_app: Any,
+    agent_obj: Any,
+    prompt_payload: str | PromptMessageExtended | list[PromptMessageExtended],
+    request: AgentRunRequest,
+    structured_source: Any,
+    *,
+    history_before: list[PromptMessageExtended],
+    session_manager: SessionManager | None,
+    harness_session: HarnessSession | None,
+) -> PromptMessageExtended:
+    try:
+        return await _run_one_shot_payload(
+            agent_obj,
+            prompt_payload,
+            request,
+            structured_source,
+            harness_session=harness_session,
+        )
+    except BaseException as exc:
+        try:
+            await _export_failed_one_shot_atif(
+                agent_app,
+                agent_obj,
+                prompt_payload,
+                request,
+                history_before=history_before,
+                session_manager=session_manager,
+                harness_session=harness_session,
+                error=exc,
+            )
+        except Exception as export_exc:
+            logger.warning(
+                "Failed-run ATIF export failed",
+                data={"error_type": type(export_exc).__name__},
+            )
+        raise
+
+
 async def _export_requested_outputs(
     agent_app: Any,
     request: AgentRunRequest,
@@ -696,32 +735,16 @@ async def _run_cli_flow(
             request.message,
             request.attachments,
         )
-        try:
-            response = await _run_one_shot_payload(
-                agent_obj,
-                prompt_payload,
-                request,
-                structured_source,
-                harness_session=harness_session,
-            )
-        except BaseException as exc:
-            try:
-                await _export_failed_one_shot_atif(
-                    agent_app,
-                    agent_obj,
-                    prompt_payload,
-                    request,
-                    history_before=history_before,
-                    session_manager=session_manager,
-                    harness_session=harness_session,
-                    error=exc,
-                )
-            except Exception as export_exc:
-                logger.warning(
-                    "Failed-run ATIF export failed",
-                    data={"error_type": type(export_exc).__name__},
-                )
-            raise
+        response = await _run_one_shot_with_failed_atif(
+            agent_app,
+            agent_obj,
+            prompt_payload,
+            request,
+            structured_source,
+            history_before=history_before,
+            session_manager=session_manager,
+            harness_session=harness_session,
+        )
         one_shot_response = response
         transient_messages_by_agent = _transient_result_messages_if_needed(
             agent_obj,
@@ -740,32 +763,16 @@ async def _run_cli_flow(
             prompt,
             request.attachments,
         )
-        try:
-            response = await _run_one_shot_payload(
-                agent_obj,
-                prompt_payload,
-                request,
-                structured_source,
-                harness_session=harness_session,
-            )
-        except BaseException as exc:
-            try:
-                await _export_failed_one_shot_atif(
-                    agent_app,
-                    agent_obj,
-                    prompt_payload,
-                    request,
-                    history_before=history_before,
-                    session_manager=session_manager,
-                    harness_session=harness_session,
-                    error=exc,
-                )
-            except Exception as export_exc:
-                logger.warning(
-                    "Failed-run ATIF export failed",
-                    data={"error_type": type(export_exc).__name__},
-                )
-            raise
+        response = await _run_one_shot_with_failed_atif(
+            agent_app,
+            agent_obj,
+            prompt_payload,
+            request,
+            structured_source,
+            history_before=history_before,
+            session_manager=session_manager,
+            harness_session=harness_session,
+        )
         one_shot_response = response
         transient_messages_by_agent = _transient_result_messages_if_needed(
             agent_obj,

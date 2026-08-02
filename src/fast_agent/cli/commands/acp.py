@@ -10,12 +10,10 @@ import typer
 
 from fast_agent.cli.commands import serve
 from fast_agent.cli.constants import normalize_convenience_flag_args
-from fast_agent.cli.home_helpers import resolve_home_option
+from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
 from fast_agent.cli.runtime.request_builders import build_command_run_request
 from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions, McpProtocolOption
-from fast_agent.cli.workspace_helpers import resolve_workspace_option
-from fast_agent.constants import DEFAULT_HOME_DIR
 
 if TYPE_CHECKING:
     from fast_agent.cli.runtime.run_request import AgentRunRequest
@@ -72,11 +70,12 @@ def _build_run_request(
     subagents: bool | None = None,
     subagent_model: str | None = None,
 ) -> AgentRunRequest:
-    resolved_workspace = resolve_workspace_option(ctx, workspace)
-    home_option = home
-    if home_option is None and resolved_workspace is not None and not no_home:
-        home_option = resolved_workspace / DEFAULT_HOME_DIR
-    resolved_home = resolve_home_option(ctx, home_option, set_env_var=not no_home)
+    resolved_workspace, resolved_home = resolve_workspace_and_home_options(
+        ctx,
+        workspace=workspace,
+        home=home,
+        no_home=no_home,
+    )
     return build_command_run_request(
         name=name,
         instruction_option=instruction,

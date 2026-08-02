@@ -873,8 +873,10 @@ class SessionManager:
             if metadata_file.exists():
                 try:
                     with metadata_file.open(encoding="utf-8") as f:
-                        data = json.load(f)
-                        info = SessionInfo.from_dict(data)
+                        snapshot = load_session_snapshot(json.load(f))
+                        if snapshot.execution.child_link is not None:
+                            continue
+                        info = session_info_from_snapshot(snapshot)
                         if not include_empty:
                             session = Session(info, session_dir, manager=self)
                             if not session.is_user_visible():

@@ -175,6 +175,56 @@ async def test_session_terminated_with_reconnect_disabled_emits_failure(
 
 
 @pytest.mark.asyncio
+async def test_session_terminated_reconnects_replays_and_records_success(
+    recovery_events: list[Event],
+) -> None:
+    class _Manager:
+        async def reconnect_server(self, server_name, callback_runtime):
+            del server_name
+            return type(
+                "_Connection",
+                (),
+                {
+                    "client": object(),
+                    "negotiation": "adopt",
+                    "_callback_runtime": callback_runtime,
+                },
+            )()
+
+    aggregator = MCPAggregator(
+        server_names=["alpha"],
+        connection_persistence=True,
+        context=_context(reconnect_on_disconnect=True),
+        name="assistant",
+    )
+    aggregator._persistent_connection_manager = cast("MCPConnectionManager", _Manager())
+    replay_count = 0
+
+    async def try_execute(client) -> str:
+        nonlocal replay_count
+        assert client is not None
+        replay_count += 1
+        return "ok"
+
+    recovery = await aggregator._handle_session_terminated(
+        "alpha",
+        try_execute,
+        None,
+        ServerSessionTerminatedError("alpha"),
+    )
+
+    assert recovery.result == "ok"
+    assert recovery.success is True
+    assert replay_count == 1
+    assert aggregator._server_stats["alpha"].reconnect_count == 1
+    progress = await _progress(recovery_events)
+    assert [(event.action, event.details) for event in progress] == [
+        (ProgressAction.CONNECTING, "alpha - session terminated; reconnecting"),
+        (ProgressAction.READY, "alpha - reconnected"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_session_reconnect_retry_exhaustion_emits_terminal_failure(
     recovery_events: list[Event],
 ) -> None:

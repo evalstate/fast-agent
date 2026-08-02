@@ -38,6 +38,7 @@ def render_subagent_transcript(
     delegated_input: str,
     messages: list[PromptMessageExtended],
     metadata: SubagentTranscriptMetadata,
+    delegated_message: PromptMessageExtended | None = None,
 ) -> str:
     """Render copied messages as a line-oriented UTF-8 search view."""
 
@@ -65,14 +66,11 @@ def render_subagent_transcript(
 
     skipped_delegated_input = False
     for message in messages:
-        text_blocks = [
-            content.text for content in message.content if isinstance(content, TextContent)
-        ]
         if (
             message.role == "user"
             and not skipped_delegated_input
-            and "\n".join(text_blocks) == delegated_input
             and not message.tool_results
+            and _matches_delegated_input(message, delegated_input, delegated_message)
         ):
             skipped_delegated_input = True
         else:
@@ -82,6 +80,24 @@ def render_subagent_transcript(
 
     sections.extend(("", f"=== STATUS {metadata.status} ==="))
     return "\n".join(sections).replace("\r\n", "\n").replace("\r", "\n") + "\n"
+
+
+def render_subagent_input(message: PromptMessageExtended) -> str:
+    """Return a stable text projection of a child input, including attachments."""
+    return "\n".join(
+        content.text if isinstance(content, TextContent) else _content_placeholder(content)
+        for content in message.content
+    )
+
+
+def _matches_delegated_input(
+    message: PromptMessageExtended,
+    delegated_input: str,
+    delegated_message: PromptMessageExtended | None,
+) -> bool:
+    if delegated_message is not None:
+        return message.content == delegated_message.content
+    return render_subagent_input(message) == delegated_input
 
 
 def _render_message_content(sections: list[str], message: PromptMessageExtended) -> None:
@@ -170,5 +186,6 @@ def _normalize_lines(text: str) -> str:
 
 __all__ = [
     "SubagentTranscriptMetadata",
+    "render_subagent_input",
     "render_subagent_transcript",
 ]

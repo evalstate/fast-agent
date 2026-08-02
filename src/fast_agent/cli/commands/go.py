@@ -11,7 +11,7 @@ import typer
 
 from fast_agent.a2a.connect import normalize_a2a_transport, normalize_a2a_url
 from fast_agent.cli.command_support import ensure_context_object
-from fast_agent.cli.home_helpers import resolve_home_option
+from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
 from fast_agent.cli.runtime.request_builders import (
     DEFAULT_AGENT_CARDS_DIR as _DEFAULT_AGENT_CARDS_DIR,
 )
@@ -32,8 +32,7 @@ from fast_agent.cli.runtime.request_builders import (
 )
 from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions, McpProtocolOption
-from fast_agent.cli.workspace_helpers import resolve_workspace_option
-from fast_agent.constants import DEFAULT_HOME_DIR, FAST_AGENT_SHELL_CHILD_ENV
+from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.agent_card_paths import AGENT_CARD_EXTENSIONS as _CARD_EXTENSIONS
 from fast_agent.core.exceptions import AgentConfigError, EnvironmentStartupError
 from fast_agent.mcp.hf_auth import add_explicit_bearer_auth_header
@@ -336,11 +335,12 @@ def go(
         )
         raise typer.Exit(1)
 
-    resolved_workspace = resolve_workspace_option(ctx, workspace)
-    home_option = home
-    if home_option is None and resolved_workspace is not None and not no_home:
-        home_option = resolved_workspace / DEFAULT_HOME_DIR
-    resolved_home = resolve_home_option(ctx, home_option, set_env_var=not no_home)
+    resolved_workspace, resolved_home = resolve_workspace_and_home_options(
+        ctx,
+        workspace=workspace,
+        home=home,
+        no_home=no_home,
+    )
     effective_home = resolved_home
 
     if pack:

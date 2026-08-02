@@ -79,8 +79,7 @@ def test_shell_tool_call_renders_code_without_markdown_padding() -> None:
 
     rendered_lines = capture.get().splitlines()
     command_lines = [line for line in rendered_lines if "echo hi" in line]
-    assert command_lines
-    assert any(line.startswith("$ echo hi") for line in command_lines)
+    assert [line.strip() for line in command_lines] == [command]
 
 
 def test_shell_tool_call_header_includes_timeout() -> None:

@@ -1,6 +1,6 @@
 import pytest
 
-from fast_agent.tools.shell_command import classify_shell_detachment
+from fast_agent.tools.shell_command import classify_shell_detachment, shell_heredoc_bodies
 
 
 @pytest.mark.parametrize(
@@ -56,3 +56,63 @@ def test_shell_detachment_classifier(
         )
         == expected
     )
+
+
+def test_shell_heredoc_bodies_match_static_redirect_targets() -> None:
+    command = (
+        "cat <<'PY' > src/example.py\n"
+        "print('hello')\n"
+        "PY\n"
+        'cat > "web/example.ts" <<-TS\n'
+        "\texport const answer = 42;\n"
+        "\tTS\n"
+    )
+
+    bodies = shell_heredoc_bodies(command)
+
+    assert [body.target_path for body in bodies] == ["src/example.py", "web/example.ts"]
+    assert [command[body.start : body.end] for body in bodies] == [
+        "print('hello')\n",
+        "\texport const answer = 42;\n",
+    ]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat <<'EOF'\ntext\nEOF\n",
+        "cat > \"$OUTPUT.py\" <<'EOF'\ntext\nEOF\n",
+        "cat > one.py <<A <<B\nfirst\nA\nsecond\nB\n",
+        "cat > incomplete.py <<'EOF'\ntext\n",
+        "echo ignored > unrelated.py; cat <<'EOF'\ntext\nEOF\n",
+        "# cat > commented.py <<'EOF'\ntext\nEOF\n",
+        "((value<<EOF))\ntext\nEOF\n",
+    ],
+)
+def test_shell_heredoc_bodies_leave_ambiguous_or_incomplete_targets_unsplit(command: str) -> None:
+    assert not [body for body in shell_heredoc_bodies(command) if body.target_path is not None]
+
+
+def test_shell_heredoc_body_preserves_trailing_whitespace() -> None:
+    command = "cat 1> example.md <<'EOF'\ntrailing spaces  \nEOF\n"
+
+    body = shell_heredoc_bodies(command)[0]
+
+    assert body.target_path == "example.md"
+    assert command[body.start : body.end] == "trailing spaces  \n"
+
+
+def test_shell_heredoc_single_quoted_dollar_path_is_static() -> None:
+    command = "cat > '$OUTPUT.py' <<'EOF'\nprint('literal path')\nEOF\n"
+
+    body = shell_heredoc_bodies(command)[0]
+
+    assert body.target_path == "$OUTPUT.py"
+
+
+def test_shell_heredoc_uses_final_stdout_redirect() -> None:
+    command = "cat > ignored.py > actual.txt <<'EOF'\nplain text\nEOF\n"
+
+    body = shell_heredoc_bodies(command)[0]
+
+    assert body.target_path == "actual.txt"
