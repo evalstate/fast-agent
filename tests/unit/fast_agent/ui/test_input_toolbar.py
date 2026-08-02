@@ -429,7 +429,7 @@ def test_toolbar_agent_state_cache_invalidates_when_parallel_child_model_changes
         config=_StubConfig(model="anthropic.haiku"),
         message_history=[],
     )
-    parallel_agent = cast("ParallelAgent", object.__new__(ParallelAgent))
+    parallel_agent = object.__new__(ParallelAgent)
     parallel_agent.config = AgentConfig(name="parallel")
     parallel_agent._message_history = []
     parallel_agent._llm = None
@@ -460,7 +460,7 @@ def test_toolbar_agent_state_deduplicates_parallel_child_models() -> None:
         _StubAgent(config=_StubConfig(model="anthropic.haiku"), message_history=[]),
         _StubAgent(config=_StubConfig(model="anthropic.sonnet"), message_history=[]),
     ]
-    parallel_agent = cast("ParallelAgent", object.__new__(ParallelAgent))
+    parallel_agent = object.__new__(ParallelAgent)
     parallel_agent.config = AgentConfig(name="parallel")
     parallel_agent._message_history = []
     parallel_agent._llm = None

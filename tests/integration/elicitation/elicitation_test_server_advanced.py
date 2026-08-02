@@ -107,6 +107,7 @@ def simple_rating(
     """Request a simple boolean rating."""
     match result:
         case AcceptedElicitation(data=data):
+            assert isinstance(data, ServerRating)
             return f"You {'liked' if data.rating else 'did not like'} the server"
         case DeclinedElicitation():
             return "Rating declined"
@@ -122,6 +123,7 @@ def user_profile(
     """Request a complex user profile form."""
     match result:
         case AcceptedElicitation(data=data):
+            assert isinstance(data, UserProfile)
             lines = [
                 f"Name: {data.name}",
                 f"Age: {data.age}",
@@ -144,6 +146,7 @@ def preferences(
     """Request enum-based preferences."""
     match result:
         case AcceptedElicitation(data=data):
+            assert isinstance(data, Preferences)
             return (
                 "Preferences set: "
                 f"Theme={data.theme}, Language={data.language}, Notifications={data.notifications}"
@@ -162,6 +165,7 @@ def feedback(
     """Request rating and feedback fields."""
     match result:
         case AcceptedElicitation(data=data):
+            assert isinstance(data, Feedback)
             lines = [
                 f"Overall: {data.overall_rating}/5",
                 f"Ease of use: {data.ease_of_use}/10.0",

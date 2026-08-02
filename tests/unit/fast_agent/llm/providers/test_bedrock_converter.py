@@ -265,7 +265,6 @@ async def test_bedrock_structured_schema_prompt_preserves_history_and_tool_conte
 
     llm = object.__new__(BedrockLLM)
     llm.default_request_params = RequestParams(model="amazon.nova-lite-v1:0")
-    llm.capabilities = {}
     llm._reasoning_effort = None
     llm._reasoning_effort_spec = None
 
