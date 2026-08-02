@@ -362,7 +362,7 @@ class TestInlineResourcesForSlashCommand:
     def test_inline_single_resource_windows(self):
         """Windows file:// URI is converted to local path."""
         acp_prompt = _acp_prompt(
-            TextContentBlock(type="text", text="/card "),
+            TextContentBlock(type="text", text="/card load "),
             EmbeddedResourceContentBlock(
                 type="resource",
                 resource=TextResourceContents(
@@ -376,12 +376,12 @@ class TestInlineResourcesForSlashCommand:
 
         assert len(result) == 1
         assert isinstance(result[0], TextContentBlock)
-        assert result[0].text == "/card X:/temp/foo.txt"
+        assert result[0].text == "/card load X:/temp/foo.txt"
 
     def test_inline_single_resource_unix_path(self):
         """Unix file:// URIs are converted to local paths."""
         acp_prompt = _acp_prompt(
-            TextContentBlock(type="text", text="/card "),
+            TextContentBlock(type="text", text="/card load "),
             EmbeddedResourceContentBlock(
                 type="resource",
                 resource=TextResourceContents(
@@ -395,7 +395,7 @@ class TestInlineResourcesForSlashCommand:
 
         assert len(result) == 1
         assert isinstance(result[0], TextContentBlock)
-        assert result[0].text == "/card /home/user/foo.txt"
+        assert result[0].text == "/card load /home/user/foo.txt"
 
     def test_inline_multiple_resources(self):
         """Multiple resources become space-separated paths."""
@@ -426,7 +426,7 @@ class TestInlineResourcesForSlashCommand:
     def test_inline_resource_path_with_spaces_is_quoted(self):
         """Paths with spaces are quoted before being appended to command text."""
         acp_prompt = _acp_prompt(
-            TextContentBlock(type="text", text="/card "),
+            TextContentBlock(type="text", text="/card load "),
             EmbeddedResourceContentBlock(
                 type="resource",
                 resource=TextResourceContents(
@@ -440,7 +440,7 @@ class TestInlineResourcesForSlashCommand:
 
         assert len(result) == 1
         assert isinstance(result[0], TextContentBlock)
-        assert result[0].text == "/card '/home/user/My Folder/foo.txt'"
+        assert result[0].text == "/card load '/home/user/My Folder/foo.txt'"
 
     def test_no_inline_without_slash(self):
         """Regular prompts with resources remain unchanged."""
@@ -464,7 +464,7 @@ class TestInlineResourcesForSlashCommand:
     def test_no_inline_text_only(self):
         """Pure text slash commands remain unchanged."""
         acp_prompt = _acp_prompt(
-            TextContentBlock(type="text", text="/card foo.txt"),
+            TextContentBlock(type="text", text="/card load foo.txt"),
         )
 
         result = inline_resources_for_slash_command(acp_prompt)
@@ -474,9 +474,9 @@ class TestInlineResourcesForSlashCommand:
         assert result is acp_prompt
 
     def test_preserves_existing_arguments(self):
-        """/card existing --tool @file.txt preserves all text."""
+        """/card load @file.txt --as-tool preserves all text."""
         acp_prompt = _acp_prompt(
-            TextContentBlock(type="text", text="/card --tool "),
+            TextContentBlock(type="text", text="/card load "),
             EmbeddedResourceContentBlock(
                 type="resource",
                 resource=TextResourceContents(
@@ -490,7 +490,7 @@ class TestInlineResourcesForSlashCommand:
 
         assert len(result) == 1
         assert isinstance(result[0], TextContentBlock)
-        assert result[0].text == "/card --tool /foo.txt"
+        assert result[0].text == "/card load /foo.txt"
 
     def test_empty_prompt_unchanged(self):
         """Empty prompt list returns unchanged."""
@@ -510,7 +510,7 @@ class TestInlineResourcesForSlashCommand:
                     text="file contents",
                 ),
             ),
-            TextContentBlock(type="text", text="/card"),
+            TextContentBlock(type="text", text="/card load"),
         )
 
         result = inline_resources_for_slash_command(acp_prompt)
@@ -521,7 +521,7 @@ class TestInlineResourcesForSlashCommand:
     def test_slash_with_leading_whitespace(self):
         """Slash commands with leading whitespace are still detected."""
         acp_prompt = _acp_prompt(
-            TextContentBlock(type="text", text="  /card "),
+            TextContentBlock(type="text", text="  /card load "),
             EmbeddedResourceContentBlock(
                 type="resource",
                 resource=TextResourceContents(
@@ -535,7 +535,7 @@ class TestInlineResourcesForSlashCommand:
 
         assert len(result) == 1
         assert isinstance(result[0], TextContentBlock)
-        assert result[0].text == "  /card /foo.txt"
+        assert result[0].text == "  /card load /foo.txt"
 
     def test_blob_resource_inlined(self):
         """Blob resources (PDFs, etc.) also have their paths inlined."""
@@ -561,7 +561,7 @@ class TestInlineResourcesForSlashCommand:
     def test_at_reference_replaced_with_path(self):
         """@filename in text is replaced with local path from matching resource."""
         acp_prompt = _acp_prompt(
-            TextContentBlock(type="text", text="/card @tortie.md"),
+            TextContentBlock(type="text", text="/card load @tortie.md"),
             EmbeddedResourceContentBlock(
                 type="resource",
                 resource=TextResourceContents(
@@ -575,12 +575,12 @@ class TestInlineResourcesForSlashCommand:
 
         assert len(result) == 1
         assert isinstance(result[0], TextContentBlock)
-        assert result[0].text == "/card /home/shaun/source/toad/tortie.md"
+        assert result[0].text == "/card load /home/shaun/source/toad/tortie.md"
 
     def test_at_reference_replaced_with_quoted_path(self):
         """@filename replacements quote matching paths when needed."""
         acp_prompt = _acp_prompt(
-            TextContentBlock(type="text", text="/card @foo.txt"),
+            TextContentBlock(type="text", text="/card load @foo.txt"),
             EmbeddedResourceContentBlock(
                 type="resource",
                 resource=TextResourceContents(
@@ -594,12 +594,12 @@ class TestInlineResourcesForSlashCommand:
 
         assert len(result) == 1
         assert isinstance(result[0], TextContentBlock)
-        assert result[0].text == "/card '/home/user/My Folder/foo.txt'"
+        assert result[0].text == "/card load '/home/user/My Folder/foo.txt'"
 
     def test_quoted_at_reference_with_spaces_replaced(self):
         """Quoted @filename references can match attached filenames with spaces."""
         acp_prompt = _acp_prompt(
-            TextContentBlock(type="text", text='/card @"My Agent.md" --tool'),
+            TextContentBlock(type="text", text='/card load @"My Agent.md" --as-tool'),
             EmbeddedResourceContentBlock(
                 type="resource",
                 resource=TextResourceContents(
@@ -613,12 +613,12 @@ class TestInlineResourcesForSlashCommand:
 
         assert len(result) == 1
         assert isinstance(result[0], TextContentBlock)
-        assert result[0].text == "/card '/home/user/My Agent.md' --tool"
+        assert result[0].text == "/card load '/home/user/My Agent.md' --as-tool"
 
     def test_escaped_space_at_reference_replaced(self):
         """Escaped spaces in @filename references match attached resources."""
         acp_prompt = _acp_prompt(
-            TextContentBlock(type="text", text=r"/card @My\ Agent.md"),
+            TextContentBlock(type="text", text=r"/card load @My\ Agent.md"),
             EmbeddedResourceContentBlock(
                 type="resource",
                 resource=TextResourceContents(
@@ -632,12 +632,12 @@ class TestInlineResourcesForSlashCommand:
 
         assert len(result) == 1
         assert isinstance(result[0], TextContentBlock)
-        assert result[0].text == "/card '/home/user/My Agent.md'"
+        assert result[0].text == "/card load '/home/user/My Agent.md'"
 
     def test_at_reference_with_flags(self):
         """@filename with other flags is handled correctly."""
         acp_prompt = _acp_prompt(
-            TextContentBlock(type="text", text="/card --tool @myagent.md"),
+            TextContentBlock(type="text", text="/card load @myagent.md --as-tool"),
             EmbeddedResourceContentBlock(
                 type="resource",
                 resource=TextResourceContents(
@@ -651,7 +651,7 @@ class TestInlineResourcesForSlashCommand:
 
         assert len(result) == 1
         assert isinstance(result[0], TextContentBlock)
-        assert result[0].text == "/card --tool /path/to/myagent.md"
+        assert result[0].text == "/card load /path/to/myagent.md --as-tool"
 
     def test_multiple_at_references_replaced(self):
         """Multiple @filename references are all replaced."""
@@ -682,7 +682,7 @@ class TestInlineResourcesForSlashCommand:
     def test_at_reference_no_matching_resource_appends_attached_path(self):
         """Unmatched @text does not cause attached resources to be dropped."""
         acp_prompt = _acp_prompt(
-            TextContentBlock(type="text", text="/card @nonexistent.md"),
+            TextContentBlock(type="text", text="/card load @nonexistent.md"),
             EmbeddedResourceContentBlock(
                 type="resource",
                 resource=TextResourceContents(
@@ -696,12 +696,12 @@ class TestInlineResourcesForSlashCommand:
 
         assert len(result) == 1
         assert isinstance(result[0], TextContentBlock)
-        assert result[0].text == "/card @nonexistent.md /path/to/different.md"
+        assert result[0].text == "/card load @nonexistent.md /path/to/different.md"
 
     def test_at_reference_no_matching_handle_appends_attached_path(self):
         """Ordinary @handles do not cause attached resources to be dropped."""
         acp_prompt = _acp_prompt(
-            TextContentBlock(type="text", text="/card --note user@example.com "),
+            TextContentBlock(type="text", text="/card load "),
             EmbeddedResourceContentBlock(
                 type="resource",
                 resource=TextResourceContents(
@@ -715,7 +715,7 @@ class TestInlineResourcesForSlashCommand:
 
         assert len(result) == 1
         assert isinstance(result[0], TextContentBlock)
-        assert result[0].text == "/card --note user@example.com /tmp/foo.md"
+        assert result[0].text == "/card load /tmp/foo.md"
 
     def test_at_reference_replacement_does_not_rewrite_longer_token_prefix(self):
         """Replacing @a.txt leaves @a.txt.bak untouched."""
@@ -739,7 +739,7 @@ class TestInlineResourcesForSlashCommand:
     def test_at_reference_windows_path(self):
         """@filename works with Windows-style file URIs."""
         acp_prompt = _acp_prompt(
-            TextContentBlock(type="text", text="/card @config.yaml"),
+            TextContentBlock(type="text", text="/card load @config.yaml"),
             EmbeddedResourceContentBlock(
                 type="resource",
                 resource=TextResourceContents(
@@ -753,7 +753,7 @@ class TestInlineResourcesForSlashCommand:
 
         assert len(result) == 1
         assert isinstance(result[0], TextContentBlock)
-        assert result[0].text == "/card C:/Users/test/config.yaml"
+        assert result[0].text == "/card load C:/Users/test/config.yaml"
 
 
 class TestFileUriToPath:

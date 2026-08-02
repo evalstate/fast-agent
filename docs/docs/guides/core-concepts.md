@@ -193,8 +193,12 @@ Inside the interactive prompt, agents are lightweight to move between:
   Markdown text.
 - `##agent_name message` is the quiet form. It suppresses interactive display and
   still loads the response into your buffer.
-- `/agent`, `/card`, `/reload`, `/history`, `/session`, `/connect`, and
-  `/skills` are available while you work.
+- `/agent` shows, lists, selects, and connects runtime agents.
+- `/card` loads or shows portable AgentCard definitions.
+- `/packs` manages installed card packs and their marketplace.
+- `/model` shows or changes the active agent's model and model settings.
+- `/reload`, `/history`, `/session`, `/connect`, and `/skills` are also
+  available while you work.
 
 <div class="fa-term" aria-label="fast-agent TUI example">
   <div class="fa-term__bar">

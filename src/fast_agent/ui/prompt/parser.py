@@ -16,8 +16,8 @@ from fast_agent.commands.shared_command_intents import (
     HistoryActionIntent,
     ModelCommandAction,
     SessionCommandIntent,
-    parse_agent_tool_intent,
-    parse_card_load_intent,
+    parse_agent_command_intent,
+    parse_card_command_intent,
     parse_current_agent_history_intent,
     parse_model_command_intent,
     parse_session_command_intent,
@@ -27,7 +27,7 @@ from fast_agent.ui.command_payloads import (
     A2ACommand,
     AgentCommand,
     AttachCommand,
-    CardsCommand,
+    CardCommand,
     CheckCommand,
     ClearCommand,
     ClearSessionsCommand,
@@ -48,7 +48,6 @@ from fast_agent.ui.command_payloads import (
     ListPromptsCommand,
     ListSessionsCommand,
     ListToolsCommand,
-    LoadAgentCardCommand,
     LoadHistoryCommand,
     LoadPromptCommand,
     McpAttachCommand,
@@ -57,14 +56,16 @@ from fast_agent.ui.command_payloads import (
     McpListCommand,
     McpReconnectCommand,
     ModelFastCommand,
+    ModelManagerCommand,
     ModelReasoningCommand,
-    ModelsCommand,
+    ModelStatusCommand,
     ModelSwitchCommand,
     ModelTaskBudgetCommand,
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
     ModelXSearchCommand,
+    PacksCommand,
     PinSessionCommand,
     PluginsCommand,
     ProcessCommand,
@@ -97,6 +98,7 @@ type _PromptSubcommandParser = Callable[[str], CommandPayload]
 type _SlashAliasParser = Callable[[str], str | CommandPayload]
 
 _MODEL_VALUE_COMMAND_FACTORIES: dict[str, _ValueCommandFactory] = {
+    "status": lambda _value: ModelStatusCommand(),
     "reasoning": ModelReasoningCommand,
     "task_budget": ModelTaskBudgetCommand,
     "verbosity": ModelVerbosityCommand,
@@ -161,7 +163,7 @@ if set(_MCP_TOKEN_PARSERS) | {"connect"} != set(MCP_TOP_LEVEL_ACTIONS):
 
 _SLASH_ACTION_FACTORIES: dict[str, _ActionArgumentCommandFactory] = {
     "skills": SkillsCommand,
-    "cards": CardsCommand,
+    "packs": PacksCommand,
     "plugins": PluginsCommand,
 }
 
@@ -430,22 +432,21 @@ def _simple_session_payload_from_intent(
 
 
 def _parse_card_command(remainder: str) -> CommandPayload:
-    intent = parse_card_load_intent(remainder)
-    return LoadAgentCardCommand(
-        filename=intent.filename,
-        add_tool=intent.add_tool,
-        remove_tool=intent.remove_tool,
+    intent = parse_card_command_intent(remainder)
+    return CardCommand(
+        action="show" if intent.action == "unknown" else intent.action,
+        source=intent.source,
+        agent_name=intent.agent_name,
+        as_tool=intent.as_tool,
         error=intent.error,
     )
 
 
 def _parse_agent_command(remainder: str) -> CommandPayload:
-    intent = parse_agent_tool_intent(remainder, require_tool_agent=True)
+    intent = parse_agent_command_intent(remainder)
     return AgentCommand(
+        action="status" if intent.action == "unknown" else intent.action,
         agent_name=intent.agent_name,
-        add_tool=intent.add_tool,
-        remove_tool=intent.remove_tool,
-        dump=intent.dump,
         error=intent.error,
     )
 
@@ -550,7 +551,7 @@ def _parse_model_command(
     cmd_line: str,
     remainder: str,
     *,
-    default_action: ModelCommandAction = "reasoning",
+    default_action: ModelCommandAction = "status",
 ) -> CommandPayload:
     intent = parse_model_command_intent(remainder, default_action=default_action)
     if intent.error is not None:
@@ -559,37 +560,16 @@ def _parse_model_command(
     if factory is not None:
         return factory(intent.argument)
     if intent.action in MODEL_MANAGER_COMMAND_ACTIONS:
-        return ModelsCommand(
+        return ModelManagerCommand(
             action=intent.action,
             argument=intent.argument,
-            command_name="model",
         )
     return UnknownCommand(command=cmd_line)
-
-
-def _parse_models_command(remainder: str) -> CommandPayload:
-    intent = parse_model_command_intent(remainder, default_action="doctor")
-    if intent.error is not None:
-        return CommandError(message=f"Invalid /models arguments: {intent.error}")
-    if intent.action in MODEL_MANAGER_COMMAND_ACTIONS:
-        return ModelsCommand(
-            action=intent.action,
-            argument=intent.argument,
-            command_name="models",
-        )
-    invalid_action = intent.raw_subcommand or intent.action
-    return CommandError(
-        message=f"Invalid /models action '{invalid_action}'. Use /model for runtime model settings."
-    )
 
 
 def _parse_model_slash_command(remainder: str) -> CommandPayload:
     cmd_line = f"/model {remainder}".strip()
     return _parse_model_command(cmd_line, remainder)
-
-
-def _parse_models_slash_command(remainder: str) -> CommandPayload:
-    return _parse_models_command(remainder)
 
 
 def _parse_a2a_command(remainder: str) -> CommandPayload:
@@ -734,7 +714,6 @@ _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
     "connect": _parse_connect_alias_command,
     "prompt": _parse_prompt_command,
     "model": _parse_model_slash_command,
-    "models": _parse_models_slash_command,
     "attach": _parse_attach_command,
     "check": lambda remainder: CheckCommand(argument=remainder or None),
     "commands": lambda remainder: CommandsCommand(argument=remainder or None),

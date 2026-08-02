@@ -458,7 +458,10 @@ Any editor supporting ACP can use fast-agent:
 
 ## Client Resource Attachment Styles
 
-When users attach files with "@" syntax (e.g., `/card @myfile.md`), different ACP clients send resources differently. The `inline_resources_for_slash_command()` function in `content_conversion.py` handles both styles.
+When users attach files with "@" syntax (e.g., `/card load @myfile.md`),
+different ACP clients send resources differently. The
+`inline_resources_for_slash_command()` function in `content_conversion.py`
+handles both styles.
 
 ### Zed Style
 
@@ -467,7 +470,7 @@ Zed includes the `@filename` reference in the text and provides the resource sep
 ```json
 {
   "prompt": [
-    {"type": "text", "text": "/card @tortie.md"},
+    {"type": "text", "text": "/card load @tortie.md"},
     {"type": "resource", "resource": {"uri": "file:///path/to/tortie.md", "text": "..."}}
   ]
 }
@@ -482,7 +485,7 @@ Toad strips the `@filename` from text, leaving a trailing space:
 ```json
 {
   "prompt": [
-    {"type": "text", "text": "/card "},
+    {"type": "text", "text": "/card load "},
     {"type": "resource", "resource": {"uri": "file:///path/to/tortie.md", "text": ""}}
   ]
 }
@@ -494,7 +497,7 @@ Toad strips the `@filename` from text, leaving a trailing space:
 
 Both styles produce the same output for slash command handlers:
 ```
-/card /path/to/tortie.md
+/card load /path/to/tortie.md
 ```
 
 The `file://` URI prefix is stripped to produce a usable local filesystem path.

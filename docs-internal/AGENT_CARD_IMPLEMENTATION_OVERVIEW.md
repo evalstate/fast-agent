@@ -140,17 +140,20 @@ Defaults:
     default agent.
 
 ### Runtime Commands
-- `/card <path|url> [--tool [remove]]` loads cards at runtime. With `--tool`,
+- `/card load <path|url> [--as-tool]` loads cards at runtime. With `--as-tool`,
   loaded agents are attached to the current agent via Agents-as-Tools (scoped
   to the current agent only).
-- `/agent <name> --tool [remove]` attaches or detaches an existing agent.
-- `/agent [name] --dump` prints the selected agent's AgentCard.
+- `/card show [agent]` prints the selected or current agent's AgentCard.
+- `/agent tool add <name>` and `/agent tool remove <name>` attach or detach an
+  existing agent.
+- `/agent status`, `/agent list`, and `/agent use <name>` inspect and select
+  runtime agents.
 
 ## Export / Dump
 - Dump helpers in `agent_card_loader.py` render AgentCards as Markdown or YAML.
 - `FastAgent` exposes `--dump`, `--dump-yaml`, `--dump-agent`, and
   `--dump-agent-path` when invoked via the legacy CLI.
-- The REPL uses a dump callback to support `/agent --dump`.
+- The REPL uses a dump callback to support `/card show`.
 
 ## Reload / Watch Behavior
 - Card reloads are tracked per root with `(mtime_ns, size)` for each file.

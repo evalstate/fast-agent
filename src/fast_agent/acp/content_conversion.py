@@ -282,12 +282,12 @@ def inline_resources_for_slash_command(
 
     Handles two client behaviors:
     1. Text has "@filename" references that match resource URIs by filename:
-       Input:  [TextBlock("/card @foo.txt"), ResourceBlock(uri="file:///path/foo.txt")]
-       Output: [TextBlock("/card /path/foo.txt")]
+       Input:  [TextBlock("/card load @foo.txt"), ResourceBlock(uri="file:///path/foo.txt")]
+       Output: [TextBlock("/card load /path/foo.txt")]
 
     2. Text ends with trailing space and resources follow without "@" references:
-       Input:  [TextBlock("/card "), ResourceBlock(uri="file:///foo.txt")]
-       Output: [TextBlock("/card /foo.txt")]
+       Input:  [TextBlock("/card load "), ResourceBlock(uri="file:///foo.txt")]
+       Output: [TextBlock("/card load /foo.txt")]
 
     Args:
         acp_prompt: List of ACP content blocks

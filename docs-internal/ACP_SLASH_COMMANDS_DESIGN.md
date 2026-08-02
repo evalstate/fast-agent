@@ -9,7 +9,8 @@ Document the design pattern for ACP slash commands, how command output is render
 `SlashCommandHandler` (in `src/fast_agent/acp/slash_commands.py`) implements ACP-facing commands, split into:
 
 - Session commands: `/status`, `/history`, `/session`, `/clear`, `/save`, `/load`.
-- Agent/registry commands: `/tools`, `/skills` (add/remove/registry/list), `/card`, `/agent`, `/reload`.
+- Agent/registry commands: `/tools`, `/skills` (add/remove/registry/list),
+  `/packs`, `/card`, `/agent`, `/reload`.
 - Auth/diagnostics: `/status auth`, `/status authreset`.
 
 All routing is in `execute_command`, which delegates to `_handle_*` methods.
@@ -70,7 +71,10 @@ All routing is in `execute_command`, which delegates to `_handle_*` methods.
 - `/status auth` / `/status authreset` use `render_permissions_markdown`.
 
 ### `/card` / `/agent` / `/reload`
-- ACP uses `commands.handlers.agent_cards` for card loading, tool attach/detach, dumps, and reload.
+- `/card load` loads AgentCards, `/card show` renders a registered agent's
+  AgentCard, and `/agent` owns status/list/use plus agent-tool attachment.
+- ACP uses `commands.handlers.agent_cards` for card loading, tool
+  attach/detach, card display, agent selection, and reload.
 - `render_command_outcome_markdown` formats the resulting `CommandOutcome`.
 
 ## Tests & Coverage Notes

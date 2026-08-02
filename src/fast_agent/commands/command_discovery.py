@@ -289,22 +289,10 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
             ],
         ),
         _simple_command_entry(
-            "agent",
-            summary="Attach, detach, or inspect an existing agent as a tool",
-            usage="/agent <name> [--tool [remove]|--dump]",
-            examples=["/agent reviewer --tool", "/agent reviewer --dump"],
-        ),
-        _simple_command_entry(
             "attach",
             summary="Stage file or URL attachments for the next prompt",
             usage="/attach [clear|path|url ...]",
             examples=["/attach README.md", "/attach clear"],
-        ),
-        _simple_command_entry(
-            "card",
-            summary="Load an agent card, optionally as a tool",
-            usage="/card <path> [--tool [remove]]",
-            examples=["/card sizer.md", "/card sizer.md --tool"],
         ),
         {
             "name": "compact",

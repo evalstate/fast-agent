@@ -61,7 +61,7 @@ registry_version += 1 ------------------/
 - **CLI (`fast-agent go`)**: loads AgentCards, config, and sets up watch/reload.
 - **FastAgent**: maintains the registry, reloads cards, and manages instances.
 - **AgentApp**: routes messages, applies `refresh_if_needed()`, and exposes
-  `/agent --dump`.
+  `/card show`.
 - **InteractivePrompt / EnhancedPrompt**: input loop and slash-command parsing.
 - **AgentsAsToolsAgent**: upgrades basic agents when `child_agents` are declared.
 
@@ -106,17 +106,20 @@ turns.
 
 ## Command Surface
 ### Command Handling
-- `/agents`: list available agents.
-- `/card <path|url> [--tool [remove]]`: load cards at runtime; with `--tool`,
+- `/agent` and `/agent status`: show the current agent.
+- `/agent list`: list selectable agents.
+- `/agent use <name>`: switch the active agent (`@name` remains the TUI shortcut).
+- `/card load <path|url> [--as-tool]`: load cards at runtime; with `--as-tool`,
   attach loaded agents to the current agent via Agents-as-Tools (scoped to the
   current agent only).
-- `/agent <name> --tool [remove]`: attach/detach an existing agent as a tool.
-- `/agent [name] --dump`: print the selected agent's AgentCard.
+- `/card show [agent]`: print the selected or current agent's AgentCard.
+- `/agent tool add <name>` and `/agent tool remove <name>`: attach/detach an
+  existing agent as a tool.
 - `/reload`: manual reload pass when `--reload` is enabled.
 
 ### Agents-as-Tools Integration
 - Declaring `agents` on a basic agent upgrades it to `AgentsAsToolsAgent`.
-- `/card --tool` and `/agent --tool` append to the current agent's
+- `/card load --as-tool` and `/agent tool add` append to the current agent's
   `child_agents` and hot-swap using the same code path.
 - Tool attach is a per-agent operation; it does not automatically attach to all
   loaded agents.
@@ -132,7 +135,7 @@ turns.
 ## What's Implemented
 - [x] Interactive REPL loop with slash commands and `@agent` switching.
 - [x] AgentCard loading from files or directories.
-- [x] `/card --tool` and `/agent --tool` attach agents via Agents-as-Tools.
+- [x] `/card load --as-tool` and `/agent tool add` attach agents via Agents-as-Tools.
 - [x] Incremental reload with `mtime+size` checks and safe parse retry.
 - [x] Removal handling: deleted agents are pruned from the registry and detached
   on refresh.

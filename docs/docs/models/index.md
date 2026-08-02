@@ -61,6 +61,22 @@ fast-agent --model codexplan # Use the latest supported Codex Subscription Model
 
 Use `fast-agent model presets` to see the current shortcuts.
 
+### Interactive Model Commands
+
+In the TUI or an ACP client, `/model` shows the active agent's resolved model
+and supported runtime settings. Use explicit subcommands to make changes or
+inspect model configuration:
+
+```text
+/model
+/model switch
+/model reasoning high
+/model verbosity low
+/model doctor
+/model references
+/model catalog anthropic --all
+```
+
 ### Model Strings and Configuration
 
 Models in **fast-agent** are specified with a model string:

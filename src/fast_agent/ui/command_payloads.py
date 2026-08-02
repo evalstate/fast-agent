@@ -189,10 +189,10 @@ class SkillsCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
-class CardsCommand(CommandBase):
+class PacksCommand(CommandBase):
     action: str
     argument: str | None
-    kind: Literal["cards_command"] = "cards_command"
+    kind: Literal["packs_command"] = "packs_command"
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,11 +203,10 @@ class PluginsCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
-class ModelsCommand(CommandBase):
+class ModelManagerCommand(CommandBase):
     action: str
     argument: str | None
-    command_name: Literal["model", "models"] = "model"
-    kind: Literal["models_command"] = "models_command"
+    kind: Literal["model_manager_command"] = "model_manager_command"
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,12 +279,13 @@ class HistoryWebClearCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
-class LoadAgentCardCommand(CommandBase):
-    filename: str | None
-    add_tool: bool
-    remove_tool: bool
+class CardCommand(CommandBase):
+    action: Literal["show", "load"]
+    source: str | None
+    agent_name: str | None
+    as_tool: bool
     error: str | None
-    kind: Literal["load_agent_card"] = "load_agent_card"
+    kind: Literal["card_command"] = "card_command"
 
 
 @dataclass(frozen=True, slots=True)
@@ -295,10 +295,8 @@ class ReloadAgentsCommand(CommandBase):
 
 @dataclass(frozen=True, slots=True)
 class AgentCommand(CommandBase):
+    action: Literal["status", "list", "use", "tool_add", "tool_remove"]
     agent_name: str | None
-    add_tool: bool
-    remove_tool: bool
-    dump: bool
     error: str | None
     kind: Literal["agent_command"] = "agent_command"
 
@@ -401,6 +399,12 @@ class ModelReasoningCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelStatusCommand(CommandBase):
+    value: None = None
+    kind: Literal["model_status"] = "model_status"
+
+
+@dataclass(frozen=True, slots=True)
 class ModelTaskBudgetCommand(CommandBase):
     value: str | None
     kind: Literal["model_task_budget"] = "model_task_budget"
@@ -490,9 +494,9 @@ CommandPayload = (
     | ClearCommand
     | CompactCommand
     | SkillsCommand
-    | CardsCommand
+    | PacksCommand
     | PluginsCommand
-    | ModelsCommand
+    | ModelManagerCommand
     | SelectPromptCommand
     | SwitchAgentCommand
     | HashAgentCommand
@@ -503,7 +507,7 @@ CommandPayload = (
     | HistoryReviewCommand
     | HistoryFixCommand
     | HistoryWebClearCommand
-    | LoadAgentCardCommand
+    | CardCommand
     | ReloadAgentsCommand
     | AgentCommand
     | ListSessionsCommand
@@ -519,6 +523,7 @@ CommandPayload = (
     | ShellCommand
     | AttachCommand
     | ModelReasoningCommand
+    | ModelStatusCommand
     | ModelTaskBudgetCommand
     | ModelVerbosityCommand
     | ModelFastCommand

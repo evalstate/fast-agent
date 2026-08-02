@@ -268,7 +268,7 @@ async def test_prompt_loop_skips_shell_cwd_startup_prompt_when_policy_not_ask(
 
 @pytest.mark.asyncio
 async def test_agent_command_missing_agent(monkeypatch, capsys: Any) -> None:
-    _patch_input(monkeypatch, ["/agent sizer --tool", "STOP"])
+    _patch_input(monkeypatch, ["/agent tool add sizer", "STOP"])
 
     async def fake_send(*_args: Any, **_kwargs: Any) -> str:
         return ""
@@ -289,7 +289,7 @@ async def test_agent_command_missing_agent(monkeypatch, capsys: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_agent_command_attach_and_detach(monkeypatch, capsys: Any) -> None:
-    _patch_input(monkeypatch, ["/agent sizer --tool", "/agent sizer --tool remove", "STOP"])
+    _patch_input(monkeypatch, ["/agent tool add sizer", "/agent tool remove sizer", "STOP"])
 
     async def fake_send(*_args: Any, **_kwargs: Any) -> str:
         return ""
@@ -310,8 +310,8 @@ async def test_agent_command_attach_and_detach(monkeypatch, capsys: Any) -> None
 
 
 @pytest.mark.asyncio
-async def test_agent_command_dump(monkeypatch, capsys: Any) -> None:
-    _patch_input(monkeypatch, ["/agent sizer --dump", "STOP"])
+async def test_card_command_show(monkeypatch, capsys: Any) -> None:
+    _patch_input(monkeypatch, ["/card show sizer", "STOP"])
 
     async def fake_send(*_args: Any, **_kwargs: Any) -> str:
         return ""
@@ -332,7 +332,7 @@ async def test_agent_command_dump(monkeypatch, capsys: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_card_command_attach(monkeypatch, capsys: Any) -> None:
-    _patch_input(monkeypatch, ["/card sizer.md --tool", "STOP"])
+    _patch_input(monkeypatch, ["/card load sizer.md --as-tool", "STOP"])
 
     async def fake_send(*_args: Any, **_kwargs: Any) -> str:
         return ""

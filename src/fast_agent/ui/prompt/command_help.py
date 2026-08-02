@@ -5,7 +5,7 @@ from __future__ import annotations
 from fast_agent.commands.command_catalog import CommandSpec, get_command_spec
 from fast_agent.commands.session_export_help import SESSION_EXPORT_USAGE
 
-CATALOG_HELP_COMMANDS = ("skills", "cards", "plugins", "model", "models", "check")
+CATALOG_HELP_COMMANDS = ("skills", "packs", "plugins", "model", "agent", "card", "check")
 
 
 def _catalog_help_lines(command_names: tuple[str, ...]) -> list[str]:
@@ -85,9 +85,6 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /session pin <title> - Set title and pin the current session",
             "  /session unpin - Unpin the current session",
             f"  {SESSION_EXPORT_USAGE} - Export a session trace",
-            "  /card <filename> [--tool [remove]] - Load an AgentCard (attach/remove as tool)",
-            "  /agent <name> --tool [remove] - Attach/remove an agent as a tool",
-            "  /agent [name] --dump - Print an AgentCard to screen",
             "  /reload        - Reload AgentCards",
             "  @agent_name    - Switch to agent",
             "  #agent_name <msg> - Send message to agent (no space after #); '# Heading' stays plain text",

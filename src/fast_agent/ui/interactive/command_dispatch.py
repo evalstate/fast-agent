@@ -46,7 +46,7 @@ from fast_agent.ui.command_payloads import (
     A2ACommand,
     AgentCommand,
     AttachCommand,
-    CardsCommand,
+    CardCommand,
     CheckCommand,
     ClearCommand,
     ClearSessionsCommand,
@@ -69,7 +69,6 @@ from fast_agent.ui.command_payloads import (
     ListSessionsCommand,
     ListSkillsCommand,
     ListToolsCommand,
-    LoadAgentCardCommand,
     LoadHistoryCommand,
     LoadPromptCommand,
     McpAttachCommand,
@@ -78,14 +77,16 @@ from fast_agent.ui.command_payloads import (
     McpListCommand,
     McpReconnectCommand,
     ModelFastCommand,
+    ModelManagerCommand,
     ModelReasoningCommand,
-    ModelsCommand,
+    ModelStatusCommand,
     ModelSwitchCommand,
     ModelTaskBudgetCommand,
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
     ModelXSearchCommand,
+    PacksCommand,
     PinSessionCommand,
     PluginsCommand,
     ProcessCommand,
@@ -176,7 +177,7 @@ class _DispatchStep:
 
 CommandOutcomeHandler = Callable[[CommandContext], Awaitable[CommandOutcome]]
 CommandHandlerFunction = Callable[..., Awaitable[CommandOutcome]]
-CatalogActionCommand = SkillsCommand | CardsCommand | PluginsCommand | ModelsCommand
+CatalogActionCommand = SkillsCommand | PacksCommand | PluginsCommand | ModelManagerCommand
 _CommandRouteGroup = Literal["catalog", "display", "mcp", "model"]
 _CommandRouteKind = Literal[
     "agent_name",
@@ -218,7 +219,7 @@ _COMMAND_OUTCOME_ROUTES: tuple[_CommandOutcomeRoute, ...] = (
         skills_handlers.handle_skills_command,
     ),
     _CommandOutcomeRoute(
-        CardsCommand,
+        PacksCommand,
         "catalog",
         "catalog_action",
         cards_handlers.handle_cards_command,
@@ -230,7 +231,7 @@ _COMMAND_OUTCOME_ROUTES: tuple[_CommandOutcomeRoute, ...] = (
         plugins_handlers.handle_plugins_command,
     ),
     _CommandOutcomeRoute(
-        ModelsCommand,
+        ModelManagerCommand,
         "catalog",
         "catalog_action",
         models_manager_handlers.handle_models_command,
@@ -308,6 +309,12 @@ _COMMAND_OUTCOME_ROUTES: tuple[_CommandOutcomeRoute, ...] = (
         mcp_runtime_handlers.handle_mcp_reconnect,
     ),
     _CommandOutcomeRoute(
+        ModelStatusCommand,
+        "model",
+        "value",
+        model_handlers.handle_model_status,
+    ),
+    _CommandOutcomeRoute(
         ModelReasoningCommand,
         "model",
         "value",
@@ -365,7 +372,7 @@ def _without_context(
 
 
 def _is_catalog_action_command(payload: CommandPayload) -> TypeGuard[CatalogActionCommand]:
-    return isinstance(payload, (SkillsCommand, CardsCommand, PluginsCommand, ModelsCommand))
+    return isinstance(payload, (SkillsCommand, PacksCommand, PluginsCommand, ModelManagerCommand))
 
 
 def _command_route(
@@ -400,14 +407,6 @@ def _command_route_handler(
     if route.kind == "catalog_action":
         if not _is_catalog_action_command(payload):
             return None
-        if isinstance(payload, ModelsCommand):
-            return partial(
-                route.handler,
-                agent_name=agent,
-                action=payload.action,
-                argument=payload.argument,
-                command_name=payload.command_name,
-            )
         return partial(
             route.handler,
             agent_name=agent,
@@ -1498,10 +1497,11 @@ async def _dispatch_agent_card_payload(
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
-        case LoadAgentCardCommand(
-            filename=filename,
-            add_tool=add_tool,
-            remove_tool=remove_tool,
+        case CardCommand(
+            action=action,
+            source=source,
+            agent_name=target_agent,
+            as_tool=as_tool,
             error=error,
         ):
             if error:
@@ -1512,14 +1512,22 @@ async def _dispatch_agent_card_payload(
                 agent,
                 session_manager=session_manager,
             )
-            outcome = await agent_card_handlers.handle_card_load(
-                context,
-                manager=prompt_provider,
-                filename=filename,
-                add_tool=add_tool,
-                remove_tool=remove_tool,
-                current_agent=agent,
-            )
+            if action == "show":
+                outcome = await agent_card_handlers.handle_card_show(
+                    context,
+                    manager=prompt_provider,
+                    current_agent=agent,
+                    target_agent=target_agent,
+                )
+            else:
+                outcome = await agent_card_handlers.handle_card_load(
+                    context,
+                    manager=prompt_provider,
+                    filename=source,
+                    add_tool=as_tool,
+                    remove_tool=False,
+                    current_agent=agent,
+                )
             await emit_command_outcome(context, outcome)
             if outcome.requires_refresh:
                 next_available_agents, next_available_agents_set = _refresh_dispatch_agents(
@@ -1536,10 +1544,8 @@ async def _dispatch_agent_card_payload(
                         result.should_return = True
             return result
         case AgentCommand(
+            action=action,
             agent_name=agent_name,
-            add_tool=add_tool,
-            remove_tool=remove_tool,
-            dump=dump,
             error=error,
         ):
             if error:
@@ -1554,12 +1560,11 @@ async def _dispatch_agent_card_payload(
                 context,
                 manager=prompt_provider,
                 current_agent=agent,
+                action=action,
                 target_agent=agent_name,
-                add_tool=add_tool,
-                remove_tool=remove_tool,
-                dump=dump,
             )
             await emit_command_outcome(context, outcome)
+            result.next_agent = outcome.switch_agent
             return result
         case _:
             return None
