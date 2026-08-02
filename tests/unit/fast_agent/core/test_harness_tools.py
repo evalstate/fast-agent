@@ -56,13 +56,14 @@ async def test_harness_tools_install_execute_and_disable() -> None:
         assert result_text is not None
         assert expected in result_text
 
-    deprecated_status = await agent.call_tool(
+    removed_status_alias = await agent.call_tool(
         SLASH_COMMAND_TOOL_NAME,
         {"command": "/mcpstatus"},
     )
-    deprecated_status_text = get_text(deprecated_status.content[0])
-    assert deprecated_status_text is not None
-    assert "/mcpstatus` is deprecated" in deprecated_status_text
+    removed_status_alias_text = get_text(removed_status_alias.content[0])
+    assert removed_status_alias.is_error
+    assert removed_status_alias_text is not None
+    assert "Unsupported harness command" in removed_status_alias_text
 
     rejected = await agent.call_tool(
         SLASH_COMMAND_TOOL_NAME,

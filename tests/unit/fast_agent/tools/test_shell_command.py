@@ -77,6 +77,30 @@ def test_shell_heredoc_bodies_match_static_redirect_targets() -> None:
     ]
 
 
+def test_shell_heredoc_bodies_match_direct_stdin_interpreter() -> None:
+    command = "/usr/bin/python3.14 - <<'PY'\nprint('hello')\nPY\n"
+
+    body = shell_heredoc_bodies(command)[0]
+
+    assert body.target_path is None
+    assert body.stdin_interpreter == "python3.14"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat <<'PY'\nprint('hello')\nPY\n",
+        "python -c 'print(1)' - <<'PY'\nprint('hello')\nPY\n",
+        "cat <<A <<B\nfirst\nA\nsecond\nB\n",
+    ],
+)
+def test_shell_heredoc_bodies_do_not_guess_stdin_interpreter(command: str) -> None:
+    bodies = shell_heredoc_bodies(command)
+
+    assert bodies
+    assert all(body.stdin_interpreter is None for body in bodies)
+
+
 @pytest.mark.parametrize(
     "command",
     [

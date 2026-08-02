@@ -74,7 +74,6 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
         "usage",
         "markdown",
         "reload",
-        "mcpstatus",
         "environment",
         "prompts",
         "exit",

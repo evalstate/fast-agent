@@ -109,16 +109,28 @@ def test_elicitation_quickstart_copies_every_configured_server() -> None:
     }
 
     assert configured_scripts <= set(example.files)
-    assert "url_elicitation_demo.py" in example.files
+    assert set(example.files) == {
+        "custom_handler_demo.py",
+        "fast-agent.yaml",
+        "fast-agent.secrets.yaml.example",
+        "sandbox_demo.py",
+        "sandbox_server.py",
+        "url_demo.py",
+        "url_server.py",
+    }
+    assert all(server["protocol_mode"] == "modern" for server in parsed["mcp"]["servers"].values())
 
 
-def test_elicitation_quickstart_copies_url_demo(tmp_path: Path) -> None:
+def test_elicitation_quickstart_copies_sandbox_demo(tmp_path: Path) -> None:
     created = quickstart.copy_example_files("elicitations", tmp_path, force=True)
 
-    assert "elicitations/url_elicitation_demo.py" in created
-    assert "elicitations/url_elicitation_server.py" in created
-    assert (tmp_path / "elicitations" / "url_elicitation_demo.py").is_file()
-    assert (tmp_path / "elicitations" / "url_elicitation_server.py").is_file()
+    assert "elicitations/sandbox_demo.py" in created
+    assert "elicitations/sandbox_server.py" in created
+    assert "elicitations/custom_handler_demo.py" in created
+    assert "elicitations/url_demo.py" in created
+    assert "elicitations/url_server.py" in created
+    assert (tmp_path / "elicitations" / "sandbox_demo.py").is_file()
+    assert (tmp_path / "elicitations" / "sandbox_server.py").is_file()
 
 
 def test_quickstart_files_summary_formats_singular_counts() -> None:

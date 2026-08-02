@@ -29,7 +29,6 @@ class ShowMarkdownCommand(CommandBase):
 
 @dataclass(frozen=True, slots=True)
 class ShowMcpStatusCommand(CommandBase):
-    deprecated_alias: bool = False
     kind: Literal["show_mcp_status"] = "show_mcp_status"
 
 

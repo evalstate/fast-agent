@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +24,14 @@ _LANGUAGE_BY_EXTENSION: dict[str, str] = {
     ".sql": "sql",
 }
 
+_INTERPRETER_LANGUAGE: dict[str, str] = {
+    "lua": "lua",
+    "node": "javascript",
+    "nodejs": "javascript",
+    "perl": "perl",
+    "ruby": "ruby",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class SyntaxBlock:
@@ -34,12 +43,26 @@ def syntax_language_for_path(path: str) -> str | None:
     return _LANGUAGE_BY_EXTENSION.get(Path(path).suffix.casefold())
 
 
+def _syntax_language_for_interpreter(interpreter: str | None) -> str | None:
+    if interpreter is None:
+        return None
+    if re.fullmatch(r"(?:python|pypy)(?:\d+(?:\.\d+)*)?", interpreter):
+        return "python"
+    return _INTERPRETER_LANGUAGE.get(interpreter)
+
+
 def shell_syntax_blocks(command: str, *, shell_language: str) -> list[SyntaxBlock]:
     heredoc_bodies = [
         (body, language)
         for body in shell_heredoc_bodies(command)
-        if body.target_path
-        and (language := syntax_language_for_path(body.target_path))
+        if (
+            language := _syntax_language_for_interpreter(body.stdin_interpreter)
+            or (
+                syntax_language_for_path(body.target_path)
+                if body.target_path
+                else None
+            )
+        )
         and command[body.start : body.end].strip()
     ]
     if not heredoc_bodies:

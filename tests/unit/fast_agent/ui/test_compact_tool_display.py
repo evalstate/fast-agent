@@ -239,6 +239,21 @@ def test_shell_heredoc_uses_language_block_for_static_output_file() -> None:
     ]
 
 
+def test_shell_heredoc_uses_language_block_for_direct_interpreter() -> None:
+    display = _display()
+    command = "python - <<'PY'\nprint('hello')\nPY\nrm -rf /tmp/example"
+
+    content = display._tool_display._shell_tool_call_content(
+        command=command,
+        tool_args={"command": command},
+        metadata={"shell_name": "bash", "shell_path": "/bin/bash"},
+    )
+
+    assert isinstance(content, Group)
+    syntaxes = [renderable for renderable in content.renderables if isinstance(renderable, Syntax)]
+    assert [syntax._lexer for syntax in syntaxes] == ["bash", "python", "bash"]
+
+
 def test_compact_completed_process_collapses_to_exit_summary() -> None:
     display = _display()
     result = CallToolResult(
