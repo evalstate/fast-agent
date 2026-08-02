@@ -1510,9 +1510,9 @@ table.fa-table {
   font-weight: var(--w-3);
 }
 .fa-benchmark__point--fast-agent circle {
-  fill: var(--a-0);
+  fill: var(--s-1);
   stroke: var(--a-0);
-  filter: drop-shadow(0 0 6px var(--a-dim));
+  stroke-width: 2;
 }
 .fa-benchmark__point--fast-agent .fa-benchmark__point-harness { fill: var(--a-hi); }
 .fa-benchmark__point--fast-agent .fa-benchmark__point-model { fill: var(--a-0); }
@@ -1522,11 +1522,23 @@ table.fa-table {
   stroke-width: 3;
 }
 .fa-benchmark__point--fast-agent.is-selected circle {
-  fill: var(--a-hi);
+  fill: var(--s-1);
   stroke: var(--a-0);
 }
 .fa-benchmark__point--winner circle {
   stroke-width: 3;
+}
+.fa-benchmark__point:hover circle,
+.fa-benchmark__point:focus circle {
+  fill: var(--fg-0);
+  stroke: var(--fg-0);
+  stroke-width: 3;
+}
+.fa-benchmark__point--fast-agent:hover circle,
+.fa-benchmark__point--fast-agent:focus circle,
+.fa-benchmark__point--fast-agent.is-table-preview circle {
+  fill: var(--a-hi);
+  stroke: var(--a-0);
   filter: drop-shadow(0 0 8px var(--a-dim));
 }
 .fa-benchmark__tooltip {
