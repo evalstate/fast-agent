@@ -46,12 +46,8 @@ def test_asciinema_index_is_current() -> None:
 
 
 def test_mcp_inspect_casts_show_modern_progress_and_legacy_health() -> None:
-    modern = _cast_output(
-        ROOT / "docs" / "docs" / "assets" / "tui" / "hf-image-generation.cast"
-    )
-    legacy = _cast_output(
-        ROOT / "docs" / "docs" / "assets" / "mcp" / "mcp-inspect-legacy.cast"
-    )
+    modern = _cast_output(ROOT / "docs" / "docs" / "assets" / "tui" / "hf-image-generation.cast")
+    legacy = _cast_output(ROOT / "docs" / "docs" / "assets" / "mcp" / "mcp-inspect-legacy.cast")
 
     assert "Connected MCP server 'hf'" in modern
     assert "$HF_TOKEN" in modern

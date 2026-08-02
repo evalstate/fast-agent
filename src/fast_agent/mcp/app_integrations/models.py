@@ -70,9 +70,7 @@ class AppToolConfig(BaseModel):
     @property
     def is_valid(self) -> bool:
         return (
-            self.kind is not None
-            and self.linked_resource_uri is not None
-            and self.warning is None
+            self.kind is not None and self.linked_resource_uri is not None and self.warning is None
         )
 
 

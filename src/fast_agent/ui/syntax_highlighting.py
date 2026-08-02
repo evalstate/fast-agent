@@ -57,11 +57,7 @@ def shell_syntax_blocks(command: str, *, shell_language: str) -> list[SyntaxBloc
         for body in shell_heredoc_bodies(command)
         if (
             language := _syntax_language_for_interpreter(body.stdin_interpreter)
-            or (
-                syntax_language_for_path(body.target_path)
-                if body.target_path
-                else None
-            )
+            or (syntax_language_for_path(body.target_path) if body.target_path else None)
         )
         and command[body.start : body.end].strip()
     ]

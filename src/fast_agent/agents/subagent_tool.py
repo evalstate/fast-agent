@@ -728,11 +728,7 @@ def set_subagent_tool_enabled(agent: object, enabled: bool) -> bool:
     if not isinstance(agent, ToolAgent) or agent.config.tool_only or agent.config.subagent_child:
         return False
     source = agent.config.subagent_activation_source
-    if (
-        enabled
-        and agent.config.subagents is False
-        and source in {"configuration", "cli"}
-    ):
+    if enabled and agent.config.subagents is False and source in {"configuration", "cli"}:
         return False
     existing = agent._execution_tools.get(SUBAGENT_TOOL_NAME)
     if enabled and existing is not None and existing.meta != SUBAGENT_TOOL_METADATA:

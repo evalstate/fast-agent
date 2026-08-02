@@ -84,9 +84,7 @@ def assert_url_request(
     assert context.request_id == "authorize_console"
     assert isinstance(params, ElicitRequestURLParams)
     assert params.message == "Authorize browser access to sandbox sim-t4-small-001."
-    assert str(params.url) == (
-        "https://example.com/authorize?sandbox=sim-t4-small-001"
-    )
+    assert str(params.url) == ("https://example.com/authorize?sandbox=sim-t4-small-001")
     assert params.elicitation_id is None
 
 

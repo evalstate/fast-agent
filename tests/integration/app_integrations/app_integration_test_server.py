@@ -42,9 +42,7 @@ def build_valid_scenario() -> AppIntegrationTestServer:
     server = AppIntegrationTestServer(
         name="OpenAI Apps SDK Valid Scenario",
         tool_metadata={
-            "render_valid_widget": {
-                "openai/outputTemplate": "ui://openai-apps-sdk/widget-valid"
-            }
+            "render_valid_widget": {"openai/outputTemplate": "ui://openai-apps-sdk/widget-valid"}
         },
     )
 

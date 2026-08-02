@@ -1495,9 +1495,7 @@ async def test_unprefixed_read_text_file_routes_to_namespaced_mcp_when_local_fs_
 
     agent._aggregator.list_tools = cast("Any", fake_list_tools)
     agent._aggregator.call_tool = cast("Any", fake_call_tool)
-    agent._aggregator.get_app_integration_config = cast(
-        "Any", fake_get_app_integration_config
-    )
+    agent._aggregator.get_app_integration_config = cast("Any", fake_get_app_integration_config)
 
     request = PromptMessageExtended(
         role="assistant",
@@ -1639,9 +1637,7 @@ async def test_unprefixed_write_text_file_routes_to_namespaced_mcp_when_local_fs
 
     agent._aggregator.list_tools = cast("Any", fake_list_tools)
     agent._aggregator.call_tool = cast("Any", fake_call_tool)
-    agent._aggregator.get_app_integration_config = cast(
-        "Any", fake_get_app_integration_config
-    )
+    agent._aggregator.get_app_integration_config = cast("Any", fake_get_app_integration_config)
 
     request = PromptMessageExtended(
         role="assistant",

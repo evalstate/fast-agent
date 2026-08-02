@@ -30,7 +30,9 @@ def build_subagent_result_presentation(
     child_name = details.get("child_agent_name") if isinstance(details, Mapping) else None
     model_spec = details.get("model_spec") if isinstance(details, Mapping) else None
     child_session_id = details.get("child_session_id") if isinstance(details, Mapping) else None
-    display_label = alias if isinstance(alias, str) else label if isinstance(label, str) else child_name
+    display_label = (
+        alias if isinstance(alias, str) else label if isinstance(label, str) else child_name
+    )
     bottom_items = [f"session {child_session_id}"] if isinstance(child_session_id, str) else None
     return SubagentResultPresentation(
         message_text=tool_result_text_for_llm(result),

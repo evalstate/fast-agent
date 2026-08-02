@@ -1921,9 +1921,7 @@ class MCPAggregator(ContextDependent):
         tools: list[Tool] = []
 
         for namespaced_tool_name, namespaced_tool in self._namespaced_tool_map.items():
-            app_integration_config = self._app_integration_configs.get(
-                namespaced_tool.server_name
-            )
+            app_integration_config = self._app_integration_configs.get(namespaced_tool.server_name)
             discovered_tool = None
             matching_tool = None
             if app_integration_config:
@@ -3568,8 +3566,8 @@ class MCPAggregator(ContextDependent):
 
                 self._staged_discovery_tools[server_name] = new_namespaced_tools
                 try:
-                    _, app_integration_config = (
-                        await self._evaluate_app_integrations_for_server(server_name)
+                    _, app_integration_config = await self._evaluate_app_integrations_for_server(
+                        server_name
                     )
                 finally:
                     self._staged_discovery_tools.pop(server_name, None)

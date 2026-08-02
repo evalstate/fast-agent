@@ -25,10 +25,7 @@ def request_console_access(
     request_state = f"console-access:{sandbox_id}"
 
     if responses is None:
-        authorization_url = (
-            "https://example.com/authorize"
-            f"?sandbox={quote(sandbox_id, safe='')}"
-        )
+        authorization_url = f"https://example.com/authorize?sandbox={quote(sandbox_id, safe='')}"
         return InputRequiredResult(
             input_requests={
                 RESPONSE_KEY: ElicitRequest(

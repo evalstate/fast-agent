@@ -261,9 +261,7 @@ def shell_heredoc_bodies(command: str) -> list[ShellHeredocBody]:
             _heredoc_redirect_target(line, declarations[0]) if len(declarations) == 1 else None
         )
         stdin_interpreter = (
-            _heredoc_stdin_interpreter(line, declarations[0])
-            if len(declarations) == 1
-            else None
+            _heredoc_stdin_interpreter(line, declarations[0]) if len(declarations) == 1 else None
         )
         for index, declaration in enumerate(declarations):
             pending.append(

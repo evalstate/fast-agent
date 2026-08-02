@@ -389,9 +389,7 @@ def test_render_tool_segment_splits_completed_shell_heredoc_by_language() -> Non
 
     renderable = handle._render_tool_segment(segment, cursor_suffix="")
     assert isinstance(renderable, Group)
-    syntax_blocks = [
-        child for child in renderable.renderables if isinstance(child, Syntax)
-    ]
+    syntax_blocks = [child for child in renderable.renderables if isinstance(child, Syntax)]
 
     assert [block._lexer for block in syntax_blocks] == ["bash", "python", "bash"]
     assert [block.code for block in syntax_blocks] == [
@@ -418,9 +416,7 @@ def test_render_tool_segment_splits_direct_interpreter_heredoc_by_language() -> 
 
     renderable = handle._render_tool_segment(segment, cursor_suffix="")
     assert isinstance(renderable, Group)
-    syntax_blocks = [
-        child for child in renderable.renderables if isinstance(child, Syntax)
-    ]
+    syntax_blocks = [child for child in renderable.renderables if isinstance(child, Syntax)]
 
     assert [block._lexer for block in syntax_blocks] == ["bash", "python", "bash"]
 

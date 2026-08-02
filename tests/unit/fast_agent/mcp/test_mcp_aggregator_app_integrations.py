@@ -67,9 +67,7 @@ def test_mcp_apps_invalid_visibility_falls_back_with_a_warning() -> None:
 
     assert metadata is not None
     assert metadata.visibility == ["app"]
-    assert metadata.warnings == [
-        "invalid _meta.ui.visibility values ignored: unsupported"
-    ]
+    assert metadata.warnings == ["invalid _meta.ui.visibility values ignored: unsupported"]
 
 
 def test_openai_apps_sdk_detection_marks_valid_resources() -> None:
@@ -233,9 +231,7 @@ def test_openai_apps_sdk_detection_warns_on_invalid_mime() -> None:
 
     assert config.enabled is False
     assert len(config.resources) == 1
-    assert (
-        config.resources[0].warning == "served as 'text/html' instead of 'text/html+skybridge'"
-    )
+    assert config.resources[0].warning == "served as 'text/html' instead of 'text/html+skybridge'"
     assert config.warnings
     assert config.warnings[0] == (
         "ui://component/app: served as 'text/html' instead of 'text/html+skybridge'"
@@ -416,9 +412,7 @@ def test_tool_list_refresh_rebuilds_app_visibility_before_commit() -> None:
         return_value=[SimpleNamespace(uri="ui://component/app-only")]
     )
     aggregator._get_resource_from_server = AsyncMock(
-        return_value=SimpleNamespace(
-            contents=[SimpleNamespace(mime_type=MCP_APPS_MIME_TYPE)]
-        )
+        return_value=SimpleNamespace(contents=[SimpleNamespace(mime_type=MCP_APPS_MIME_TYPE)])
     )
 
     class _SilentDisplay(ConsoleDisplay):

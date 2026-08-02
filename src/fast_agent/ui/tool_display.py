@@ -1660,9 +1660,7 @@ class ToolDisplay:
                     source_label=source_label,
                     server_name=server_name,
                     show_hook_indicator=show_hook_indicator,
-                    is_app_integration_tool=(
-                        app_integration_details.is_app_integration_tool
-                    ),
+                    is_app_integration_tool=(app_integration_details.is_app_integration_tool),
                     structured_content=structured_content,
                     app_resource_uri=app_integration_details.resource_uri,
                 )
@@ -1677,9 +1675,7 @@ class ToolDisplay:
                     right_info=right_info,
                     bottom_metadata_items=bottom_metadata,
                     structured_content=structured_content,
-                    is_app_integration_tool=(
-                        app_integration_details.is_app_integration_tool
-                    ),
+                    is_app_integration_tool=(app_integration_details.is_app_integration_tool),
                     app_resource_uri=app_integration_details.resource_uri,
                     show_hook_indicator=show_hook_indicator,
                     post_content=post_content,
@@ -2195,9 +2191,7 @@ class ToolDisplay:
                 1 for resource in resources if resource.kind is AppIntegrationKind.MCP_APPS
             ),
             "openai_apps_sdk_resource_count": sum(
-                1
-                for resource in resources
-                if resource.kind is AppIntegrationKind.OPENAI_APPS_SDK
+                1 for resource in resources if resource.kind is AppIntegrationKind.OPENAI_APPS_SDK
             ),
         }
 
@@ -2284,9 +2278,7 @@ class ToolDisplay:
             if not cls._has_app_integration_signal(config, resources):
                 continue
 
-            server_rows.append(
-                cls._app_integration_server_row(server_name, config, resources)
-            )
+            server_rows.append(cls._app_integration_server_row(server_name, config, resources))
 
             for warning in config.warnings:
                 cls._add_app_integration_warning(
@@ -2329,10 +2321,7 @@ class ToolDisplay:
                         f"{format_count(row['mcp_apps_tool_count'], 'tool')}, "
                         f"{format_count(row['mcp_apps_resource_count'], 'resource')}[/dim]"
                     )
-                if (
-                    row["openai_apps_sdk_tool_count"]
-                    or row["openai_apps_sdk_resource_count"]
-                ):
+                if row["openai_apps_sdk_tool_count"] or row["openai_apps_sdk_resource_count"]:
                     segments.append(
                         "[cyan]OpenAI Apps SDK[/cyan][dim]: "
                         f"{format_count(row['openai_apps_sdk_tool_count'], 'tool')}, "

@@ -127,8 +127,7 @@ def start_t4_small_sandbox(
         ElicitationResult[SandboxRequest],
         Resolve(request_sandbox_details),
     ],
-) -> str:
-    ...
+) -> str: ...
 ```
 
 The resolver must be deterministic and side-effect free because it may run

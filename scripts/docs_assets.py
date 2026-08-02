@@ -166,9 +166,7 @@ def _elicitation_sandbox_scenario() -> TerminalCastScenario:
         output=ASSETS / "mcp" / "elicitation-sandbox.cast",
         cols=int(os.environ.get("FAST_AGENT_ELICITATION_DEMO_COLS", "96")),
         rows=int(os.environ.get("FAST_AGENT_ELICITATION_DEMO_ROWS", "24")),
-        idle_time_limit=float(
-            os.environ.get("FAST_AGENT_ELICITATION_DEMO_IDLE_TIME_LIMIT", "1.3")
-        ),
+        idle_time_limit=float(os.environ.get("FAST_AGENT_ELICITATION_DEMO_IDLE_TIME_LIMIT", "1.3")),
         prompt="",
         shell_command="uv run sandbox_demo.py",
         notes="Runs the simulated t4-small quickstart with modern MCP request retries.",
@@ -182,9 +180,7 @@ def _mcp_inspect_legacy_scenario() -> TerminalCastScenario:
         output=ASSETS / "mcp" / "mcp-inspect-legacy.cast",
         cols=int(os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_COLS", "112")),
         rows=int(os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_ROWS", "30")),
-        idle_time_limit=float(
-            os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_IDLE_TIME_LIMIT", "1.3")
-        ),
+        idle_time_limit=float(os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_IDLE_TIME_LIMIT", "1.3")),
         prompt="",
         shell_command="fast-agent -x --model passthrough",
         notes=(

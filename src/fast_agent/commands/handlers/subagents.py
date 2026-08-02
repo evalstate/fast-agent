@@ -78,9 +78,12 @@ def _list_outcome(ctx: "CommandContext", *, agent_name: str) -> CommandOutcome:
     ]
     runs.sort(key=lambda run: (run.ordinal == 0, run.ordinal))
     if not runs:
-        state = "enabled" if (
-            agent := _runtime_agent(ctx, agent_name)
-        ) is not None and subagent_tool_enabled(agent) else "disabled"
+        state = (
+            "enabled"
+            if (agent := _runtime_agent(ctx, agent_name)) is not None
+            and subagent_tool_enabled(agent)
+            else "disabled"
+        )
         outcome.add_message(
             f"No subagent runs in this session. Tool: {state}.",
             right_info="subagents",
@@ -132,8 +135,7 @@ def _toggle_outcome(
             else ""
         )
         outcome.add_message(
-            f"Failed to {'enable' if enabled else 'disable'} subagents for '{agent_name}'."
-            f"{reason}",
+            f"Failed to {'enable' if enabled else 'disable'} subagents for '{agent_name}'.{reason}",
             channel="error",
             right_info="subagents",
         )

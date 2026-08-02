@@ -66,11 +66,7 @@ from fast_agent.mcp.app_integrations import AppIntegrationKind
 configs = await agent.aggregator.get_app_integration_configs()
 config = await agent.aggregator.get_app_integration_config("workspace")
 
-mcp_apps = [
-    tool
-    for tool in config.tools
-    if tool.kind is AppIntegrationKind.MCP_APPS
-]
+mcp_apps = [tool for tool in config.tools if tool.kind is AppIntegrationKind.MCP_APPS]
 ```
 
 Each `AppServerConfig` includes discovered `resources`, linked `tools`, and

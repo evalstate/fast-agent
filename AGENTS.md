@@ -7,7 +7,9 @@ examination is helpful. Use codexresponses.gpt-5.6-sol?reasoning=high where extr
 
 - Use `uv run` for repo scripts and examples.
 - Use the fast-agent CLI to start sub-agent tasks. Use gpt-5.6-terra?reasoning=high as the primary model for this. Escalate to the user if you want bigger or smaller models.
-- Always run `uv run scripts/lint.py` and `uv run scripts/typecheck.py` after code changes.
+- Always run `uv run scripts/format.py --check`, `uv run scripts/lint.py`, and
+  `uv run scripts/typecheck.py` after code changes. If the format check fails,
+  run `uv run scripts/format.py` before rechecking.
 - Check the type safety rules in `typesafe.md` and avoid hasattr/getattr style checks
 - Avoid unnecessary defensive programming. Validate at boundaries and use static analysis and type safety rules to write concise code. Do not caveat without good cause (external data processing for example).
 - Keep examples under `examples/` in sync with packaged resources when relevant.
