@@ -28,7 +28,7 @@ Choose the smallest surface that fits what you are building:
 | Package an `agent.py` as a server | `uv run agent.py --transport http` |
 | Design your own FastMCP tools | [Custom MCP Servers](harness-adapter.md) |
 | Deploy with Hugging Face OAuth | [Host on Hugging Face Spaces](huggingface-spaces.md) |
-| Return interactive UI | [FastMCP Apps](fastmcp-apps.md) |
+| Return interactive UI | [FastMCP Apps Adapter](fastmcp-apps.md) |
 
 The default server and custom FastMCP integrations use the same harness-backed
 application boundary:

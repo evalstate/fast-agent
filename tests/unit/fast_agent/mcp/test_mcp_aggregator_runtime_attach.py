@@ -18,6 +18,7 @@ from mcp_types import (
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.context import Context
+from fast_agent.mcp.app_integrations import AppServerConfig
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 from fast_agent.mcp.mcp_aggregator import (
     MCPAggregator,
@@ -26,7 +27,6 @@ from fast_agent.mcp.mcp_aggregator import (
     MCPDetachResult,
     NamespacedTool,
 )
-from fast_agent.mcp.skybridge import SkybridgeServerConfig
 from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.ui.console_display import ConsoleDisplay
 
@@ -156,7 +156,7 @@ async def test_detach_server_removes_runtime_indexes() -> None:
     aggregator._namespaced_tool_map = {"alpha.demo": namespaced_tool}
     aggregator._server_to_tool_map = {"alpha": [namespaced_tool]}
     aggregator._prompt_cache = {"alpha": []}
-    aggregator._skybridge_configs = {"alpha": SkybridgeServerConfig(server_name="alpha")}
+    aggregator._app_integration_configs = {"alpha": AppServerConfig(server_name="alpha")}
 
     result = await aggregator.detach_server("alpha")
 
@@ -167,7 +167,7 @@ async def test_detach_server_removes_runtime_indexes() -> None:
     assert aggregator._namespaced_tool_map == {}
     assert aggregator._server_to_tool_map == {}
     assert aggregator._prompt_cache == {}
-    assert aggregator._skybridge_configs == {}
+    assert aggregator._app_integration_configs == {}
 
 
 def test_list_configured_detached_servers_includes_registry_entries() -> None:
@@ -291,14 +291,14 @@ async def test_runtime_server_is_published_only_after_discovery() -> None:
                 return SimpleNamespace(prompts=[SimpleNamespace(name="demo-prompt")])
             raise AssertionError(f"Unexpected MCP method: {method_name}")
 
-        async def _evaluate_skybridge_for_server(
+        async def _evaluate_app_integrations_for_server(
             self,
             server_name: str,
             *,
             cache_mode: CacheMode = "use",
-        ) -> tuple[str, SkybridgeServerConfig]:
+        ) -> tuple[str, AppServerConfig]:
             del cache_mode
-            return server_name, SkybridgeServerConfig(server_name=server_name)
+            return server_name, AppServerConfig(server_name=server_name)
 
     aggregator = _CapabilityAwareAggregator(
         server_names=[],
@@ -551,7 +551,7 @@ async def test_interactive_startup_definition_transfers_to_attachment_owner() ->
                 tools=[],
                 prompts=[],
                 skill_registry=None,
-                skybridge=SkybridgeServerConfig(server_name="runtime"),
+                app_integration_config=AppServerConfig(server_name="runtime"),
                 capabilities=ServerCapabilities(),
             ),
         ),
@@ -671,11 +671,11 @@ async def test_subscription_refresh_uses_public_refresh_mode_and_commits_canonic
     ]
     assert all(args["cache_mode"] == "refresh" for _, args in aggregator.calls)
 
-    committed = aggregator._skybridge_configs["alpha"]
+    committed = aggregator._app_integration_configs["alpha"]
     aggregator.fail_resource_list = True
     with pytest.raises(RuntimeError, match="transient resource-list failure"):
         await runtime.refresh_subscription_state()
-    assert aggregator._skybridge_configs["alpha"] is committed
+    assert aggregator._app_integration_configs["alpha"] is committed
 
 
 @pytest.mark.asyncio
@@ -690,8 +690,8 @@ async def test_card_tool_refresh_preserves_visible_namespace() -> None:
 
     class _RefreshAggregator(MCPAggregator):
         async def server_supports_feature(self, server_name: str, feature: str) -> bool:
-            del server_name, feature
-            return True
+            del server_name
+            return feature == "tools"
 
         async def _execute_on_server(self, *args, **kwargs):
             del args, kwargs
@@ -852,7 +852,7 @@ async def test_attached_result_uses_cached_mcp_skill_registry() -> None:
         already_attached=False,
         existing_tool_names=set(),
         existing_prompt_names=set(),
-        skybridge_config=SkybridgeServerConfig(server_name="runtime"),
+        app_integration_config=AppServerConfig(server_name="runtime"),
     )
 
     assert result.skills_total is None
@@ -908,14 +908,14 @@ async def test_refresh_attached_server_cache_discovers_mcp_skill_registry() -> N
                 )
             raise AssertionError(f"Unexpected MCP method: {method_name}")
 
-        async def _evaluate_skybridge_for_server(
+        async def _evaluate_app_integrations_for_server(
             self,
             server_name: str,
             *,
             cache_mode: CacheMode = "use",
-        ) -> tuple[str, SkybridgeServerConfig]:
+        ) -> tuple[str, AppServerConfig]:
             del cache_mode
-            return server_name, SkybridgeServerConfig(server_name=server_name)
+            return server_name, AppServerConfig(server_name=server_name)
 
     aggregator = _RegistryCachingAggregator(
         server_names=["runtime"],

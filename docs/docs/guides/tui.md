@@ -77,6 +77,11 @@ Use `/history detail` to review the full contents of a turn and tool calls.
 
 Images received from the Assistant or tool calls are rendered to the console on the final turn. Local images that you attach to a user message are previewed in the user panel beneath the attachment link text.
 
+The recording below uses Hugging Face's live MCP server. It shows progress
+notifications during image generation, renders the returned image as terminal
+cells, and then opens `/mcp` to inspect the same modern connection with a
+60-segment, one-second-resolution activity timeline.
+
 !!! note "Recording format"
     The image in this asciinema capture uses halfblock rendering so it can be recorded as plain terminal cells. In a real terminal, `fast-agent` can use higher-resolution terminal image protocols when your terminal supports them.
     Sixel images are fitted below the terminal viewport height so their cursor-based placement remains stable.
@@ -86,7 +91,7 @@ Images received from the Assistant or tool calls are rendered to the console on 
   data-fa-asciinema-cast="../../assets/tui/hf-image-generation.cast"
   data-fa-asciinema-cols="120"
   data-fa-asciinema-rows="34"
-  data-fa-asciinema-poster="npt:0:36"
+  data-fa-asciinema-poster="npt:0:42.3"
   data-fa-asciinema-speed="1"
   data-fa-asciinema-idle-time-limit="1.3"
   data-fa-asciinema-fit="width"

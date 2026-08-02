@@ -49,15 +49,12 @@ from fast_agent.interfaces import (
     ModelFactoryFunctionProtocol,
 )
 from fast_agent.llm.model_factory import ModelFactory
-from fast_agent.mcp.ui_agent import McpAgentWithUI
-from fast_agent.mcp.ui_modes import McpUIMode, normalize_mcp_ui_mode
 from fast_agent.tools.function_tool_loader import load_function_tools
 from fast_agent.tools.hook_loader import load_tool_runner_hooks
 from fast_agent.types import RequestParams
 
 if TYPE_CHECKING:
     from fast_agent.agents.workflow.agents_as_tools_agent import AgentsAsToolsOptions
-    from fast_agent.config import Settings
     from fast_agent.hooks.hook_context import HookAgentProtocol
     from fast_agent.tools.execution_environment import ShellEnvironment
 
@@ -113,12 +110,6 @@ class AgentToolAttachable(Protocol):
 class _ContextCoreShim:
     def __init__(self, context: Context) -> None:
         self.context = context
-
-
-def _resolve_mcp_ui_mode(settings: "Settings | None") -> McpUIMode:
-    if settings is None:
-        return "auto"
-    return normalize_mcp_ui_mode(settings.mcp_ui_mode)
 
 
 def _class_display_name(cls: object) -> str:
@@ -388,34 +379,6 @@ T = TypeVar("T")  # For generic types
 
 
 logger = get_logger(__name__)
-
-
-def _create_agent_with_ui_if_needed(
-    agent_class: type,
-    config: Any,
-    context: Context,
-    **kwargs: Any,
-) -> Any:
-    """
-    Create an agent with UI support if MCP UI mode is enabled.
-
-    Args:
-        agent_class: The agent class to potentially enhance with UI
-        config: Agent configuration
-        context: Application context
-        **kwargs: Additional arguments passed to agent constructor (e.g., tools)
-
-    Returns:
-        Either a UI-enhanced agent instance or the original agent instance
-    """
-    ui_mode = _resolve_mcp_ui_mode(context.config)
-
-    if ui_mode != "disabled" and agent_class == McpAgent:
-        # Use the UI-enhanced agent class instead of the base class
-        return McpAgentWithUI(config=config, context=context, ui_mode=ui_mode, **kwargs)
-
-    # Create the original agent instance
-    return agent_class(config=config, context=context, **kwargs)
 
 
 def _replace_after_turn_complete(existing: Any, hook: Any) -> Any:
@@ -703,10 +666,9 @@ async def _create_basic_agent(
         )
     else:
         function_tools = _resolve_function_tools_with_globals(config, agent_data, build_ctx)
-        agent = _create_agent_with_ui_if_needed(
-            McpAgent,
-            config,
-            build_ctx.app_instance.context,
+        agent = McpAgent(
+            config=config,
+            context=build_ctx.app_instance.context,
             tools=function_tools,
             shell_environment=build_ctx.shell_environment,
         )
@@ -753,10 +715,9 @@ async def _create_custom_agent(
         # convention: resolved function tools are passed as ``tools=``.
         create_kwargs["tools"] = function_tools
 
-    agent = _create_agent_with_ui_if_needed(
-        cls,
-        config,
-        build_ctx.app_instance.context,
+    agent = cls(
+        config=config,
+        context=build_ctx.app_instance.context,
         **create_kwargs,
     )
     await _initialize_agent_with_llm(agent, config, build_ctx.model_factory_func)

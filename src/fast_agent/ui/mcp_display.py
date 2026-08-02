@@ -248,13 +248,13 @@ def _instruction_capability_state(
     return "blue"
 
 
-def _skybridge_capability_state(status: ServerStatus) -> CapabilityState:
-    skybridge_config = status.skybridge
-    if not skybridge_config:
+def _app_integration_capability_state(status: ServerStatus) -> CapabilityState:
+    app_integration_config = status.app_integration_config
+    if not app_integration_config:
         return False
-    if skybridge_config.warnings:
+    if app_integration_config.warnings:
         return "warn"
-    return bool(skybridge_config.enabled)
+    return bool(app_integration_config.enabled)
 
 
 def _elicitation_capability_state(mode: str | None) -> CapabilityState:
@@ -302,7 +302,7 @@ def _format_capability_shorthand(
         ("Ex", bool(experimental_caps), False),
         ("In", _instruction_capability_state(status, template_expected=template_expected), False),
         ("Sk", bool(status.mcp_skills_enabled), False),
-        ("Ui", _skybridge_capability_state(status), False),
+        ("Ui", _app_integration_capability_state(status), False),
         ("Ro", bool(status.roots_configured), False),
         ("El", _elicitation_capability_state(status.elicitation_mode), False),
         ("Sa", _sampling_capability_state(status.sampling_mode), False),

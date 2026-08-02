@@ -5,8 +5,8 @@ import pytest
 from click.utils import strip_ansi
 from rich.console import Console
 
+from fast_agent.mcp.app_integrations import AppServerConfig
 from fast_agent.mcp.mcp_aggregator import ServerStatus
-from fast_agent.mcp.skybridge import SkybridgeServerConfig
 from fast_agent.mcp.transport_tracking import ChannelSnapshot, TransportSnapshot
 from fast_agent.ui import console
 from fast_agent.ui.mcp_display import (
@@ -15,6 +15,7 @@ from fast_agent.ui.mcp_display import (
     SYMBOL_RESPONSE,
     SYMBOL_STDIO_ACTIVITY,
     Colours,
+    _app_integration_capability_state,
     _build_health_text,
     _capability_token_style,
     _channel_arrow_style,
@@ -24,7 +25,6 @@ from fast_agent.ui.mcp_display import (
     _get_health_state,
     _render_channel_summary,
     _sampling_capability_state,
-    _skybridge_capability_state,
     _timeline_symbol_for_state,
     render_mcp_status,
 )
@@ -139,13 +139,13 @@ def test_format_timeline_label_uses_largest_two_units(
     assert _format_timeline_label(total_seconds) == expected
 
 
-def test_skybridge_capability_state_returns_false_when_config_disabled() -> None:
+def test_app_integration_capability_state_returns_false_when_config_disabled() -> None:
     status = ServerStatus(
         server_name="test",
-        skybridge=SkybridgeServerConfig(server_name="test"),
+        app_integration_config=AppServerConfig(server_name="test"),
     )
 
-    assert _skybridge_capability_state(status) is False
+    assert _app_integration_capability_state(status) is False
 
 
 def test_capability_mode_states_are_normalized() -> None:

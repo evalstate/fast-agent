@@ -46,6 +46,16 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.logging.progress_payloads import build_progress_payload
 from fast_agent.core.model_resolution import get_context_cli_model_override, resolve_model_spec
 from fast_agent.event_progress import ProgressAction
+from fast_agent.mcp.app_integrations import (
+    AppResourceConfig,
+    AppServerConfig,
+    AppToolConfig,
+    expected_mime_type,
+    extract_app_tool_metadata,
+    integration_kind_for_mime_type,
+    mark_tool_metadata,
+    supported_mime_types,
+)
 from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 from fast_agent.mcp.client_connection import MCPClientConnection
@@ -59,15 +69,6 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager, ServerConnection
 from fast_agent.mcp.prompt_metadata import with_prompt_metadata
-from fast_agent.mcp.skybridge import (
-    MCP_APP_MIME_TYPE,
-    SKYBRIDGE_MIME_TYPE,
-    AppIntegrationKind,
-    SkybridgeResourceConfig,
-    SkybridgeServerConfig,
-    SkybridgeToolConfig,
-    extract_app_tool_metadata,
-)
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler, ToolExecutionHandler
 from fast_agent.mcp.tool_permission_handler import (
     NoOpToolPermissionHandler,
@@ -325,7 +326,7 @@ class ServerStatus(BaseModel):
     session_id: str | None = None
     subscription_state: str | None = None
     transport_channels: TransportSnapshot | None = None
-    skybridge: SkybridgeServerConfig | None = None
+    app_integration_config: AppServerConfig | None = None
     mcp_skills_enabled: bool | None = None
     reconnect_count: int = 0
     ping_interval_seconds: int | None = None
@@ -380,7 +381,7 @@ class _AttachmentDiscovery:
     tools: list[NamespacedTool]
     prompts: list[Prompt]
     skill_registry: McpSkillRegistry | None
-    skybridge: SkybridgeServerConfig
+    app_integration_config: AppServerConfig
     capabilities: ServerCapabilities | None
 
 
@@ -517,8 +518,7 @@ class MCPAggregator(ContextDependent):
         self._server_stats: dict[str, ServerStats] = {}
         self._stats_lock = Lock()
 
-        # Track discovered Skybridge configurations per server
-        self._skybridge_configs: dict[str, SkybridgeServerConfig] = {}
+        self._app_integration_configs: dict[str, AppServerConfig] = {}
         self._mcp_skill_registries: dict[str, McpSkillRegistry] = {}
 
         # Cache for capabilities discovered by on-demand clients.
@@ -804,7 +804,7 @@ class MCPAggregator(ContextDependent):
         async with self._capabilities_cache_lock:
             self._capabilities_cache.clear()
 
-        self._skybridge_configs.clear()
+        self._app_integration_configs.clear()
         self._mcp_skill_registries.clear()
         self._attached_server_names = []
 
@@ -970,7 +970,7 @@ class MCPAggregator(ContextDependent):
             already_attached=already_attached,
             existing_tool_names=existing_tool_names,
             existing_prompt_names=existing_prompt_names,
-            skybridge_config=discovery.skybridge,
+            app_integration_config=discovery.app_integration_config,
         )
 
     def _resolve_attach_server_config(
@@ -1104,9 +1104,11 @@ class MCPAggregator(ContextDependent):
         self._staged_discovery_tools[server_name] = namespaced_tools
         try:
             if cache_mode == "use":
-                _, skybridge_config = await self._evaluate_skybridge_for_server(server_name)
+                _, app_integration_config = await self._evaluate_app_integrations_for_server(
+                    server_name
+                )
             else:
-                _, skybridge_config = await self._evaluate_skybridge_for_server(
+                _, app_integration_config = await self._evaluate_app_integrations_for_server(
                     server_name,
                     cache_mode=cache_mode,
                 )
@@ -1116,7 +1118,7 @@ class MCPAggregator(ContextDependent):
             tools=namespaced_tools,
             prompts=prompts,
             skill_registry=mcp_skill_registry,
-            skybridge=skybridge_config,
+            app_integration_config=app_integration_config,
             capabilities=await self.get_capabilities(server_name),
         )
 
@@ -1160,7 +1162,7 @@ class MCPAggregator(ContextDependent):
                 else:
                     self._mcp_skill_registries[server_name] = discovery.skill_registry
 
-                self._skybridge_configs[server_name] = discovery.skybridge
+                self._app_integration_configs[server_name] = discovery.app_integration_config
                 if discovery.capabilities is not None:
                     registry.set_server_capabilities(
                         server_name,
@@ -1176,17 +1178,17 @@ class MCPAggregator(ContextDependent):
         server_name: str,
         *,
         cache_mode: CacheMode = "use",
-    ) -> SkybridgeServerConfig:
+    ) -> AppServerConfig:
         discovery = await self._discover_server_attachment(server_name, cache_mode=cache_mode)
         await self._commit_server_attachment(server_name, discovery)
-        return discovery.skybridge
+        return discovery.app_integration_config
 
     def selected_materialized_resource_uris(self, server_name: str) -> tuple[str, ...]:
         """Return canonical materialized UI resource URIs for modern updates."""
-        config = self._skybridge_configs.get(self._resolve_server_key(server_name))
+        config = self._app_integration_configs.get(self._resolve_server_key(server_name))
         if config is None:
             return ()
-        return tuple(sorted({str(resource.uri) for resource in config.ui_resources}))
+        return tuple(sorted({str(resource.uri) for resource in config.resources}))
 
     async def refresh_subscription_state(self, server_name: str) -> tuple[str, ...]:
         """Force and atomically commit authoritative state for an acknowledged listener."""
@@ -1239,7 +1241,7 @@ class MCPAggregator(ContextDependent):
             async with self._prompt_cache_lock:
                 self._prompt_cache.pop(server_name, None)
             self._mcp_skill_registries.pop(server_name, None)
-            self._skybridge_configs.pop(server_name, None)
+            self._app_integration_configs.pop(server_name, None)
             self._attached_server_names = [
                 name for name in self._attached_server_names if name != server_name
             ]
@@ -1266,7 +1268,7 @@ class MCPAggregator(ContextDependent):
         already_attached: bool,
         existing_tool_names: set[str],
         existing_prompt_names: set[str],
-        skybridge_config: SkybridgeServerConfig,
+        app_integration_config: AppServerConfig,
     ) -> MCPAttachResult:
         tool_names = self._attached_tool_names(server_name)
         prompt_names = self._attached_prompt_names(server_name)
@@ -1278,7 +1280,7 @@ class MCPAggregator(ContextDependent):
             already_attached=already_attached,
             tools_added=sorted(tool_names - existing_tool_names),
             prompts_added=sorted(prompt_names - existing_prompt_names),
-            warnings=list(skybridge_config.warnings),
+            warnings=list(app_integration_config.warnings),
             tools_total=len(tool_names),
             prompts_total=len(prompt_names),
             skills_total=skills_total,
@@ -1329,7 +1331,7 @@ class MCPAggregator(ContextDependent):
         async with self._capabilities_cache_lock:
             self._capabilities_cache.pop(server_name, None)
 
-        self._skybridge_configs.pop(server_name, None)
+        self._app_integration_configs.pop(server_name, None)
         self._mcp_skill_registries.pop(server_name, None)
         self._attachment_configs.pop(server_name, None)
         registry.clear_server_capabilities(server_name)
@@ -1396,15 +1398,15 @@ class MCPAggregator(ContextDependent):
             }
         )
 
-    async def _evaluate_skybridge_for_server(
+    async def _evaluate_app_integrations_for_server(
         self,
         server_name: str,
         *,
         cache_mode: CacheMode = "use",
-    ) -> tuple[str, SkybridgeServerConfig]:
-        """Inspect a single server for Skybridge-compatible resources."""
-        config = SkybridgeServerConfig(server_name=server_name)
-        tool_configs = self._skybridge_tool_configs_for_server(
+    ) -> tuple[str, AppServerConfig]:
+        """Inspect a single server for supported interactive app resources."""
+        config = AppServerConfig(server_name=server_name)
+        tool_configs = self._app_tool_configs_for_server(
             server_name,
             config,
             self._staged_discovery_tools.get(server_name),
@@ -1418,29 +1420,29 @@ class MCPAggregator(ContextDependent):
         if not supports_resources:
             return server_name, config
 
-        await self._collect_skybridge_resources(
+        await self._collect_app_resources(
             server_name,
             config,
             tool_configs,
             cache_mode=cache_mode,
             strict=cache_mode == "refresh",
         )
-        self._link_skybridge_tools_to_resources(config, tool_configs)
+        self._link_app_tools_to_resources(config, tool_configs)
         self._warn_if_app_resources_are_unexposed(server_name, config, tool_configs)
         config.tools = tool_configs
         return server_name, config
 
-    def _skybridge_tool_configs_for_server(
+    def _app_tool_configs_for_server(
         self,
         server_name: str,
-        config: SkybridgeServerConfig,
+        config: AppServerConfig,
         tools: list[NamespacedTool] | None = None,
-    ) -> list[SkybridgeToolConfig]:
-        tool_configs: list[SkybridgeToolConfig] = []
+    ) -> list[AppToolConfig]:
+        tool_configs: list[AppToolConfig] = []
         for namespaced_tool in (
             tools if tools is not None else self._server_to_tool_map.get(server_name, [])
         ):
-            tool_config = self._skybridge_tool_config(namespaced_tool, config)
+            tool_config = self._app_tool_config(namespaced_tool, config)
             if tool_config is not None:
                 tool_configs.append(tool_config)
         return tool_configs
@@ -1449,18 +1451,18 @@ class MCPAggregator(ContextDependent):
     def _metadata_error_tool_config(
         namespaced_tool: NamespacedTool,
         warning: str,
-    ) -> SkybridgeToolConfig:
-        return SkybridgeToolConfig(
+    ) -> AppToolConfig:
+        return AppToolConfig(
             tool_name=namespaced_tool.tool.name,
             namespaced_tool_name=namespaced_tool.namespaced_tool_name,
             warning=warning,
         )
 
-    def _skybridge_tool_config(
+    def _app_tool_config(
         self,
         namespaced_tool: NamespacedTool,
-        config: SkybridgeServerConfig,
-    ) -> SkybridgeToolConfig | None:
+        config: AppServerConfig,
+    ) -> AppToolConfig | None:
         tool_meta = namespaced_tool.tool.meta or {}
         try:
             app_metadata = extract_app_tool_metadata(
@@ -1481,19 +1483,19 @@ class MCPAggregator(ContextDependent):
             config.warnings.append(warning)
             logger.warning(warning)
 
-        return SkybridgeToolConfig(
+        return AppToolConfig(
             tool_name=namespaced_tool.tool.name,
             namespaced_tool_name=namespaced_tool.namespaced_tool_name,
-            template_uri=app_metadata.resource_uri,
+            resource_uri=app_metadata.resource_uri,
             kind=app_metadata.kind,
             visibility=app_metadata.visibility,
         )
 
-    async def _collect_skybridge_resources(
+    async def _collect_app_resources(
         self,
         server_name: str,
-        config: SkybridgeServerConfig,
-        tool_configs: list[SkybridgeToolConfig],
+        config: AppServerConfig,
+        tool_configs: list[AppToolConfig],
         *,
         cache_mode: CacheMode = "use",
         strict: bool = False,
@@ -1545,31 +1547,31 @@ class MCPAggregator(ContextDependent):
         )
 
         expected_mime_by_uri = {
-            str(tool.template_uri): tool.kind.expected_mime_type
+            str(tool.resource_uri): expected_mime_type(tool.kind)
             for tool in tool_configs
-            if tool.template_uri is not None
+            if tool.resource_uri is not None and tool.kind is not None
         }
 
         for resource_entry in resources:
-            uri_str, sky_resource = self._skybridge_resource_candidate(resource_entry, config)
-            if sky_resource is None:
+            uri_str, app_resource = self._app_resource_candidate(resource_entry, config)
+            if app_resource is None:
                 continue
 
-            config.ui_resources.append(sky_resource)
+            config.resources.append(app_resource)
             if cache_mode == "use":
-                await self._read_skybridge_resource(
+                await self._read_app_resource(
                     server_name,
                     uri_str,
-                    sky_resource,
+                    app_resource,
                     config,
                     expected_mime_by_uri,
                     strict=strict,
                 )
             else:
-                await self._read_skybridge_resource(
+                await self._read_app_resource(
                     server_name,
                     uri_str,
-                    sky_resource,
+                    app_resource,
                     config,
                     expected_mime_by_uri,
                     cache_mode=cache_mode,
@@ -1577,10 +1579,10 @@ class MCPAggregator(ContextDependent):
                 )
 
     @staticmethod
-    def _skybridge_resource_candidate(
+    def _app_resource_candidate(
         resource_entry: Resource,
-        config: SkybridgeServerConfig,
-    ) -> tuple[str, SkybridgeResourceConfig | None]:
+        config: AppServerConfig,
+    ) -> tuple[str, AppResourceConfig | None]:
         uri = resource_entry.uri
         if not uri:
             return "", None
@@ -1592,23 +1594,23 @@ class MCPAggregator(ContextDependent):
         try:
             uri_value = AnyUrl(uri_str)
         except Exception as exc:
-            warning = f"Ignoring Skybridge candidate '{uri_str}': invalid URI ({exc})"
+            warning = f"Ignoring app resource candidate '{uri_str}': invalid URI ({exc})"
             config.warnings.append(warning)
             logger.debug(warning)
             return uri_str, None
 
         entry_meta = getattr(resource_entry, "meta", None)
-        return uri_str, SkybridgeResourceConfig(
+        return uri_str, AppResourceConfig(
             uri=uri_value,
             meta=dict(entry_meta) if isinstance(entry_meta, dict) else {},
         )
 
-    async def _read_skybridge_resource(
+    async def _read_app_resource(
         self,
         server_name: str,
         uri_str: str,
-        sky_resource: SkybridgeResourceConfig,
-        config: SkybridgeServerConfig,
+        app_resource: AppResourceConfig,
+        config: AppServerConfig,
         expected_mime_by_uri: dict[str, str],
         *,
         cache_mode: CacheMode = "use",
@@ -1625,24 +1627,24 @@ class MCPAggregator(ContextDependent):
                 )
         except Exception as exc:
             warning = f"Failed to read resource '{uri_str}': {exc}"
-            sky_resource.warning = warning
+            app_resource.warning = warning
             config.warnings.append(warning)
             if strict:
                 raise
             return
 
-        self._apply_skybridge_resource_contents(sky_resource, read_result)
-        if not sky_resource.is_valid_app_resource:
-            self._warn_invalid_skybridge_resource(
+        self._apply_app_resource_contents(app_resource, read_result)
+        if not app_resource.is_valid:
+            self._warn_invalid_app_resource(
                 uri_str,
-                sky_resource,
+                app_resource,
                 config,
                 expected_mime_by_uri,
             )
 
     @staticmethod
-    def _apply_skybridge_resource_contents(
-        sky_resource: SkybridgeResourceConfig,
+    def _apply_app_resource_contents(
+        app_resource: AppResourceConfig,
         read_result: ReadResourceResult,
     ) -> None:
         seen_mime_types: list[str] = []
@@ -1650,88 +1652,78 @@ class MCPAggregator(ContextDependent):
             mime_type = content.mime_type
             if mime_type:
                 seen_mime_types.append(mime_type)
-            if mime_type == SKYBRIDGE_MIME_TYPE:
-                sky_resource.mime_type = mime_type
-                sky_resource.kind = AppIntegrationKind.SKYBRIDGE
-                sky_resource.is_skybridge = True
-            elif mime_type == MCP_APP_MIME_TYPE:
-                sky_resource.mime_type = mime_type
-                sky_resource.kind = AppIntegrationKind.MCP_APP
-                sky_resource.is_mcp_app = True
+            if kind := integration_kind_for_mime_type(mime_type):
+                app_resource.mime_type = mime_type
+                app_resource.kind = kind
 
             content_meta = getattr(content, "meta", None)
             if isinstance(content_meta, dict):
-                sky_resource.meta.update(content_meta)
+                app_resource.meta.update(content_meta)
 
-        if sky_resource.mime_type is None and seen_mime_types:
-            sky_resource.mime_type = seen_mime_types[0]
+        if app_resource.mime_type is None and seen_mime_types:
+            app_resource.mime_type = seen_mime_types[0]
 
     @staticmethod
-    def _warn_invalid_skybridge_resource(
+    def _warn_invalid_app_resource(
         uri_str: str,
-        sky_resource: SkybridgeResourceConfig,
-        config: SkybridgeServerConfig,
+        app_resource: AppResourceConfig,
+        config: AppServerConfig,
         expected_mime_by_uri: dict[str, str],
     ) -> None:
-        observed_type = sky_resource.mime_type or "unknown MIME type"
+        observed_type = app_resource.mime_type or "unknown MIME type"
         expected_mime_type = expected_mime_by_uri.get(uri_str)
+        openai_mime_type, mcp_apps_mime_type = supported_mime_types()
         expected_label = (
             f"'{expected_mime_type}'"
             if expected_mime_type
-            else f"'{SKYBRIDGE_MIME_TYPE}' or '{MCP_APP_MIME_TYPE}'"
+            else f"'{openai_mime_type}' or '{mcp_apps_mime_type}'"
         )
         warning = f"served as '{observed_type}' instead of {expected_label}"
-        sky_resource.warning = warning
+        app_resource.warning = warning
         config.warnings.append(f"{uri_str}: {warning}")
 
-    def _link_skybridge_tools_to_resources(
+    def _link_app_tools_to_resources(
         self,
-        config: SkybridgeServerConfig,
-        tool_configs: list[SkybridgeToolConfig],
+        config: AppServerConfig,
+        tool_configs: list[AppToolConfig],
     ) -> None:
-        resource_lookup = {str(resource.uri): resource for resource in config.ui_resources}
+        resource_lookup = {str(resource.uri): resource for resource in config.resources}
         for tool_config in tool_configs:
-            if tool_config.template_uri is None:
+            if tool_config.resource_uri is None:
                 continue
 
-            resource_match = resource_lookup.get(str(tool_config.template_uri))
+            resource_match = resource_lookup.get(str(tool_config.resource_uri))
             if not resource_match:
-                self._warn_missing_skybridge_resource(tool_config, config)
+                self._warn_missing_app_resource(tool_config, config)
                 continue
 
-            self._apply_skybridge_tool_resource_match(tool_config, resource_match, config)
+            self._apply_app_tool_resource_match(tool_config, resource_match, config)
 
     @staticmethod
-    def _warn_missing_skybridge_resource(
-        tool_config: SkybridgeToolConfig,
-        config: SkybridgeServerConfig,
+    def _warn_missing_app_resource(
+        tool_config: AppToolConfig,
+        config: AppServerConfig,
     ) -> None:
-        resource_label = (
-            "Skybridge"
-            if tool_config.kind is AppIntegrationKind.SKYBRIDGE
-            else tool_config.kind.display_name
-        )
+        resource_label = tool_config.kind.display_name if tool_config.kind else "App integration"
         warning = (
             f"Tool '{tool_config.namespaced_tool_name}' references missing "
-            f"{resource_label} resource '{tool_config.template_uri}'"
+            f"{resource_label} resource '{tool_config.resource_uri}'"
         )
         tool_config.warning = warning
         config.warnings.append(warning)
         logger.error(warning)
 
     @staticmethod
-    def _apply_skybridge_tool_resource_match(
-        tool_config: SkybridgeToolConfig,
-        resource_match: SkybridgeResourceConfig,
-        config: SkybridgeServerConfig,
+    def _apply_app_tool_resource_match(
+        tool_config: AppToolConfig,
+        resource_match: AppResourceConfig,
+        config: AppServerConfig,
     ) -> None:
-        tool_config.resource_uri = resource_match.uri
-        expected_mime_type = tool_config.kind.expected_mime_type
-        tool_config.is_valid = (
-            resource_match.is_skybridge
-            if tool_config.kind is AppIntegrationKind.SKYBRIDGE
-            else resource_match.is_mcp_app
-        )
+        if tool_config.kind is None:
+            return
+        required_mime_type = expected_mime_type(tool_config.kind)
+        if resource_match.kind is tool_config.kind:
+            tool_config.linked_resource_uri = resource_match.uri
 
         if tool_config.is_valid:
             return
@@ -1739,7 +1731,7 @@ class MCPAggregator(ContextDependent):
         warning = (
             f"Tool '{tool_config.namespaced_tool_name}' references resource "
             f"'{resource_match.uri}' served as '{resource_match.mime_type or 'unknown'}' "
-            f"instead of '{expected_mime_type}'"
+            f"instead of '{required_mime_type}'"
         )
         tool_config.warning = warning
         config.warnings.append(warning)
@@ -1748,8 +1740,8 @@ class MCPAggregator(ContextDependent):
     @staticmethod
     def _warn_if_app_resources_are_unexposed(
         server_name: str,
-        config: SkybridgeServerConfig,
-        tool_configs: list[SkybridgeToolConfig],
+        config: AppServerConfig,
+        tool_configs: list[AppToolConfig],
     ) -> None:
         valid_tool_count = sum(1 for tool in tool_configs if tool.is_valid)
         if config.enabled and valid_tool_count == 0:
@@ -1758,18 +1750,18 @@ class MCPAggregator(ContextDependent):
             logger.warning(warning)
 
     def _display_startup_state(self) -> None:
-        """Display startup summary and Skybridge status information."""
+        """Record discovered interactive app integration state."""
         # In interactive contexts the UI helper will render both the agent summary and the
-        # Skybridge status. For non-interactive contexts, the warnings collected during
-        # discovery are emitted through the logger, so we don't need to duplicate output here.
-        if not self._skybridge_configs:
+        # app integration status. For non-interactive contexts, discovery warnings are
+        # emitted through the logger, so we don't need to duplicate output here.
+        if not self._app_integration_configs:
             return
 
         logger.debug(
-            "Skybridge discovery completed",
+            "App integration discovery completed",
             data={
                 "agent_name": self.agent_name,
-                "server_count": len(self._skybridge_configs),
+                "server_count": len(self._app_integration_configs),
             },
         )
 
@@ -1929,14 +1921,16 @@ class MCPAggregator(ContextDependent):
         tools: list[Tool] = []
 
         for namespaced_tool_name, namespaced_tool in self._namespaced_tool_map.items():
-            skybridge_config = self._skybridge_configs.get(namespaced_tool.server_name)
+            app_integration_config = self._app_integration_configs.get(
+                namespaced_tool.server_name
+            )
             discovered_tool = None
             matching_tool = None
-            if skybridge_config:
+            if app_integration_config:
                 discovered_tool = next(
                     (
                         tool
-                        for tool in skybridge_config.tools
+                        for tool in app_integration_config.tools
                         if tool.namespaced_tool_name == namespaced_tool_name
                     ),
                     None,
@@ -1952,17 +1946,7 @@ class MCPAggregator(ContextDependent):
             )
             if matching_tool:
                 meta = dict(tool_copy.meta or {})
-                if matching_tool.kind is AppIntegrationKind.MCP_APP:
-                    ui_meta = meta.get("ui")
-                    ui_meta_dict = dict(ui_meta) if isinstance(ui_meta, dict) else {}
-                    ui_meta_dict["resourceUri"] = str(matching_tool.template_uri)
-                    ui_meta_dict["visibility"] = list(matching_tool.visibility)
-                    meta["ui"] = ui_meta_dict
-                    meta["ui/appEnabled"] = True
-                    meta["ui/appTemplate"] = str(matching_tool.template_uri)
-                else:
-                    meta["openai/skybridgeEnabled"] = True
-                    meta["openai/skybridgeTemplate"] = str(matching_tool.template_uri)
+                mark_tool_metadata(meta, matching_tool)
                 tool_copy.meta = meta
             tools.append(tool_copy)
 
@@ -2128,7 +2112,7 @@ class MCPAggregator(ContextDependent):
             staleness_seconds=(now - last_call).total_seconds() if last_call else None,
             call_counts=dict(stats.call_counts) if stats else {},
             reconnect_count=stats.reconnect_count if stats else 0,
-            skybridge=self._skybridge_configs.get(server_name),
+            app_integration_config=self._app_integration_configs.get(server_name),
         )
 
     async def _collect_persistent_server_status(
@@ -2314,17 +2298,17 @@ class MCPAggregator(ContextDependent):
             auto_sampling = self.context.config.mcp.client.auto_sampling
         return "auto" if auto_sampling else "off"
 
-    async def get_skybridge_configs(self) -> dict[str, SkybridgeServerConfig]:
-        """Expose discovered Skybridge configurations keyed by server."""
+    async def get_app_integration_configs(self) -> dict[str, AppServerConfig]:
+        """Expose discovered app integration configurations keyed by server."""
         if not self.initialized:
             await self.load_servers()
-        return dict(self._skybridge_configs)
+        return dict(self._app_integration_configs)
 
-    async def get_skybridge_config(self, server_name: str) -> SkybridgeServerConfig | None:
-        """Return the Skybridge configuration for a specific server, loading if necessary."""
+    async def get_app_integration_config(self, server_name: str) -> AppServerConfig | None:
+        """Return app integration configuration for a server, loading if necessary."""
         if not self.initialized:
             await self.load_servers()
-        return self._skybridge_configs.get(server_name)
+        return self._app_integration_configs.get(server_name)
 
     async def _execute_on_server(
         self,
@@ -3536,8 +3520,8 @@ class MCPAggregator(ContextDependent):
                 await self._refresh_server_tools(server_name)
 
     async def _refresh_server_resources(self, server_name: str) -> None:
-        _, skybridge_config = await self._evaluate_skybridge_for_server(server_name)
-        self._skybridge_configs[server_name] = skybridge_config
+        _, app_integration_config = await self._evaluate_app_integrations_for_server(server_name)
+        self._app_integration_configs[server_name] = app_integration_config
 
     async def _refresh_server_tools(self, server_name: str) -> None:
         """
@@ -3570,30 +3554,40 @@ class MCPAggregator(ContextDependent):
                     method_args={},
                 )
                 new_tools = tools_result.tools or []
+                new_namespaced_tools = [
+                    NamespacedTool(
+                        tool=tool,
+                        server_name=server_name,
+                        namespaced_tool_name=create_namespaced_name(
+                            self.server_display_name(server_name),
+                            tool.name,
+                        ),
+                    )
+                    for tool in new_tools
+                ]
 
-                # Update tool maps
+                self._staged_discovery_tools[server_name] = new_namespaced_tools
+                try:
+                    _, app_integration_config = (
+                        await self._evaluate_app_integrations_for_server(server_name)
+                    )
+                finally:
+                    self._staged_discovery_tools.pop(server_name, None)
+
+                # Commit tools and their app metadata together so app-only visibility and
+                # resource validation cannot lag behind a tools/list_changed notification.
                 async with self._tool_map_lock:
-                    # Remove old tools for this server
                     old_tools = self._server_to_tool_map.get(server_name, [])
                     for old_tool in old_tools:
                         if old_tool.namespaced_tool_name in self._namespaced_tool_map:
                             del self._namespaced_tool_map[old_tool.namespaced_tool_name]
 
-                    # Add new tools
-                    self._server_to_tool_map[server_name] = []
-                    for tool in new_tools:
-                        namespaced_tool_name = create_namespaced_name(
-                            self.server_display_name(server_name),
-                            tool.name,
+                    self._server_to_tool_map[server_name] = new_namespaced_tools
+                    for namespaced_tool in new_namespaced_tools:
+                        self._namespaced_tool_map[namespaced_tool.namespaced_tool_name] = (
+                            namespaced_tool
                         )
-                        namespaced_tool = NamespacedTool(
-                            tool=tool,
-                            server_name=server_name,
-                            namespaced_tool_name=namespaced_tool_name,
-                        )
-
-                        self._namespaced_tool_map[namespaced_tool_name] = namespaced_tool
-                        self._server_to_tool_map[server_name].append(namespaced_tool)
+                    self._app_integration_configs[server_name] = app_integration_config
 
                 logger.info(
                     f"Successfully refreshed tools for server '{server_name}'",

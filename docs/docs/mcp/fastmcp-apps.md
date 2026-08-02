@@ -15,7 +15,9 @@ Harness API.
 
 This page describes **MCP Apps adapter mode**: you own a `FastMCPApp` provider
 and call fast-agent from UI entry-point tools or app backend tools. If you only
-need normal MCP tools, use [custom tool adapter mode](harness-adapter.md).
+need normal MCP tools, use [custom tool adapter mode](harness-adapter.md). For
+fast-agent's MCP client-side discovery and validation behavior, see
+[MCP Apps](mcp-apps.md).
 
 ```text
 FastMCPApp.ui() / FastMCPApp.tool()
@@ -88,7 +90,7 @@ fast-agent handles:
 - `AgentRequest` / `AgentResponse`;
 - auth/progress/session context from MCP.
 
-Do not make your harness app depend on FastMCP UI classes. Let the MCP App
+Do not make your harness app depend on FastMCP app classes. Let the MCP App
 handler project a protocol-neutral `AgentResponse` into UI.
 
 ## Returning UI from an agent response

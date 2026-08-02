@@ -20,6 +20,7 @@ from mcp_types import (
 
 from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
 from fast_agent.context import Context
+from fast_agent.mcp.app_integrations import AppServerConfig
 from fast_agent.mcp.auth.context import request_bearer_token
 from fast_agent.mcp.mcp_aggregator import (
     METHOD_NOT_FOUND_ERROR_CODE,
@@ -27,7 +28,6 @@ from fast_agent.mcp.mcp_aggregator import (
     MCPAttachOptions,
     _is_capability_probe_error,
 )
-from fast_agent.mcp.skybridge import SkybridgeServerConfig
 from fast_agent.mcp_server_registry import ServerRegistry
 
 if TYPE_CHECKING:
@@ -699,14 +699,14 @@ async def test_attach_server_force_reconnect_refreshes_capabilities_cache(
                 return SimpleNamespace(prompts=prompts)
             raise AssertionError(f"Unexpected MCP method: {method_name}")
 
-        async def _evaluate_skybridge_for_server(
+        async def _evaluate_app_integrations_for_server(
             self,
             server_name: str,
             *,
             cache_mode: CacheMode = "use",
-        ) -> tuple[str, SkybridgeServerConfig]:
+        ) -> tuple[str, AppServerConfig]:
             del cache_mode
-            return server_name, SkybridgeServerConfig(server_name=server_name)
+            return server_name, AppServerConfig(server_name=server_name)
 
     aggregator = _ReconnectAwareAggregator(
         server_names=["alpha"],

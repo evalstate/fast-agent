@@ -31,6 +31,7 @@ from fast_agent.ui.markdown.truncation import MarkdownTruncator
 from fast_agent.ui.streaming.plain_text import PlainTextTruncator
 from fast_agent.ui.streaming.segments import StreamSegmentAssembler
 from fast_agent.ui.streaming.viewport import StreamViewport
+from fast_agent.ui.syntax_highlighting import shell_syntax_blocks
 from fast_agent.utils.env import env_flag
 
 if TYPE_CHECKING:
@@ -1327,6 +1328,27 @@ class StreamingMessageHandle:
     ) -> "RenderableType":
         preview = segment.code_preview
         if preview is not None and preview.code.strip():
+            if preview.variant == "shell":
+                blocks = shell_syntax_blocks(
+                    preview.code,
+                    shell_language=preview.language,
+                )
+                renderables: list[RenderableType] = [self._tool_header_text(segment)]
+                for index, block in enumerate(blocks):
+                    code_text = block.code
+                    if cursor_suffix and index == len(blocks) - 1:
+                        code_text += cursor_suffix
+                    renderables.append(
+                        Syntax(
+                            code_text,
+                            block.language,
+                            theme=self._display.code_style,
+                            line_numbers=False,
+                            word_wrap=self._display.code_word_wrap,
+                        )
+                    )
+                return Group(*renderables)
+
             code_text = preview.code + cursor_suffix if cursor_suffix else preview.code
             return Group(
                 self._tool_header_text(segment),

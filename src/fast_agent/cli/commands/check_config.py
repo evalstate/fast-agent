@@ -535,7 +535,6 @@ def _build_default_config_summary(default_settings: Any) -> dict[str, Any]:
         "error": None,
         "default_model": default_settings.default_model,
         "logger": _default_logger_summary(default_settings),
-        "mcp_ui_mode": default_settings.mcp_ui_mode,
         "timeline": {
             "enabled": diagnostics.enabled,
             "steps": diagnostics.timeline.steps,
@@ -736,9 +735,6 @@ def get_config_summary(config_path: Path | None) -> dict:
                 logger_config,
                 default_settings=default_settings,
             )
-        if "mcp_ui_mode" in config:
-            result["mcp_ui_mode"] = config["mcp_ui_mode"]
-
         result["timeline"] = _resolve_timeline_summary(
             config,
             default_settings=default_settings,
@@ -1518,10 +1514,6 @@ def _build_application_settings_rows(
     config_summary: dict[str, Any],
 ) -> list[SettingsTableRow]:
     logger = config_summary.get("logger", {})
-    mcp_ui_mode = config_summary.get("mcp_ui_mode", "auto")
-    mcp_ui_display = (
-        "[dim]disabled[/dim]" if mcp_ui_mode == "disabled" else f"[green]{mcp_ui_mode}[/green]"
-    )
 
     timeline_settings = config_summary.get("timeline", {})
     timeline_enabled = timeline_settings.get("enabled", True)
@@ -1531,7 +1523,6 @@ def _build_application_settings_rows(
     return [
         ("Log Level", logger.get("level", "warning (default)")),
         ("Log Type", logger.get("type", "file (default)")),
-        ("MCP-UI", mcp_ui_display),
         ("Streaming Mode", f"[green]{logger.get('streaming', 'markdown')}[/green]"),
         ("Theme File", logger.get("theme_file") or "[dim]default[/dim]"),
         ("Code Theme", f"[green]{logger.get('code_theme', 'native')}[/green]"),

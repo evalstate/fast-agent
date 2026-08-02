@@ -16,7 +16,8 @@ FastMCP server surface.
 This page describes **custom tool adapter mode**: you own the `FastMCP` server,
 register ordinary `@mcp.tool()` handlers, and call fast-agent through
 `HarnessMCPAdapter`. The default `fast-agent serve` path is **managed MCP
-server mode**. For interactive UI surfaces, use [MCP Apps adapter mode](fastmcp-apps.md).
+server mode**. For interactive UI surfaces, use the
+[FastMCP Apps Adapter](fastmcp-apps.md).
 
 If you just want to expose an agent quickly, use `fast-agent serve`:
 

@@ -216,15 +216,15 @@ def test_build_tool_summaries_orders_mcp_tools_last() -> None:
     assert [summary.is_mcp for summary in summaries] == [False, False, True, True]
 
 
-def test_build_tool_summaries_marks_card_skybridge_tools() -> None:
+def test_build_tool_summaries_marks_card_openai_apps_sdk_tools() -> None:
     agent = _AgentStub(card_tool_names={"card_app"})
 
     summaries = build_tool_summaries(
         agent,
-        [_tool("card_app", meta={"openai/skybridgeEnabled": True})],
+        [_tool("card_app", meta={"fast-agent/appIntegrationKind": "openai_apps_sdk"})],
     )
 
-    assert summaries[0].suffix == "(Card Function) (Apps SDK)"
+    assert summaries[0].suffix == "(Card Function) (OpenAI Apps SDK)"
 
 
 def test_build_tool_summaries_marks_mcp_app_tools() -> None:
@@ -232,20 +232,36 @@ def test_build_tool_summaries_marks_mcp_app_tools() -> None:
 
     summaries = build_tool_summaries(
         agent,
-        [_tool("app_tool", meta={"ui/appEnabled": True, "ui/appTemplate": "ui://app"})],
+        [
+            _tool(
+                "app_tool",
+                meta={
+                    "fast-agent/appIntegrationKind": "mcp_apps",
+                    "fast-agent/appResourceUri": "ui://app",
+                },
+            )
+        ],
     )
 
-    assert summaries[0].suffix == "(MCP App)"
+    assert summaries[0].suffix == "(MCP Apps)"
     assert summaries[0].template == "ui://app"
 
 
 def test_build_tool_summaries_ignores_non_string_template_metadata() -> None:
     summaries = build_tool_summaries(
         _AgentStub(),
-        [_tool("app_tool", meta={"ui/appEnabled": True, "ui/appTemplate": {"uri": "ui://app"}})],
+        [
+            _tool(
+                "app_tool",
+                meta={
+                    "fast-agent/appIntegrationKind": "mcp_apps",
+                    "fast-agent/appResourceUri": {"uri": "ui://app"},
+                },
+            )
+        ],
     )
 
-    assert summaries[0].suffix == "(MCP App)"
+    assert summaries[0].suffix == "(MCP Apps)"
     assert summaries[0].template is None
 
 
@@ -256,15 +272,14 @@ def test_build_tool_summaries_strips_blank_template_metadata() -> None:
             _tool(
                 "app_tool",
                 meta={
-                    "ui/appEnabled": True,
-                    "ui/appTemplate": "   ",
-                    "openai/skybridgeTemplate": " ui://fallback ",
+                    "fast-agent/appIntegrationKind": "mcp_apps",
+                    "fast-agent/appResourceUri": " ui://app ",
                 },
             )
         ],
     )
 
-    assert summaries[0].template == "ui://fallback"
+    assert summaries[0].template == "ui://app"
 
 
 def test_build_tool_summaries_filters_non_string_schema_keys() -> None:
@@ -289,13 +304,16 @@ def test_build_tool_summaries_keeps_app_badges_additive_with_source_suffix() -> 
         _AgentStub(),
         [
             set_tool_source(
-                _tool("read_text_file", meta={"ui/appEnabled": True}),
+                _tool(
+                    "read_text_file",
+                    meta={"fast-agent/appIntegrationKind": "mcp_apps"},
+                ),
                 SHELL_TOOL_SOURCE,
             )
         ],
     )
 
-    assert summaries[0].suffix == "(Shell) (MCP App)"
+    assert summaries[0].suffix == "(Shell) (MCP Apps)"
 
 
 def test_build_provider_tool_summaries_lists_enabled_supported_hosted_tools() -> None:

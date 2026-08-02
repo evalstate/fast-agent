@@ -459,6 +459,7 @@ class ToolStreamState:
             code=extracted.value,
             language=preview_spec.language,
             complete=extracted.complete,
+            variant=preview_spec.variant,
         )
 
     def has_apply_patch_preview(self) -> bool:
@@ -749,12 +750,14 @@ class ToolCodePreview:
     code: str
     language: str
     complete: bool
+    variant: Literal["code", "shell"] = "code"
 
 
 @dataclass(frozen=True)
 class ToolCodePreviewSpec:
     field_name: str
     language: str
+    variant: Literal["code", "shell"]
 
 
 def _tool_code_preview_spec(metadata: Mapping[str, Any] | None) -> ToolCodePreviewSpec | None:
@@ -779,7 +782,7 @@ def _tool_code_preview_spec(metadata: Mapping[str, Any] | None) -> ToolCodePrevi
         return None
     if not isinstance(language, str) or not language:
         return None
-    return ToolCodePreviewSpec(field_name=code_arg, language=language)
+    return ToolCodePreviewSpec(field_name=code_arg, language=language, variant=variant)
 
 
 def _decode_json_string_at(raw_text: str, start_index: int) -> tuple[str, int, bool]:

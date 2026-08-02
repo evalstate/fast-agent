@@ -43,7 +43,7 @@ async def test_apply_model_does_not_override_request_params_model(monkeypatch) -
 
     monkeypatch.setattr(HuggingFaceAgent, "attach_llm", fake_attach_llm, raising=True)
 
-    context = Context(config=Settings(mcp_ui_mode="disabled", default_model=None))
+    context = Context(config=Settings(default_model=None))
 
     agent = HuggingFaceAgent(config=AgentConfig(name="huggingface"), context=context)
 

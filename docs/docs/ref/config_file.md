@@ -773,13 +773,6 @@ When `logger.path` is omitted, file logging writes to
 `<current-working-directory>/fast-agent-log.jsonl`. Explicit relative paths continue to resolve
 from the process current working directory.
 
-## MCP UI Settings
-
-```yaml
-mcp_ui_mode: "enabled"  # "disabled", "enabled", or "auto"
-mcp_ui_output_dir: ".fast-agent/ui"  # Output directory for generated HTML files
-```
-
 ## MCP Diagnostics Settings
 
 ```yaml

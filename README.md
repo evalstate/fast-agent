@@ -80,8 +80,8 @@ Model support is comprehensive with native support for Anthropic, OpenAI and Goo
 Recent features include:
 
 - Agent Skills (SKILL.md)
-- MCP-UI Support |
-- OpenAI Apps SDK (Skybridge)
+- MCP Apps
+- OpenAI Apps SDK
 - Shell Mode
 - Advanced MCP Transport Diagnsotics
 - MCP Elicitations

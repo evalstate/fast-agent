@@ -50,7 +50,6 @@ resolve under the selected workspace; use an absolute path for a separate home.
 ├── skills/                  # Agent Skills available through {{agentSkills}}
 ├── sessions/                # persisted chat/session history
 ├── model-overlays/          # optional local model definitions
-├── ui/                      # generated MCP UI assets
 └── auths.md                 # home-scoped permission/auth history
 ```
 

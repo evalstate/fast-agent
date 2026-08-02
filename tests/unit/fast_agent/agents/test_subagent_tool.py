@@ -74,7 +74,7 @@ from fast_agent.ui.progress_display import progress_display
 if TYPE_CHECKING:
     from acp import AgentSideConnection
 
-    from fast_agent.mcp.skybridge import SkybridgeServerConfig
+    from fast_agent.mcp.app_integrations import AppServerConfig
     from fast_agent.tools.execution_environment import ShellEnvironment
     from fast_agent.ui.terminal_images.renderer import ImageRenderItem
 
@@ -181,7 +181,7 @@ class SubagentDisplayRecorder(ConsoleDisplay):
         result: CallToolResult,
         name: str | None = None,
         tool_name: str | None = None,
-        skybridge_config: "SkybridgeServerConfig | None" = None,
+        app_integration_config: "AppServerConfig | None" = None,
         timing_ms: float | None = None,
         tool_call_id: str | None = None,
         type_label: str | None = None,
@@ -193,7 +193,7 @@ class SubagentDisplayRecorder(ConsoleDisplay):
         del (
             result,
             name,
-            skybridge_config,
+            app_integration_config,
             timing_ms,
             tool_call_id,
             type_label,

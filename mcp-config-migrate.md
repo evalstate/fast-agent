@@ -593,10 +593,6 @@ mcp:
       step_seconds: 30
 ```
 
-`mcp_ui_mode` and `mcp_ui_output_dir` remain unchanged in this effort. They are
-UI/output policy, and moving them without a broader UI configuration decision
-would create churn without clarifying server ownership.
-
 These paths must be consumed, not merely parsed. Existing sampling-mode
 resolution reads `mcp.client.auto_sampling`, and existing timeline/status
 rendering reads `mcp.diagnostics.timeline`. `mcp.diagnostics.enabled: false`

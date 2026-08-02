@@ -1,88 +1,193 @@
 ---
+title: Inspect MCP Servers
 social:
-  title: MCP Display
-  tagline: Control how MCP tool calls, resources, and messages appear in the terminal.
-  description: Control how MCP tool calls, resources, and messages appear in the terminal.
-  alt: fast-agent social card — MCP Display
+  title: Inspect MCP Servers
+  tagline: Read protocol, transport, activity, and capability status for MCP servers.
+  description: Compare modern and legacy remote MCP connections in the terminal.
+  alt: fast-agent social card — Inspect MCP Servers
 ---
 
+Use `/mcp` or `/mcp status` to inspect attached MCP servers in detail. Use
+`/mcp list` for the shorter configured-and-attached inventory. `/mcpstatus`
+remains a terminal compatibility alias.
 
-Detailed information about MCP Server connections can be displayed with
-`/mcp status`. In the terminal, `/mcp` remains a status shortcut and
-`/mcpstatus` remains a compatibility alias. Use `/mcp list` for the configured
-and attached server inventory.
+Protocol era and transport are separate concepts. A remote Streamable HTTP
+endpoint can negotiate modern or legacy protocol behavior; a legacy protocol
+connection is not necessarily the configured legacy SSE transport.
 
-![](./pics/mcp_transport_display.png)
+| `/mcp` label | Meaning | Display difference |
+| --- | --- | --- |
+| `(modern)` | Automatic negotiation selected the discovery-era protocol. | Session, legacy Health, and ping columns are omitted. |
+| `(legacy)` | Automatic negotiation selected the initialization-era protocol. | Session and legacy Health are shown. |
+| `(forced modern)` / `(forced legacy)` | `protocol_mode` was explicitly selected for interoperability testing or debugging. | Uses the corresponding modern or legacy display. |
 
-### Section 1 - Implementation, Protocol, and Session
+`auto` is the default and should be preferred for normal connections. To test
+a server's legacy compatibility path, connect with `--protocol legacy`; forcing
+a mode changes client negotiation behavior, not the HTTP transport.
 
-This section shows the server implementation, negotiated protocol version and
-era, and subscription state. For legacy Streamable HTTP servers it also shows a
-real `Mcp-Session-Id` when one was observed. Modern `2026-07-28` connections are
-shown as sessionless. The `local` value for stdio describes transport locality,
-not a protocol session. A configured forced mode is signposted alongside the
-connection path, for example `modern, adopt, forced modern` or `legacy,
-initialize, forced legacy`.
+## Modern remote MCP: image generation and progress
 
-### Section 2 - Transport Channel History
-
-Shows transport activity only when fast-agent has a live diagnostics source.
-The SDK v2 integration records stdio connection and operation activity. For
-Streamable HTTP, public `httpx` hooks classify outgoing POST requests as JSON or
-SSE from their `Accept` header, record GET status and errors, and track
-resumption requests carrying `Last-Event-ID`. Response bodies and streamed SSE
-events are not consumed for diagnostics, so the display does not infer message
-counts from them.
-
-This recording connects to Hugging Face's live stable-v2 MCP endpoint, opens
-`/mcp`, and shows modern discovery plus public-hook HTTP diagnostics before
-continuing into the Skills over MCP workflow:
+This recording shows a connection to Hugging Face's MCP Server that generates
+an image, receives progress notifications, renders the image, and opens
+`/mcp`. The diagnostic timeline shows request, response, and notification
+activity. SSE streams and direct JSON-RPC messages are distinguished on the
+timeline. The `LISTEN (SSE)` channel is disabled because the server does not
+advertise list-change notifications or resource subscriptions.
 
 <div
-  data-fa-asciinema-cast="../../assets/tui/skills-over-mcp.cast"
-  data-fa-asciinema-cols="96"
-  data-fa-asciinema-rows="22"
-  data-fa-asciinema-poster="npt:0:13"
+  class="fa-terminal-demo"
+  data-fa-asciinema-cast="../../assets/tui/hf-image-generation.cast"
+  data-fa-asciinema-cols="120"
+  data-fa-asciinema-rows="34"
+  data-fa-asciinema-poster="npt:0:48.24"
   data-fa-asciinema-speed="1"
   data-fa-asciinema-idle-time-limit="1.3"
   data-fa-asciinema-fit="width"
 >
+  <div class="fa-terminal-theme-switch" aria-label="Terminal theme">
+    <button type="button" data-fa-terminal-theme="auto">Auto</button>
+    <button type="button" data-fa-terminal-theme="light">Light</button>
+    <button type="button" data-fa-terminal-theme="dark">Dark</button>
+  </div>
   <div data-fa-asciinema-target></div>
 </div>
 
-### Section 3 - Server Capabilities
+The command leaves protocol selection at its default, `auto`. Fast-agent
+discovers the server's supported modern protocol and `/mcp` reports the
+negotiated result:
 
-- `To`, `Pr`, `Re`: Tools, Prompts and Resources. Green for available, Yellow for List Change notifications.
-- `Rs`: Resource Subscriptions.
-- `Lo`, `Co`: Logging and Completions.
-- `Ex`: Experimental Capabilities
-- `In`: Instructions. Green for available, and used - Yellow for available but not in Prompt, Red for available, but disabled.
+```text
+protocol  2026-07-28 (modern)
+```
 
-### Section 4 - Client Capabilities.
+The modern display intentionally omits the legacy Session and Health fields,
+and its channel timeline has no legacy ping column. Progress notifications
+from the image tool appear both during execution and as notification activity
+in the subsequent transport display.
 
-- `Ro`: Roots offered to MCP Server.
-- `El`: Elicitation offered to MCP Server. Red for `Cancel All` mode.
-- `Sa`: Sampling offered to MCP Server. Green for auto, Yellow for manually configured.
-- `Sp`: MCP Client Name has been spoofed.
+<!--
+Cast asset:
+- Source: docs/docs/assets/tui/hf-image-generation.cast
+- Regenerate: uv run scripts/docs.py cast-build hf-image-generation
+- Replay locally: asciinema play docs/docs/assets/tui/hf-image-generation.cast
+-->
 
-### Configuration
+## Legacy remote MCP: session and health
 
-When a transport activity timeline is available, it can be tailored in
-`fast-agent.yaml` under `mcp.diagnostics.timeline`:
+This deterministic recording connects to a local legacy Streamable HTTP
+fixture. The server returns a fixed `MCP-Session-Id`; one-second health pings
+establish a visible healthy state before `/mcp` opens its 60-segment timeline.
+
+<div
+  class="fa-terminal-demo"
+  data-fa-asciinema-cast="../../assets/mcp/mcp-inspect-legacy.cast"
+  data-fa-asciinema-cols="112"
+  data-fa-asciinema-rows="30"
+  data-fa-asciinema-poster="npt:0:15"
+  data-fa-asciinema-speed="1"
+  data-fa-asciinema-idle-time-limit="1.3"
+  data-fa-asciinema-fit="width"
+>
+  <div class="fa-terminal-theme-switch" aria-label="Terminal theme">
+    <button type="button" data-fa-terminal-theme="auto">Auto</button>
+    <button type="button" data-fa-terminal-theme="light">Light</button>
+    <button type="button" data-fa-terminal-theme="dark">Dark</button>
+  </div>
+  <div data-fa-asciinema-target></div>
+</div>
+
+For a forced legacy connection, `/mcp` shows the initialization-era protocol,
+the observed HTTP session identifier, and legacy health state:
+
+```text
+protocol  2025-11-25 (forced legacy)
+session   docs-legacy-session
+health    ok
+```
+
+`forced legacy` means the client was configured with `protocol_mode: legacy`.
+The Session value is an observed `MCP-Session-Id` response header. Health and
+ping information belong to the legacy client path; their absence from the
+modern display is intentional.
+
+<!--
+Cast asset:
+- Source: docs/docs/assets/mcp/mcp-inspect-legacy.cast
+- Regenerate: uv run scripts/docs.py cast-build mcp-inspect-legacy
+- Replay locally: asciinema play docs/docs/assets/mcp/mcp-inspect-legacy.cast
+-->
+
+## Reading the `/mcp` display
+
+### Implementation, protocol, and session
+
+The first lines identify the server implementation, version, client, and
+negotiated protocol era. A forced mode is shown as `(forced modern)` or
+`(forced legacy)`. Internal negotiation steps such as discovery, adoption, and
+initialization are not printed.
+
+For modern-era connections, `/mcp` omits Session and legacy Health fields.
+Non-modern displays include Session; it contains the observed
+`MCP-Session-Id`, or `None` when no session header was captured. The `local`
+value for stdio describes transport locality, not a protocol session.
+
+### Transport channel history
+
+Transport activity is shown only when fast-agent has a live diagnostics
+source. Public `httpx` hooks classify outgoing Streamable HTTP requests,
+responses, resumptions, and errors without consuming response bodies or
+streamed SSE events.
+
+`LISTEN (SSE)` and `POST (SSE)` describe observed HTTP channels and the
+response mode requested in the client's `Accept` header. They do not describe
+the response body's actual content type, and do not mean the server was
+configured with the legacy SSE transport.
+
+Timeline symbols prioritize significant events in this order:
+
+```text
+error → disabled/request → response → notification/ping → none
+```
+
+When several events land in one segment, the higher-priority state remains
+visible.
+
+### Server capabilities
+
+- `To`, `Pr`, `Re`: Tools, Prompts, and Resources. A highlighted token indicates
+  list-change notifications.
+- `Rs`: Resource subscriptions.
+- `Lo`, `Co`: Logging and completions.
+- `Ex`: Experimental capabilities.
+- `In`: Server instructions. Warning and error colors indicate instructions
+  that are available but not injected into the agent system prompt, or disabled.
+
+### Extensions and client settings
+
+- `Sk`: Skills over MCP support.
+- `Ui`: Detected MCP Apps or OpenAI Apps SDK configuration.
+- `Ro`: Roots offered to the MCP server.
+- `El`: Elicitation mode.
+- `Sa`: Sampling mode.
+- `Sp`: Client-name spoofing.
+
+Provider-managed MCP does not use fast-agent's MCP client, so these local
+negotiation and transport diagnostics do not apply to provider-owned
+connections.
+
+## Diagnostics configuration
+
+Configure timeline density in `fast-agent.yaml`:
 
 ```yaml
 mcp:
   diagnostics:
     enabled: true
     timeline:
-      steps: 20         # number of buckets rendered on the timeline
-      step_seconds: 30  # duration of each bucket (supports "45s" or "2m")
+      steps: 60
+      step_seconds: 1
 ```
 
-Set `mcp.diagnostics.enabled` to `false` to disable MCP diagnostics collection.
-Timeline values flow through to both `fast-agent check` and the in-session
-`/mcp status` display. When multiple events occur in the same bucket, higher priority
-states replace lower ones using this order: `error` → `disabled/request` →
-`response` → `notification/ping` → `none`. This keeps significant events (such
-as errors and requests) visible even if a subsequent ping lands in the same
-interval.
+`steps` controls the number of rendered segments and `step_seconds` controls
+the duration represented by each segment. Set `mcp.diagnostics.enabled` to
+`false` to disable MCP diagnostics collection.

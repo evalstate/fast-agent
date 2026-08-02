@@ -481,6 +481,7 @@ def test_tool_stream_code_preview_tracks_partial_code() -> None:
     assert preview.language == "python"
     assert preview.code == "resp = await hf_trending()\nprin"
     assert preview.complete is False
+    assert preview.variant == "code"
 
 
 def test_tool_stream_shell_preview_tracks_partial_command() -> None:
@@ -507,6 +508,7 @@ def test_tool_stream_shell_preview_tracks_partial_command() -> None:
     assert preview.language == "bash"
     assert preview.code == "uv run scripts/lint.py && uv run scr"
     assert preview.complete is False
+    assert preview.variant == "shell"
 
 
 def test_tool_stream_shell_preview_skips_apply_patch_commands() -> None:

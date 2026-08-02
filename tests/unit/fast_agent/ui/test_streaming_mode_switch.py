@@ -1,7 +1,8 @@
 import io
 from typing import Any, cast
 
-from rich.console import Console
+from rich.console import Console, Group
+from rich.syntax import Syntax
 from rich.text import Text
 
 from fast_agent.config import Settings
@@ -369,6 +370,35 @@ def test_render_tool_segment_uses_syntax_preview_for_code_tools() -> None:
     assert "hf_hub_query_raw" in rendered
     assert "resp = await hf_trending()" in rendered
     assert "print(resp)" in rendered
+
+
+def test_render_tool_segment_splits_completed_shell_heredoc_by_language() -> None:
+    handle = _make_handle("markdown")
+    command = "cat > example.py <<'PY'\nprint('hello')\nPY\npython example.py"
+    segment = StreamSegment(
+        kind="tool",
+        text="",
+        tool_name="execute",
+        code_preview=ToolCodePreview(
+            code=command,
+            language="bash",
+            complete=True,
+            variant="shell",
+        ),
+    )
+
+    renderable = handle._render_tool_segment(segment, cursor_suffix="")
+    assert isinstance(renderable, Group)
+    syntax_blocks = [
+        child for child in renderable.renderables if isinstance(child, Syntax)
+    ]
+
+    assert [block._lexer for block in syntax_blocks] == ["bash", "python", "bash"]
+    assert [block.code for block in syntax_blocks] == [
+        "cat > example.py <<'PY'",
+        "print('hello')",
+        "PY\npython example.py",
+    ]
 
 
 def test_render_tool_segment_styles_apply_patch_preview_lines() -> None:

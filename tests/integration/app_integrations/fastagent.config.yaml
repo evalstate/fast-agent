@@ -1,0 +1,26 @@
+default_model: passthrough
+
+logger:
+  level: "info"
+  progress_display: false
+  show_chat: false
+  show_tools: false
+
+mcp:
+  servers:
+    openai_apps_sdk_valid:
+      command: "uv"
+      args: ["run", "app_integration_test_server.py", "valid"]
+      description: "OpenAI Apps SDK server with valid resource/tool pairing"
+    openai_apps_sdk_invalid_mime:
+      command: "uv"
+      args: ["run", "app_integration_test_server.py", "invalid-mime"]
+      description: "OpenAI Apps SDK server exposing ui:// resource with an invalid MIME type"
+    openai_apps_sdk_missing_resource:
+      command: "uv"
+      args: ["run", "app_integration_test_server.py", "missing-resource"]
+      description: "OpenAI Apps SDK server with app resources but missing tool linkage"
+    mcp_apps_valid:
+      command: "uv"
+      args: ["run", "app_integration_test_server.py", "mcp-apps"]
+      description: "MCP Apps server with nested metadata and a valid app resource"

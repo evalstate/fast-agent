@@ -9,8 +9,8 @@ from mcp_types import CompleteResult, Completion, ReadResourceResult, ResourceTe
 import fast_agent.mcp.mcp_aggregator as aggregator_module
 from fast_agent.context import Context
 from fast_agent.event_progress import ProgressAction
+from fast_agent.mcp.app_integrations import AppServerConfig
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
-from fast_agent.mcp.skybridge import SkybridgeServerConfig
 from fast_agent.skills.mcp_registry import INDEX_URI
 
 if TYPE_CHECKING:
@@ -260,9 +260,9 @@ async def test_app_resource_scan_progress_uses_compact_label(monkeypatch) -> Non
     )
     monkeypatch.setattr(aggregator_module, "logger", _Logger())
 
-    await aggregator._collect_skybridge_resources(
+    await aggregator._collect_app_resources(
         "demo",
-        SkybridgeServerConfig(server_name="demo"),
+        AppServerConfig(server_name="demo"),
         [],
     )
 

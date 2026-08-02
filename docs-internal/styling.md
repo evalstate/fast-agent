@@ -38,7 +38,7 @@ This report summarizes how the fast-agent console UI is styled, where the stylin
   - Content rendering (markdown vs JSON vs XML)
   - Bottom metadata bars
   - Assistant streaming display
-  - Mermaid and MCP-UI link rendering
+  - Mermaid link rendering
 
 ### Message header style
 - Header left is constructed from `MESSAGE_CONFIGS`: `▎` + arrow + optional name.
@@ -97,7 +97,7 @@ Relevant methods:
 - **File:** `src/fast_agent/ui/tool_display.py`
 - Tool results are rendered with either:
   - `display_message()` for standard results
-  - Manual header/metadata for structured content (e.g., skybridge)
+  - Manual header/metadata for structured app content
 - Status text includes error state and content characterization (text blocks, structured content, etc.).
 - Bottom metadata can include transport channel and tool timing.
 
@@ -157,7 +157,7 @@ Relevant methods:
 
 - **Model name formatting:** `src/fast_agent/ui/model_display.py`
 - **Console-friendly XML/JSON:** handled in `ConsoleDisplay._display_content()` with rich syntax/pretty formatting.
-- **Mermaid diagrams & MCP UI links:** `console_display.py` adds clickable link sections with dim bullets.
+- **Mermaid diagrams:** `console_display.py` adds clickable link sections with dim bullets.
 
 ## 10. Style conventions at a glance
 

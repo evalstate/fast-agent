@@ -74,6 +74,7 @@ from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_model,
     calculate_terminal_output_limit_for_resolved_model,
 )
+from fast_agent.mcp.app_integrations import AppServerConfig
 from fast_agent.mcp.common import (
     create_namespaced_name,
     get_resource_name,
@@ -278,7 +279,7 @@ class McpAgent(ABC, ToolAgent):
         # Instantiate human input tool once if enabled in config
         self._human_input_tool = self._initial_human_input_tool()
 
-        # Register the MCP UI handler as the elicitation callback so fast_agent.tools can call it
+        # Register the interactive elicitation handler so local tools can call it
         # without importing MCP types. This avoids circular imports and ensures the callback is ready.
         self._register_mcp_elicitation_adapter()
 
@@ -2075,7 +2076,7 @@ class McpAgent(ABC, ToolAgent):
             result=result,
             name=self._name,
             tool_name=call.display_tool_name,
-            skybridge_config=await self._skybridge_config_for_planned_tool(call),
+            app_integration_config=await self._app_integration_config_for_planned_tool(call),
             timing_ms=duration_ms,
             tool_call_id=call.correlation_id,
             type_label=tool_result_type_label(call.display_tool_name),
@@ -2089,7 +2090,7 @@ class McpAgent(ABC, ToolAgent):
             request.result,
             name=request.name,
             tool_name=request.tool_name,
-            skybridge_config=request.skybridge_config,
+            app_integration_config=request.app_integration_config,
             timing_ms=request.timing_ms,
             tool_call_id=request.tool_call_id,
             type_label=request.type_label,
@@ -2098,15 +2099,15 @@ class McpAgent(ABC, ToolAgent):
             show_hook_indicator=request.show_hook_indicator,
         )
 
-    async def _skybridge_config_for_planned_tool(
+    async def _app_integration_config_for_planned_tool(
         self,
         call: PlannedMcpToolCall,
-    ) -> Any | None:
-        skybridge_tool = call.namespaced_tool or call.candidate_namespaced_tool
-        if skybridge_tool is None:
+    ) -> AppServerConfig | None:
+        namespaced_tool = call.namespaced_tool or call.candidate_namespaced_tool
+        if namespaced_tool is None:
             return None
         try:
-            return await self._aggregator.get_skybridge_config(skybridge_tool.server_name)
+            return await self._aggregator.get_app_integration_config(namespaced_tool.server_name)
         except Exception:
             return None
 

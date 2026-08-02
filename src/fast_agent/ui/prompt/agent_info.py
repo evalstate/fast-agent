@@ -51,7 +51,7 @@ async def display_agent_info(
     content = await _build_agent_info_content(agent)
     if content:
         rich_print(_agent_info_text(agent_name, content))
-    await _show_skybridge_summary(agent_name, agent)
+    await _show_app_integration_summary(agent_name, agent)
     shown_agents.add(agent_name)
 
 
@@ -220,14 +220,14 @@ def _skill_count_for_agent(agent: AgentProtocol) -> int:
         return 0
 
 
-async def _show_skybridge_summary(agent_name: str, agent: AgentProtocol) -> None:
+async def _show_app_integration_summary(agent_name: str, agent: AgentProtocol) -> None:
     if not isinstance(agent, McpAgentProtocol):
         return
     try:
-        skybridge_configs = await agent.aggregator.get_skybridge_configs()
+        app_integration_configs = await agent.aggregator.get_app_integration_configs()
     except Exception:
         return
-    agent.display.show_skybridge_summary(agent_name, skybridge_configs)
+    agent.display.show_app_integration_summary(agent_name, app_integration_configs)
 
 
 async def display_all_agents_with_hierarchy(

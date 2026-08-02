@@ -38,7 +38,6 @@ from fast_agent.mcp.server_declaration import (
     MCPServerDeclaration,
     effective_server_view,
 )
-from fast_agent.mcp.ui_modes import McpUIMode
 from fast_agent.tools.environment_config import EnvironmentSpec
 from fast_agent.types.streaming import StreamingMode
 from fast_agent.utils.action_normalization import (
@@ -2320,18 +2319,6 @@ class Settings(BaseSettings):
 
     logger: LoggerSettings = Field(default_factory=LoggerSettings)
     """Logger settings for the fast-agent application"""
-
-    # MCP UI integration mode for handling ui:// embedded resources from MCP tool results
-    mcp_ui_mode: McpUIMode = "enabled"
-    """Controls handling of MCP UI embedded resources:
-    - "disabled": Do not process ui:// resources
-    - "enabled": Always extract ui:// resources into message channels (default)
-    - "auto": Extract and automatically open ui:// resources.
-    """
-
-    # Output directory for MCP-UI generated HTML files (relative to CWD if not absolute)
-    mcp_ui_output_dir: str = ".fast-agent/ui"
-    """Directory where MCP-UI HTML files are written. Relative paths are resolved from CWD."""
 
     skills: SkillsSettings = Field(default_factory=SkillsSettings)
     """Local skills discovery and selection settings."""

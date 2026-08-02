@@ -561,7 +561,7 @@ class ToolEventCapturingDisplay(CapturingConsoleDisplay):
         result,
         name: str | None = None,
         tool_name: str | None = None,
-        skybridge_config=None,
+        app_integration_config=None,
         timing_ms: float | None = None,
         tool_call_id: str | None = None,
         type_label: str | None = None,
@@ -573,7 +573,7 @@ class ToolEventCapturingDisplay(CapturingConsoleDisplay):
         del (
             result,
             name,
-            skybridge_config,
+            app_integration_config,
             timing_ms,
             tool_call_id,
             type_label,

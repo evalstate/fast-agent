@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 # Canonical tool name for the human input/elicitation tool
 HUMAN_INPUT_TOOL_NAME = "__human_input"
-MCP_UI = "mcp-ui"
 REASONING = "reasoning"
 REASONING_LABEL = "Reasoning"
 """UI label for reasoning effort configuration."""

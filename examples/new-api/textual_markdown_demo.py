@@ -375,7 +375,7 @@ class TextualDisplay(ConsoleDisplay):
         result: CallToolResult,
         name: str | None = None,
         tool_name: str | None = None,
-        skybridge_config=None,
+        app_integration_config=None,
     ) -> None:
         self._app.handle_display_tool_result(result, agent_name=name, tool_name=tool_name)
 

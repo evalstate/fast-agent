@@ -1489,13 +1489,15 @@ async def test_unprefixed_read_text_file_routes_to_namespaced_mcp_when_local_fs_
         mcp_calls.append(name)
         return CallToolResult(content=[TextContent(type="text", text="mcp")], is_error=False)
 
-    async def fake_get_skybridge_config(server_name: str) -> None:
+    async def fake_get_app_integration_config(server_name: str) -> None:
         del server_name
         return None
 
     agent._aggregator.list_tools = cast("Any", fake_list_tools)
     agent._aggregator.call_tool = cast("Any", fake_call_tool)
-    agent._aggregator.get_skybridge_config = cast("Any", fake_get_skybridge_config)
+    agent._aggregator.get_app_integration_config = cast(
+        "Any", fake_get_app_integration_config
+    )
 
     request = PromptMessageExtended(
         role="assistant",
@@ -1631,13 +1633,15 @@ async def test_unprefixed_write_text_file_routes_to_namespaced_mcp_when_local_fs
         mcp_calls.append(name)
         return CallToolResult(content=[TextContent(type="text", text="mcp")], is_error=False)
 
-    async def fake_get_skybridge_config(server_name: str) -> None:
+    async def fake_get_app_integration_config(server_name: str) -> None:
         del server_name
         return None
 
     agent._aggregator.list_tools = cast("Any", fake_list_tools)
     agent._aggregator.call_tool = cast("Any", fake_call_tool)
-    agent._aggregator.get_skybridge_config = cast("Any", fake_get_skybridge_config)
+    agent._aggregator.get_app_integration_config = cast(
+        "Any", fake_get_app_integration_config
+    )
 
     request = PromptMessageExtended(
         role="assistant",

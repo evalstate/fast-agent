@@ -4,8 +4,7 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from rich.console import Group
 from rich.markup import escape as escape_markup
@@ -15,13 +14,13 @@ from rich.text import Text
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.constants import FAST_AGENT_SHELL_PROCESS_METADATA
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.app_integrations import AppIntegrationKind
 from fast_agent.mcp.tool_result_metadata import (
     get_tool_result_media_preview,
     tool_result_display_metadata,
 )
 from fast_agent.tools.apply_patch_tool import extract_apply_patch_input, is_apply_patch_tool_name
 from fast_agent.tools.edit_file_tool import EDIT_FILE_TOOL_NAME
-from fast_agent.tools.shell_command import shell_heredoc_bodies
 from fast_agent.tools.tool_sources import FAST_AGENT_TOOL_SOURCE_META, TOOL_SOURCE_LABELS
 from fast_agent.ui import console
 from fast_agent.ui.apply_patch_preview import (
@@ -39,11 +38,12 @@ from fast_agent.ui.shell_output_truncation import (
     format_shell_output_line_count,
     truncate_shell_output_lines,
 )
+from fast_agent.ui.syntax_highlighting import shell_syntax_blocks, syntax_language_for_path
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.numeric import positive_int_or_none
 from fast_agent.utils.path_display import fit_path_for_display
-from fast_agent.utils.text import strip_casefold, strip_str_to_none
+from fast_agent.utils.text import strip_str_to_none
 from fast_agent.utils.tool_names import (
     POLL_PROCESS_TOOL_NAME,
     PROCESS_TOOL_NAME,
@@ -58,7 +58,7 @@ if TYPE_CHECKING:
     from mcp_types import CallToolResult
     from rich.console import RenderableType
 
-    from fast_agent.mcp.skybridge import SkybridgeServerConfig
+    from fast_agent.mcp.app_integrations import AppServerConfig
     from fast_agent.ui.console_display import ConsoleDisplay
 
 
@@ -83,8 +83,8 @@ class PreparedToolResultContent:
 
 
 @dataclass(frozen=True, slots=True)
-class SkybridgeResultDetails:
-    is_skybridge_tool: bool
+class AppIntegrationResultDetails:
+    is_app_integration_tool: bool
     resource_uri: str | None = None
 
 
@@ -136,7 +136,7 @@ class ToolResultDisplayRequest:
     result: "CallToolResult"
     name: str | None = None
     tool_name: str | None = None
-    skybridge_config: "SkybridgeServerConfig | None" = None
+    app_integration_config: "AppServerConfig | None" = None
     timing_ms: float | None = None
     tool_call_id: str | None = None
     type_label: str | None = None
@@ -157,26 +157,6 @@ _TRANSPORT_METADATA_LABELS: dict[str, str] = {
 
 class ToolDisplay:
     """Encapsulates rendering logic for tool calls and results."""
-
-    _READ_TEXT_FILE_LANGUAGE_BY_EXTENSION: ClassVar[dict[str, str]] = {
-        ".py": "python",
-        ".js": "javascript",
-        ".ts": "typescript",
-        ".tsx": "tsx",
-        ".jsx": "jsx",
-        ".json": "json",
-        ".yaml": "yaml",
-        ".yml": "yaml",
-        ".toml": "toml",
-        ".md": "markdown",
-        ".sh": "bash",
-        ".bash": "bash",
-        ".zsh": "bash",
-        ".xml": "xml",
-        ".html": "html",
-        ".css": "css",
-        ".sql": "sql",
-    }
 
     def __init__(self, display: "ConsoleDisplay") -> None:
         self._display = display
@@ -595,7 +575,7 @@ class ToolDisplay:
                 request.result,
                 name=request.name,
                 tool_name=request.tool_name,
-                skybridge_config=request.skybridge_config,
+                app_integration_config=request.app_integration_config,
                 timing_ms=request.timing_ms,
                 tool_call_id=request.tool_call_id,
                 type_label=request.type_label or "tool result",
@@ -645,9 +625,9 @@ class ToolDisplay:
         source_label: str | None,
         server_name: str | None,
         show_hook_indicator: bool,
-        is_skybridge_tool: bool,
+        is_app_integration_tool: bool,
         structured_content: object,
-        skybridge_resource_uri: str | None,
+        app_resource_uri: str | None,
     ) -> None:
         result_policy = self._display.tool_display_settings.results
         collapse_shell_exit = (
@@ -697,10 +677,10 @@ class ToolDisplay:
             console.console.print(additional_message, markup=self._markup)
         if post_content is not None:
             console.console.print(post_content, markup=self._markup)
-        if is_skybridge_tool:
-            self._render_skybridge_structured_content(
+        if is_app_integration_tool:
+            self._render_app_integration_structured_content(
                 structured_content=structured_content,
-                resource_uri=skybridge_resource_uri,
+                resource_uri=app_resource_uri,
             )
 
     @classmethod
@@ -944,14 +924,11 @@ class ToolDisplay:
             return 0
         return max(len(match) for match in matches)
 
-    @classmethod
-    def _read_text_file_language_from_path(cls, path_value: object) -> str | None:
+    @staticmethod
+    def _read_text_file_language_from_path(path_value: object) -> str | None:
         if not isinstance(path_value, str):
             return None
-        suffix = strip_casefold(Path(path_value).suffix)
-        if not suffix:
-            return None
-        return cls._READ_TEXT_FILE_LANGUAGE_BY_EXTENSION.get(suffix)
+        return syntax_language_for_path(path_value)
 
     def _format_read_text_file_content_as_markdown(
         self,
@@ -1240,26 +1217,28 @@ class ToolDisplay:
         ]
 
     @staticmethod
-    def _resolve_skybridge_result_details(
+    def _resolve_app_integration_result_details(
         *,
         has_structured: bool,
         tool_name: str | None,
-        skybridge_config: "SkybridgeServerConfig | None",
-    ) -> SkybridgeResultDetails:
-        if not has_structured or not tool_name or skybridge_config is None:
-            return SkybridgeResultDetails(is_skybridge_tool=False)
+        app_integration_config: "AppServerConfig | None",
+    ) -> AppIntegrationResultDetails:
+        if not has_structured or not tool_name or app_integration_config is None:
+            return AppIntegrationResultDetails(is_app_integration_tool=False)
 
-        for tool_cfg in skybridge_config.tools:
+        for tool_cfg in app_integration_config.tools:
             if tool_cfg.tool_name == tool_name and tool_cfg.is_valid:
                 resource_uri = (
-                    str(tool_cfg.resource_uri) if tool_cfg.resource_uri is not None else None
+                    str(tool_cfg.linked_resource_uri)
+                    if tool_cfg.linked_resource_uri is not None
+                    else None
                 )
-                return SkybridgeResultDetails(
-                    is_skybridge_tool=True,
+                return AppIntegrationResultDetails(
+                    is_app_integration_tool=True,
                     resource_uri=resource_uri,
                 )
 
-        return SkybridgeResultDetails(is_skybridge_tool=False)
+        return AppIntegrationResultDetails(is_app_integration_tool=False)
 
     def _default_tool_result_status(self, result: "CallToolResult") -> str:
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
@@ -1493,7 +1472,7 @@ class ToolDisplay:
         console.console.print(line, markup=self._markup)
         console.console.print()
 
-    def _render_skybridge_structured_content(
+    def _render_app_integration_structured_content(
         self,
         *,
         structured_content: object,
@@ -1525,8 +1504,8 @@ class ToolDisplay:
         right_info: str,
         bottom_metadata_items: list[str] | None,
         structured_content: object,
-        is_skybridge_tool: bool,
-        skybridge_resource_uri: str | None,
+        is_app_integration_tool: bool,
+        app_resource_uri: str | None,
         show_hook_indicator: bool,
         post_content: RenderableType | None = None,
     ) -> None:
@@ -1557,10 +1536,10 @@ class ToolDisplay:
             console.console.print(post_content, markup=self._markup)
         console.console.print()
 
-        if is_skybridge_tool:
-            self._render_skybridge_structured_content(
+        if is_app_integration_tool:
+            self._render_app_integration_structured_content(
                 structured_content=structured_content,
-                resource_uri=skybridge_resource_uri,
+                resource_uri=app_resource_uri,
             )
             return
 
@@ -1575,7 +1554,7 @@ class ToolDisplay:
         *,
         name: str | None = None,
         tool_name: str | None = None,
-        skybridge_config: "SkybridgeServerConfig | None" = None,
+        app_integration_config: "AppServerConfig | None" = None,
         timing_ms: float | None = None,
         tool_call_id: str | None = None,
         type_label: str = "tool result",
@@ -1605,10 +1584,10 @@ class ToolDisplay:
             source_content = prepared_content.source_content
             truncate_content = prepared_content.truncate_content
 
-            skybridge_details = self._resolve_skybridge_result_details(
+            app_integration_details = self._resolve_app_integration_result_details(
                 has_structured=has_structured,
                 tool_name=tool_name,
-                skybridge_config=skybridge_config,
+                app_integration_config=app_integration_config,
             )
             status = self._tool_result_status(result, tool_name=tool_name, metadata=metadata)
             bottom_metadata = self._build_tool_result_bottom_metadata(
@@ -1681,9 +1660,11 @@ class ToolDisplay:
                     source_label=source_label,
                     server_name=server_name,
                     show_hook_indicator=show_hook_indicator,
-                    is_skybridge_tool=skybridge_details.is_skybridge_tool,
+                    is_app_integration_tool=(
+                        app_integration_details.is_app_integration_tool
+                    ),
                     structured_content=structured_content,
-                    skybridge_resource_uri=skybridge_details.resource_uri,
+                    app_resource_uri=app_integration_details.resource_uri,
                 )
                 return
 
@@ -1696,8 +1677,10 @@ class ToolDisplay:
                     right_info=right_info,
                     bottom_metadata_items=bottom_metadata,
                     structured_content=structured_content,
-                    is_skybridge_tool=skybridge_details.is_skybridge_tool,
-                    skybridge_resource_uri=skybridge_details.resource_uri,
+                    is_app_integration_tool=(
+                        app_integration_details.is_app_integration_tool
+                    ),
+                    app_resource_uri=app_integration_details.resource_uri,
                     show_hook_indicator=show_hook_indicator,
                     post_content=post_content,
                 )
@@ -1759,35 +1742,11 @@ class ToolDisplay:
             metadata.get("shell_name"),
             shell_path=cast("str | None", metadata.get("shell_path")),
         )
-        heredoc_bodies = [
-            (body, language)
-            for body in shell_heredoc_bodies(command)
-            if body.target_path
-            and (
-                language := self._READ_TEXT_FILE_LANGUAGE_BY_EXTENSION.get(
-                    Path(body.target_path).suffix.lower()
-                )
-            )
-            and command[body.start : body.end].strip()
-        ]
-        if not heredoc_bodies:
-            return self._shell_syntax(command.rstrip(), shell_language)
-
-        renderables: list[Syntax] = []
-        cursor = 0
-        for body, language in heredoc_bodies:
-            if shell_text := command[cursor : body.start].rstrip():
-                renderables.append(self._shell_syntax(shell_text, shell_language))
-            renderables.append(
-                self._shell_syntax(
-                    command[body.start : body.end].rstrip("\r\n"),
-                    language,
-                )
-            )
-            cursor = body.end
-        if shell_text := command[cursor:].rstrip():
-            renderables.append(self._shell_syntax(shell_text, shell_language))
-        return Group(*renderables)
+        blocks = shell_syntax_blocks(command, shell_language=shell_language)
+        if len(blocks) == 1:
+            block = blocks[0]
+            return self._shell_syntax(block.code, block.language)
+        return Group(*(self._shell_syntax(block.code, block.language) for block in blocks))
 
     def _shell_syntax(self, code: str, language: str) -> Syntax:
         return Syntax(
@@ -2225,25 +2184,29 @@ class ToolDisplay:
             console.console.print()
 
     @staticmethod
-    def _has_skybridge_signal(config: "SkybridgeServerConfig", resources: list[Any]) -> bool:
+    def _has_app_integration_signal(config: "AppServerConfig", resources: list[Any]) -> bool:
         return bool(config.enabled or resources or config.tools or config.warnings)
 
     @staticmethod
-    def _skybridge_resource_counts(resources: list[Any]) -> dict[str, int]:
+    def _app_resource_counts(resources: list[Any]) -> dict[str, int]:
         return {
-            "valid_resource_count": sum(
-                1 for resource in resources if resource.is_valid_app_resource
+            "valid_resource_count": sum(1 for resource in resources if resource.is_valid),
+            "mcp_apps_resource_count": sum(
+                1 for resource in resources if resource.kind is AppIntegrationKind.MCP_APPS
             ),
-            "mcp_app_resource_count": sum(1 for resource in resources if resource.is_mcp_app),
-            "skybridge_resource_count": sum(1 for resource in resources if resource.is_skybridge),
+            "openai_apps_sdk_resource_count": sum(
+                1
+                for resource in resources
+                if resource.kind is AppIntegrationKind.OPENAI_APPS_SDK
+            ),
         }
 
     @staticmethod
-    def _active_skybridge_tools(config: "SkybridgeServerConfig") -> list[dict[str, Any]]:
+    def _active_app_tools(config: "AppServerConfig") -> list[dict[str, Any]]:
         return [
             {
                 "name": tool.display_name,
-                "template": str(tool.template_uri) if tool.template_uri else None,
+                "resource_uri": str(tool.resource_uri) if tool.resource_uri else None,
                 "kind": tool.kind,
             }
             for tool in config.tools
@@ -2251,36 +2214,40 @@ class ToolDisplay:
         ]
 
     @staticmethod
-    def _skybridge_tool_counts(config: "SkybridgeServerConfig") -> dict[str, int]:
+    def _app_tool_counts(config: "AppServerConfig") -> dict[str, int]:
         return {
-            "mcp_app_tool_count": sum(
-                1 for tool in config.tools if tool.is_valid and tool.kind == "mcp_app"
+            "mcp_apps_tool_count": sum(
+                1
+                for tool in config.tools
+                if tool.is_valid and tool.kind is AppIntegrationKind.MCP_APPS
             ),
-            "skybridge_tool_count": sum(
-                1 for tool in config.tools if tool.is_valid and tool.kind == "skybridge"
+            "openai_apps_sdk_tool_count": sum(
+                1
+                for tool in config.tools
+                if tool.is_valid and tool.kind is AppIntegrationKind.OPENAI_APPS_SDK
             ),
         }
 
     @classmethod
-    def _skybridge_server_row(
+    def _app_integration_server_row(
         cls,
         server_name: str,
-        config: "SkybridgeServerConfig",
+        config: "AppServerConfig",
         resources: list[Any],
     ) -> dict[str, Any]:
         return {
             "server_name": server_name,
             "config": config,
             "resources": resources,
-            **cls._skybridge_resource_counts(resources),
-            **cls._skybridge_tool_counts(config),
+            **cls._app_resource_counts(resources),
+            **cls._app_tool_counts(config),
             "total_resource_count": len(resources),
-            "active_tools": cls._active_skybridge_tools(config),
+            "active_tools": cls._active_app_tools(config),
             "enabled": config.enabled,
         }
 
     @staticmethod
-    def _add_skybridge_warning(
+    def _add_app_integration_warning(
         *,
         warnings: list[str],
         warning_seen: set[str],
@@ -2297,11 +2264,11 @@ class ToolDisplay:
             warning_seen.add(message)
 
     @classmethod
-    def summarize_skybridge_configs(
+    def summarize_app_integration_configs(
         cls,
-        configs: Mapping[str, "SkybridgeServerConfig"] | None,
+        configs: Mapping[str, "AppServerConfig"] | None,
     ) -> tuple[list[dict[str, Any]], list[str]]:
-        """Convert Skybridge configs into display-ready structures."""
+        """Convert app integration configs into display-ready structures."""
         server_rows: list[dict[str, Any]] = []
         warnings: list[str] = []
         warning_seen: set[str] = set()
@@ -2313,14 +2280,16 @@ class ToolDisplay:
             config = configs.get(server_name)
             if not config:
                 continue
-            resources = list(config.ui_resources or [])
-            if not cls._has_skybridge_signal(config, resources):
+            resources = list(config.resources)
+            if not cls._has_app_integration_signal(config, resources):
                 continue
 
-            server_rows.append(cls._skybridge_server_row(server_name, config, resources))
+            server_rows.append(
+                cls._app_integration_server_row(server_name, config, resources)
+            )
 
             for warning in config.warnings:
-                cls._add_skybridge_warning(
+                cls._add_app_integration_warning(
                     warnings=warnings,
                     warning_seen=warning_seen,
                     server_name=server_name,
@@ -2329,19 +2298,19 @@ class ToolDisplay:
 
         return server_rows, warnings
 
-    def show_skybridge_summary(
+    def show_app_integration_summary(
         self,
         agent_name: str,
-        configs: Mapping[str, "SkybridgeServerConfig"] | None,
+        configs: Mapping[str, "AppServerConfig"] | None,
     ) -> None:
-        """Display aggregated Skybridge status."""
+        """Display aggregated interactive app integration status."""
         del agent_name
-        server_rows, warnings = self.summarize_skybridge_configs(configs)
+        server_rows, warnings = self.summarize_app_integration_configs(configs)
 
         if not server_rows and not warnings:
             return
 
-        heading = "[dim]Interactive MCP app integrations detected:[/dim]"
+        heading = "[dim]Interactive app integrations detected:[/dim]"
         console.console.print()
         console.console.print(heading, markup=self._markup)
 
@@ -2354,17 +2323,20 @@ class ToolDisplay:
                 enabled = row["enabled"]
 
                 segments: list[str] = []
-                if row["mcp_app_tool_count"] or row["mcp_app_resource_count"]:
+                if row["mcp_apps_tool_count"] or row["mcp_apps_resource_count"]:
                     segments.append(
                         "[cyan]MCP Apps[/cyan][dim]: "
-                        f"{format_count(row['mcp_app_tool_count'], 'tool')}, "
-                        f"{format_count(row['mcp_app_resource_count'], 'resource')}[/dim]"
+                        f"{format_count(row['mcp_apps_tool_count'], 'tool')}, "
+                        f"{format_count(row['mcp_apps_resource_count'], 'resource')}[/dim]"
                     )
-                if row["skybridge_tool_count"] or row["skybridge_resource_count"]:
+                if (
+                    row["openai_apps_sdk_tool_count"]
+                    or row["openai_apps_sdk_resource_count"]
+                ):
                     segments.append(
                         "[cyan]OpenAI Apps SDK[/cyan][dim]: "
-                        f"{format_count(row['skybridge_tool_count'], 'tool')}, "
-                        f"{format_count(row['skybridge_resource_count'], 'resource')}[/dim]"
+                        f"{format_count(row['openai_apps_sdk_tool_count'], 'tool')}, "
+                        f"{format_count(row['openai_apps_sdk_resource_count'], 'resource')}[/dim]"
                     )
                 integration_segment = (
                     "[dim]; [/dim]".join(segments)
@@ -2382,13 +2354,13 @@ class ToolDisplay:
 
                 if tool_infos:
                     for tool in tool_infos:
-                        template_info = (
-                            f" [dim]({escape_markup(tool['template'])})[/dim]"
-                            if tool["template"]
+                        resource_info = (
+                            f" [dim]({escape_markup(tool['resource_uri'])})[/dim]"
+                            if tool["resource_uri"]
                             else ""
                         )
                         console.console.print(
-                            f"[dim]     · [/dim]{escape_markup(tool['name'])}{template_info}",
+                            f"[dim]     · [/dim]{escape_markup(tool['name'])}{resource_info}",
                             markup=self._markup,
                         )
                 else:

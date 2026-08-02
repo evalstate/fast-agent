@@ -68,10 +68,6 @@ compaction:
 # otel:
 #   enabled: true
 
-# mcp-ui support: disabled, enabled or auto. "auto" opens the web browser on the asset automatically
-# mcp_ui_output_dir: ".fast-agent/ui"  # Where to write MCP-UI HTML files (relative to CWD if not absolute)
-# mcp_ui_mode: enabled
-
 anthropic:
   reasoning: null # Optional: auto/low/medium/high/max, an integer token budget, or off
 #  cache_mode: "auto" # Options: off, prompt, auto (default: auto)

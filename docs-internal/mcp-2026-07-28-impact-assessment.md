@@ -303,9 +303,9 @@ Core capabilities now contain a namespaced `extensions` map. Extensions are
 disabled unless both peers advertise compatible support.
 
 MCP Apps (`io.modelcontextprotocol/ui`) and Tasks should be implemented as
-extension adapters, not added to core capability checks. Existing Skybridge
-support should be assessed for convergence with the Apps extension rather than
-maintained as an unrelated parallel protocol indefinitely.
+extension adapters, not added to core capability checks. Existing OpenAI Apps
+SDK support should be assessed for convergence with the Apps extension rather
+than maintained as an unrelated parallel protocol indefinitely.
 
 ### Authorization
 
@@ -929,7 +929,7 @@ modern connection is negotiated.
    Recommendation: yes, while retaining `/mcpstatus` as an alias.
 3. Should fast-agent adopt Tasks in the first compatibility release?
    Recommendation: no; ship core modern support first.
-4. Should Skybridge converge on MCP Apps?
+4. Should OpenAI Apps SDK support converge on MCP Apps?
    Recommendation: assess after core extension negotiation is in place.
 5. How long should forced legacy roots/sampling/elicitation remain supported?
    Recommendation: publish a removal plan aligned with MCP's earliest removal

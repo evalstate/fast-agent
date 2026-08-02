@@ -21,6 +21,11 @@ from fast_agent.interfaces import (
     FastAgentLLMProtocol,
     LlmCapableProtocol,
 )
+from fast_agent.mcp.app_integrations import (
+    APP_INTEGRATION_KIND_KEY,
+    APP_INTEGRATION_RESOURCE_URI_KEY,
+    AppIntegrationKind,
+)
 from fast_agent.mcp.common import is_namespaced_name
 from fast_agent.tools.tool_sources import TOOL_SOURCE_LABELS, ToolSource, tool_source
 from fast_agent.utils.action_normalization import enabled_disabled_label
@@ -320,10 +325,11 @@ def _append_tool_suffix(suffix: str | None, label: str) -> str:
 
 
 def _append_app_tool_suffixes(suffix: str | None, meta: Mapping[str, object]) -> str | None:
-    if meta.get("openai/skybridgeEnabled"):
-        suffix = _append_tool_suffix(suffix, "(Apps SDK)")
-    if meta.get("ui/appEnabled"):
-        suffix = _append_tool_suffix(suffix, "(MCP App)")
+    app_kind = meta.get(APP_INTEGRATION_KIND_KEY)
+    if app_kind == AppIntegrationKind.OPENAI_APPS_SDK:
+        suffix = _append_tool_suffix(suffix, "(OpenAI Apps SDK)")
+    elif app_kind == AppIntegrationKind.MCP_APPS:
+        suffix = _append_tool_suffix(suffix, "(MCP Apps)")
     return suffix
 
 
@@ -344,9 +350,7 @@ def build_tool_summaries(agent: object, tools: list[Tool]) -> list[ToolSummary]:
         suffix = _append_app_tool_suffixes(suffix, meta)
 
         args = _format_tool_args(tool.input_schema)
-        template = optional_string(meta.get("ui/appTemplate")) or optional_string(
-            meta.get("openai/skybridgeTemplate")
-        )
+        template = optional_string(meta.get(APP_INTEGRATION_RESOURCE_URI_KEY))
 
         summaries.append(
             ToolSummary(

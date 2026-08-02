@@ -27,7 +27,6 @@ from fast_agent.ui.display_suppression import (
     display_tools_enabled,
 )
 from fast_agent.ui.markdown import build_markdown_renderable, prepare_markdown_content
-from fast_agent.ui.mcp_ui_utils import UILink
 from fast_agent.ui.mermaid_utils import (
     MermaidDiagram,
     create_mermaid_live_link,
@@ -64,8 +63,8 @@ from fast_agent.utils.count_display import format_count
 from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
+    from fast_agent.mcp.app_integrations import AppServerConfig
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-    from fast_agent.mcp.skybridge import SkybridgeServerConfig
     from fast_agent.ui.terminal_images import ImageRenderItem
 
 logger = get_logger(__name__)
@@ -1020,7 +1019,7 @@ class ConsoleDisplay:
         result: CallToolResult,
         name: str | None = None,
         tool_name: str | None = None,
-        skybridge_config: "SkybridgeServerConfig | None" = None,
+        app_integration_config: "AppServerConfig | None" = None,
         timing_ms: float | None = None,
         tool_call_id: str | None = None,
         type_label: str | None = None,
@@ -1032,7 +1031,7 @@ class ConsoleDisplay:
         kwargs: dict[str, Any] = {
             "name": name,
             "tool_name": tool_name,
-            "skybridge_config": skybridge_config,
+            "app_integration_config": app_integration_config,
             "timing_ms": timing_ms,
             "tool_call_id": tool_call_id,
             "truncate_content": truncate_content,
@@ -1120,17 +1119,17 @@ class ConsoleDisplay:
             console.console.print()
 
     @staticmethod
-    def summarize_skybridge_configs(
-        configs: Mapping[str, "SkybridgeServerConfig"] | None,
+    def summarize_app_integration_configs(
+        configs: Mapping[str, "AppServerConfig"] | None,
     ) -> tuple[list[dict[str, Any]], list[str]]:
-        return ToolDisplay.summarize_skybridge_configs(configs)
+        return ToolDisplay.summarize_app_integration_configs(configs)
 
-    def show_skybridge_summary(
+    def show_app_integration_summary(
         self,
         agent_name: str,
-        configs: Mapping[str, "SkybridgeServerConfig"] | None,
+        configs: Mapping[str, "AppServerConfig"] | None,
     ) -> None:
-        self._tool_display.show_skybridge_summary(agent_name, configs)
+        self._tool_display.show_app_integration_summary(agent_name, configs)
 
     def _extract_reasoning_content(self, message: "PromptMessageExtended") -> Text | Group | None:
         """Extract reasoning channel content as dim text."""
@@ -1527,27 +1526,6 @@ class ConsoleDisplay:
         # Display diagrams on a simple new line (more space efficient)
         console.console.print()
         console.console.print(diagram_content, markup=self._markup)
-
-    async def show_mcp_ui_links(self, links: list[UILink]) -> None:
-        """Display MCP-UI links beneath the chat like mermaid links."""
-        if not self._chat_output_enabled():
-            return
-
-        if not links:
-            return
-
-        content = Text()
-        content.append("● mcp-ui ", style="dim")
-        for i, link in enumerate(links, 1):
-            if i > 1:
-                content.append(" • ", style="dim")
-            # Prefer a web-friendly URL (http(s) or data:) if available; fallback to local file
-            url = link.web_url if getattr(link, "web_url", None) else f"file://{link.file_path}"
-            label = f"{i} - {link.title}"
-            content.append(label, style=f"bright_blue link {url}")
-
-        console.console.print()
-        console.console.print(content, markup=self._markup)
 
     def show_url_elicitation(
         self,

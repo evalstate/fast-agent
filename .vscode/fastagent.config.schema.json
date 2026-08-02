@@ -2223,14 +2223,6 @@
       "title": "MCPTimelineSettings",
       "type": "object"
     },
-    "McpUIMode": {
-      "enum": [
-        "disabled",
-        "enabled",
-        "auto"
-      ],
-      "type": "string"
-    },
     "MetaAISettings": {
       "additionalProperties": true,
       "description": "Settings for using MetaAI Muse models via the Responses API.",
@@ -4105,16 +4097,6 @@
     "logger": {
       "$ref": "#/$defs/LoggerSettings",
       "description": "Logger settings for the fast-agent application"
-    },
-    "mcp_ui_mode": {
-      "$ref": "#/$defs/McpUIMode",
-      "default": "enabled"
-    },
-    "mcp_ui_output_dir": {
-      "default": ".fast-agent/ui",
-      "title": "Mcp Ui Output Dir",
-      "type": "string",
-      "description": "Directory where MCP-UI HTML files are written. Relative paths are resolved from CWD."
     },
     "mcp_timeline": {
       "$ref": "#/$defs/MCPTimelineSettings",

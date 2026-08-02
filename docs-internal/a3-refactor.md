@@ -134,7 +134,7 @@ if self._style.after_header_spacing():
   - Updates use the style strategy for headers and separators.
 
 ### Other display surfaces
-- **Mermaid links** and **MCP-UI links** render inline bullet lists (`ConsoleDisplay`).
+- **Mermaid links** render as inline bullet lists (`ConsoleDisplay`).
 - **Usage display** and **MCP status** render their own tables with Rich (not style-aware).
 - **Progress display** (`ui/rich_progress.py`) uses a `` prefix and arrows, but no style flag.
 - **Elicitation forms** use a static prompt-toolkit style (`elicitation_style.py`).
