@@ -205,12 +205,12 @@ def _format_marketplace_skills(marketplace: Sequence[SkillCatalogEntry]) -> Text
     for index, entry in enumerate(marketplace, 1):
         bundle_name = None
         bundle_description = None
-        digest = None
+        revision = None
         if isinstance(entry, MarketplaceSkill):
             bundle_name = entry.bundle_name
             bundle_description = entry.bundle_description
         if isinstance(entry, McpRegistrySkill):
-            digest = entry.digest
+            revision = entry.revision
 
         if bundle_name and bundle_name != current_bundle:
             current_bundle = bundle_name
@@ -227,7 +227,7 @@ def _format_marketplace_skills(marketplace: Sequence[SkillCatalogEntry]) -> Text
             content.append("     ", style="dim")
             content.append(f"source: {entry.source_url}", style="dim green")
             content.append("\n")
-        if digest:
+        if revision:
             content.append("     ", style="dim")
             content.append("integrity: SHA256 checked", style="dim green")
             content.append("\n")

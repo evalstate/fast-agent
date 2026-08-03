@@ -15,7 +15,9 @@ from fast_agent.commands.handlers.skills import (
     handle_update_skill,
 )
 from fast_agent.config import Settings, SkillsSettings
+from fast_agent.mcp.skills_extension import GetSkillResult, SkillEntry, SkillResource
 from fast_agent.skills.mcp_registry import McpRegistrySkill, McpSkillRegistry
+from fast_agent.skills.models import McpSkillResource
 from fast_agent.skills.provenance import (
     build_mcp_installed_skill_source,
     compute_skill_content_fingerprint,
@@ -37,14 +39,38 @@ class _Aggregator:
                     McpRegistrySkill(
                         name="hub-search",
                         description="Search the Hub",
-                        source_url="skill://hub-search/SKILL.md",
+                        uri="skill://hub-search/SKILL.md",
                         server_name="hf",
-                        digest=_digest("---\nname: hub-search\ndescription: Search\n---\nv2\n"),
                         server_version="1.2.3",
+                        frontmatter={"name": "hub-search", "description": "Search"},
+                        resources=(
+                            SkillResource(
+                                uri="skill://hub-search/SKILL.md",
+                                digest=_digest(
+                                    "---\nname: hub-search\ndescription: Search\n---\nv2\n"
+                                ),
+                            ),
+                        ),
                     )
                 ],
             )
         ]
+
+    async def get_skill(self, uri: str, server_name: str) -> GetSkillResult:
+        del server_name
+        assert uri == "skill://hub-search/SKILL.md"
+        return GetSkillResult(
+            skill=SkillEntry(
+                uri=uri,
+                frontmatter={"name": "hub-search", "description": "Search"},
+                resources=[
+                    SkillResource(
+                        uri=uri,
+                        digest=_digest("---\nname: hub-search\ndescription: Search\n---\nv2\n"),
+                    )
+                ],
+            )
+        )
 
 
 class _Agent:
@@ -184,8 +210,10 @@ async def test_skills_update_reports_mcp_digest_update_available(tmp_path) -> No
             server_version="1.2.3",
             skill_uri="skill://hub-search/SKILL.md",
             fingerprint=fingerprint,
-            artifact_digest=_digest(skill_text),
-            artifact_type="skill-md",
+            resources=(
+                McpSkillResource(uri="skill://hub-search/SKILL.md", digest=_digest(skill_text)),
+            ),
+            revision=_digest(skill_text),
         ),
     )
     settings = Settings(

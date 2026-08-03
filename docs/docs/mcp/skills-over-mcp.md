@@ -7,16 +7,32 @@ social:
   alt: fast-agent social card - Skills over MCP
 ---
 
-`fast-agent` supports the draft [SEP-2640: Skills over MCP Extension](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/93d7a9ddb20d4b3594f4a1be7508ee47f0718f17/seps/2640-skills-extension.md).
+`fast-agent` supports the current draft
+[SEP-2640: Skills Extension](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/d7490ecd1a250f7bc8c3ebb0d65450dfec274bad/seps/2640-skills-extension.md)
+as a verified MCP-to-local skill installer.
 
 When a connected MCP server advertises this capability, `fast-agent` shows it as
-an MCP-backed skills registry. Opening `/skills registry` reads
-`skill://index.json` and lists installable `skill-md` or archive entries that
-include a valid `sha256:` digest. Installing a selected entry downloads the
-artifact, verifies its SHA-256, then writes the skill into the normal managed
-skills directory. Installed skills then behave like other local skills and
-include MCP server provenance plus the verified artifact digest in their sidecar
-metadata.
+an MCP-backed skills registry. Opening `/skills registry` calls the paginated
+`skills/list` method. Installing a listed skill refreshes its entry with
+`skills/get`, downloads every file named by its `resources` manifest through
+`resources/read`, verifies every SHA-256 digest, and writes the complete skill
+into the normal managed skills directory. Installed skills include the
+host-assigned MCP server identity, skill URI, and verified resource set in their
+sidecar metadata.
+
+Skill names are labels rather than identifiers. `fast-agent` preserves
+same-named entries in an MCP listing and uses their URIs to disambiguate them.
+The local managed skills directory can contain only one installed skill with a
+given name. Because a server may return a partial or empty list, you can also
+install a skill omitted from the listing when you know its URI:
+
+```text
+/skills add skill://acme/example/SKILL.md
+```
+
+The selected MCP server confirms that URI through `skills/get`. Skills that omit
+`resources` are shown in listings but cannot be installed, because their content
+cannot be verified or bound to an update revision.
 
 ## Trying it
 
@@ -34,7 +50,8 @@ Hugging Face MCP Server:
 
 `/mcp` shows when SEP-2640 Skills over MCP is enabled and points you to
 `/skills registry` to select the MCP server as the current install source.
-Listings show `integrity: SHA256 checked` for installable MCP skills.
+Listings show `integrity: SHA256 checked` when the server supplies a complete
+resource manifest.
 
 <div
   class="fa-terminal-demo"
@@ -63,15 +80,16 @@ Cast asset:
 
 ## Current scope
 
-This implementation uses MCP as a registry for installation. It does not expose
-MCP-served skill resources directly to the model, and it does not make active
-skills read supporting files from the MCP server. That deeper resource-loading
-workflow is planned separately.
+This implementation uses MCP as a verified installation source. It does not
+expose MCP-served skill resources directly to the model or retain an active MCP
+resource reader after installation. Installed content is an explicit local copy,
+not a transparent MCP cache.
 
-`/skills update` can compare the installed artifact digest with the current MCP
-registry digest and apply a verified update when the server publishes a newer
-artifact. The top-level `fast-agent skills` CLI remains marketplace/file/GitHub
-oriented; select MCP registries from an interactive session after connecting the
-MCP server.
+`/skills update` calls `skills/get` and compares the complete resource-set
+revision with the installed revision. Any file addition, removal, URI change, or
+digest change creates a new revision; updates re-fetch and verify the entire set.
+The top-level `fast-agent skills` CLI remains marketplace/file/GitHub oriented;
+select MCP registries from an interactive session after connecting the MCP
+server.
 
 Thanks to [olaservo](https://github.com/olaservo) for contributing this feature.

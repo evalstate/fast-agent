@@ -69,6 +69,7 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager, ServerConnection
 from fast_agent.mcp.prompt_metadata import with_prompt_metadata
+from fast_agent.mcp.skills_extension import GetSkillResult, ListSkillsResult
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler, ToolExecutionHandler
 from fast_agent.mcp.tool_permission_handler import (
     NoOpToolPermissionHandler,
@@ -81,7 +82,6 @@ from fast_agent.mcp.tool_result_metadata import (
 )
 from fast_agent.mcp.transport_tracking import TransportSnapshot
 from fast_agent.skills.mcp_registry import (
-    INDEX_URI,
     McpSkillRegistry,
     scan_mcp_skill_registry,
     server_supports_mcp_skills,
@@ -105,6 +105,8 @@ _CONNECTION_ERROR_REPLAY_SAFE_METHODS = frozenset(
     {
         "complete",
         "get_prompt",
+        "get_skill",
+        "list_skills",
         "list_prompts",
         "list_resource_templates",
         "list_resources",
@@ -158,19 +160,18 @@ class _AttachedRegistryScanClient:
     async def get_capabilities(self, server_name: str) -> ServerCapabilities | None:
         return await self.aggregator.get_capabilities(server_name)
 
-    async def get_resource(
+    async def list_skills(
         self,
-        resource_uri: str,
-        *,
-        server_name: str | None = None,
-    ) -> ReadResourceResult:
-        if server_name is None:
-            raise ValueError("server_name is required for attached registry scans")
-        return await self.aggregator._get_resource_from_server(
+        server_name: str,
+        cursor: str | None,
+    ) -> ListSkillsResult:
+        return await self.aggregator._list_skills_from_server(
             server_name,
-            resource_uri,
-            cache_mode=self.cache_mode,
+            cursor=cursor,
         )
+
+    async def get_skill(self, uri: str, server_name: str) -> GetSkillResult:
+        return await self.aggregator._get_skill_from_server(server_name, uri)
 
 
 METHOD_NOT_FOUND_ERROR_CODE = -32601
@@ -3600,7 +3601,11 @@ class MCPAggregator(ContextDependent):
                 logger.error(f"Failed to refresh tools for server '{server_name}': {e}")
 
     async def get_resource(
-        self, resource_uri: str, server_name: str | None = None
+        self,
+        resource_uri: str,
+        server_name: str | None = None,
+        *,
+        cache_mode: CacheMode = "use",
     ) -> ReadResourceResult:
         """
         Get a resource directly from an MCP server by URI.
@@ -3626,7 +3631,11 @@ class MCPAggregator(ContextDependent):
                 raise ValueError(f"Server '{server_name}' not found")
 
             # Get the resource from the specified server
-            return await self._get_resource_from_server(server_name, resource_uri)
+            return await self._get_resource_from_server(
+                server_name,
+                resource_uri,
+                cache_mode=cache_mode,
+            )
 
         # If no server specified, search all servers
         if not self.server_names:
@@ -3635,7 +3644,11 @@ class MCPAggregator(ContextDependent):
         # Try each server in order - simply attempt to get the resource
         for s_name in self.server_names:
             try:
-                return await self._get_resource_from_server(s_name, resource_uri)
+                return await self._get_resource_from_server(
+                    s_name,
+                    resource_uri,
+                    cache_mode=cache_mode,
+                )
             except Exception:
                 # Continue to next server if not found
                 continue
@@ -3666,14 +3679,13 @@ class MCPAggregator(ContextDependent):
         if not await self.server_supports_feature(server_name, "resources"):
             raise ValueError(f"Server '{server_name}' does not support resources")
 
-        progress_label = "Skills" if uri == INDEX_URI else uri
         logger.info(
             "Requesting resource",
             data=build_progress_payload(
                 action=ProgressAction.READING_RESOURCE,
                 server_name=server_name,
                 agent_name=self.agent_name,
-                details=progress_label,
+                details=uri,
                 extra={"resource_uri": uri},
             ),
         )
@@ -3705,7 +3717,7 @@ class MCPAggregator(ContextDependent):
                     action=ProgressAction.FATAL_ERROR,
                     server_name=server_name,
                     agent_name=self.agent_name,
-                    details=progress_label,
+                    details=uri,
                     extra={
                         "resource_uri": uri,
                         "error_message": str(exc),
@@ -3723,7 +3735,7 @@ class MCPAggregator(ContextDependent):
                     action=ProgressAction.FATAL_ERROR,
                     server_name=server_name,
                     agent_name=self.agent_name,
-                    details=progress_label,
+                    details=uri,
                     extra={
                         "resource_uri": uri,
                         "error_message": str(error),
@@ -3738,7 +3750,7 @@ class MCPAggregator(ContextDependent):
                 action=ProgressAction.RESOURCE_READ,
                 server_name=server_name,
                 agent_name=self.agent_name,
-                details=progress_label,
+                details=uri,
                 extra={
                     "resource_uri": uri,
                     "success": True,
@@ -3790,6 +3802,56 @@ class MCPAggregator(ContextDependent):
         if server_name not in self.server_names:
             raise ValueError(f"Server '{server_name}' not found")
         return await self._read_directory_from_server(server_name, uri, cursor=cursor)
+
+    async def list_skills(
+        self,
+        server_name: str,
+        cursor: str | None = None,
+    ) -> ListSkillsResult:
+        """List skills from one server via the SEP-2640 extension."""
+        if not self.initialized:
+            await self.load_servers()
+
+        server_name = self._resolve_server_key(server_name)
+        if server_name not in self.server_names:
+            raise ValueError(f"Server '{server_name}' not found")
+        return await self._list_skills_from_server(server_name, cursor=cursor)
+
+    async def _list_skills_from_server(
+        self,
+        server_name: str,
+        *,
+        cursor: str | None = None,
+    ) -> ListSkillsResult:
+        """Internal helper to call ``skills/list`` on a server."""
+        method_args = {"cursor": cursor} if cursor is not None else None
+        return await self._execute_on_server(
+            server_name=server_name,
+            operation_type="skills/list",
+            operation_name="",
+            method_name="list_skills",
+            method_args=method_args,
+        )
+
+    async def get_skill(self, uri: str, server_name: str) -> GetSkillResult:
+        """Get one skill entry from a specific server via SEP-2640."""
+        if not self.initialized:
+            await self.load_servers()
+
+        server_name = self._resolve_server_key(server_name)
+        if server_name not in self.server_names:
+            raise ValueError(f"Server '{server_name}' not found")
+        return await self._get_skill_from_server(server_name, uri)
+
+    async def _get_skill_from_server(self, server_name: str, uri: str) -> GetSkillResult:
+        """Internal helper to call ``skills/get`` on a server."""
+        return await self._execute_on_server(
+            server_name=server_name,
+            operation_type="skills/get",
+            operation_name=uri,
+            method_name="get_skill",
+            method_args={"uri": uri},
+        )
 
     async def _read_directory_from_server(
         self, server_name: str, uri: str, *, cursor: str | None = None

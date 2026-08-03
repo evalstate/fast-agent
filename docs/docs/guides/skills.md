@@ -28,7 +28,7 @@ When valid `SKILL.md` files are found:
 
 !!! note "Skills over MCP"
 
-    Thanks to Ola Hungerford, fast-agent has early access support for MCP SEP-2640: [Skills over MCP](../mcp/skills-over-mcp.md)
+    Thanks to Ola Hungerford, fast-agent supports the current MCP SEP-2640 draft as a verified installation source: [Skills over MCP](../mcp/skills-over-mcp.md)
 
 
 ## Installing Skills

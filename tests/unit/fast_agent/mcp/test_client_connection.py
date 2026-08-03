@@ -19,6 +19,7 @@ from fast_agent.config import MCPServerSettings
 from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 from fast_agent.mcp.client_connection import MCPClientConnection
+from fast_agent.mcp.skills_extension import GetSkillResult, ListSkillsResult
 from fast_agent.mcp.tool_result_metadata import url_elicitation_required_payload
 from fast_agent.mcp.uri_security import is_file_uri
 
@@ -74,6 +75,51 @@ class StatefulStreamableHTTPSimulator:
         assert self.session_id is not None
         assert request.headers["mcp-session-id"] == self.session_id
         return httpx2.Response(404)
+
+
+class SkillsResponseStreamableHTTPSimulator(StatefulStreamableHTTPSimulator):
+    async def __call__(self, request: httpx2.Request) -> httpx2.Response:
+        if request.method != "POST":
+            return await super().__call__(request)
+
+        payload = json.loads(request.content)
+        assert isinstance(payload, dict)
+        method = payload["method"]
+        if method in {"initialize", "notifications/initialized"}:
+            return await super().__call__(request)
+
+        assert self.session_id is not None
+        assert request.headers["mcp-session-id"] == self.session_id
+        params = payload["params"]
+        assert isinstance(params, dict)
+        skill = {
+            "uri": "skill://demo/SKILL.md",
+            "frontmatter": {"name": "demo", "description": "Demo skill"},
+            "resources": [
+                {
+                    "uri": "skill://demo/SKILL.md",
+                    "digest": "sha256:abc",
+                }
+            ],
+        }
+        if method == "skills/list":
+            assert params["cursor"] == "page-1"
+            result = {
+                "resultType": "complete",
+                "cacheScope": "public",
+                "ttlMs": 30_000,
+                "nextCursor": "page-2",
+                "skills": [skill],
+            }
+        else:
+            assert method == "skills/get"
+            assert params["uri"] == skill["uri"]
+            result = {"resultType": "complete", "skill": skill}
+        return httpx2.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json={"jsonrpc": "2.0", "id": payload["id"], "result": result},
+        )
 
 
 class MixedResponseStreamableHTTPSimulator:
@@ -324,6 +370,11 @@ def _operations() -> list[object]:
             lambda connection: connection.read_directory("file:///directory"),
             id="read_directory",
         ),
+        pytest.param(lambda connection: connection.list_skills(), id="list_skills"),
+        pytest.param(
+            lambda connection: connection.get_skill("skill://demo/SKILL.md"),
+            id="get_skill",
+        ),
     ]
 
 
@@ -368,6 +419,34 @@ async def test_modern_request_does_not_translate_session_terminated_error() -> N
     await http_client.aclose()
     assert exc_info.value.code == INVALID_REQUEST
     assert exc_info.value.message == "Session terminated"
+
+
+@pytest.mark.asyncio
+async def test_skills_extension_requests_and_parses_results() -> None:
+    simulator = SkillsResponseStreamableHTTPSimulator()
+    http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(simulator))
+    transport = streamable_http_client("https://example.test/mcp", http_client=http_client)
+    callbacks = MCPClientCallbackRuntime(server_name="test-server", server_config=None)
+
+    async with MCPClientConnection(
+        transport,
+        callbacks,
+        cache=False,
+        protocol_mode="legacy",
+    ) as connection:
+        listed = await connection.list_skills(cursor="page-1")
+        skill = await connection.get_skill("skill://demo/SKILL.md")
+
+    await http_client.aclose()
+
+    assert isinstance(listed, ListSkillsResult)
+    assert listed.next_cursor == "page-2"
+    assert listed.ttl_ms == 30_000
+    assert listed.cache_scope == "public"
+    assert listed.skills[0].resources is not None
+    assert listed.skills[0].resources[0].digest == "sha256:abc"
+    assert isinstance(skill, GetSkillResult)
+    assert skill.skill.frontmatter["name"] == "demo"
 
 
 @pytest.mark.asyncio

@@ -185,7 +185,7 @@ def test_mcp_resource_counts_use_aggregator_only() -> None:
             )
 
         async def list_resources(self) -> dict[str, list[str]]:
-            return {"hf": ["skill://index.json", "skill://datasets/SKILL.md"]}
+            return {"hf": ["skill://datasets/SKILL.md", "skill://datasets/GUIDE.md"]}
 
         async def list_prompts(self) -> dict[str, list[object]]:
             return {"hf": [object()]}

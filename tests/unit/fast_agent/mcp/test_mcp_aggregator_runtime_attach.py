@@ -27,6 +27,7 @@ from fast_agent.mcp.mcp_aggregator import (
     MCPDetachResult,
     NamespacedTool,
 )
+from fast_agent.mcp.skills_extension import ListSkillsResult, SkillEntry, SkillResource
 from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.ui.console_display import ConsoleDisplay
 
@@ -861,12 +862,16 @@ async def test_attached_result_uses_cached_mcp_skill_registry() -> None:
 @pytest.mark.asyncio
 async def test_refresh_attached_server_cache_discovers_mcp_skill_registry() -> None:
     context = _build_context({})
-    index_uri = "skill://index.json"
     skill_uri = "skill://demo/SKILL.md"
-    index_text = (
-        '{"skills":[{"frontmatter":{"name":"demo","description":"Demo skill"},'
-        f'"url":"{skill_uri}","digest":"sha256:'
-        '0000000000000000000000000000000000000000000000000000000000000000"}]}'
+    entry = SkillEntry(
+        uri=skill_uri,
+        frontmatter={"name": "demo", "description": "Demo skill"},
+        resources=[
+            SkillResource(
+                uri=skill_uri,
+                digest="sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            )
+        ],
     )
 
     class _RegistryCachingAggregator(MCPAggregator):
@@ -895,17 +900,9 @@ async def test_refresh_attached_server_cache_discovers_mcp_skill_registry() -> N
                 return ListToolsResult(tools=[])
             if method_name == "list_prompts":
                 return SimpleNamespace(prompts=[])
-            if method_name == "read_resource":
-                assert method_args == {"uri": index_uri}
-                return ReadResourceResult(
-                    contents=[
-                        TextResourceContents(
-                            uri=index_uri,
-                            mime_type="application/json",
-                            text=index_text,
-                        )
-                    ]
-                )
+            if method_name == "list_skills":
+                assert method_args is None
+                return ListSkillsResult(skills=[entry])
             raise AssertionError(f"Unexpected MCP method: {method_name}")
 
         async def _evaluate_app_integrations_for_server(

@@ -20,10 +20,8 @@ from mcp_types import (
     ListResourcesResult,
     ListResourceTemplatesResult,
     ListToolsResult,
-    PaginatedRequestParams,
     PromptReference,
     ReadResourceResult,
-    Request,
     RequestParamsMeta,
     ResourceLink,
     ResourceTemplateReference,
@@ -32,6 +30,16 @@ from mcp_types import (
 from mcp_types.version import LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
 
 from fast_agent.core.exceptions import ServerSessionTerminatedError
+from fast_agent.mcp.skills_extension import (
+    DirectoryReadRequest,
+    DirectoryReadRequestParams,
+    GetSkillRequest,
+    GetSkillRequestParams,
+    GetSkillResult,
+    ListSkillsRequest,
+    ListSkillsRequestParams,
+    ListSkillsResult,
+)
 from fast_agent.mcp.tool_result_metadata import set_url_elicitation_required_payload
 from fast_agent.mcp.uri_security import SANITIZED_INLINE_RESOURCE_URI, is_file_uri
 from fast_agent.mcp.url_elicitation_required import (
@@ -54,21 +62,6 @@ T = TypeVar("T")
 def sdk_connect_mode(protocol_mode: Literal["auto", "modern", "legacy"]) -> str:
     """Map fast-agent's era-oriented setting to the SDK connect mode."""
     return LATEST_MODERN_VERSION if protocol_mode == "modern" else protocol_mode
-
-
-class DirectoryReadRequestParams(PaginatedRequestParams):
-    """Parameters for the SEP-2640 directory-read extension."""
-
-    uri: str
-
-
-class DirectoryReadRequest(
-    Request[DirectoryReadRequestParams, Literal["resources/directory/read"]]
-):
-    """Request for the SEP-2640 directory-read extension."""
-
-    method: Literal["resources/directory/read"] = "resources/directory/read"
-    params: DirectoryReadRequestParams
 
 
 class MCPClientConnection:
@@ -260,6 +253,16 @@ class MCPClientConnection:
         context_arguments: dict[str, str] | None = None,
     ) -> CompleteResult:
         return await self._request(self.client.complete(ref, argument, context_arguments))
+
+    async def list_skills(self, *, cursor: str | None = None) -> ListSkillsResult:
+        """List skills published by a SEP-2640 server."""
+        request = ListSkillsRequest(params=ListSkillsRequestParams(cursor=cursor))
+        return await self._request(self.client.session.send_request(request, ListSkillsResult))
+
+    async def get_skill(self, uri: str) -> GetSkillResult:
+        """Get a single skill entry from a SEP-2640 server."""
+        request = GetSkillRequest(params=GetSkillRequestParams(uri=uri))
+        return await self._request(self.client.session.send_request(request, GetSkillResult))
 
     async def read_directory(
         self,
