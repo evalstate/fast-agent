@@ -5,6 +5,7 @@ import os
 import time
 from collections.abc import Iterable
 from contextlib import contextmanager
+from itertools import groupby
 from pathlib import Path
 from threading import RLock, Timer
 from typing import Any
@@ -25,10 +26,12 @@ from fast_agent.ui.display_suppression import interactive_display_mode
 from fast_agent.ui.progress.process_poll import (
     ProcessMonitorStats,
     format_process_poll_countdown_track,
+    render_compact_process_monitor_stats,
     render_process_monitor_stats,
 )
 from fast_agent.ui.progress.subagent_table import render_subagent_table
 from fast_agent.ui.tool_call_ids import format_tool_call_id
+from fast_agent.utils.text import collapse_whitespace
 from fast_agent.utils.time import format_process_elapsed
 from fast_agent.utils.tool_names import (
     EXECUTE_TOOL_NAME,
@@ -82,6 +85,16 @@ _COMPACTING_FRAMES = (
     "⣀⣀⣀",
     "   ",
 )
+_DESCRIPTION_MIN_WIDTH = 17
+_TARGET_MIN_WIDTH = 9
+_TARGET_MAX_WIDTH = 16
+_PROCESS_COMMAND_MAX_WIDTH = 48
+_PROCESS_COMMAND_MIN_CONSOLE_WIDTH = 98
+_PROCESS_STATS_ELAPSED_MIN_CONSOLE_WIDTH = 60
+_PROCESS_STATS_SIZE_MIN_CONSOLE_WIDTH = 70
+_PROCESS_STATS_FULL_MIN_CONSOLE_WIDTH = 84
+_DETAIL_SEPARATOR_WIDTH = 3
+_DETAILS_MIN_WIDTH = 0
 
 
 class _MonitoringProgress(Progress):
@@ -116,8 +129,14 @@ class _MonitoringProgress(Progress):
                     spinner_frame if isinstance(spinner_frame, Text) else Text(str(spinner_frame))
                 ),
             )
-        if generic or not subagents:
-            yield self.make_tasks_table(generic)
+        if generic:
+            for _, tasks in groupby(
+                generic,
+                key=lambda task: bool(task.fields.get("is_process_poll")),
+            ):
+                yield self.make_tasks_table(tasks)
+        elif not subagents:
+            yield self.make_tasks_table(())
 
 
 def _ensure_spinners() -> None:
@@ -225,9 +244,11 @@ class DynamicDetailsColumn(ProgressColumn):
     def __init__(
         self,
         *,
+        console: Console | None = None,
         style: str = "dim white",
         table_column: Column | None = None,
     ) -> None:
+        self.console = console
         self.style = style
         super().__init__(table_column=table_column)
 
@@ -243,24 +264,27 @@ class DynamicDetailsColumn(ProgressColumn):
             elapsed = self._numeric_field(elapsed_base)
             stdout_age = self._numeric_field(task.fields.get("process_seconds_since_last_stdout"))
             stderr_age = self._numeric_field(task.fields.get("process_seconds_since_last_stderr"))
-            parts.append(
-                render_process_monitor_stats(
-                    ProcessMonitorStats(
-                        elapsed_seconds=elapsed + local_tick if elapsed is not None else None,
-                        stdout_age_seconds=(
-                            stdout_age + local_tick if stdout_age is not None else None
-                        ),
-                        stderr_age_seconds=(
-                            stderr_age + local_tick if stderr_age is not None else None
-                        ),
-                        stdout_bytes=self._integer_field(task.fields.get("process_stdout_bytes")),
-                        stderr_bytes=self._integer_field(task.fields.get("process_stderr_bytes")),
-                        total_output_bytes=self._integer_field(
-                            task.fields.get("process_total_output_bytes")
-                        ),
+            stats = ProcessMonitorStats(
+                elapsed_seconds=elapsed + local_tick if elapsed is not None else None,
+                stdout_age_seconds=stdout_age + local_tick if stdout_age is not None else None,
+                stderr_age_seconds=stderr_age + local_tick if stderr_age is not None else None,
+                stdout_bytes=self._integer_field(task.fields.get("process_stdout_bytes")),
+                stderr_bytes=self._integer_field(task.fields.get("process_stderr_bytes")),
+                total_output_bytes=self._integer_field(
+                    task.fields.get("process_total_output_bytes")
+                ),
+            )
+            console_width = self.console.width if self.console is not None else None
+            if console_width is not None and console_width < _PROCESS_STATS_FULL_MIN_CONSOLE_WIDTH:
+                parts.append(
+                    render_compact_process_monitor_stats(
+                        stats,
+                        include_elapsed=(console_width >= _PROCESS_STATS_ELAPSED_MIN_CONSOLE_WIDTH),
+                        include_size=console_width >= _PROCESS_STATS_SIZE_MIN_CONSOLE_WIDTH,
                     )
                 )
-            )
+            else:
+                parts.append(render_process_monitor_stats(stats))
         elif (elapsed := self._numeric_field(elapsed_base)) is not None:
             local_tick = self._local_tick_seconds(task, "process_snapshot_task_elapsed")
             parts.append(format_process_elapsed(elapsed + local_tick))
@@ -268,9 +292,37 @@ class DynamicDetailsColumn(ProgressColumn):
             local_tick = self._local_tick_seconds(task, "elapsed_snapshot_task_elapsed")
             parts.append(format_process_elapsed(elapsed + local_tick))
         command = task.fields.get("process_command")
-        if isinstance(command, str) and command:
-            parts.append(command)
-        return self._join_detail_parts(parts)
+        show_command = (
+            self.console is None or self.console.width >= _PROCESS_COMMAND_MIN_CONSOLE_WIDTH
+        )
+        line = self._join_detail_parts(parts)
+        if show_command and isinstance(command, str) and command:
+            command_preview = Text(collapse_whitespace(command), style=self.style)
+            command_preview.truncate(
+                self._command_preview_width(task, detail_width=line.cell_len),
+                overflow="ellipsis",
+            )
+            if command_preview:
+                line.append(" · ", style=self.style)
+                line.append_text(command_preview)
+        return line
+
+    def _command_preview_width(self, task: Task, *, detail_width: int) -> int:
+        if self.console is None:
+            return _PROCESS_COMMAND_MAX_WIDTH
+        target_width = min(
+            max(Text(str(task.fields.get("target") or "")).cell_len, _TARGET_MIN_WIDTH),
+            _TARGET_MAX_WIDTH,
+        )
+        available = (
+            self.console.width
+            - _DESCRIPTION_MIN_WIDTH
+            - target_width
+            - 2
+            - detail_width
+            - _DETAIL_SEPARATOR_WIDTH
+        )
+        return min(max(available, 0), _PROCESS_COMMAND_MAX_WIDTH)
 
     @staticmethod
     def _numeric_field(value: object) -> float | None:
@@ -327,7 +379,14 @@ class RichProgressDisplay:
         self._folded_agent_progress: set[str] = set()
         self._subagent_row_by_agent: dict[str, str] = {}
         _ensure_spinners()
-        self._description_spinner = SpinnerDescriptionColumn(spinner_name=PROGRESS_SPINNER_NAME)
+        self._description_spinner = SpinnerDescriptionColumn(
+            spinner_name=PROGRESS_SPINNER_NAME,
+            table_column=Column(
+                min_width=_DESCRIPTION_MIN_WIDTH,
+                overflow="ellipsis",
+                no_wrap=True,
+            ),
+        )
         self._subagent_spinner = Spinner(SUBAGENT_SPINNER_NAME, style="progress.spinner")
         self._progress = _MonitoringProgress(
             self._description_spinner,
@@ -335,17 +394,18 @@ class RichProgressDisplay:
                 text_format="{task.fields[target]}",
                 style="Blue",
                 table_column=Column(
-                    min_width=0,
-                    max_width=16,
+                    min_width=_TARGET_MIN_WIDTH,
+                    max_width=_TARGET_MAX_WIDTH,
                     overflow="ellipsis",
                     no_wrap=True,
                 ),
             ),
             DynamicDetailsColumn(
+                console=self.console,
                 style="dim white",
                 table_column=Column(
                     ratio=1,
-                    min_width=24,
+                    min_width=_DETAILS_MIN_WIDTH,
                     overflow="ellipsis",
                     no_wrap=True,
                 ),

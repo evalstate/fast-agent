@@ -6,6 +6,7 @@ import threading
 import time
 from typing import Any
 
+from rich.cells import cell_len
 from rich.console import Console, RenderableType
 from rich.live import Live
 from rich.spinner import Spinner
@@ -687,6 +688,180 @@ class TestAggregatorInitializedVisibility:
         assert rendered.plain == "out  9s · err   — · time 1m10s · size 12.5KB · uv run worker.py"
         assert any(str(span.style) == "green" for span in rendered.spans)
         display.stop()
+
+    def test_process_monitor_row_prioritizes_progress_over_command(self) -> None:
+        command = (
+            "uv run python -m fast_agent.cli.__main__ serve "
+            "--transport streamable-http --host 127.0.0.1 --port 8000"
+        )
+        rendered_by_width: dict[int, str] = {}
+
+        for width in (50, 60, 70, 74, 84, 98, 120, 160):
+            buffer = io.StringIO()
+            console = Console(file=buffer, force_terminal=False, width=width)
+            display = RichProgressDisplay(
+                console=console,
+                default_agent_name="test-agent",
+            )
+            display.update(
+                _make_event(
+                    action=ProgressAction.CALLING_TOOL,
+                    correlation_id=f"poll-{width}",
+                    tool_name="poll_process",
+                    process_id="process-4",
+                    process_elapsed_seconds=3700,
+                    process_wait_seconds=120,
+                    process_command=command,
+                    process_seconds_since_last_stdout=3,
+                    process_seconds_since_last_stderr=47,
+                    process_stdout_bytes=1_200_000,
+                    process_stderr_bytes=34_567,
+                    process_total_output_bytes=1_234_567,
+                )
+            )
+
+            console.print(*display._progress.get_renderables())
+            lines = buffer.getvalue().splitlines()
+            assert len(lines) == 1
+            assert len(lines[0]) <= width
+            assert lines[0] == lines[0].rstrip()
+            rendered_by_width[width] = lines[0]
+
+        for rendered in rendered_by_width.values():
+            assert "▎◀ Monitoring ⣿⣿ " in rendered
+            assert "process-4" in rendered
+            assert "out" in rendered
+            assert "err" in rendered
+
+        assert "time" not in rendered_by_width[60]
+        assert "1h01m" in rendered_by_width[60]
+        assert "1.2MB" not in rendered_by_width[60]
+        assert "1.2MB" in rendered_by_width[70]
+        assert "time" not in rendered_by_width[74]
+        assert "1.2MB" in rendered_by_width[74]
+        assert "time 1h01m" in rendered_by_width[84]
+        assert "size  1.2MB" in rendered_by_width[84]
+        assert "uv run" not in rendered_by_width[84]
+        assert "uv run" in rendered_by_width[98]
+        assert rendered_by_width[98].endswith("…")
+        assert rendered_by_width[120].endswith("…")
+        assert rendered_by_width[160].endswith("…")
+        assert "--transport streamable-http" not in rendered_by_width[160]
+        assert len(rendered_by_width[160]) < 160
+
+    def test_process_stats_do_not_regress_with_a_wide_target(self) -> None:
+        command = "uv run worker.py " + "x" * 80
+        for width in (70, 74, 84, 98):
+            buffer = io.StringIO()
+            console = Console(file=buffer, force_terminal=False, width=width)
+            display = RichProgressDisplay(
+                console=console,
+                default_agent_name="test-agent",
+            )
+            display.update(
+                _make_event(
+                    action=ProgressAction.READING_RESOURCE,
+                    target="server",
+                    details="generic-" + "x" * 120,
+                )
+            )
+            display.update(
+                _make_event(
+                    action=ProgressAction.CALLING_TOOL,
+                    correlation_id=f"poll-wide-target-{width}",
+                    tool_name="poll_process",
+                    process_id="process-12345678",
+                    process_elapsed_seconds=3700,
+                    process_wait_seconds=120,
+                    process_command=command,
+                    process_seconds_since_last_stdout=3,
+                    process_seconds_since_last_stderr=47,
+                    process_stdout_bytes=1_200_000,
+                    process_stderr_bytes=34_567,
+                )
+            )
+
+            console.print(*display._progress.get_renderables())
+            rendered = next(line for line in buffer.getvalue().splitlines() if "Monitoring" in line)
+
+            assert "process-12345678" in rendered
+            assert "out" in rendered
+            assert "err" in rendered
+            assert "1h01m" in rendered
+            assert "1.2MB" in rendered
+            assert rendered == rendered.rstrip()
+            if width == 98:
+                assert "uv run" in rendered
+                assert rendered.endswith("…")
+
+    def test_process_command_preview_collapses_whitespace_and_is_bounded(self) -> None:
+        display = RichProgressDisplay(
+            console=Console(file=io.StringIO(), force_terminal=False, width=160),
+            default_agent_name="test-agent",
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="poll-command-preview",
+                tool_name="poll_process",
+                process_command=f"uv   run\nworker.py {'x' * 80}",
+            )
+        )
+        task_id = display._taskmap["test-agent::poll-command-preview"]
+        task = next(task for task in display._progress.tasks if task.id == task_id)
+
+        rendered = DynamicDetailsColumn().render(task)
+
+        assert "\n" not in rendered.plain
+        assert "uv run worker.py" in rendered.plain
+        assert rendered.plain.endswith("…")
+        assert cell_len(rendered.plain.rsplit(" · ", maxsplit=1)[-1]) == 48
+
+        task.fields["process_command"] = f"uv run {'界' * 80}"
+        rendered = DynamicDetailsColumn().render(task)
+        command_preview = rendered.plain.rsplit(" · ", maxsplit=1)[-1]
+        assert command_preview.endswith("…")
+        assert cell_len(command_preview) <= 48
+
+        buffer = io.StringIO()
+        console = Console(file=buffer, force_terminal=False, width=98)
+        display = RichProgressDisplay(
+            console=console,
+            default_agent_name="test-agent",
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="poll-wide-command-preview",
+                tool_name="poll_process",
+                process_id="process-12345678",
+                process_command=f"uv run {'界' * 80}",
+            )
+        )
+        console.print(*display._progress.get_renderables())
+        line = buffer.getvalue().rstrip()
+        assert cell_len(line) <= 98
+        assert line.endswith("…")
+
+    def test_wide_generic_progress_keeps_detail_and_activity_glyph(self) -> None:
+        buffer = io.StringIO()
+        console = Console(file=buffer, force_terminal=False, width=200)
+        display = RichProgressDisplay(console=console)
+        display._description_spinner.spinner = _CountingSpinner()
+        details = f"detail-{'x' * 120}-end"
+        display.update(
+            _make_event(
+                action=ProgressAction.READING_RESOURCE,
+                target="server",
+                details=details,
+            )
+        )
+
+        console.print(*display._progress.get_renderables())
+        rendered = buffer.getvalue()
+
+        assert "Reading Resourceabc" in rendered
+        assert details in rendered
 
     def test_process_output_progress_refreshes_live_poll_baselines(self) -> None:
         display = RichProgressDisplay(
