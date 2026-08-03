@@ -47,7 +47,12 @@
   }
 
   function formatCost(value) {
-    return "$" + (value < 1 ? value.toFixed(2).replace(/0$/, "") : value);
+    return "$" + value.toFixed(2).replace(/\.?0+$/, "");
+  }
+
+  function formatRunCost(result, taskCount) {
+    if (result.totalCost !== undefined) return "$" + result.totalCost.toFixed(2);
+    return "$" + Math.round(result.cost * taskCount).toLocaleString("en-US");
   }
 
   function overlapArea(first, second) {
@@ -165,13 +170,33 @@
     var comparisons = data.comparisons.filter(function (comparison) {
       return comparison.visible !== false;
     });
+    comparisons.sort(function (first, second) { return first.order - second.order; });
     var selectedComparison = 0;
     var selectedResult = 0;
+    var tablePreviewResult = -1;
 
     function selectResult(index) {
       if (index === selectedResult) return;
       selectedResult = index;
       draw();
+    }
+
+    function previewResult(index, active) {
+      if (!active && tablePreviewResult !== index) return;
+      var nextPreview = active ? index : -1;
+      if (tablePreviewResult === nextPreview) return;
+      tablePreviewResult = nextPreview;
+      if (active && selectedResult !== index) {
+        selectedResult = index;
+        draw();
+        return;
+      }
+      root.querySelectorAll(".fa-benchmark__point[data-result-index]").forEach(function (point) {
+        point.classList.toggle(
+          "is-table-preview",
+          Number(point.getAttribute("data-result-index")) === tablePreviewResult
+        );
+      });
     }
 
     function draw() {
@@ -202,6 +227,7 @@
           selectedComparison = index;
           selectedResult = item.results.findIndex(function (entry) { return entry.fastAgent; });
           if (selectedResult < 0) selectedResult = 0;
+          tablePreviewResult = -1;
           draw();
         });
         tabs.appendChild(tab);
@@ -263,12 +289,13 @@
           "class": "fa-benchmark__point" +
             (entry.fastAgent ? " fa-benchmark__point--fast-agent" : "") +
             (entry.winner ? " fa-benchmark__point--winner" : "") +
-            (index === selectedResult ? " is-selected" : ""),
+            (index === selectedResult ? " is-selected" : "") +
+            (index === tablePreviewResult ? " is-table-preview" : ""),
           "role": "button",
           "tabindex": "0",
           "data-result-index": index,
           "aria-label": entry.model + " on " + entry.harness + ", score " + entry.score +
-            " percent, $" + entry.cost.toFixed(2) + " per task",
+            " percent, " + formatCost(entry.cost) + " per task",
         });
         var activate = function () { selectResult(index); };
         var previewRow = function (active) {
@@ -341,7 +368,7 @@
             ? "fa-benchmark__tooltip-cost fa-benchmark__tooltip-cost--winner"
             : "fa-benchmark__tooltip-cost",
           "text-anchor": "end",
-        }, "$" + entry.cost.toFixed(2) + "/task"));
+        }, formatCost(entry.cost) + "/task"));
         group.appendChild(tooltip);
         svg.appendChild(group);
       });
@@ -373,8 +400,11 @@
       metrics.appendChild(element(
         "span",
         result.winner ? "fa-benchmark__winning-cost" : "",
-        "$" + result.cost.toFixed(2) + "/task"
+        formatCost(result.cost) + "/task"
       ));
+      if (result.costBasis) {
+        metrics.appendChild(document.createTextNode(" (" + result.costBasis + ")"));
+      }
       metrics.appendChild(document.createTextNode(
         " · " + result.tokensIn + " tokens in · " + result.tokensOut + " tokens out"
       ));
@@ -405,15 +435,22 @@
           entry.winner
             ? "fa-benchmark__result-cost fa-benchmark__result-cost--winner"
             : "fa-benchmark__result-cost",
-          "$" + entry.cost.toFixed(2)
+          formatCost(entry.cost)
         ));
-        row.appendChild(element("span", "", "$" + Math.round(entry.cost * data.taskCount).toLocaleString("en-US")));
-        row.addEventListener("mouseenter", function () { selectResult(index); });
-        row.addEventListener("focus", function () { selectResult(index); });
+        row.appendChild(element("span", "", formatRunCost(entry, data.taskCount)));
+        row.addEventListener("mouseenter", function () { previewResult(index, true); });
+        row.addEventListener("mouseleave", function () { previewResult(index, false); });
+        row.addEventListener("focus", function () { previewResult(index, true); });
+        row.addEventListener("blur", function () { previewResult(index, false); });
         row.addEventListener("click", function () { selectResult(index); });
         results.appendChild(row);
       });
-      results.appendChild(element("p", "fa-benchmark__run-total", "Run total = cost/task × " + data.taskCount + " tasks"));
+      results.appendChild(element(
+        "p",
+        "fa-benchmark__run-total",
+        "Run total = submitted total when provided; otherwise cost/task × " +
+          data.taskCount + " tasks"
+      ));
       body.appendChild(results);
       root.appendChild(body);
 

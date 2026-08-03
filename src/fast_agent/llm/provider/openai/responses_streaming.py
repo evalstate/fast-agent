@@ -740,7 +740,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 continue
             if is_responses_failure_event(event_type):
                 response = getattr(event, "response", None)
-                error = getattr(response, "error", None)
+                error = getattr(response, "error", None) if response is not None else event
                 message = getattr(error, "message", None)
                 code = getattr(error, "code", None)
                 if not isinstance(message, str) or not message:
