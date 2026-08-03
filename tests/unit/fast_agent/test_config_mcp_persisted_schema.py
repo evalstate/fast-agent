@@ -192,3 +192,14 @@ mcp:
 
     with pytest.raises(ValidationError, match="cannot both be set"):
         get_settings(ambiguous_path, no_home=True)
+
+
+@pytest.mark.parametrize("removed_key", ["mcp_ui_mode", "mcp_ui_output_dir"])
+def test_get_settings_rejects_removed_mcp_ui_settings(tmp_path, removed_key: str) -> None:
+    config_path = _write_config(tmp_path, f"{removed_key}: legacy\n")
+
+    with pytest.raises(
+        ValidationError,
+        match="were removed in fast-agent 0.10.*MCP Apps",
+    ):
+        get_settings(config_path, no_home=True)

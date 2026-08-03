@@ -27,7 +27,7 @@ def _tool_result(*, text_payloads: list[Any], structured_payload: dict[str, Any]
         content=[_text_block(payload) for payload in text_payloads],
         is_error=False,
     )
-    result.structuredContent = structured_payload
+    result.structured_content = structured_payload
     return result
 
 

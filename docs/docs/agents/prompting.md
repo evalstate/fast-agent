@@ -37,10 +37,10 @@ plans: str = await agent.send(Prompt.user("Summarise this PDF", Path("secret-pla
 You can also use MCP Types directly - for example:
 
 ```python
-from mcp.types import ImageContent, TextContent
+from mcp_types import ImageContent, TextContent
 
 mcp_text: TextContent = TextContent(type="text", text="Analyse this image.")
-mcp_image: ImageContent = ImageContent(type="image", mimeType="image/png", data=base_64_encoded)
+mcp_image: ImageContent = ImageContent(type="image", mime_type="image/png", data=base_64_encoded)
 
 response: str = await agent.send(Prompt.user(mcp_text, mcp_image))
 ```
@@ -78,7 +78,7 @@ for content in response.content:
     if content.type == "text":
         print("Text response:", content.text[:100], "...")
     elif content.type == "image":
-        print("Image content:", content.mimeType)
+        print("Image content:", content.mime_type)
     elif content.type == "resource":
         print("Resource:", content.resource.uri)
 ```
@@ -163,7 +163,7 @@ response: str = await agent.apply_prompt("setup_sizing", arguments={"units": "me
 You can list and get Prompts from attached MCP Servers:
 
 ```python
-from mcp.types import GetPromptResult, PromptMessage
+from mcp_types import GetPromptResult, PromptMessage
 
 prompt: GetPromptResult = await agent.get_prompt("setup_sizing")
 first_message: PromptMessage = prompt.messages[0]
@@ -182,7 +182,7 @@ response: str = await agent.send(first_message)
 `Prompt.user` also works with MCP Resources:
 
 ```python
-from mcp.types import ReadResourceResult
+from mcp_types import ReadResourceResult
 
 resource: ReadResourceResult = await agent.get_resource(
     "resource://images/cat.png", "mcp_server_name"

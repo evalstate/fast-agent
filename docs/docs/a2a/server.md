@@ -519,7 +519,7 @@ A2A clients as a raw file part.
 A2A supports structured JSON exchange through JSON-compatible data content and
 also allows JSON to be returned as text artifacts. fast-agent does not parse
 ordinary model text and guess that it should become protocol data. Instead, it
-maps `TextResourceContents` with `mimeType="application/json"` to A2A data
+maps `TextResourceContents` with `mime_type="application/json"` to A2A data
 parts. This gives API users and structured-output wrappers an explicit path to
 return protocol-level JSON while preserving normal markdown/text responses.
 

@@ -2208,6 +2208,14 @@ class Settings(BaseSettings):
     @model_validator(mode="before")
     @classmethod
     def _migrate_legacy_mcp_settings(cls, values: Any) -> Any:
+        if isinstance(values, dict):
+            removed = sorted({"mcp_ui_mode", "mcp_ui_output_dir"} & values.keys())
+            if removed:
+                keys = ", ".join(f"`{key}`" for key in removed)
+                raise ValueError(
+                    f"{keys} were removed in fast-agent 0.10. Remove them and use MCP Apps "
+                    "or OpenAI Apps SDK integration metadata instead."
+                )
         return _migrate_legacy_mcp_settings_values(values)
 
     mcp: MCPSettings | None = Field(default_factory=MCPSettings)

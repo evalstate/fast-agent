@@ -9,6 +9,13 @@ social:
 
 # FastMCP Apps with fast-agent
 
+!!! note "FastMCP 4 beta"
+
+    fast-agent 0.10 pins `fastmcp-slim[server]==4.0.0b1`, the newest published
+    FastMCP release compatible with MCP SDK v2 when this release was prepared.
+    FastMCP Apps and custom FastMCP server integrations should be treated as
+    beta until FastMCP 4 reaches a stable release.
+
 FastMCP Apps let an MCP server deliver user interface elements to clients that
 support the MCP Apps extension. fast-agent fits behind those apps through the
 Harness API.
@@ -184,8 +191,10 @@ await request.report("Running tests", progress=2, total=4)
 await request.report("Building report", progress=3, total=4)
 ```
 
-For jobs that should continue after the initial call returns, use FastMCP task
-support or explicit job/status tools.
+For jobs that should continue after the initial call returns, use explicit
+job/status tools. FastMCP task support is an optional package in FastMCP 4; add
+the exactly matching `fastmcp-tasks==4.0.0b1` package and register its Tasks
+extension before using task-backed tools.
 
 ## Sessions
 

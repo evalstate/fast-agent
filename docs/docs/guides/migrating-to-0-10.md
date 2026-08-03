@@ -1,6 +1,6 @@
 ---
 title: Migrating to 0.10
-description: Migrate from removed Smart agents to opt-in built-in subagents in fast-agent 0.10.
+description: Migrate configuration, MCP APIs, commands, and agents to fast-agent 0.10.
 ---
 
 # Migrating to 0.10
@@ -20,6 +20,84 @@ The write command preserves the exact original as `fast-agent.yaml.bak`. Use
 also accepts ad-hoc targets; `/mcp connect TARGET` is the explicit ad-hoc form.
 See [Migrate MCP Configuration](../mcp/migration.md) for the before/after schema
 and conflict rules.
+
+## Breaking change: MCP SDK v2 uses snake_case Python fields
+
+fast-agent 0.10 uses `mcp==2.0.0` and `mcp-types==2.0.0`. JSON-RPC wire fields
+remain camelCase, but Python constructors, attributes, and assignments use
+snake_case:
+
+| MCP wire or v1 spelling | Python SDK v2 spelling |
+|---|---|
+| `inputSchema` | `input_schema` |
+| `outputSchema` | `output_schema` |
+| `mimeType` | `mime_type` |
+| `structuredContent` | `structured_content` |
+| `nextCursor` | `next_cursor` |
+| `isError` | `is_error` |
+
+Use the canonical `mcp_types` package for protocol models:
+
+```python
+from mcp_types import CallToolResult, ImageContent
+
+image = ImageContent(type="image", mime_type="image/png", data=encoded)
+result = CallToolResult(content=[], structured_content={"status": "ok"})
+```
+
+CamelCase remains correct in serialized JSON payloads. Do not use wire aliases
+for Python attribute access or assignment.
+
+## Breaking change: slash-command grammar
+
+Several command families were consolidated:
+
+| Before 0.10 | 0.10 replacement |
+|---|---|
+| `/cards ...` | `/packs ...` |
+| `/models ...` | `/model ...` |
+| `/card PATH --tool` | `/card load PATH --as-tool` |
+| `/agent NAME --tool` | `/agent tool add NAME` |
+| removing an agent tool with flags | `/agent tool remove NAME` |
+| agent/card dump flags | `/agent show [NAME]` or `/card show [NAME]` |
+
+The removed command names are not compatibility aliases; update saved
+automations and editor command palettes before upgrading.
+
+## Removed MCP and quickstart surfaces
+
+The built-in `prompt-server` console executable was removed. Application-owned
+prompt files can be loaded with `fast_agent.load_prompt`; shared remote prompts
+should be exposed by an external MCP prompt/resource server.
+
+The `fast-agent quickstart state-transfer` command, state-transfer example, and
+its dedicated documentation were removed. Applications that require durable
+continuity should persist explicit session or application state rather than
+depending on that sample.
+
+The old terminal MCP-UI hosting settings and APIs were also removed:
+
+```yaml
+mcp_ui_mode: ...
+mcp_ui_output_dir: ...
+```
+
+0.10 rejects these YAML keys with migration guidance instead of silently
+ignoring them. Use [MCP Apps](../mcp/mcp-apps.md), the
+[OpenAI Apps SDK](../mcp/openai-apps-sdk.md), or
+[FastMCP Apps](../mcp/fastmcp-apps.md) integration metadata. fast-agent
+discovers, validates, and displays app metadata; it does not restore the old
+embedded terminal HTML runtime.
+
+## FastMCP 4 beta compatibility
+
+fast-agent 0.10 pins `fastmcp-slim[server]==4.0.0b1`, the newest published
+FastMCP release compatible with MCP SDK v2 at release time. FastMCP 3.4.5 is
+stable but requires MCP SDK v1 and is not compatible with this release.
+
+Treat custom FastMCP server and FastMCP Apps integrations as beta until a stable
+FastMCP 4 release is available. fast-agent uses exact dependency pins and will
+evaluate later FastMCP 4 releases independently.
 
 ## Breaking change: authentication commands are domain-specific
 
@@ -124,6 +202,15 @@ harness_tools: true
 Loading the alias emits a warning. Explicit `subagents` or `harness_tools`
 values take precedence, which supports incremental migration. The alias does
 not restore the legacy Smart tool or its mutation commands.
+
+The Python class was also removed. Imports such as:
+
+```python
+from fast_agent.agents import SmartAgent
+```
+
+must migrate to the normal agent APIs plus explicit `subagents` and
+`harness_tools` configuration.
 
 AgentCards and ToolCards remain the way to define configured specialists.
 Use a ToolCard when a parent should have a stable specialist with its own
