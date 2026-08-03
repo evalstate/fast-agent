@@ -30,6 +30,7 @@ _INTERPRETER_LANGUAGE: dict[str, str] = {
     "nodejs": "javascript",
     "perl": "perl",
     "ruby": "ruby",
+    "tsx": "typescript",
 }
 
 

@@ -113,10 +113,27 @@ def test_shell_heredoc_bodies_match_uv_run_stdin_interpreter(command: str) -> No
 @pytest.mark.parametrize(
     "command",
     [
+        "pnpm exec tsx - <<'TS'\nconst answer = 42;\nTS\n",
+        "pnpm -C packages/app exec tsx - <<'TS'\nconst answer = 42;\nTS\n",
+        "pnpm --dir=packages/app exec tsx - <<'TS'\nconst answer = 42;\nTS\n",
+    ],
+)
+def test_shell_heredoc_bodies_match_pnpm_exec_stdin_interpreter(command: str) -> None:
+    body = shell_heredoc_bodies(command)[0]
+
+    assert body.stdin_interpreter == "tsx"
+    assert command[body.start : body.end] == "const answer = 42;\n"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
         "cat <<'PY'\nprint('hello')\nPY\n",
         "python -c 'print(1)' - <<'PY'\nprint('hello')\nPY\n",
         "uv run --python 3.14 python - <<'PY'\nprint('hello')\nPY\n",
         "uv run echo python - <<'PY'\nprint('hello')\nPY\n",
+        "pnpm --filter app exec tsx - <<'TS'\nconst answer = 42;\nTS\n",
+        "pnpm echo exec tsx - <<'TS'\nconst answer = 42;\nTS\n",
         "cat <<A <<B\nfirst\nA\nsecond\nB\n",
     ],
 )

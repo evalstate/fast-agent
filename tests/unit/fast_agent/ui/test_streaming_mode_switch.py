@@ -471,6 +471,35 @@ def test_render_tool_segment_splits_streaming_uv_run_python_heredoc() -> None:
     assert syntax_blocks[1].code.startswith("from importlib.metadata import")
 
 
+def test_render_tool_segment_splits_streaming_pnpm_exec_tsx_heredoc() -> None:
+    handle = _make_handle("markdown")
+    command = (
+        "pnpm -C packages/app exec tsx - <<'TS'\n"
+        "import { Client, StreamableHTTPClientTransport } "
+        "from '@modelcontextprotocol/client';\n"
+        "import { z } from 'zod';\n"
+        "const client = new Client({ name: 'smoke', version: '1.0.0' });"
+    )
+    segment = StreamSegment(
+        kind="tool",
+        text="",
+        tool_name="execute",
+        code_preview=ToolCodePreview(
+            code=command,
+            language="bash",
+            complete=False,
+            variant="shell",
+        ),
+    )
+
+    renderable = handle._render_tool_segment(segment, cursor_suffix="")
+    assert isinstance(renderable, Group)
+    syntax_blocks = [child for child in renderable.renderables if isinstance(child, Syntax)]
+
+    assert [block._lexer for block in syntax_blocks] == ["bash", "typescript"]
+    assert syntax_blocks[1].code.startswith("import { Client")
+
+
 def test_render_tool_segment_keeps_final_unterminated_interpreter_heredoc_as_shell() -> None:
     handle = _make_handle("markdown")
     command = "python - <<'PY'\nprint('hello')"

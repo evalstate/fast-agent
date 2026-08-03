@@ -33,6 +33,12 @@ The `apply_patch` tool (supplied, and exposed by default to Codex and `GPT-5.2`+
 
 Tools can be labelled as generating python code for syntax highlighting (especially useful when integrating with [Pydantic Monty](https://github.com/pydantic/monty))
 
+Shell tool previews also highlight recognized heredoc bodies using the language
+of the stdin interpreter. This includes direct interpreters such as
+`python -`, repository-standard wrappers such as `uv run python -`, and
+TypeScript executed with `pnpm exec tsx -` (including `pnpm -C <dir> exec`).
+Highlighting is applied while the heredoc is still streaming.
+
 ## Shell Integration
 
 You can run a shell command with `!` - for example `! git status`. When the active agent uses a local shell environment, commands run attached to your terminal, so interactive programs such as `! nano` work as expected. If the active agent uses a remote or sandbox environment, `!` runs in that environment; use `!!` to force a local shell command instead.

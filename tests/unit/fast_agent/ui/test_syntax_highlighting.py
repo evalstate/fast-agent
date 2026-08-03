@@ -71,6 +71,23 @@ def test_shell_syntax_blocks_highlights_uv_run_python_heredoc() -> None:
     assert blocks[1].code.startswith("from importlib.metadata import")
 
 
+def test_shell_syntax_blocks_highlights_incomplete_pnpm_exec_tsx_heredoc() -> None:
+    command = (
+        "pnpm -C packages/app exec tsx - <<'TS'\n"
+        "import { Client } from '@modelcontextprotocol/client';\n"
+        "const client = new Client({ name: 'smoke', version: '1.0.0' });"
+    )
+
+    blocks = shell_syntax_blocks(
+        command,
+        shell_language="bash",
+        include_incomplete=True,
+    )
+
+    assert [block.language for block in blocks] == ["bash", "typescript"]
+    assert blocks[1].code.startswith("import { Client }")
+
+
 @pytest.mark.parametrize(
     ("command", "language"),
     [

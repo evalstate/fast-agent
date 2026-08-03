@@ -36,6 +36,8 @@ _UV_RUN_FLAG_OPTIONS = frozenset(
         "-v",
     }
 )
+_PNPM_EXEC_FLAG_OPTIONS = frozenset({"--recursive", "--silent", "--workspace-root", "-r", "-w"})
+_PNPM_EXEC_VALUE_OPTIONS = frozenset({"--dir", "-C"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -258,6 +260,22 @@ def _heredoc_stdin_interpreter(
         and all(option in _UV_RUN_FLAG_OPTIONS for option in command[2:-2])
     ):
         return posixpath.basename(command[-2]).casefold()
+    if command and posixpath.basename(command[0]).casefold() == "pnpm" and command[-1] == "-":
+        index = 1
+        while index < len(command):
+            option = command[index]
+            if option in _PNPM_EXEC_FLAG_OPTIONS:
+                index += 1
+                continue
+            if option in _PNPM_EXEC_VALUE_OPTIONS and index + 1 < len(command):
+                index += 2
+                continue
+            if any(option.startswith(f"{name}=") for name in _PNPM_EXEC_VALUE_OPTIONS):
+                index += 1
+                continue
+            break
+        if command[index:] == ["exec", command[-2], "-"]:
+            return posixpath.basename(command[-2]).casefold()
     return None
 
 
