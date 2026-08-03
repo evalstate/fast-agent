@@ -1466,11 +1466,12 @@ class TestSubagentMonitoringRows:
                 label="Review SDK",
                 row_id=row_id,
                 state="tool: read_text_file",
-                turn=3,
+                turn=22,
                 input_tokens=2_100,
                 cache_percentage=100 / 3,
                 output_tokens=128_000,
                 output_estimated=True,
+                context_percentage=18.0,
             )
         )
         display.update(
@@ -1509,6 +1510,7 @@ class TestSubagentMonitoringRows:
         rendered = buffer.getvalue()
 
         assert "subagent" in rendered
+        assert "model" in rendered
         assert "detail" in rendered
         assert "turn" not in rendered
         assert "in" in rendered
@@ -1525,14 +1527,15 @@ class TestSubagentMonitoringRows:
         assert len(set(spinner_columns)) == 1
         assert spinner.render_count == 2
         assert "tool: read_text_" in rendered
-        assert "gpt-5.3-codex-spark… · 2 (11%) Thinking" in rendered
+        assert "gpt-5.6-terra · 22 (18%)" in rendered
+        assert "gpt-5.3-codex-… · 2 (11%)  Thinking" in rendered
         review_row = next(line for line in rendered.splitlines() if "Review SDK" in line)
         verify_row = next(line for line in rendered.splitlines() if "Verify tests" in line)
         header_row = next(line for line in rendered.splitlines() if "detail" in line)
-        assert header_row.index("detail") == verify_row.index(" · 2 (11%)") + len(" · ")
+        assert header_row.index("detail") == verify_row.index("Thinking")
+        assert review_row.index("tool:") == verify_row.index("Thinking")
         assert verify_row.index("(11%)") < verify_row.index("Thinking")
-        assert " · 3 tool:" in review_row
-        assert " · 2 (11%) Thinking" in verify_row
+        assert "gpt-5.6-terra · 22 (18%)" in review_row
         assert "2,100" in rendered
         assert "33%" in rendered
         assert "~128,000" in rendered
@@ -1565,10 +1568,10 @@ class TestSubagentMonitoringRows:
         assert "33%" not in rendered
         assert "812" not in rendered
 
-    def test_narrow_detail_starts_with_context_or_state_when_turn_is_hidden(self) -> None:
-        for context_percentage, expected_detail in (
-            (18.0, "(18%) Thinking"),
-            (None, "Thinking"),
+    def test_narrow_model_metadata_precedes_detail_when_turn_is_hidden(self) -> None:
+        for context_percentage, expected_model in (
+            (18.0, "gpt-5.6-terra · (18%)"),
+            (None, "gpt-5.6-terra"),
         ):
             buffer = io.StringIO()
             console = Console(file=buffer, force_terminal=False, width=60)
@@ -1578,8 +1581,8 @@ class TestSubagentMonitoringRows:
             console.print(*display._progress.get_renderables())
             header, row = buffer.getvalue().splitlines()[:2]
 
-            assert f" · {expected_detail}" in row
-            assert header.index("detail") == row.index(expected_detail)
+            assert expected_model in row
+            assert header.index("detail") == row.index("Thinking")
 
     def test_input_breakpoint_shows_adjacent_cache_column(self) -> None:
         buffer = io.StringIO()

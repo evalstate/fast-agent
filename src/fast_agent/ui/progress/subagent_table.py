@@ -12,9 +12,10 @@ from fast_agent.event_progress import SubagentMonitorSnapshot
 from fast_agent.utils.count_display import format_compact_count
 from fast_agent.utils.time import format_compact_duration
 
-_MODEL_WIDTH = 20
-_DETAIL_SEPARATOR = " · "
-_DETAIL_HEADER = f"{' ' * (_MODEL_WIDTH + len(_DETAIL_SEPARATOR))}detail"
+_MODEL_WIDTH = 25
+_MODEL_META_SEPARATOR = " · "
+_MODEL_DETAIL_GAP = "  "
+_DETAIL_HEADER = f"{'model':<{_MODEL_WIDTH + len(_MODEL_DETAIL_GAP)}}detail"
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -138,22 +139,24 @@ def _process_elapsed(task: Task) -> float | None:
 
 
 def _detail_text(snapshot: SubagentMonitorSnapshot, task: Task, *, show_turn: bool) -> Text:
-    text = Text(snapshot.model or "—", style="cyan" if snapshot.model else "dim")
-    text.truncate(_MODEL_WIDTH, overflow="ellipsis", pad=True)
-    text.append(_DETAIL_SEPARATOR, style="dim")
-    has_detail_prefix = False
+    metadata = Text()
     if show_turn:
         turn = Text(str(snapshot.turn), style="cyan")
         turn.truncate(3, overflow="ellipsis")
-        text.append_text(turn)
-        has_detail_prefix = True
+        metadata.append(_MODEL_META_SEPARATOR, style="dim")
+        metadata.append_text(turn)
     if context_label := _context_label(snapshot.context_percentage):
-        if has_detail_prefix:
-            text.append(" ")
-        text.append(f"({context_label})", style="blue")
-        has_detail_prefix = True
-    if has_detail_prefix:
-        text.append(" ")
+        if show_turn:
+            metadata.append(" ")
+        else:
+            metadata.append(_MODEL_META_SEPARATOR, style="dim")
+        metadata.append(f"({context_label})", style="blue")
+
+    text = Text(snapshot.model or "—", style="cyan" if snapshot.model else "dim")
+    text.truncate(max(1, _MODEL_WIDTH - metadata.cell_len), overflow="ellipsis")
+    text.append_text(metadata)
+    text.truncate(_MODEL_WIDTH, overflow="ellipsis", pad=True)
+    text.append(_MODEL_DETAIL_GAP)
     text.append(snapshot.state, style=_state_style(snapshot.state))
     elapsed = task.fields.get("elapsed_seconds")
     if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool):
