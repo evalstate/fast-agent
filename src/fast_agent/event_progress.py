@@ -40,6 +40,7 @@ class SubagentMonitorSnapshot(BaseModel):
     state: str
     turn: int
     input_tokens: int
+    cache_percentage: float | None = None
     output_tokens: int
     output_estimated: bool = False
 

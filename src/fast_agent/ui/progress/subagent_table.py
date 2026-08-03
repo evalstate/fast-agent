@@ -30,13 +30,13 @@ def render_subagent_table(
     spinner_frame: Text,
 ) -> Table:
     """Render one stable row per active subagent."""
-    show_processes = console_width >= 98
+    show_processes = console_width >= 105
     show_output = console_width >= 84
     show_input = console_width >= 74
     show_turn = console_width >= 64
     detail_width = (
         40
-        if show_processes
+        if console_width >= 98
         else 34
         if show_output
         else 30
@@ -73,6 +73,7 @@ def render_subagent_table(
         table.add_column("turn", width=4, justify="right", style="cyan", no_wrap=True)
     if show_input:
         table.add_column("in", width=7, justify="right", style="blue", no_wrap=True)
+        table.add_column("cache", width=6, justify="right", style="blue", no_wrap=True)
     if show_output:
         table.add_column("out", width=7, justify="right", style="green", no_wrap=True)
     if show_processes:
@@ -99,6 +100,7 @@ def render_subagent_table(
             row.append(str(snapshot.turn))
         if show_input:
             row.append(format_compact_count(snapshot.input_tokens, significant_digits=4))
+            row.append(_cache_percentage_text(snapshot.cache_percentage))
         if show_output:
             row.append(
                 f"~{format_compact_count(snapshot.output_tokens, significant_digits=4)}"
@@ -164,6 +166,15 @@ def _context_suffix(context_percentage: float | None) -> str:
     safe_percentage = max(context_percentage, 0.0)
     label = "100%+" if safe_percentage >= 100 else f"{min(round(safe_percentage), 99)}%"
     return f" ({label})"
+
+
+def _cache_percentage_text(cache_percentage: float | None) -> str:
+    if cache_percentage is None or not math.isfinite(cache_percentage):
+        return "—"
+    safe_percentage = max(cache_percentage, 0.0)
+    if safe_percentage < 100 and round(safe_percentage) == 100:
+        return ">99%"
+    return f"{safe_percentage:.0f}%"
 
 
 def _state_style(state: str) -> str:

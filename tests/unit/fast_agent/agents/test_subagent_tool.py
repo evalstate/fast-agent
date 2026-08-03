@@ -2095,8 +2095,9 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
     assert events[0].subagent_monitor.state == "Starting"
     assert events[0].subagent_monitor.turn == 0
     assert events[0].subagent_monitor.input_tokens == 0
+    assert events[0].subagent_monitor.cache_percentage is None
     assert events[0].subagent_monitor.output_tokens == 0
-    assert events[0].details == ("turn  0 · in       0 out       0 cache   0% · tools 0")
+    assert events[0].details == ("turn  0 · in       0 out       0 cache    — · tools 0")
     assert {event.correlation_id for event in events} == {"parent-call"}
     assert {"Starting", "Thinking", "Processing", "Tool", "Finalizing"} <= {
         event.activity for event in events
@@ -2109,6 +2110,7 @@ async def test_subagent_monitor_row_reports_turn_usage_and_tool_lifecycle() -> N
         and event.subagent_monitor.context_percentage == pytest.approx(0.0005)
         and event.subagent_monitor.turn == 1
         and event.subagent_monitor.input_tokens == 3
+        and event.subagent_monitor.cache_percentage == pytest.approx(100 / 3)
         and event.subagent_monitor.output_tokens == 2
         and event.details is not None
         and "turn  1" in event.details
@@ -2167,9 +2169,9 @@ async def test_subagent_monitor_updates_estimated_output_while_streaming() -> No
         and "out ~" in event.details
     ]
     assert live_details == [
-        "turn  1 · model passthrough · in       0 out ~     3 cache   0% · tools 0",
-        "turn  1 · model passthrough · in       0 out ~     1 cache   0% · tools 0",
-        "turn  1 · model passthrough · in       0 out ~     9 cache   0% · tools 0",
+        "turn  1 · model passthrough · in       0 out ~     3 cache    — · tools 0",
+        "turn  1 · model passthrough · in       0 out ~     1 cache    — · tools 0",
+        "turn  1 · model passthrough · in       0 out ~     9 cache    — · tools 0",
     ]
     live_snapshots = [
         event.subagent_monitor
@@ -2180,11 +2182,14 @@ async def test_subagent_monitor_updates_estimated_output_while_streaming() -> No
     ]
     assert [snapshot.output_tokens for snapshot in live_snapshots] == [3, 1, 9]
     assert {snapshot.model for snapshot in live_snapshots} == {"passthrough"}
+    assert {snapshot.cache_percentage for snapshot in live_snapshots} == {None}
     assert any(
         event.action == ProgressAction.RUNNING
         and event.activity == "Processing"
+        and event.subagent_monitor is not None
+        and event.subagent_monitor.cache_percentage is None
         and event.details is not None
-        and "in       7 out      10 cache   0%" in event.details
+        and "in       7 out      10 cache    —" in event.details
         for event in events
     )
 
@@ -2243,7 +2248,7 @@ async def test_parallel_subagent_monitor_rows_have_distinct_identity_and_cleanup
     assert all(events[0].action == ProgressAction.RUNNING for events in rows_by_name.values())
     assert all(events[0].subagent_monitor is not None for events in rows_by_name.values())
     assert all(
-        events[0].details == "turn  0 · in       0 out       0 cache   0% · tools 0"
+        events[0].details == "turn  0 · in       0 out       0 cache    — · tools 0"
         for events in rows_by_name.values()
     )
     assert all(events[-1].action == ProgressAction.READY for events in rows_by_name.values())

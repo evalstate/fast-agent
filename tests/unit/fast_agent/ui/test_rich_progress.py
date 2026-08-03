@@ -19,6 +19,7 @@ from fast_agent.ui.progress.display import (
     SpinnerDescriptionColumn,
     _format_compacting_track,
 )
+from fast_agent.ui.progress.subagent_table import _cache_percentage_text
 from fast_agent.utils.time import format_process_elapsed
 
 
@@ -78,6 +79,7 @@ def _subagent_event(
     state: str = "Thinking",
     turn: int = 2,
     input_tokens: int = 100,
+    cache_percentage: float | None = None,
     output_tokens: int = 20,
     output_estimated: bool = False,
     model: str | None = "gpt-5.6-terra",
@@ -99,6 +101,7 @@ def _subagent_event(
             state=state,
             turn=turn,
             input_tokens=input_tokens,
+            cache_percentage=cache_percentage,
             output_tokens=output_tokens,
             output_estimated=output_estimated,
         ),
@@ -1448,7 +1451,7 @@ class TestSubagentMonitoringRows:
 
     def test_subagent_table_renders_headers_metrics_and_process_summary(self) -> None:
         buffer = io.StringIO()
-        console = Console(file=buffer, force_terminal=False, width=100)
+        console = Console(file=buffer, force_terminal=False, width=110)
         display = RichProgressDisplay(console=console)
         spinner = _CountingSpinner()
         display._description_spinner.spinner = spinner
@@ -1465,6 +1468,7 @@ class TestSubagentMonitoringRows:
                 state="tool: read_text_file",
                 turn=3,
                 input_tokens=2_100,
+                cache_percentage=100 / 3,
                 output_tokens=812,
                 output_estimated=True,
             )
@@ -1508,6 +1512,7 @@ class TestSubagentMonitoringRows:
         assert "detail" in rendered
         assert "turn" in rendered
         assert "in" in rendered
+        assert "cache" in rendered
         assert "out" in rendered
         assert "processes" in rendered
         assert "Review SDK" in rendered
@@ -1527,7 +1532,9 @@ class TestSubagentMonitoringRows:
         assert review_row.index("tool:") == verify_row.index("Thinking")
         assert verify_row.index("(11%)") < verify_row.index("Thinking")
         assert "2,100" in rendered
+        assert "33%" in rendered
         assert "~812" in rendered
+        assert review_row.index("2,100") < review_row.index("33%") < review_row.index("~812")
         assert "1 · 42s" in rendered
 
     def test_narrow_subagent_table_keeps_core_columns_and_drops_metrics(self) -> None:
@@ -1540,6 +1547,7 @@ class TestSubagentMonitoringRows:
                 state="tool: read_text_file",
                 turn=3,
                 input_tokens=2_100,
+                cache_percentage=100 / 3,
                 output_tokens=812,
             )
         )
@@ -1552,7 +1560,23 @@ class TestSubagentMonitoringRows:
         assert "turn" not in rendered
         assert "processes" not in rendered
         assert "2,100" not in rendered
+        assert "33%" not in rendered
         assert "812" not in rendered
+
+    def test_input_breakpoint_shows_adjacent_cache_column(self) -> None:
+        buffer = io.StringIO()
+        console = Console(file=buffer, force_terminal=False, width=74)
+        display = RichProgressDisplay(console=console)
+        display.update(_subagent_event(input_tokens=2_100, cache_percentage=100 / 3))
+
+        console.print(*display._progress.get_renderables())
+        rendered = buffer.getvalue()
+
+        assert "in" in rendered
+        assert "cache" in rendered
+        assert "2,100" in rendered
+        assert "33%" in rendered
+        assert "out" not in rendered
 
     def test_parent_process_remains_standalone_while_subagent_is_active(self) -> None:
         display = _make_display()
@@ -1581,6 +1605,24 @@ class TestSubagentMonitoringRows:
         assert fields["process_owner_row"] is None
         assert process_task.visible is True
         display.stop()
+
+
+def test_subagent_cache_percentage_formatting_and_schema_default() -> None:
+    assert _cache_percentage_text(None) == "—"
+    assert _cache_percentage_text(0) == "0%"
+    assert _cache_percentage_text(99.9) == ">99%"
+    assert _cache_percentage_text(100) == "100%"
+    assert _cache_percentage_text(float("nan")) == "—"
+
+    snapshot = SubagentMonitorSnapshot.model_validate(
+        {
+            "state": "Thinking",
+            "turn": 1,
+            "input_tokens": 100,
+            "output_tokens": 20,
+        }
+    )
+    assert snapshot.cache_percentage is None
 
 
 class TestAgentTaskClearing:
