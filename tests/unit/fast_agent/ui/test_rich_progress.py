@@ -1525,14 +1525,14 @@ class TestSubagentMonitoringRows:
         assert len(set(spinner_columns)) == 1
         assert spinner.render_count == 2
         assert "tool: read_text_" in rendered
+        assert "gpt-5.3-codex-spark… · 2 (11%) Thinking" in rendered
         review_row = next(line for line in rendered.splitlines() if "Review SDK" in line)
         verify_row = next(line for line in rendered.splitlines() if "Verify tests" in line)
         header_row = next(line for line in rendered.splitlines() if "detail" in line)
-        assert header_row.index("detail") == verify_row.index(" · 2 · ") + len(" · ")
-        assert review_row.index("tool:") == verify_row.index("Thinking")
+        assert header_row.index("detail") == verify_row.index(" · 2 (11%)") + len(" · ")
         assert verify_row.index("(11%)") < verify_row.index("Thinking")
-        assert " · 3 · tool:" in review_row
-        assert " · 2 · Thinking" in verify_row
+        assert " · 3 tool:" in review_row
+        assert " · 2 (11%) Thinking" in verify_row
         assert "2,100" in rendered
         assert "33%" in rendered
         assert "~128,000" in rendered
@@ -1564,6 +1564,22 @@ class TestSubagentMonitoringRows:
         assert "2,100" not in rendered
         assert "33%" not in rendered
         assert "812" not in rendered
+
+    def test_narrow_detail_starts_with_context_or_state_when_turn_is_hidden(self) -> None:
+        for context_percentage, expected_detail in (
+            (18.0, "(18%) Thinking"),
+            (None, "Thinking"),
+        ):
+            buffer = io.StringIO()
+            console = Console(file=buffer, force_terminal=False, width=60)
+            display = RichProgressDisplay(console=console)
+            display.update(_subagent_event(context_percentage=context_percentage))
+
+            console.print(*display._progress.get_renderables())
+            header, row = buffer.getvalue().splitlines()[:2]
+
+            assert f" · {expected_detail}" in row
+            assert header.index("detail") == row.index(expected_detail)
 
     def test_input_breakpoint_shows_adjacent_cache_column(self) -> None:
         buffer = io.StringIO()
@@ -1606,7 +1622,7 @@ class TestSubagentMonitoringRows:
             assert ("cache" in header) is (width >= 74)
             assert ("out" in header) is (width >= 84)
             assert ("processes" in header) is (width >= 98)
-            assert ("12… · " in row) is (width >= 64)
+            assert (" · 12… " in row) is (width >= 64)
             if width >= 64:
                 assert "Thi" in row
             if width >= 74:

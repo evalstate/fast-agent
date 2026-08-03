@@ -139,16 +139,21 @@ def _process_elapsed(task: Task) -> float | None:
 
 def _detail_text(snapshot: SubagentMonitorSnapshot, task: Task, *, show_turn: bool) -> Text:
     text = Text(snapshot.model or "—", style="cyan" if snapshot.model else "dim")
-    context_suffix = _context_suffix(snapshot.context_percentage)
-    text.truncate(_MODEL_WIDTH - len(context_suffix), overflow="ellipsis")
-    text.append(context_suffix, style="blue")
     text.truncate(_MODEL_WIDTH, overflow="ellipsis", pad=True)
     text.append(_DETAIL_SEPARATOR, style="dim")
+    has_detail_prefix = False
     if show_turn:
         turn = Text(str(snapshot.turn), style="cyan")
         turn.truncate(3, overflow="ellipsis")
         text.append_text(turn)
-        text.append(_DETAIL_SEPARATOR, style="dim")
+        has_detail_prefix = True
+    if context_label := _context_label(snapshot.context_percentage):
+        if has_detail_prefix:
+            text.append(" ")
+        text.append(f"({context_label})", style="blue")
+        has_detail_prefix = True
+    if has_detail_prefix:
+        text.append(" ")
     text.append(snapshot.state, style=_state_style(snapshot.state))
     elapsed = task.fields.get("elapsed_seconds")
     if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool):
@@ -162,12 +167,11 @@ def _detail_text(snapshot: SubagentMonitorSnapshot, task: Task, *, show_turn: bo
     return text
 
 
-def _context_suffix(context_percentage: float | None) -> str:
+def _context_label(context_percentage: float | None) -> str:
     if context_percentage is None or not math.isfinite(context_percentage):
         return ""
     safe_percentage = max(context_percentage, 0.0)
-    label = "100%+" if safe_percentage >= 100 else f"{min(round(safe_percentage), 99)}%"
-    return f" ({label})"
+    return "100%+" if safe_percentage >= 100 else f"{min(round(safe_percentage), 99)}%"
 
 
 def _cache_percentage_text(cache_percentage: float | None) -> str:
