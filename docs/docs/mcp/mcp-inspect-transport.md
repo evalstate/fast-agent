@@ -1,10 +1,10 @@
 ---
-title: Inspect MCP Servers
+title: Inspect MCP Transports
 social:
-  title: Inspect MCP Servers
+  title: Inspect MCP Transports
   tagline: Read protocol, transport, activity, and capability status for MCP servers.
   description: Compare modern and legacy remote MCP connections in the terminal.
-  alt: fast-agent social card — Inspect MCP Servers
+  alt: fast-agent social card — Inspect MCP Transports
 ---
 
 Use `/mcp` or `/mcp status` to inspect attached MCP servers in detail. Use

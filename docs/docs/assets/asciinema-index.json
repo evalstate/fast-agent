@@ -85,7 +85,7 @@
           "cols": 112,
           "fit": "width",
           "idle_time_limit": 1.3,
-          "page": "docs/docs/mcp/mcp_display.md",
+          "page": "docs/docs/mcp/mcp-inspect-transport.md",
           "poster": "npt:0:15",
           "reference": "../../assets/mcp/mcp-inspect-legacy.cast",
           "rows": 30
@@ -147,7 +147,7 @@
           "cols": 120,
           "fit": "width",
           "idle_time_limit": 1.3,
-          "page": "docs/docs/mcp/mcp_display.md",
+          "page": "docs/docs/mcp/mcp-inspect-transport.md",
           "poster": "npt:0:48.24",
           "reference": "../../assets/tui/hf-image-generation.cast",
           "rows": 34

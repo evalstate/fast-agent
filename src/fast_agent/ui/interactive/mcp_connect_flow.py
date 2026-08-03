@@ -123,6 +123,7 @@ async def handle_mcp_connect(
     prompt_provider: "AgentApp",
     agent: str,
     request: ParsedMcpConnectRequest,
+    resolve_configured_name: bool = False,
 ) -> "CommandOutcome | None":
     label = _connect_label(request)
     attached_before_connect = await _attached_servers_before_connect(prompt_provider, agent)
@@ -143,6 +144,7 @@ async def handle_mcp_connect(
                 manager=prompt_provider,
                 agent_name=agent,
                 request=request,
+                resolve_configured_name=resolve_configured_name,
                 on_progress=emit_progress,
             )
         )

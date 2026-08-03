@@ -1332,6 +1332,7 @@ class StreamingMessageHandle:
                 blocks = shell_syntax_blocks(
                     preview.code,
                     shell_language=preview.language,
+                    include_incomplete=not preview.complete,
                 )
                 renderables: list[RenderableType] = [self._tool_header_text(segment)]
                 for index, block in enumerate(blocks):

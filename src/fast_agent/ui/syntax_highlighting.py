@@ -51,10 +51,15 @@ def _syntax_language_for_interpreter(interpreter: str | None) -> str | None:
     return _INTERPRETER_LANGUAGE.get(interpreter)
 
 
-def shell_syntax_blocks(command: str, *, shell_language: str) -> list[SyntaxBlock]:
+def shell_syntax_blocks(
+    command: str,
+    *,
+    shell_language: str,
+    include_incomplete: bool = False,
+) -> list[SyntaxBlock]:
     heredoc_bodies = [
         (body, language)
-        for body in shell_heredoc_bodies(command)
+        for body in shell_heredoc_bodies(command, include_incomplete=include_incomplete)
         if (
             language := _syntax_language_for_interpreter(body.stdin_interpreter)
             or (syntax_language_for_path(body.target_path) if body.target_path else None)

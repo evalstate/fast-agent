@@ -409,10 +409,10 @@ class SlashCommandHandler:
             ),
             _BuiltinSlashCommandSpec(
                 name="connect",
-                description="Connect an ad-hoc runtime MCP target",
+                description="Attach a configured MCP server or connect an ad-hoc target",
                 handler=self._handle_connect,
                 input_hint=(
-                    "<target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
+                    "<name|target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
                     "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
                 ),
             ),

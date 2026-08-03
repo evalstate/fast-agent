@@ -84,7 +84,7 @@ cells, and then opens `/mcp` to inspect the same modern connection with a
 
 !!! note "Recording format"
     The image in this asciinema capture uses halfblock rendering so it can be recorded as plain terminal cells. In a real terminal, `fast-agent` can use higher-resolution terminal image protocols when your terminal supports them.
-    Sixel images are fitted below the terminal viewport height so their cursor-based placement remains stable.
+    
 
 <div
   class="fa-terminal-demo"

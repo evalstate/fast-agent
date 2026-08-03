@@ -1067,6 +1067,7 @@ async def _dispatch_mcp_connect_command(
         prompt_provider=prompt_provider,
         agent=agent,
         request=payload.request,
+        resolve_configured_name=payload.resolve_configured_name,
     )
     if outcome is not None:
         await emit_command_outcome(context, outcome)

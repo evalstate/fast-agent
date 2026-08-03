@@ -20,7 +20,7 @@ social:
 | ---------------------------------------------- | --------------------------------------------------------------------------------------- |
 | Connect an agent to MCP tools                  | [Connect to MCP Servers](client-servers.md)                                             |
 | Authenticate to remote MCP servers             | [Client OAuth](mcp-oauth.md)                                                            |
-| Inspect tools, transports, and server metadata | [Inspect MCP Servers](mcp_display.md)                                                   |
+| Inspect tools, transports, and server metadata | [Inspect MCP Transports](mcp-inspect-transport.md)                                    |
 | Inspect MCP Apps metadata                      | [MCP Apps](mcp-apps.md)                                                                |
 | Connect to OpenAI Apps SDK servers             | [OpenAI Apps SDK](openai-apps-sdk.md)                                                  |
 | Serve a fast-agent agent over MCP              | [Run an MCP Server](mcp-server.md)                                                      |
@@ -98,7 +98,7 @@ Common client topics:
 
 - [Connect to MCP Servers](client-servers.md)
 - [Client OAuth](mcp-oauth.md)
-- [Inspect MCP Servers](mcp_display.md)
+- [Inspect MCP Transports](mcp-inspect-transport.md)
 - [MCP Resources](resources.md)
 - [MCP Apps](mcp-apps.md)
 - [OpenAI Apps SDK](openai-apps-sdk.md)

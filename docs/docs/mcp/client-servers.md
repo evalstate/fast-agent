@@ -11,9 +11,9 @@ social:
 # Connect to MCP Servers
 
 For convenience, **`fast-agent`** lets you connect to MCP Servers with command
-line switches or runtime commands. Use `/mcp attach <name>` for a server in the
-configured registry. Use `/mcp connect <target>` or `/connect <target>` for an
-ad-hoc URL, package, or stdio command.
+line switches or runtime commands. Use `/connect <name>` or `/mcp attach <name>`
+for a server in the configured registry. Use `/connect <target>` or
+`/mcp connect <target>` for an ad-hoc URL, package, or stdio command.
 
 From the command line:
 
@@ -158,24 +158,26 @@ For an ad-hoc connection:
 ```
 
 Configured servers attached with `/mcp attach <name>` take their mode from
-`protocol_mode`. `/mcp connect` and `/connect` always materialize an ad-hoc
-target, so `/connect docs` runs the stdio command `docs`; it does not resolve a
-configured server named `docs`. If that inferred runtime name collides with a
-configured entry, choose another with `--name`. Provider-managed MCP does not use
-fast-agent's MCP client and therefore does not accept this setting.
+`protocol_mode`. A bare `/connect docs` attaches the configured server named
+`docs` when it exists; `/mcp attach docs` is the explicit equivalent.
+Otherwise `/connect` materializes an ad-hoc target. `/mcp connect` is always
+ad-hoc. Use `--name` to give an ad-hoc target a non-conflicting runtime name.
+Provider-managed MCP does not use fast-agent's MCP client and therefore does
+not accept this setting.
 
 ## Runtime MCP commands
 
 - `/mcp list` lists attached servers and configured servers that remain detached.
 - `/mcp status` shows detailed protocol, transport, health, activity, and capability status.
 - `/mcp attach <name>` attaches the named configured registry entry.
-- `/mcp connect <target>` connects an ad-hoc target; `/connect` is an alias.
+- `/mcp connect <target>` connects an ad-hoc target.
+- `/connect <name|target>` attaches a configured name or connects an ad-hoc target.
 - `/mcp disconnect <name>` detaches a server.
 - `/mcp reconnect <name>` reconnects the attached server using its existing target.
 
 In the terminal and ACP, bare `/mcp` is a shortcut for detailed status. Both
-surfaces expose `/mcp list` for inventory and top-level `/connect` for ad-hoc
-targets.
+surfaces expose `/mcp list` for inventory and top-level `/connect` for
+configured names and ad-hoc targets.
 
 ## AgentCard runtime MCP connections (`mcp_connect`)
 

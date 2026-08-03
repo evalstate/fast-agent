@@ -69,7 +69,7 @@ uv run agent.py --transport stdio
 ```
 
 Each configured agent is exposed as an MCP tool for sending messages to that
-agent. The managed server does not expose conversation history as MCP prompts.
+agent. 
 
 The MCP Server can also be started programmatically.
 

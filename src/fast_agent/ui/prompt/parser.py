@@ -238,16 +238,33 @@ def try_parse_hash_agent_command(text: str) -> HashAgentCommand | None:
     return parsed if isinstance(parsed, HashAgentCommand) else None
 
 
-def _parse_connect_command(remainder: str, *, usage: str) -> McpConnectCommand:
+def _parse_connect_command(
+    remainder: str,
+    *,
+    usage: str,
+    resolve_configured_name: bool = False,
+) -> McpConnectCommand:
     if not remainder:
-        return McpConnectCommand(request=None, error=usage)
+        return McpConnectCommand(
+            request=None,
+            error=usage,
+            resolve_configured_name=resolve_configured_name,
+        )
     try:
         return McpConnectCommand(
-            request=parse_connect_command_text(remainder),
+            request=parse_connect_command_text(
+                remainder,
+                resolve_configured_name=resolve_configured_name,
+            ),
             error=None,
+            resolve_configured_name=resolve_configured_name,
         )
     except ValueError as exc:
-        return McpConnectCommand(request=None, error=str(exc))
+        return McpConnectCommand(
+            request=None,
+            error=str(exc),
+            resolve_configured_name=resolve_configured_name,
+        )
 
 
 def _parse_attach_command(remainder: str) -> AttachCommand:
@@ -495,6 +512,7 @@ def _mcp_invalid_arguments_payload(subcmd: str, message: str) -> CommandPayload:
 def _parse_connect_alias_command(remainder: str) -> McpConnectCommand:
     return _parse_connect_command(
         remainder,
+        resolve_configured_name=True,
         usage=(
             "Usage: /connect <target> [--name <server>] [--auth <token-value>] "
             "[--timeout <seconds>] [--protocol auto|modern|legacy] "

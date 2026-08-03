@@ -39,9 +39,10 @@ mcp:
   an old and new path, duplicate migrated server names, or a `target` combined
   with source fields such as `transport`, `url`, `command`, `args`, or
   `connector_id`.
-- Runtime commands are now explicit: `/mcp attach docs` attaches the configured
-  `docs` definition; `/connect TARGET` and `/mcp connect TARGET` always create
-  an ad-hoc session definition. `/mcp` and `/mcp status` show status.
+- Runtime commands distinguish configured names from targets: `/mcp attach docs`
+  and `/connect docs` attach the configured `docs` definition. `/mcp connect
+  TARGET` always creates an ad-hoc session definition; `/connect TARGET` does so
+  when `TARGET` is not a configured name. `/mcp` and `/mcp status` show status.
 - Startup `--url` is repeatable. Prefer one flag per URL; comma-separated input
   is temporary compatibility behavior.
 - Current schema: [Connect to MCP Servers](client-servers.md) and

@@ -393,6 +393,7 @@ async def _handle_mcp_connect_command(
     handler: "SlashCommandHandler",
     *,
     heading: str,
+    resolve_configured_name: bool,
     ctx,
     io: "ACPCommandIO",
     manager,
@@ -450,6 +451,7 @@ async def _handle_mcp_connect_command(
             manager=manager,
             agent_name=handler.current_agent_name,
             request=request,
+            resolve_configured_name=resolve_configured_name,
             surface="acp_connect",
             on_progress=_send_connect_progress,
         )
@@ -577,6 +579,7 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
         return await _handle_mcp_connect_command(
             handler,
             heading=heading,
+            resolve_configured_name=False,
             ctx=ctx,
             io=io,
             manager=manager,
@@ -607,6 +610,7 @@ async def handle_connect(handler: "SlashCommandHandler", arguments: str | None =
     return await _handle_mcp_connect_command(
         handler,
         heading="connect",
+        resolve_configured_name=True,
         ctx=ctx,
         io=cast("ACPCommandIO", ctx.io),
         manager=_AcpMcpRuntimeManager(handler),

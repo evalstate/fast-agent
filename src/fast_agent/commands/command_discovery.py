@@ -306,9 +306,12 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         },
         _simple_command_entry(
             "connect",
-            summary="Connect an ad-hoc runtime MCP target",
-            usage=("/connect <target> [--name <server>] [--protocol auto|modern|legacy] [options]"),
+            summary="Attach a configured MCP server or connect an ad-hoc target",
+            usage=(
+                "/connect <name|target> [--name <server>] [--protocol auto|modern|legacy] [options]"
+            ),
             examples=[
+                "/connect docs",
                 "/connect npx @modelcontextprotocol/server-everything",
                 "/connect --protocol modern https://example.com/mcp",
             ],

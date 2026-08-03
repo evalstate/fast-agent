@@ -66,7 +66,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             '      [dim]example: /mcp connect "C:\\Program Files\\Tool\\tool.exe" --flag[/dim]',
             "  /mcp disconnect <name> - Disconnect attached MCP server",
             "  /mcp reconnect <name> - Reconnect attached MCP server",
-            "  /connect <target> - Alias for ad-hoc /mcp connect",
+            "  /connect <name|target> - Attach configured name or connect an ad-hoc target",
             "  /history save [filename] - Save current chat history to a file",
             "      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]",
             "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]",

@@ -95,7 +95,7 @@ nav = [
     { "Client" = [
       { "Connect to Servers" = "mcp/client-servers.md" },
       { "Connect with OAuth" = "mcp/mcp-oauth.md" },
-      { "Inspect Servers" = "mcp/mcp_display.md" },
+      { "Inspect MCP Transports" = "mcp/mcp-inspect-transport.md" },
     ] },
     { "Apps" = [
       { "MCP Apps" = "mcp/mcp-apps.md" },

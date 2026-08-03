@@ -16,9 +16,10 @@ fast-agent config migrate-mcp fast-agent.yaml --write
 ```
 
 The write command preserves the exact original as `fast-agent.yaml.bak`. Use
-`/mcp attach NAME` for configured definitions and `/connect TARGET` for ad-hoc
-connections. See [Migrate MCP Configuration](../mcp/migration.md) for the
-before/after schema and conflict rules.
+`/mcp attach NAME` or `/connect NAME` for configured definitions. `/connect`
+also accepts ad-hoc targets; `/mcp connect TARGET` is the explicit ad-hoc form.
+See [Migrate MCP Configuration](../mcp/migration.md) for the before/after schema
+and conflict rules.
 
 ## Breaking change: no implicit default model
 

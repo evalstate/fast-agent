@@ -226,8 +226,12 @@ def _heredoc_stdin_interpreter(
     return posixpath.basename(tokens[0]).casefold()
 
 
-def shell_heredoc_bodies(command: str) -> list[ShellHeredocBody]:
-    """Return completed heredoc bodies with static output or stdin-interpreter hints."""
+def shell_heredoc_bodies(
+    command: str,
+    *,
+    include_incomplete: bool = False,
+) -> list[ShellHeredocBody]:
+    """Return heredoc bodies with static output or stdin-interpreter hints."""
     bodies: list[ShellHeredocBody] = []
     pending: deque[_PendingHeredoc] = deque()
     quote: str | None = None
@@ -274,6 +278,18 @@ def shell_heredoc_bodies(command: str) -> list[ShellHeredocBody]:
                 )
             )
         offset = line_end
+
+    if include_incomplete and pending:
+        current = pending[0]
+        if current.body_start >= 0:
+            bodies.append(
+                ShellHeredocBody(
+                    start=current.body_start,
+                    end=len(command),
+                    target_path=current.target_path,
+                    stdin_interpreter=current.stdin_interpreter,
+                )
+            )
 
     return bodies
 

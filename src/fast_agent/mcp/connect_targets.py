@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -129,6 +129,8 @@ class McpConnectOptions:
 class ParsedMcpConnectRequest:
     target: NormalizedMcpTarget
     options: McpConnectOptions
+    configured_name_candidate: str | None = None
+    configured_name_parse_error: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -682,8 +684,34 @@ def parse_connect_command_text(
     text: str,
     *,
     syntax: CommandLineSyntax = "auto",
+    resolve_configured_name: bool = False,
 ) -> ParsedMcpConnectRequest:
-    return parse_connect_command_tokens(_split_connect_command_text(text, syntax=syntax))
+    tokens = _split_connect_command_text(text, syntax=syntax)
+    candidate = tokens[0] if resolve_configured_name and len(tokens) == 1 else None
+    try:
+        request = parse_connect_command_tokens(tokens)
+    except ValueError as exc:
+        if candidate is None:
+            raise
+        return ParsedMcpConnectRequest(
+            target=_stdio_target(
+                mode="stdio",
+                command=candidate,
+                args=(),
+                server_name=None,
+            ),
+            options=McpConnectOptions(
+                auth_token=None,
+                timeout_seconds=None,
+                protocol_mode=None,
+                trigger_oauth=None,
+                reconnect_on_disconnect=None,
+                force_reconnect=False,
+            ),
+            configured_name_candidate=candidate,
+            configured_name_parse_error=str(exc),
+        )
+    return replace(request, configured_name_candidate=candidate) if candidate else request
 
 
 def render_normalized_target(

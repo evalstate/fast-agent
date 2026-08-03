@@ -79,6 +79,7 @@ class McpAttachCommand(CommandBase):
 class McpConnectCommand(CommandBase):
     request: ParsedMcpConnectRequest | None
     error: str | None
+    resolve_configured_name: bool = False
     kind: Literal["mcp_connect"] = "mcp_connect"
 
     @property
