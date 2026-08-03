@@ -9,6 +9,7 @@ from fast_agent.commands.context import (
     NonInteractiveCommandIOBase,
     StaticAgentProvider,
 )
+from fast_agent.commands.handlers import skills_registry as skills_registry_handlers
 from fast_agent.commands.handlers.skills import (
     _format_install_result,
     handle_list_marketplace_skills,
@@ -134,6 +135,33 @@ async def test_skills_registry_can_select_mcp_server_by_name() -> None:
     assert ctx.active_skill_source("main") == "mcp://hf"
     assert "Registry set to: mcp-server hf@1.2.3" in rendered
     assert "Skills discovered: 1. Use /skills add to list." in rendered
+
+
+@pytest.mark.asyncio
+async def test_nonpersistent_registry_selection_does_not_mutate_settings() -> None:
+    settings = Settings()
+    overrides: dict[str, str] = {}
+    ctx = CommandContext(
+        agent_provider=StaticAgentProvider({"main": _Agent()}),
+        current_agent_name="main",
+        io=NonInteractiveCommandIOBase(),
+        settings=settings,
+        skill_source_overrides=overrides,
+        persist_skill_source_overrides=False,
+    )
+
+    async def fetch_registry(url: str) -> tuple[list[object], str]:
+        return [object()], url
+
+    await skills_registry_handlers.handle_set_skills_registry(
+        ctx,
+        agent_name="main",
+        argument="https://example.com/skills.json",
+        fetch_skills_with_source=fetch_registry,
+    )
+
+    assert settings.skills.marketplace_url is None
+    assert overrides == {"main": "https://example.com/skills.json"}
 
 
 @pytest.mark.asyncio

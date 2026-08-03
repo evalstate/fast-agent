@@ -423,7 +423,7 @@ async def test_handle_mcp_reconnect_requires_attached_server() -> None:
 
     message_text = "\n".join(str(message.text) for message in outcome.messages)
     assert "is not currently attached" in message_text
-    assert "/connect --name <name> <target>" in message_text
+    assert "/mcp connect --name <name> <target>" in message_text
 
 
 @pytest.mark.asyncio

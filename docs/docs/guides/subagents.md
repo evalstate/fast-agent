@@ -49,10 +49,11 @@ harness_tools: true
 - `subagents` gives a normal parent agent the built-in `subagent` tool.
 - `subagent_model` optionally fixes the model used by every temporary child.
 - `harness_tools` is the model-facing self-management surface for fast-agent.
-  It currently provides allow-listed, read-only access to harness information
-  and resources, including loaded skills, tools, prompts, MCP server status,
-  and MCP resources. Changes such as installing skills or connecting MCP
-  servers still require an explicit user or CLI action.
+  It provides allow-listed access to harness information and resources, and
+  lets the model use `/mcp` and `/skills` to connect servers or manage installed
+  skills. Ad-hoc local MCP commands also require shell access, as provided by
+  `-xx`. Enable these options only when those model-controlled changes are
+  appropriate.
 
 ## 2. User defined
 

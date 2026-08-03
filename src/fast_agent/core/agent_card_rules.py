@@ -22,7 +22,8 @@ CardType = Literal[
 LEGACY_SMART_TYPE_WARNING = (
     "AgentCard type 'smart' is deprecated in fast-agent 0.10 and will be removed in 0.11. "
     "Treating it as type 'agent' and defaulting subagents and harness_tools to true. "
-    "The legacy Smart tool and mutation commands are not restored."
+    "The legacy Smart tool is not restored; use harness_tools for supported commands, "
+    "including /mcp and /skills."
 )
 
 CARD_TYPE_TO_AGENT_TYPE: dict[CardType, AgentType] = {

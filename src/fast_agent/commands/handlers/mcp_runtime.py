@@ -757,7 +757,7 @@ async def handle_mcp_reconnect(
         outcome.add_message(
             (
                 f"MCP server '{server_name}' is not currently attached. "
-                "Use `/connect --name <name> <target>` to connect it first."
+                "Use `/mcp connect --name <name> <target>` to connect it first."
             ),
             channel="warning",
             right_info="mcp",

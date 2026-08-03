@@ -78,8 +78,14 @@ def set_harness_tools(agent: object, enabled: bool | None = None) -> bool:
         if existing is not None and existing.meta != HARNESS_TOOL_METADATA:
             raise AgentConfigError(f"Tool name '{name}' is reserved by fast-agent")
 
+    skill_source_overrides: dict[str, str] = {}
+
     async def slash_command(command: str) -> str:
-        return await execute_harness_command(agent, command)
+        return await execute_harness_command(
+            agent,
+            command,
+            skill_source_overrides=skill_source_overrides,
+        )
 
     async def get_resource(uri: str, server_name: str | None = None) -> str:
         return await _read_resource(agent, uri, server_name)
@@ -90,7 +96,8 @@ def set_harness_tools(agent: object, enabled: bool | None = None) -> bool:
                 slash_command,
                 name=SLASH_COMMAND_TOOL_NAME,
                 description=(
-                    "Execute an allow-listed read-only fast-agent slash command. "
+                    "Execute an allow-listed fast-agent slash command, including model-managed "
+                    "MCP servers and skills. "
                     "Use `/commands` to list the supported command surface."
                 ),
                 metadata=HARNESS_TOOL_METADATA,

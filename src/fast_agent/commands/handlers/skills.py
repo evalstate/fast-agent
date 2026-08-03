@@ -468,7 +468,9 @@ async def _refresh_agent_skills(
     *,
     managed_directory_override: str | Path | None = None,
 ) -> None:
-    agent = ctx.agent_provider._agent(agent_name)
+    agent = cast("AgentProtocol", ctx.agent_provider._agent(agent_name))
+    if agent.config.skills is not SKILLS_DEFAULT:
+        return
     override_dirs = resolve_skill_directories(
         ctx.resolve_settings(),
         managed_directory_override=managed_directory_override,
@@ -851,7 +853,7 @@ async def handle_update_skill(
 
 
 type _SkillsActionHandler = Callable[
-    ["CommandContext", str, str | None],
+    ["CommandContext", str, str | None, bool],
     Awaitable[CommandOutcome],
 ]
 
@@ -860,6 +862,7 @@ async def _handle_skills_list_action(
     ctx: "CommandContext",
     agent_name: str,
     _argument: str | None,
+    _interactive: bool,
 ) -> CommandOutcome:
     return await handle_list_skills(ctx, agent_name=agent_name)
 
@@ -868,6 +871,7 @@ async def _handle_skills_available_action(
     ctx: "CommandContext",
     agent_name: str,
     _argument: str | None,
+    _interactive: bool,
 ) -> CommandOutcome:
     return await handle_list_marketplace_skills(ctx, agent_name=agent_name, query=None)
 
@@ -876,14 +880,21 @@ async def _handle_skills_add_action(
     ctx: "CommandContext",
     agent_name: str,
     argument: str | None,
+    interactive: bool,
 ) -> CommandOutcome:
-    return await handle_add_skill(ctx, agent_name=agent_name, argument=argument)
+    return await handle_add_skill(
+        ctx,
+        agent_name=agent_name,
+        argument=argument,
+        interactive=interactive,
+    )
 
 
 async def _handle_skills_registry_action(
     ctx: "CommandContext",
     agent_name: str,
     argument: str | None,
+    _interactive: bool,
 ) -> CommandOutcome:
     return await handle_set_skills_registry(ctx, agent_name=agent_name, argument=argument)
 
@@ -892,14 +903,21 @@ async def _handle_skills_remove_action(
     ctx: "CommandContext",
     agent_name: str,
     argument: str | None,
+    interactive: bool,
 ) -> CommandOutcome:
-    return await handle_remove_skill(ctx, agent_name=agent_name, argument=argument)
+    return await handle_remove_skill(
+        ctx,
+        agent_name=agent_name,
+        argument=argument,
+        interactive=interactive,
+    )
 
 
 async def _handle_skills_update_action(
     ctx: "CommandContext",
     agent_name: str,
     argument: str | None,
+    _interactive: bool,
 ) -> CommandOutcome:
     return await handle_update_skill(ctx, agent_name=agent_name, argument=argument)
 
@@ -920,6 +938,7 @@ async def handle_skills_command(
     agent_name: str,
     action: str | None,
     argument: str | None,
+    interactive: bool = True,
 ) -> CommandOutcome:
     normalized = normalize_command_action("skills", action)
 
@@ -941,7 +960,7 @@ async def handle_skills_command(
 
     handler = _SKILLS_ACTION_HANDLERS.get(normalized)
     if handler is not None:
-        return await handler(ctx, agent_name, argument)
+        return await handler(ctx, agent_name, argument, interactive)
 
     outcome = CommandOutcome()
     outcome.add_message(

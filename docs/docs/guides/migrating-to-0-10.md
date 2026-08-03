@@ -201,7 +201,8 @@ harness_tools: true
 
 Loading the alias emits a warning. Explicit `subagents` or `harness_tools`
 values take precedence, which supports incremental migration. The alias does
-not restore the legacy Smart tool or its mutation commands.
+not restore the legacy `smart` tool, but its harness tools support the `/mcp`
+and `/skills` command families.
 
 The Python class was also removed. Imports such as:
 
@@ -224,8 +225,9 @@ harness_tools: true
 ```
 
 This adds the allow-listed `slash_command` and `get_resource` tools without
-changing the agent type. Combine it with `subagents: true` when both harness
-inspection and temporary delegation are wanted.
+changing the agent type. The slash-command surface includes model-controlled
+MCP connections and skill management. Combine it with `subagents: true` when
+both harness management and temporary delegation are wanted.
 
 ## Replace dynamic delegation
 

@@ -61,7 +61,8 @@
 - `subagent_model` — optional non-empty model spec that every built-in
   subagent run must use.
 - `harness_tools` — bool (default `false`). Adds the allow-listed
-  `slash_command` and `get_resource` tools to a basic agent.
+  `slash_command` and `get_resource` tools to a basic agent. The command surface
+  includes model-controlled `/mcp` and `/skills` management.
 
 ---
 
@@ -107,12 +108,15 @@ built-in subagent instructions.
 harness_tools: true
 ```
 
-This installs `slash_command(command)` for selected read-only fast-agent
-commands and `get_resource(uri, server_name?)` for bundled `internal://`
-resources or attached MCP resources. Call `slash_command("/commands")` to
-discover the available model-facing command surface. Harness tools can be
-toggled at runtime and are not inherited by detached or built-in subagent
-clones.
+This installs `slash_command(command)` for selected fast-agent commands,
+including `/mcp` and `/skills`, and `get_resource(uri, server_name?)` for
+bundled `internal://` resources or attached MCP resources. Call
+`slash_command("/commands")` to discover the available model-facing command
+surface. Installing an active skill may enable the shell and filesystem tools
+needed to use it. Model-initiated OAuth requires an explicit token or a
+user-facing OAuth command. Ad-hoc stdio MCP commands also require shell access.
+Harness tools can be toggled at runtime and are not inherited by detached or
+built-in subagent clones.
 
 ---
 

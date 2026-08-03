@@ -320,6 +320,7 @@ class CommandContext:
     session_manager: "SessionManager | None" = None
     session_runtime: SessionCommandRuntime | None = None
     skill_source_overrides: dict[str, str] = field(default_factory=dict)
+    persist_skill_source_overrides: bool = True
 
     def __post_init__(self) -> None:
         if self.no_home:
@@ -349,17 +350,20 @@ class CommandContext:
         return self.settings or get_settings()
 
     def active_skill_source(self, agent_name: str) -> str | None:
-        return self.skill_source_overrides.get(agent_name) or _SESSION_SKILL_SOURCE_OVERRIDES.get(
-            self._skill_source_override_key(agent_name)
-        )
+        active = self.skill_source_overrides.get(agent_name)
+        if active is not None or not self.persist_skill_source_overrides:
+            return active
+        return _SESSION_SKILL_SOURCE_OVERRIDES.get(self._skill_source_override_key(agent_name))
 
     def set_active_skill_source(self, agent_name: str, source: str) -> None:
         self.skill_source_overrides[agent_name] = source
-        _SESSION_SKILL_SOURCE_OVERRIDES[self._skill_source_override_key(agent_name)] = source
+        if self.persist_skill_source_overrides:
+            _SESSION_SKILL_SOURCE_OVERRIDES[self._skill_source_override_key(agent_name)] = source
 
     def clear_active_skill_source(self, agent_name: str) -> None:
         self.skill_source_overrides.pop(agent_name, None)
-        _SESSION_SKILL_SOURCE_OVERRIDES.pop(self._skill_source_override_key(agent_name), None)
+        if self.persist_skill_source_overrides:
+            _SESSION_SKILL_SOURCE_OVERRIDES.pop(self._skill_source_override_key(agent_name), None)
 
     def _skill_source_override_key(self, agent_name: str) -> tuple[str, str, str]:
         if self.acp_session_id is not None:
