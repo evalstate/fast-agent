@@ -11,13 +11,13 @@ _DIRECTIVE_OPEN = re.compile(
     rf"(?m)^[ \t]*(?:"
     rf"{SUBAGENT_DIRECTIVE}[ \t]*(?:\r?\n|$)"
     rf"|<!--[ \t]*{SUBAGENT_DIRECTIVE}(?:"
-    rf"[ \t]*(?P<single_close>-->)[ \t]*(?:\r?\n|$)"
+    rf"[ \t]*(?P<single_close>--!?>)[ \t]*(?:\r?\n|$)"
     rf"|[ \t]*(?P<body_start>\r?\n)"
     rf"))"
 )
 _DIRECTIVE_CLOSE = re.compile(
-    r"(?m)^(?P<standalone>[ \t]*-->[ \t]*(?:\r?\n|$))"
-    r"|(?P<inline>-->)[ \t]*(?P<inline_line_end>\r?\n|$)"
+    r"(?m)^(?P<standalone>[ \t]*--!?>[ \t]*(?:\r?\n|$))"
+    r"|(?P<inline>--!?>)[ \t]*(?P<inline_line_end>\r?\n|$)"
 )
 
 
