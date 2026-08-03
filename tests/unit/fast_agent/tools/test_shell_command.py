@@ -99,8 +99,24 @@ def test_shell_heredoc_bodies_can_include_incomplete_direct_interpreter_body() -
 @pytest.mark.parametrize(
     "command",
     [
+        "uv run python - <<'PY'\nprint('hello')\nPY\n",
+        "uv run --no-sync python3.14 - <<'PY'\nprint('hello')\nPY\n",
+    ],
+)
+def test_shell_heredoc_bodies_match_uv_run_stdin_interpreter(command: str) -> None:
+    body = shell_heredoc_bodies(command)[0]
+
+    assert body.stdin_interpreter in {"python", "python3.14"}
+    assert command[body.start : body.end] == "print('hello')\n"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
         "cat <<'PY'\nprint('hello')\nPY\n",
         "python -c 'print(1)' - <<'PY'\nprint('hello')\nPY\n",
+        "uv run --python 3.14 python - <<'PY'\nprint('hello')\nPY\n",
+        "uv run echo python - <<'PY'\nprint('hello')\nPY\n",
         "cat <<A <<B\nfirst\nA\nsecond\nB\n",
     ],
 )

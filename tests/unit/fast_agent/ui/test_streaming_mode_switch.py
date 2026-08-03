@@ -443,6 +443,34 @@ def test_render_tool_segment_splits_streaming_interpreter_heredoc_before_delimit
     assert [block._lexer for block in syntax_blocks] == ["bash", "python"]
 
 
+def test_render_tool_segment_splits_streaming_uv_run_python_heredoc() -> None:
+    handle = _make_handle("markdown")
+    command = (
+        "uv run python - <<'PY'\n"
+        "from importlib.metadata import metadata, version\n"
+        "for name in ('mcp','mcp-types'):\n"
+        " print(name, version(name))"
+    )
+    segment = StreamSegment(
+        kind="tool",
+        text="",
+        tool_name="execute",
+        code_preview=ToolCodePreview(
+            code=command,
+            language="bash",
+            complete=False,
+            variant="shell",
+        ),
+    )
+
+    renderable = handle._render_tool_segment(segment, cursor_suffix="")
+    assert isinstance(renderable, Group)
+    syntax_blocks = [child for child in renderable.renderables if isinstance(child, Syntax)]
+
+    assert [block._lexer for block in syntax_blocks] == ["bash", "python"]
+    assert syntax_blocks[1].code.startswith("from importlib.metadata import")
+
+
 def test_render_tool_segment_keeps_final_unterminated_interpreter_heredoc_as_shell() -> None:
     handle = _make_handle("markdown")
     command = "python - <<'PY'\nprint('hello')"

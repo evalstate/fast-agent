@@ -56,6 +56,21 @@ def test_shell_syntax_blocks_highlights_incomplete_direct_interpreter_body_when_
     ]
 
 
+def test_shell_syntax_blocks_highlights_uv_run_python_heredoc() -> None:
+    command = (
+        "uv run python - <<'PY'\n"
+        "from importlib.metadata import metadata, version\n"
+        "for name in ('mcp','mcp-types'):\n"
+        " print(name, version(name))\n"
+        "PY"
+    )
+
+    blocks = shell_syntax_blocks(command, shell_language="bash")
+
+    assert [block.language for block in blocks] == ["bash", "python", "bash"]
+    assert blocks[1].code.startswith("from importlib.metadata import")
+
+
 @pytest.mark.parametrize(
     ("command", "language"),
     [

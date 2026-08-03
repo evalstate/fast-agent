@@ -12,6 +12,30 @@ type ShellDetachmentKind = Literal["none", "ambiguous", "service_detach"]
 _HEREDOC_PATTERN = re.compile(
     r"<<-?\s*(?:'([^']+)'|\"([^\"]+)\"|\\([A-Za-z_][A-Za-z0-9_]*)|([A-Za-z_][A-Za-z0-9_]*))"
 )
+_UV_RUN_FLAG_OPTIONS = frozenset(
+    {
+        "--active",
+        "--all-extras",
+        "--compile-bytecode",
+        "--exact",
+        "--frozen",
+        "--isolated",
+        "--locked",
+        "--managed-python",
+        "--no-dev",
+        "--no-editable",
+        "--no-managed-python",
+        "--no-project",
+        "--no-python-downloads",
+        "--no-sources",
+        "--no-sync",
+        "--offline",
+        "--quiet",
+        "--verbose",
+        "-q",
+        "-v",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,9 +245,20 @@ def _heredoc_stdin_interpreter(
         (index for index, token in enumerate(tokens) if token.startswith("<<")),
         None,
     )
-    if len(tokens) != 3 or declaration_index != 2 or tokens[1] != "-":
+    if declaration_index is None or declaration_index != len(tokens) - 1:
         return None
-    return posixpath.basename(tokens[0]).casefold()
+    command = tokens[:declaration_index]
+    if len(command) == 2 and command[1] == "-":
+        return posixpath.basename(command[0]).casefold()
+    if (
+        len(command) >= 4
+        and posixpath.basename(command[0]).casefold() == "uv"
+        and command[1] == "run"
+        and command[-1] == "-"
+        and all(option in _UV_RUN_FLAG_OPTIONS for option in command[2:-2])
+    ):
+        return posixpath.basename(command[-2]).casefold()
+    return None
 
 
 def shell_heredoc_bodies(
