@@ -86,6 +86,16 @@ def test_shell_heredoc_bodies_match_direct_stdin_interpreter() -> None:
     assert body.stdin_interpreter == "python3.14"
 
 
+def test_shell_heredoc_bodies_can_include_incomplete_direct_interpreter_body() -> None:
+    command = "python - <<'PY'\nprint('hello')"
+
+    assert shell_heredoc_bodies(command) == []
+
+    body = shell_heredoc_bodies(command, include_incomplete=True)[0]
+    assert body.stdin_interpreter == "python"
+    assert command[body.start : body.end] == "print('hello')"
+
+
 @pytest.mark.parametrize(
     "command",
     [

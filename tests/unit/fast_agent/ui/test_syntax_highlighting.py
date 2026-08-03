@@ -43,6 +43,19 @@ def test_shell_syntax_blocks_highlights_direct_interpreter_heredoc() -> None:
     ]
 
 
+def test_shell_syntax_blocks_highlights_incomplete_direct_interpreter_body_when_enabled() -> None:
+    command = "python - <<'PY'\nprint('hello')"
+
+    assert shell_syntax_blocks(
+        command,
+        shell_language="bash",
+        include_incomplete=True,
+    ) == [
+        SyntaxBlock(code="python - <<'PY'", language="bash"),
+        SyntaxBlock(code="print('hello')", language="python"),
+    ]
+
+
 @pytest.mark.parametrize(
     ("command", "language"),
     [

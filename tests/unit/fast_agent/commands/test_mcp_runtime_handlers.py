@@ -477,7 +477,7 @@ async def test_handle_mcp_connect_scoped_package_uses_npx_command() -> None:
 
 
 @pytest.mark.asyncio
-async def test_handle_mcp_attach_and_connect_use_distinct_config_sources() -> None:
+async def test_connect_alias_attaches_matching_central_config() -> None:
     manager = _Manager()
     ctx = CommandContext(
         agent_provider=_Provider(),
@@ -513,14 +513,112 @@ async def test_handle_mcp_attach_and_connect_use_distinct_config_sources() -> No
         manager=cast("mcp_runtime.McpRuntimeManager", manager),
         agent_name="main",
         request=_request("docs"),
+        resolve_configured_name=True,
     )
 
     assert any(
-        "Connected MCP server 'docs' (stdio)." in str(msg.text) for msg in connect_outcome.messages
+        "Connected configured MCP server 'docs'." in str(msg.text)
+        for msg in connect_outcome.messages
     )
+    assert manager.last_config is None
+
+
+@pytest.mark.asyncio
+async def test_mcp_connect_keeps_matching_central_name_ad_hoc() -> None:
+    manager = _Manager()
+    ctx = CommandContext(
+        agent_provider=_Provider(),
+        current_agent_name="main",
+        io=_IO(),
+        settings=Settings(
+            mcp=MCPSettings(
+                servers={
+                    "docs": MCPServerSettings(
+                        transport="http",
+                        url="https://docs.example.com/mcp",
+                    )
+                }
+            )
+        ),
+    )
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        request=_request("docs"),
+    )
+
+    assert any("Connected MCP server 'docs' (stdio)." in str(msg.text) for msg in outcome.messages)
     assert manager.last_config is not None
     assert manager.last_config.command == "docs"
     assert manager.last_config.args == []
+
+
+@pytest.mark.asyncio
+async def test_connect_alias_explicit_name_keeps_target_ad_hoc() -> None:
+    manager = _Manager()
+    ctx = CommandContext(
+        agent_provider=_Provider(),
+        current_agent_name="main",
+        io=_IO(),
+        settings=Settings(
+            mcp=MCPSettings(
+                servers={
+                    "docs": MCPServerSettings(
+                        transport="http",
+                        url="https://docs.example.com/mcp",
+                    )
+                }
+            )
+        ),
+    )
+
+    await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        request=_request("--name docs-local docs"),
+        resolve_configured_name=True,
+    )
+
+    assert manager.last_config is not None
+    assert manager.last_config.command == "docs"
+    assert manager.last_config.args == []
+
+
+@pytest.mark.asyncio
+async def test_connect_alias_attaches_configured_name_that_looks_like_target_syntax() -> None:
+    manager = _Manager()
+    ctx = CommandContext(
+        agent_provider=_Provider(),
+        current_agent_name="main",
+        io=_IO(),
+        settings=Settings(
+            mcp=MCPSettings(
+                servers={
+                    "npx": MCPServerSettings(
+                        transport="http",
+                        url="https://packages.example.com/mcp",
+                    )
+                }
+            )
+        ),
+    )
+    request = parse_connect_command_text("npx", resolve_configured_name=True)
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        request=request,
+        resolve_configured_name=True,
+    )
+
+    assert any(
+        "Connected configured MCP server 'npx'." in str(msg.text) for msg in outcome.messages
+    )
+    assert manager.last_config is None
 
 
 @pytest.mark.asyncio

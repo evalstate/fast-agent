@@ -6,10 +6,12 @@ import pytest
 from acp.schema import ToolCallProgress, ToolCallStart
 from mcp.client.auth import OAuthFlowError
 
+from fast_agent import config as config_module
 from fast_agent.acp.slash.handlers import mcp as mcp_handler_module
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.commands.mcp_command_intents import MCP_TOP_LEVEL_ACTIONS
 from fast_agent.commands.results import CommandOutcome
+from fast_agent.config import MCPServerSettings, MCPSettings, Settings
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.mcp.connect_targets import parse_connect_command_text
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
@@ -202,7 +204,23 @@ class _FakeACPContext:
 
 
 @pytest.mark.asyncio
-async def test_slash_command_mcp_inventory_status_attach_connect_reconnect_disconnect() -> None:
+async def test_slash_command_mcp_inventory_status_attach_connect_reconnect_disconnect(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        config_module,
+        "_settings",
+        Settings(
+            mcp=MCPSettings(
+                servers={
+                    "docs": MCPServerSettings(
+                        transport="http",
+                        url="https://docs.example.com/mcp",
+                    )
+                }
+            )
+        ),
+    )
     app = _App()
     instance = AgentInstance(
         app=cast("AgentApp", app),
@@ -239,9 +257,13 @@ async def test_slash_command_mcp_inventory_status_attach_connect_reconnect_disco
     assert "Connected MCP server 'demo'" in connected
 
     alias_connected = await handler.execute_command("connect", "docs")
-    assert "Connected MCP server 'docs' (stdio)." in alias_connected
-    alias_config = app.attached_configs[-1]
-    assert getattr(alias_config, "command", None) == "docs"
+    assert "Connected configured MCP server 'docs'." in alias_connected
+    assert app.attached_configs[-1] is None
+
+    explicit_connected = await handler.execute_command("mcp", "connect docs")
+    assert "Connected MCP server 'docs' (stdio)." in explicit_connected
+    explicit_config = app.attached_configs[-1]
+    assert getattr(explicit_config, "command", None) == "docs"
 
     reconnected = await handler.execute_command("mcp", "ReConnect demo")
     assert "Reconnected MCP server 'demo'" in reconnected

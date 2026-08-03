@@ -117,16 +117,32 @@ def test_connect_alias_matches_mcp_connect() -> None:
     explicit = parse_special_input('/mcp connect --name docs demo-server --root "My Folder"')
     assert isinstance(alias, McpConnectCommand)
     assert isinstance(explicit, McpConnectCommand)
-    assert alias.request == explicit.request
+    assert alias.request is not None
+    assert explicit.request is not None
+    assert alias.request.target == explicit.request.target
+    assert alias.request.options == explicit.request.options
+    assert alias.resolve_configured_name is True
+    assert explicit.resolve_configured_name is False
 
 
-def test_connect_name_is_always_an_ad_hoc_stdio_command() -> None:
+def test_connect_name_remains_unresolved_at_parse_time() -> None:
     result = parse_special_input("/connect docs")
 
     assert isinstance(result, McpConnectCommand)
     assert result.request is not None
     assert result.request.target.command == "docs"
     assert result.request.target.args == ()
+    assert result.request.configured_name_candidate == "docs"
+
+
+def test_connect_reserved_target_name_is_deferred_for_configured_resolution() -> None:
+    result = parse_special_input("/connect npx")
+
+    assert isinstance(result, McpConnectCommand)
+    assert result.error is None
+    assert result.request is not None
+    assert result.request.configured_name_candidate == "npx"
+    assert result.request.configured_name_parse_error == "Connection target is required"
 
 
 def test_parse_mcp_disconnect() -> None:
