@@ -70,11 +70,6 @@ The built-in `prompt-server` console executable was removed. Application-owned
 prompt files can be loaded with `fast_agent.load_prompt`; shared remote prompts
 should be exposed by an external MCP prompt/resource server.
 
-The `fast-agent quickstart state-transfer` command, state-transfer example, and
-its dedicated documentation were removed. Applications that require durable
-continuity should persist explicit session or application state rather than
-depending on that sample.
-
 The old terminal MCP-UI hosting settings and APIs were also removed:
 
 ```yaml
