@@ -14,7 +14,7 @@ Use the `xai` provider for xAI Grok models. xAI supports both `web_search` and `
 ## Sign in with a Grok/X subscription
 
 ```bash
-fast-agent auth login xai
+fast-agent auth provider login xai
 ```
 
 The device login opens an xAI verification URL and displays a code. Provider
@@ -27,10 +27,10 @@ a configured credential.
 Useful credential commands:
 
 ```bash
-fast-agent auth status xai
-fast-agent auth token xai
-fast-agent auth export xai ./xai.auth.json
-fast-agent auth logout xai
+fast-agent auth provider show xai
+fast-agent auth provider token xai
+fast-agent auth provider export xai ./xai.auth.json
+fast-agent auth provider logout xai
 ```
 
 An exported file contains only the selected provider and includes its refresh

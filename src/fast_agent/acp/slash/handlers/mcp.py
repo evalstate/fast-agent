@@ -204,7 +204,7 @@ def _rewrite_connect_progress_message(
             message = (
                 f"{message}\n"
                 "If the browser cannot reach the callback host, run "
-                "`fast-agent auth mcp login <server-name-or-mcp-name>` on the "
+                "`fast-agent auth mcp login --endpoint <exact-mcp-url>` on the "
                 "fast-agent host, then retry `/mcp connect ...`."
             )
 

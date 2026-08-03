@@ -28,6 +28,6 @@ Use this note for operational/runtime details that should not live in the public
 
 ## Intended use
 
-- Use `fast-agent auth export codex codex.auth.json` and
+- Use `fast-agent auth provider export codex codex.auth.json` and
   `FAST_AGENT_AUTH_FILE` for service runtimes and Harbor.
 - Use `CODEX_AUTH_JSON_PATH` only to read a separate Codex CLI profile.

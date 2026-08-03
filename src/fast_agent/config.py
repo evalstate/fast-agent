@@ -5,6 +5,7 @@ for the application configuration.
 
 import os
 import re
+import sys
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -2514,7 +2515,7 @@ def _load_explicit_settings_sources(
         merged_settings = load_yaml_mapping(config_file)
         config_sources.append((config_file, merged_settings))
     else:
-        print(f"Warning: Specified config file does not exist: {config_file}")
+        print(f"Warning: Specified config file does not exist: {config_file}", file=sys.stderr)
 
     return _LoadedSettingsSources(
         merged_settings=merged_settings,

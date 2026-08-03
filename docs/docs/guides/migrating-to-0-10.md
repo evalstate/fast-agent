@@ -20,6 +20,60 @@ The write command preserves the exact original as `fast-agent.yaml.bak`. Use
 connections. See [Migrate MCP Configuration](../mcp/migration.md) for the
 before/after schema and conflict rules.
 
+## Breaking change: authentication commands are domain-specific
+
+Provider credentials now live under `auth provider`:
+
+```bash
+fast-agent auth provider list
+fast-agent auth provider show codex
+fast-agent auth provider login codex
+fast-agent auth provider logout codex
+fast-agent auth provider token codex
+fast-agent auth provider export codex ./codex.auth.json
+```
+
+The former root commands (`auth login`, `auth logout`, `auth status`,
+`auth token`, and `auth export`) now exit with migration guidance instead of
+performing an operation.
+
+MCP authentication uses configured server names positionally:
+
+```bash
+fast-agent auth mcp list
+fast-agent auth mcp show myserver
+fast-agent auth mcp login myserver
+fast-agent auth mcp credentials
+fast-agent auth mcp forget myserver
+```
+
+Ad-hoc URLs must be exact and explicit:
+
+```bash
+fast-agent auth mcp login --endpoint https://example.com/custom/mcp
+```
+
+fast-agent no longer treats an unknown positional name as a URL-derived
+credential identity and no longer appends `/mcp` or `/sse` in auth commands.
+The user-facing term **OAuth resource** replaces **identity**. To remove a
+stored resource directly, use:
+
+```bash
+fast-agent auth mcp forget --resource https://example.com
+```
+
+`forget` removes local OAuth tokens and client registration. It does not alter
+server configuration or runtime connections, and it lists every configured
+server sharing the credential before confirmation.
+
+All 0.10 token and client-registration writes are indexed. Historical
+client-registration-only records are backfilled when their resource remains
+configured. An unindexed record for a removed server can still be removed with
+`auth mcp forget --resource <exact-url>` when that URL is known.
+
+The former `auth mcp status` and `auth mcp logout` commands now exit with the
+appropriate `list`, `show`, `credentials`, or `forget` replacement.
+
 ## Breaking change: no implicit default model
 
 fast-agent no longer falls back to `gpt-5.4-mini?reasoning=low` when no model

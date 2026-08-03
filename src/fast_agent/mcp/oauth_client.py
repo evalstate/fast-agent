@@ -416,12 +416,65 @@ def _normalize_oauth_server_url(url: str | None) -> str | None:
         return None
     try:
         parsed = urlparse(url)
+        hostname = parsed.hostname
+        if hostname is None:
+            return url
+        port = parsed.port
+        host = f"[{hostname}]" if ":" in hostname else hostname
+        if port is not None and not (
+            (parsed.scheme.casefold() == "http" and port == 80)
+            or (parsed.scheme.casefold() == "https" and port == 443)
+        ):
+            host = f"{host}:{port}"
+        userinfo = f"{parsed.netloc.rsplit('@', 1)[0]}@" if "@" in parsed.netloc else ""
+        path = (parsed.path or "").rstrip("/")
+        clean = parsed._replace(
+            scheme=parsed.scheme.casefold(),
+            netloc=f"{userinfo}{host}",
+            path=path or "/",
+            params="",
+            query="",
+            fragment="",
+        )
+        normalized = urlunparse(clean)
+        if normalized.endswith("/") and normalized.count("/") > 2:
+            normalized = normalized[:-1]
+        return normalized
+    except Exception:
+        return url
+
+
+def _legacy_normalize_oauth_server_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    try:
+        parsed = urlparse(url)
         path = (parsed.path or "").rstrip("/")
         clean = parsed._replace(path=path or "/", params="", query="", fragment="")
         normalized = urlunparse(clean)
         if normalized.endswith("/") and normalized.count("/") > 2:
             normalized = normalized[:-1]
         return normalized
+    except Exception:
+        return url
+
+
+def _derive_legacy_base_server_url(url: str | None) -> str | None:
+    normalized_url = _legacy_normalize_oauth_server_url(url)
+    if not normalized_url:
+        return None
+    try:
+        parsed = urlparse(normalized_url)
+        path = parsed.path or ""
+        for suffix in ("/mcp", "/sse"):
+            if path.endswith(suffix):
+                path = path[: -len(suffix)]
+                break
+        clean = parsed._replace(path=path or "/", params="", query="", fragment="")
+        base = urlunparse(clean)
+        if base.endswith("/") and base.count("/") > 2:
+            base = base[:-1]
+        return base
     except Exception:
         return url
 
@@ -464,6 +517,15 @@ def compute_server_identity(server_config: MCPServerSettings) -> str:
     if server_config.name:
         return server_config.name
     return "default"
+
+
+def compute_server_identity_candidates(
+    server_config: MCPServerSettings,
+) -> tuple[str, ...]:
+    """Return canonical and legacy-compatible storage keys for a server."""
+    canonical = compute_server_identity(server_config)
+    legacy = _derive_legacy_base_server_url(server_config.url)
+    return (canonical, legacy) if legacy and legacy != canonical else (canonical,)
 
 
 def _build_prm_discovery_urls(
@@ -1106,9 +1168,17 @@ async def _handle_oauth_callback(
 class KeyringTokenStorage(TokenStorage):
     """Token storage backed by the OS keychain using 'keyring'."""
 
-    def __init__(self, service_name: str, server_identity: str) -> None:
+    def __init__(
+        self,
+        service_name: str,
+        server_identity: str,
+        legacy_identity: str | None = None,
+    ) -> None:
         self._service = service_name
         self._identity = server_identity
+        self._legacy_identity = (
+            legacy_identity if legacy_identity and legacy_identity != server_identity else None
+        )
 
     @property
     def _token_key(self) -> str:
@@ -1123,10 +1193,14 @@ class KeyringTokenStorage(TokenStorage):
             maybe_print_keyring_access_notice(purpose="loading MCP OAuth tokens")
             import keyring
 
-            payload = keyring.get_password(self._service, self._token_key)
-            if not payload:
-                return None
-            return OAuthToken.model_validate_json(payload)
+            identities = (self._identity, self._legacy_identity)
+            for identity in identities:
+                if identity is None:
+                    continue
+                payload = keyring.get_password(self._service, f"oauth:tokens:{identity}")
+                if payload:
+                    return OAuthToken.model_validate_json(payload)
+            return None
         except Exception:
             return None
 
@@ -1146,10 +1220,14 @@ class KeyringTokenStorage(TokenStorage):
             maybe_print_keyring_access_notice(purpose="loading MCP OAuth client info")
             import keyring
 
-            payload = keyring.get_password(self._service, self._client_key)
-            if not payload:
-                return None
-            return OAuthClientInformationFull.model_validate_json(payload)
+            identities = (self._identity, self._legacy_identity)
+            for identity in identities:
+                if identity is None:
+                    continue
+                payload = keyring.get_password(self._service, f"oauth:client_info:{identity}")
+                if payload:
+                    return OAuthClientInformationFull.model_validate_json(payload)
+            return None
         except Exception:
             return None
 
@@ -1159,6 +1237,7 @@ class KeyringTokenStorage(TokenStorage):
             import keyring
 
             keyring.set_password(self._service, self._client_key, client_info.model_dump_json())
+            add_identity_to_index(self._service, self._identity)
         except Exception:
             pass
 
@@ -1233,6 +1312,37 @@ def list_keyring_tokens(service: str = "fast-agent-mcp") -> list[str]:
         return present
     except Exception:
         return []
+
+
+def list_keyring_credentials(service: str = "fast-agent-mcp") -> list[str]:
+    """List indexed resources containing tokens or OAuth client registration."""
+    try:
+        maybe_print_keyring_access_notice(purpose="listing stored MCP OAuth credentials")
+        import keyring
+
+        present: list[str] = []
+        for resource in sorted(_read_index(service)):
+            token = keyring.get_password(service, f"oauth:tokens:{resource}")
+            client_info = keyring.get_password(service, f"oauth:client_info:{resource}")
+            if token or client_info:
+                present.append(resource)
+        return present
+    except Exception:
+        return []
+
+
+def keyring_credential_present(resource: str, service: str = "fast-agent-mcp") -> bool:
+    """Return whether a resource has tokens or OAuth client registration."""
+    try:
+        maybe_print_keyring_access_notice(purpose="checking stored MCP OAuth credentials")
+        import keyring
+
+        return bool(
+            keyring.get_password(service, f"oauth:tokens:{resource}")
+            or keyring.get_password(service, f"oauth:client_info:{resource}")
+        )
+    except Exception:
+        return False
 
 
 def clear_keyring_token(identity: str, service: str = "fast-agent-mcp") -> bool:
@@ -1358,9 +1468,13 @@ def _oauth_token_storage(
     settings: _OAuthProviderSettings,
 ) -> TokenStorage:
     if settings.persist_mode == "keyring":
-        identity = compute_server_identity(server_config)
+        identities = compute_server_identity_candidates(server_config)
         # Update index on write via storage methods; creation here doesn't modify index yet.
-        return KeyringTokenStorage(service_name="fast-agent-mcp", server_identity=identity)
+        return KeyringTokenStorage(
+            service_name="fast-agent-mcp",
+            server_identity=identities[0],
+            legacy_identity=identities[1] if len(identities) > 1 else None,
+        )
     return InMemoryTokenStorage()
 
 

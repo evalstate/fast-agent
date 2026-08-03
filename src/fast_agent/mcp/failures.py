@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import shlex
 from dataclasses import dataclass, field
 from typing import Literal
 from urllib.parse import urlsplit
@@ -246,9 +247,17 @@ def _failure_remediation(
             return "The supplied credentials were rejected; verify or replace them before retrying."
         return "Authenticate with OAuth or supply valid bearer credentials, then retry."
     if kind == "oauth_failed":
+        login_target = f"`fast-agent auth mcp login {server_name}`" if server_name else None
+        try:
+            first_input = shlex.split(input_ref)[0]
+        except (IndexError, ValueError):
+            first_input = input_ref
+        if surface in {"startup_url", "terminal_connect", "acp_connect"} and "://" in first_input:
+            login_target = "`fast-agent auth mcp login --endpoint <exact-mcp-url>`"
         guidance = (
-            "Run `fast-agent auth mcp login <server-name-or-mcp-name>` on the "
-            "fast-agent host, then retry."
+            f"Run {login_target} on the fast-agent host, then retry."
+            if login_target
+            else "Authenticate on the fast-agent host, then retry."
         )
         if isinstance(selected, OAuthRegistrationError):
             guidance = (
