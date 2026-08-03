@@ -1451,7 +1451,7 @@ class TestSubagentMonitoringRows:
 
     def test_subagent_table_renders_headers_metrics_and_process_summary(self) -> None:
         buffer = io.StringIO()
-        console = Console(file=buffer, force_terminal=False, width=110)
+        console = Console(file=buffer, force_terminal=False, width=98)
         display = RichProgressDisplay(console=console)
         spinner = _CountingSpinner()
         display._description_spinner.spinner = spinner
@@ -1469,7 +1469,7 @@ class TestSubagentMonitoringRows:
                 turn=3,
                 input_tokens=2_100,
                 cache_percentage=100 / 3,
-                output_tokens=812,
+                output_tokens=128_000,
                 output_estimated=True,
             )
         )
@@ -1510,7 +1510,7 @@ class TestSubagentMonitoringRows:
 
         assert "subagent" in rendered
         assert "detail" in rendered
-        assert "turn" in rendered
+        assert "turn" not in rendered
         assert "in" in rendered
         assert "cache" in rendered
         assert "out" in rendered
@@ -1528,13 +1528,15 @@ class TestSubagentMonitoringRows:
         review_row = next(line for line in rendered.splitlines() if "Review SDK" in line)
         verify_row = next(line for line in rendered.splitlines() if "Verify tests" in line)
         header_row = next(line for line in rendered.splitlines() if "detail" in line)
-        assert header_row.index("detail") == verify_row.index("Thinking")
+        assert header_row.index("detail") == verify_row.index(" · 2 · ") + len(" · ")
         assert review_row.index("tool:") == verify_row.index("Thinking")
         assert verify_row.index("(11%)") < verify_row.index("Thinking")
+        assert " · 3 · tool:" in review_row
+        assert " · 2 · Thinking" in verify_row
         assert "2,100" in rendered
         assert "33%" in rendered
-        assert "~812" in rendered
-        assert review_row.index("2,100") < review_row.index("33%") < review_row.index("~812")
+        assert "~128,000" in rendered
+        assert review_row.index("2,100") < review_row.index("33%") < review_row.index("~128,000")
         assert "1 · 42s" in rendered
 
     def test_narrow_subagent_table_keeps_core_columns_and_drops_metrics(self) -> None:
@@ -1577,6 +1579,45 @@ class TestSubagentMonitoringRows:
         assert "2,100" in rendered
         assert "33%" in rendered
         assert "out" not in rendered
+
+    def test_subagent_table_responsive_boundaries_fit_without_squeezing(self) -> None:
+        for width in (60, 64, 74, 84, 97, 98):
+            buffer = io.StringIO()
+            console = Console(file=buffer, force_terminal=False, width=width)
+            display = RichProgressDisplay(console=console)
+            spinner = _CountingSpinner()
+            display._progress._subagent_spinner = spinner
+            display.update(
+                _subagent_event(
+                    turn=123_456,
+                    input_tokens=999_999,
+                    cache_percentage=100,
+                    output_tokens=128_000,
+                    output_estimated=True,
+                )
+            )
+
+            console.print(*display._progress.get_renderables())
+            lines = buffer.getvalue().splitlines()
+            header, row = lines[:2]
+
+            assert all(len(line) <= width for line in lines)
+            assert row.index("abc") == 17
+            assert ("cache" in header) is (width >= 74)
+            assert ("out" in header) is (width >= 84)
+            assert ("processes" in header) is (width >= 98)
+            assert ("12… · " in row) is (width >= 64)
+            if width >= 64:
+                assert "Thi" in row
+            if width >= 74:
+                assert "999,999" in row
+                assert "100%" in row
+            if width >= 84:
+                assert "~128,000" in row
+            if width == 97:
+                assert row.endswith("~128,000")
+            if width == 98:
+                assert row.endswith("—")
 
     def test_parent_process_remains_standalone_while_subagent_is_active(self) -> None:
         display = _make_display()

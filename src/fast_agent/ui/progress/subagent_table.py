@@ -30,30 +30,31 @@ def render_subagent_table(
     spinner_frame: Text,
 ) -> Table:
     """Render one stable row per active subagent."""
-    show_processes = console_width >= 105
+    show_processes = console_width >= 98
     show_output = console_width >= 84
     show_input = console_width >= 74
     show_turn = console_width >= 64
     detail_width = (
-        40
-        if console_width >= 98
-        else 34
+        44
+        if show_processes
+        else 38
         if show_output
-        else 30
+        else 34
         if show_input
-        else 28
+        else 33
         if show_turn
-        else max(8, console_width - 22)
+        else max(8, console_width - 21)
     )
     table = Table(
         box=None,
         padding=(0, 1),
+        collapse_padding=True,
         pad_edge=False,
         expand=False,
     )
     table.add_column(
         "subagent",
-        width=15,
+        width=16,
         overflow="ellipsis",
         no_wrap=True,
     )
@@ -69,13 +70,11 @@ def render_subagent_table(
         overflow="ellipsis",
         no_wrap=True,
     )
-    if show_turn:
-        table.add_column("turn", width=4, justify="right", style="cyan", no_wrap=True)
     if show_input:
         table.add_column("in", width=7, justify="right", style="blue", no_wrap=True)
-        table.add_column("cache", width=6, justify="right", style="blue", no_wrap=True)
+        table.add_column("cache", width=5, justify="right", style="blue", no_wrap=True)
     if show_output:
-        table.add_column("out", width=7, justify="right", style="green", no_wrap=True)
+        table.add_column("out", width=8, justify="right", style="green", no_wrap=True)
     if show_processes:
         table.add_column(
             "processes",
@@ -94,10 +93,8 @@ def render_subagent_table(
         row: list[str | Text] = [
             Text(str(task.fields.get("target") or task_name), style="bold white"),
             spinner_frame,
-            _detail_text(snapshot, task),
+            _detail_text(snapshot, task, show_turn=show_turn),
         ]
-        if show_turn:
-            row.append(str(snapshot.turn))
         if show_input:
             row.append(format_compact_count(snapshot.input_tokens, significant_digits=4))
             row.append(_cache_percentage_text(snapshot.cache_percentage))
@@ -140,13 +137,18 @@ def _process_elapsed(task: Task) -> float | None:
     return float(value) + local_tick
 
 
-def _detail_text(snapshot: SubagentMonitorSnapshot, task: Task) -> Text:
+def _detail_text(snapshot: SubagentMonitorSnapshot, task: Task, *, show_turn: bool) -> Text:
     text = Text(snapshot.model or "—", style="cyan" if snapshot.model else "dim")
     context_suffix = _context_suffix(snapshot.context_percentage)
     text.truncate(_MODEL_WIDTH - len(context_suffix), overflow="ellipsis")
     text.append(context_suffix, style="blue")
     text.truncate(_MODEL_WIDTH, overflow="ellipsis", pad=True)
     text.append(_DETAIL_SEPARATOR, style="dim")
+    if show_turn:
+        turn = Text(str(snapshot.turn), style="cyan")
+        turn.truncate(3, overflow="ellipsis")
+        text.append_text(turn)
+        text.append(_DETAIL_SEPARATOR, style="dim")
     text.append(snapshot.state, style=_state_style(snapshot.state))
     elapsed = task.fields.get("elapsed_seconds")
     if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool):
