@@ -31,6 +31,7 @@ from fast_agent.mcp.oauth_client import (
     keyring_credential_present,
     keyring_token_present,
     list_keyring_credentials,
+    oauth_resource_key_candidates,
 )
 from fast_agent.ui.console import console
 from fast_agent.utils.action_normalization import normalize_action_token
@@ -875,8 +876,6 @@ def mcp_login(
 
 
 def _resource_candidates(resource: str) -> tuple[str, ...]:
-    from fast_agent.config import MCPServerSettings
-
     try:
         parsed = urlparse(resource)
         _ = parsed.port
@@ -889,12 +888,7 @@ def _resource_candidates(resource: str) -> tuple[str, ...]:
     if parsed.username is not None or parsed.password is not None:
         typer.echo("--resource must not contain URL user information.", err=True)
         raise typer.Exit(2)
-    server = MCPServerSettings.model_construct(
-        name=resource,
-        transport="http",
-        url=resource,
-    )
-    return compute_server_identity_candidates(server)
+    return oauth_resource_key_candidates(resource)
 
 
 def _resolve_forget_resources(

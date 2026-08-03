@@ -528,6 +528,15 @@ def compute_server_identity_candidates(
     return (canonical, legacy) if legacy and legacy != canonical else (canonical,)
 
 
+def oauth_resource_key_candidates(resource: str) -> tuple[str, ...]:
+    """Return canonical and legacy-compatible keys for an explicit OAuth resource."""
+    canonical = _normalize_oauth_server_url(resource)
+    legacy = _legacy_normalize_oauth_server_url(resource)
+    if canonical is None:
+        return ()
+    return (canonical, legacy) if legacy and legacy != canonical else (canonical,)
+
+
 def _build_prm_discovery_urls(
     *,
     www_auth_resource_metadata_url: str | None,

@@ -492,6 +492,47 @@ def test_mcp_forget_removes_client_registration_without_tokens(
     assert memory_keyring.get_password("fast-agent-mcp", f"oauth:client_info:{resource}") is None
 
 
+@pytest.mark.parametrize("suffix", ["mcp", "sse"])
+def test_mcp_forget_resource_preserves_trailing_transport_segment(
+    suffix: str,
+    memory_keyring: MemoryKeyring,
+    isolated_auth_environment: Path,
+    tmp_path: Path,
+) -> None:
+    del isolated_auth_environment
+    config_path = _write_mcp_config(tmp_path / "fast-agent.yaml")
+    base_resource = "https://example.test/path"
+    selected_resource = f"{base_resource}/{suffix}"
+    _store_mcp_credential(memory_keyring, base_resource)
+    _store_mcp_credential(memory_keyring, selected_resource)
+
+    result = CliRunner().invoke(
+        auth_command.app,
+        [
+            "mcp",
+            "forget",
+            "--resource",
+            selected_resource,
+            "-c",
+            str(config_path),
+            "--yes",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (
+        memory_keyring.get_password("fast-agent-mcp", f"oauth:tokens:{selected_resource}") is None
+    )
+    assert memory_keyring.get_password("fast-agent-mcp", f"oauth:tokens:{base_resource}") == "{}"
+    assert (
+        memory_keyring.get_password("fast-agent-mcp", f"oauth:client_info:{selected_resource}")
+        is None
+    )
+    assert (
+        memory_keyring.get_password("fast-agent-mcp", f"oauth:client_info:{base_resource}") == "{}"
+    )
+
+
 def test_mcp_forget_selectors_are_mutually_exclusive(tmp_path: Path) -> None:
     config_path = _write_mcp_config(tmp_path / "fast-agent.yaml")
     result = CliRunner().invoke(
