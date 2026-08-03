@@ -10,6 +10,7 @@ from fast_agent.skills.models import (
     SKILL_SOURCE_SCHEMA_VERSION,
     InstalledSkillSource,
     MarketplaceSkill,
+    McpSkillResource,
 )
 from fast_agent.skills.operations import (
     apply_skill_updates,
@@ -582,6 +583,46 @@ def test_format_skill_provenance_details(tmp_path: Path) -> None:
     provenance_text, installed_text = format_skill_provenance_details(managed_dir)
     assert provenance_text == "https://github.com/example/skills@main (skills/x)"
     assert installed_text == "2026-02-13 23:11:29 revision: abcdef1"
+
+
+def test_format_mcp_skill_provenance_qualifies_integrity(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "mcp"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: x\ndescription: y\n---\n",
+        encoding="utf-8",
+    )
+    write_installed_skill_source(
+        skill_dir,
+        InstalledSkillSource(
+            schema_version=1,
+            installed_via="mcp",
+            source_origin="mcp",
+            repo_url="mcp://hf",
+            repo_ref=None,
+            repo_path="skill://hf/x/SKILL.md",
+            source_url="skill://hf/x/SKILL.md",
+            installed_commit=None,
+            installed_path_oid=None,
+            installed_revision="sha256:revision",
+            installed_at="2026-02-13T23:11:29Z",
+            content_fingerprint="sha256:" + ("0" * 64),
+            mcp_server_name="hf",
+            mcp_server_version="0.4.6",
+            mcp_resources=(
+                McpSkillResource(
+                    uri="skill://hf/x/SKILL.md",
+                    digest="sha256:" + ("1" * 64),
+                ),
+            ),
+        ),
+    )
+
+    provenance_text, _ = format_skill_provenance_details(skill_dir)
+    assert provenance_text.endswith(
+        "integrity: SHA-256 checked at install "
+        "(1 file; server manifest, not publisher verification)"
+    )
 
 
 def test_order_skill_directories_for_display_puts_manager_dir_last(tmp_path: Path) -> None:

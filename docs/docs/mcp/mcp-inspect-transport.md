@@ -173,7 +173,8 @@ visible.
 
 ### Extensions and client settings
 
-- `Sk`: Skills over MCP support.
+- `Sk`: SEP-2640 Skills Extension Draft (`d7490ecd`) support. It does not
+  indicate compatibility with legacy index/archive skill servers.
 - `Ui`: Detected MCP Apps or OpenAI Apps SDK configuration.
 - `Ro`: Roots offered to the MCP server.
 - `El`: Elicitation mode.

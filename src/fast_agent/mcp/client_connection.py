@@ -255,12 +255,12 @@ class MCPClientConnection:
         return await self._request(self.client.complete(ref, argument, context_arguments))
 
     async def list_skills(self, *, cursor: str | None = None) -> ListSkillsResult:
-        """List skills published by a SEP-2640 server."""
+        """List skills published under the pinned SEP-2640 draft."""
         request = ListSkillsRequest(params=ListSkillsRequestParams(cursor=cursor))
         return await self._request(self.client.session.send_request(request, ListSkillsResult))
 
     async def get_skill(self, uri: str) -> GetSkillResult:
-        """Get a single skill entry from a SEP-2640 server."""
+        """Get a single skill entry under the pinned SEP-2640 draft."""
         request = GetSkillRequest(params=GetSkillRequestParams(uri=uri))
         return await self._request(self.client.session.send_request(request, GetSkillResult))
 

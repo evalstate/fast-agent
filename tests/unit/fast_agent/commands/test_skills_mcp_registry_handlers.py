@@ -10,6 +10,7 @@ from fast_agent.commands.context import (
     StaticAgentProvider,
 )
 from fast_agent.commands.handlers.skills import (
+    _format_install_result,
     handle_list_marketplace_skills,
     handle_set_skills_registry,
     handle_update_skill,
@@ -173,6 +174,19 @@ async def test_skills_available_uses_selected_mcp_registry() -> None:
     rendered = "\n".join(_plain(message.text) for message in outcome.messages)
     assert "MCP skills from mcp-server hf@1.2.3" in rendered
     assert "hub-search" in rendered
+    assert "integrity: SHA-256 manifest; checked on install" in rendered
+    assert "They do not verify the server or publisher" in rendered
+
+
+def test_mcp_install_result_qualifies_integrity_check(tmp_path) -> None:
+    rendered = _format_install_result(
+        "hub-search",
+        tmp_path / "hub-search",
+        mcp_integrity=True,
+    ).plain
+
+    assert "SHA-256 digests matched the server-supplied manifest" in rendered
+    assert "does not authenticate the server or publisher" in rendered
 
 
 @pytest.mark.asyncio

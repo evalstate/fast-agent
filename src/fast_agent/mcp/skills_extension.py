@@ -1,4 +1,7 @@
-"""Typed wire models for the SEP-2640 MCP skills extension."""
+"""Provisional local wire models for SEP-2640 Draft d7490ecd.
+
+The pinned MCP SDK does not yet provide Skills Extension request/result types.
+"""
 
 from __future__ import annotations
 

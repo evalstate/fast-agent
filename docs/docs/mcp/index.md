@@ -121,7 +121,7 @@ Common server topics:
 
 fast-agent supports several MCP protocol features directly in the agent runtime:
 
-- [Skills over MCP](skills-over-mcp.md)
+- [Skills over MCP — SEP-2640 Draft (`d7490ecd`)](skills-over-mcp.md)
 - [Elicitations](elicitations.md)
 - [Resources](resources.md)
 - [MCP Apps](mcp-apps.md)

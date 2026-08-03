@@ -127,8 +127,9 @@ def _skills_over_mcp_scenario() -> TerminalCastScenario:
         prompt="",
         shell_command=command,
         notes=(
-            "Live Hugging Face stable-v2 connection; includes /mcp HTTP diagnostics "
-            "and the SEP-2640 skills workflow."
+            "Live Hugging Face stable-v2 connection; demonstrates the SEP-2640 "
+            "Skills Extension Draft (d7490ecd) resource-manifest workflow, not "
+            "legacy index/archive servers."
         ),
     )
 

@@ -229,18 +229,38 @@ def _format_marketplace_skills(marketplace: Sequence[SkillCatalogEntry]) -> Text
             content.append("\n")
         if revision:
             content.append("     ", style="dim")
-            content.append("integrity: SHA256 checked", style="dim green")
+            content.append(
+                "integrity: SHA-256 manifest; checked on install",
+                style="dim green",
+            )
             content.append("\n")
         content.append("\n")
 
     return content
 
 
-def _format_install_result(skill_name: str, install_path: Path) -> Text:
+def _format_install_result(
+    skill_name: str,
+    install_path: Path,
+    *,
+    mcp_integrity: bool = False,
+) -> Text:
     content = Text()
     content.append(f"Installed skill: {skill_name}", style="green")
     content.append("\n")
     content.append(f"location: {format_display_path(install_path)}", style="dim green")
+    if mcp_integrity:
+        content.append("\n")
+        content.append(
+            "integrity: SHA-256 digests matched the server-supplied manifest",
+            style="dim green",
+        )
+        content.append("\n")
+        content.append(
+            "trust: this does not authenticate the server or publisher, or establish "
+            "that the skill is safe",
+            style="dim yellow",
+        )
     return content
 
 
@@ -262,6 +282,14 @@ def _format_skill_source_list(
         )
         content.append("\n\n")
     content.append_text(_format_marketplace_skills(entries))
+    if source.ref.kind == "mcp":
+        content.append(
+            "Integrity checks compare downloaded files with server-supplied digests. "
+            "They do not verify the server or publisher; review skills and use only "
+            "MCP servers you trust.",
+            style="dim yellow",
+        )
+        content.append("\n")
     return content
 
 
@@ -315,7 +343,11 @@ async def _install_skill_from_add_selector(
         return outcome
 
     outcome.add_message(
-        _format_install_result(installed.name, installed.skill_dir),
+        _format_install_result(
+            installed.name,
+            installed.skill_dir,
+            mcp_integrity=source.ref.kind == "mcp",
+        ),
         right_info="skills",
         agent_name=agent_name,
     )

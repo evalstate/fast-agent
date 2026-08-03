@@ -28,7 +28,13 @@ When valid `SKILL.md` files are found:
 
 !!! note "Skills over MCP"
 
-    Thanks to Ola Hungerford, fast-agent supports the current MCP SEP-2640 draft as a verified installation source: [Skills over MCP](../mcp/skills-over-mcp.md)
+    Thanks to Ola Hungerford, fast-agent supports the SEP-2640 Skills Extension
+    Draft at `d7490ecd` through `skills/list` and `skills/get` resource
+    manifests. Legacy `skill://index.json` and archive-artifact servers are
+    unsupported. SHA-256 checks validate bytes against the selected server's
+    manifest; they do not establish publisher or content trust. Use only
+    trusted servers and review installed skills. See
+    [Skills over MCP](../mcp/skills-over-mcp.md).
 
 
 ## Installing Skills

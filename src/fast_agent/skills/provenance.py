@@ -108,11 +108,14 @@ def format_skill_provenance_details(skill_dir: Path) -> tuple[str, str | None]:
     )
     if source.source_origin == "mcp":
         version = f"@{source.mcp_server_version}" if source.mcp_server_version else ""
-        integrity = (
-            f" • integrity: sha256 ({len(source.mcp_resources)} files)"
-            if source.mcp_resources
-            else ""
-        )
+        integrity = ""
+        if source.mcp_resources:
+            count = len(source.mcp_resources)
+            noun = "file" if count == 1 else "files"
+            integrity = (
+                f" • integrity: SHA-256 checked at install ({count} {noun}; "
+                "server manifest, not publisher verification)"
+            )
         provenance_value = (
             f"mcp-server {source.mcp_server_name or source.repo_url}{version} "
             f"({source.repo_path}){integrity}"

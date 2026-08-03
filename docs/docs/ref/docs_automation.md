@@ -78,9 +78,13 @@ The `model-picker` scenario records `fast-agent go` opening the startup model pi
 the provider/model lists with arrow keys.
 The skills scenarios record direct install and update-check flows from a temporary local git
 repository, using either CLI commands or `/skills` slash commands in the TUI.
-The `skills-over-mcp` scenario connects to `https://huggingface.co/mcp`, selects the `hf`
-MCP-backed registry, searches the registry, and installs a SHA256-verified skill. Override
-`FAST_AGENT_SKILLS_MCP_DEMO_SERVER` to record against a local SEP-2640 server.
+The `skills-over-mcp` scenario connects to `https://huggingface.co/mcp`, selects
+the `hf` MCP-backed registry, searches the registry, and installs a skill whose
+bytes are SHA-256-checked against the selected server's manifest. This
+demonstrates integrity checking, not publisher authentication or a safety
+endorsement; record only against a server you trust. Override
+`FAST_AGENT_SKILLS_MCP_DEMO_SERVER` to record against a local server compatible
+with the pinned SEP-2640 draft.
 The `hf-image-generation` scenario records the Hugging Face dynamic Space flow with halfcell
 terminal-image rendering so the generated image is captured as ordinary terminal cells. It is more
 service-dependent than the other casts; use it when intentionally refreshing the image-viewer demo.
