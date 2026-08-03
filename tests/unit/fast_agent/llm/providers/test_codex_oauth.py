@@ -159,7 +159,7 @@ def test_legacy_codex_keyring_credentials_print_reauthentication_warning(monkeyp
     assert messages == [
         (
             "Legacy Codex credentials were found in the OS keyring but are no longer loaded. "
-            "Run `fast-agent auth login codex` to authenticate again."
+            "Run `fast-agent auth provider login codex` to authenticate again."
         )
     ]
 

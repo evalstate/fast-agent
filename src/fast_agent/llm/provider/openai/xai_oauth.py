@@ -189,7 +189,7 @@ def refresh_xai_credential(
     if not credential.refresh_token:
         raise ProviderKeyError(
             "xAI OAuth token expired",
-            "No refresh token is available. Run `fast-agent auth login xai`.",
+            "No refresh token is available. Run `fast-agent auth provider login xai`.",
         )
     owns_client = client is None
     resolved_client = client or httpx.Client(timeout=30)

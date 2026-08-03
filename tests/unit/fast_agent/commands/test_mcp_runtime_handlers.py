@@ -521,6 +521,40 @@ async def test_connect_alias_attaches_matching_central_config() -> None:
         for msg in connect_outcome.messages
     )
     assert manager.last_config is None
+    assert manager.last_options is not None
+    assert manager.last_options.startup_timeout_seconds == 30.0
+
+
+@pytest.mark.asyncio
+async def test_connect_alias_configured_oauth_failure_uses_server_login_guidance() -> None:
+    manager = _OAuthFailureManager()
+    ctx = CommandContext(
+        agent_provider=_Provider(),
+        current_agent_name="main",
+        io=_IO(),
+        settings=Settings(
+            mcp=MCPSettings(
+                servers={
+                    "docs": MCPServerSettings(
+                        transport="http",
+                        url="https://docs.example.com/mcp",
+                    )
+                }
+            )
+        ),
+    )
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        request=_request("docs"),
+        resolve_configured_name=True,
+    )
+
+    message_text = "\n".join(str(message.text) for message in outcome.messages)
+    assert "fast-agent auth mcp login docs" in message_text
+    assert "auth mcp login --endpoint" not in message_text
 
 
 @pytest.mark.asyncio

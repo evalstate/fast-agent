@@ -62,12 +62,12 @@ if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
     from fast_agent.mcp.client_connection import MCPClientConnection
+    from fast_agent.mcp.client_gateway import OAuthMode
     from fast_agent.mcp_server_registry import ServerRegistry
 
 logger = get_logger(__name__)
 STDIO_STDERR_BUFFER_LINES = 12
 PARTIAL_SUBSCRIPTION_REFRESH_SECONDS = 5.0
-OAuthMode = str
 
 
 @runtime_checkable

@@ -301,6 +301,7 @@ class _SubagentProgress:
             state=state,
             turn=self._turn,
             input_tokens=input_tokens,
+            cache_percentage=self._cache_percentage(input_tokens),
             output_tokens=output_tokens,
             output_estimated=output_estimated,
         )
@@ -352,9 +353,9 @@ class _SubagentProgress:
             self._estimated_output_tokens > 0,
         )
 
-    def _cache_percentage(self, input_tokens: int) -> float:
+    def _cache_percentage(self, input_tokens: int) -> float | None:
         if self._agent is None or self._agent.usage_accumulator is None:
-            return 0
+            return None
         return _cache_percentage(
             cache_read=self._agent.usage_accumulator.summary.prompt.cache_read,
             input_tokens=input_tokens,
@@ -370,19 +371,27 @@ def _format_usage_details(
     *,
     input_tokens: int,
     output_tokens: int,
-    cache_percentage: float,
+    cache_percentage: float | None,
     output_estimated: bool = False,
 ) -> str:
     return (
         f"in {input_tokens:>7,} "
         f"out {'~' if output_estimated else ' '}{output_tokens:>6,} "
-        f"cache {cache_percentage:>3.0f}%"
+        f"cache {_format_cache_percentage(cache_percentage):>4}"
     )
 
 
-def _cache_percentage(*, cache_read: int | None, input_tokens: int) -> float:
+def _format_cache_percentage(cache_percentage: float | None) -> str:
+    if cache_percentage is None:
+        return "—"
+    if cache_percentage < 100 and round(cache_percentage) == 100:
+        return ">99%"
+    return f"{cache_percentage:.0f}%"
+
+
+def _cache_percentage(*, cache_read: int | None, input_tokens: int) -> float | None:
     if cache_read is None or input_tokens == 0:
-        return 0
+        return None
     return (cache_read / input_tokens) * 100
 
 

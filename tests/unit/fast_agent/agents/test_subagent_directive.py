@@ -20,6 +20,7 @@ from fast_agent.core.instruction_refresh import rebuild_agent_instruction
         SUBAGENT_DIRECTIVE,
         f"  {SUBAGENT_DIRECTIVE}  ",
         f"<!-- {SUBAGENT_DIRECTIVE} -->",
+        f"<!-- {SUBAGENT_DIRECTIVE} --!>",
         f"  <!--   {SUBAGENT_DIRECTIVE}   -->  ",
     ],
 )
@@ -44,8 +45,9 @@ def test_resolve_subagent_directive_ignores_prose_and_longer_tokens() -> None:
     assert resolved.subagent_instruction == instruction
 
 
-def test_multiline_directive_body_is_parent_only() -> None:
-    instruction = "Before\n<!-- fast-agent-subagents\nuse terra for analysis\n-->\nAfter"
+@pytest.mark.parametrize("closer", ["-->", "--!>"])
+def test_multiline_directive_body_is_parent_only(closer: str) -> None:
+    instruction = f"Before\n<!-- fast-agent-subagents\nuse terra for analysis\n{closer}\nAfter"
 
     resolved = resolve_subagent_directive(instruction)
 
@@ -54,14 +56,67 @@ def test_multiline_directive_body_is_parent_only() -> None:
     assert resolved.subagent_instruction == "Before\nAfter"
 
 
-def test_unclosed_multiline_directive_is_ignored() -> None:
-    instruction = "<!-- fast-agent-subagents\nuse terra for analysis"
+@pytest.mark.parametrize("closer", ["-->", "--!>"])
+@pytest.mark.parametrize("line_ending", ["\n", "\r\n"])
+def test_multiline_directive_accepts_inline_closer(line_ending: str, closer: str) -> None:
+    instruction = (
+        f"Before{line_ending}"
+        f"<!-- fast-agent-subagents{line_ending}"
+        f"use terra for analysis \t{closer} \t{line_ending}"
+        "After"
+    )
 
+    resolved = resolve_subagent_directive(instruction)
+
+    assert resolved.found is True
+    assert resolved.instruction == (f"Before{line_ending}use terra for analysis{line_ending}After")
+    assert resolved.subagent_instruction == f"Before{line_ending}After"
+
+
+@pytest.mark.parametrize("closer", ["-->", "--!>"])
+def test_multiline_directive_accepts_inline_closer_at_eof(closer: str) -> None:
+    instruction = f"Before\n<!-- fast-agent-subagents\nuse terra for analysis {closer}"
+
+    resolved = resolve_subagent_directive(instruction)
+
+    assert resolved.found is True
+    assert resolved.instruction == "Before\nuse terra for analysis"
+    assert resolved.subagent_instruction == "Before\n"
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "<!-- fast-agent-subagents\nuse terra for analysis",
+        "<!-- fast-agent-subagents\nuse terra for analysis --> trailing text",
+        "<!-- fast-agent-subagents\nuse terra for analysis --!> trailing text",
+    ],
+)
+def test_invalid_multiline_directive_is_ignored(instruction: str) -> None:
     resolved = resolve_subagent_directive(instruction)
 
     assert resolved.found is False
     assert resolved.instruction == instruction
     assert resolved.subagent_instruction == instruction
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "fast-agent-subagents",
+        "<!-- fast-agent-subagents -->",
+    ],
+)
+def test_unclosed_multiline_directive_does_not_hide_later_marker(marker: str) -> None:
+    instruction = f"<!-- fast-agent-subagents\nunclosed directive\n{marker}\nIncluded rules."
+
+    resolved = resolve_subagent_directive(instruction)
+
+    assert resolved.found is True
+    assert resolved.instruction == (
+        "<!-- fast-agent-subagents\nunclosed directive\nIncluded rules."
+    )
+    assert resolved.subagent_instruction == resolved.instruction
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,30 @@ from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
 from fast_agent.mcp.oauth_client import build_oauth_provider, compute_server_identity
 
 
+def test_server_identity_canonicalizes_host_case_and_default_ports() -> None:
+    lower = MCPServerSettings(
+        name="lower",
+        transport="http",
+        url="https://example.com/api/mcp",
+    )
+    upper = MCPServerSettings(
+        name="upper",
+        transport="http",
+        url="HTTPS://EXAMPLE.COM/api/mcp",
+    )
+    default_port = MCPServerSettings(
+        name="port",
+        transport="http",
+        url="https://example.com:443/api/mcp",
+    )
+
+    assert {
+        compute_server_identity(lower),
+        compute_server_identity(upper),
+        compute_server_identity(default_port),
+    } == {"https://example.com/api"}
+
+
 @pytest.mark.asyncio
 async def test_build_oauth_provider_preserves_http_endpoint_for_resource_validation() -> None:
     config = MCPServerSettings(

@@ -1,6 +1,6 @@
 import httpx2
 import pytest
-from mcp.client.auth import OAuthRegistrationError
+from mcp.client.auth import OAuthFlowError, OAuthRegistrationError
 
 from fast_agent.core.exceptions import ServerInitializationError
 from fast_agent.mcp.failures import (
@@ -67,6 +67,38 @@ def test_explicit_auth_rejection_does_not_offer_oauth_override() -> None:
     assert "supplied credentials" in failure.remediation.casefold()
     assert "OAuth" not in failure.remediation
     assert "secret" not in render_mcp_failure(failure)
+
+
+def test_oauth_failure_guidance_distinguishes_server_and_exact_endpoint() -> None:
+    configured = classify_mcp_failure(
+        OAuthFlowError("flow failed"),
+        server_name="docs",
+        origin="central",
+        surface="configured_attach",
+        input_ref="docs",
+    )
+    configured_connect = classify_mcp_failure(
+        OAuthFlowError("flow failed"),
+        server_name="docs",
+        origin="central",
+        surface="terminal_connect",
+        input_ref="https://example.test/custom/mcp",
+    )
+    ad_hoc = classify_mcp_failure(
+        OAuthFlowError("flow failed"),
+        server_name="example",
+        origin="session",
+        surface="terminal_connect",
+        input_ref="https://example.test/custom/mcp?token=secret",
+    )
+
+    assert configured.remediation is not None
+    assert "auth mcp login docs" in configured.remediation
+    assert configured_connect.remediation is not None
+    assert "auth mcp login docs" in configured_connect.remediation
+    assert ad_hoc.remediation is not None
+    assert "auth mcp login --endpoint <exact-mcp-url>" in ad_hoc.remediation
+    assert "secret" not in ad_hoc.remediation
 
 
 @pytest.mark.parametrize(

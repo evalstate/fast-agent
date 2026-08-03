@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import httpx2
 from httpx2 import HTTPStatusError
@@ -41,7 +41,16 @@ if TYPE_CHECKING:
     from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 logger = get_logger(__name__)
-OAuthMode = str
+type OAuthMode = Literal["disabled", "auto", "force"]
+type EffectiveMCPAuthMode = Literal[
+    "not_applicable",
+    "provider_managed",
+    "forwarded",
+    "bearer",
+    "oauth",
+    "auto",
+    "none",
+]
 HttpResponseHandler = Callable[[httpx2.Response], Awaitable[None]]
 _JSONRPC_MESSAGE_ADAPTER = TypeAdapter(JSONRPCMessage)
 
@@ -99,6 +108,29 @@ def resolve_oauth_mode(
     if auth_config is not None and auth_config.oauth:
         return "force"
     return "auto"
+
+
+def resolve_effective_mcp_auth_mode(
+    server_config: MCPServerSettings,
+) -> EffectiveMCPAuthMode:
+    """Project the runtime authentication policy for status and diagnostics."""
+    if server_config.management == "provider":
+        return "provider_managed"
+    if not uses_mcp_remote_transport(server_config.transport):
+        return "not_applicable"
+    if server_config.auth is not None and server_config.auth.forward == "huggingface":
+        if _has_user_auth_headers(server_config):
+            return "bearer"
+        return "forwarded"
+
+    oauth_mode = resolve_oauth_mode(server_config, trigger_oauth=None)
+    if oauth_mode == "force":
+        return "oauth"
+    if _has_user_auth_headers(server_config):
+        return "bearer"
+    if oauth_mode == "auto":
+        return "auto"
+    return "none"
 
 
 def is_http_auth_challenge(

@@ -137,12 +137,12 @@ def _resolve_configured_source_from_context(
     return _describe_server_config_source(server_config)
 
 
-def _configured_connect_server_name(
+def _configured_connect_server(
     ctx: "CommandContext",
     parsed: ParsedMcpConnectRequest,
     *,
     enabled: bool,
-) -> str | None:
+) -> tuple[str, "MCPServerSettings"] | None:
     target = parsed.target
     candidate = parsed.configured_name_candidate
     if not enabled or (
@@ -158,11 +158,13 @@ def _configured_connect_server_name(
     ):
         return None
 
-    candidate = candidate or target.command
-    mcp_settings = ctx.resolve_settings().mcp
-    if mcp_settings is None or candidate not in mcp_settings.servers:
+    server_name = candidate or target.command
+    if server_name is None:
         return None
-    return candidate
+    mcp_settings = ctx.resolve_settings().mcp
+    if mcp_settings is None or (server_config := mcp_settings.servers.get(server_name)) is None:
+        return None
+    return server_name, server_config
 
 
 @dataclass(frozen=True, slots=True)
@@ -437,25 +439,27 @@ def _build_connect_plan(
     oauth_event_handler: Callable[[OAuthEvent], Awaitable[None]] | None,
     allow_oauth_paste_fallback: bool,
 ) -> _McpConnectPlan:
-    mode = parsed.target.mode
+    configured_server = _configured_connect_server(
+        ctx,
+        parsed,
+        enabled=resolve_configured_name,
+    )
+    if configured_server is None:
+        if parsed.configured_name_parse_error is not None:
+            raise ValueError(parsed.configured_name_parse_error)
+        server_name, config = _connect_server_config(parsed=parsed)
+        mode = parsed.target.mode
+    else:
+        server_name, configured_config = configured_server
+        config = None
+        mode = "url" if configured_config.url is not None else "stdio"
+
     startup_timeout_seconds = parsed.options.timeout_seconds
     if startup_timeout_seconds is None:
         startup_timeout_seconds = _default_connect_timeout_seconds(
             mode=mode,
             trigger_oauth=parsed.options.trigger_oauth,
         )
-
-    configured_name = _configured_connect_server_name(
-        ctx,
-        parsed,
-        enabled=resolve_configured_name,
-    )
-    if configured_name is None:
-        if parsed.configured_name_parse_error is not None:
-            raise ValueError(parsed.configured_name_parse_error)
-        server_name, config = _connect_server_config(parsed=parsed)
-    else:
-        server_name, config = configured_name, None
     attach_options = MCPAttachOptions(
         startup_timeout_seconds=startup_timeout_seconds,
         trigger_oauth=parsed.options.trigger_oauth,
@@ -468,7 +472,7 @@ def _build_connect_plan(
         mode=mode,
         server_name=server_name,
         config=config,
-        configured=configured_name is not None,
+        configured=configured_server is not None,
         attach_options=attach_options,
     )
 

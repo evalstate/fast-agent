@@ -35,25 +35,26 @@ def render_subagent_table(
     show_input = console_width >= 74
     show_turn = console_width >= 64
     detail_width = (
-        40
+        44
         if show_processes
-        else 34
+        else 38
         if show_output
-        else 30
+        else 34
         if show_input
-        else 28
+        else 33
         if show_turn
-        else max(8, console_width - 22)
+        else max(8, console_width - 21)
     )
     table = Table(
         box=None,
         padding=(0, 1),
+        collapse_padding=True,
         pad_edge=False,
         expand=False,
     )
     table.add_column(
         "subagent",
-        width=15,
+        width=16,
         overflow="ellipsis",
         no_wrap=True,
     )
@@ -69,12 +70,11 @@ def render_subagent_table(
         overflow="ellipsis",
         no_wrap=True,
     )
-    if show_turn:
-        table.add_column("turn", width=4, justify="right", style="cyan", no_wrap=True)
     if show_input:
         table.add_column("in", width=7, justify="right", style="blue", no_wrap=True)
+        table.add_column("cache", width=5, justify="right", style="blue", no_wrap=True)
     if show_output:
-        table.add_column("out", width=7, justify="right", style="green", no_wrap=True)
+        table.add_column("out", width=8, justify="right", style="green", no_wrap=True)
     if show_processes:
         table.add_column(
             "processes",
@@ -93,12 +93,11 @@ def render_subagent_table(
         row: list[str | Text] = [
             Text(str(task.fields.get("target") or task_name), style="bold white"),
             spinner_frame,
-            _detail_text(snapshot, task),
+            _detail_text(snapshot, task, show_turn=show_turn),
         ]
-        if show_turn:
-            row.append(str(snapshot.turn))
         if show_input:
             row.append(format_compact_count(snapshot.input_tokens, significant_digits=4))
+            row.append(_cache_percentage_text(snapshot.cache_percentage))
         if show_output:
             row.append(
                 f"~{format_compact_count(snapshot.output_tokens, significant_digits=4)}"
@@ -138,13 +137,23 @@ def _process_elapsed(task: Task) -> float | None:
     return float(value) + local_tick
 
 
-def _detail_text(snapshot: SubagentMonitorSnapshot, task: Task) -> Text:
+def _detail_text(snapshot: SubagentMonitorSnapshot, task: Task, *, show_turn: bool) -> Text:
     text = Text(snapshot.model or "—", style="cyan" if snapshot.model else "dim")
-    context_suffix = _context_suffix(snapshot.context_percentage)
-    text.truncate(_MODEL_WIDTH - len(context_suffix), overflow="ellipsis")
-    text.append(context_suffix, style="blue")
     text.truncate(_MODEL_WIDTH, overflow="ellipsis", pad=True)
     text.append(_DETAIL_SEPARATOR, style="dim")
+    has_detail_prefix = False
+    if show_turn:
+        turn = Text(str(snapshot.turn), style="cyan")
+        turn.truncate(3, overflow="ellipsis")
+        text.append_text(turn)
+        has_detail_prefix = True
+    if context_label := _context_label(snapshot.context_percentage):
+        if has_detail_prefix:
+            text.append(" ")
+        text.append(f"({context_label})", style="blue")
+        has_detail_prefix = True
+    if has_detail_prefix:
+        text.append(" ")
     text.append(snapshot.state, style=_state_style(snapshot.state))
     elapsed = task.fields.get("elapsed_seconds")
     if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool):
@@ -158,12 +167,20 @@ def _detail_text(snapshot: SubagentMonitorSnapshot, task: Task) -> Text:
     return text
 
 
-def _context_suffix(context_percentage: float | None) -> str:
+def _context_label(context_percentage: float | None) -> str:
     if context_percentage is None or not math.isfinite(context_percentage):
         return ""
     safe_percentage = max(context_percentage, 0.0)
-    label = "100%+" if safe_percentage >= 100 else f"{min(round(safe_percentage), 99)}%"
-    return f" ({label})"
+    return "100%+" if safe_percentage >= 100 else f"{min(round(safe_percentage), 99)}%"
+
+
+def _cache_percentage_text(cache_percentage: float | None) -> str:
+    if cache_percentage is None or not math.isfinite(cache_percentage):
+        return "—"
+    safe_percentage = max(cache_percentage, 0.0)
+    if safe_percentage < 100 and round(safe_percentage) == 100:
+        return ">99%"
+    return f"{safe_percentage:.0f}%"
 
 
 def _state_style(state: str) -> str:

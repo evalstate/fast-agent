@@ -320,7 +320,7 @@ def _warn_about_legacy_codex_keyring_credentials() -> None:
     console.ensure_blocking_console()
     console.error_console.print(
         "Legacy Codex credentials were found in the OS keyring but are no longer loaded. "
-        "Run `fast-agent auth login codex` to authenticate again.",
+        "Run `fast-agent auth provider login codex` to authenticate again.",
         style="bold yellow",
     )
 
@@ -427,7 +427,7 @@ def get_codex_access_token(*, force_refresh: bool = False) -> str | None:
                     raise ProviderKeyError(
                         "Codex OAuth token expired",
                         "The stored Codex OAuth token is expired and has no refresh token. "
-                        "Run `fast-agent auth login codex` to reauthenticate.",
+                        "Run `fast-agent auth provider login codex` to reauthenticate.",
                     )
                 refreshed = refresh_codex_tokens(tokens.refresh_token)
                 if not refreshed.refresh_token:
