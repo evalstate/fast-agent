@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from fast_agent.marketplace.source_models import (
@@ -251,6 +251,25 @@ def normalize_relative_repo_path(path: str, *, allow_current_dir: bool = False) 
     if normalized == "" or (normalized == "." and not allow_current_dir):
         return None
     return normalized
+
+
+def safe_install_dir_name(name: str, *, label: str) -> str:
+    """Return ``name`` when it is a single relative path component, else raise.
+
+    Install directory names come from marketplace payload fields - an entry's ``name``,
+    or the trailing component of its repo path - so they are remote input at the point
+    they are joined onto a managed root. ``normalize_relative_repo_path`` guards
+    ``repo_path``, but the name is not routed through it, and a name is joined directly.
+
+    This is a containment check rather than a name validator, so it stays liberal about
+    what a directory may be called: it only has to be a component that ``root / name``
+    cannot take outside ``root``. ``PureWindowsPath`` is used on every platform because
+    it recognises the widest set of separators and drive-relative spellings, so a name
+    accepted here is contained regardless of where the check ran.
+    """
+    if name in {"", ".", ".."} or PureWindowsPath(name).parts != (name,):
+        raise ValueError(f"{label} install directory name is not a single path component: {name!r}")
+    return name
 
 
 def repo_subdir_for_manifest_path(repo_path: str, manifest_filename: str) -> str:

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from fast_agent.marketplace.provenance_io import safe_install_dir_name
 from fast_agent.skills.marketplace_parsing import normalize_repo_path
 from fast_agent.skills.models import InstalledSkillSource
 from fast_agent.skills.operations import (
@@ -28,6 +29,53 @@ from fast_agent.skills.operations import (
 )
 def test_normalize_repo_path(value: str, expected: str | None) -> None:
     assert normalize_repo_path(value) == expected
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "example",
+        "example-skill",
+        "example_skill.v2",
+        "a..b",
+        "~",
+    ],
+)
+def test_safe_install_dir_name_accepts_contained_component(name: str, tmp_path: Path) -> None:
+    assert safe_install_dir_name(name, label="Skill") == name
+    # Assert the contract itself rather than the shape: joining an accepted name onto a
+    # root yields the direct child of that root that carries the name.
+    resolved = (tmp_path / name).resolve()
+    assert resolved.parent == tmp_path.resolve()
+    assert resolved.name == name
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "..",
+        ".",
+        "",
+        "../escape",
+        "..\\escape",
+        "nested/name",
+        "nested\\name",
+        "/absolute",
+        "C:/absolute",
+        "C:relative",
+        "//server/share",
+    ],
+)
+def test_safe_install_dir_name_rejects_non_component_names(name: str, tmp_path: Path) -> None:
+    # Every rejected name breaks the same contract from the accepting test: joining it
+    # does not produce the direct child of the root that carries the name. Whether it
+    # also leaves the root is incidental - "C:relative" only escapes when the root sits
+    # on another drive - so the rejection is anchored on the contract, not on escaping.
+    resolved = (tmp_path / name).resolve()
+    assert resolved.parent != tmp_path.resolve() or resolved.name != name
+
+    with pytest.raises(ValueError, match="not a single path component"):
+        safe_install_dir_name(name, label="Skill")
 
 
 def test_resolve_repo_subdir_rejects_escape(tmp_path: Path) -> None:

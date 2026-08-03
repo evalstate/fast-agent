@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import json
 import subprocess
-from typing import TYPE_CHECKING
+import tempfile
+from pathlib import Path
 
+import pytest
+
+from fast_agent.plugins import operations as plugin_operations
 from fast_agent.plugins.models import MarketplacePlugin
 from fast_agent.plugins.operations import (
     apply_plugin_updates,
@@ -18,9 +22,6 @@ from fast_agent.plugins.provenance import (
     compute_plugin_content_fingerprint,
     read_installed_plugin_source,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -203,6 +204,107 @@ def test_plugin_install_from_manifest_path_tracks_whole_plugin_directory(
 
     assert len(updates) == 1
     assert updates[0].status == "update_available"
+
+
+def test_plugin_install_rejects_entry_name_that_escapes_managed_root(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "plugin.yaml").write_text(
+        "schema_version: 1\nname: finder\ndescription: Finder plugin\n",
+        encoding="utf-8",
+    )
+    _commit_all(repo, "initial")
+
+    # The plugin is the repo root, so the manifest's parent contributes no directory name
+    # and install_dir_name falls back to the entry name, which the payload controls.
+    marketplace_path = tmp_path / "marketplace.json"
+    marketplace_path.write_text(
+        json.dumps(
+            {
+                "command_plugins": [
+                    {
+                        "name": "../../escaped",
+                        "repo_url": repo.as_posix(),
+                        "repo_path": "plugin.yaml",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plugins, _ = fetch_marketplace_plugins_with_source_sync(marketplace_path.as_posix())
+    assert [plugin.install_dir_name for plugin in plugins] == ["../../escaped"]
+
+    destination_root = tmp_path / "managed" / "plugins"
+    with pytest.raises(ValueError, match="not a single path component"):
+        install_marketplace_plugin_sync(plugins[0], destination_root=destination_root)
+
+    assert not (tmp_path / "escaped").exists()
+    assert list(destination_root.iterdir()) == []
+
+
+def test_plugin_install_stages_inside_managed_root_for_hostile_entry_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_plugin(repo)
+    _commit_all(repo, "initial")
+
+    # install_dir_name comes from the repo path here, so the install itself is fine; the
+    # staging directory was the second place the raw entry name reached the filesystem.
+    # Three levels are needed rather than two: the prefix puts a "." before the name, and
+    # ".." + ".." becomes the literal component "..." plus one climb, so "../../escaped"
+    # still lands inside the root and would pass this test without exercising anything.
+    marketplace_path = tmp_path / "marketplace.json"
+    marketplace_path.write_text(
+        json.dumps(
+            {
+                "command_plugins": [
+                    {
+                        "name": "../../../escaped",
+                        "repo_url": repo.as_posix(),
+                        "repo_path": "plugins/finder",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    plugins, _ = fetch_marketplace_plugins_with_source_sync(marketplace_path.as_posix())
+    assert plugins[0].name == "../../../escaped"
+    assert plugins[0].install_dir_name == "finder"
+
+    destination_root = tmp_path / "managed" / "plugins"
+    staged_dirs: list[Path] = []
+    real_temporary_directory = tempfile.TemporaryDirectory
+
+    def _recording_temporary_directory(
+        *,
+        dir: Path,  # noqa: A002 - matches the tempfile keyword the caller uses
+        prefix: str,
+    ) -> "tempfile.TemporaryDirectory[str]":
+        created = real_temporary_directory(dir=dir, prefix=prefix)
+        staged_dirs.append(Path(created.name))
+        return created
+
+    monkeypatch.setattr(
+        plugin_operations.tempfile,
+        "TemporaryDirectory",
+        _recording_temporary_directory,
+    )
+    install_dir = install_marketplace_plugin_sync(
+        plugins[0],
+        destination_root=destination_root,
+    )
+
+    assert install_dir == destination_root.resolve() / "finder"
+    assert staged_dirs
+    for staged in staged_dirs:
+        assert staged.resolve().parent == destination_root.resolve()
 
 
 def test_plugin_update_reports_missing_local_repo_ref(tmp_path: Path) -> None:

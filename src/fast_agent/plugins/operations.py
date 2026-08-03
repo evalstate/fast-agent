@@ -142,15 +142,19 @@ def install_marketplace_plugin_sync(
 ) -> Path:
     destination_root = destination_root.resolve()
     destination_root.mkdir(parents=True, exist_ok=True)
-    install_dir = destination_root / plugin.install_dir_name
+    install_dir_name = _safe_install_dir_name(plugin.install_dir_name)
+    install_dir = destination_root / install_dir_name
     if install_dir.exists() and not replace_existing:
-        raise FileExistsError(f"Plugin already exists: {plugin.install_dir_name}")
+        raise FileExistsError(f"Plugin already exists: {install_dir_name}")
 
     with tempfile.TemporaryDirectory(
         dir=destination_root,
-        prefix=f".{plugin.name}.staging-",
+        # The staging prefix is cosmetic, but it is still joined onto destination_root by
+        # tempfile, so it uses the checked name rather than the raw entry name: a name of
+        # "../evil" with an innocuous repo path would otherwise stage outside the root.
+        prefix=f".{install_dir_name}.staging-",
     ) as tmp:
-        staged_dir = Path(tmp) / plugin.install_dir_name
+        staged_dir = Path(tmp) / install_dir_name
         copied_source = _copy_plugin_from_source(
             plugin,
             destination_dir=staged_dir,
@@ -183,6 +187,10 @@ def install_marketplace_plugin_sync(
         else:
             staged_dir.rename(install_dir)
     return install_dir
+
+
+def _safe_install_dir_name(name: str) -> str:
+    return marketplace_provenance_io.safe_install_dir_name(name, label="Plugin")
 
 
 def remove_local_plugin(plugin_dir: Path, *, destination_root: Path) -> None:
