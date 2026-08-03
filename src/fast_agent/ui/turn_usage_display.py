@@ -71,7 +71,7 @@ def format_turn_usage(usage: TurnUsageDisplay) -> str:
         expiry = datetime.fromtimestamp(usage.cache_ttl.expires_at).strftime("%H:%M")
         details.append(f"cache TTL {expiry}")
     elif isinstance(usage.cache_ttl, CacheTTLMinimum):
-        details.append(f"cache TTL ≥{format_two_unit_duration(usage.cache_ttl.seconds)}")
+        details.append(f"cache TTL {format_two_unit_duration(usage.cache_ttl.seconds)}+")
 
     detail_info = f" [dim]· {' · '.join(details)}[/dim]" if details else ""
     return (

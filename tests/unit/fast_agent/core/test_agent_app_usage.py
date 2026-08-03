@@ -192,7 +192,7 @@ def test_openai_responses_usage_displays_documented_minimum_cache_ttl() -> None:
     display = app._collect_agent_turn_usage(app["assistant"], None)
 
     assert display is not None
-    assert "cache TTL ≥30m" in format_regular_turn_usage(display)
+    assert "cache TTL 30m+" in format_regular_turn_usage(display)
 
 
 @pytest.mark.parametrize(
