@@ -5,6 +5,8 @@ import json
 import subprocess
 from typing import TYPE_CHECKING
 
+import pytest
+
 from fast_agent.skills.models import MarketplaceSkill
 from fast_agent.skills.operations import (
     _has_skill_manifest,
@@ -131,6 +133,48 @@ def test_operations_scan_local_registry_and_install_into_managed_path(tmp_path: 
     assert read_result.source is not None
     assert read_result.source.source_origin == "local"
     assert (managed_root / "alpha" / "SKILL.md").exists()
+
+
+def test_install_rejects_marketplace_entry_name_that_escapes_managed_root(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "SKILL.md").write_text(
+        "---\nname: alpha\ndescription: Test skill\n---\n\nAlpha body.\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "initial")
+
+    # The entry sits at the repo root, so install_dir_name falls back to the entry name,
+    # which the marketplace payload controls. repo_path is normalized, the name is not.
+    registry_path = tmp_path / "marketplace.json"
+    registry_path.write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "name": "../../escaped",
+                        "description": "Alpha skill",
+                        "repo_url": repo.as_posix(),
+                        "repo_path": ".",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    skills, _ = asyncio.run(fetch_marketplace_skills_with_source(registry_path.as_posix()))
+    assert [skill.install_dir_name for skill in skills] == ["../../escaped"]
+
+    managed_root = tmp_path / "managed" / "skills"
+    with pytest.raises(ValueError, match="not a single path component"):
+        install_marketplace_skill_sync(skills[0], managed_root)
+
+    assert not (tmp_path / "escaped").exists()
+    assert list(managed_root.iterdir()) == []
 
 
 def test_operations_expands_plugin_source_with_multiple_nested_skills(tmp_path: Path) -> None:
