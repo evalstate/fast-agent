@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 from openai import APIError
+from openai.types.responses import ResponseErrorEvent
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.provider.openai.openresponses_streaming import OpenResponsesStreamingMixin
@@ -797,5 +798,36 @@ async def test_failed_responses_raise_provider_error_details() -> None:
         "error": {
             "message": "DeepSeek generation failed",
             "code": "server_error",
+        }
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_error_event_raises_provider_error_details() -> None:
+    harness = _ResponsesHarness()
+    error_event = ResponseErrorEvent(
+        code="rate_limit_exceeded",
+        message="Too many requests",
+        param=None,
+        sequence_number=1,
+        type="error",
+    )
+    stream = _FakeResponsesStream(
+        events=[error_event],
+        final_response=SimpleNamespace(output=[], usage=None),
+    )
+
+    with pytest.raises(APIError, match="Too many requests") as exc_info:
+        await harness._process_stream(
+            stream,
+            model="deepseek-v4-flash",
+            capture_filename=None,
+        )
+
+    assert exc_info.value.body == {
+        "error": {
+            "message": "Too many requests",
+            "code": "rate_limit_exceeded",
         }
     }
