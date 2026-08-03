@@ -1,4 +1,7 @@
+import ntpath
+import posixpath
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -31,6 +34,23 @@ def test_normalize_repo_path(value: str, expected: str | None) -> None:
     assert normalize_repo_path(value) == expected
 
 
+def _is_direct_child(module: Any, root: str, name: str) -> bool:
+    """Whether joining ``name`` onto ``root`` yields the direct child of ``root`` named ``name``.
+
+    ``module`` is ``posixpath`` or ``ntpath``, so this asks the question of a *chosen* path
+    flavour rather than of the host the test happens to run on. That matters because the
+    guard is deliberately host-independent: a marketplace payload written for one platform is
+    installed on whichever platform runs it, and ``"nested\\name"`` is a traversal on Windows
+    while being one legal filename on POSIX.
+    """
+    joined = module.normpath(module.join(root, name))
+    return module.dirname(joined) == root and module.basename(joined) == name
+
+
+_POSIX_ROOT = "/managed/root"
+_WINDOWS_ROOT = "C:\\managed\\root"
+
+
 @pytest.mark.parametrize(
     "name",
     [
@@ -43,8 +63,12 @@ def test_normalize_repo_path(value: str, expected: str | None) -> None:
 )
 def test_safe_install_dir_name_accepts_contained_component(name: str, tmp_path: Path) -> None:
     assert safe_install_dir_name(name, label="Skill") == name
-    # Assert the contract itself rather than the shape: joining an accepted name onto a
-    # root yields the direct child of that root that carries the name.
+    # Assert the contract itself rather than the shape: joining an accepted name onto a root
+    # yields the direct child of that root that carries the name. An accepted name has to
+    # satisfy that under *both* flavours, since the name may be installed on either.
+    assert _is_direct_child(posixpath, _POSIX_ROOT, name)
+    assert _is_direct_child(ntpath, _WINDOWS_ROOT, name)
+    # And on the running host, for the flavour that will actually create the directory.
     resolved = (tmp_path / name).resolve()
     assert resolved.parent == tmp_path.resolve()
     assert resolved.name == name
@@ -66,13 +90,18 @@ def test_safe_install_dir_name_accepts_contained_component(name: str, tmp_path: 
         "//server/share",
     ],
 )
-def test_safe_install_dir_name_rejects_non_component_names(name: str, tmp_path: Path) -> None:
-    # Every rejected name breaks the same contract from the accepting test: joining it
-    # does not produce the direct child of the root that carries the name. Whether it
-    # also leaves the root is incidental - "C:relative" only escapes when the root sits
-    # on another drive - so the rejection is anchored on the contract, not on escaping.
-    resolved = (tmp_path / name).resolve()
-    assert resolved.parent != tmp_path.resolve() or resolved.name != name
+def test_safe_install_dir_name_rejects_non_component_names(name: str) -> None:
+    # Every rejected name breaks the same contract from the accepting test: joining it does
+    # not produce the direct child of the root that carries the name. It is enough for that
+    # to hold under *one* flavour - the guard rejects a name that is a traversal anywhere,
+    # because the payload that carries it is installed on whichever platform runs it. Whether
+    # a name also leaves the root is incidental: "C:relative" only escapes when the root sits
+    # on another drive, so the rejection is anchored on the contract, not on escaping.
+    if name:
+        assert not (
+            _is_direct_child(posixpath, _POSIX_ROOT, name)
+            and _is_direct_child(ntpath, _WINDOWS_ROOT, name)
+        )
 
     with pytest.raises(ValueError, match="not a single path component"):
         safe_install_dir_name(name, label="Skill")
