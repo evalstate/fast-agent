@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from click.utils import strip_ansi
+
 ROOT = Path(__file__).resolve().parents[2]
 DOCS_ASSETS_PATH = ROOT / "scripts" / "docs_assets.py"
 
@@ -62,6 +64,27 @@ def test_mcp_inspect_casts_show_modern_progress_and_legacy_health() -> None:
     assert "tools/call:2" in modern
     assert "notif" in modern
 
+    modern_plain = strip_ansi(modern).replace("\x1b(B", "")
+    stream_start = modern_plain.index("hf__gr1_z_image_turbo_generate")
+    completed_call_start = modern_plain.index(
+        "agent tool (MCP) hf gr1_z_image_turbo_generate",
+        stream_start,
+    )
+    streamed_call = modern_plain[stream_start:completed_call_start]
+    assert "\r\n{\r\n" in streamed_call
+    assert '\r\n  "prompt": "' in streamed_call
+    assert '\r\n  "resolution": "' in streamed_call
+    assert re.search(
+        r"agent tool \(MCP\) hf hf_whoami · id: [^\r\n]+\r?\n\{\}",
+        modern_plain,
+    )
+    assert re.search(
+        r"agent tool \(MCP\) hf gr1_z_image_turbo_generate · id: [^\r\n]+"
+        r"\r?\n\{\r?\n  \"prompt\":",
+        modern_plain,
+    )
+    assert "\r\n…\r\n" in modern_plain
+
     assert "Docs Legacy Remote" in legacy
     assert "2025-11-25 (forced legacy)" in legacy
     assert "docs-legacy-session" in legacy
@@ -80,6 +103,9 @@ def test_mcp_inspect_recorders_use_high_resolution_timelines() -> None:
     for script in (modern_script, legacy_script):
         assert "steps: 60" in script
         assert "step_seconds: 1" in script
+
+    assert "wait_for_prompt" in legacy_script
+    assert """wait_for_pane "$SESSION" 'Docs Legacy Remote'""" in legacy_script
 
 
 def test_asciinema_index_covers_all_committed_casts() -> None:

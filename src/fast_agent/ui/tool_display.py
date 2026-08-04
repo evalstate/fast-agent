@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
+from rich.cells import cell_len
 from rich.console import Group
 from rich.markup import escape as escape_markup
 from rich.syntax import Syntax
@@ -38,6 +39,7 @@ from fast_agent.ui.shell_output_truncation import (
     format_shell_output_line_count,
     truncate_shell_output_lines,
 )
+from fast_agent.ui.streaming.json_prefix import format_json_prefix
 from fast_agent.ui.syntax_highlighting import shell_syntax_blocks, syntax_language_for_path
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.count_display import format_count
@@ -153,6 +155,26 @@ _TRANSPORT_METADATA_LABELS: dict[str, str] = {
     "resumption": "Resumption",
     "stdio": "STDIO",
 }
+_COMPACT_GENERIC_ARGUMENT_ROWS = 6
+_SENSITIVE_TOOL_ARGUMENT_KEYS = frozenset(
+    {
+        "accesstoken",
+        "apikey",
+        "auth",
+        "authorization",
+        "clientsecret",
+        "cookie",
+        "credentials",
+        "password",
+        "privatekey",
+        "proxyauthorization",
+        "refreshtoken",
+        "secret",
+        "setcookie",
+        "token",
+        "xapikey",
+    }
+)
 
 
 class ToolDisplay:
@@ -357,11 +379,60 @@ class ToolDisplay:
             annotations.append(f"id: {short_id}")
         return annotations
 
+    @staticmethod
+    def _is_sensitive_tool_argument_key(key: object) -> bool:
+        normalized = "".join(character for character in str(key).casefold() if character.isalnum())
+        return normalized in _SENSITIVE_TOOL_ARGUMENT_KEYS
+
+    @classmethod
+    def _redact_compact_tool_arguments(cls, value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {
+                str(key): (
+                    "[REDACTED]"
+                    if cls._is_sensitive_tool_argument_key(key)
+                    else cls._redact_compact_tool_arguments(item)
+                )
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [cls._redact_compact_tool_arguments(item) for item in value]
+        return value
+
+    def _compact_generic_argument_preview(self, tool_args: Mapping[str, Any]) -> Group | Syntax:
+        redacted_args = self._redact_compact_tool_arguments(tool_args)
+        compact_args = json.dumps(
+            redacted_args,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=str,
+        )
+        lines = (format_json_prefix(compact_args) or compact_args).splitlines()
+        visible_lines = lines[:_COMPACT_GENERIC_ARGUMENT_ROWS]
+        truncated = len(lines) > _COMPACT_GENERIC_ARGUMENT_ROWS or any(
+            cell_len(line) > console.console.size.width for line in visible_lines
+        )
+        if truncated:
+            visible_lines = lines[: _COMPACT_GENERIC_ARGUMENT_ROWS - 1]
+
+        preview = Syntax(
+            "\n".join(visible_lines),
+            "json",
+            theme=self._display.code_style,
+            background_color="default",
+            line_numbers=False,
+            word_wrap=False,
+        )
+        if not truncated:
+            return preview
+        return Group(preview, Text("…", style="dim"))
+
     def _show_compact_tool_call(
         self,
         *,
         prepared: PreparedToolCallDisplay,
         tool_name: str,
+        tool_args: Mapping[str, Any],
         metadata: Mapping[str, Any],
         name: str | None,
         tool_call_id: str | None,
@@ -391,16 +462,21 @@ class ToolDisplay:
         console.console.print(line, markup=self._markup)
 
         arguments = self._display.tool_display_settings.arguments
-        show_body = arguments == "all" or (
+        if arguments == "none":
+            return
+        if (
             arguments == "auto"
             and request_count == 1
-            and (
-                metadata.get("variant") == "shell"
-                or is_apply_patch_tool_name(tool_name)
-                or normalize_tool_name(tool_name) == EDIT_FILE_TOOL_NAME
-            )
+            and self._is_generic_tool(tool_name, metadata)
+        ):
+            console.console.print(self._compact_generic_argument_preview(tool_args))
+            return
+        show_specialized_body = (
+            metadata.get("variant") in {"code", "shell"}
+            or is_apply_patch_tool_name(tool_name)
+            or normalize_tool_name(tool_name) == EDIT_FILE_TOOL_NAME
         )
-        if not show_body:
+        if arguments != "all" and (arguments != "auto" or not show_specialized_body):
             return
         self._display._display_content(
             prepared.content,
@@ -432,7 +508,7 @@ class ToolDisplay:
     @staticmethod
     def _is_generic_tool(tool_name: str | None, metadata: Mapping[str, Any] | None = None) -> bool:
         normalized_name = normalize_tool_name(tool_name)
-        if metadata and metadata.get("variant") in {"shell", "shell_process"}:
+        if metadata and metadata.get("variant") in {"code", "shell", "shell_process"}:
             return False
         return not (
             is_shell_execution_tool(tool_name)
@@ -445,7 +521,7 @@ class ToolDisplay:
         return (
             self._display.tool_display_layout == "compact"
             and self._display.tool_display_settings.aggregate_parallel
-            and self._display.tool_display_settings.arguments != "all"
+            and self._display.tool_display_settings.arguments == "none"
             and not request.show_hook_indicator
             and self._is_generic_tool(request.tool_name, request.metadata)
         )
@@ -2116,6 +2192,7 @@ class ToolDisplay:
                 self._show_compact_tool_call(
                     prepared=prepared,
                     tool_name=tool_name,
+                    tool_args=tool_args,
                     metadata=metadata,
                     name=name,
                     tool_call_id=tool_call_id,

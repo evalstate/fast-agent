@@ -67,7 +67,7 @@ def _result(
     )
 
 
-def test_compact_parallel_generic_calls_and_text_results_are_aggregated() -> None:
+def test_compact_parallel_generic_calls_show_individual_arguments_and_aggregate_results() -> None:
     display = _display()
 
     with console.console.capture() as capture:
@@ -93,12 +93,22 @@ def test_compact_parallel_generic_calls_and_text_results_are_aggregated() -> Non
         )
 
     rendered = " ".join(capture.get().split())
-    assert rendered.count("2 requests") == 1
-    assert rendered.count("tool (MCP) docs search") == 4
+    assert "2 requests" not in rendered
+    assert rendered.count("needle") == 6
     assert "2 results, 5 chars" in rendered
     assert "2ms" in rendered
-    assert "2 requests · id:" not in rendered
     assert "2 results, 5 chars · 2ms · id:" not in rendered
+
+
+def test_none_argument_policy_suppresses_bodies_and_allows_call_aggregation() -> None:
+    display = _display(arguments="none")
+
+    with console.console.capture() as capture:
+        display.show_parallel_tool_calls([_call(), _call()])
+
+    rendered = " ".join(capture.get().split())
+    assert "2 requests" in rendered
+    assert "needle" not in rendered
 
 
 def test_compact_parallel_aggregation_preserves_identity_and_exclusions() -> None:

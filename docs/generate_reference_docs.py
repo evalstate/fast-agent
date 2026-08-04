@@ -912,7 +912,10 @@ def generate_tui_runtime_reference() -> str:
         "logger.code_word_wrap": "Wrap Syntax-rendered code blocks instead of cropping.",
         "logger.apply_patch_preview_max_lines": "Maximum lines to show in apply_patch previews.",
         "logger.tool_display.layout": "Compact summary-first or full legacy tool rendering.",
-        "logger.tool_display.arguments": "Tool argument body visibility.",
+        "logger.tool_display.arguments": (
+            "Tool argument visibility; auto shows redacted six-row JSON previews and specialized "
+            "bodies."
+        ),
         "logger.tool_display.results": "Tool result body visibility.",
         "logger.tool_display.show_successful_file_reads": (
             "Show successful complete file-read activity in compact layout."
@@ -921,7 +924,7 @@ def generate_tui_runtime_reference() -> str:
             "Stream apply_patch/edit_file previews for the primary agent or all agents."
         ),
         "logger.tool_display.aggregate_parallel": (
-            "Aggregate safe parallel calls to the same generic tool."
+            "Aggregate safe parallel generic calls when argument bodies are disabled."
         ),
         "logger.terminal_images.enabled": "Render image content in capable terminals.",
         "logger.terminal_images.backend": (

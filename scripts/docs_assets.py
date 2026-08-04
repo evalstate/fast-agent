@@ -790,7 +790,9 @@ tmux attach-session -t "$SESSION" || true
 
 def _mcp_inspect_legacy_record_script(scenario: TerminalCastScenario) -> str:
     startup_wait = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_STARTUP_WAIT", "4")
-    attach_wait = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_ATTACH_WAIT", "4")
+    attach_timeout = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_ATTACH_TIMEOUT", "30")
+    prompt_timeout = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_PROMPT_TIMEOUT", "30")
+    status_timeout = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_STATUS_TIMEOUT", "30")
     ping_wait = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_PING_WAIT", "3")
     status_wait = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_STATUS_WAIT", "2")
     typing_delay = os.environ.get("FAST_AGENT_MCP_LEGACY_DEMO_TYPING_DELAY", "0.035")
@@ -827,6 +829,37 @@ type_slow() {{
     tmux send-keys -l -t "$target" "$char"
     sleep "$delay"
   done
+}}
+
+wait_for_pane() {{
+  local target="$1"
+  local pattern="$2"
+  local timeout="$3"
+  local attempts=$((timeout * 4))
+  local i
+  for (( i=0; i<attempts; i++ )); do
+    if tmux capture-pane -p -t "$target" -S -5000 | grep -Fq "$pattern"; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  tmux capture-pane -p -t "$target" -S -5000 >&2 || true
+  return 1
+}}
+
+wait_for_prompt() {{
+  local target="$1"
+  local timeout="$2"
+  local attempts=$((timeout * 4))
+  local i
+  for (( i=0; i<attempts; i++ )); do
+    if tmux capture-pane -p -t "$target" -S -8 | grep -Eq '^❯[[:space:]]*$'; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  tmux capture-pane -p -t "$target" -S -50 >&2 || true
+  return 1
 }}
 
 cat > "$DEMO_FAST_AGENT_HOME/fast-agent.yaml" <<YAML
@@ -871,12 +904,15 @@ tmux set-option -t "$SESSION" status off >/dev/null
   type_slow "$SESSION" '{command}' 0.035
   tmux send-keys -t "$SESSION" Enter
   sleep {startup_wait}
+  wait_for_prompt "$SESSION" {prompt_timeout}
   type_slow "$SESSION" '/mcp attach legacy_remote' {typing_delay}
   tmux send-keys -t "$SESSION" Enter
-  sleep {attach_wait}
+  wait_for_pane "$SESSION" "Attached configured MCP server 'legacy_remote'" {attach_timeout}
+  wait_for_prompt "$SESSION" {prompt_timeout}
   sleep {ping_wait}
   type_slow "$SESSION" '/mcp' {typing_delay}
   tmux send-keys -t "$SESSION" Enter
+  wait_for_pane "$SESSION" 'Docs Legacy Remote' {status_timeout}
   sleep {status_wait}
   tmux kill-session -t "$SESSION" 2>/dev/null || true
 ) &

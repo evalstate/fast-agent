@@ -1,11 +1,14 @@
+import io
+
 import pytest
+from click.utils import strip_ansi
 from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
     TextContent,
 )
-from rich.console import Group
+from rich.console import Console, Group
 from rich.syntax import Syntax
 
 from fast_agent.config import LoggerSettings, Settings, ShellSettings, ToolDisplaySettings
@@ -43,7 +46,7 @@ def test_compact_is_default_and_full_remains_available() -> None:
     assert settings.aggregate_parallel
 
 
-def test_compact_mcp_call_and_result_are_summary_only() -> None:
+def test_compact_mcp_call_shows_arguments_and_hides_successful_result() -> None:
     display = _display()
     result = CallToolResult(
         content=[TextContent(type="text", text="large result body")],
@@ -74,8 +77,83 @@ def test_compact_mcp_call_and_result_are_summary_only() -> None:
     assert (
         "▎▶ agent tool (MCP) huggingface hf_fs · text only 17 chars · 12.0s · id: call_…456789"
     ) in rendered
-    assert "datasets/example" not in rendered
+    assert "datasets/example" in rendered
     assert "large result body" not in rendered
+
+
+def test_compact_generic_arguments_use_six_unwrapped_rows_with_truncation() -> None:
+    original_console = console.console
+    output = io.StringIO()
+    console.console = Console(
+        file=output,
+        force_terminal=True,
+        color_system="standard",
+        width=36,
+    )
+    try:
+        _display().show_tool_call(
+            "lookup",
+            {
+                "emoji": "日本語",
+                "long_value": "x" * 100,
+                "first": 1,
+                "second": 2,
+                "third": 3,
+                "fourth": 4,
+            },
+        )
+    finally:
+        console.console = original_console
+
+    lines = strip_ansi(output.getvalue()).splitlines()
+    assert len(lines) == 7
+    assert "日本語" in lines[2]
+    assert '"long_value"' in lines[3]
+    assert "x" * 100 not in output.getvalue()
+    assert lines[-1].strip() == "…"
+
+
+def test_compact_argument_policies_hide_all_bodies_or_show_all_arguments() -> None:
+    hidden = _display(tool_display=ToolDisplaySettings(arguments="none"))
+    shown = _display(tool_display=ToolDisplaySettings(arguments="all"))
+    values = {f"key_{index}": index for index in range(8)}
+
+    with console.console.capture() as capture:
+        hidden.show_tool_call("lookup", {"query": "hidden"})
+        hidden.show_tool_call(
+            "Bash",
+            {"command": "hidden shell command"},
+            metadata={"variant": "shell", "command": "hidden shell command"},
+        )
+        shown.show_tool_call("lookup", values)
+
+    rendered = capture.get()
+    assert "hidden" not in rendered
+    assert "key_0" in rendered
+    assert "key_7" in rendered
+
+
+def test_compact_auto_redacts_nested_credentials_without_hiding_similar_keys() -> None:
+    automatic = _display()
+    shown = _display(tool_display=ToolDisplaySettings(arguments="all"))
+    arguments = {
+        "api_key": "auto-secret",
+        "token_count": 42,
+        "nested": {"Authorization": "Bearer nested-secret"},
+    }
+
+    with console.console.capture() as capture:
+        automatic.show_tool_call("lookup", arguments)
+        shown.show_tool_call("lookup", arguments)
+
+    automatic_output, shown_output = capture.get().split("▎◀ tool lookup")[1:]
+    assert automatic_output.count("[REDACTED]") == 2
+    assert "auto-secret" not in automatic_output
+    assert "nested-secret" not in automatic_output
+    assert "token_count" in automatic_output
+    assert "42" in automatic_output
+    assert "auto-secret" in shown_output
+    assert "nested-secret" in shown_output
 
 
 def test_compact_file_reads_hide_all_successes_and_show_error_summary() -> None:
@@ -163,6 +241,21 @@ def test_compact_shell_collapses_result_to_inverse_exit_summary() -> None:
         line for line in capture.get().splitlines() if "uv run scripts/lint.py" in line
     ]
     assert [line.strip() for line in command_lines] == ["uv run scripts/lint.py"]
+
+
+def test_compact_metadata_code_tool_uses_specialized_preview() -> None:
+    display = _display()
+
+    with console.console.capture() as capture:
+        display.show_tool_call(
+            "run_code",
+            {"source": "print('hello')", "label": "example"},
+            metadata={"variant": "code", "code_arg": "source", "language": "python"},
+        )
+
+    rendered = capture.get()
+    assert "print('hello')" in rendered
+    assert '"source"' not in rendered
 
 
 def test_compact_background_shell_result_identifies_started_process() -> None:

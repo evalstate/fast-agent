@@ -1,7 +1,9 @@
 import io
 from typing import Any, cast
 
+import pytest
 from rich.console import Console, Group
+from rich.live import Live
 from rich.syntax import Syntax
 from rich.text import Text
 
@@ -50,6 +52,35 @@ def test_stream_rollback_discards_uncommitted_attempt() -> None:
     assembler.handle_stream_chunk(StreamChunk("recovered answer"))
 
     assert [segment.text for segment in assembler.segments] == ["recovered answer"]
+
+
+def test_stream_batch_coalesces_contiguous_deltas_for_the_same_tool_call() -> None:
+    first = streaming_module._ToolStreamEvent(
+        event_type="delta",
+        info={"tool_name": "search", "tool_use_id": "call-1", "chunk": '{"query":"'},
+    )
+    second = streaming_module._ToolStreamEvent(
+        event_type="delta",
+        info={"tool_name": "search", "tool_use_id": "call-1", "chunk": 'value"}'},
+    )
+    stop = streaming_module._ToolStreamEvent(
+        event_type="stop",
+        info={"tool_name": "search", "tool_use_id": "call-1"},
+    )
+
+    coalesced = streaming_module._coalesce_tool_delta_payloads([first, second, stop])
+
+    assert coalesced == [
+        streaming_module._ToolStreamEvent(
+            event_type="delta",
+            info={
+                "tool_name": "search",
+                "tool_use_id": "call-1",
+                "chunk": '{"query":"value"}',
+            },
+        ),
+        stop,
+    ]
 
 
 def test_stream_rollback_restores_committed_text_and_tool_segments() -> None:
@@ -646,6 +677,72 @@ def test_diff_live_reprints_frame_after_console_print() -> None:
     rendered = output.getvalue()
     assert "notice" in rendered
     assert "frame" in rendered
+
+
+def test_nested_diff_live_does_not_write_cursor_diffs() -> None:
+    output = io.StringIO()
+    local_console = Console(file=output, force_terminal=True, color_system=None, width=40)
+
+    with Live(Text("monitor"), console=local_console, auto_refresh=False):
+        live = streaming_module._DiffLive(
+            console=local_console,
+            transient=True,
+        )
+        live.__enter__()
+        assert live._nested
+
+        output.seek(0)
+        output.truncate(0)
+        live.update(Text("streaming patch"), refresh=True)
+
+        assert output.getvalue() == ""
+        assert live._lines == []
+        live.stop()
+
+
+def test_diff_live_cleans_frame_before_releasing_live_ownership() -> None:
+    output = io.StringIO()
+    local_console = Console(file=output, force_terminal=True, color_system=None, width=40)
+
+    class OwnershipCheckingDiffLive(streaming_module._DiffLive):
+        def _clear_region(self) -> None:
+            assert self in self.console._live_stack
+            super()._clear_region()
+
+        def _restore_console_state(self) -> None:
+            if self._console_state_active:
+                assert self in self.console._live_stack
+            super()._restore_console_state()
+
+    live = OwnershipCheckingDiffLive(console=local_console, transient=True)
+    live.__enter__()
+    live.update(Text("streaming patch"), refresh=True)
+    live.stop()
+
+    assert local_console._live_stack == []
+
+
+def test_diff_live_releases_live_ownership_when_state_restoration_fails() -> None:
+    output = io.StringIO()
+    local_console = Console(file=output, force_terminal=True, color_system=None, width=40)
+
+    class FailingRestoreDiffLive(streaming_module._DiffLive):
+        restore_calls = 0
+
+        def _restore_console_state(self) -> None:
+            super()._restore_console_state()
+            self.restore_calls += 1
+            if self.restore_calls == 1:
+                raise RuntimeError("restore failed")
+
+    live = FailingRestoreDiffLive(console=local_console, transient=True)
+    live.__enter__()
+    live.update(Text("streaming patch"), refresh=True)
+
+    with pytest.raises(RuntimeError, match="restore failed"):
+        live.stop()
+
+    assert local_console._live_stack == []
 
 
 def test_diff_live_stop_does_not_add_extra_newline_when_cursor_below_frame() -> None:

@@ -1707,7 +1707,7 @@ class ToolDisplaySettings(BaseModel):
     """Compact summary-first transcript or the full legacy tool cards."""
 
     arguments: Literal["auto", "all", "none"] = "auto"
-    """Tool argument bodies: specialized defaults, all, or none."""
+    """Tool argument bodies: redacted compact previews and specialized defaults, all, or none."""
 
     results: Literal["auto", "all", "none"] = "auto"
     """Tool result bodies: specialized defaults, all, or none."""

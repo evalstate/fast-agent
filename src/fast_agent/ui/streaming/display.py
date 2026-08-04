@@ -144,6 +144,52 @@ class _AppliedStreamBatch:
     batch_chars: int
 
 
+def _coalesce_tool_delta_payloads(payloads: list[object]) -> list[object]:
+    coalesced: list[object] = []
+    index = 0
+    while index < len(payloads):
+        payload = payloads[index]
+        identity = _tool_delta_identity(payload)
+        if identity is None:
+            coalesced.append(payload)
+            index += 1
+            continue
+
+        assert isinstance(payload, _ToolStreamEvent)
+        info = payload.info
+        assert info is not None
+        chunks = [str(info["chunk"])]
+        next_index = index + 1
+        while next_index < len(payloads):
+            candidate = payloads[next_index]
+            if _tool_delta_identity(candidate) != identity:
+                break
+            assert isinstance(candidate, _ToolStreamEvent)
+            assert candidate.info is not None
+            chunks.append(str(candidate.info["chunk"]))
+            next_index += 1
+
+        if len(chunks) == 1:
+            coalesced.append(payload)
+        else:
+            merged_info = dict(info)
+            merged_info["chunk"] = "".join(chunks)
+            coalesced.append(_ToolStreamEvent(event_type="delta", info=merged_info))
+        index = next_index
+    return coalesced
+
+
+def _tool_delta_identity(payload: object) -> dict[str, Any] | None:
+    if not isinstance(payload, _ToolStreamEvent):
+        return None
+    if payload.event_type != "delta":
+        return None
+    info = payload.info
+    if not info or not info.get("tool_use_id") or not isinstance(info.get("chunk"), str):
+        return None
+    return {key: value for key, value in info.items() if key != "chunk"}
+
+
 def _first_different_line(
     old_lines: list[_RenderedLine],
     lines: list[_RenderedLine],
@@ -231,7 +277,7 @@ class _DiffLive(RenderHook):
         renderable = self.get_renderable()
         if renderable is None:
             return
-        if not self._is_interactive:
+        if not self._is_interactive or self._nested:
             return
         lines = self._render_lines(renderable)
 
@@ -278,13 +324,19 @@ class _DiffLive(RenderHook):
             self.console.print(renderable)
 
     def _stop_interactive(self) -> None:
-        self.console.clear_live()
         if self._nested:
+            self.console.clear_live()
             if not self.transient:
                 self._print_current_renderable()
             return
-        if self._lines:
-            self._stop_drawn_frame()
+        try:
+            try:
+                if self._lines:
+                    self._stop_drawn_frame()
+            finally:
+                self._restore_console_state()
+        finally:
+            self.console.clear_live()
 
     def _stop_drawn_frame(self) -> None:
         if self.transient:
@@ -1485,6 +1537,7 @@ class StreamingMessageHandle:
         should_render = False
         queued_items: list[_QueuedItem] = []
         batch_chars = 0
+        payloads: list[object] = []
         for chunk in chunks:
             if chunk is self._stop_sentinel:
                 continue
@@ -1492,6 +1545,8 @@ class StreamingMessageHandle:
             if isinstance(chunk, _QueuedItem):
                 queued_items.append(chunk)
                 payload = chunk.payload
+            payloads.append(payload)
+        for payload in _coalesce_tool_delta_payloads(payloads):
             rendered, char_count = self._apply_stream_payload(payload)
             should_render = rendered or should_render
             batch_chars += char_count

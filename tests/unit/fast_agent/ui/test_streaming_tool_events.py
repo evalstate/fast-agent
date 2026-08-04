@@ -30,11 +30,202 @@ def test_tool_stream_delta_bootstraps_mode() -> None:
 
     text = "".join(segment.text for segment in assembler.segments)
     assert "-> search" in text
-    assert '{"q":1}' in text
+    assert '"q": 1' in text
 
     assembler.handle_tool_event("stop", {"tool_name": "search", "tool_use_id": "tool-1"})
     text = "".join(segment.text for segment in assembler.segments)
     assert '"q": 1' in text
+
+
+def test_tool_stream_generic_json_is_stable_when_completed() -> None:
+    assembler = _make_assembler()
+
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "search",
+            "tool_use_id": "tool-pretty-1",
+            "chunk": '{"query":"日本語","filters":[true',
+        },
+    )
+    before_stop = assembler.segments[0].text
+    assert '"query": "日本語"' in before_stop
+    assert '"filters": [' in before_stop
+
+    assembler.handle_tool_event(
+        "delta",
+        {"tool_name": "search", "tool_use_id": "tool-pretty-1", "chunk": "]}"},
+    )
+    before_stop = assembler.segments[0].text
+    assembler.handle_tool_event("stop", {"tool_name": "search", "tool_use_id": "tool-pretty-1"})
+
+    assert assembler.segments[0].text == before_stop
+
+
+def test_tool_stream_invalid_json_falls_back_to_raw_text() -> None:
+    assembler = _make_assembler()
+    malformed = '{"query":01}'
+
+    assembler.handle_tool_event(
+        "delta",
+        {"tool_name": "search", "tool_use_id": "tool-invalid-1", "chunk": malformed},
+    )
+
+    assert malformed in assembler.segments[0].text
+
+
+def test_tool_stream_google_concatenated_snapshots_fall_back_to_raw_text() -> None:
+    assembler = _make_assembler()
+    snapshots = '{"query":"first"}{"query":"second"}'
+
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "google_search",
+            "tool_use_id": "tool-google-snapshots-1",
+            "chunk": snapshots,
+        },
+    )
+
+    assert snapshots in assembler.segments[0].text
+
+
+def test_tool_stream_unknown_identity_delays_generic_json_formatting() -> None:
+    assembler = _make_assembler()
+
+    assembler.handle_tool_event(
+        "delta",
+        {"tool_use_id": "tool-unknown-1", "chunk": '{"query":"value"}'},
+    )
+
+    assert '{"query":"value"}' in assembler.segments[0].text
+
+
+def test_tool_stream_late_identity_formats_accumulated_json_and_updates_segment_name() -> None:
+    assembler = _make_assembler()
+
+    assembler.handle_tool_event(
+        "delta",
+        {"tool_use_id": "tool-late-name-1", "chunk": '{"query":'},
+    )
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "search",
+            "tool_use_id": "tool-late-name-1",
+            "chunk": '"value"}',
+        },
+    )
+
+    segment = assembler.segments[0]
+    assert segment.tool_name == "search"
+    assert '"query": "value"' in segment.text
+
+
+def test_tool_stream_named_empty_start_preserves_identity_for_nameless_deltas() -> None:
+    assembler = _make_assembler()
+
+    assert not assembler.handle_tool_event(
+        "start",
+        {"tool_name": "search", "tool_use_id": "tool-empty-start-1"},
+    )
+    assembler.handle_tool_event(
+        "delta",
+        {"tool_use_id": "tool-empty-start-1", "chunk": '{"query":"value"}'},
+    )
+
+    segment = assembler.segments[0]
+    assert segment.tool_name == "search"
+    assert '"query": "value"' in segment.text
+
+
+def test_tool_stream_nameless_delta_does_not_replace_known_specialized_identity() -> None:
+    assembler = _make_assembler(
+        tool_metadata_resolver=lambda tool_name: (
+            {"variant": "code", "code_arg": "source", "language": "python"}
+            if tool_name == "run_code"
+            else None
+        )
+    )
+
+    assert not assembler.handle_tool_event(
+        "start",
+        {"tool_name": "run_code", "tool_use_id": "tool-known-name-1"},
+    )
+    assembler.handle_tool_event(
+        "delta",
+        {"tool_use_id": "tool-known-name-1", "chunk": '{"source":"print(1)"}'},
+    )
+
+    segment = assembler.segments[0]
+    assert segment.tool_name == "run_code"
+    assert segment.code_preview is not None
+    assert segment.code_preview.code == "print(1)"
+
+
+def test_tool_stream_metadata_code_preview_keeps_precedence_over_generic_json() -> None:
+    assembler = _make_assembler(
+        tool_metadata_resolver=lambda tool_name: (
+            {"variant": "code", "code_arg": "source", "language": "python"}
+            if tool_name == "run_code"
+            else None
+        )
+    )
+    raw = '{"source":"print(1)","label":"example"}'
+
+    assembler.handle_tool_event(
+        "delta",
+        {"tool_name": "run_code", "tool_use_id": "tool-code-1", "chunk": raw},
+    )
+
+    segment = assembler.segments[0]
+    assert raw in segment.text
+    assert segment.code_preview is not None
+    assert segment.code_preview.code == "print(1)"
+
+
+def test_tool_stream_specialized_preview_uses_canonical_name_not_display_label() -> None:
+    assembler = _make_assembler()
+
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "apply_patch",
+            "tool_display_name": "Applying changes",
+            "tool_use_id": "tool-decorated-patch-1",
+            "chunk": "*** Begin Patch\n*** Add File: example.txt\n+hello\n*** End Patch\n",
+        },
+    )
+
+    segment = assembler.segments[0]
+    assert segment.tool_name == "Applying changes"
+    assert segment.apply_patch_preview
+    assert "apply_patch preview:" in segment.text
+
+
+def test_tool_stream_canonical_delta_preserves_explicit_display_label() -> None:
+    assembler = _make_assembler()
+
+    assert not assembler.handle_tool_event(
+        "start",
+        {
+            "tool_name": "execute",
+            "tool_display_name": "Running shell command",
+            "tool_use_id": "tool-labeled-shell-1",
+        },
+    )
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "execute",
+            "tool_use_id": "tool-labeled-shell-1",
+            "chunk": '{"command":"echo hello"}',
+        },
+    )
+
+    segment = assembler.segments[0]
+    assert segment.tool_name == "Running shell command"
+    assert segment.text.startswith("-> Running shell command\n")
 
 
 def test_unsupported_tool_event_does_not_change_last_tool_id() -> None:
