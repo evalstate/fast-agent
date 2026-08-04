@@ -199,6 +199,8 @@ class ManagedRuntimeMixin:
                     no_home_mode=runtime.no_home_mode,
                     plugin_commands=settings.commands,
                     plugin_command_base_path=plugin_command_base_path,
+                    plugin_post_user_turn=settings._plugin_post_user_turn,
+                    plugin_config=settings.plugins.config,
                 )
             else:
                 app_override.set_agents(
@@ -209,6 +211,10 @@ class ManagedRuntimeMixin:
                 app_override.set_plugin_commands(
                     settings.commands,
                     base_path=plugin_command_base_path,
+                )
+                app_override.set_plugin_post_user_turn(
+                    settings._plugin_post_user_turn,
+                    config=settings.plugins.config,
                 )
                 app_override.no_home_mode = runtime.no_home_mode
                 app = app_override

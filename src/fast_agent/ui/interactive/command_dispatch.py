@@ -1916,6 +1916,7 @@ def _plugin_command_context(
             current_agent_name=current_agent.name,
         ),
         is_tui=True,
+        user_turn_usage=prompt_provider.user_turn_usage,
     )
 
 

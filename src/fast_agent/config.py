@@ -39,6 +39,7 @@ from fast_agent.mcp.server_declaration import (
     MCPServerDeclaration,
     effective_server_view,
 )
+from fast_agent.plugins.models import PluginContributions, PluginPostUserTurnSpec
 from fast_agent.tools.environment_config import EnvironmentSpec
 from fast_agent.types.streaming import StreamingMode
 from fast_agent.utils.action_normalization import (
@@ -2360,6 +2361,7 @@ class Settings(BaseSettings):
     _fast_agent_no_home: bool = PrivateAttr(default=False)
     _fast_agent_settings_source: Literal["manual", "discovered"] = PrivateAttr(default="manual")
     _logger_path_explicit: bool = PrivateAttr(default=False)
+    _plugin_post_user_turn: tuple[PluginPostUserTurnSpec, ...] = PrivateAttr(default=())
 
     def __init__(self, **values: Any) -> None:
         raw_mcp = values.get("mcp")
@@ -2649,7 +2651,9 @@ def _settings_from_sources(
     settings._fast_agent_settings_source = "discovered"
     _set_theme_file_config_path(settings, sources.config_sources)
     _set_compaction_config_file_path(settings, sources.config_sources)
-    settings.commands = _merge_enabled_plugin_commands(settings)
+    plugin_contributions = _merge_enabled_plugin_contributions(settings)
+    settings.commands = plugin_contributions.commands or None
+    settings._plugin_post_user_turn = tuple(plugin_contributions.post_user_turn.values())
     return settings
 
 
@@ -2701,49 +2705,55 @@ def get_settings(
 
 
 def _merge_enabled_plugin_commands(settings: Settings) -> dict[str, PluginCommandActionSpec] | None:
+    contributions = _merge_enabled_plugin_contributions(settings)
+    return contributions.commands or None
+
+
+def _merge_enabled_plugin_contributions(settings: Settings) -> PluginContributions:
     inline_commands = settings.commands or {}
     enabled_sources = _enabled_plugin_sources(settings)
     if not enabled_sources.home and not enabled_sources.project:
-        return inline_commands or None
+        return PluginContributions(commands=dict(inline_commands), post_user_turn={})
 
     from fast_agent.paths import resolve_home_paths
-    from fast_agent.plugins.operations import load_enabled_plugin_commands
+    from fast_agent.plugins.operations import load_enabled_plugin_contributions
 
     plugin_commands: dict[str, PluginCommandActionSpec] = {}
+    post_user_turn: dict[str, PluginPostUserTurnSpec] = {}
     if enabled_sources.home and settings._fast_agent_global_plugin_home:
-        plugin_commands.update(
-            _load_enabled_plugin_commands_from_root(
-                destination_root=Path(settings._fast_agent_global_plugin_home) / "plugins",
-                enabled=enabled_sources.home,
-                scope="global",
-                load_enabled_plugin_commands=load_enabled_plugin_commands,
-            )
+        contributions = _load_enabled_plugin_contributions_from_root(
+            destination_root=Path(settings._fast_agent_global_plugin_home) / "plugins",
+            enabled=enabled_sources.home,
+            scope="global",
+            load_enabled_plugin_contributions=load_enabled_plugin_contributions,
         )
+        plugin_commands.update(contributions.commands)
+        post_user_turn.update(contributions.post_user_turn)
 
     if enabled_sources.project:
-        plugin_commands.update(
-            _load_enabled_plugin_commands_from_root(
-                destination_root=resolve_home_paths(settings).plugins,
-                enabled=enabled_sources.project,
-                scope="project",
-                load_enabled_plugin_commands=load_enabled_plugin_commands,
-            )
+        contributions = _load_enabled_plugin_contributions_from_root(
+            destination_root=resolve_home_paths(settings).plugins,
+            enabled=enabled_sources.project,
+            scope="project",
+            load_enabled_plugin_contributions=load_enabled_plugin_contributions,
         )
+        plugin_commands.update(contributions.commands)
+        post_user_turn.update(contributions.post_user_turn)
 
     merged = dict(plugin_commands)
     merged.update(inline_commands)
-    return merged or None
+    return PluginContributions(commands=merged, post_user_turn=post_user_turn)
 
 
-def _load_enabled_plugin_commands_from_root(
+def _load_enabled_plugin_contributions_from_root(
     *,
     destination_root: Path,
     enabled: list[str],
     scope: str,
-    load_enabled_plugin_commands,
-) -> dict[str, PluginCommandActionSpec]:
+    load_enabled_plugin_contributions,
+) -> PluginContributions:
     try:
-        return load_enabled_plugin_commands(
+        return load_enabled_plugin_contributions(
             destination_root=destination_root,
             enabled=enabled,
         )
@@ -2753,7 +2763,7 @@ def _load_enabled_plugin_commands_from_root(
             UserWarning,
             stacklevel=3,
         )
-        return {}
+        return PluginContributions(commands={}, post_user_turn={})
 
 
 @dataclass(frozen=True, slots=True)

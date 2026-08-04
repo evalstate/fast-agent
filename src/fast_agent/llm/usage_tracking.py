@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Annotated, Literal
 
@@ -126,6 +127,23 @@ class TurnUsage(BaseModel):
         if self.prompt.total is None or self.completion.total is None:
             return None
         return self.prompt.total + self.completion.total
+
+
+@dataclass(frozen=True, slots=True)
+class UsageLedger:
+    """Named explanatory subset of a top-level user turn's provider attempts."""
+
+    label: str
+    attempts: tuple[TurnUsage, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class UserTurnUsage:
+    """Immutable provider-attempt snapshot for one top-level user turn."""
+
+    agent_name: str
+    attempts: tuple[TurnUsage, ...]
+    ledgers: tuple[UsageLedger, ...] = ()
 
 
 class UsageSummary(BaseModel):

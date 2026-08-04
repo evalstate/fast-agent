@@ -227,7 +227,7 @@ class ModelDatabase:
         "Before making tool calls, send a brief preamble to the user "
         "explaining what you’re about to do."
     )
-    ANTHROPIC_MODEL_SPECIFIC = (
+    MODEL_PREFERS_HEREDOCS = (
         "When running POSIX shell commands, create text files with single-quoted heredocs "
         "(`<<'EOF'`), combining related files in one shell call. Use `edit_file` for "
         "targeted changes to existing files. Do not serialize independent file creation "
@@ -255,7 +255,7 @@ class ModelDatabase:
     OPENAI_GPT_56_CLASS_REASONING = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["none", "low", "medium", "high", "xhigh", "max"],
-        default=ReasoningEffortSetting(kind="effort", value="medium"),
+        default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
     OPENAI_GPT_5_CODEX_CLASS_REASONING = ReasoningEffortSpec(
@@ -313,7 +313,7 @@ class ModelDatabase:
         kind="effort",
         allowed_efforts=["none", "low", "high", "max"],
         allow_toggle_disable=True,
-        default=ReasoningEffortSetting(kind="effort", value="high"),
+        default=ReasoningEffortSetting(kind="effort", value="max"),
     )
 
     ANTHROPIC_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
@@ -364,7 +364,7 @@ class ModelDatabase:
     XAI_GROK_43_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["none", "low", "medium", "high"],
-        default=ReasoningEffortSetting(kind="effort", value="low"),
+        default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
     # Muse Spark: Responses reasoning.effort; "none" is rejected by the API.
@@ -403,7 +403,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
-        model_specific=ANTHROPIC_MODEL_SPECIFIC,
+        model_specific=MODEL_PREFERS_HEREDOCS,
     )
 
     QWEN_STANDARD = ModelParameters(
@@ -577,7 +577,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
-        model_specific=ANTHROPIC_MODEL_SPECIFIC,
+        model_specific=MODEL_PREFERS_HEREDOCS,
     )
     ANTHROPIC_OPUS_46 = ModelParameters(
         context_window=ANTHROPIC_LONG_CONTEXT_WINDOW,
@@ -592,7 +592,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
-        model_specific=ANTHROPIC_MODEL_SPECIFIC,
+        model_specific=MODEL_PREFERS_HEREDOCS,
     )
     ANTHROPIC_OPUS_47 = ANTHROPIC_OPUS_46.model_copy(
         update={
@@ -633,7 +633,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
-        model_specific=ANTHROPIC_MODEL_SPECIFIC,
+        model_specific=MODEL_PREFERS_HEREDOCS,
     )
     ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
         context_window=200000,
@@ -647,7 +647,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
-        model_specific=ANTHROPIC_MODEL_SPECIFIC,
+        model_specific=MODEL_PREFERS_HEREDOCS,
     )
     ANTHROPIC_SONNET_46 = ModelParameters(
         context_window=ANTHROPIC_LONG_CONTEXT_WINDOW,
@@ -662,7 +662,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
-        model_specific=ANTHROPIC_MODEL_SPECIFIC,
+        model_specific=MODEL_PREFERS_HEREDOCS,
     )
     ANTHROPIC_SONNET_5 = ANTHROPIC_SONNET_46.model_copy(
         update={
@@ -687,7 +687,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=250,
         default_provider=Provider.ANTHROPIC,
-        model_specific=ANTHROPIC_MODEL_SPECIFIC,
+        model_specific=MODEL_PREFERS_HEREDOCS,
     )
     DEEPSEEK_V4_FLASH = ModelParameters(
         context_window=1_048_576,
@@ -850,7 +850,7 @@ class ModelDatabase:
 
     GROK_45 = ModelParameters(
         context_window=500_000,
-        max_output_tokens=65535,
+        max_output_tokens=500_000,
         tokenizes=XAI_VISION,
         json_mode="schema",
         structured_tool_policy="always",

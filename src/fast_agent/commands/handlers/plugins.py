@@ -72,13 +72,14 @@ from fast_agent.utils.async_utils import run_in_thread
 from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from fast_agent.command_actions.models import PluginCommandActionSpec
     from fast_agent.commands.context import CommandContext
     from fast_agent.plugins.models import (
         LocalPlugin,
         MarketplacePlugin,
+        PluginPostUserTurnSpec,
         PluginUpdateInfo,
     )
 
@@ -90,6 +91,16 @@ class _PluginCommandProvider(Protocol):
         commands: dict[str, "PluginCommandActionSpec"] | None,
         *,
         base_path: Path | None,
+    ) -> None: ...
+
+
+@runtime_checkable
+class _PluginPostUserTurnProvider(Protocol):
+    def set_plugin_post_user_turn(
+        self,
+        specs: Sequence["PluginPostUserTurnSpec"],
+        *,
+        config: Mapping[str, Mapping[str, object]],
     ) -> None: ...
 
 
@@ -489,6 +500,11 @@ def _refresh_provider_plugins(ctx: CommandContext, config_path: Path) -> None:
     provider = ctx.agent_provider
     if isinstance(provider, _PluginCommandProvider):
         provider.set_plugin_commands(settings.commands, base_path=config_path.parent)
+    if isinstance(provider, _PluginPostUserTurnProvider):
+        provider.set_plugin_post_user_turn(
+            settings._plugin_post_user_turn,
+            config=settings.plugins.config,
+        )
 
 
 async def handle_list_plugins(ctx: CommandContext, *, agent_name: str) -> CommandOutcome:

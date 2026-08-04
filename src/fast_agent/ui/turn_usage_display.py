@@ -153,3 +153,9 @@ def display_parallel_turn_usage(children: Sequence[NamedTurnUsageDisplay]) -> No
     with progress_display.paused():
         for line in format_parallel_turn_usage(children):
             console.print(_render_turn_usage(line))
+
+
+def display_plugin_post_user_turn(line: str) -> None:
+    """Render one trusted Rich-markup line returned by a display plugin."""
+    with progress_display.paused():
+        console.print(_render_turn_usage(line))

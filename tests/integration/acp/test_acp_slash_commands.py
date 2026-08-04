@@ -147,6 +147,7 @@ class _StubAppProvider(StaticAgentProvider):
     def __init__(self, agents: dict[str, object]) -> None:
         super().__init__(agents)
         self.card_collision_warnings: list[str] = []
+        self.user_turn_usage: tuple[object, ...] = ()
 
 
 @dataclass
