@@ -140,16 +140,16 @@ mcp:
 
 - `auto` attempts modern discovery and falls back when the peer is identified
   as a handshake-era server.
-- `modern` directly adopts the latest modern protocol supported by the pinned
-  MCP SDK. It does not fall back to initialization and cannot be combined with
-  the legacy SSE transport.
+- `modern` pins negotiation to the modern protocol era. It sends
+  `server/discover` to load capabilities and metadata, but does not fall back to
+  initialization and cannot be combined with the legacy SSE transport.
 - `legacy` uses the initialization handshake and does not attempt modern
   discovery.
 
-Forced modern mode intentionally skips `server/discover`. It is useful for
-interoperability testing and known modern-only peers, but server-advertised
-capabilities, implementation metadata, and supported-version lists may be
-unavailable. Prefer `auto` for normal connections.
+Forced modern mode is useful for interoperability testing and known
+modern-only peers. Unlike `auto`, a failed `server/discover` request is treated
+as an error rather than evidence that the client should try legacy
+initialization. Prefer `auto` for normal connections.
 
 For an ad-hoc connection:
 

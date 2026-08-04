@@ -3,11 +3,13 @@ from collections.abc import Awaitable, Callable
 
 import httpx2
 import pytest
+from anyio import Event, create_task_group, sleep_forever
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import MCPError
 from mcp_types import (
     INVALID_REQUEST,
+    METHOD_NOT_FOUND,
     BlobResourceContents,
     EmbeddedResource,
     PromptReference,
@@ -58,6 +60,20 @@ class StatefulStreamableHTTPSimulator:
             )
         if method == "notifications/initialized":
             return httpx2.Response(202)
+        if method == "server/discover":
+            return httpx2.Response(
+                200,
+                headers={"content-type": "application/json"},
+                json={
+                    "jsonrpc": "2.0",
+                    "id": payload["id"],
+                    "result": {
+                        "supportedVersions": ["2026-07-28"],
+                        "capabilities": {},
+                        "resultType": "complete",
+                    },
+                },
+            )
         if self.terminal_message is not None:
             return httpx2.Response(
                 400,
@@ -75,6 +91,49 @@ class StatefulStreamableHTTPSimulator:
         assert self.session_id is not None
         assert request.headers["mcp-session-id"] == self.session_id
         return httpx2.Response(404)
+
+
+class LegacyOnlyStreamableHTTPSimulator(StatefulStreamableHTTPSimulator):
+    def __init__(self) -> None:
+        super().__init__()
+        self.methods: list[str] = []
+
+    async def __call__(self, request: httpx2.Request) -> httpx2.Response:
+        if request.method == "POST":
+            payload = json.loads(request.content)
+            assert isinstance(payload, dict)
+            method = payload.get("method")
+            if isinstance(method, str):
+                self.methods.append(method)
+            if method == "server/discover":
+                return httpx2.Response(
+                    200,
+                    headers={"content-type": "application/json"},
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": payload["id"],
+                        "error": {
+                            "code": METHOD_NOT_FOUND,
+                            "message": "Method not found",
+                        },
+                    },
+                )
+        return await super().__call__(request)
+
+
+class BlockingDiscoverStreamableHTTPSimulator(StatefulStreamableHTTPSimulator):
+    def __init__(self) -> None:
+        super().__init__()
+        self.discover_started = Event()
+
+    async def __call__(self, request: httpx2.Request) -> httpx2.Response:
+        if request.method == "POST":
+            payload = json.loads(request.content)
+            assert isinstance(payload, dict)
+            if payload.get("method") == "server/discover":
+                self.discover_started.set()
+                await sleep_forever()
+        return await super().__call__(request)
 
 
 class SkillsResponseStreamableHTTPSimulator(StatefulStreamableHTTPSimulator):
@@ -422,6 +481,54 @@ async def test_modern_request_does_not_translate_session_terminated_error() -> N
 
 
 @pytest.mark.asyncio
+async def test_forced_modern_discovery_failure_does_not_fall_back_to_initialize() -> None:
+    simulator = LegacyOnlyStreamableHTTPSimulator()
+    http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(simulator))
+    transport = streamable_http_client("https://example.test/mcp", http_client=http_client)
+    callbacks = MCPClientCallbackRuntime(server_name="test-server", server_config=None)
+
+    with pytest.raises(MCPError) as exc_info:
+        async with MCPClientConnection(
+            transport,
+            callbacks,
+            protocol_mode="modern",
+            cache=False,
+        ):
+            pass
+
+    await http_client.aclose()
+    assert exc_info.value.code == METHOD_NOT_FOUND
+    assert simulator.methods == ["server/discover"]
+
+
+@pytest.mark.asyncio
+async def test_forced_modern_discovery_cancellation_closes_client() -> None:
+    simulator = BlockingDiscoverStreamableHTTPSimulator()
+    http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(simulator))
+    transport = streamable_http_client("https://example.test/mcp", http_client=http_client)
+    callbacks = MCPClientCallbackRuntime(server_name="test-server", server_config=None)
+    connection = MCPClientConnection(
+        transport,
+        callbacks,
+        protocol_mode="modern",
+        cache=False,
+    )
+
+    async def connect() -> None:
+        async with connection:
+            pass
+
+    async with create_task_group() as task_group:
+        task_group.start_soon(connect)
+        await simulator.discover_started.wait()
+        task_group.cancel_scope.cancel()
+
+    with pytest.raises(RuntimeError, match="async context manager"):
+        _ = connection.session
+    await http_client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_skills_extension_requests_and_parses_results() -> None:
     simulator = SkillsResponseStreamableHTTPSimulator()
     http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(simulator))
@@ -498,6 +605,8 @@ async def test_streamable_http_accepts_json_and_sse_responses_on_one_endpoint() 
         protocol_mode="modern",
         cache=False,
     ) as connection:
+        assert connection.server_capabilities.tools is not None
+        assert connection.server_capabilities.tools.list_changed is False
         whoami = await connection.call_tool("whoami")
         image = await connection.call_tool("generate_image")
 

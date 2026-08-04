@@ -336,9 +336,9 @@ async def test_protocol_mode_can_force_modern_or_legacy(fast_agent) -> None:
             assert modern.protocol_mode == "modern"
             assert modern.protocol_version == "2026-07-28"
             assert modern.protocol_era == "modern"
-            assert modern.negotiation == "adopt"
-            assert modern.supported_protocol_versions == ()
-            assert "discover" not in modern.call_counts
+            assert modern.negotiation == "discover"
+            assert modern.supported_protocol_versions == ("2026-07-28",)
+            assert modern.call_counts["discover"] == 1
             assert "initialize" not in modern.call_counts
 
             legacy = statuses["forced_legacy"]
@@ -356,7 +356,7 @@ async def test_protocol_mode_can_force_modern_or_legacy(fast_agent) -> None:
             )
 
             reconnected = await app.forced.get_server_status()
-            assert "discover" not in reconnected["forced_modern"].call_counts
+            assert reconnected["forced_modern"].call_counts["discover"] == 2
             assert "initialize" not in reconnected["forced_modern"].call_counts
             assert reconnected["forced_legacy"].call_counts["initialize"] == 2
 

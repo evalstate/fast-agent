@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from contextlib import suppress
+from contextlib import AsyncExitStack, suppress
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from mcp.client import CacheConfig, CacheMode, Client, Transport
@@ -64,6 +64,34 @@ def sdk_connect_mode(protocol_mode: Literal["auto", "modern", "legacy"]) -> str:
     return LATEST_MODERN_VERSION if protocol_mode == "modern" else protocol_mode
 
 
+class _ForcedModernClient(Client):
+    """Enter atomically after a successful modern discovery request."""
+
+    async def __aenter__(self) -> _ForcedModernClient:
+        if self._entered:
+            raise RuntimeError("Client is already entered; cannot reenter")
+        self._entered = True
+
+        error: Exception | None = None
+        async with AsyncExitStack() as exit_stack:
+            session = await self._build_session(exit_stack)
+            session = await exit_stack.enter_async_context(session)
+            # Let cancellation unwind the nested task groups in-place; re-raise
+            # ordinary negotiation failures only after a clean exit.
+            try:
+                raw = await session.send_discover(LATEST_MODERN_VERSION)
+                session.adopt(DiscoverResult.model_validate(raw))
+            except Exception as exc:
+                error = exc
+            else:
+                self._session = session
+                self._exit_stack = exit_stack.pop_all()
+                return self
+
+        assert error is not None
+        raise error
+
+
 class MCPClientConnection:
     """Compose the SDK client with fast-agent callback and extension behavior."""
 
@@ -77,7 +105,8 @@ class MCPClientConnection:
         protocol_mode: Literal["auto", "modern", "legacy"] = "auto",
     ) -> None:
         self.callbacks = callbacks
-        self.client = Client(
+        client_type = _ForcedModernClient if protocol_mode == "modern" else Client
+        self.client = client_type(
             transport,
             mode=sdk_connect_mode(protocol_mode),
             read_timeout_seconds=read_timeout_seconds,

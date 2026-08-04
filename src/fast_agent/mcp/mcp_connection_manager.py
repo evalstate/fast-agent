@@ -205,16 +205,12 @@ class ServerConnection:
         self.protocol_version = self.client.protocol_version
         discover_result = self.client.discover_result
         self.protocol_era = "modern" if discover_result is not None else "legacy"
-        if self.server_config.protocol_mode == "modern":
-            self.negotiation = "adopt"
-        elif discover_result is not None:
+        if discover_result is not None:
             self.negotiation = "discover"
         else:
             self.negotiation = "initialize"
         self.supported_protocol_versions = (
-            tuple(discover_result.supported_versions)
-            if discover_result is not None and self.server_config.protocol_mode != "modern"
-            else ()
+            tuple(discover_result.supported_versions) if discover_result is not None else ()
         )
         self.server_capabilities = self.client.server_capabilities
         self.server_implementation = self.client.server_info

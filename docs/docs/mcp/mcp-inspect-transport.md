@@ -126,10 +126,11 @@ negotiated protocol era. A forced mode is shown as `(forced modern)` or
 printing internal negotiation steps separately.
 
 Successful negotiation requests are included in `mcp calls:` alongside normal
-operations. Automatic modern negotiation records `discover`; legacy
-negotiation records `initialize`. Forced-modern `adopt` is a local protocol
-choice rather than an outgoing request, so it is not counted. Reconnecting
-increments the negotiation request that is actually sent.
+operations. Modern negotiation records `discover`; legacy negotiation records
+`initialize`. Forced-modern connections still send `server/discover` so
+capabilities and metadata are available, but they fail rather than falling back
+to legacy initialization when discovery is rejected. Reconnecting repeats and
+counts the corresponding negotiation request.
 
 ```text
 mcp calls: discover:1, list_tools:1, tool:2
