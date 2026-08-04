@@ -170,6 +170,9 @@ Flash rates. Install and enable it with:
 fast-agent plugins add price-calculator
 ```
 
+Use `/cost` for a detailed session ledger showing each provider attempt's
+model, service tier, context band, token/cache partitions, and estimated cost.
+
 GPT-5.6 prompts above 272,000 tokens use the long-context table. Standard and
 Flex prices are supported; Fast-tier calls are shown as unpriced until a Fast
 price table is configured. Kimi K3 and DeepSeek V4 Flash cache writes are also

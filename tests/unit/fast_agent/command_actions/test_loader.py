@@ -234,6 +234,7 @@ class _CommandAgent:
     context = None
     config = AgentConfig(name=name)
     agent_registry = None
+    usage_accumulator = None
 
     def __init__(self) -> None:
         self.message_history: list[PromptMessageExtended] = []

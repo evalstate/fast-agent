@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from fast_agent.config import Settings
     from fast_agent.context import Context
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.llm.usage_tracking import UsageAccumulator
     from fast_agent.types import PromptMessageExtended
 
 
@@ -43,6 +44,9 @@ class PluginCommandAgentProtocol(Protocol):
 
     @property
     def agent_registry(self) -> "Mapping[str, AgentProtocol] | None": ...
+
+    @property
+    def usage_accumulator(self) -> "UsageAccumulator | None": ...
 
     def get_agent(self, name: str) -> "AgentProtocol | None": ...
 
@@ -162,6 +166,10 @@ class PluginCommandActionContext:
     @property
     def agent_registry(self) -> "Mapping[str, AgentProtocol] | None":
         return self.agent.agent_registry
+
+    @property
+    def usage(self) -> "UsageAccumulator | None":
+        return self.agent.usage_accumulator
 
     def load_message_history(self, messages: list["PromptMessageExtended"] | None) -> None:
         self.agent.load_message_history(messages)
