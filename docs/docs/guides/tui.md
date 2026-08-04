@@ -79,6 +79,12 @@ When the internal `read_text_file` tool is used, by default 5 lines of the file 
 
 Use `/history detail` to review the full contents of a turn and tool calls. 
 
+## Output Review
+
+By default, **`fast-agent`** truncates tool inputs and outputs. 
+
+You can review the entire output by using the `/history review` command. 
+
 ## Image Viewer
 
 Images received from the Assistant or tool calls are rendered to the console on the final turn. Local images that you attach to a user message are previewed in the user panel beneath the attachment link text.
