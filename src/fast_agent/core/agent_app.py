@@ -17,7 +17,12 @@ from fast_agent.core.default_agent import agent_is_default, resolve_default_agen
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.usage_tracking import UsageSchema, last_turn_usage
+from fast_agent.llm.usage_tracking import (
+    UsageLedger,
+    UsageSchema,
+    UserTurnUsage,
+    last_turn_usage,
+)
 from fast_agent.ui.display_suppression import display_usage_enabled
 from fast_agent.ui.turn_usage_display import (
     CacheTTLDisplay,
@@ -184,6 +189,7 @@ class AgentApp:
         self._plugin_commands = plugin_commands
         self._plugin_command_base_path = plugin_command_base_path
         self.set_plugin_post_user_turn(plugin_post_user_turn, config=plugin_config or {})
+        self._user_turn_usage: list[UserTurnUsage] = []
         self._last_refresh_result = AgentRefreshResult(changed=False)
         self._session_restore_result: ResumeSessionAgentsResult | None = None
         self._no_home_mode = no_home_mode
@@ -240,6 +246,11 @@ class AgentApp:
 
         self._plugin_post_user_turn = load_plugin_post_user_turn_handlers(specs)
         self._plugin_config = config
+
+    @property
+    def user_turn_usage(self) -> tuple[UserTurnUsage, ...]:
+        """Return immutable usage snapshots for completed top-level user turns."""
+        return tuple(self._user_turn_usage)
 
     def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
         if agent_name is None:
@@ -746,6 +757,8 @@ class AgentApp:
                         agent_name=agent_name,
                         request_params=request_params,
                     )
+                    if show_usage:
+                        self.complete_user_turn(agent_name, turn_start_indices)
                     if show_usage and display_usage_enabled():
                         self._show_turn_usage(agent_name, turn_start_indices)
                         await self._show_plugin_post_user_turn(agent_name, turn_start_indices)
@@ -798,6 +811,8 @@ class AgentApp:
             # The LLM layer will handle the 10s/20s/30s retries internally.
             turn_start_indices = self._capture_turn_start_indices(agent_name)
             result = await self.send(message, agent_name, request_params)
+            if show_usage:
+                self.complete_user_turn(agent_name, turn_start_indices)
             if show_usage and display_usage_enabled():
                 self._show_turn_usage(agent_name, turn_start_indices)
                 await self._show_plugin_post_user_turn(agent_name, turn_start_indices)
@@ -906,6 +921,61 @@ class AgentApp:
             record(agent)
 
         return indices
+
+    def capture_user_turn_start(self, agent_name: str | None) -> dict[str, int]:
+        """Capture provider-attempt offsets before a top-level user turn."""
+        return self._capture_turn_start_indices(agent_name)
+
+    def complete_user_turn(
+        self,
+        agent_name: str | None,
+        turn_start_indices: Mapping[str, int],
+    ) -> UserTurnUsage | None:
+        """Snapshot and retain one completed top-level user turn."""
+        if agent_name is None:
+            return None
+        agent = self._agents.get(agent_name)
+        if agent is None:
+            return None
+
+        attempts, _session = self._collect_plugin_usage(agent, turn_start_indices)
+        if not attempts:
+            return None
+
+        ledgers: list[UsageLedger] = []
+        if isinstance(agent, ParallelAgent):
+            seen: set[int] = set()
+            for target in [*agent.fan_out_agents, agent.fan_in_agent]:
+                accumulator = target.usage_accumulator
+                if accumulator is None or id(accumulator) in seen:
+                    continue
+                seen.add(id(accumulator))
+                start = turn_start_indices.get(target.name)
+                if start is None:
+                    continue
+                ledger_attempts = self._snapshot_attempts(accumulator.turns[start:])
+                if ledger_attempts:
+                    ledgers.append(UsageLedger(label=target.name, attempts=ledger_attempts))
+        elif isinstance(agent, _SubagentUsageAgent):
+            start = turn_start_indices.get(f"{agent.name}{_SUBAGENT_TURN_INDEX_SUFFIX}")
+            if start is not None:
+                ledger_attempts = self._snapshot_attempts(
+                    agent.subagent_usage_accumulator.turns[start:]
+                )
+                if ledger_attempts:
+                    ledgers.append(UsageLedger(label="subagents", attempts=ledger_attempts))
+
+        completed = UserTurnUsage(
+            agent_name=agent_name,
+            attempts=self._snapshot_attempts(attempts),
+            ledgers=tuple(ledgers),
+        )
+        self._user_turn_usage.append(completed)
+        return completed
+
+    @staticmethod
+    def _snapshot_attempts(attempts: Sequence[TurnUsage]) -> tuple[TurnUsage, ...]:
+        return tuple(attempt.model_copy(deep=True) for attempt in attempts)
 
     def _show_regular_agent_usage(
         self,

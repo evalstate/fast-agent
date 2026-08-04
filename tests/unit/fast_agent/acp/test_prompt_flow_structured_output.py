@@ -11,6 +11,7 @@ from acp.helpers import text_block, update_agent_thought_text
 from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
 from fast_agent.acp.server.prompt_flow import ACPPromptFlow
 from fast_agent.acp.server.prompt_flow import PromptFlowHost as ACPPromptFlowHost
+from fast_agent.core.agent_app import AgentApp
 from fast_agent.interfaces import StreamingAgentProtocol
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.types import LlmStopReason, PromptMessageExtended
@@ -31,6 +32,9 @@ STRUCTURED_SCHEMA: dict[str, Any] = {
 
 
 class EmptyStructuredAgent:
+    name = "main"
+    usage_accumulator = None
+
     async def generate(
         self,
         _message: PromptMessageExtended,
@@ -58,7 +62,9 @@ class EmptyStructuredAgent:
 
 class FakePromptFlowHost(ACPPromptFlowHost):
     def __init__(self, agent: EmptyStructuredAgent) -> None:
-        instance = cast("AgentInstance", SimpleNamespace(agents={"main": agent}))
+        agents = {"main": agent}
+        app = AgentApp(cast("dict[str, AgentProtocol]", agents))
+        instance = cast("AgentInstance", SimpleNamespace(agents=agents, app=app))
         self._live_sessions = ACPLiveSessionRegistry(sessions={"session-1": instance})
         self._session_lock = asyncio.Lock()
         self._connection = None

@@ -858,6 +858,7 @@ class SlashCommandHandler:
                         ),
                     ),
                     is_acp=True,
+                    user_turn_usage=self.instance.app.user_turn_usage,
                 ),
             )
         except AgentConfigError as exc:

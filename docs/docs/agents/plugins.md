@@ -170,8 +170,10 @@ Flash rates. Install and enable it with:
 fast-agent plugins add price-calculator
 ```
 
-Use `/cost` for a detailed session ledger showing each provider attempt's
-model, service tier, context band, token/cache partitions, and estimated cost.
+Use `/cost` for one rollup per top-level user turn, including explanatory
+subagent or parallel-child ledgers. Use `/cost detail` for the provider-attempt
+table with model, service tier, context band, token/cache partitions, and
+estimated cost.
 
 GPT-5.6 prompts above 272,000 tokens use the long-context table. Standard and
 Flex prices are supported; Fast-tier calls are shown as unpriced until a Fast

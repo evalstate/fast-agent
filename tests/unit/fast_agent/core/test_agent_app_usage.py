@@ -142,6 +142,14 @@ def test_plugin_usage_uses_parent_total_without_double_counting_subagents() -> N
     assert len(session) == 2
     assert sum(item.prompt.total or 0 for item in turn) == 400
 
+    completed = app.complete_user_turn("assistant", start)
+
+    assert completed is not None
+    assert len(completed.attempts) == 2
+    assert len(completed.ledgers) == 1
+    assert completed.ledgers[0].label == "subagents"
+    assert len(completed.ledgers[0].attempts) == 1
+
 
 def test_plugin_usage_collects_parallel_turn_and_session_attempts() -> None:
     children = []
@@ -166,6 +174,13 @@ def test_plugin_usage_collects_parallel_turn_and_session_attempts() -> None:
     assert len(turn) == 3
     assert len(session) == 6
     assert sum(item.prompt.total or 0 for item in turn) == 60
+
+    completed = app.complete_user_turn("parallel", start)
+
+    assert completed is not None
+    assert len(completed.attempts) == 3
+    assert [ledger.label for ledger in completed.ledgers] == ["first", "second", "fan-in"]
+    assert all(len(ledger.attempts) == 1 for ledger in completed.ledgers)
 
 
 @pytest.mark.asyncio
@@ -211,6 +226,7 @@ async def test_interactive_send_runs_post_user_turn_plugin_once_and_quiet_send_s
     )
 
     assert marker.read_text(encoding="utf-8") == "1:1\n"
+    assert len(app.user_turn_usage) == 1
 
 
 def test_regular_agent_usage_displays_cache_percentage_and_ttl() -> None:

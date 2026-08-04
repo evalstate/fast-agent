@@ -48,6 +48,7 @@ Return `None` for no visible output.
 | `runtime` | `PluginRuntime | None` | Optional live-runtime capabilities. |
 | `is_tui` | `bool` | True when the command is running in the TUI surface. |
 | `is_acp` | `bool` | True when the command is running in the ACP surface. |
+| `user_turn_usage` | `tuple[UserTurnUsage, ...]` | Immutable live-session usage snapshots grouped by top-level user turn. |
 
 ### Context Helpers
 
@@ -57,6 +58,7 @@ Return `None` for no visible output.
 | `ctx.context` | `property` | Current agent context, when available. |
 | `ctx.message_history` | `property` | Current agent message history. |
 | `ctx.agent_registry` | `property` | Registered agents, when available. |
+| `ctx.usage` | `property` | Canonical usage accumulator for the active agent, when available. |
 | `ctx.load_message_history` | `(messages: list[PromptMessageExtended] | None) -> None` | Replace the active agent's message history. |
 | `ctx.get_agent` | `(name: str) -> AgentProtocol | None` | Look up another registered agent. |
 | `ctx.mark_user_adjusted` | `(message: PromptMessageExtended, *, note: str | None = None) -> None` | Mark a message as user-adjusted in the audit channel. |

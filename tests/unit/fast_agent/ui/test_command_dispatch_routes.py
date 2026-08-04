@@ -34,6 +34,7 @@ class _Agent:
 
 class _Provider:
     plugin_command_base_path = None
+    user_turn_usage = ()
 
     def __init__(
         self,

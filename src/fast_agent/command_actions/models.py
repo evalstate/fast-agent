@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from fast_agent.config import Settings
     from fast_agent.context import Context
     from fast_agent.interfaces import AgentProtocol
-    from fast_agent.llm.usage_tracking import UsageAccumulator
+    from fast_agent.llm.usage_tracking import UsageAccumulator, UserTurnUsage
     from fast_agent.types import PromptMessageExtended
 
 
@@ -150,6 +150,7 @@ class PluginCommandActionContext:
     runtime: "PluginRuntime | None" = None
     is_tui: bool = False
     is_acp: bool = False
+    user_turn_usage: tuple["UserTurnUsage", ...] = ()
 
     @property
     def agent_name(self) -> str:
