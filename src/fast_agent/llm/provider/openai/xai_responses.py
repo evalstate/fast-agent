@@ -169,7 +169,10 @@ class XAIResponsesLLM(ResponsesLLM):
     def _resolve_reasoning_effort(self) -> str | None:
         setting = self.reasoning_effort
         if setting is None:
-            return "low"
+            default = self._reasoning_effort_spec.default if self._reasoning_effort_spec else None
+            if default is not None and default.kind == "effort" and isinstance(default.value, str):
+                return default.value
+            return "high"
         return super()._resolve_reasoning_effort()
 
     def _provider_base_url(self) -> str | None:
