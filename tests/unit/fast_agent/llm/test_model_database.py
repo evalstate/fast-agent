@@ -101,7 +101,7 @@ def test_anthropic_catalog_uses_posix_file_creation_guidance() -> None:
     for model in anthropic_models:
         assert (
             ModelDatabase.get_model_specific(model, provider=Provider.ANTHROPIC)
-            == ModelDatabase.ANTHROPIC_MODEL_SPECIFIC
+            == ModelDatabase.MODEL_PREFERS_HEREDOCS
         )
 
     assert (
@@ -109,7 +109,7 @@ def test_anthropic_catalog_uses_posix_file_creation_guidance() -> None:
             "claude-sonnet-4-6",
             provider=Provider.ANTHROPIC_VERTEX,
         )
-        == ModelDatabase.ANTHROPIC_MODEL_SPECIFIC
+        == ModelDatabase.MODEL_PREFERS_HEREDOCS
     )
 
 
