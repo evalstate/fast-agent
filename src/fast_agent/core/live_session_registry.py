@@ -80,7 +80,7 @@ class InMemoryLiveSessionRegistry(Generic[RecordT, ContextT]):
             try:
                 return await self.get(session_id)
             except KeyError:
-                raise exc
+                raise exc from None
 
     async def delete(
         self,

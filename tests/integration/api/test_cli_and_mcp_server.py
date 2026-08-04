@@ -4,8 +4,9 @@ import subprocess
 import sys
 
 import httpx
+import mcp_types as types
 import pytest
-from mcp import ClientSession, types
+from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -34,6 +35,7 @@ def test_agent_message_cli():
             #  "--quiet",  # Suppress progress display, etc. for cleaner output
         ],
         capture_output=True,
+        check=False,
         text=True,
         cwd=test_dir,  # Run in the test directory to use its config
     )
@@ -67,6 +69,7 @@ def test_agent_message_cli_default_agent():
             test_message,
         ],
         capture_output=True,
+        check=False,
         text=True,
         cwd=test_dir,  # Run in the test directory to use its config
     )
@@ -92,6 +95,7 @@ def test_agent_message_prompt_file():
     result = subprocess.run(
         ["uv", "run", test_agent_path, "--agent", "test", "--prompt-file", "prompt.txt"],
         capture_output=True,
+        check=False,
         text=True,
         cwd=test_dir,  # Run in the test directory to use its config
     )
@@ -118,6 +122,7 @@ def test_agent_message_prompt_file_default_agent():
     result = subprocess.run(
         ["uv", "run", test_agent_path, "--prompt-file", "prompt.txt"],
         capture_output=True,
+        check=False,
         text=True,
         cwd=test_dir,  # Run in the test directory to use its config
     )
@@ -157,6 +162,7 @@ def test_agent_message_cli_quiet_flag():
             "--quiet",  # Suppress progress display, etc. for cleaner output
         ],
         capture_output=True,
+        check=False,
         text=True,
         cwd=test_dir,  # Run in the test directory to use its config
     )
@@ -271,7 +277,6 @@ async def test_serve_request_scope_disables_session_header(mcp_test_ports, wait_
         async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (
             read_stream,
             write_stream,
-            _,
         ):
             async with ClientSession(read_stream, write_stream) as session:
                 init_result = await session.initialize()
@@ -437,7 +442,6 @@ async def test_agent_server_emits_mcp_progress_notifications(
         async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (
             read_stream,
             write_stream,
-            _,
         ):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
@@ -446,7 +450,7 @@ async def test_agent_server_emits_mcp_progress_notifications(
                 )
                 request = types.CallToolRequest(method="tools/call", params=params)
                 result = await session.send_request(
-                    types.ClientRequest(request),
+                    request,
                     types.CallToolResult,
                     progress_callback=on_progress,
                 )

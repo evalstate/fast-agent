@@ -6,24 +6,35 @@ import asyncio
 import sys
 import time
 import uuid
+from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
 import typer
 
-from fast_agent.cli.commands.server_helpers import add_servers_to_config
+from fast_agent.cli.commands.server_helpers import register_runtime_servers
 from fast_agent.commands.model_capabilities import resolve_reasoning_effort
 from fast_agent.core.card_tool_attachment import load_and_attach_card_tool_agents
-from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.exceptions import (
+    AgentConfigError,
+    ServerInitializationError,
+    walk_exception_chain,
+)
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.reasoning_effort import reasoning_setting_telemetry_value
+from fast_agent.mcp.connect_targets import redact_mcp_url
+from fast_agent.mcp.failures import MCPFailure, classify_mcp_failure, render_mcp_failure
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
+from fast_agent.utils.commandline import join_commandline
 from fast_agent.utils.filename import sanitize_filename_suffix
 from fast_agent.utils.text import strip_casefold, strip_to_none
-from fast_agent.utils.transports import uses_protocol_stdio
+from fast_agent.utils.transports import uses_mcp_remote_transport, uses_protocol_stdio
 
+from .harness_startup import (
+    resume_bootstrap_model as _resume_bootstrap_model,
+)
 from .harness_startup import run_cli_flow, run_parallel_cli_flow
 from .model_bootstrap import (
     agent_config_defines_startup_model as _agent_config_defines_startup_model,
@@ -47,9 +58,6 @@ from .model_bootstrap import (
     resolve_model_picker_initial_selection as _resolve_model_picker_initial_selection,
 )
 from .model_bootstrap import (
-    resolve_model_without_hardcoded_default as _resolve_model_without_hardcoded_default,
-)
-from .model_bootstrap import (
     select_model_from_picker as _select_model_from_picker,
 )
 from .model_bootstrap import (
@@ -65,7 +73,7 @@ from .model_bootstrap import (
     system_default_reference_is_missing as _system_default_reference_is_missing,
 )
 from .one_shot import run_one_shot_payload as _run_one_shot_payload
-from .request_builders import resolve_default_instruction, resolve_smart_agent_enabled
+from .request_builders import resolve_default_instruction
 from .session_resume import (
     find_last_assistant_text as _find_last_assistant_text,
 )
@@ -85,7 +93,7 @@ from .shell_cwd_preflight import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
-    from mcp.types import ContentBlock
+    from mcp_types import ContentBlock
 
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.harness import HarnessSession
@@ -151,7 +159,11 @@ def _select_loaded_card_agent(
     return selected_name
 
 
-def _attach_cli_servers_to_selected_agent(fast, request: AgentRunRequest) -> None:
+def _set_cli_server_overlay_for_selected_agent(
+    fast,
+    request: AgentRunRequest,
+    runtime_mcp_server_names: dict[str, tuple[str, ...]],
+) -> None:
     if not request.server_list:
         return
 
@@ -179,10 +191,7 @@ def _attach_cli_servers_to_selected_agent(fast, request: AgentRunRequest) -> Non
     if selected_agent_data:
         config = selected_agent_data.get("config")
         if isinstance(config, AgentConfig):
-            existing = list(config.servers) if config.servers else []
-            config.servers = existing + [
-                server for server in request.server_list if server not in existing
-            ]
+            runtime_mcp_server_names[config.name] = tuple(request.server_list)
 
 
 def _build_result_file_with_suffix(base_file: Path, suffix: str) -> Path:
@@ -261,7 +270,7 @@ async def _build_cli_message_payload(
     if not blocks:
         return message
 
-    from mcp.types import TextContent
+    from mcp_types import TextContent
 
     from fast_agent.types import PromptMessageExtended
 
@@ -378,8 +387,10 @@ def _enable_atif_child_capture(agent_app: Any, request: AgentRunRequest) -> None
     from fast_agent.agents.llm_agent import LlmAgent
 
     for agent in agent_app.registered_agents().values():
-        if isinstance(agent, LlmAgent) and not agent.config.use_history:
-            agent.config.save_trajectory = True
+        if isinstance(agent, LlmAgent):
+            agent.enable_subagent_trajectory_capture()
+            if not agent.config.use_history:
+                agent.config.save_trajectory = True
 
 
 def _live_atif_session_id(
@@ -402,16 +413,16 @@ def _live_atif_model_metadata(
     return llm.model_name or request.model, llm.provider.config_name
 
 
-def _live_child_trajectory_dir(
+def _live_atif_session_dir(
     session_manager: SessionManager | None,
     harness_session: HarnessSession | None,
 ) -> Path | None:
     if harness_session is not None and harness_session.session_manager is not None:
         session = harness_session.session_manager.current_session
-        return None if session is None else session.directory / "trajectories"
+        return None if session is None else session.directory
     if session_manager is None or session_manager.current_session is None:
         return None
-    return session_manager.current_session.directory / "trajectories"
+    return session_manager.current_session.directory
 
 
 async def _live_atif_tool_definitions(agent_obj: Any) -> list[dict[str, object]] | None:
@@ -422,7 +433,7 @@ async def _live_atif_tool_definitions(agent_obj: Any) -> list[dict[str, object]]
             "function": {
                 "name": tool.name,
                 "description": tool.description or "",
-                "parameters": tool.inputSchema,
+                "parameters": tool.input_schema,
             },
         }
         for tool in listed.tools
@@ -442,6 +453,7 @@ async def _export_live_atif_trajectory(
     if request.trajectory_output is None:
         return
 
+    from fast_agent.agents.llm_agent import LlmAgent
     from fast_agent.session.trace_export_atif import (
         AtifRunSource,
         build_atif_trajectory,
@@ -466,7 +478,7 @@ async def _export_live_atif_trajectory(
             provider=provider,
             history=messages,
             message_timestamps=tuple(message.timestamp for message in messages),
-            child_trajectory_dir=_live_child_trajectory_dir(session_manager, harness_session),
+            parent_session_dir=_live_atif_session_dir(session_manager, harness_session),
             tool_definitions=await _live_atif_tool_definitions(agent_obj),
             extra=(
                 {
@@ -488,6 +500,9 @@ async def _export_live_atif_trajectory(
             ),
             system_prompt=agent_obj.instruction,
             reasoning_effort=(reasoning_setting_telemetry_value(reasoning)),
+            transient_child_trajectories=(
+                agent_obj.subagent_trajectory_records if isinstance(agent_obj, LlmAgent) else ()
+            ),
         )
     )
     write_atif_trajectory(trajectory, request.trajectory_output.expanduser().resolve())
@@ -531,7 +546,7 @@ async def _export_parallel_atif_trajectory(
                 provider=provider,
                 history=messages,
                 message_timestamps=tuple(message.timestamp for message in messages),
-                child_trajectory_dir=_live_child_trajectory_dir(session_manager, harness_session),
+                parent_session_dir=_live_atif_session_dir(session_manager, harness_session),
                 tool_definitions=await _live_atif_tool_definitions(agent_obj),
                 system_prompt=agent_obj.instruction,
                 reasoning_effort=(reasoning_setting_telemetry_value(reasoning)),
@@ -578,6 +593,45 @@ async def _export_failed_one_shot_atif(
         harness_session=harness_session,
         termination_error=error,
     )
+
+
+async def _run_one_shot_with_failed_atif(
+    agent_app: Any,
+    agent_obj: Any,
+    prompt_payload: str | PromptMessageExtended | list[PromptMessageExtended],
+    request: AgentRunRequest,
+    structured_source: Any,
+    *,
+    history_before: list[PromptMessageExtended],
+    session_manager: SessionManager | None,
+    harness_session: HarnessSession | None,
+) -> PromptMessageExtended:
+    try:
+        return await _run_one_shot_payload(
+            agent_obj,
+            prompt_payload,
+            request,
+            structured_source,
+            harness_session=harness_session,
+        )
+    except BaseException as exc:
+        try:
+            await _export_failed_one_shot_atif(
+                agent_app,
+                agent_obj,
+                prompt_payload,
+                request,
+                history_before=history_before,
+                session_manager=session_manager,
+                harness_session=harness_session,
+                error=exc,
+            )
+        except Exception as export_exc:
+            logger.warning(
+                "Failed-run ATIF export failed",
+                data={"error_type": type(export_exc).__name__},
+            )
+        raise
 
 
 async def _export_requested_outputs(
@@ -681,32 +735,16 @@ async def _run_cli_flow(
             request.message,
             request.attachments,
         )
-        try:
-            response = await _run_one_shot_payload(
-                agent_obj,
-                prompt_payload,
-                request,
-                structured_source,
-                harness_session=harness_session,
-            )
-        except BaseException as exc:
-            try:
-                await _export_failed_one_shot_atif(
-                    agent_app,
-                    agent_obj,
-                    prompt_payload,
-                    request,
-                    history_before=history_before,
-                    session_manager=session_manager,
-                    harness_session=harness_session,
-                    error=exc,
-                )
-            except Exception as export_exc:
-                logger.warning(
-                    "Failed-run ATIF export failed",
-                    data={"error_type": type(export_exc).__name__},
-                )
-            raise
+        response = await _run_one_shot_with_failed_atif(
+            agent_app,
+            agent_obj,
+            prompt_payload,
+            request,
+            structured_source,
+            history_before=history_before,
+            session_manager=session_manager,
+            harness_session=harness_session,
+        )
         one_shot_response = response
         transient_messages_by_agent = _transient_result_messages_if_needed(
             agent_obj,
@@ -725,32 +763,16 @@ async def _run_cli_flow(
             prompt,
             request.attachments,
         )
-        try:
-            response = await _run_one_shot_payload(
-                agent_obj,
-                prompt_payload,
-                request,
-                structured_source,
-                harness_session=harness_session,
-            )
-        except BaseException as exc:
-            try:
-                await _export_failed_one_shot_atif(
-                    agent_app,
-                    agent_obj,
-                    prompt_payload,
-                    request,
-                    history_before=history_before,
-                    session_manager=session_manager,
-                    harness_session=harness_session,
-                    error=exc,
-                )
-            except Exception as export_exc:
-                logger.warning(
-                    "Failed-run ATIF export failed",
-                    data={"error_type": type(export_exc).__name__},
-                )
-            raise
+        response = await _run_one_shot_with_failed_atif(
+            agent_app,
+            agent_obj,
+            prompt_payload,
+            request,
+            structured_source,
+            history_before=history_before,
+            session_manager=session_manager,
+            harness_session=harness_session,
+        )
         one_shot_response = response
         transient_messages_by_agent = _transient_result_messages_if_needed(
             agent_obj,
@@ -855,7 +877,8 @@ async def _select_startup_model_if_needed(request: AgentRunRequest) -> str | Non
     if request.model is not None:
         return None
 
-    if request.resume:
+    if request.resume is not None:
+        request.model = _resume_bootstrap_model(request)
         # Resuming a session: the persisted session snapshot owns the model
         # (restored by session hydration during run). Showing the startup
         # picker here is both misleading and ineffective -- its selection is
@@ -881,9 +904,13 @@ async def _select_startup_model_if_needed(request: AgentRunRequest) -> str | Non
             and _system_default_reference_is_missing(_settings_model_references(settings))
         ),
     )
-    resolved_model = _resolve_model_without_hardcoded_default(
+    from fast_agent.core.model_resolution import resolve_model_spec
+
+    resolved_model = resolve_model_spec(
+        context=None,
         model=request.model,
-        config_default_model=settings.default_model,
+        default_model=settings.default_model,
+        cli_model=request.model,
         model_references=settings.model_references,
     )
 
@@ -922,10 +949,6 @@ async def _select_startup_model_if_needed(request: AgentRunRequest) -> str | Non
         )
         return "model picker"
 
-    initial_selection = _resolve_model_picker_initial_selection(settings=settings)
-    if initial_selection.model_spec:
-        request.model = initial_selection.model_spec
-        return "last used model"
     return None
 
 
@@ -939,14 +962,6 @@ def _request_instruction(request: AgentRunRequest) -> str | None:
     return resolve_default_instruction(
         request.model,
         request.mode,
-        force_smart=request.force_smart,
-    )
-
-
-def _smart_unavailable_warning() -> str:
-    return (
-        "Warning: --smart requested, but smart defaults are unavailable when using "
-        "multiple models. Continuing with non-smart defaults."
     )
 
 
@@ -955,6 +970,29 @@ def _configure_stdio_server_console(request: AgentRunRequest) -> None:
         from fast_agent.ui.console import configure_console_stream
 
         configure_console_stream("stderr")
+
+
+def _apply_cli_subagent_overrides(fast: Any, request: AgentRunRequest) -> None:
+    """Apply CLI subagent policy after every generated or card agent is registered."""
+    from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.core.subagent_policy import (
+        SubagentRuntimePolicy,
+        apply_subagent_runtime_policy,
+    )
+
+    policy = SubagentRuntimePolicy(
+        enabled=request.subagents,
+        model=request.subagent_model,
+    )
+    for agent_data in fast.agents.values():
+        config = agent_data.get("config")
+        if not isinstance(config, AgentConfig):
+            continue
+        apply_subagent_runtime_policy(
+            config,
+            policy,
+            tool_only=bool(agent_data.get("tool_only", False)),
+        )
 
 
 def _build_fast_agent(request: AgentRunRequest):
@@ -990,6 +1028,8 @@ def _apply_fast_args(
     fast.args.reload = request.reload
     fast.args.watch = request.watch
     fast.args.card_tools = request.card_tools
+    fast.args.subagents = request.subagents
+    fast.args.subagent_model = request.subagent_model
     fast.args.agent = request.target_agent_name or request.agent_name or "agent"
 
 
@@ -1013,16 +1053,18 @@ async def _apply_runtime_context_overrides(fast: Any, request: AgentRunRequest) 
 
 
 async def _add_cli_servers(fast: Any, request: AgentRunRequest) -> None:
-    if request.url_servers:
-        await add_servers_to_config(
+    if request.startup_mcp_servers:
+        for notice in request.mcp_startup_notices:
+            typer.echo(notice, err=True)
+        await register_runtime_servers(
             fast,
-            cast("dict[str, dict[str, Any]]", request.url_servers),
+            request.startup_mcp_servers,
+            owner=_cli_startup_owner(request),
         )
-    if request.stdio_servers:
-        await add_servers_to_config(
-            fast,
-            cast("dict[str, dict[str, Any]]", request.stdio_servers),
-        )
+
+
+def _cli_startup_owner(request: AgentRunRequest) -> str:
+    return "cli-startup" if request.mode == "interactive" else "cli-startup-serve"
 
 
 def _card_defined_default_type(fast: Any) -> str | None:
@@ -1036,34 +1078,12 @@ def _card_defined_default_type(fast: Any) -> str | None:
     return None
 
 
-def _warn_if_card_default_overrides_smart(
-    request: AgentRunRequest,
-    explicit_default_type: str | None,
-    smart_agent_enabled: bool,
-    smart_unavailable_warning: str,
-) -> None:
-    if explicit_default_type is not None and request.force_smart:
-        from fast_agent.agents.agent_types import AgentType
-
-        if explicit_default_type != AgentType.SMART.value:
-            typer.echo(
-                "Warning: --smart requested, but loaded AgentCards already define a "
-                "non-smart default agent. Keeping the card-defined default.",
-                err=True,
-            )
-    elif request.force_smart and not smart_agent_enabled:
-        typer.echo(smart_unavailable_warning, err=True)
-
-
 def _define_card_fallback_agent(
     fast: Any,
     request: AgentRunRequest,
     instruction: str | None,
-    smart_agent_enabled: bool,
 ) -> None:
-    agent_decorator = fast.smart if smart_agent_enabled else fast.agent
-
-    @agent_decorator(
+    @fast.agent(
         name="agent",
         instruction=instruction,
         servers=request.server_list or [],
@@ -1078,8 +1098,6 @@ def _configure_card_agents(
     fast: Any,
     request: AgentRunRequest,
     instruction: str | None,
-    smart_agent_enabled: bool,
-    smart_unavailable_warning: str,
 ) -> None:
     try:
         loaded_agent_names: list[str] = []
@@ -1090,13 +1108,6 @@ def _configure_card_agents(
             request.managed_mcp_agent_names = list(dict.fromkeys(loaded_agent_names))
 
         explicit_default_type = _card_defined_default_type(fast)
-        _warn_if_card_default_overrides_smart(
-            request,
-            explicit_default_type,
-            smart_agent_enabled,
-            smart_unavailable_warning,
-        )
-
         selected_loaded_agent = _select_loaded_card_agent(
             fast,
             request,
@@ -1110,7 +1121,6 @@ def _configure_card_agents(
                 fast,
                 request,
                 instruction,
-                smart_agent_enabled,
             )
 
         load_and_attach_card_tool_agents(
@@ -1124,8 +1134,6 @@ def _configure_card_agents(
     except AgentConfigError as exc:
         fast._handle_error(exc)
         raise typer.Exit(1) from exc
-
-    _attach_cli_servers_to_selected_agent(fast, request)
 
 
 def _default_managed_mcp_agent_names(fast: Any) -> list[str]:
@@ -1141,15 +1149,11 @@ def _build_card_cli_agent(
     fast: Any,
     request: AgentRunRequest,
     instruction: str | None,
-    smart_agent_enabled: bool,
-    smart_unavailable_warning: str,
 ) -> Callable[[], Awaitable[None]]:
     _configure_card_agents(
         fast,
         request,
         instruction,
-        smart_agent_enabled,
-        smart_unavailable_warning,
     )
 
     async def cli_agent() -> None:
@@ -1157,7 +1161,11 @@ def _build_card_cli_agent(
             fast,
             request,
             flow=_run_cli_flow,
-            prepare=lambda: _attach_cli_servers_to_selected_agent(fast, request),
+            prepare=lambda: _set_cli_server_overlay_for_selected_agent(
+                fast,
+                request,
+                fast.app.context.runtime_mcp_server_names,
+            ),
         )
 
     return cli_agent
@@ -1347,12 +1355,7 @@ def _build_multi_model_cli_agent(
     fast: Any,
     request: AgentRunRequest,
     instruction: str | None,
-    smart_agent_enabled: bool,
-    smart_unavailable_warning: str,
 ) -> Callable[[], Awaitable[None]]:
-    if request.force_smart and not smart_agent_enabled:
-        typer.echo(smart_unavailable_warning, err=True)
-
     assert request.model is not None
     fan_out_agents = _define_model_fanout_agents(
         fast,
@@ -1375,35 +1378,18 @@ def _build_multi_model_cli_agent(
     return cli_agent
 
 
-async def run_agent_request(request: AgentRunRequest) -> None:
-    """Run the normalized CLI request."""
-    startup_model_source_override = await _select_startup_model_if_needed(request)
-    serve_permissions_enabled = _serve_permissions_enabled(request)
-    instruction = _request_instruction(request)
-    smart_agent_enabled = resolve_smart_agent_enabled(
-        request.model,
-        request.mode,
-        force_smart=request.force_smart,
-    )
-    smart_unavailable_warning = _smart_unavailable_warning()
-    _configure_stdio_server_console(request)
-
-    fast = _build_fast_agent(request)
-    _apply_fast_args(
-        fast,
-        request,
-        model_source_override=startup_model_source_override,
-    )
-    await _apply_runtime_context_overrides(fast, request)
-    await _add_cli_servers(fast, request)
-
+async def _run_initialized_agent_request(
+    fast: Any,
+    request: AgentRunRequest,
+    *,
+    instruction: str | None,
+    serve_permissions_enabled: bool,
+) -> None:
     if request.agent_cards or request.card_tools:
         cli_agent = _build_card_cli_agent(
             fast,
             request,
             instruction,
-            smart_agent_enabled,
-            smart_unavailable_warning,
         )
 
     elif request.model and "," in request.model:
@@ -1411,14 +1397,11 @@ async def run_agent_request(request: AgentRunRequest) -> None:
             fast,
             request,
             instruction,
-            smart_agent_enabled,
-            smart_unavailable_warning,
         )
 
     else:
-        agent_decorator = fast.smart if smart_agent_enabled else fast.agent
 
-        @agent_decorator(
+        @fast.agent(
             name=request.agent_name or "agent",
             instruction=instruction,
             servers=request.server_list or [],
@@ -1434,7 +1417,15 @@ async def run_agent_request(request: AgentRunRequest) -> None:
 
         _validate_target_agent_name(fast, request)
 
+    _apply_cli_subagent_overrides(fast, request)
+
     if request.mode == "serve":
+        await fast.app.initialize()
+        _set_cli_server_overlay_for_selected_agent(
+            fast,
+            request,
+            fast.app.context.runtime_mcp_server_names,
+        )
         if request.managed_mcp_agent_names is None:
             request.managed_mcp_agent_names = _default_managed_mcp_agent_names(fast)
         await fast.start_server(
@@ -1447,3 +1438,124 @@ async def run_agent_request(request: AgentRunRequest) -> None:
         )
     else:
         await cli_agent()
+
+
+async def _rollback_cli_startup(fast: Any, request: AgentRunRequest) -> None:
+    try:
+        registry = fast.app.context.server_registry
+    except RuntimeError:
+        registry = None
+    if registry is not None:
+        for server_name in request.startup_mcp_servers or ():
+            registry.remove_runtime(server_name, owner=_cli_startup_owner(request))
+    with suppress(Exception):
+        await fast.app.cleanup()
+
+
+def _startup_server_input_ref(server_config) -> str:
+    if server_config.url:
+        return redact_mcp_url(server_config.url)
+    if server_config.command:
+        return join_commandline(
+            [server_config.command, *(server_config.args or ())],
+            syntax="posix",
+        )
+    return server_config.transport
+
+
+def _classify_cli_mcp_failure(
+    fast: Any,
+    request: AgentRunRequest,
+    cause: BaseException,
+    *,
+    allow_untyped_startup_registration: bool = False,
+) -> MCPFailure | None:
+    initialization_error = next(
+        (
+            error
+            for error in walk_exception_chain(cause)
+            if isinstance(error, ServerInitializationError) and error.server_name
+        ),
+        None,
+    )
+    startup_servers = request.startup_mcp_servers or {}
+    if initialization_error is None and not (
+        startup_servers and allow_untyped_startup_registration
+    ):
+        return None
+
+    server_name = (
+        initialization_error.server_name
+        if initialization_error is not None
+        else next(iter(startup_servers), None)
+        if len(startup_servers) == 1
+        else None
+    )
+    startup_config = startup_servers.get(server_name) if server_name else None
+    if startup_config is not None:
+        surface = (
+            "startup_url"
+            if uses_mcp_remote_transport(startup_config.transport)
+            else "startup_stdio"
+        )
+        origin = "session"
+        input_ref = _startup_server_input_ref(startup_config)
+        explicit_auth = any(
+            key.casefold() in {"authorization", "x-hf-authorization"}
+            for key in (startup_config.headers or {})
+        )
+    else:
+        surface = "harness_startup"
+        registry = fast.app.context.server_registry
+        registry_origin = registry.get_server_origin(server_name) if server_name else None
+        origin = registry_origin if registry_origin in {"central", "card"} else "session"
+        input_ref = request.config_path or server_name or "MCP configuration"
+        explicit_auth = False
+
+    return classify_mcp_failure(
+        cause,
+        server_name=server_name,
+        origin=origin,
+        surface=surface,
+        input_ref=input_ref,
+        stage="initialize",
+        explicit_auth=explicit_auth,
+    )
+
+
+async def run_agent_request(request: AgentRunRequest) -> None:
+    """Run the normalized CLI request."""
+    startup_model_source_override = await _select_startup_model_if_needed(request)
+    serve_permissions_enabled = _serve_permissions_enabled(request)
+    instruction = _request_instruction(request)
+    _configure_stdio_server_console(request)
+
+    fast = _build_fast_agent(request)
+    _apply_fast_args(
+        fast,
+        request,
+        model_source_override=startup_model_source_override,
+    )
+    await _apply_runtime_context_overrides(fast, request)
+    registering_startup_servers = True
+    try:
+        await _add_cli_servers(fast, request)
+        registering_startup_servers = False
+        await _run_initialized_agent_request(
+            fast,
+            request,
+            instruction=instruction,
+            serve_permissions_enabled=serve_permissions_enabled,
+        )
+    except BaseException as exc:
+        failure = _classify_cli_mcp_failure(
+            fast,
+            request,
+            exc,
+            allow_untyped_startup_registration=registering_startup_servers,
+        )
+        await _rollback_cli_startup(fast, request)
+        if failure is not None:
+            typer.echo(render_mcp_failure(failure, output_format="cli"), err=True)
+            raise SystemExit(1) from exc
+        raise

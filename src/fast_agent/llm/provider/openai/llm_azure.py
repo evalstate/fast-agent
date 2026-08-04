@@ -13,7 +13,7 @@ def _load_default_azure_credential() -> type[Any] | None:
         azure_identity = import_module("azure.identity")
     except ImportError:
         return None
-    return getattr(azure_identity, "DefaultAzureCredential")
+    return azure_identity.DefaultAzureCredential
 
 
 DefaultAzureCredential: type[Any] | None = _load_default_azure_credential()

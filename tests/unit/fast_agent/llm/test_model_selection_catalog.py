@@ -75,34 +75,25 @@ def test_list_current_aliases_for_provider() -> None:
     assert aliases.index("opus") < aliases.index("opus48") < aliases.index("opus46")
 
 
-def test_anthropic_catalog_lists_user_facing_factory_aliases() -> None:
-    aliases = ModelSelectionCatalog.list_current_aliases(Provider.ANTHROPIC)
+def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() -> None:
+    expected = {
+        "sol": "codexresponses.gpt-5.6-sol?reasoning=high",
+        "terra": "codexresponses.gpt-5.6-terra?reasoning=high",
+        "codexplan": "codexresponses.gpt-5.6-sol?reasoning=high",
+    }
+    entries = {
+        entry.alias: entry.model
+        for entry in ModelSelectionCatalog.list_current_entries(Provider.CODEX_RESPONSES)
+        if entry.alias in expected
+    }
 
-    assert aliases
-    for alias in aliases:
-        assert alias in ModelFactory.MODEL_PRESETS
-    assert ModelFactory.MODEL_PRESETS["sonnet"] == "claude-sonnet-5"
-    assert ModelFactory.MODEL_PRESETS["sonnet5"] == "claude-sonnet-5"
-    assert ModelFactory.MODEL_PRESETS["fable"] == "claude-fable-5"
-    assert ModelFactory.MODEL_PRESETS["fable5"] == "claude-fable-5"
-    assert ModelFactory.MODEL_PRESETS["opus"] == "claude-opus-5"
-    assert ModelFactory.MODEL_PRESETS["opus5"] == "claude-opus-5"
-    assert ModelFactory.MODEL_PRESETS["opus48"] == "claude-opus-4-8"
-
-
-def test_current_catalog_entries_match_model_presets_for_shared_aliases() -> None:
-    for entry in ModelSelectionCatalog.list_current_entries():
-        preset = ModelFactory.MODEL_PRESETS.get(entry.alias)
-        if preset is not None:
-            parsed_entry = ModelFactory.parse_model_string(entry.model)
-            parsed_preset = ModelFactory.parse_model_string(preset)
-            if parsed_entry.provider != parsed_preset.provider:
-                continue
-            assert parsed_entry.provider == parsed_preset.provider
-            assert parsed_entry.model_name == parsed_preset.model_name
-            assert parsed_entry.model_dump(
-                exclude={"provider", "model_name"}
-            ) == parsed_preset.model_dump(exclude={"provider", "model_name"})
+    assert entries == expected
+    for alias, model_spec in expected.items():
+        assert ModelFactory.MODEL_PRESETS[alias] == model_spec
+        assert ModelFactory.parse_model_string(
+            alias,
+            presets=ModelFactory.MODEL_PRESETS,
+        ) == ModelFactory.parse_model_string(model_spec)
 
 
 def test_deepseek_catalog_exposes_only_responses_model() -> None:

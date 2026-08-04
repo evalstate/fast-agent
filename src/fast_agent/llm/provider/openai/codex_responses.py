@@ -69,7 +69,7 @@ class CodexResponsesLLM(ResponsesLLM):
                 raise ProviderKeyError(
                     "Codex OAuth token invalid",
                     "The Codex access token did not contain a chatgpt_account_id. "
-                    "Run `fast-agent auth login codex` to refresh your token.",
+                    "Run `fast-agent auth provider login codex` to refresh your token.",
                 )
             default_headers = dict(self._default_headers() or {})
             default_headers["chatgpt-account-id"] = account_id
@@ -94,7 +94,7 @@ class CodexResponsesLLM(ResponsesLLM):
             raise ProviderKeyError(
                 "Invalid Codex OAuth token",
                 "The configured Codex OAuth token was rejected. "
-                "Run `fast-agent auth login codex` to reauthenticate.",
+                "Run `fast-agent auth provider login codex` to reauthenticate.",
             ) from e
 
     def _supports_websocket_transport(self) -> bool:
@@ -157,7 +157,7 @@ class CodexResponsesLLM(ResponsesLLM):
             raise ProviderKeyError(
                 "Codex OAuth token invalid",
                 "The Codex access token did not contain a chatgpt_account_id. "
-                "Run `fast-agent auth login codex` to refresh your token.",
+                "Run `fast-agent auth provider login codex` to refresh your token.",
             )
         default_headers = dict(self._default_headers() or {})
         default_headers["chatgpt-account-id"] = account_id
@@ -198,12 +198,12 @@ class CodexResponsesLLM(ResponsesLLM):
             raise ProviderKeyError(
                 "Codex OAuth token rejected (401) and refresh failed",
                 "The Codex OAuth token is invalid and could not be refreshed automatically. "
-                "Run `fast-agent auth login codex` to reauthenticate.",
+                "Run `fast-agent auth provider login codex` to reauthenticate.",
             ) from refresh_err
         if token is None:
             raise ProviderKeyError(
                 "Codex OAuth token rejected (401)",
-                "Run `fast-agent auth login codex` to reauthenticate.",
+                "Run `fast-agent auth provider login codex` to reauthenticate.",
             )
         fresh_headers = self._build_websocket_headers()
         return await super()._create_websocket_connection(url, fresh_headers, timeout_seconds)
@@ -244,5 +244,5 @@ class CodexResponsesLLM(ResponsesLLM):
             self.logger.debug(
                 "Dropping max_output_tokens for Codex responses; parameter unsupported by API"
             )
-        args["tool_choice"] = "auto"
+        args["tool_choice"] = request_params.sampling_tool_choice or "auto"
         return args

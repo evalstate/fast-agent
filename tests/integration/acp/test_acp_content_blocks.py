@@ -44,11 +44,13 @@ def _prompt_blocks(*blocks: ACPContentBlock) -> list[ACPContentBlock]:
 
 
 class _HasSessionId(Protocol):
-    session_id: str | None
+    @property
+    def session_id(self) -> str | None: ...
 
 
 class _HasCamelSessionId(Protocol):
-    sessionId: str | None
+    @property
+    def sessionId(self) -> str | None: ...
 
 
 def _session_id(session_response: _HasSessionId | _HasCamelSessionId) -> str:

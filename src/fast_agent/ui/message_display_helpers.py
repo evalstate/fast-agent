@@ -27,7 +27,7 @@ from fast_agent.utils.tool_names import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    from mcp.types import CallToolRequest, ContentBlock
+    from mcp_types import CallToolRequest, ContentBlock
 
     from fast_agent.types import PromptMessageExtended
     from fast_agent.ui.terminal_images import ImageRenderItem
@@ -52,17 +52,17 @@ def extract_user_attachments(message: PromptMessageExtended) -> list[str]:
     for content in message.content:
         if is_resource_link(content):
             # ResourceLink: show name or mime type
-            from mcp.types import ResourceLink
+            from mcp_types import ResourceLink
 
             assert isinstance(content, ResourceLink)
-            label = content.name or content.mimeType or "resource"
+            label = content.name or content.mime_type or "resource"
             attachments.append(label)
         elif is_image_content(content):
             source_uri = _content_source_uri(content)
             attachments.append(f"image ({source_uri})" if source_uri else "image")
         elif is_resource_content(content):
             # EmbeddedResource: show name or uri
-            from mcp.types import EmbeddedResource
+            from mcp_types import EmbeddedResource
 
             assert isinstance(content, EmbeddedResource)
             label = getattr(content.resource, "name", None) or str(content.resource.uri)
@@ -106,7 +106,7 @@ def _is_local_image_content(content: "ContentBlock") -> bool:
 
 
 def _message_display_text(message: PromptMessageExtended) -> str:
-    from mcp.types import TextContent
+    from mcp_types import TextContent
 
     for content in message.content:
         if not isinstance(content, TextContent):

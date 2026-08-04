@@ -68,6 +68,13 @@ class SessionHydrationResult:
     active_agent: str | None = None
 
 
+class NonResumableSessionError(RuntimeError):
+    """Raised when attempting to hydrate an execution-only session."""
+
+    def __init__(self, session_id: str) -> None:
+        super().__init__(f"Session {session_id!r} is not resumable")
+
+
 @dataclass(slots=True)
 class _HydrationState:
     loaded_agents: dict[str, Path] = field(default_factory=dict)
@@ -151,6 +158,8 @@ class SessionHydrator:
     ) -> SessionHydrationResult:
         warnings: list[SessionHydrationWarning] = []
         snapshot = self._load_snapshot(session=session, warnings=warnings)
+        if not snapshot.execution.resumable:
+            raise NonResumableSessionError(snapshot.session_id)
         warnings.extend(self._git_state_warnings(snapshot))
         agent_snapshots = self._select_agent_snapshots(
             session=session,
@@ -578,7 +587,7 @@ class SessionHydrator:
     ) -> None:
         params = self._base_request_params(agent)
         if request_settings.max_tokens is not None:
-            params.maxTokens = request_settings.max_tokens
+            params.max_tokens = request_settings.max_tokens
         params.temperature = request_settings.temperature
         params.top_p = request_settings.top_p
         params.top_k = request_settings.top_k
@@ -608,7 +617,7 @@ class SessionHydrator:
         )
         params.streaming_timeout = request_settings.streaming_timeout
         params.service_tier = request_settings.service_tier
-        params.systemPrompt = agent.instruction
+        params.system_prompt = agent.instruction
 
         agent.config.use_history = params.use_history
         agent.config.default_request_params = params.model_copy(deep=True)
@@ -625,7 +634,7 @@ class SessionHydrator:
         if default_params is not None:
             return default_params.model_copy(deep=True)
 
-        return RequestParams(use_history=agent.config.use_history, systemPrompt=agent.instruction)
+        return RequestParams(use_history=agent.config.use_history, system_prompt=agent.instruction)
 
     def _persisted_attached_mcp_servers(
         self,

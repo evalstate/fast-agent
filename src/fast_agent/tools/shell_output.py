@@ -10,6 +10,7 @@ from fast_agent.tools.output_truncation import (
     format_output_truncation_notice,
     split_output_byte_limit,
 )
+from fast_agent.tools.transient_artifacts import format_retained_artifact_notice
 
 _OUTPUT_LIMIT_GUIDANCE = "Increase shell_execution.output_byte_limit to retain more."
 
@@ -133,25 +134,18 @@ class ShellOutputBuffer:
     def _truncation_guidance(self) -> str:
         if self.retained_output_path is None or not self.retained_output_path.exists():
             return _OUTPUT_LIMIT_GUIDANCE
-        completeness = (
-            "The complete output"
-            if self.retained_output_complete
-            else (
-                f"The first {self.retained_output_bytes} bytes retained before the "
-                "temporary-file quota was reached"
+        notice = format_retained_artifact_notice(
+            path=str(self.retained_output_path),
+            retained_bytes=self.retained_output_bytes,
+            complete=self.retained_output_complete,
+            description="output",
+        )
+        if self.extended_guidance:
+            return (
+                f"{notice} Also, before drawing conclusions from truncated output, "
+                "inspect the relevant retained content."
             )
-        )
-        guidance = (
-            "before drawing conclusions from truncated output, inspect the relevant "
-            "retained content. Avoid reading the entire file unless necessary."
-            if self.extended_guidance
-            else "avoid reading the entire file unless necessary."
-        )
-        return (
-            f"{completeness} is available during this session at "
-            f"{self.retained_output_path}. Use read_text_file for selected line ranges "
-            f"or run a targeted search against that file; {guidance}"
-        )
+        return notice
 
     def _start_retained(self, triggering_blob: bytes) -> None:
         if self.retained_output_path is None or self.retained_output_max_bytes <= 0:

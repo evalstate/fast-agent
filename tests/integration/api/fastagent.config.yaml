@@ -32,11 +32,11 @@ logger:
 mcp:
   servers:
     prompts:
-      command: "prompt-server"
-      args: ["playback.md"]
+      command: "uv"
+      args: ["run", "mcp_playback_prompt.py"]
     prompts2:
-      command: "prompt-server"
-      args: ["prompt.txt"]
+      command: "uv"
+      args: ["run", "mcp_single_prompt.py"]
     std_io:
       command: "uv"
       args: ["run", "integration_agent.py", "--transport", "stdio"]
@@ -58,14 +58,14 @@ mcp:
     hyphen-test:
       command: "uv"
       args: ["run", "mcp_tools_server.py"]
-    # borrows config from prompt-server
     cwd_test:
-      command: "prompt-server"
-      args: ["multi.txt"]
-      cwd: "../prompt-server/"
+      command: "uv"
+      args: ["run", "mcp_cwd_prompt.py"]
+      cwd: "cwd_fixture"
     dynamic_tool:
       command: "uv"
       args: ["run", "mcp_dynamic_tools.py"]
+      protocol_mode: legacy
     progress_test:
       command: "uv"
       args: ["run", "mcp_progress_server.py"]

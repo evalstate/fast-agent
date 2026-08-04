@@ -22,7 +22,7 @@ Context placeholders (set by caller):
     {{agentType}} - Current agent type
     {{agentCardPath}} - Source AgentCard path (if available)
     {{agentCardDir}} - Source AgentCard directory (if available)
-    {{modelReferences}} - Model references and effective default
+    {{modelReferences}} - Configured model references and resolved default, if any
     {{serverInstructions}} - MCP server instructions
     {{agentSkills}} - Agent skill descriptions
     {{agentInternalResources}} - Internal resource index
@@ -79,6 +79,16 @@ def _load_internal_resource(resource_id: str) -> str:
         raise AgentConfigError(
             "Invalid internal resource placeholder",
             "Resource ID must not be empty",
+        )
+    if (
+        Path(normalized_id).is_absolute()
+        or normalized_id in {".", ".."}
+        or "/" in normalized_id
+        or "\\" in normalized_id
+    ):
+        raise AgentConfigError(
+            "Invalid internal resource placeholder",
+            "Resource ID must not be absolute, traverse directories, or contain path separators",
         )
 
     # Source checkout fallback for local development/testing.

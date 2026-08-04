@@ -5,7 +5,16 @@ from __future__ import annotations
 from fast_agent.commands.command_catalog import CommandSpec, get_command_spec
 from fast_agent.commands.session_export_help import SESSION_EXPORT_USAGE
 
-CATALOG_HELP_COMMANDS = ("skills", "cards", "plugins", "model", "models", "check")
+CATALOG_HELP_COMMANDS = (
+    "skills",
+    "packs",
+    "plugins",
+    "model",
+    "agent",
+    "subagents",
+    "card",
+    "check",
+)
 
 
 def _catalog_help_lines(command_names: tuple[str, ...]) -> list[str]:
@@ -48,14 +57,16 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /markdown      - Show last assistant message without markdown formatting",
             "  /environment   - List configured execution environments",
             "  /process [--history] - Show active or retained finished shell processes",
-            "  /mcpstatus     - Show MCP server status summary for the active agent",
-            "  /mcp list      - List attached runtime MCP servers",
-            "  /mcp connect <target> - Connect MCP server at runtime",
+            "  /mcp           - Show detailed MCP server status for the active agent",
+            "  /mcp status    - Show detailed MCP server status for the active agent",
+            "  /mcp list      - List configured and attached MCP servers",
+            "  /mcp attach <name> - Attach a configured MCP server",
+            "  /mcp connect <target> - Connect an ad-hoc MCP target",
             "      [dim]flags: --name --auth <token-value> --timeout --oauth/--no-oauth --reconnect[/dim]",
             '      [dim]example: /mcp connect "C:\\Program Files\\Tool\\tool.exe" --flag[/dim]',
             "  /mcp disconnect <name> - Disconnect attached MCP server",
             "  /mcp reconnect <name> - Reconnect attached MCP server",
-            "  /connect <target> - Alias for /mcp connect",
+            "  /connect <name|target> - Attach configured name or connect an ad-hoc target",
             "  /history save [filename] - Save current chat history to a file",
             "      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]",
             "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]",
@@ -82,9 +93,6 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /session pin <title> - Set title and pin the current session",
             "  /session unpin - Unpin the current session",
             f"  {SESSION_EXPORT_USAGE} - Export a session trace",
-            "  /card <filename> [--tool [remove]] - Load an AgentCard (attach/remove as tool)",
-            "  /agent <name> --tool [remove] - Attach/remove an agent as a tool",
-            "  /agent [name] --dump - Print an AgentCard to screen",
             "  /reload        - Reload AgentCards",
             "  @agent_name    - Switch to agent",
             "  #agent_name <msg> - Send message to agent (no space after #); '# Heading' stays plain text",

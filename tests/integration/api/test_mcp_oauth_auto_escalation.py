@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import httpx
+import httpx2 as httpx
 import pytest
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
 from fast_agent.config import MCPServerSettings, MCPSettings, Settings
-from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
+from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
 from fast_agent.mcp_server_registry import ServerRegistry
 
@@ -104,27 +104,31 @@ async def test_http_mcp_auto_escalates_to_oauth_on_401(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app, initialize_auth_headers = _build_app()
+    async_client = httpx.AsyncClient
 
     def _client_factory(
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
         auth: httpx.Auth | None = None,
+        follow_redirects: bool = True,
+        event_hooks: dict[str, list] | None = None,
     ) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
+        return async_client(
             transport=httpx.ASGITransport(app=app),
             base_url="http://testserver",
             headers=headers,
             timeout=timeout,
             auth=auth,
-            follow_redirects=True,
+            follow_redirects=follow_redirects,
+            event_hooks=event_hooks,
         )
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.create_mcp_http_client",
+        "fast_agent.mcp.client_gateway.httpx2.AsyncClient",
         _client_factory,
     )
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.build_oauth_provider",
+        "fast_agent.mcp.client_gateway.build_oauth_provider",
         lambda *_args, **_kwargs: _BearerAuth(),
     )
 
@@ -132,7 +136,6 @@ async def test_http_mcp_auto_escalates_to_oauth_on_401(
         mcp=MCPSettings(
             servers={
                 "authsrv": MCPServerSettings(
-                    name="authsrv",
                     transport="http",
                     url="http://testserver/mcp",
                 )
@@ -140,11 +143,16 @@ async def test_http_mcp_auto_escalates_to_oauth_on_401(
         )
     )
     registry = ServerRegistry(config=settings)
+    server_config = registry.get_server_config("authsrv")
+    assert server_config is not None
 
     async with MCPConnectionManager(registry) as manager:
         server_conn = await manager.get_server(
             "authsrv",
-            client_session_factory=MCPAgentClientSession,
+            callback_runtime=MCPClientCallbackRuntime(
+                server_name="authsrv",
+                server_config=server_config,
+            ),
             startup_timeout_seconds=5.0,
         )
 
@@ -152,6 +160,6 @@ async def test_http_mcp_auto_escalates_to_oauth_on_401(
         assert manager._oauth_required_servers == {"authsrv"}
         assert initialize_auth_headers == [None, "Bearer test-token"]
 
-        assert server_conn.session is not None
-        tools = await server_conn.session.list_tools()
+        assert server_conn.client is not None
+        tools = await server_conn.client.list_tools()
         assert [tool.name for tool in tools.tools] == ["echo"]

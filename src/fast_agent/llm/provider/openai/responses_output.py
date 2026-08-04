@@ -4,7 +4,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
-from mcp.types import CallToolRequest, CallToolRequestParams, ContentBlock, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, ContentBlock, TextContent
 from openai.types.responses import ResponseReasoningItem, ResponseUsage
 from pydantic_core import from_json
 

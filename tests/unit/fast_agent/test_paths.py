@@ -10,7 +10,6 @@ from fast_agent.paths import (
     default_skill_paths,
     resolve_home_dir,
     resolve_home_paths,
-    resolve_mcp_ui_output_dir,
     resolve_settings_start_path,
 )
 
@@ -154,9 +153,3 @@ def test_default_skill_paths_skip_home_when_no_home(
         (tmp_path / ".agents" / "skills").resolve(),
         (tmp_path / ".claude" / "skills").resolve(),
     ]
-
-
-def test_resolve_mcp_ui_output_dir_uses_typed_settings_field(tmp_path: Path) -> None:
-    settings = Settings(mcp_ui_output_dir="custom-ui")
-
-    assert resolve_mcp_ui_output_dir(settings, cwd=tmp_path) == (tmp_path / "custom-ui").resolve()

@@ -18,7 +18,6 @@ from prompt_toolkit.completion import Completer, WordCompleter
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
-from rich import print as rich_print
 from rich.markup import escape as escape_markup
 from rich.text import Text
 
@@ -37,6 +36,7 @@ from fast_agent.commands.model_capabilities import (
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.agent_identity import is_default_agent_name
+from fast_agent.ui.console import rich_print
 from fast_agent.ui.mcp_display import render_mcp_status
 from fast_agent.ui.model_binary_toggles import (
     WEB_FETCH_TOGGLE,
@@ -194,7 +194,10 @@ def queue_startup_markdown_notice(
     )
 
 
-async def show_mcp_status(agent_name: str, agent_provider: "AgentApp | None") -> None:
+async def show_mcp_status(
+    agent_name: str,
+    agent_provider: "AgentApp | None",
+) -> None:
     if agent_provider is None:
         rich_print("[red]No agent provider available[/red]")
         return

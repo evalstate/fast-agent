@@ -7,7 +7,7 @@ from enum import StrEnum
 from threading import Lock
 from typing import TYPE_CHECKING, Literal, cast
 
-from mcp.types import (
+from mcp_types import (
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCNotification,
@@ -22,8 +22,15 @@ from fast_agent.utils.text import strip_casefold
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-ChannelName = Literal["post-json", "post-sse", "get", "resumption", "stdio"]
-EventType = Literal["message", "connect", "disconnect", "keepalive", "error"]
+ChannelName = Literal["post-json", "post-sse", "listen", "get", "resumption", "stdio"]
+EventType = Literal[
+    "message",
+    "connect",
+    "disconnect",
+    "keepalive",
+    "error",
+    "unsupported",
+]
 PostChannelName = Literal["post-json", "post-sse"]
 PostMode = Literal["json", "sse"]
 POST_CHANNEL_MODE_BY_NAME: dict[PostChannelName, PostMode] = {
@@ -36,6 +43,7 @@ POST_CHANNEL_NAME_BY_MODE: dict[PostMode, PostChannelName] = {
 POST_CHANNEL_NAMES: tuple[PostChannelName, ...] = tuple(POST_CHANNEL_MODE_BY_NAME)
 TRACKED_CHANNEL_NAMES: tuple[ChannelName, ...] = (
     *POST_CHANNEL_NAMES,
+    "listen",
     "get",
     "resumption",
     "stdio",
@@ -95,17 +103,16 @@ class ModeStats:
 
 
 def _summarise_message(message: JSONRPCMessage) -> str:
-    root = message.root
-    if isinstance(root, JSONRPCRequest):
-        method = root.method or ""
+    if isinstance(message, JSONRPCRequest):
+        method = message.method or ""
         return f"request {method}"
-    if isinstance(root, JSONRPCNotification):
-        method = root.method or ""
+    if isinstance(message, JSONRPCNotification):
+        method = message.method or ""
         return f"notify {method}"
-    if isinstance(root, JSONRPCResponse):
+    if isinstance(message, JSONRPCResponse):
         return "response"
-    if isinstance(root, JSONRPCError):
-        code = getattr(root.error, "code", None)
+    if isinstance(message, JSONRPCError):
+        code = message.error.code
         return f"error {code}" if code is not None else "error"
     return "message"
 
@@ -155,6 +162,7 @@ class TransportSnapshot(BaseModel):
     post: ChannelSnapshot | None = None
     post_json: ChannelSnapshot | None = None
     post_sse: ChannelSnapshot | None = None
+    listen: ChannelSnapshot | None = None
     get: ChannelSnapshot | None = None
     resumption: ChannelSnapshot | None = None
     stdio: ChannelSnapshot | None = None
@@ -173,6 +181,7 @@ class TransportChannelMetrics:
         self._lock = Lock()
 
         self._init_post_metrics()
+        self._init_listen_metrics()
         self._init_get_metrics()
         self._init_resumption_metrics()
         self._init_stdio_metrics()
@@ -182,6 +191,7 @@ class TransportChannelMetrics:
         ] = {
             "post-json": self._handle_post_event,
             "post-sse": self._handle_post_event,
+            "listen": self._handle_listen_event,
             "get": self._handle_get_event,
             "resumption": self._handle_resumption_event,
             "stdio": self._handle_stdio_event,
@@ -221,6 +231,21 @@ class TransportChannelMetrics:
         self._get_counts = MessageCounts()
         self._get_ping_count = 0
         self._get_last_ping_at: datetime | None = None
+
+    def _init_listen_metrics(self) -> None:
+        self._listen_connected = False
+        self._listen_had_connection = False
+        self._listen_unsupported = False
+        self._listen_connect_at: datetime | None = None
+        self._listen_disconnect_at: datetime | None = None
+        self._listen_count = 0
+        self._listen_counts = MessageCounts()
+        self._listen_last_summary: str | None = None
+        self._listen_last_at: datetime | None = None
+        self._listen_last_event: str | None = None
+        self._listen_last_event_at: datetime | None = None
+        self._listen_last_error: str | None = None
+        self._listen_last_status_code: int | None = None
 
     def _init_resumption_metrics(self) -> None:
         self._resumption_count = 0
@@ -330,7 +355,7 @@ class TransportChannelMetrics:
             self._get_last_event = "connect"
             self._get_last_event_at = now
             self._get_last_error = None
-            self._get_last_status_code = None
+            self._get_last_status_code = event.status_code
         elif event.event_type == "disconnect":
             self._get_connected = False
             self._get_disconnect_at = now
@@ -363,8 +388,59 @@ class TransportChannelMetrics:
             )
             self._record_history("get", timeline_state, now)
 
+    def _handle_listen_event(self, event: ChannelEvent, now: datetime) -> None:
+        if event.event_type == "message":
+            self._listen_unsupported = False
+            self._listen_count += 1
+            if event.message is None:
+                self._listen_counts.notification += 1
+                summary = event.detail or "subscription event"
+                classification = ActivityState.NOTIFICATION
+            else:
+                classification = self._classify_message(event.message)
+                self._listen_counts.increment(classification)
+                summary = _summarise_classified_message(classification, event.message)
+            self._listen_last_summary = summary
+            self._listen_last_at = now
+            self._listen_last_event = "message"
+            self._listen_last_event_at = now
+            self._record_history("listen", classification, now)
+        elif event.event_type == "connect":
+            self._listen_connected = True
+            self._listen_had_connection = True
+            self._listen_connect_at = now
+            self._listen_last_event = "connect"
+            self._listen_last_event_at = now
+            self._listen_last_error = None
+            self._listen_last_status_code = event.status_code
+        elif event.event_type == "disconnect":
+            self._listen_connected = False
+            self._listen_disconnect_at = now
+            self._listen_last_event = "disconnect"
+            self._listen_last_event_at = now
+        elif event.event_type == "error":
+            self._listen_connected = False
+            self._listen_last_status_code = event.status_code
+            self._listen_last_error = event.detail
+            self._listen_last_event = "error"
+            self._listen_last_event_at = now
+            self._record_history("listen", ActivityState.ERROR, now)
+        elif event.event_type == "unsupported":
+            self._listen_connected = False
+            self._listen_unsupported = True
+            self._listen_last_event = "unsupported"
+            self._listen_last_event_at = now
+
     def _handle_resumption_event(self, event: ChannelEvent, now: datetime) -> None:
-        if event.event_type == "message" and event.message is not None:
+        if event.event_type == "connect":
+            self._resumption_count += 1
+            self._resumption_counts.increment(ActivityState.REQUEST)
+            self._resumption_last_event = "request"
+            self._resumption_last_event_at = now
+            self._resumption_last_summary = event.detail or "resume"
+            self._resumption_last_at = now
+            self._record_history("resumption", ActivityState.REQUEST, now)
+        elif event.event_type == "message" and event.message is not None:
             self._resumption_count += 1
             classification = self._tally_message_counts("resumption", event.message, now)
             summary = _summarise_classified_message(classification, event.message)
@@ -421,7 +497,7 @@ class TransportChannelMetrics:
     def _record_response_channel(self, event: ChannelEvent) -> None:
         if event.message is None:
             return
-        root = event.message.root
+        root = event.message
         request_id: RequestId | None = None
         if isinstance(root, (JSONRPCResponse, JSONRPCError)):
             request_id = root.id
@@ -444,7 +520,7 @@ class TransportChannelMetrics:
         sub_mode: PostMode | None = None,
     ) -> ActivityState:
         classification = self._classify_message(message)
-        root = message.root
+        root = message
         request_id = self._message_request_id(root)
         classification = self._classify_ping_exchange(classification, root, request_id)
         self._tally_classification(channel_key, classification, timestamp, sub_mode=sub_mode)
@@ -524,7 +600,7 @@ class TransportChannelMetrics:
     def _classify_message(self, message: JSONRPCMessage | None) -> ActivityState:
         if message is None:
             return ActivityState.NONE
-        root = message.root
+        root = message
         method = getattr(root, "method", "")
         normalized_method = strip_casefold(method) if isinstance(method, str) else ""
 
@@ -644,6 +720,7 @@ class TransportChannelMetrics:
                 post=self._build_post_snapshot(now),
                 post_json=self._build_post_mode_snapshot("json", now),
                 post_sse=self._build_post_mode_snapshot("sse", now),
+                listen=self._build_listen_snapshot(now),
                 get=self._build_get_snapshot(now),
                 resumption=self._build_resumption_snapshot(now),
                 stdio=self._build_stdio_snapshot(now),
@@ -654,6 +731,7 @@ class TransportChannelMetrics:
     def _has_snapshot_activity(self) -> bool:
         return bool(
             self._has_post_snapshot_activity()
+            or self._has_listen_snapshot_activity()
             or self._has_get_snapshot_activity()
             or self._has_resumption_snapshot_activity()
             or self._has_stdio_snapshot_activity()
@@ -661,6 +739,48 @@ class TransportChannelMetrics:
 
     def _has_post_snapshot_activity(self) -> bool:
         return bool(self._post_count or self._post_last_error)
+
+    def _build_listen_snapshot(self, now: datetime) -> ChannelSnapshot | None:
+        if not self._has_listen_snapshot_activity():
+            return None
+        return ChannelSnapshot(
+            connected=self._listen_connected,
+            state=self._listen_state(),
+            connect_at=self._listen_connect_at,
+            disconnect_at=self._listen_disconnect_at,
+            message_count=self._listen_count,
+            last_message_summary=self._listen_last_summary,
+            last_message_at=self._listen_last_at,
+            last_error=self._listen_last_error,
+            last_event=self._listen_last_event,
+            last_event_at=self._listen_last_event_at,
+            last_status_code=self._listen_last_status_code,
+            request_count=self._listen_counts.request,
+            response_count=self._listen_counts.response,
+            notification_count=self._listen_counts.notification,
+            activity_buckets=self._build_activity_buckets("listen", now),
+            activity_bucket_seconds=self._history_bucket_seconds,
+            activity_bucket_count=self._history_bucket_count,
+        )
+
+    def _has_listen_snapshot_activity(self) -> bool:
+        if self._listen_unsupported:
+            return False
+        return bool(
+            self._listen_count
+            or self._listen_connected
+            or self._listen_disconnect_at
+            or self._listen_last_error
+        )
+
+    def _listen_state(self) -> str:
+        if self._listen_connected:
+            return "open"
+        if self._listen_last_error is not None:
+            return "error"
+        if self._listen_had_connection:
+            return "off"
+        return "idle"
 
     def _build_post_snapshot(self, now: datetime) -> ChannelSnapshot | None:
         if not self._has_post_snapshot_activity():

@@ -61,8 +61,7 @@
             "type": "text",
             "text": "{\"72239a04f\": {\"timing_ms\": 185.4, \"transport_channel\": null}}"
           }
-        ],
-        "mcp-ui": []
+        ]
       },
       "is_template": false
     },
@@ -146,8 +145,7 @@
             "type": "text",
             "text": "{\"fff5a7811\": {\"timing_ms\": 137.96, \"transport_channel\": null}}"
           }
-        ],
-        "mcp-ui": []
+        ]
       },
       "is_template": false
     },
@@ -240,8 +238,7 @@
             "type": "text",
             "text": "{\"fd70bf109\": {\"timing_ms\": 163.03, \"transport_channel\": null}}"
           }
-        ],
-        "mcp-ui": []
+        ]
       },
       "is_template": false
     },

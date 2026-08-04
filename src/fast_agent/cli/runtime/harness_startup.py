@@ -16,9 +16,11 @@ from fast_agent.core.exceptions import (
 )
 from fast_agent.core.harness_app import AppOpenRequest
 from fast_agent.tools.environment_registry import UnknownEnvironmentError
+from fast_agent.ui.usage_display import collect_agents_from_provider, finalize_usage_report
+from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
     from contextlib import AbstractAsyncContextManager
 
     from fast_agent.cli.runtime.run_request import AgentRunRequest
@@ -69,6 +71,29 @@ class ParallelCliFlow(Protocol):
     ) -> None: ...
 
 
+def _display_cli_usage_report(agent_app: object, *, quiet: bool) -> None:
+    """Display usage before a harness-backed CLI session disposes its agents."""
+    finalize_usage_report(
+        collect_agents_from_provider(agent_app),
+        show=not quiet,
+    )
+
+
+async def _run_flow_with_usage_report(
+    operation: Awaitable[None],
+    *,
+    agent_app: object,
+    quiet: bool,
+) -> None:
+    """Render usage for normal and user-requested exits, but not failures."""
+    try:
+        await operation
+    except PromptExitError:
+        _display_cli_usage_report(agent_app, quiet=quiet)
+        raise
+    _display_cli_usage_report(agent_app, quiet=quiet)
+
+
 def should_use_harness_startup(request: AgentRunRequest) -> bool:
     return request.mode == "interactive" and request.allow_sessions
 
@@ -105,22 +130,62 @@ def _latest_session_id_with_assistant_preview(manager: "SessionManager") -> str 
 
 
 def initial_harness_session_id(request: AgentRunRequest) -> str:
-    from fast_agent.cli.runtime.session_resume import RESUME_LATEST_ALIASES
     from fast_agent.session.session_manager import SessionManager
 
     manager = SessionManager(home_override=request.home)
-    if request.resume is not None:
-        if request.resume not in RESUME_LATEST_ALIASES:
-            resolved = manager.resolve_session_name(request.resume)
-            if resolved is not None:
-                return resolved
-        preview_session_id = _latest_session_id_with_assistant_preview(manager)
-        if preview_session_id is not None:
-            return preview_session_id
-        latest = manager.load_latest_session(require_content=True)
-        if latest is not None:
-            return latest.info.name
+    resumed_session_id = resolve_harness_resume_session_id(request, manager)
+    if resumed_session_id is not None:
+        return resumed_session_id
     return manager.generate_session_id()
+
+
+def resolve_harness_resume_session_id(
+    request: AgentRunRequest,
+    manager: "SessionManager",
+) -> str | None:
+    from fast_agent.cli.runtime.session_resume import RESUME_LATEST_ALIASES
+
+    if request.resume is None:
+        return None
+    if request.resume not in RESUME_LATEST_ALIASES:
+        return manager.resolve_session_name(request.resume)
+    preview_session_id = _latest_session_id_with_assistant_preview(manager)
+    if preview_session_id is not None:
+        return preview_session_id
+    latest = manager.load_latest_session(require_content=True)
+    return latest.info.name if latest is not None else None
+
+
+def resume_bootstrap_model(request: AgentRunRequest) -> str | None:
+    """Return a persisted model suitable for constructing a resumed agent instance."""
+    from fast_agent.session.session_manager import SessionManager
+
+    manager = SessionManager(home_override=request.home)
+    session_id = resolve_harness_resume_session_id(request, manager)
+    if session_id is None:
+        return None
+    session = manager.get_session(session_id)
+    if session is None:
+        return None
+
+    continuation = session.load_snapshot().continuation
+    snapshots = continuation.agents
+    active_snapshot = snapshots.get(continuation.active_agent or "")
+    candidates = [active_snapshot, *snapshots.values()]
+    for snapshot in candidates:
+        if snapshot is None:
+            continue
+        model_spec = strip_to_none(snapshot.model_spec)
+        if model_spec is not None:
+            return model_spec
+        model = strip_to_none(snapshot.model)
+        if model is None:
+            continue
+        provider = strip_to_none(snapshot.provider)
+        if provider is not None and not model.startswith(f"{provider}."):
+            return f"{provider}.{model}"
+        return model
+    return None
 
 
 def _disable_core_resume_for_harness_startup(fast: HarnessProvider) -> tuple[bool, object | None]:
@@ -165,11 +230,15 @@ async def run_harness_cli_flow(
                 from fast_agent.cli.runtime.session_resume import resume_session_if_requested
 
                 await resume_session_if_requested(session.agent_app, request)
-                await flow(
-                    session.agent_app,
-                    request,
-                    session_manager=session.env.session_manager,
-                    harness_session=session.env.harness_session,
+                await _run_flow_with_usage_report(
+                    flow(
+                        session.agent_app,
+                        request,
+                        session_manager=session.env.session_manager,
+                        harness_session=session.env.harness_session,
+                    ),
+                    agent_app=session.agent_app,
+                    quiet=request.quiet,
                 )
     except PromptExitError as exc:
         fast._handle_error(exc)
@@ -225,12 +294,16 @@ async def run_harness_parallel_cli_flow(
                 from fast_agent.cli.runtime.session_resume import resume_session_if_requested
 
                 await resume_session_if_requested(session.agent_app, request)
-                await flow(
-                    session.agent_app,
-                    request,
-                    fan_out_agent_names,
-                    session_manager=session.env.session_manager,
-                    harness_session=session.env.harness_session,
+                await _run_flow_with_usage_report(
+                    flow(
+                        session.agent_app,
+                        request,
+                        fan_out_agent_names,
+                        session_manager=session.env.session_manager,
+                        harness_session=session.env.harness_session,
+                    ),
+                    agent_app=session.agent_app,
+                    quiet=request.quiet,
                 )
     except PromptExitError as exc:
         fast._handle_error(exc)

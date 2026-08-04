@@ -3,7 +3,23 @@
 import pytest
 
 from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
-from fast_agent.mcp.mcp_connection_manager import PreparedHttpAuth, create_transport_context
+from fast_agent.mcp.client_gateway import (
+    MCPClientHooks,
+    PreparedHttpAuth,
+    _create_transport,
+    resolve_oauth_mode,
+)
+
+
+def create_transport_context(server_name, config, *, trigger_oauth=None):
+    oauth_mode = resolve_oauth_mode(config, trigger_oauth=trigger_oauth)
+    return _create_transport(
+        server_name=server_name,
+        config=config,
+        oauth_mode=oauth_mode,
+        oauth_active=oauth_mode == "force",
+        hooks=MCPClientHooks(),
+    )
 
 
 def test_transport_factory_validation_stdio_without_command():
@@ -76,14 +92,9 @@ def test_nonpersistent_transport_avoids_speculative_oauth(monkeypatch: pytest.Mo
         return PreparedHttpAuth(headers={}, oauth_provider=None, user_auth_keys=set())
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager._prepare_headers_and_auth",
+        "fast_agent.mcp.client_gateway._prepare_headers_and_auth",
         _fake_prepare_headers_and_auth,
     )
-    monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.tracking_sse_client",
-        lambda *args, **kwargs: object(),
-    )
-
     server_config = MCPServerSettings(transport="sse", url="http://example.com/sse")
     ctx = create_transport_context(server_name="test_server", config=server_config)
 
@@ -102,14 +113,9 @@ def test_nonpersistent_transport_honors_explicit_oauth_config(
         return PreparedHttpAuth(headers={}, oauth_provider=None, user_auth_keys=set())
 
     monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager._prepare_headers_and_auth",
+        "fast_agent.mcp.client_gateway._prepare_headers_and_auth",
         _fake_prepare_headers_and_auth,
     )
-    monkeypatch.setattr(
-        "fast_agent.mcp.mcp_connection_manager.tracking_sse_client",
-        lambda *args, **kwargs: object(),
-    )
-
     server_config = MCPServerSettings(
         transport="sse",
         url="http://example.com/sse",

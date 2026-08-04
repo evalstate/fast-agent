@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias, cast
 
-from mcp.types import Tool
+from mcp_types import Tool
 
 from fast_agent.constants import MAX_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.tools.filesystem_tool_args import (
@@ -90,7 +90,7 @@ def build_execute_tool(*, shell_name: str) -> Tool:
             "`cwd` and `output_byte_limit` apply only to this command. Pipelines "
             "report the final command's status unless you enable `pipefail`."
         ),
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "command": {
@@ -175,7 +175,7 @@ def build_poll_process_tool(
             "remains buffered until completion or the deadline. Repeated polls return "
             "only output not returned previously."
         ),
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "process_id": {
@@ -216,7 +216,7 @@ def build_terminate_process_tool() -> Tool:
             "Terminate a managed shell process and its process group. Returns success "
             "if the process was terminated or had already exited."
         ),
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "process_id": {
@@ -254,7 +254,7 @@ def build_minimal_bash_tool(*, shell_name: str, extended_guidance: bool = False)
             "running for the verifier. Do not use shell `&`, `nohup`, or `disown` "
             f"to detach services. {process_guidance}"
         ),
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "command": {"type": "string"},
@@ -298,7 +298,7 @@ def build_minimal_process_tool(
             f"Use {default_wait_seconds} seconds unless more frequent monitoring "
             f"is needed.{completion_guidance} `stop` terminates the process group."
         ),
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "process_id": {
@@ -333,7 +333,7 @@ def set_poll_process_tool_default_wait_seconds(
     *,
     default_wait_seconds: int,
 ) -> None:
-    properties = tool.inputSchema.get("properties")
+    properties = tool.input_schema.get("properties")
     if not isinstance(properties, dict):
         return
     wait_schema = properties.get("wait_sec")

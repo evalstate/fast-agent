@@ -242,7 +242,6 @@ Subcommands:
 - `--include-sampling-defaults` persists the server's current sampling defaults into the overlay or preview output
 - `fast-agent model llamacpp import <model-id> --start-now` writes the overlay and immediately launches `fast-agent go --model <overlay>`
 - `fast-agent model llamacpp import <model-id> --start-now --with-shell` launches `fast-agent go -x --model <overlay>`
-- `fast-agent model llamacpp import <model-id> --start-now --smart` launches `fast-agent go --smart -x --model <overlay>`
 
 The generated overlay:
 

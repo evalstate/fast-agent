@@ -45,7 +45,7 @@ def shirt_colour() -> str:
 @app.tool(name="implementation", description="Returns the Client implementation")
 def implementation(ctx: Context) -> str:
     assert ctx.session.client_params is not None, "Client params should not be None"
-    client_info = ctx.session.client_params.clientInfo
+    client_info = ctx.session.client_params.client_info
     assert client_info is not None
     return client_info.model_dump_json()
 

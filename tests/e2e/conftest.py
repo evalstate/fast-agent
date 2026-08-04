@@ -101,7 +101,7 @@ def tensorzero_docker_env(project_root):
         # Use --wait flag if available, otherwise fallback to time.sleep
         check_wait_support_cmd = compose_cmd + ["up", "--help"]
         help_output = subprocess.run(
-            check_wait_support_cmd, capture_output=True, text=True, cwd=compose_dir
+            check_wait_support_cmd, check=False, capture_output=True, text=True, cwd=compose_dir
         )
         use_wait_flag = "--wait" in help_output.stdout or "--wait" in help_output.stderr
 

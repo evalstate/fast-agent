@@ -380,8 +380,8 @@ def test_parquet_rows_require_duckdb_package_or_cli(monkeypatch):
             raise ImportError("missing duckdb")
         raise AssertionError(name)
 
-    monkeypatch.setattr("fast_agent.batch.input.importlib.import_module", fake_import_module)
     monkeypatch.setattr("fast_agent.batch.input.shutil.which", lambda name: None)
+    monkeypatch.setattr("fast_agent.batch.input.importlib.import_module", fake_import_module)
 
     with pytest.raises(ValueError, match="Parquet input requires DuckDB"):
         list(iter_parquet_rows(["rows.parquet"]))

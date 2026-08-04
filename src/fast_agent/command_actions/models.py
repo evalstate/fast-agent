@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Mapping

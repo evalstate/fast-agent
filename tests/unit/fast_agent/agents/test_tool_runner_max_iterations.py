@@ -1,6 +1,5 @@
 import pytest
-from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, Tool
+from mcp_types import CallToolRequest, CallToolRequestParams, Tool
 
 from fast_agent.acp.server.common import map_llm_stop_reason_to_acp
 from fast_agent.agents import tool_runner

@@ -17,6 +17,68 @@ def test_default_mcp_settings_are_per_settings_instance() -> None:
     assert second.mcp.servers == {}
 
 
+def test_mcp_source_and_effective_views_preserve_shorthand_and_redact_secrets() -> None:
+    settings = Settings.model_validate(
+        {
+            "mcp": {
+                "defaults": {"protocol_mode": "modern"},
+                "servers": {
+                    "docs": {
+                        "target": "https://user:password@example.com/mcp",
+                        "headers": {
+                            "Authorization": "Bearer secret",
+                            "Cookie": "session=secret",
+                            "X-Api-Key": "secret",
+                            "X-Tenant": "engineering",
+                        },
+                        "auth": {
+                            "api_key": "secret",
+                            "client_secret": "secret",
+                        },
+                    }
+                },
+            }
+        }
+    )
+
+    assert settings.mcp is not None
+    source = settings.mcp.source_server_view()
+    effective = settings.mcp.effective_server_view()
+
+    assert source["docs"]["target"] == "https://[REDACTED]@example.com/mcp"
+    assert source["docs"]["headers"] == {
+        "Authorization": "[REDACTED]",
+        "Cookie": "[REDACTED]",
+        "X-Api-Key": "[REDACTED]",
+        "X-Tenant": "engineering",
+    }
+    assert source["docs"]["auth"]["api_key"] == "[REDACTED]"
+    assert source["docs"]["auth"]["client_secret"] == "[REDACTED]"
+    assert "transport" not in source["docs"]
+    assert effective["docs"]["protocol_mode"] == "modern"
+    assert effective["docs"]["headers"]["Authorization"] == "[REDACTED]"
+    assert effective["docs"]["_provenance"]["url"] == "target"
+    assert effective["docs"]["_provenance"]["protocol_mode"] == "mcp.defaults"
+
+
+def test_wrapping_mcp_settings_preserves_source_declarations_and_provenance() -> None:
+    original = MCPSettings.model_validate(
+        {
+            "servers": {
+                "docs": {
+                    "target": "https://example.com/mcp",
+                }
+            }
+        }
+    )
+
+    wrapped = Settings(mcp=original)
+
+    assert wrapped.mcp is not None
+    assert wrapped.mcp.source_server_view() == {"docs": {"target": "https://example.com/mcp"}}
+    assert wrapped.mcp.effective_server_view()["docs"]["_provenance"]["url"] == "target"
+
+
 def test_config_mcp_target_shorthand_url_expansion() -> None:
     settings = Settings.model_validate(
         {
@@ -35,21 +97,49 @@ def test_config_mcp_target_shorthand_url_expansion() -> None:
     assert demo.name == "demo"
     assert demo.transport == "http"
     assert demo.url == "https://demo.hf.space/mcp"
+    assert demo.protocol_mode == "auto"
 
 
-def test_config_mcp_target_shorthand_preserves_load_on_start_and_overrides() -> None:
+@pytest.mark.parametrize("protocol_mode", ["auto", "modern", "legacy"])
+def test_mcp_server_settings_accepts_protocol_modes(protocol_mode: str) -> None:
+    settings = MCPServerSettings.model_validate({"protocol_mode": protocol_mode})
+
+    assert settings.protocol_mode == protocol_mode
+
+
+def test_mcp_server_settings_rejects_invalid_protocol_mode() -> None:
+    with pytest.raises(ValidationError, match="protocol_mode"):
+        MCPServerSettings.model_validate({"protocol_mode": "discover"})
+
+
+def test_mcp_server_settings_rejects_forced_modern_over_legacy_sse() -> None:
+    with pytest.raises(ValidationError, match="not supported with legacy SSE"):
+        MCPServerSettings.model_validate(
+            {
+                "transport": "sse",
+                "url": "https://example.com/sse",
+                "protocol_mode": "modern",
+            }
+        )
+
+
+def test_config_mcp_target_shorthand_preserves_operational_siblings() -> None:
     settings = Settings.model_validate(
         {
             "mcp": {
+                "defaults": {
+                    "protocol_mode": "legacy",
+                    "reconnect_on_disconnect": False,
+                    "include_instructions": False,
+                },
                 "servers": {
                     "secure_api": {
                         "target": "https://api.example.com",
                         "load_on_start": False,
-                        "transport": "sse",
-                        "url": "https://api.example.com/events/sse",
+                        "reconnect_on_disconnect": True,
                         "headers": {"Authorization": "Bearer override"},
                     }
-                }
+                },
             }
         }
     )
@@ -57,9 +147,12 @@ def test_config_mcp_target_shorthand_preserves_load_on_start_and_overrides() -> 
     assert settings.mcp is not None
     secure_api = settings.mcp.servers["secure_api"]
     assert secure_api.load_on_start is False
-    assert secure_api.transport == "sse"
-    assert secure_api.url == "https://api.example.com/events/sse"
+    assert secure_api.transport == "http"
+    assert secure_api.url == "https://api.example.com/mcp"
     assert secure_api.headers == {"Authorization": "Bearer override"}
+    assert secure_api.protocol_mode == "legacy"
+    assert secure_api.reconnect_on_disconnect is True
+    assert secure_api.include_instructions is False
 
 
 def test_config_mcp_target_shorthand_keeps_legacy_canonical_shape() -> None:
@@ -110,113 +203,19 @@ def test_config_mcp_target_shorthand_rejects_embedded_cli_flags() -> None:
     assert "--auth" in message
 
 
-def test_config_mcp_targets_list_derives_server_aliases() -> None:
-    settings = Settings.model_validate(
-        {
-            "mcp": {
-                "targets": [
-                    {"target": "https://demo.hf.space"},
-                    {"target": "@modelcontextprotocol/server-filesystem /workspace"},
-                ]
-            }
-        }
-    )
-
-    assert settings.mcp is not None
-    assert "demo_hf_space" in settings.mcp.servers
-    assert "server-filesystem" in settings.mcp.servers
-
-    remote = settings.mcp.servers["demo_hf_space"]
-    assert remote.transport == "http"
-    assert remote.url == "https://demo.hf.space/mcp"
-
-    filesystem = settings.mcp.servers["server-filesystem"]
-    assert filesystem.transport == "stdio"
-    assert filesystem.command == "npx"
-    assert filesystem.args == ["@modelcontextprotocol/server-filesystem", "/workspace"]
-
-
-def test_config_mcp_targets_list_allows_string_entries() -> None:
-    settings = Settings.model_validate(
-        {
-            "mcp": {
-                "targets": [
-                    "@foo/bar",
-                ]
-            }
-        }
-    )
-
-    assert settings.mcp is not None
-    target = settings.mcp.servers["bar"]
-    assert target.transport == "stdio"
-    assert target.command == "npx"
-    assert target.args == ["@foo/bar"]
-
-
-def test_config_mcp_servers_override_targets_on_name_collision() -> None:
-    settings = Settings.model_validate(
-        {
-            "mcp": {
-                "targets": [
-                    {
-                        "target": "https://example.com",
-                        "name": "demo",
-                        "load_on_start": False,
-                    }
-                ],
-                "servers": {
-                    "demo": {
-                        "command": "uvx",
-                        "args": ["my-server"],
-                    }
-                },
-            }
-        }
-    )
-
-    assert settings.mcp is not None
-    demo = settings.mcp.servers["demo"]
-    assert demo.transport == "stdio"
-    assert demo.command == "uvx"
-    assert demo.args == ["my-server"]
-    assert demo.load_on_start is True
-
-
-def test_config_mcp_targets_rejects_duplicate_names_with_different_settings() -> None:
+def test_config_mcp_targets_is_rejected_with_migration_command() -> None:
     with pytest.raises(ValidationError) as exc_info:
         Settings.model_validate(
             {
                 "mcp": {
-                    "targets": [
-                        {"name": "dup", "target": "https://one.example.com"},
-                        {"name": "dup", "target": "https://two.example.com"},
-                    ]
+                    "targets": ["https://example.com"],
                 }
             }
         )
 
     message = str(exc_info.value)
-    assert "duplicate server name 'dup'" in message
-    assert "Set an explicit unique `name`" in message
-
-
-def test_config_mcp_targets_rejects_embedded_cli_flags() -> None:
-    with pytest.raises(ValidationError) as exc_info:
-        Settings.model_validate(
-            {
-                "mcp": {
-                    "targets": [
-                        {"target": "https://example.com --auth token"},
-                    ]
-                }
-            }
-        )
-
-    message = str(exc_info.value)
-    assert "mcp.targets[0].target" in message
-    assert "pure target string" in message
-    assert "--auth" in message
+    assert "`mcp.targets` is no longer supported" in message
+    assert "`fast-agent config migrate-mcp`" in message
 
 
 def test_provider_managed_target_normalizes_url_and_access_token() -> None:
@@ -296,28 +295,6 @@ def test_target_shorthand_with_access_token_keeps_synthesized_authorization_head
                         "access_token": "Bearer secret-token",
                     }
                 }
-            }
-        }
-    )
-
-    assert settings.mcp is not None
-    demo = settings.mcp.servers["demo"]
-    assert demo.url == "https://demo.hf.space/mcp"
-    assert demo.access_token == "secret-token"
-    assert demo.headers == {"Authorization": "Bearer secret-token"}
-
-
-def test_targets_list_shorthand_with_access_token_keeps_synthesized_authorization_header() -> None:
-    settings = Settings.model_validate(
-        {
-            "mcp": {
-                "targets": [
-                    {
-                        "name": "demo",
-                        "target": "https://demo.hf.space",
-                        "access_token": "Bearer secret-token",
-                    }
-                ]
             }
         }
     )

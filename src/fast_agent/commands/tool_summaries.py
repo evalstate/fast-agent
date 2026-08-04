@@ -20,7 +20,11 @@ from fast_agent.interfaces import (
     CardToolProvider,
     FastAgentLLMProtocol,
     LlmCapableProtocol,
-    SmartToolingCapable,
+)
+from fast_agent.mcp.app_integrations import (
+    APP_INTEGRATION_KIND_KEY,
+    APP_INTEGRATION_RESOURCE_URI_KEY,
+    AppIntegrationKind,
 )
 from fast_agent.mcp.common import is_namespaced_name
 from fast_agent.tools.tool_sources import TOOL_SOURCE_LABELS, ToolSource, tool_source
@@ -32,7 +36,7 @@ PROVIDER_MANAGED_CONNECTOR_SUFFIX = "provider-managed connector"
 PROVIDER_MANAGED_MCP_SUFFIX = "provider-managed MCP"
 
 if TYPE_CHECKING:
-    from mcp.types import Tool
+    from mcp_types import Tool
 
     from fast_agent.interfaces import FastAgentLLMProtocol
     from fast_agent.mcp.provider_management import (
@@ -63,12 +67,10 @@ class ProviderToolSummary:
 @dataclass(frozen=True, slots=True)
 class _ToolNameSets:
     card: set[str]
-    smart: set[str]
     agent_backed: set[str]
 
     def classification_candidates(self) -> tuple[tuple[set[str], str], ...]:
         return (
-            (self.smart, "(Smart)"),
             (self.card, "(Card Function)"),
             (self.agent_backed, "(Subagent)"),
         )
@@ -295,17 +297,12 @@ def _tool_meta(tool: "Tool") -> JsonObject:
 
 def _collect_tool_name_sets(agent: object) -> _ToolNameSets:
     card_tool_names = set(agent.card_tool_names) if isinstance(agent, CardToolProvider) else set()
-    smart_tool_names = (
-        set(agent.smart_tool_names) if isinstance(agent, SmartToolingCapable) else set()
-    )
     agent_tool_names = (
         set(agent.agent_backed_tools.keys())
         if isinstance(agent, AgentBackedToolProvider)
         else set()
     )
-    return _ToolNameSets(
-        card=card_tool_names, smart=smart_tool_names, agent_backed=agent_tool_names
-    )
+    return _ToolNameSets(card=card_tool_names, agent_backed=agent_tool_names)
 
 
 def _classify_tool(
@@ -328,10 +325,11 @@ def _append_tool_suffix(suffix: str | None, label: str) -> str:
 
 
 def _append_app_tool_suffixes(suffix: str | None, meta: Mapping[str, object]) -> str | None:
-    if meta.get("openai/skybridgeEnabled"):
-        suffix = _append_tool_suffix(suffix, "(Apps SDK)")
-    if meta.get("ui/appEnabled"):
-        suffix = _append_tool_suffix(suffix, "(MCP App)")
+    app_kind = meta.get(APP_INTEGRATION_KIND_KEY)
+    if app_kind == AppIntegrationKind.OPENAI_APPS_SDK:
+        suffix = _append_tool_suffix(suffix, "(OpenAI Apps SDK)")
+    elif app_kind == AppIntegrationKind.MCP_APPS:
+        suffix = _append_tool_suffix(suffix, "(MCP Apps)")
     return suffix
 
 
@@ -351,10 +349,8 @@ def build_tool_summaries(agent: object, tools: list[Tool]) -> list[ToolSummary]:
         suffix = classification.suffix
         suffix = _append_app_tool_suffixes(suffix, meta)
 
-        args = _format_tool_args(tool.inputSchema)
-        template = optional_string(meta.get("ui/appTemplate")) or optional_string(
-            meta.get("openai/skybridgeTemplate")
-        )
+        args = _format_tool_args(tool.input_schema)
+        template = optional_string(meta.get(APP_INTEGRATION_RESOURCE_URI_KEY))
 
         summaries.append(
             ToolSummary(

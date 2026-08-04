@@ -7,25 +7,17 @@
 # Accepts aliases for Anthropic Models: haiku, haiku3, sonnet, sonnet35, opus, opus3, opus46, opus47, opus46, opus47
 # and OpenAI Models: gpt-4.1, gpt-4.1-mini, o1, o1-mini, o3-mini
 #
-# If not specified, defaults to "gpt-5.4-mini?reasoning=low".
-# Can be overriden with a command line switch --model=<model>, or within the Agent constructor.
+# Interactive runs open the model picker when no model is configured.
+# Unattended runs must set default_model, pass --model, set FAST_AGENT_MODEL,
+# or declare a model on the Agent/AgentCard.
 
-#default_model: gpt-5.4-mini?reasoning=low
+# default_model: sonnet
 
 # Number of times to retry transient LLM API errors (falls back to FAST_AGENT_RETRIES env var)
 # llm_retries: 2
 
 # otel:
 #   enabled: true
-
-# mcp-ui support: disabled, enabled or auto. "auto" opens the web browser on the asset automatically
-# mcp_ui_output_dir: ".fast-agent/ui"  # Where to write MCP-UI HTML files (relative to CWD if not absolute)
-# mcp_ui_mode: enabled
-
-# MCP timeline display (adjust activity window/intervals in MCP UI + fast-agent check)
-mcp_timeline:
-  steps: 20 # number of timeline buckets to render
-  step_seconds: 15 # seconds per bucket (accepts values like "45s", "2m")
 
 #shell_execution:
 # length of time before terminating subprocess
@@ -43,7 +35,7 @@ logger:
   # level: "debug" | "info" | "warning" | "error"
   # type: "none" | "console" | "file" | "http"
   # path: "/path/to/logfile.jsonl"
-  level : debug
+  level: debug
   type: file
   # Switch the progress display on or off
   progress_display: true
@@ -62,15 +54,21 @@ logger:
 
 # MCP Servers (target shorthand)
 mcp:
-  targets:
-    - name: fetch
+  servers:
+    fetch:
       target: "uvx mcp-server-fetch"
-    - name: filesystem
+    filesystem:
       target: "npx -y @modelcontextprotocol/server-filesystem ."
-    - name: huggingface
+    huggingface:
       target: "https://huggingface.co/mcp?login"
       # headers:
       # "Authorization": "Bearer ${ENV_VAR}"
+
+  # MCP timeline display (adjust activity window/intervals in /mcp + fast-agent check)
+  diagnostics:
+    timeline:
+      steps: 20 # number of timeline buckets to render
+      step_seconds: 15 # seconds per bucket (accepts values like "45s", "2m")
 
 # Skills configuration
 skills:

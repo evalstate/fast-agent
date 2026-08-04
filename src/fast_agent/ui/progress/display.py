@@ -3,12 +3,14 @@
 import json
 import os
 import time
+from collections.abc import Iterable
 from contextlib import contextmanager
+from itertools import groupby
 from pathlib import Path
 from threading import RLock, Timer
 from typing import Any
 
-from rich.console import Console
+from rich.console import Console, RenderableType
 from rich.markup import escape as escape_markup
 from rich.progress import Progress, ProgressColumn, Task, TaskID, TextColumn
 from rich.spinner import SPINNERS, Spinner
@@ -20,12 +22,16 @@ from fast_agent.tools.tool_sources import ACP_TERMINAL_TOOL_SOURCE
 from fast_agent.ui.agent_identity import is_default_agent_name
 from fast_agent.ui.console import console as default_console
 from fast_agent.ui.console import ensure_blocking_console
+from fast_agent.ui.display_suppression import interactive_display_mode
 from fast_agent.ui.progress.process_poll import (
     ProcessMonitorStats,
     format_process_poll_countdown_track,
+    render_compact_process_monitor_stats,
     render_process_monitor_stats,
 )
+from fast_agent.ui.progress.subagent_table import render_subagent_table
 from fast_agent.ui.tool_call_ids import format_tool_call_id
+from fast_agent.utils.text import collapse_whitespace
 from fast_agent.utils.time import format_process_elapsed
 from fast_agent.utils.tool_names import (
     EXECUTE_TOOL_NAME,
@@ -33,8 +39,7 @@ from fast_agent.utils.tool_names import (
     matches_tool_name,
 )
 
-# Braille pulses moving through a 3-cell track. Registered on first use via
-# _ensure_spinners().
+# Braille pulses moving through a 3-cell track.
 PROGRESS_SPINNER_NAME = "braille_dense"
 _BRAILLE_DENSE = {
     "interval": 110,
@@ -51,6 +56,27 @@ _BRAILLE_DENSE = {
     ],
 }
 
+# A two-dot ribbon sampled from sine across a 3-cell (6×4 dot) braille canvas.
+# Decreasing phase produces a continuous right-moving wave with no blank frames.
+SUBAGENT_SPINNER_NAME = "braille_sine"
+_BRAILLE_SINE = {
+    "interval": 100,
+    "frames": [
+        "⡼⢷⣤",
+        "⡼⢻⣤",
+        "⣰⠻⣆",
+        "⣠⠟⣧",
+        "⣀⡞⢷",
+        "⣤⡼⢻",
+        "⣤⡴⠻",
+        "⢶⣰⠻",
+        "⢻⣤⠟",
+        "⠻⣆⡞",
+        "⠛⣧⡼",
+        "⠞⢷⣰",
+    ],
+}
+
 _COMPACTING_FRAME_SECONDS = 0.18
 _COMPACTING_FRAMES = (
     "⣿⣿⣿",
@@ -59,10 +85,63 @@ _COMPACTING_FRAMES = (
     "⣀⣀⣀",
     "   ",
 )
+_DESCRIPTION_MIN_WIDTH = 17
+_TARGET_MIN_WIDTH = 9
+_TARGET_MAX_WIDTH = 16
+_PROCESS_COMMAND_MAX_WIDTH = 48
+_PROCESS_COMMAND_MIN_CONSOLE_WIDTH = 98
+_PROCESS_STATS_ELAPSED_MIN_CONSOLE_WIDTH = 60
+_PROCESS_STATS_SIZE_MIN_CONSOLE_WIDTH = 70
+_PROCESS_STATS_FULL_MIN_CONSOLE_WIDTH = 84
+_DETAIL_SEPARATOR_WIDTH = 3
+_DETAILS_MIN_WIDTH = 0
+
+
+class _MonitoringProgress(Progress):
+    """Render subagents as a compact table while retaining normal progress rows."""
+
+    def __init__(
+        self,
+        *columns: str | ProgressColumn,
+        subagent_spinner: Spinner,
+        **kwargs: Any,
+    ) -> None:
+        self._subagent_spinner = subagent_spinner
+        super().__init__(*columns, **kwargs)
+
+    def get_renderables(self) -> Iterable[RenderableType]:
+        tasks = list(self.tasks)
+        subagents = [
+            task for task in tasks if task.visible and bool(task.fields.get("is_subagent_monitor"))
+        ]
+        generic = [
+            task
+            for task in tasks
+            if task.visible and not bool(task.fields.get("is_subagent_monitor"))
+        ]
+        if subagents:
+            spinner_frame = self._subagent_spinner.render(self.get_time())
+            yield render_subagent_table(
+                subagents,
+                tasks,
+                console_width=self.console.width,
+                spinner_frame=(
+                    spinner_frame if isinstance(spinner_frame, Text) else Text(str(spinner_frame))
+                ),
+            )
+        if generic:
+            for _, tasks in groupby(
+                generic,
+                key=lambda task: bool(task.fields.get("is_process_poll")),
+            ):
+                yield self.make_tasks_table(tasks)
+        elif not subagents:
+            yield self.make_tasks_table(())
 
 
 def _ensure_spinners() -> None:
     SPINNERS.setdefault(PROGRESS_SPINNER_NAME, _BRAILLE_DENSE)
+    SPINNERS.setdefault(SUBAGENT_SPINNER_NAME, _BRAILLE_SINE)
 
 
 def _format_compacting_track(elapsed_seconds: float) -> str:
@@ -88,6 +167,8 @@ _ACTION_STYLES = {
     ProgressAction.COMPACTING: "cyan",
     ProgressAction.ROUTING: "blue",
     ProgressAction.PLANNING: "blue",
+    ProgressAction.MONITORING: "blue",
+    ProgressAction.RUNNING: "bold green",
     ProgressAction.READY: "dim green",
     ProgressAction.CALLING_TOOL: "magenta",
     ProgressAction.READING_RESOURCE: "magenta",
@@ -163,9 +244,11 @@ class DynamicDetailsColumn(ProgressColumn):
     def __init__(
         self,
         *,
+        console: Console | None = None,
         style: str = "dim white",
         table_column: Column | None = None,
     ) -> None:
+        self.console = console
         self.style = style
         super().__init__(table_column=table_column)
 
@@ -175,36 +258,71 @@ class DynamicDetailsColumn(ProgressColumn):
         parts: list[str | Text] = []
         if details:
             parts.append(details)
-        local_tick = self._local_tick_seconds(task)
         elapsed_base = task.fields.get("process_elapsed_seconds")
         if is_process_poll:
+            local_tick = self._local_tick_seconds(task, "process_snapshot_task_elapsed")
             elapsed = self._numeric_field(elapsed_base)
             stdout_age = self._numeric_field(task.fields.get("process_seconds_since_last_stdout"))
             stderr_age = self._numeric_field(task.fields.get("process_seconds_since_last_stderr"))
-            parts.append(
-                render_process_monitor_stats(
-                    ProcessMonitorStats(
-                        elapsed_seconds=elapsed + local_tick if elapsed is not None else None,
-                        stdout_age_seconds=(
-                            stdout_age + local_tick if stdout_age is not None else None
-                        ),
-                        stderr_age_seconds=(
-                            stderr_age + local_tick if stderr_age is not None else None
-                        ),
-                        stdout_bytes=self._integer_field(task.fields.get("process_stdout_bytes")),
-                        stderr_bytes=self._integer_field(task.fields.get("process_stderr_bytes")),
-                        total_output_bytes=self._integer_field(
-                            task.fields.get("process_total_output_bytes")
-                        ),
+            stats = ProcessMonitorStats(
+                elapsed_seconds=elapsed + local_tick if elapsed is not None else None,
+                stdout_age_seconds=stdout_age + local_tick if stdout_age is not None else None,
+                stderr_age_seconds=stderr_age + local_tick if stderr_age is not None else None,
+                stdout_bytes=self._integer_field(task.fields.get("process_stdout_bytes")),
+                stderr_bytes=self._integer_field(task.fields.get("process_stderr_bytes")),
+                total_output_bytes=self._integer_field(
+                    task.fields.get("process_total_output_bytes")
+                ),
+            )
+            console_width = self.console.width if self.console is not None else None
+            if console_width is not None and console_width < _PROCESS_STATS_FULL_MIN_CONSOLE_WIDTH:
+                parts.append(
+                    render_compact_process_monitor_stats(
+                        stats,
+                        include_elapsed=(console_width >= _PROCESS_STATS_ELAPSED_MIN_CONSOLE_WIDTH),
+                        include_size=console_width >= _PROCESS_STATS_SIZE_MIN_CONSOLE_WIDTH,
                     )
                 )
-            )
+            else:
+                parts.append(render_process_monitor_stats(stats))
         elif (elapsed := self._numeric_field(elapsed_base)) is not None:
+            local_tick = self._local_tick_seconds(task, "process_snapshot_task_elapsed")
+            parts.append(format_process_elapsed(elapsed + local_tick))
+        elif (elapsed := self._numeric_field(task.fields.get("elapsed_seconds"))) is not None:
+            local_tick = self._local_tick_seconds(task, "elapsed_snapshot_task_elapsed")
             parts.append(format_process_elapsed(elapsed + local_tick))
         command = task.fields.get("process_command")
-        if isinstance(command, str) and command:
-            parts.append(command)
-        return self._join_detail_parts(parts)
+        show_command = (
+            self.console is None or self.console.width >= _PROCESS_COMMAND_MIN_CONSOLE_WIDTH
+        )
+        line = self._join_detail_parts(parts)
+        if show_command and isinstance(command, str) and command:
+            command_preview = Text(collapse_whitespace(command), style=self.style)
+            command_preview.truncate(
+                self._command_preview_width(task, detail_width=line.cell_len),
+                overflow="ellipsis",
+            )
+            if command_preview:
+                line.append(" · ", style=self.style)
+                line.append_text(command_preview)
+        return line
+
+    def _command_preview_width(self, task: Task, *, detail_width: int) -> int:
+        if self.console is None:
+            return _PROCESS_COMMAND_MAX_WIDTH
+        target_width = min(
+            max(Text(str(task.fields.get("target") or "")).cell_len, _TARGET_MIN_WIDTH),
+            _TARGET_MAX_WIDTH,
+        )
+        available = (
+            self.console.width
+            - _DESCRIPTION_MIN_WIDTH
+            - target_width
+            - 2
+            - detail_width
+            - _DETAIL_SEPARATOR_WIDTH
+        )
+        return min(max(available, 0), _PROCESS_COMMAND_MAX_WIDTH)
 
     @staticmethod
     def _numeric_field(value: object) -> float | None:
@@ -219,10 +337,10 @@ class DynamicDetailsColumn(ProgressColumn):
         return None
 
     @staticmethod
-    def _local_tick_seconds(task: "Task") -> float:
-        """Seconds since the latest process field snapshot was applied."""
+    def _local_tick_seconds(task: "Task", snapshot_field: str) -> float:
+        """Seconds since the latest elapsed field snapshot was applied."""
         task_elapsed = task.elapsed or 0.0
-        snapshot = task.fields.get("process_snapshot_task_elapsed")
+        snapshot = task.fields.get(snapshot_field)
         if isinstance(snapshot, (int, float)) and not isinstance(snapshot, bool):
             return max(task_elapsed - float(snapshot), 0.0)
         return task_elapsed
@@ -258,29 +376,41 @@ class RichProgressDisplay:
         self._lock = RLock()
         self._taskmap: dict[str, TaskID] = {}
         self._task_kind: dict[str, str] = {}
+        self._folded_agent_progress: set[str] = set()
+        self._subagent_row_by_agent: dict[str, str] = {}
         _ensure_spinners()
-        self._description_spinner = SpinnerDescriptionColumn(spinner_name=PROGRESS_SPINNER_NAME)
-        self._progress = Progress(
+        self._description_spinner = SpinnerDescriptionColumn(
+            spinner_name=PROGRESS_SPINNER_NAME,
+            table_column=Column(
+                min_width=_DESCRIPTION_MIN_WIDTH,
+                overflow="ellipsis",
+                no_wrap=True,
+            ),
+        )
+        self._subagent_spinner = Spinner(SUBAGENT_SPINNER_NAME, style="progress.spinner")
+        self._progress = _MonitoringProgress(
             self._description_spinner,
             TextColumn(
                 text_format="{task.fields[target]}",
                 style="Blue",
                 table_column=Column(
-                    min_width=0,
-                    max_width=16,
+                    min_width=_TARGET_MIN_WIDTH,
+                    max_width=_TARGET_MAX_WIDTH,
                     overflow="ellipsis",
                     no_wrap=True,
                 ),
             ),
             DynamicDetailsColumn(
+                console=self.console,
                 style="dim white",
                 table_column=Column(
                     ratio=1,
-                    min_width=24,
+                    min_width=_DETAILS_MIN_WIDTH,
                     overflow="ellipsis",
                     no_wrap=True,
                 ),
             ),
+            subagent_spinner=self._subagent_spinner,
             console=self.console,
             transient=False,
         )
@@ -377,7 +507,7 @@ class RichProgressDisplay:
         if getattr(self._progress.live, "_nested", False):
             self._progress.live._nested = False
         for task in self._progress.tasks:
-            task.visible = True
+            task.visible = task.fields.get("process_owner_row") is None
         # Start the Live display before clearing the flag so that
         # update() never runs against an un-started Progress.
         self._progress.start()
@@ -450,12 +580,15 @@ class RichProgressDisplay:
         if not normalized_agent:
             return
 
-        prefix = f"{normalized_agent}::"
+        correlated_prefix = f"{normalized_agent}::"
+        clone_prefix = f"{normalized_agent}["
         with self._lock:
             task_names = [
                 task_name
                 for task_name in list(self._taskmap)
-                if task_name == normalized_agent or task_name.startswith(prefix)
+                if task_name == normalized_agent
+                or task_name.startswith(correlated_prefix)
+                or task_name.startswith(clone_prefix)
             ]
             if not task_names:
                 return
@@ -471,6 +604,15 @@ class RichProgressDisplay:
                 agent_name=normalized_agent,
                 cleared=len(task_names),
             )
+
+    def fold_agent_progress(self, agent_name: str) -> None:
+        """Fold one agent's generic lifecycle rows into an external monitor row."""
+        normalized_agent = agent_name.strip()
+        if not normalized_agent:
+            return
+        with self._lock:
+            self._folded_agent_progress.add(normalized_agent)
+            self.clear_agent_tasks(normalized_agent)
 
     @contextmanager
     def paused(self):
@@ -490,6 +632,12 @@ class RichProgressDisplay:
 
     def _drop_task(self, task_name: str, task_id: TaskID) -> None:
         """Remove a task from visible progress tracking and internal maps."""
+        task = next((item for item in self._progress.tasks if item.id == task_id), None)
+        if task is not None and bool(task.fields.get("is_subagent_monitor")):
+            self._release_owned_processes(
+                task_name,
+                promote=task.fields.get("subagent_status") not in {"cancelled", "failed"},
+            )
         self._taskmap.pop(task_name, None)
         self._task_kind.pop(task_name, None)
 
@@ -506,6 +654,30 @@ class RichProgressDisplay:
             if task.id == task_id:
                 task.visible = False
                 break
+
+    def _release_owned_processes(self, owner_row: str, *, promote: bool) -> None:
+        """Promote active monitors, or discard orphaned monitors after child failure."""
+        self._subagent_row_by_agent = {
+            agent_name: row_id
+            for agent_name, row_id in self._subagent_row_by_agent.items()
+            if row_id != owner_row
+        }
+        owned_tasks = [
+            task
+            for task in self._progress.tasks
+            if task.fields.get("process_owner_row") == owner_row
+        ]
+        for task in owned_tasks:
+            task_name = str(task.fields.get("task_name") or "")
+            task_id = self._taskmap.get(task_name)
+            if task.stop_time is not None:
+                continue
+            if not promote:
+                if task_id is not None:
+                    self._drop_task(task_name, task_id)
+                continue
+            task.fields["process_owner_row"] = None
+            task.visible = not self._paused and not self._stopped
 
     @staticmethod
     def _is_internal_shell_tool(tool_name: str | None, server_name: str | None) -> bool:
@@ -590,6 +762,8 @@ class RichProgressDisplay:
         *,
         is_correlated_tool_event: bool,
     ) -> str:
+        if event.tool_event == "subagent_monitor" and event.instance_name:
+            return event.instance_name
         task_name = event.agent_name or "default"
         if is_correlated_tool_event and event.correlation_id:
             return f"{task_name}::{event.correlation_id}"
@@ -639,6 +813,10 @@ class RichProgressDisplay:
     def _action_label(cls, event: ProgressEvent) -> str:
         if cls._is_process_poll_event(event):
             return "Monitoring"
+        if event.action == ProgressAction.RUNNING:
+            if event.tool_event == "subagent_monitor" and event.activity:
+                return event.activity
+            return "Running"
         return event.action.value.strip()
 
     @staticmethod
@@ -690,10 +868,22 @@ class RichProgressDisplay:
             ),
             "task_name": task_name,
             "is_process_poll": is_process_poll,
+            "is_subagent_monitor": event.tool_event == "subagent_monitor",
+            "agent_name": event.agent_name,
             "is_compacting": event.action == ProgressAction.COMPACTING,
         }
+        if event.subagent_monitor is not None:
+            update_kwargs["subagent_monitor"] = event.subagent_monitor
+        if event.tool_event == "subagent_monitor" and event.action == ProgressAction.READY:
+            update_kwargs["subagent_status"] = (event.details or "").strip().casefold()
+        if is_process_poll:
+            update_kwargs["process_owner_row"] = self._subagent_row_by_agent.get(
+                event.agent_name or ""
+            )
         if event.process_elapsed_seconds is not None:
             update_kwargs["process_elapsed_seconds"] = event.process_elapsed_seconds
+        if event.elapsed_seconds is not None:
+            update_kwargs["elapsed_seconds"] = event.elapsed_seconds
         if event.process_command is not None:
             update_kwargs["process_command"] = event.process_command
         if event.process_wait_seconds is not None:
@@ -843,7 +1033,20 @@ class RichProgressDisplay:
 
     def update(self, event: ProgressEvent) -> None:
         """Update the progress display with a new event."""
+        is_process_poll = self._is_process_poll_event(event)
+        if (
+            interactive_display_mode() == "monitor_only"
+            and event.tool_event != "subagent_monitor"
+            and not is_process_poll
+        ):
+            return
         with self._lock:
+            if (
+                event.agent_name in self._folded_agent_progress
+                and event.tool_event != "subagent_monitor"
+                and not is_process_poll
+            ):
+                return
             # Skip updates when display is stopped
             if self._stopped:
                 self._trace("update.skipped_stopped", action=event.action.value)
@@ -878,6 +1081,12 @@ class RichProgressDisplay:
             event,
             is_correlated_tool_event=is_correlated_tool_event,
         )
+        if (
+            event.tool_event == "subagent_monitor"
+            and event.action == ProgressAction.RUNNING
+            and event.agent_name
+        ):
+            self._subagent_row_by_agent[event.agent_name] = task_name
         should_drop_tool_task = is_correlated_tool_event and event.tool_terminal
         had_existing_task = task_name in self._taskmap
         task_id = self._task_id_for_event(event, task_name)
@@ -912,6 +1121,16 @@ class RichProgressDisplay:
             update_kwargs["process_poll_blink_next"] = blink_next
         self._progress.update(task_id, **update_kwargs)
         if self._is_process_poll_event(event):
+            task = next((item for item in self._progress.tasks if item.id == task_id), None)
+            if task is not None:
+                task.visible = task.fields.get("process_owner_row") is None
+        if self._is_process_poll_event(event):
+            snapshot_field = "process_snapshot_task_elapsed"
+        elif event.elapsed_seconds is not None:
+            snapshot_field = "elapsed_snapshot_task_elapsed"
+        else:
+            snapshot_field = None
+        if snapshot_field is not None:
             # Anchor field baselines to the current task clock so local ticks
             # between refresh events do not double-count process age.
             task = next(
@@ -919,10 +1138,7 @@ class RichProgressDisplay:
                 None,
             )
             if task is not None:
-                self._progress.update(
-                    task_id,
-                    process_snapshot_task_elapsed=task.elapsed or 0.0,
-                )
+                task.fields[snapshot_field] = task.elapsed or 0.0
         self._apply_post_update_lifecycle(
             event,
             task_name=task_name,

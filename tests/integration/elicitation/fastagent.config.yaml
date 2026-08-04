@@ -23,6 +23,7 @@ mcp:
       command: "uv"
       args: ["run", "elicitation_test_server_advanced.py"]
       transport: "stdio"
+      protocol_mode: modern
       cwd: "."
       elicitation:
         mode: "forms"
@@ -31,6 +32,7 @@ mcp:
       command: "uv"
       args: ["run", "elicitation_test_server_advanced.py"]
       transport: "stdio"
+      protocol_mode: modern
       cwd: "."
       elicitation:
         mode: "auto-cancel"
@@ -39,6 +41,7 @@ mcp:
       command: "uv"
       args: ["run", "elicitation_test_server_advanced.py"]
       transport: "stdio"
+      protocol_mode: modern
       cwd: "."
       elicitation:
         mode: "none"
@@ -47,6 +50,7 @@ mcp:
       command: "uv"
       args: ["run", "elicitation_test_server_advanced.py"]
       transport: "stdio"
+      protocol_mode: modern
       cwd: "."
       elicitation:
         mode: "forms" # Will be overridden by custom handler
@@ -55,12 +59,14 @@ mcp:
     elicitation_test:
       command: "uv"
       args: ["run", "elicitation_test_server.py"]
+      protocol_mode: legacy
       elicitation:
         mode: "auto-cancel"
 
     resource_forms:
       command: "uv"
       args: ["run", "elicitation_test_server_advanced.py"]
+      protocol_mode: modern
       elicitation:
         mode: "auto-cancel"
 

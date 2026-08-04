@@ -23,9 +23,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
-from mcp.types import PromptMessage
-from rich import print as rich_print
+from mcp_types import PromptMessage
 from rich.text import Text
+
+from fast_agent.ui.console import rich_print
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -526,7 +527,7 @@ class InteractivePrompt:
 
         session_id = current_session.info.name
         message = Text(f"{lead}exiting fast-agent session.\nResume with: ", style="red")
-        message.append(f"fast-agent resume {session_id}", style="bold red")
+        message.append(f"fast-agent --resume {session_id}", style="bold red")
         rich_print(message)
 
     def _handle_ctrl_c_interrupt(
@@ -1178,6 +1179,7 @@ class InteractivePrompt:
     ) -> PromptLoopResult | None:
         emit_prompt_mark("C")
         write_interactive_trace("prompt.send.start", agent=agent_name)
+        self._clear_progress_for_agent(agent_name)
         progress_display.resume()
         try:
             result = await send_func(prompt_payload, agent_name)

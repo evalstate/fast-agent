@@ -32,11 +32,11 @@ logger:
 mcp:
   servers:
     resource_server_one:
-      command: "prompt-server"
-      args: ["prompt1.txt"]
+      command: "uv"
+      args: ["run", "mcp_resource_server_one.py"]
     resource_server_two:
-      command: "prompt-server"
-      args: ["prompt2.txt"]
+      command: "uv"
+      args: ["run", "mcp_resource_server_two.py"]
     linked_resource_server:
       command: "uv"
       args: ["run", "mcp_linked_resouce_server.py"]

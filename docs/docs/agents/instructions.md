@@ -16,7 +16,7 @@ The following variables are available in System Prompt templates:
 
 | Variable | Description |  Notes |
 |----------|-------------|-------|
-| <nobr>`{{internal:resource_id}}`</nobr> | Loads packaged internal markdown resources | Examples: `{{internal:smart_prompt}}`, `{{internal:smart_agent_cards}}` |
+| <nobr>`{{internal:resource_id}}`</nobr> | Loads packaged internal markdown resources | Example: `{{internal:agent_cards}}` |
 | <nobr>`{{file:path}}`</nobr> | Reads and embeds local file contents (errors if file missing) |  **Must be a relative path** (resolved relative to `workspaceRoot`) |
 | <nobr>`{{file_silent:path}}`</nobr> | Reads and embeds local file contents (empty if file missing) |  **Must be a relative path** (resolved relative to `workspaceRoot`) |
 | <nobr>`{{url:https://...}}`</nobr> | Fetches and embeds content from an HTTP(S) URL |
@@ -28,7 +28,7 @@ The following variables are available in System Prompt templates:
 | <nobr>`{{agentType}}`</nobr> | Current agent type |  |
 | <nobr>`{{agentCardPath}}`</nobr> | Source AgentCard path | `(internal)` when not loaded from a card |
 | <nobr>`{{agentCardDir}}`</nobr> | Directory containing the source AgentCard | `(internal)` when not loaded from a card |
-| <nobr>`{{modelReferences}}`</nobr> | Model references | Includes the effective `$system.default` Useful for instructing CLI based subagents |
+| <nobr>`{{modelReferences}}`</nobr> | Model references | Includes `$system.default` when one resolves. Useful for instructing CLI-based subagents |
 | <nobr>`{{model_specific}}`</nobr> | Model-specific prompt guidance from the resolved model catalog entry or model overlay | Empty when the selected model has no model-specific guidance |
 | <nobr>`{{hostPlatform}}`</nobr> | Host platform information |  |
 | <nobr>`{{pythonVer}}`</nobr> | Python version |  |
@@ -48,7 +48,7 @@ Environment:
 
 **Viewing the System Prompt** The System Prompt can be inspected with the `/system` command from `fast-agent` or the `/status system` Slash Command in ACP Mode.
 
-The standard default System Prompt used with `fast-agent go` or `fast-agent-acp` (without `--smart`) is:
+The standard default System Prompt used with `fast-agent go` or `fast-agent-acp` is:
 
 ```markdown title="Default System Prompt"
 You are a helpful AI Agent.
@@ -62,17 +62,11 @@ You are a helpful AI Agent.
 The current date is {{currentDate}}.
 ```
 
-When `--smart` is enabled, fast-agent uses the internal smart prompt resource:
-
-```markdown title="Smart System Prompt Selector"
-{{internal:smart_prompt}}
-```
-
 You can also include only the AgentCard guidance section inside your own instruction template:
 
 ```markdown title="Custom Prompt Including AgentCard Guidance"
 You are a safety-focused assistant.
-{{internal:smart_agent_cards}}
+{{internal:agent_cards}}
 Always confirm before destructive operations.
 ```
 
@@ -128,8 +122,8 @@ You can store the prompt in an external file for easy editing - including templa
 ```python title="From file"
 from pathlib import Path
 
-@fast.agent(name="mcp-expert",
-    instruction=Path("./mcp-expert.md"))
+
+@fast.agent(name="mcp-expert", instruction=Path("./mcp-expert.md"))
 async def main():
     pass
 ```

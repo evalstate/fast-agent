@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pytest
-from mcp.types import CompleteResult, Completion, ResourceTemplate
+from mcp_types import CompleteResult, Completion, ResourceTemplate
 
 import fast_agent.mcp.mcp_aggregator as aggregator_module
 from fast_agent.context import Context
 from fast_agent.event_progress import ProgressAction
+from fast_agent.mcp.app_integrations import AppServerConfig
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
+from fast_agent.mcp.skills_extension import GetSkillResult, ListSkillsResult, SkillEntry
+
+if TYPE_CHECKING:
+    from mcp.client import CacheMode
 
 
 class _BaseAggregator(MCPAggregator):
@@ -40,7 +46,7 @@ async def test_list_resource_templates_uses_server_execution() -> None:
             del operation_type, operation_name, method_args, error_factory, progress_callback
             assert method_name == "list_resource_templates"
             return SimpleNamespace(
-                resourceTemplates=[ResourceTemplate(name="repo", uriTemplate="repo://{id}")]
+                resource_templates=[ResourceTemplate(name="repo", uri_template="repo://{id}")]
             )
 
     aggregator = _TemplatesAggregator(
@@ -52,7 +58,7 @@ async def test_list_resource_templates_uses_server_execution() -> None:
     result = await aggregator.list_resource_templates("demo")
 
     assert list(result.keys()) == ["demo"]
-    assert result["demo"][0].uriTemplate == "repo://{id}"
+    assert result["demo"][0].uri_template == "repo://{id}"
 
 
 @pytest.mark.asyncio
@@ -178,3 +184,82 @@ async def test_failed_resource_read_emits_error_completion(monkeypatch, result) 
         ProgressAction.READING_RESOURCE,
         ProgressAction.FATAL_ERROR,
     ]
+
+
+@pytest.mark.asyncio
+async def test_skills_extension_routes_requests_to_the_named_server() -> None:
+    calls: list[tuple[str, str, str, dict[str, str] | None]] = []
+
+    class _SkillsAggregator(_BaseAggregator):
+        async def _execute_on_server(
+            self,
+            server_name: str,
+            operation_type: str,
+            operation_name: str,
+            method_name: str,
+            method_args=None,
+            error_factory=None,
+            progress_callback=None,
+        ):
+            del error_factory, progress_callback
+            calls.append((server_name, operation_type, method_name, method_args))
+            entry = SkillEntry(
+                uri="skill://demo/SKILL.md",
+                frontmatter={"name": "demo", "description": "Demo skill"},
+            )
+            if method_name == "list_skills":
+                return ListSkillsResult(skills=[entry])
+            assert method_name == "get_skill"
+            assert operation_name == entry.uri
+            return GetSkillResult(skill=entry)
+
+    aggregator = _SkillsAggregator(
+        server_names=["demo"],
+        connection_persistence=False,
+        context=Context(),
+    )
+
+    listed = await aggregator.list_skills("demo", cursor="page-1")
+    skill = await aggregator.get_skill("skill://demo/SKILL.md", server_name="demo")
+
+    assert listed.skills[0].uri == skill.skill.uri
+    assert calls == [
+        ("demo", "skills/list", "list_skills", {"cursor": "page-1"}),
+        ("demo", "skills/get", "get_skill", {"uri": "skill://demo/SKILL.md"}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_app_resource_scan_progress_uses_compact_label(monkeypatch) -> None:
+    class _AppsAggregator(_BaseAggregator):
+        async def _list_resources_from_server(
+            self,
+            server_name: str,
+            *,
+            check_support: bool = True,
+            cache_mode: CacheMode = "use",
+        ):
+            del server_name, check_support, cache_mode
+            return []
+
+    events: list[dict[str, object]] = []
+
+    class _Logger:
+        def info(self, message: str, *, data: dict[str, object]) -> None:
+            del message
+            events.append(data)
+
+    aggregator = _AppsAggregator(
+        server_names=["demo"],
+        connection_persistence=False,
+        context=Context(),
+    )
+    monkeypatch.setattr(aggregator_module, "logger", _Logger())
+
+    await aggregator._collect_app_resources(
+        "demo",
+        AppServerConfig(server_name="demo"),
+        [],
+    )
+
+    assert [event["details"] for event in events] == ["Apps", "Apps"]

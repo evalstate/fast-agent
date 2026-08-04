@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import sessions as session_handlers
@@ -66,7 +66,7 @@ class _StubIO:
 
 
 class _StubAgentProvider:
-    def _agent(self, name: str):  # noqa: ARG002
+    def _agent(self, name: str):
         return object()
 
     def resolve_target_agent_name(self, agent_name: str | None = None):
@@ -82,7 +82,7 @@ class _StubAgentProvider:
     def registered_agents(self):
         return {"agent": object()}
 
-    async def list_prompts(self, namespace: str | None, agent_name: str | None = None):  # noqa: ARG002
+    async def list_prompts(self, namespace: str | None, agent_name: str | None = None):
         return {}
 
 

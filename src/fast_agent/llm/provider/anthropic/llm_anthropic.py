@@ -41,7 +41,7 @@ from anthropic.types.beta import (
     BetaToolUseBlockParam,
 )
 from mcp import Tool
-from mcp.types import (
+from mcp_types import (
     BlobResourceContents,
     CallToolRequest,
     CallToolRequestParams,
@@ -114,7 +114,10 @@ from fast_agent.llm.tool_tracking import ToolCallTracker
 from fast_agent.llm.usage_tracking import usage_from_anthropic
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES, guess_mime_type, normalize_mime_type
 from fast_agent.mcp.prompt import Prompt
-from fast_agent.mcp.provider_management import build_anthropic_provider_managed_mcp_payload
+from fast_agent.mcp.provider_management import (
+    ProviderManagedToolState,
+    build_anthropic_provider_managed_mcp_payload,
+)
 from fast_agent.tool_activity_presentation import build_tool_activity_presentation
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -820,7 +823,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
     @staticmethod
     def _anthropic_document_mime_type(resource: BlobResourceContents) -> str | None:
-        mime_type = normalize_mime_type(resource.mimeType)
+        mime_type = normalize_mime_type(resource.mime_type)
         if not mime_type and getattr(resource, "uri", None):
             mime_type = guess_mime_type(str(resource.uri))
         if mime_type not in DOCUMENT_MIME_TYPES or mime_type == "application/pdf":
@@ -1131,7 +1134,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             BetaToolParam(
                 name=tool.name,
                 description=tool.description or "",
-                input_schema=tool.inputSchema,
+                input_schema=tool.input_schema,
             )
             for tool in tools or []
         ]
@@ -1368,7 +1371,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         # Create the content for responses
         structured_content = TextContent(type="text", text=json.dumps(tool_args))
 
-        tool_result = CallToolResult(isError=False, content=[structured_content])
+        tool_result = CallToolResult(is_error=False, content=[structured_content])
         messages.append(
             AnthropicConverter.create_tool_results_message([(tool_use_id, tool_result)])
         )
@@ -2031,7 +2034,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         base_args: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "stop_sequences": params.stopSequences,
+            "stop_sequences": params.stop_sequences,
         }
         container_id = self._resolve_container_id_for_request(history, current_extended)
         if container_id:
@@ -2040,8 +2043,17 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if request_tools:
             base_args["tools"] = request_tools
 
-        if self.instruction or params.systemPrompt:
-            base_args["system"] = self.instruction or params.systemPrompt
+        if self.instruction or params.system_prompt:
+            base_args["system"] = self.instruction or params.system_prompt
+
+        if request_tools:
+            match params.sampling_tool_choice:
+                case "auto":
+                    base_args["tool_choice"] = {"type": "auto"}
+                case "required":
+                    base_args["tool_choice"] = {"type": "any"}
+                case "none":
+                    base_args["tool_choice"] = {"type": "none"}
 
         if structured_mode == "tool_use":
             if self._is_thinking_enabled(model) and self._requires_explicit_thinking_field(model):
@@ -2064,7 +2076,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
         thinking_args, thinking_enabled = self._resolve_thinking_arguments(
             model=model,
-            max_tokens=params.maxTokens,
+            max_tokens=params.max_tokens,
             structured_mode=structured_mode,
         )
         base_args.update(thinking_args)
@@ -2205,7 +2217,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 failed_indices.append(provider_idx)
 
         block_distances: list[int] = []
-        for previous_idx, current_idx in zip(applied_indices, applied_indices[1:]):
+        for previous_idx, current_idx in zip(applied_indices, applied_indices[1:], strict=False):
             block_distances.append(
                 sum(
                     len(content)
@@ -2626,7 +2638,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
                 [TextContent(type="text", text=json.dumps({"id": response.container.id}))],
             )
         if cache_diagnostics_enabled or response.diagnostics is not None:
-            diagnostics = (
+            diagnostics: dict[str, Any] = (
                 response.diagnostics.model_dump(mode="json", exclude_none=False)
                 if response.diagnostics is not None
                 else {"cache_miss_reason": None}
@@ -2764,6 +2776,8 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         structured_model: type[ModelT] | None,
         structured: _AnthropicStructuredMode,
         tools: list[Tool] | None,
+        *,
+        include_provider_tools: bool,
     ) -> tuple[list[BetaToolParam], list[str], Any]:
         available_tools = await self._prepare_tools(
             model,
@@ -2773,11 +2787,17 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             structured_mode=structured.mode,
             auto_tool_use_fallback=structured.auto_tool_use_fallback,
         )
-        web_tools, web_tool_betas = self._prepare_web_tools(model)
+        if include_provider_tools:
+            web_tools, web_tool_betas = self._prepare_web_tools(model)
+            provider_mcp_payload = build_anthropic_provider_managed_mcp_payload(
+                self.provider_managed_mcp_state
+            )
+        else:
+            web_tools, web_tool_betas = [], []
+            provider_mcp_payload = build_anthropic_provider_managed_mcp_payload(
+                ProviderManagedToolState()
+            )
         request_tools = [*available_tools, *web_tools]
-        provider_mcp_payload = build_anthropic_provider_managed_mcp_payload(
-            self.provider_managed_mcp_state
-        )
         if provider_mcp_payload.tools:
             request_tools.extend(cast("list[BetaToolParam]", provider_mcp_payload.tools))
         return request_tools, list(web_tool_betas), provider_mcp_payload
@@ -2845,6 +2865,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             structured_model,
             structured,
             tools,
+            include_provider_tools=request.params.sampling_tool_choice is None,
         )
 
         base_args, thinking_enabled = self._build_anthropic_base_args(

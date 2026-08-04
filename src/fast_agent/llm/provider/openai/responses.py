@@ -6,18 +6,23 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
 from mcp import Tool
-from mcp.types import ContentBlock, TextContent
+from mcp_types import ContentBlock, TextContent
 from openai import APIError, AsyncOpenAI, AuthenticationError, DefaultAioHttpClient
 
 from fast_agent.constants import (
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    FAST_AGENT_SAFETY_DETAILS,
     OPENAI_ASSISTANT_MESSAGE_ITEMS,
     OPENAI_MCP_LIST_TOOLS_ITEMS,
     OPENAI_REASONING_ENCRYPTED,
     REASONING,
 )
-from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
+from fast_agent.core.exceptions import (
+    ModelConfigError,
+    ProviderKeyError,
+    ProviderSafetyBufferingError,
+)
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
@@ -44,6 +49,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     send_response_request,
 )
 from fast_agent.llm.provider.openai.schema_sanitizer import (
+    sanitize_response_format_schema,
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
@@ -65,6 +71,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.text_verbosity import parse_text_verbosity
+from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.provider_management import build_openai_provider_managed_mcp_tools
@@ -152,7 +159,6 @@ class ResponsesLLM(
     ResponsesFileMixin,
     ResponsesOutputMixin,
     ResponsesStreamingMixin,
-    OpenAIStructuredOutputMixin,
     FastAgentLLM[dict[str, Any], Any],
 ):
     """LLM implementation for OpenAI's Responses models."""
@@ -172,6 +178,38 @@ class ResponsesLLM(
         FastAgentLLM.PARAM_PARALLEL_TOOL_CALLS,
         "response_format",
     }
+
+    _prepare_structured_request = OpenAIStructuredOutputMixin._prepare_structured_request
+    _apply_prompt_provider_specific_structured_schema = (
+        OpenAIStructuredOutputMixin._apply_prompt_provider_specific_structured_schema
+    )
+
+    @staticmethod
+    def schema_to_response_format(
+        schema: dict[str, Any],
+        *,
+        name: str = "structured_output",
+        strict: bool = True,
+    ) -> dict[str, Any]:
+        return FastAgentLLM.schema_to_response_format(
+            sanitize_response_format_schema(schema) if strict else schema,
+            name=name,
+            strict=strict,
+        )
+
+    def _finalize_turn_usage(
+        self,
+        usage: TurnUsage | None = None,
+        *,
+        requested_service_tier: Literal["fast", "flex"] | None = None,
+        **kwargs: TurnUsage,
+    ) -> None:
+        turn_usage = usage if usage is not None else kwargs["turn_usage"]
+        FastAgentLLM._finalize_turn_usage(
+            self,
+            turn_usage,
+            requested_service_tier=requested_service_tier,
+        )
 
     def __init__(self, provider: Provider = Provider.RESPONSES, **kwargs) -> None:
         web_search_override = kwargs.pop("web_search", None)
@@ -785,7 +823,7 @@ class ResponsesLLM(
                     "type": "function",
                     "name": tool.name,
                     "description": tool.description or "",
-                    "parameters": self._adjust_schema(tool.inputSchema, model),
+                    "parameters": self._adjust_schema(tool.input_schema, model),
                     "strict": False,
                 }
             )
@@ -859,10 +897,10 @@ class ResponsesLLM(
         base_args: dict[str, Any],
         request_params: RequestParams,
     ) -> None:
-        if request_params.maxTokens is None:
+        if request_params.max_tokens is None:
             return
 
-        max_tokens = request_params.maxTokens
+        max_tokens = request_params.max_tokens
         if max_tokens < MIN_RESPONSES_MAX_TOKENS:
             self.logger.debug(
                 "Clamping max_output_tokens to Responses minimum",
@@ -919,7 +957,7 @@ class ResponsesLLM(
             "parallel_tool_calls": request_params.parallel_tool_calls,
         }
 
-        system_prompt = self.instruction or request_params.systemPrompt
+        system_prompt = self.instruction or request_params.system_prompt
         if system_prompt:
             base_args["instructions"] = system_prompt
 
@@ -927,16 +965,20 @@ class ResponsesLLM(
         if tools_payload:
             base_args["tools"] = tools_payload
 
-        self._append_provider_managed_tools(base_args)
-        self._append_web_search_tool(base_args)
+        if request_params.sampling_tool_choice is None:
+            self._append_provider_managed_tools(base_args)
+            self._append_web_search_tool(base_args)
         self._apply_response_reasoning(base_args)
         self._apply_response_max_tokens(base_args, request_params)
         self._apply_response_text_options(base_args, request_params)
         self._apply_response_service_tier(base_args, request_params, model)
 
-        return self.prepare_provider_arguments(
+        arguments = self.prepare_provider_arguments(
             base_args, request_params, self.RESPONSES_EXCLUDE_FIELDS
         )
+        if request_params.sampling_tool_choice is not None and tools_payload:
+            arguments["tool_choice"] = request_params.sampling_tool_choice
+        return arguments
 
     def _responses_completion_context(
         self,
@@ -1214,6 +1256,29 @@ class ResponsesLLM(
         )
         return build_stream_failure_response(self.provider, error, context.model_name)
 
+    def _safety_buffering_response(
+        self,
+        error: ProviderSafetyBufferingError,
+    ) -> PromptMessageExtended:
+        details = {
+            "provider": self.provider.value,
+            "category": "safety_buffering",
+            "model": error.model,
+            "reasons": error.reasons,
+            "use_cases": error.use_cases,
+            "retry_model": error.retry_model,
+        }
+        return PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text=error.message)],
+            channels={
+                FAST_AGENT_SAFETY_DETAILS: [
+                    TextContent(type="text", text=json.dumps(details)),
+                ]
+            },
+            stop_reason=LlmStopReason.SAFETY,
+        )
+
     async def _responses_completion(
         self,
         input_items: list[dict[str, Any]],
@@ -1230,6 +1295,8 @@ class ResponsesLLM(
                 tools=tools,
                 context=context,
             )
+        except ProviderSafetyBufferingError as error:
+            return self._safety_buffering_response(error)
         except asyncio.CancelledError:
             return Prompt.assistant(
                 TextContent(type="text", text=""),
@@ -1254,6 +1321,8 @@ class ResponsesLLM(
                 tools=tools,
                 context=context,
             )
+        except ProviderSafetyBufferingError as error:
+            return self._safety_buffering_response(error)
         except asyncio.CancelledError:
             return Prompt.assistant(
                 TextContent(type="text", text=""),
@@ -1633,6 +1702,9 @@ class ResponsesLLM(
                     reconnected=reconnected,
                 )
                 return result.response, result.streamed_summary, result.input_items
+            except ProviderSafetyBufferingError as error:
+                attempt_state.planner.rollback(error, stream_started=True)
+                raise
             except ResponsesWebSocketError as error:
                 last_error = self._handle_responses_ws_error(
                     error=error, attempt_state=attempt_state, context=context

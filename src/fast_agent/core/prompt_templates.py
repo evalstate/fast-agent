@@ -65,7 +65,7 @@ def _format_client_info(client_info: Mapping[str, str]) -> str | None:
 
 def _format_model_references(
     model_references: Mapping[str, Mapping[str, str]],
-    default_model: str,
+    default_model: str | None,
 ) -> str:
     references = {
         f"${namespace}.{key}": model
@@ -73,7 +73,8 @@ def _format_model_references(
         for key, model in sorted(entries.items())
         if not (namespace == "system" and key in {"default", "last_used"})
     }
-    references["$system.default"] = default_model
+    if default_model is not None:
+        references["$system.default"] = default_model
     return "\n".join(f"{token}={model}" for token, model in sorted(references.items()))
 
 
@@ -265,17 +266,15 @@ def enrich_with_environment_context(
     context["pythonVer"] = python_version
 
     from fast_agent.config import get_settings
-    from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
+    from fast_agent.core.model_resolution import resolve_model_spec
 
     settings = get_settings(no_home=no_home)
     default_model = resolve_model_spec(
         context=None,
         default_model=settings.default_model,
         cli_model=settings.cli_model_override,
-        hardcoded_default=HARDCODED_DEFAULT_MODEL,
         model_references=settings.model_references,
     ).model
-    assert default_model is not None
     context["modelReferences"] = _format_model_references(
         settings.model_references,
         default_model,

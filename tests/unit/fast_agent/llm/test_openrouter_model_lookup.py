@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 import httpx
 import pytest
 
@@ -44,8 +46,8 @@ def _make_result() -> OpenRouterModelLookupResult:
 
 
 class _FakeAsyncClient:
-    responses: list[httpx.Response] = []
-    calls: list[tuple[str, dict[str, str]]] = []
+    responses: ClassVar[list[httpx.Response]] = []
+    calls: ClassVar[list[tuple[str, dict[str, str]]]] = []
 
     def __init__(self, *, timeout: float) -> None:
         self.timeout = timeout

@@ -6,7 +6,7 @@ import sys
 import time
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import IO, TYPE_CHECKING, Any, Protocol, TextIO, cast
+from typing import IO, TYPE_CHECKING, Any, Protocol, TextIO, cast, runtime_checkable
 
 from rich.console import Console, Group, RenderHook
 from rich.control import Control
@@ -31,6 +31,7 @@ from fast_agent.ui.markdown.truncation import MarkdownTruncator
 from fast_agent.ui.streaming.plain_text import PlainTextTruncator
 from fast_agent.ui.streaming.segments import StreamSegmentAssembler
 from fast_agent.ui.streaming.viewport import StreamViewport
+from fast_agent.ui.syntax_highlighting import shell_syntax_blocks
 from fast_agent.utils.env import env_flag
 
 if TYPE_CHECKING:
@@ -66,10 +67,18 @@ _STREAM_HEADER_AND_MARGIN_LINES = 3
 _MISSING_CONSOLE_WIDTH = object()
 
 
+@runtime_checkable
+class _ConsoleWithAttributes(Protocol):
+    __dict__: dict[str, object]
+
+
 def _apply_console_width_override(target_console: object, width_override: int | None) -> object:
-    original_width = getattr(target_console, "_width", _MISSING_CONSOLE_WIDTH)
+    if not isinstance(target_console, _ConsoleWithAttributes):
+        raise TypeError("Console width overrides require an attribute dictionary")
+    attributes = target_console.__dict__
+    original_width = attributes.get("_width", _MISSING_CONSOLE_WIDTH)
     if width_override is not None:
-        setattr(target_console, "_width", width_override)
+        attributes["_width"] = width_override
     return original_width
 
 
@@ -81,11 +90,13 @@ def _restore_console_width_override(
 ) -> None:
     if width_override is None:
         return
+    if not isinstance(target_console, _ConsoleWithAttributes):
+        raise TypeError("Console width overrides require an attribute dictionary")
+    attributes = target_console.__dict__
     if original_width is not _MISSING_CONSOLE_WIDTH:
-        setattr(target_console, "_width", original_width)
+        attributes["_width"] = original_width
         return
-    with suppress(AttributeError):
-        delattr(target_console, "_width")
+    attributes.pop("_width", None)
 
 
 def _resolve_progress_resume_debounce_seconds() -> float:
@@ -131,6 +142,52 @@ class _AppliedStreamBatch:
     should_render: bool
     queued_items: list[_QueuedItem]
     batch_chars: int
+
+
+def _coalesce_tool_delta_payloads(payloads: list[object]) -> list[object]:
+    coalesced: list[object] = []
+    index = 0
+    while index < len(payloads):
+        payload = payloads[index]
+        identity = _tool_delta_identity(payload)
+        if identity is None:
+            coalesced.append(payload)
+            index += 1
+            continue
+
+        assert isinstance(payload, _ToolStreamEvent)
+        info = payload.info
+        assert info is not None
+        chunks = [str(info["chunk"])]
+        next_index = index + 1
+        while next_index < len(payloads):
+            candidate = payloads[next_index]
+            if _tool_delta_identity(candidate) != identity:
+                break
+            assert isinstance(candidate, _ToolStreamEvent)
+            assert candidate.info is not None
+            chunks.append(str(candidate.info["chunk"]))
+            next_index += 1
+
+        if len(chunks) == 1:
+            coalesced.append(payload)
+        else:
+            merged_info = dict(info)
+            merged_info["chunk"] = "".join(chunks)
+            coalesced.append(_ToolStreamEvent(event_type="delta", info=merged_info))
+        index = next_index
+    return coalesced
+
+
+def _tool_delta_identity(payload: object) -> dict[str, Any] | None:
+    if not isinstance(payload, _ToolStreamEvent):
+        return None
+    if payload.event_type != "delta":
+        return None
+    info = payload.info
+    if not info or not info.get("tool_use_id") or not isinstance(info.get("chunk"), str):
+        return None
+    return {key: value for key, value in info.items() if key != "chunk"}
 
 
 def _first_different_line(
@@ -220,7 +277,7 @@ class _DiffLive(RenderHook):
         renderable = self.get_renderable()
         if renderable is None:
             return
-        if not self._is_interactive:
+        if not self._is_interactive or self._nested:
             return
         lines = self._render_lines(renderable)
 
@@ -267,13 +324,19 @@ class _DiffLive(RenderHook):
             self.console.print(renderable)
 
     def _stop_interactive(self) -> None:
-        self.console.clear_live()
         if self._nested:
+            self.console.clear_live()
             if not self.transient:
                 self._print_current_renderable()
             return
-        if self._lines:
-            self._stop_drawn_frame()
+        try:
+            try:
+                if self._lines:
+                    self._stop_drawn_frame()
+            finally:
+                self._restore_console_state()
+        finally:
+            self.console.clear_live()
 
     def _stop_drawn_frame(self) -> None:
         if self.transient:
@@ -545,6 +608,7 @@ class StreamingMessageHandle:
         header_right: str = "",
         tool_header_name: str | None = None,
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None = None,
+        stream_edit_previews: bool = True,
         progress_display: Any = None,
         performance_hook: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
@@ -562,6 +626,7 @@ class StreamingMessageHandle:
         self._setup_segment_rendering(
             tool_metadata_resolver=tool_metadata_resolver,
             use_plain_text=use_plain_text,
+            stream_edit_previews=stream_edit_previews,
         )
         refresh_rate = self._stream_refresh_rate()
         self._setup_render_timing(
@@ -582,12 +647,14 @@ class StreamingMessageHandle:
         *,
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None,
         use_plain_text: bool,
+        stream_edit_previews: bool,
     ) -> None:
         self._segment_assembler = StreamSegmentAssembler(
             base_kind="plain" if use_plain_text else "markdown",
             tool_prefix=self._tool_header_prefix_plain,
             tool_metadata_resolver=tool_metadata_resolver,
             apply_patch_preview_max_lines=self._display.apply_patch_preview_max_lines,
+            stream_edit_previews=stream_edit_previews,
         )
         self._markdown_truncator = MarkdownTruncator(
             target_height_ratio=1.0,
@@ -1313,6 +1380,28 @@ class StreamingMessageHandle:
     ) -> "RenderableType":
         preview = segment.code_preview
         if preview is not None and preview.code.strip():
+            if preview.variant == "shell":
+                blocks = shell_syntax_blocks(
+                    preview.code,
+                    shell_language=preview.language,
+                    include_incomplete=not preview.complete,
+                )
+                renderables: list[RenderableType] = [self._tool_header_text(segment)]
+                for index, block in enumerate(blocks):
+                    code_text = block.code
+                    if cursor_suffix and index == len(blocks) - 1:
+                        code_text += cursor_suffix
+                    renderables.append(
+                        Syntax(
+                            code_text,
+                            block.language,
+                            theme=self._display.code_style,
+                            line_numbers=False,
+                            word_wrap=self._display.code_word_wrap,
+                        )
+                    )
+                return Group(*renderables)
+
             code_text = preview.code + cursor_suffix if cursor_suffix else preview.code
             return Group(
                 self._tool_header_text(segment),
@@ -1448,6 +1537,7 @@ class StreamingMessageHandle:
         should_render = False
         queued_items: list[_QueuedItem] = []
         batch_chars = 0
+        payloads: list[object] = []
         for chunk in chunks:
             if chunk is self._stop_sentinel:
                 continue
@@ -1455,6 +1545,8 @@ class StreamingMessageHandle:
             if isinstance(chunk, _QueuedItem):
                 queued_items.append(chunk)
                 payload = chunk.payload
+            payloads.append(payload)
+        for payload in _coalesce_tool_delta_payloads(payloads):
             rendered, char_count = self._apply_stream_payload(payload)
             should_render = rendered or should_render
             batch_chars += char_count

@@ -1,7 +1,7 @@
 import json
 from typing import Literal
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.constants import (
     FAST_AGENT_ALERT_CHANNEL,

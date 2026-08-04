@@ -33,10 +33,10 @@ otel:
 
 # MCP Servers
 mcp:
-  targets:
-    - name: fetch
+  servers:
+    fetch:
       target: "uvx mcp-server-fetch"
-    - name: filesystem
+    filesystem:
       target: "npx -y @modelcontextprotocol/server-filesystem ."
-    - name: think
+    think:
       target: "mcp-think-tool"

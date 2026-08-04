@@ -49,7 +49,7 @@ def _start_llamacpp_server(
     state = _ServerState()
 
     class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             parsed = urlsplit(self.path)
             state.request_paths.append(parsed.path)
             state.auth_headers.append(self.headers.get("Authorization"))
@@ -510,14 +510,12 @@ def test_model_llamacpp_import_json_start_now_still_launches(tmp_path: Path, mon
         overlay_name: str,
         home: Path | None,
         with_shell: bool = False,
-        smart: bool = False,
         announce: bool = True,
         execvpe_fn=...,
     ) -> None:
         launched["overlay_name"] = overlay_name
         launched["home"] = home
         launched["with_shell"] = with_shell
-        launched["smart"] = smart
         launched["announce"] = announce
 
     monkeypatch.setattr(model_command, "_launch_llamacpp_overlay_now", _fake_launch)
@@ -552,7 +550,6 @@ def test_model_llamacpp_import_json_start_now_still_launches(tmp_path: Path, mon
         "overlay_name": "json-start-now",
         "home": home,
         "with_shell": False,
-        "smart": False,
         "announce": False,
     }
 
@@ -609,7 +606,6 @@ def test_build_llamacpp_start_now_argv_includes_env_override(tmp_path: Path) -> 
         overlay_name="llamacpp-qwen",
         home=home,
         with_shell=False,
-        smart=False,
     )
 
     assert argv == [
@@ -659,7 +655,6 @@ def test_build_llamacpp_start_now_argv_with_shell_forces_x(tmp_path: Path) -> No
         overlay_name="llamacpp-qwen",
         home=home,
         with_shell=True,
-        smart=False,
     )
 
     assert argv == [
@@ -703,90 +698,6 @@ def test_launch_llamacpp_overlay_now_with_shell_execs_go_x(tmp_path: Path) -> No
         "--home",
         str(home),
     ]
-
-
-def test_build_llamacpp_start_now_argv_smart_uses_smart_and_shell(tmp_path: Path) -> None:
-    home = tmp_path / ".custom-env"
-
-    argv = model_command._build_llamacpp_start_now_argv(
-        overlay_name="llamacpp-qwen",
-        home=home,
-        with_shell=True,
-        smart=True,
-    )
-
-    assert argv == [
-        sys.executable,
-        "-m",
-        "fast_agent.cli",
-        "go",
-        "--model",
-        "llamacpp-qwen",
-        "--smart",
-        "-x",
-        "--home",
-        str(home),
-    ]
-
-
-def test_model_llamacpp_import_start_now_smart_launches_smart_shell(
-    tmp_path: Path, monkeypatch
-) -> None:
-    workspace = tmp_path / "workspace"
-    home = workspace / ".model-env"
-    workspace.mkdir(parents=True)
-    runner = CliRunner()
-    server = _start_llamacpp_server()
-    launched: dict[str, object] = {}
-
-    def _fake_launch(
-        *,
-        overlay_name: str,
-        home: Path | None,
-        with_shell: bool = False,
-        smart: bool = False,
-        announce: bool = True,
-        execvpe_fn=...,
-    ) -> None:
-        launched["overlay_name"] = overlay_name
-        launched["home"] = home
-        launched["with_shell"] = with_shell
-        launched["smart"] = smart
-        launched["announce"] = announce
-
-    monkeypatch.setattr(model_command, "_launch_llamacpp_overlay_now", _fake_launch)
-
-    previous_cwd = Path.cwd()
-    try:
-        os.chdir(workspace)
-        result = runner.invoke(
-            model_command.app,
-            [
-                "llamacpp",
-                "import",
-                "--url",
-                server.base_url,
-                "--home",
-                str(home),
-                "--start-now",
-                "--smart",
-                "unsloth/Qwen3.5-9B-GGUF",
-                "--name",
-                "smart-start-now",
-            ],
-        )
-    finally:
-        os.chdir(previous_cwd)
-        server.close()
-
-    assert result.exit_code == 0, result.stdout
-    assert launched == {
-        "overlay_name": "smart-start-now",
-        "home": home,
-        "with_shell": True,
-        "smart": True,
-        "announce": True,
-    }
 
 
 def test_model_llamacpp_reuses_existing_generated_overlay_for_unnamed_repeat_import(

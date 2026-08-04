@@ -21,16 +21,15 @@ import yaml
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.cli.runtime.agent_setup import (
     _agent_config_defines_startup_model,
-    _attach_cli_servers_to_selected_agent,
     _explicit_agent_cards_define_startup_model,
     _generic_model_prompt_default,
     _last_used_model_reference,
     _load_request_settings,
     _persist_model_picker_last_used_selection,
     _resolve_model_picker_initial_selection,
-    _resolve_model_without_hardcoded_default,
     _select_model_from_picker,
     _select_startup_model_if_needed,
+    _set_cli_server_overlay_for_selected_agent,
     _should_prompt_for_model_picker,
     _split_requested_models,
     run_agent_request,
@@ -84,14 +83,13 @@ def _make_request(
         prompt_file=prompt_file,
         result_file=None,
         resume=resume,
-        url_servers=None,
-        stdio_servers=None,
+        startup_mcp_servers=None,
+        mcp_startup_notices=(),
         agent_name="agent",
         target_agent_name=None,
         skills_directory=None,
         home=None,
         no_home=False,
-        force_smart=False,
         shell_runtime=False,
         no_shell=False,
         mode="interactive",
@@ -105,6 +103,23 @@ def _make_request(
         reload=False,
         watch=False,
     )
+
+
+def _seed_session_model(home: Path, session_id: str, model_spec: str) -> None:
+    from fast_agent.session.session_manager import SessionManager
+    from fast_agent.session.snapshot import SessionAgentSnapshot, snapshot_from_session_info
+
+    manager = SessionManager(home_override=home)
+    session = manager.create_session_with_id(session_id)
+    history_file = "history_agent.json"
+    (session.directory / history_file).write_text("[]", encoding="utf-8")
+    snapshot = snapshot_from_session_info(session.info)
+    snapshot.continuation.active_agent = "agent"
+    snapshot.continuation.agents["agent"] = SessionAgentSnapshot(
+        history_file=history_file,
+        model_spec=model_spec,
+    )
+    session._save_snapshot(snapshot)
 
 
 def test_should_prompt_for_model_picker_in_interactive_tty_startup() -> None:
@@ -148,7 +163,12 @@ def test_should_prompt_for_model_picker_when_cards_present() -> None:
 
 
 @pytest.mark.asyncio
-async def test_startup_model_selection_skipped_when_resuming(monkeypatch) -> None:
+@pytest.mark.parametrize("resume", ["__latest__", ""])
+async def test_startup_model_selection_uses_latest_resumed_model(
+    tmp_path: Path,
+    monkeypatch,
+    resume: str,
+) -> None:
     # On --resume the session snapshot owns the model; the startup picker must
     # not run (its selection would be overridden by hydration anyway). Instead
     # a distinctive model source is returned so the startup status notice names
@@ -157,14 +177,17 @@ async def test_startup_model_selection_skipped_when_resuming(monkeypatch) -> Non
         raise AssertionError("model picker must not run during resume")
 
     monkeypatch.setattr("fast_agent.cli.runtime.agent_setup._select_model_from_picker", _fail)
-    request = _make_request(resume="__latest__")
+    request = _make_request(resume=resume)
+    request.home = tmp_path
+    _seed_session_model(tmp_path, "session-latest", "codexresponses.gpt-5.6-sol")
 
     assert await _select_startup_model_if_needed(request) == "session resumption"
-    assert request.model is None
+    assert request.model == "codexresponses.gpt-5.6-sol"
 
 
 @pytest.mark.asyncio
 async def test_startup_model_selection_skipped_when_resuming_named_session(
+    tmp_path: Path,
     monkeypatch,
 ) -> None:
     async def _fail(*args, **kwargs):  # type: ignore[no-untyped-def]
@@ -172,64 +195,90 @@ async def test_startup_model_selection_skipped_when_resuming_named_session(
 
     monkeypatch.setattr("fast_agent.cli.runtime.agent_setup._select_model_from_picker", _fail)
     request = _make_request(resume="session-123")
+    request.home = tmp_path
+    _seed_session_model(tmp_path, "session-123", "anthropic.claude-sonnet-4-5")
 
     assert await _select_startup_model_if_needed(request) == "session resumption"
-    assert request.model is None
+    assert request.model == "anthropic.claude-sonnet-4-5"
 
 
 def test_attach_cli_servers_prefers_typed_default_agent_config() -> None:
     default_config = AgentConfig("primary", default=True, servers=["existing"])
     fallback_config = AgentConfig("fallback", servers=[])
     fast = SimpleNamespace(
+        app=SimpleNamespace(
+            context=SimpleNamespace(runtime_mcp_server_names={}),
+        ),
         agents={
             "fallback": {"config": fallback_config},
             "primary": {"config": default_config},
-        }
+        },
     )
     request = _make_request()
     request.server_list = ["existing", "from-cli"]
 
-    _attach_cli_servers_to_selected_agent(fast, request)
+    _set_cli_server_overlay_for_selected_agent(
+        fast,
+        request,
+        fast.app.context.runtime_mcp_server_names,
+    )
 
-    assert default_config.servers == ["existing", "from-cli"]
+    assert default_config.servers == ["existing"]
     assert fallback_config.servers == []
+    assert fast.app.context.runtime_mcp_server_names == {"primary": ("existing", "from-cli")}
 
 
 def test_attach_cli_servers_prefers_explicit_agent_over_default() -> None:
     default_config = AgentConfig("primary", default=True, servers=[])
     explicit_config = AgentConfig("target", servers=["existing"])
     fast = SimpleNamespace(
+        app=SimpleNamespace(
+            context=SimpleNamespace(runtime_mcp_server_names={}),
+        ),
         agents={
             "primary": {"config": default_config},
             "target": {"config": explicit_config},
-        }
+        },
     )
     request = _make_request()
     request.agent_name = "target"
     request.server_list = ["existing", "from-cli"]
 
-    _attach_cli_servers_to_selected_agent(fast, request)
+    _set_cli_server_overlay_for_selected_agent(
+        fast,
+        request,
+        fast.app.context.runtime_mcp_server_names,
+    )
 
     assert default_config.servers == []
-    assert explicit_config.servers == ["existing", "from-cli"]
+    assert explicit_config.servers == ["existing"]
+    assert fast.app.context.runtime_mcp_server_names == {"target": ("existing", "from-cli")}
 
 
 def test_attach_cli_servers_skips_tool_only_fallback_agent() -> None:
     tool_config = AgentConfig("tool", tool_only=True, servers=[])
     runnable_config = AgentConfig("runnable", servers=[])
     fast = SimpleNamespace(
+        app=SimpleNamespace(
+            context=SimpleNamespace(runtime_mcp_server_names={}),
+        ),
         agents={
             "tool": {"config": tool_config, "tool_only": True},
             "runnable": {"config": runnable_config},
-        }
+        },
     )
     request = _make_request()
     request.server_list = ["from-cli"]
 
-    _attach_cli_servers_to_selected_agent(fast, request)
+    _set_cli_server_overlay_for_selected_agent(
+        fast,
+        request,
+        fast.app.context.runtime_mcp_server_names,
+    )
 
     assert tool_config.servers == []
-    assert runnable_config.servers == ["from-cli"]
+    assert runnable_config.servers == []
+    assert fast.app.context.runtime_mcp_server_names == {"runnable": ("from-cli",)}
 
 
 def test_explicit_remote_agent_card_model_suppresses_startup_model_selection(
@@ -287,6 +336,29 @@ def test_explicit_remote_agent_card_without_model_keeps_startup_model_selection(
     assert _explicit_agent_cards_define_startup_model(request) is False
 
 
+def test_startup_model_preflight_preserves_remote_card_restrictions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.io import source_resolver
+
+    def fake_read_text_source(source: str, *, label: str) -> str:
+        assert source == "hf://buckets/evalstate/demo-bucket/restricted-card.yaml"
+        assert label == "AgentCard URL"
+        return "\n".join(
+            [
+                "name: restricted",
+                "model: passthrough",
+                'instruction: "{{file:typesafe.md}}"',
+                "",
+            ]
+        )
+
+    monkeypatch.setattr(source_resolver, "read_text_source", fake_read_text_source)
+    request = _make_request(agent_cards=["hf://buckets/evalstate/demo-bucket/restricted-card.yaml"])
+
+    assert _explicit_agent_cards_define_startup_model(request) is False
+
+
 @pytest.mark.parametrize(
     ("model_references", "expected"),
     [
@@ -328,57 +400,6 @@ def test_explicit_remote_agent_card_model_reference_only_suppresses_when_availab
         )
         is expected
     )
-
-
-def test_resolve_model_without_hardcoded_default_returns_none_without_sources() -> None:
-    previous = os.environ.pop("FAST_AGENT_MODEL", None)
-    try:
-        resolved_model = _resolve_model_without_hardcoded_default(
-            model=None,
-            config_default_model=None,
-            model_references=None,
-        )
-    finally:
-        if previous is not None:
-            os.environ["FAST_AGENT_MODEL"] = previous
-
-    assert resolved_model.model is None
-    assert resolved_model.source is None
-
-
-def test_resolve_model_without_hardcoded_default_prefers_config_default() -> None:
-    previous = os.environ.pop("FAST_AGENT_MODEL", None)
-    try:
-        resolved_model = _resolve_model_without_hardcoded_default(
-            model=None,
-            config_default_model="openai.gpt-4.1-mini",
-            model_references=None,
-        )
-    finally:
-        if previous is not None:
-            os.environ["FAST_AGENT_MODEL"] = previous
-
-    assert resolved_model.model == "openai.gpt-4.1-mini"
-    assert resolved_model.source == "config file"
-
-
-def test_resolve_model_without_hardcoded_default_uses_environment_variable() -> None:
-    previous = os.environ.get("FAST_AGENT_MODEL")
-    os.environ["FAST_AGENT_MODEL"] = "responses.gpt-5-mini"
-    try:
-        resolved_model = _resolve_model_without_hardcoded_default(
-            model=None,
-            config_default_model=None,
-            model_references=None,
-        )
-    finally:
-        if previous is not None:
-            os.environ["FAST_AGENT_MODEL"] = previous
-        else:
-            os.environ.pop("FAST_AGENT_MODEL", None)
-
-    assert resolved_model.model == "responses.gpt-5-mini"
-    assert resolved_model.source == "environment variable FAST_AGENT_MODEL"
 
 
 @pytest.mark.asyncio
@@ -1013,8 +1034,7 @@ def test_persist_model_picker_last_used_selection_updates_loaded_env_overlay_in_
     assert persisted is True
     assert not (home / ".fast-agent" / "fast-agent.yaml").exists()
 
-    with open(config_path, "r", encoding="utf-8") as handle:
-        saved = yaml.safe_load(handle)
+    saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
 
@@ -1075,8 +1095,7 @@ def test_persist_model_picker_last_used_selection_writes_explicit_config_file(
     assert persisted is True
     assert not (workspace / ".fast-agent" / "fast-agent.yaml").exists()
 
-    with open(config_path, "r", encoding="utf-8") as handle:
-        saved = yaml.safe_load(handle)
+    saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
     initial_selection = _resolve_model_picker_initial_selection(settings=reloaded)
@@ -1137,8 +1156,7 @@ async def test_run_agent_request_persists_and_reloads_last_used_for_shell_mode(
     config_path = workspace / ".fast-agent" / "fast-agent.yaml"
     assert config_path.exists()
 
-    with open(config_path, "r", encoding="utf-8") as handle:
-        saved = yaml.safe_load(handle)
+    saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     assert saved["model_references"]["system"]["last_used"] == "gpt-4.1-mini"
     initial_selection = _resolve_model_picker_initial_selection(settings=settings)
@@ -1147,7 +1165,7 @@ async def test_run_agent_request_persists_and_reloads_last_used_for_shell_mode(
 
 
 @pytest.mark.asyncio
-async def test_run_agent_request_uses_last_used_for_noninteractive_startup(
+async def test_run_agent_request_does_not_use_last_used_for_noninteractive_startup(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -1158,7 +1176,10 @@ async def test_run_agent_request_uses_last_used_for_noninteractive_startup(
     home = workspace / ".cdx"
     home.mkdir(parents=True)
     (home / "fast-agent.yaml").write_text(
-        "default_model: null\nmodel_references:\n  system:\n    last_used: claude-haiku-4-5\n",
+        'default_model: "$system.default"\n'
+        "model_references:\n"
+        "  system:\n"
+        "    last_used: claude-haiku-4-5\n",
         encoding="utf-8",
     )
 
@@ -1193,4 +1214,4 @@ async def test_run_agent_request_uses_last_used_for_noninteractive_startup(
             os.environ["FAST_AGENT_HOME"] = previous_home
         config_module._settings = old_settings
 
-    assert request.model == "claude-haiku-4-5"
+    assert request.model is None

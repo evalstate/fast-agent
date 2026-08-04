@@ -25,10 +25,15 @@ from fast_agent.tools.execution_environment import (
     ShellExecutionResult,
     ShellOutputActivityCallbacks,
     ShellRuntimeInfo,
+    TemporaryArtifact,
 )
 from fast_agent.tools.shell_output_spool import (
     ShellOutputSpoolPaths,
     ShellOutputSpoolTailer,
+)
+from fast_agent.tools.transient_artifacts import (
+    bounded_temporary_text,
+    validate_artifact_name_parts,
 )
 from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 
@@ -136,23 +141,6 @@ class _Sandbox(Protocol):
     def close(self) -> None: ...
 
 
-class _SandboxClass(Protocol):
-    @staticmethod
-    def create(
-        image: str = "python:3.12",
-        *,
-        flavor: str = "cpu-basic",
-        idle_timeout: int | float | str | None = DEFAULT_HF_SANDBOX_IDLE_TIMEOUT,
-        env: dict[str, Any] | None = None,
-        secrets: dict[str, Any] | None = None,
-        volumes: list[Any] | None = None,
-        namespace: str | None = None,
-        forward_hf_token: bool = False,
-        start_timeout: float = 120.0,
-        token: str | None = None,
-    ) -> _Sandbox: ...
-
-
 class _VolumeClass(Protocol):
     def __call__(
         self,
@@ -229,6 +217,9 @@ class HuggingFaceSandboxEnvironment:
         self._owns_sandbox = owns_sandbox
         self._execution_env = dict(env or {})
         self._startup_progress_callback: Callable[[str], None] | None = None
+        self._temporary_artifact_directory: str | None = None
+        self._temporary_artifact_paths: set[str] = set()
+        self._temporary_artifact_lock = asyncio.Lock()
 
     async def open(self) -> None:
         if self._sandbox is None:
@@ -260,7 +251,6 @@ class HuggingFaceSandboxEnvironment:
                 "Hugging Face sandbox support requires huggingface_hub with Sandbox support."
             ) from exc
         api = HfApi(token=token)
-        sandbox_cls: _SandboxClass = Sandbox
         volume_cls: _VolumeClass = Volume
 
         idle_timeout = (
@@ -280,20 +270,17 @@ class HuggingFaceSandboxEnvironment:
         ]
         self._emit_startup_stage("calling Sandbox.create")
         try:
-            sandbox = cast(
-                "_Sandbox",
-                sandbox_cls.create(
-                    image=self._image,
-                    flavor=self._flavor,
-                    idle_timeout=idle_timeout,
-                    env=self._env,
-                    secrets=self._secrets,
-                    volumes=volumes,
-                    namespace=self._namespace,
-                    forward_hf_token=self._forward_hf_token,
-                    start_timeout=self._start_timeout,
-                    token=token,
-                ),
+            sandbox = Sandbox.create(
+                image=self._image,
+                flavor=self._flavor,
+                idle_timeout=idle_timeout,
+                env=self._env,
+                secrets=self._secrets,
+                volumes=volumes,
+                namespace=self._namespace,
+                forward_hf_token=self._forward_hf_token,
+                start_timeout=self._start_timeout,
+                token=token,
             )
         except Exception as exc:
             if _is_huggingface_auth_error(exc):
@@ -319,7 +306,7 @@ class HuggingFaceSandboxEnvironment:
             self._emit_startup_stage("label update failed; killing sandbox")
             sandbox.kill()
             raise
-        return sandbox
+        return cast("_Sandbox", sandbox)
 
     @property
     def cwd(self) -> str:
@@ -744,10 +731,65 @@ class HuggingFaceSandboxEnvironment:
         sandbox = self._require_sandbox()
         await asyncio.to_thread(sandbox.files.delete, self.resolve_path(path), False)
 
+    async def write_temporary_text(
+        self,
+        *,
+        prefix: str,
+        suffix: str,
+        content: str,
+        max_bytes: int,
+    ) -> TemporaryArtifact:
+        validate_artifact_name_parts(prefix=prefix, suffix=suffix)
+        sandbox = self._require_sandbox()
+        payload, complete = bounded_temporary_text(content, max_bytes=max_bytes)
+        async with self._temporary_artifact_lock:
+            directory = self._temporary_artifact_directory
+            if directory is None:
+                candidate = f"/tmp/fast-agent-output-{uuid.uuid4().hex}"
+                if any(
+                    _path_is_within(candidate, _normalize_posix(mount.mount_path))
+                    for mount in self._volume_mounts
+                ):
+                    raise RuntimeError(
+                        "No ephemeral Hugging Face temporary artifact root is available."
+                    )
+                await asyncio.to_thread(sandbox.files.mkdir, candidate)
+                directory = candidate
+                self._temporary_artifact_directory = directory
+            path = posixpath.join(directory, f"{prefix}{uuid.uuid4().hex}{suffix}")
+            await asyncio.to_thread(sandbox.files.write, path, payload)
+            self._temporary_artifact_paths.add(path)
+        return TemporaryArtifact(
+            path=path,
+            retained_bytes=len(payload),
+            complete=complete,
+        )
+
+    async def remove_temporary_artifact(self, artifact: TemporaryArtifact) -> None:
+        async with self._temporary_artifact_lock:
+            if artifact.path not in self._temporary_artifact_paths:
+                return
+            sandbox = self._require_sandbox()
+            await asyncio.to_thread(sandbox.files.delete, artifact.path, False)
+            self._temporary_artifact_paths.discard(artifact.path)
+
+    async def _cleanup_temporary_artifacts(self) -> None:
+        async with self._temporary_artifact_lock:
+            sandbox = self._sandbox
+            directory = self._temporary_artifact_directory
+            if sandbox is not None and directory is not None:
+                try:
+                    await asyncio.to_thread(sandbox.files.delete, directory, True)
+                except Exception:
+                    pass
+            self._temporary_artifact_directory = None
+            self._temporary_artifact_paths.clear()
+
     async def close(self) -> None:
         sandbox = self._sandbox
         if sandbox is None:
             return
+        await self._cleanup_temporary_artifacts()
         if self._owns_sandbox:
             await asyncio.to_thread(sandbox.kill)
         else:
@@ -765,6 +807,10 @@ def _normalize_posix(path: str) -> str:
     if not raw.startswith("/"):
         raw = f"/{raw}"
     return posixpath.normpath(raw)
+
+
+def _path_is_within(path: str, root: str) -> bool:
+    return path == root or path.startswith(f"{root.rstrip('/')}/")
 
 
 def _parse_environment_file_entries(payload: str) -> list[EnvironmentFileEntry]:

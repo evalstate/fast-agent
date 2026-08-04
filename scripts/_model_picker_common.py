@@ -7,7 +7,7 @@ stay in sync.
 
 from __future__ import annotations
 
-from fast_agent.ui.model_picker_common import (  # noqa: F401
+from fast_agent.ui.model_picker_common import (
     DEFAULT_VALUE,
     KEEP_VALUE,
     PICKER_PROVIDER_ORDER,

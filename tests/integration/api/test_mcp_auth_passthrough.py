@@ -1,13 +1,14 @@
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 
-import httpx
+import httpx2
 import pytest
 from fastmcp.server.auth import AccessToken
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from fast_agent.core.harness_app import AppOpenRequest
+from fast_agent.core.agent_app import AgentApp
+from fast_agent.core.harness_app import AgentRuntimeEnvironment, AppOpenRequest
 from fast_agent.mcp.auth.huggingface import HuggingFaceOAuthOrHubTokenVerifier
 from fast_agent.mcp.auth.middleware import HFAuthHeaderMiddleware
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -38,12 +39,12 @@ def _temporary_env(**env_vars: str) -> Iterator[None]:
 
 class _TokenEchoHarnessSession:
     @property
-    def agent_app(self) -> object:
-        return object()
+    def agent_app(self) -> AgentApp:
+        return AgentApp({})
 
     @property
-    def env(self) -> object:
-        return object()
+    def env(self) -> AgentRuntimeEnvironment:
+        raise AssertionError("The token echo harness does not expose a runtime environment")
 
     async def invoke(self, request: AgentRequest) -> AgentResponse:
         token = request.auth.token if request.auth is not None else None
@@ -107,15 +108,15 @@ async def _call_send_tool(
         )
 
         async with starlette_app.router.lifespan_context(starlette_app):
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=transport_app),
+            async with httpx2.AsyncClient(
+                transport=httpx2.ASGITransport(app=transport_app),
                 base_url="http://testserver",
                 headers=headers,
             ) as client:
                 async with streamable_http_client(
                     "http://testserver/mcp",
                     http_client=client,
-                ) as (read_stream, write_stream, _):
+                ) as (read_stream, write_stream):
                     async with ClientSession(read_stream, write_stream) as session:
                         await session.initialize()
                         result = await session.call_tool("worker", {"message": "hello"})

@@ -4,11 +4,12 @@ import asyncio
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 
 from fast_agent.constants import FAST_AGENT_SHELL_PROCESS_METADATA
+from fast_agent.mcp.tool_result_metadata import update_tool_result_display_metadata
 from fast_agent.tools.process_resources import (
     ProcessResourceObservationState,
     ProcessResourceSnapshotMetadata,
@@ -69,14 +70,15 @@ def process_result(
     metadata: ProcessResultMetadata,
 ) -> CallToolResult:
     result = CallToolResult(
-        isError=is_error,
+        is_error=is_error,
         content=[TextContent(type="text", text=message)],
     )
     result.meta = {FAST_AGENT_SHELL_PROCESS_METADATA: metadata}
-    # Shell result rendering consumes this transient projection. Process lifecycle
-    # consumers read the canonical durable metadata above.
     if "output_line_count" in metadata:
-        cast("Any", result).output_line_count = metadata["output_line_count"]
+        update_tool_result_display_metadata(
+            result,
+            {"output_line_count": metadata["output_line_count"]},
+        )
     return result
 
 
@@ -347,7 +349,10 @@ def build_managed_process_result(
                 ),
             },
         )
-        cast("Any", result)._suppress_display = yielded_reason is not None or not output
+        update_tool_result_display_metadata(
+            result,
+            {"suppress_display": yielded_reason is not None or not output},
+        )
         return result
 
     if process.task.cancelled():

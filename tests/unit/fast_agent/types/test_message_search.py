@@ -3,7 +3,7 @@
 import re
 
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.types import (
     PromptMessageExtended,
@@ -65,7 +65,7 @@ def test_search_messages_tool_results_scope():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="Job started: abc123def")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -74,7 +74,7 @@ def test_search_messages_tool_results_scope():
             tool_results={
                 "call_2": CallToolResult(
                     content=[TextContent(type="text", text="Task completed successfully")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -142,7 +142,7 @@ def test_search_messages_all_scope():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="error: Not found")],
-                    isError=True,
+                    is_error=True,
                 ),
             },
         ),
@@ -160,7 +160,7 @@ def test_search_messages_regex_pattern():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="Job started: abc123")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -169,7 +169,7 @@ def test_search_messages_regex_pattern():
             tool_results={
                 "call_2": CallToolResult(
                     content=[TextContent(type="text", text="Job started: def456")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -178,7 +178,7 @@ def test_search_messages_regex_pattern():
             tool_results={
                 "call_3": CallToolResult(
                     content=[TextContent(type="text", text="Task completed")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -215,7 +215,7 @@ def test_find_matches():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="Job started: abc123def")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -224,7 +224,7 @@ def test_find_matches():
             tool_results={
                 "call_2": CallToolResult(
                     content=[TextContent(type="text", text="Job started: xyz789ghi")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -269,7 +269,7 @@ def test_extract_first_basic():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="Job started: abc123def")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -288,7 +288,7 @@ def test_extract_first_with_capture_group():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="Job started: abc123def")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -324,7 +324,7 @@ def test_extract_first_multiple_messages():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="Job started: first123")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -333,7 +333,7 @@ def test_extract_first_multiple_messages():
             tool_results={
                 "call_2": CallToolResult(
                     content=[TextContent(type="text", text="Job started: second456")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -351,7 +351,7 @@ def test_extract_last_basic():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="Status: pending")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -360,7 +360,7 @@ def test_extract_last_basic():
             tool_results={
                 "call_2": CallToolResult(
                     content=[TextContent(type="text", text="Status: running")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -369,7 +369,7 @@ def test_extract_last_basic():
             tool_results={
                 "call_3": CallToolResult(
                     content=[TextContent(type="text", text="Status: completed")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -388,7 +388,7 @@ def test_extract_last_with_capture_group():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="Job started: abc123")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -397,7 +397,7 @@ def test_extract_last_with_capture_group():
             tool_results={
                 "call_2": CallToolResult(
                     content=[TextContent(type="text", text="Job started: xyz789")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -429,7 +429,7 @@ def test_extract_last_single_match():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="Job started: single123")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -447,7 +447,7 @@ def test_extract_first_vs_extract_last():
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="Version: 1.0")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -456,7 +456,7 @@ def test_extract_first_vs_extract_last():
             tool_results={
                 "call_2": CallToolResult(
                     content=[TextContent(type="text", text="Version: 2.0")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),
@@ -465,7 +465,7 @@ def test_extract_first_vs_extract_last():
             tool_results={
                 "call_3": CallToolResult(
                     content=[TextContent(type="text", text="Version: 3.0")],
-                    isError=False,
+                    is_error=False,
                 ),
             },
         ),

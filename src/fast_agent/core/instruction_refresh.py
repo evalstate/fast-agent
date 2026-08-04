@@ -62,6 +62,13 @@ class InstructionCapable(Protocol):
 
 
 @runtime_checkable
+class RenderedInstructionProcessor(Protocol):
+    """Protocol for agents that normalize instructions after template rendering."""
+
+    def process_rendered_instruction(self, instruction: str) -> str: ...
+
+
+@runtime_checkable
 class McpInstructionCapable(InstructionCapable, Protocol):
     """Protocol for MCP agents that support full instruction refresh."""
 
@@ -365,8 +372,13 @@ async def rebuild_agent_instruction(
             context=build_context,
             source=configured_agent.name,
         )
+        if isinstance(agent, RenderedInstructionProcessor):
+            new_instruction = agent.process_rendered_instruction(new_instruction)
 
         agent.set_instruction(new_instruction)
+        from fast_agent.agents.subagent_tool import install_subagent_tool
+
+        install_subagent_tool(agent)
         rebuilt_instruction = True
 
         if (

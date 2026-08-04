@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 
-from mcp.types import CallToolResult, ImageContent, TextContent
+from mcp_types import CallToolResult, ImageContent, TextContent
 
 from fast_agent.mcp.helpers.content_helpers import (
     audio_link,
@@ -27,8 +27,8 @@ def test_canonicalize_tool_result_content_preserves_original_content_without_str
 ):
     image_data = base64.b64encode(b"fake-image").decode("utf-8")
     text_block = TextContent(type="text", text="hello")
-    image_block = ImageContent(type="image", data=image_data, mimeType="image/jpeg")
-    result = CallToolResult(content=[text_block, image_block], isError=False)
+    image_block = ImageContent(type="image", data=image_data, mime_type="image/jpeg")
+    result = CallToolResult(content=[text_block, image_block], is_error=False)
 
     canonical = canonicalize_tool_result_content_for_llm(result)
 
@@ -41,12 +41,12 @@ def test_canonicalize_tool_result_content_prefers_structured_content_and_preserv
     None
 ):
     image_data = base64.b64encode(b"fake-image").decode("utf-8")
-    image_block = ImageContent(type="image", data=image_data, mimeType="image/jpeg")
+    image_block = ImageContent(type="image", data=image_data, mime_type="image/jpeg")
     result = CallToolResult(
         content=[TextContent(type="text", text="stale summary"), image_block],
-        isError=False,
+        is_error=False,
     )
-    setattr(result, "structuredContent", {"z": 3, "a": 1})
+    result.structured_content = {"z": 3, "a": 1}
 
     canonical = canonicalize_tool_result_content_for_llm(result)
 
@@ -63,9 +63,9 @@ def test_canonicalize_tool_result_content_warns_for_multiple_text_blocks() -> No
             TextContent(type="text", text="first"),
             TextContent(type="text", text="second"),
         ],
-        isError=False,
+        is_error=False,
     )
-    setattr(result, "structuredContent", {"fresh": True})
+    result.structured_content = {"fresh": True}
 
     canonicalize_tool_result_content_for_llm(result, logger=logger, source="test.helper")
 
@@ -78,9 +78,9 @@ def test_canonicalize_tool_result_content_warns_for_multiple_text_blocks() -> No
 def test_tool_result_text_for_llm_uses_structured_content_json() -> None:
     result = CallToolResult(
         content=[TextContent(type="text", text="stale summary")],
-        isError=False,
+        is_error=False,
     )
-    setattr(result, "structuredContent", {"b": 2, "a": 1})
+    result.structured_content = {"b": 2, "a": 1}
 
     text = tool_result_text_for_llm(result)
 
@@ -88,12 +88,12 @@ def test_tool_result_text_for_llm_uses_structured_content_json() -> None:
 
 
 def test_typed_resource_links_use_default_mime_for_unknown_urls() -> None:
-    assert image_link("https://example.com/image").mimeType == "image/jpeg"
-    assert video_link("https://example.com/video").mimeType == "video/mp4"
-    assert audio_link("https://example.com/audio").mimeType == "audio/mpeg"
+    assert image_link("https://example.com/image").mime_type == "image/jpeg"
+    assert video_link("https://example.com/video").mime_type == "video/mp4"
+    assert audio_link("https://example.com/audio").mime_type == "audio/mpeg"
 
 
 def test_resource_link_mime_inference_preserves_query_value_case() -> None:
     link = resource_link("https://example.com/download?format=image%2FPNG")
 
-    assert link.mimeType == "image/png"
+    assert link.mime_type == "image/png"

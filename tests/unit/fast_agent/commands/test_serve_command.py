@@ -178,7 +178,6 @@ def test_serve_command_builds_run_request() -> None:
         skills_dir=None,
         home=None,
         no_home=False,
-        force_smart=False,
         npx=None,
         uvx=None,
         stdio="python tool_server.py",
@@ -201,10 +200,10 @@ def test_serve_command_builds_run_request() -> None:
     assert request.card_tools == ["./tool-cards"]
     assert request.reload is True
     assert request.watch is False
-    assert request.stdio_servers is not None
-    first_stdio_config = next(iter(request.stdio_servers.values()))
-    assert first_stdio_config["command"] == "python"
-    assert first_stdio_config["args"] == ["tool_server.py"]
+    assert request.startup_mcp_servers is not None
+    first_stdio_config = next(iter(request.startup_mcp_servers.values()))
+    assert first_stdio_config.command == "python"
+    assert first_stdio_config.args == ["tool_server.py"]
 
 
 def test_serve_command_no_home_forces_permissions_disabled() -> None:
@@ -224,7 +223,6 @@ def test_serve_command_no_home_forces_permissions_disabled() -> None:
         skills_dir=None,
         home=None,
         no_home=True,
-        force_smart=False,
         npx=None,
         uvx=None,
         stdio=None,
@@ -259,7 +257,6 @@ def test_serve_command_builds_request_with_missing_shell_cwd_override() -> None:
         skills_dir=None,
         home=None,
         no_home=False,
-        force_smart=False,
         npx=None,
         uvx=None,
         stdio=None,
@@ -296,7 +293,6 @@ def test_serve_command_rejects_watch_for_mcp_serve() -> None:
             skills_dir=None,
             home=None,
             no_home=False,
-            force_smart=False,
             npx=None,
             uvx=None,
             stdio=None,

@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from io import StringIO
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
+from rich.console import Console
 from rich.text import Text
 
+from fast_agent.mcp.transport_tracking import ChannelSnapshot
 from fast_agent.ui import console
 from fast_agent.utils.text import strip_casefold
 from fast_agent.utils.time import format_compact_duration, format_two_unit_duration
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
     from fast_agent.mcp.mcp_aggregator import ServerStatus
-    from fast_agent.mcp.transport_tracking import ChannelSnapshot
 
 
 @runtime_checkable
@@ -35,6 +36,13 @@ class _ServerStatusProvider(Protocol):
 
 
 type CapabilityState = bool | Literal["blue", "red", "warn"]
+
+_STATUS_CONSOLE: ContextVar[Console | None] = ContextVar("_STATUS_CONSOLE", default=None)
+
+
+def _status_console() -> Console:
+    return _STATUS_CONSOLE.get() or console.console
+
 
 _ELICITATION_MODE_STATES: dict[str, CapabilityState] = {
     "auto-cancel": "red",
@@ -72,7 +80,7 @@ class _ChannelSummaryLayout:
     default_bucket_count: int
     metrics_prefix_width: int
     is_stdio: bool
-    health_insert_label: str | None
+    show_ping: bool
 
 
 # Centralized color configuration
@@ -240,13 +248,13 @@ def _instruction_capability_state(
     return "blue"
 
 
-def _skybridge_capability_state(status: ServerStatus) -> CapabilityState:
-    skybridge_config = status.skybridge
-    if not skybridge_config:
+def _app_integration_capability_state(status: ServerStatus) -> CapabilityState:
+    app_integration_config = status.app_integration_config
+    if not app_integration_config:
         return False
-    if skybridge_config.warnings:
+    if app_integration_config.warnings:
         return "warn"
-    return bool(skybridge_config.enabled)
+    return bool(app_integration_config.enabled)
 
 
 def _elicitation_capability_state(mode: str | None) -> CapabilityState:
@@ -281,12 +289,12 @@ def _format_capability_shorthand(
     experimental_caps = caps.experimental if caps else None
 
     entries: list[tuple[str, CapabilityState, bool]] = [
-        ("To", bool(tools), bool(tools and tools.listChanged)),
-        ("Pr", bool(prompts), bool(prompts and prompts.listChanged)),
+        ("To", bool(tools), bool(tools and tools.list_changed)),
+        ("Pr", bool(prompts), bool(prompts and prompts.list_changed)),
         (
             "Re",
             bool(resources),
-            bool(resources and resources.listChanged),
+            bool(resources and resources.list_changed),
         ),
         ("Rs", bool(resources and resources.subscribe), bool(resources and resources.subscribe)),
         ("Lo", bool(logging_caps), False),
@@ -294,7 +302,7 @@ def _format_capability_shorthand(
         ("Ex", bool(experimental_caps), False),
         ("In", _instruction_capability_state(status, template_expected=template_expected), False),
         ("Sk", bool(status.mcp_skills_enabled), False),
-        ("Ui", _skybridge_capability_state(status), False),
+        ("Ui", _app_integration_capability_state(status), False),
         ("Ro", bool(status.roots_configured), False),
         ("El", _elicitation_capability_state(status.elicitation_mode), False),
         ("Sa", _sampling_capability_state(status.sampling_mode), False),
@@ -336,6 +344,8 @@ def _truncate_detail(value: str, max_len: int = 48) -> str:
 
 
 def _build_health_text(status: ServerStatus) -> Text | None:
+    if status.protocol_era == "modern":
+        return None
     interval = status.ping_interval_seconds
     if interval is None:
         return None
@@ -432,6 +442,7 @@ def _has_transport_error(status: ServerStatus) -> bool:
         return False
     channels = [
         snapshot.get,
+        snapshot.listen,
         snapshot.post_json,
         snapshot.post_sse,
         snapshot.post,
@@ -488,12 +499,6 @@ def _utc_datetime_or_none(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
-def _get_ping_attempts(status: ServerStatus) -> int:
-    ok = status.ping_ok_count or 0
-    fail = status.ping_fail_count or 0
-    return ok + fail
-
-
 def _timeline_symbol_for_state(state: str, *, is_stdio: bool = False) -> str:
     if state in _TIMELINE_BASE_SYMBOLS:
         return _TIMELINE_BASE_SYMBOLS[state]
@@ -506,60 +511,56 @@ def _timeline_color_map(*, is_stdio: bool) -> dict[str, str]:
     return TIMELINE_COLORS_STDIO if is_stdio else TIMELINE_COLORS
 
 
-def _normalise_timeline_states(
-    bucket_states: Iterable[str] | None,
-    bucket_count: int,
-) -> list[str]:
-    states = list(bucket_states or [])
-    if len(states) < bucket_count:
-        states.extend(["none"] * (bucket_count - len(states)))
-    elif len(states) > bucket_count:
-        states = states[-bucket_count:]
-    return states
-
-
 def _build_channel_entries(status: ServerStatus) -> list[_ChannelSummaryEntry]:
     snapshot = status.transport_channels
     if snapshot is None:
         return []
 
     transport_lower = strip_casefold(status.transport or "")
-    post_json_channel = snapshot.post_json or snapshot.post
-    http_channels = [snapshot.get, snapshot.post_sse, post_json_channel]
-    stdio_channel = snapshot.stdio
+    entries: list[_ChannelSummaryEntry] = []
+    if snapshot.get is not None:
+        entries.append(_ChannelSummaryEntry("GET (SSE)", "◀", snapshot.get))
+    listen_channel = snapshot.listen
+    if (
+        listen_channel is None
+        and transport_lower == "http"
+        and strip_casefold(status.subscription_state or "") == "disabled"
+    ):
+        listen_channel = ChannelSnapshot(state="disabled")
+    if listen_channel is not None:
+        entries.append(_ChannelSummaryEntry("LISTEN (SSE)", "◀", listen_channel))
 
-    if any(channel is not None for channel in http_channels):
-        entries = [
-            _ChannelSummaryEntry("GET (SSE)", "◀", snapshot.get),
-            _ChannelSummaryEntry("POST (SSE)", "▶", snapshot.post_sse),
-        ]
-        if transport_lower != "sse":
-            entries.append(_ChannelSummaryEntry("POST (JSON)", "▶", post_json_channel))
+    post_sse_channel = snapshot.post_sse
+    post_json_channel = snapshot.post_json
+    if post_sse_channel is None and post_json_channel is None and snapshot.post is not None:
+        if snapshot.post.mode == "sse":
+            post_sse_channel = snapshot.post
+        else:
+            post_json_channel = snapshot.post
+
+    has_http_channels = any(
+        channel is not None
+        for channel in (
+            snapshot.get,
+            snapshot.listen,
+            snapshot.post,
+            snapshot.post_sse,
+            snapshot.post_json,
+        )
+    )
+    if transport_lower == "http" or (transport_lower != "sse" and has_http_channels):
+        entries.append(_ChannelSummaryEntry("POST (SSE)", "▶", post_sse_channel))
+        entries.append(_ChannelSummaryEntry("POST (JSON)", "▶", post_json_channel))
+    elif post_sse_channel is not None:
+        entries.append(_ChannelSummaryEntry("POST (SSE)", "▶", post_sse_channel))
+
+    if entries:
         return entries
 
-    if stdio_channel is None:
+    if snapshot.stdio is None:
         return []
 
-    return [_ChannelSummaryEntry("STDIO", "⇄", stdio_channel)]
-
-
-def _get_channel_health_insert_label(
-    status: ServerStatus,
-    entries: list[_ChannelSummaryEntry],
-) -> str | None:
-    if status.ping_interval_seconds is None:
-        return None
-
-    label_names = [entry.label for entry in entries]
-    if "POST (JSON)" in label_names:
-        return "POST (JSON)"
-    if "POST (SSE)" in label_names:
-        return "POST (SSE)"
-    if "STDIO" in label_names:
-        return "STDIO"
-    if label_names:
-        return label_names[-1]
-    return None
+    return [_ChannelSummaryEntry("STDIO", "⇄", snapshot.stdio)]
 
 
 def _build_channel_summary_layout(
@@ -582,27 +583,30 @@ def _build_channel_summary_layout(
         default_bucket_count=default_bucket_count,
         metrics_prefix_width=metrics_prefix_width,
         is_stdio=is_stdio,
-        health_insert_label=_get_channel_health_insert_label(status, entries),
+        show_ping=status.protocol_era != "modern",
     )
 
 
 def _render_channel_summary_header(indent: str, layout: _ChannelSummaryLayout) -> None:
-    console.console.print()
+    _status_console().print()
 
     header = Text(indent)
     header_intro = f"┌ {layout.transport_display} "
     header.append(header_intro, style="dim")
     dash_count = max(1, layout.metrics_prefix_width - len(header_intro) + 2)
     header.append("─" * dash_count, style="dim")
-    header.append(
-        "  activity" if layout.is_stdio else "  req  resp notif  ping",
-        style="dim",
-    )
-    console.console.print(header)
+    if layout.is_stdio:
+        metrics_header = "  activity"
+    elif layout.show_ping:
+        metrics_header = "  req  resp notif  ping"
+    else:
+        metrics_header = "  req  resp notif"
+    header.append(metrics_header, style="dim")
+    _status_console().print(header)
 
     empty_header = Text(indent)
     empty_header.append("│", style="dim")
-    console.console.print(empty_header)
+    _status_console().print(empty_header)
 
 
 def _channel_arrow_style(channel: ChannelSnapshot | None) -> str:
@@ -624,7 +628,15 @@ def _channel_is_method_not_allowed(channel: ChannelSnapshot | None) -> bool:
 
 
 def _display_channel_arrow(arrow: str, channel: ChannelSnapshot | None) -> str:
-    if not _channel_is_method_not_allowed(channel):
+    if channel is None:
+        return arrow
+    state = strip_casefold(channel.state or "")
+    if not _channel_is_method_not_allowed(channel) and state not in {
+        "closed",
+        "disabled",
+        "idle",
+        "off",
+    }:
         return arrow
     return {"◀": "◁", "▶": "▷", "⇄": "⇄"}.get(arrow, arrow)
 
@@ -653,9 +665,12 @@ def _channel_label_style(
 ) -> str:
     if channel is None:
         return Colours.TEXT_DIM
-    if _channel_is_method_not_allowed(channel) and "GET" in label:
+    incoming_channel = label.startswith(("GET ", "LISTEN "))
+    if incoming_channel and (
+        _channel_is_method_not_allowed(channel) or arrow_style == Colours.ARROW_OFF
+    ):
         return Colours.TEXT_DIM
-    if arrow_style == Colours.ARROW_ERROR and "GET" in label:
+    if arrow_style == Colours.ARROW_ERROR and incoming_channel:
         return Colours.TEXT_ERROR
     if (
         channel.request_count == 0
@@ -712,6 +727,7 @@ def _append_channel_metrics(
     channel: ChannelSnapshot | None,
     *,
     is_stdio: bool,
+    show_ping: bool,
 ) -> None:
     if is_stdio:
         if channel is not None and channel.message_count > 0:
@@ -740,7 +756,10 @@ def _append_channel_metrics(
             metrics_style = Colours.TEXT_DEFAULT
 
     if metrics_style == Colours.TEXT_DIM:
-        line.append(f"  {req} {resp} {notif} {ping}", style=metrics_style)
+        metrics = f"  {req} {resp} {notif}"
+        if show_ping:
+            metrics += f" {ping}"
+        line.append(metrics, style=metrics_style)
         return
 
     ping_style = (
@@ -752,51 +771,9 @@ def _append_channel_metrics(
     line.append(resp, style=metrics_style)
     line.append(" ", style="dim")
     line.append(notif, style=metrics_style)
-    line.append(" ", style="dim")
-    line.append(ping, style=ping_style)
-
-
-def _render_channel_health_row(
-    status: ServerStatus,
-    indent: str,
-    *,
-    layout: _ChannelSummaryLayout,
-) -> None:
-    line = Text(indent)
-    line.append("│ ", style="dim")
-    state = _get_health_state(status)
-    line.append(SYMBOL_PING, style=state.style)
-    line.append(f" {'HEALTH':<13}", style=state.style)
-
-    bucket_seconds = status.ping_activity_bucket_seconds or layout.default_bucket_seconds
-    bucket_count = status.ping_activity_bucket_count or layout.default_bucket_count
-    line.append(f"{_format_timeline_label(bucket_seconds * bucket_count)} ", style="dim")
-
-    color_map = _timeline_color_map(is_stdio=layout.is_stdio)
-    for bucket_state in _normalise_timeline_states(status.ping_activity_buckets, bucket_count):
-        color = color_map.get(bucket_state, "dim")
-        symbol = _timeline_symbol_for_state(bucket_state, is_stdio=layout.is_stdio)
-        line.append(symbol, style=f"bold {color}")
-
-    line.append(" now", style="dim")
-    ping_attempts = _get_ping_attempts(status)
-    if layout.is_stdio:
-        activity = str(ping_attempts).rjust(8) if ping_attempts > 0 else "-".rjust(8)
-        activity_style = Colours.TEXT_DEFAULT if ping_attempts > 0 else Colours.TEXT_DIM
-        line.append(f"  {activity}", style=activity_style)
-    else:
-        line.append("  ", style="dim")
-        line.append("-".rjust(5), style=Colours.TEXT_DIM)
+    if show_ping:
         line.append(" ", style="dim")
-        line.append("-".rjust(5), style=Colours.TEXT_DIM)
-        line.append(" ", style="dim")
-        line.append("-".rjust(5), style=Colours.TEXT_DIM)
-        line.append(" ", style="dim")
-        ping = str(ping_attempts).rjust(5) if ping_attempts > 0 else "-".rjust(5)
-        ping_style = Colours.TEXT_DEFAULT if ping_attempts > 0 else Colours.TEXT_DIM
         line.append(ping, style=ping_style)
-
-    console.console.print(line)
 
 
 def _render_single_channel_row(
@@ -816,8 +793,13 @@ def _render_single_channel_row(
     )
 
     _append_channel_timeline(line, entry.channel, layout=layout)
-    _append_channel_metrics(line, entry.channel, is_stdio=layout.is_stdio)
-    console.console.print(line)
+    _append_channel_metrics(
+        line,
+        entry.channel,
+        is_stdio=layout.is_stdio,
+        show_ping=layout.show_ping,
+    )
+    _status_console().print(line)
     return _channel_error_entry(entry.label, entry.channel)
 
 
@@ -827,7 +809,7 @@ def _render_channel_errors(errors: list[_ChannelErrorEntry], indent: str) -> Non
 
     empty_line = Text(indent)
     empty_line.append("│", style="dim")
-    console.console.print(empty_line)
+    _status_console().print(empty_line)
 
     for error in errors:
         error_line = Text(indent)
@@ -835,7 +817,7 @@ def _render_channel_errors(errors: list[_ChannelErrorEntry], indent: str) -> Non
         error_line.append("▲ ", style=Colours.TEXT_WARNING)
         error_line.append(f"{error.label}: ", style=Colours.TEXT_DEFAULT)
         error_line.append(_truncate_detail(error.message, max_len=60), style=Colours.TEXT_ERROR)
-        console.console.print(error_line)
+        _status_console().print(error_line)
 
 
 def _render_channel_footer(
@@ -843,6 +825,7 @@ def _render_channel_footer(
     indent: str,
     *,
     is_stdio: bool,
+    show_ping: bool,
 ) -> None:
     has_timelines = any(
         entry.channel is not None and entry.channel.activity_buckets for entry in entries
@@ -850,7 +833,7 @@ def _render_channel_footer(
     if has_timelines:
         empty_before = Text(indent)
         empty_before.append("│", style="dim")
-        console.console.print(empty_before)
+        _status_console().print(empty_before)
 
     footer = Text(indent)
     footer.append("└", style="dim")
@@ -867,9 +850,10 @@ def _render_channel_footer(
                 ("response", f"bold {Colours.RESPONSE}"),
                 ("request", f"bold {Colours.REQUEST}"),
                 ("notification", f"bold {Colours.NOTIFICATION}"),
-                ("ping", Colours.PING),
-                ("idle", Colours.IDLE),
             ]
+            if show_ping:
+                legend_map.append(("ping", Colours.PING))
+            legend_map.append(("idle", Colours.IDLE))
 
         for index, (name, color) in enumerate(legend_map):
             if index > 0:
@@ -882,33 +866,33 @@ def _render_channel_footer(
             footer.append(symbol, style=color)
             footer.append(f" {name}", style="dim")
 
-    console.console.print(footer)
+    _status_console().print(footer)
 
 
 def _render_channel_summary(status: ServerStatus, indent: str, total_width: int) -> None:
     del total_width
 
     entries = _build_channel_entries(status)
-    if not any(entry.channel is not None for entry in entries):
+    if not entries:
         return
 
     layout = _build_channel_summary_layout(status, entries)
     _render_channel_summary_header(indent, layout)
 
     errors: list[_ChannelErrorEntry] = []
-    health_inserted = False
     for entry in entries:
         error = _render_single_channel_row(entry, indent, layout=layout)
         if error is not None:
             errors.append(error)
 
-        if layout.health_insert_label == entry.label and not health_inserted:
-            _render_channel_health_row(status, indent, layout=layout)
-            health_inserted = True
-
     _render_channel_errors(errors, indent)
-    _render_channel_footer(entries, indent, is_stdio=layout.is_stdio)
-    console.console.print()
+    _render_channel_footer(
+        entries,
+        indent,
+        is_stdio=layout.is_stdio,
+        show_ping=layout.show_ping,
+    )
+    _status_console().print()
 
 
 async def _load_server_status_map(agent: object) -> dict[str, ServerStatus]:
@@ -935,7 +919,7 @@ def _template_expects_server_instructions(agent: object) -> bool:
 
 def _console_width() -> int:
     try:
-        return console.console.size.width
+        return _status_console().size.width
     except Exception:
         return 80
 
@@ -954,9 +938,9 @@ def _render_mcp_status_header(label: Text, total_width: int, right: Text | None 
     else:
         line.append("─" * max(1, separator_width), style="dim")
 
-    console.console.print()
-    console.console.print(line)
-    console.console.print()
+    _status_console().print()
+    _status_console().print(line)
+    _status_console().print()
 
 
 def _render_server_header(server: str, index: int, *, indent: str, total_width: int) -> None:
@@ -1004,19 +988,30 @@ def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
         meta_line.append(" | ", style="dim")
         meta_line.append_text(_build_aligned_field("client", client_display))
 
-    console.console.print(meta_line)
+    _status_console().print(meta_line)
 
-    session_line = Text(indent + "  ")
-    session_line.append_text(_build_aligned_field("session", _format_session_id(status.session_id)))
-    console.console.print(session_line)
+    protocol_line = Text(indent + "  ")
+    protocol = status.protocol_version or "unknown"
+    if status.protocol_era:
+        era = status.protocol_era
+        if status.protocol_mode == era:
+            era = f"forced {era}"
+        protocol += f" ({era})"
+    protocol_line.append_text(_build_aligned_field("protocol", protocol))
+    if status.protocol_era != "modern":
+        protocol_line.append("  ", style="dim")
+        protocol_line.append_text(
+            _build_aligned_field("session", _format_session_id(status.session_id))
+        )
+    _status_console().print(protocol_line)
 
     health_text = _build_health_text(status)
     if health_text is not None:
         health_line = Text(indent + "  ")
         health_line.append_text(_build_aligned_field("health", health_text))
-        console.console.print(health_line)
+        _status_console().print(health_line)
 
-    console.console.print()
+    _status_console().print()
 
 
 def _build_server_state_segments(
@@ -1058,7 +1053,7 @@ def _render_server_state(status: ServerStatus, *, indent: str, template_expected
         if index:
             status_line.append("  |  ", style="dim")
         status_line.append_text(segment)
-    console.console.print(status_line)
+    _status_console().print(status_line)
 
 
 def _render_server_calls(status: ServerStatus, *, indent: str) -> None:
@@ -1071,14 +1066,14 @@ def _render_server_calls(status: ServerStatus, *, indent: str) -> None:
             calls_line.append("  |  ", style="dim")
             calls_line.append("reconnects: ", style=Colours.TEXT_DIM)
             calls_line.append(str(status.reconnect_count), style=Colours.TEXT_WARNING)
-        console.console.print(calls_line)
+        _status_console().print(calls_line)
         return
 
     if status.reconnect_count > 0:
         reconnect_line = Text(indent + "  ")
         reconnect_line.append("reconnects: ", style=Colours.TEXT_DIM)
         reconnect_line.append(str(status.reconnect_count), style=Colours.TEXT_WARNING)
-        console.console.print(reconnect_line)
+        _status_console().print(reconnect_line)
 
 
 def _render_mcp_skills_hint(server: str, status: ServerStatus, *, indent: str) -> None:
@@ -1090,7 +1085,7 @@ def _render_mcp_skills_hint(server: str, status: ServerStatus, *, indent: str) -
         f"Skills over MCP are available: use `/skills registry {server}` to select them",
         style=Colours.TEXT_SUCCESS,
     )
-    console.console.print(skills_line)
+    _status_console().print(skills_line)
 
 
 def _render_capability_banner(
@@ -1117,7 +1112,7 @@ def _render_capability_banner(
     if remaining > 0:
         banner_line.append("─" * remaining, style="dim")
 
-    console.console.print(banner_line)
+    _status_console().print(banner_line)
 
 
 def _render_server_status_block(
@@ -1144,28 +1139,50 @@ def _render_server_status_block(
     )
 
     if index != total_count:
-        console.console.print()
+        _status_console().print()
 
 
-async def render_mcp_status(agent, indent: str = "") -> None:
-    server_status_map = await _load_server_status_map(agent)
-    if not server_status_map:
-        console.console.print(f"{indent}[dim]•[/dim] [dim]No MCP status available[/dim]")
-        return
+async def render_mcp_status(
+    agent,
+    indent: str = "",
+    *,
+    output_console: Console | None = None,
+) -> None:
+    token = _STATUS_CONSOLE.set(output_console) if output_console is not None else None
+    try:
+        server_status_map = await _load_server_status_map(agent)
+        if not server_status_map:
+            _status_console().print(f"{indent}[dim]•[/dim] [dim]No MCP status available[/dim]")
+            return
 
-    template_expected = _template_expects_server_instructions(agent)
-    total_width = _console_width()
-    server_items = sorted(server_status_map.items())
+        template_expected = _template_expects_server_instructions(agent)
+        total_width = _console_width()
+        server_items = sorted(server_status_map.items())
 
-    for index, (server, status) in enumerate(server_items, start=1):
-        _render_server_status_block(
-            server,
-            status,
-            index=index,
-            total_count=len(server_items),
-            indent=indent,
-            total_width=total_width,
-            template_expected=template_expected,
-        )
+        for index, (server, status) in enumerate(server_items, start=1):
+            _render_server_status_block(
+                server,
+                status,
+                index=index,
+                total_count=len(server_items),
+                indent=indent,
+                total_width=total_width,
+                template_expected=template_expected,
+            )
 
-    console.console.print()
+        _status_console().print()
+    finally:
+        if token is not None:
+            _STATUS_CONSOLE.reset(token)
+
+
+async def render_mcp_status_text(agent, *, width: int = 100) -> str:
+    buffer = StringIO()
+    output_console = Console(
+        file=buffer,
+        width=width,
+        color_system=None,
+        force_terminal=False,
+    )
+    await render_mcp_status(agent, output_console=output_console)
+    return buffer.getvalue().strip()

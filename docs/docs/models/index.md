@@ -9,7 +9,7 @@ social:
 
 **`fast-agent`** has native support for **OpenAI Responses** and **Chat Completions**, **Anthropic Messages**, **Google GenAI** and **Amazon Bedrock** APIs. 
 
-OpenAI Codex users can use their subscription with **`fast-agent`**, using their existing installation or logging in with `fast-agent auth login codex`.
+OpenAI Codex users can use their subscription with **`fast-agent`**, using their existing installation or logging in with `fast-agent auth provider login codex`.
 
 Chat Completions models are also available via **Microsoft Azure**, and supported Anthropic models are available on **Google Vertex**.
 
@@ -19,7 +19,10 @@ Local models with [**llama.cpp**](providers/llamacpp.md) are directly supported,
 
 #### Model Picker and Defaults
 
-In interactive mode, with no model specified or default configured, **`fast-agent`** shows a model selector on startup, highlighting available models.
+In an interactive, non-resumed run, **`fast-agent`** opens the model picker
+when no model resolves from an AgentCard, `--model`, `default_model`, or
+`FAST_AGENT_MODEL`. The picker is not used for `--resume`; the saved session
+model is restored.
 
 <div
   class="fa-terminal-demo"
@@ -57,6 +60,22 @@ fast-agent --model codexplan # Use the latest supported Codex Subscription Model
 ```
 
 Use `fast-agent model presets` to see the current shortcuts.
+
+### Interactive Model Commands
+
+In the TUI or an ACP client, `/model` shows the active agent's resolved model
+and supported runtime settings. Use explicit subcommands to make changes or
+inspect model configuration:
+
+```text
+/model
+/model switch
+/model reasoning high
+/model verbosity low
+/model doctor
+/model references
+/model catalog anthropic --all
+```
 
 ### Model Strings and Configuration
 
@@ -238,7 +257,10 @@ Model specifications follow this precedence order, highest to lowest:
 1. Command-line arguments with `--model`
 1. Default model in `fast-agent.yaml`
 1. `FAST_AGENT_MODEL` environment variable
-1. System default (`gpt-5.4-mini?reasoning=low`)
+
+If none of these sources provides a model, interactive startup opens the
+picker. Unattended, server, batch, and programmatic runs must configure a model
+and otherwise fail with `No model configured`.
 
 ### Reasoning
 
@@ -312,11 +334,11 @@ default_model: "gpt-5-mini?reasoning=low"
 
 ## History saving
 
-You can save the conversation history to a file by sending a `***SAVE_HISTORY <filename>` message. This can then be reviewed, edited, loaded, or served with the `prompt-server` or replayed with the `playback` model.
+You can save the conversation history to a file by sending a `***SAVE_HISTORY <filename>` message. This can then be reviewed, edited, loaded with `fast_agent.load_prompt`, exposed by an external MCP prompt server, or replayed with the `playback` model.
 
 !!! Note "File Format / MCP Serialization"
 
-    If the filetype is `json`, fast-agent saves a `{"messages": [...]}` JSON container. It can contain either MCP `PromptMessage` objects (legacy) or `PromptMessageExtended` objects (preserves tool calls, channels, etc). `fast_agent.load_prompt` and `prompt-server` will load either the text or JSON format directly.
+    If the filetype is `json`, fast-agent saves a `{"messages": [...]}` JSON container. It can contain either MCP `PromptMessage` objects (legacy) or `PromptMessageExtended` objects (preserves tool calls, channels, etc). `fast_agent.load_prompt` loads either the text or JSON format directly.
 
 This can be helpful when developing applications to:
 

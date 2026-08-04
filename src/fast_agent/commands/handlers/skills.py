@@ -205,12 +205,12 @@ def _format_marketplace_skills(marketplace: Sequence[SkillCatalogEntry]) -> Text
     for index, entry in enumerate(marketplace, 1):
         bundle_name = None
         bundle_description = None
-        digest = None
+        revision = None
         if isinstance(entry, MarketplaceSkill):
             bundle_name = entry.bundle_name
             bundle_description = entry.bundle_description
         if isinstance(entry, McpRegistrySkill):
-            digest = entry.digest
+            revision = entry.revision
 
         if bundle_name and bundle_name != current_bundle:
             current_bundle = bundle_name
@@ -227,20 +227,40 @@ def _format_marketplace_skills(marketplace: Sequence[SkillCatalogEntry]) -> Text
             content.append("     ", style="dim")
             content.append(f"source: {entry.source_url}", style="dim green")
             content.append("\n")
-        if digest:
+        if revision:
             content.append("     ", style="dim")
-            content.append("integrity: SHA256 checked", style="dim green")
+            content.append(
+                "integrity: SHA-256 manifest; checked on install",
+                style="dim green",
+            )
             content.append("\n")
         content.append("\n")
 
     return content
 
 
-def _format_install_result(skill_name: str, install_path: Path) -> Text:
+def _format_install_result(
+    skill_name: str,
+    install_path: Path,
+    *,
+    mcp_integrity: bool = False,
+) -> Text:
     content = Text()
     content.append(f"Installed skill: {skill_name}", style="green")
     content.append("\n")
     content.append(f"location: {format_display_path(install_path)}", style="dim green")
+    if mcp_integrity:
+        content.append("\n")
+        content.append(
+            "integrity: SHA-256 digests matched the server-supplied manifest",
+            style="dim green",
+        )
+        content.append("\n")
+        content.append(
+            "trust: this does not authenticate the server or publisher, or establish "
+            "that the skill is safe",
+            style="dim yellow",
+        )
     return content
 
 
@@ -262,6 +282,14 @@ def _format_skill_source_list(
         )
         content.append("\n\n")
     content.append_text(_format_marketplace_skills(entries))
+    if source.ref.kind == "mcp":
+        content.append(
+            "Integrity checks compare downloaded files with server-supplied digests. "
+            "They do not verify the server or publisher; review skills and use only "
+            "MCP servers you trust.",
+            style="dim yellow",
+        )
+        content.append("\n")
     return content
 
 
@@ -315,7 +343,11 @@ async def _install_skill_from_add_selector(
         return outcome
 
     outcome.add_message(
-        _format_install_result(installed.name, installed.skill_dir),
+        _format_install_result(
+            installed.name,
+            installed.skill_dir,
+            mcp_integrity=source.ref.kind == "mcp",
+        ),
         right_info="skills",
         agent_name=agent_name,
     )
@@ -436,7 +468,9 @@ async def _refresh_agent_skills(
     *,
     managed_directory_override: str | Path | None = None,
 ) -> None:
-    agent = ctx.agent_provider._agent(agent_name)
+    agent = cast("AgentProtocol", ctx.agent_provider._agent(agent_name))
+    if agent.config.skills is not SKILLS_DEFAULT:
+        return
     override_dirs = resolve_skill_directories(
         ctx.resolve_settings(),
         managed_directory_override=managed_directory_override,
@@ -819,7 +853,7 @@ async def handle_update_skill(
 
 
 type _SkillsActionHandler = Callable[
-    ["CommandContext", str, str | None],
+    ["CommandContext", str, str | None, bool],
     Awaitable[CommandOutcome],
 ]
 
@@ -828,6 +862,7 @@ async def _handle_skills_list_action(
     ctx: "CommandContext",
     agent_name: str,
     _argument: str | None,
+    _interactive: bool,
 ) -> CommandOutcome:
     return await handle_list_skills(ctx, agent_name=agent_name)
 
@@ -836,6 +871,7 @@ async def _handle_skills_available_action(
     ctx: "CommandContext",
     agent_name: str,
     _argument: str | None,
+    _interactive: bool,
 ) -> CommandOutcome:
     return await handle_list_marketplace_skills(ctx, agent_name=agent_name, query=None)
 
@@ -844,14 +880,21 @@ async def _handle_skills_add_action(
     ctx: "CommandContext",
     agent_name: str,
     argument: str | None,
+    interactive: bool,
 ) -> CommandOutcome:
-    return await handle_add_skill(ctx, agent_name=agent_name, argument=argument)
+    return await handle_add_skill(
+        ctx,
+        agent_name=agent_name,
+        argument=argument,
+        interactive=interactive,
+    )
 
 
 async def _handle_skills_registry_action(
     ctx: "CommandContext",
     agent_name: str,
     argument: str | None,
+    _interactive: bool,
 ) -> CommandOutcome:
     return await handle_set_skills_registry(ctx, agent_name=agent_name, argument=argument)
 
@@ -860,14 +903,21 @@ async def _handle_skills_remove_action(
     ctx: "CommandContext",
     agent_name: str,
     argument: str | None,
+    interactive: bool,
 ) -> CommandOutcome:
-    return await handle_remove_skill(ctx, agent_name=agent_name, argument=argument)
+    return await handle_remove_skill(
+        ctx,
+        agent_name=agent_name,
+        argument=argument,
+        interactive=interactive,
+    )
 
 
 async def _handle_skills_update_action(
     ctx: "CommandContext",
     agent_name: str,
     argument: str | None,
+    _interactive: bool,
 ) -> CommandOutcome:
     return await handle_update_skill(ctx, agent_name=agent_name, argument=argument)
 
@@ -888,6 +938,7 @@ async def handle_skills_command(
     agent_name: str,
     action: str | None,
     argument: str | None,
+    interactive: bool = True,
 ) -> CommandOutcome:
     normalized = normalize_command_action("skills", action)
 
@@ -909,7 +960,7 @@ async def handle_skills_command(
 
     handler = _SKILLS_ACTION_HANDLERS.get(normalized)
     if handler is not None:
-        return await handler(ctx, agent_name, argument)
+        return await handler(ctx, agent_name, argument, interactive)
 
     outcome = CommandOutcome()
     outcome.add_message(

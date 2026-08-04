@@ -1,5 +1,5 @@
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams, ImageContent, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, ImageContent, TextContent
 
 from fast_agent.constants import FAST_AGENT_SAFETY_DETAILS
 from fast_agent.types import PromptMessageExtended
@@ -247,7 +247,7 @@ def test_extract_user_attachments_includes_local_image_source_uri() -> None:
     image = ImageContent(
         type="image",
         data="ZmFrZQ==",
-        mimeType="image/png",
+        mime_type="image/png",
     )
     image.meta = {"fast_agent_source_uri": "file:///tmp/photo.png"}
     message = PromptMessageExtended(
@@ -259,11 +259,11 @@ def test_extract_user_attachments_includes_local_image_source_uri() -> None:
 
 
 def test_extract_user_local_image_previews_only_includes_file_sources() -> None:
-    local_image = ImageContent(type="image", data="ZmFrZQ==", mimeType="image/png")
+    local_image = ImageContent(type="image", data="ZmFrZQ==", mime_type="image/png")
     local_image.meta = {"fast_agent_source_uri": "file:///tmp/photo.png"}
-    remote_image = ImageContent(type="image", data="ZmFrZQ==", mimeType="image/png")
+    remote_image = ImageContent(type="image", data="ZmFrZQ==", mime_type="image/png")
     remote_image.meta = {"fast_agent_source_uri": "https://example.test/photo.png"}
-    inline_image = ImageContent(type="image", data="ZmFrZQ==", mimeType="image/png")
+    inline_image = ImageContent(type="image", data="ZmFrZQ==", mime_type="image/png")
     message = PromptMessageExtended(
         role="user",
         content=[local_image, remote_image, inline_image],
@@ -276,9 +276,9 @@ def test_extract_user_local_image_previews_only_includes_file_sources() -> None:
 
 
 def test_build_user_message_image_previews_combines_messages() -> None:
-    first_image = ImageContent(type="image", data="ZmFrZQ==", mimeType="image/png")
+    first_image = ImageContent(type="image", data="ZmFrZQ==", mime_type="image/png")
     first_image.meta = {"fast_agent_source_uri": "file:///tmp/one.png"}
-    second_image = ImageContent(type="image", data="ZmFrZQ==", mimeType="image/png")
+    second_image = ImageContent(type="image", data="ZmFrZQ==", mime_type="image/png")
     second_image.meta = {"fast_agent_source_uri": "file:///tmp/two.png"}
 
     previews = build_user_message_image_previews(
@@ -292,7 +292,7 @@ def test_build_user_message_image_previews_combines_messages() -> None:
 
 
 def test_build_user_message_display_prefers_original_text_metadata() -> None:
-    image = ImageContent(type="image", data="ZmFrZQ==", mimeType="image/png")
+    image = ImageContent(type="image", data="ZmFrZQ==", mime_type="image/png")
     image.meta = {"fast_agent_source_uri": "file:///tmp/photo.png"}
     text = PromptMessageExtended.model_validate(
         {

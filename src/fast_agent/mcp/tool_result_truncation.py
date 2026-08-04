@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mcp.types import CallToolResult, ContentBlock, TextContent
+from mcp_types import CallToolResult, ContentBlock, TextContent
 
 from fast_agent.mcp.helpers.content_helpers import (
     canonicalize_tool_result_content_for_llm,
@@ -38,6 +38,6 @@ def truncate_tool_result_for_llm(
     return result.model_copy(
         update={
             "content": content,
-            "structuredContent": None,
+            "structured_content": None,
         }
     )

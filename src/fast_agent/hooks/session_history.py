@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 from fast_agent.context import get_current_context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.session import extract_session_title, get_session_manager
+from fast_agent.session.history_agent import HistoryAgent
 from fast_agent.session.identity import (
     SessionSaveContext,
     SessionStoreScope,
@@ -17,14 +18,11 @@ from fast_agent.session.identity import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable
 
-    from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.hooks.hook_context import HookContext
-    from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LlmAgentProtocol
-    from fast_agent.llm.usage_tracking import UsageAccumulator
+    from fast_agent.interfaces import AgentProtocol
     from fast_agent.session.session_manager import Session, SessionManager
-    from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
 
@@ -37,53 +35,9 @@ def _effective_use_history(ctx: "HookContext") -> bool:
 
 
 @runtime_checkable
-class _AttachedMcpServerProvider(Protocol):
-    def list_attached_mcp_servers(self) -> list[str]: ...
-
-
-@runtime_checkable
-class _AgentBackedToolProvider(Protocol):
+class _SessionHistoryPersistenceProvider(Protocol):
     @property
-    def agent_backed_tools(self) -> Mapping[str, "LlmAgentProtocol"]: ...
-
-
-@dataclass
-class _SessionHistoryAgentProxy:
-    """Delegate agent metadata while exposing a snapshot history for persistence."""
-
-    agent: AgentProtocol
-    message_history: list["PromptMessageExtended"]
-
-    @property
-    def name(self) -> str:
-        return self.agent.name
-
-    @property
-    def config(self) -> "AgentConfig":
-        return self.agent.config
-
-    @property
-    def instruction(self) -> str:
-        return self.agent.instruction
-
-    @property
-    def llm(self) -> "FastAgentLLMProtocol | None":
-        return self.agent.llm
-
-    @property
-    def usage_accumulator(self) -> "UsageAccumulator | None":
-        return self.agent.usage_accumulator
-
-    def list_attached_mcp_servers(self) -> list[str]:
-        if isinstance(self.agent, _AttachedMcpServerProvider):
-            return self.agent.list_attached_mcp_servers()
-        return []
-
-    @property
-    def agent_backed_tools(self) -> Mapping[str, "LlmAgentProtocol"]:
-        if isinstance(self.agent, _AgentBackedToolProvider):
-            return self.agent.agent_backed_tools
-        return {}
+    def session_history_persistence_enabled(self) -> bool: ...
 
 
 class _SessionInfoUpdateCapable(Protocol):
@@ -108,6 +62,12 @@ class _SessionHistoryContext:
 
 async def save_session_history(ctx: "HookContext") -> None:
     """Save the agent history into the active session after a turn completes."""
+    if (
+        isinstance(ctx.agent, _SessionHistoryPersistenceProvider)
+        and not ctx.agent.session_history_persistence_enabled
+    ):
+        return
+
     current_context = get_current_context()
     config = current_context.config if current_context else None
     if config is not None and not config.session_history:
@@ -123,7 +83,7 @@ async def save_session_history(ctx: "HookContext") -> None:
     if not ctx.message_history:
         return
 
-    history_agent = _SessionHistoryAgentProxy(
+    history_agent = HistoryAgent(
         agent=cast("AgentProtocol", ctx.agent),
         message_history=ctx.message_history,
     )

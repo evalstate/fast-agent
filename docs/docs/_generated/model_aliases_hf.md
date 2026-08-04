@@ -10,6 +10,9 @@
 | `deepseekv4pro-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `gemma4` | `hf.google/gemma-4-31B-it:cerebras?temperature=1.0&top_p=0.95` |
 | `glm` | `hf.zai-org/GLM-5.2:zai-org` |
+| `GLM 5.2 (deepinfra)` | `hf.zai-org/GLM-5.2:deepinfra` |
+| `GLM 5.2 (fireworks-ai)` | `hf.zai-org/GLM-5.2:fireworks-ai` |
+| `GLM 5.2 (zai-org)` | `hf.zai-org/GLM-5.2:zai-org` |
 | `glm47` | `hf.zai-org/GLM-4.7:cerebras` |
 | `glm5` | `hf.zai-org/GLM-5:novita` |
 | `glm51` | `hf.zai-org/GLM-5.1:together` |
@@ -18,6 +21,8 @@
 | `gpt-oss` | `hf.openai/gpt-oss-120b:cerebras` |
 | `gpt-oss-20b` | `hf.openai/gpt-oss-20b` |
 | `kimi` | `hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on` |
+| `Kimi K3 (fireworks-ai)` | `hf.moonshotai/Kimi-K3:fireworks-ai` |
+| `Kimi K3 (together)` | `hf.moonshotai/Kimi-K3:together` |
 | `kimi-2.5` | `hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on` |
 | `kimi-2.6` | `hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on` |
 | `kimi25` | `hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on` |

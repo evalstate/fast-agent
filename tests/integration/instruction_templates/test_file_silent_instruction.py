@@ -25,12 +25,12 @@ async def test_file_silent_reaches_llm_request_params(fast_agent):
 
             # The LLM request params (what the provider sees) should also be resolved
             request_params = agent.llm.get_request_params()
-            assert request_params.systemPrompt is not None
-            assert "{{file_silent:FOO.md}}" not in request_params.systemPrompt
-            assert file_text in request_params.systemPrompt
+            assert request_params.system_prompt is not None
+            assert "{{file_silent:FOO.md}}" not in request_params.system_prompt
+            assert file_text in request_params.system_prompt
 
             # Default params should stay in sync for future calls
-            assert file_text in agent.llm.default_request_params.systemPrompt
+            assert file_text in agent.llm.default_request_params.system_prompt
 
             response = await agent.send("ping")
             assert "ping" in response

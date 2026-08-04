@@ -150,7 +150,7 @@ class ResolvedModelSpec:
 
         if config.max_tokens is not None:
             target = effective_request_params or RequestParams()
-            effective_request_params = target.model_copy(update={"maxTokens": config.max_tokens})
+            effective_request_params = target.model_copy(update={"max_tokens": config.max_tokens})
 
         sampling_updates = {
             field_name: value
@@ -180,7 +180,7 @@ class ResolvedModelSpec:
             {
                 "service_tier": config.service_tier,
                 "structured_tool_policy": config.structured_tool_policy,
-                "maxTokens": self.default_max_tokens,
+                "max_tokens": self.default_max_tokens,
             },
         )
 

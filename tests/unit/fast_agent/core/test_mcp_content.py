@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from mcp.types import EmbeddedResource, ImageContent, TextContent
+from mcp_types import EmbeddedResource, ImageContent, TextContent
 
 from fast_agent.mcp.mcp_content import (
     Assistant,
@@ -49,7 +49,7 @@ def test_image_content():
         assert message["role"] == "user"
         assert isinstance(message["content"], ImageContent)
         assert message["content"].type == "image"
-        assert message["content"].mimeType == "image/png"
+        assert message["content"].mime_type == "image/png"
 
         # Decode the base64 data
         decoded = base64.b64decode(message["content"].data)
@@ -58,7 +58,7 @@ def test_image_content():
         # Test with raw data
         message = MCPImage(data=b"fake image data", mime_type="image/jpeg", role="assistant")
         assert message["role"] == "assistant"
-        assert message["content"].mimeType == "image/jpeg"
+        assert message["content"].mime_type == "image/jpeg"
         decoded = base64.b64decode(message["content"].data)
         assert decoded == b"fake image data"
 
@@ -92,7 +92,7 @@ def test_resource_content():
         assert message["role"] == "user"
         assert isinstance(message["content"], EmbeddedResource)
         assert message["content"].type == "resource"
-        assert message["content"].resource.mimeType == "text/plain"
+        assert message["content"].resource.mime_type == "text/plain"
         assert message["content"].resource.text == "Hello, world!"
 
         # Test with binary file
@@ -101,7 +101,7 @@ def test_resource_content():
         assert message["role"] == "assistant"
         assert isinstance(message["content"], EmbeddedResource)
         assert message["content"].type == "resource"
-        assert message["content"].resource.mimeType == "application/pdf"
+        assert message["content"].resource.mime_type == "application/pdf"
 
         # Decode the base64 data
         decoded = base64.b64decode(message["content"].resource.blob)
@@ -150,11 +150,10 @@ def test_prompt_function():
         assert messages[0]["role"] == "assistant"
 
         # Test with EmbeddedResource
-        from mcp.types import TextResourceContents
-        from pydantic import AnyUrl
+        from mcp_types import TextResourceContents
 
         text_resource = TextResourceContents(
-            uri=AnyUrl("file:///test/example.txt"), text="Resource content", mimeType="text/plain"
+            uri="file:///test/example.txt", text="Resource content", mime_type="text/plain"
         )
         resource = EmbeddedResource(type="resource", resource=text_resource)
         messages = MCPPrompt(resource)
@@ -163,11 +162,10 @@ def test_prompt_function():
         assert messages[0]["content"] == resource
 
         # Test with ResourceContents
-        from mcp.types import TextResourceContents
-        from pydantic import AnyUrl
+        from mcp_types import TextResourceContents
 
         text_resource = TextResourceContents(
-            uri=AnyUrl("file:///test/example.txt"), text="Sample text", mimeType="text/plain"
+            uri="file:///test/example.txt", text="Sample text", mime_type="text/plain"
         )
         messages = MCPPrompt(text_resource)
         assert len(messages) == 1
@@ -176,7 +174,7 @@ def test_prompt_function():
         assert messages[0]["content"].resource == text_resource
 
         # Test with ReadResourceResult
-        from mcp.types import ReadResourceResult
+        from mcp_types import ReadResourceResult
 
         resource_result = ReadResourceResult(contents=[text_resource, text_resource])
         messages = MCPPrompt(resource_result)
@@ -198,7 +196,7 @@ def test_prompt_function():
 
         # Test with direct ImageContent
         image_content = ImageContent(
-            type="image", data="ZmFrZSBpbWFnZSBkYXRh", mimeType="image/png"
+            type="image", data="ZmFrZSBpbWFnZSBkYXRh", mime_type="image/png"
         )
         messages = MCPPrompt(image_content, role="assistant")
         assert len(messages) == 1

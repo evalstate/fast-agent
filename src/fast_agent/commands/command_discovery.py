@@ -289,22 +289,10 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
             ],
         ),
         _simple_command_entry(
-            "agent",
-            summary="Attach, detach, or inspect an existing agent as a tool",
-            usage="/agent <name> [--tool [remove]|--dump]",
-            examples=["/agent reviewer --tool", "/agent reviewer --dump"],
-        ),
-        _simple_command_entry(
             "attach",
             summary="Stage file or URL attachments for the next prompt",
             usage="/attach [clear|path|url ...]",
             examples=["/attach README.md", "/attach clear"],
-        ),
-        _simple_command_entry(
-            "card",
-            summary="Load an agent card, optionally as a tool",
-            usage="/card <path> [--tool [remove]]",
-            examples=["/card sizer.md", "/card sizer.md --tool"],
         ),
         {
             "name": "compact",
@@ -318,9 +306,15 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         },
         _simple_command_entry(
             "connect",
-            summary="Attach a runtime MCP server",
-            usage="/connect <target> [--name <server>] [options]",
-            examples=["/connect filesystem --name docs"],
+            summary="Attach a configured MCP server or connect an ad-hoc target",
+            usage=(
+                "/connect <name|target> [--name <server>] [--protocol auto|modern|legacy] [options]"
+            ),
+            examples=[
+                "/connect docs",
+                "/connect npx @modelcontextprotocol/server-everything",
+                "/connect --protocol modern https://example.com/mcp",
+            ],
         ),
         _simple_command_entry(
             "fast",
@@ -349,12 +343,6 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
             usage="/load <file>",
             examples=["/load history.json"],
         ),
-        _simple_command_entry(
-            "mcpstatus",
-            summary="Show MCP server connection status",
-            usage="/mcpstatus",
-            examples=["/mcpstatus"],
-        ),
         {
             "name": "process",
             "summary": "Show managed shell processes",
@@ -372,12 +360,21 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         {
             "name": "mcp",
             "summary": "Runtime MCP control",
-            "usage": "/mcp [list|connect|disconnect|reconnect] [args]",
+            "usage": (
+                "/mcp [list|status|attach|connect|disconnect|reconnect] [args]; "
+                "connect supports --protocol auto|modern|legacy"
+            ),
             "actions": [
                 {"name": name, "summary": summary}
                 for name, summary in MCP_TOP_LEVEL_ACTION_DESCRIPTIONS.items()
             ],
-            "examples": ["/mcp list", "/mcp connect <target>", "/mcp disconnect <server>"],
+            "examples": [
+                "/mcp list",
+                "/mcp status",
+                "/mcp attach docs",
+                "/mcp connect <target>",
+                "/mcp disconnect <server>",
+            ],
         },
         _session_detail_entry(),
         _simple_command_entry(

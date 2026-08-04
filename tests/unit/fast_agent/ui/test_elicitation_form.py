@@ -10,7 +10,7 @@ from fast_agent.human_input.form_elements import ValidatedCheckboxList
 from fast_agent.ui.elicitation_form import ElicitationForm, FormatValidator, SimpleStringValidator
 
 if TYPE_CHECKING:
-    from mcp.types import ElicitRequestedSchema
+    from mcp_types import ElicitRequestedSchema
 
 
 def test_elicitation_form_creates_widgets_for_common_field_types() -> None:

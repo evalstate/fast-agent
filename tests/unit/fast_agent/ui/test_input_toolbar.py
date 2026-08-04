@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, cast
 
 from prompt_toolkit.formatted_text import HTML, to_formatted_text
 
+from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui import notification_tracker
@@ -25,6 +26,7 @@ from fast_agent.ui.prompt.status_bar.renderer import (
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.interfaces import AgentProtocol
 
 
 @dataclass
@@ -427,12 +429,12 @@ def test_toolbar_agent_state_cache_invalidates_when_parallel_child_model_changes
         config=_StubConfig(model="anthropic.haiku"),
         message_history=[],
     )
-    parallel_agent = cast("ParallelAgent", object.__new__(ParallelAgent))
-    setattr(parallel_agent, "config", _StubConfig(model=None))
-    setattr(parallel_agent, "_message_history", [])
-    setattr(parallel_agent, "_llm", None)
-    setattr(parallel_agent, "_context", None)
-    setattr(parallel_agent, "fan_out_agents", [child])
+    parallel_agent = object.__new__(ParallelAgent)
+    parallel_agent.config = AgentConfig(name="parallel")
+    parallel_agent._message_history = []
+    parallel_agent._llm = None
+    parallel_agent._context = None
+    parallel_agent.fan_out_agents = cast("list[AgentProtocol]", [child])
 
     provider = cast("AgentApp", _StubAgentProvider(parallel_agent))
     cache = ToolbarRenderCache()
@@ -458,12 +460,12 @@ def test_toolbar_agent_state_deduplicates_parallel_child_models() -> None:
         _StubAgent(config=_StubConfig(model="anthropic.haiku"), message_history=[]),
         _StubAgent(config=_StubConfig(model="anthropic.sonnet"), message_history=[]),
     ]
-    parallel_agent = cast("ParallelAgent", object.__new__(ParallelAgent))
-    setattr(parallel_agent, "config", _StubConfig(model=None))
-    setattr(parallel_agent, "_message_history", [])
-    setattr(parallel_agent, "_llm", None)
-    setattr(parallel_agent, "_context", None)
-    setattr(parallel_agent, "fan_out_agents", children)
+    parallel_agent = object.__new__(ParallelAgent)
+    parallel_agent.config = AgentConfig(name="parallel")
+    parallel_agent._message_history = []
+    parallel_agent._llm = None
+    parallel_agent._context = None
+    parallel_agent.fan_out_agents = cast("list[AgentProtocol]", children)
 
     provider = cast("AgentApp", _StubAgentProvider(parallel_agent))
     result = _resolve_toolbar_agent_state_cached(

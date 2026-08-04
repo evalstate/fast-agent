@@ -52,6 +52,29 @@ def test_build_provider_managed_mcp_state_reuses_exact_tool_allowlist() -> None:
     assert state.tool_allowlists["stripe"] == ("create_payment_link", "list_products")
 
 
+def test_card_internal_name_uses_visible_provider_tool_allowlist() -> None:
+    internal_name = "card-source-revision-docs"
+    config = AgentConfig(
+        name="agent",
+        servers=[internal_name],
+        tools={"docs": ["search"]},
+    )
+    settings = MCPServerSettings(
+        name="docs",
+        management="provider",
+        transport="http",
+        url="https://example.com/mcp",
+    )
+
+    state = build_provider_managed_mcp_state(
+        agent_config=config,
+        server_settings_by_name={internal_name: settings},
+    )
+
+    assert state.tool_allowlists == {"docs": ("search",)}
+    assert state.attachments[0].server_name == "docs"
+
+
 def test_build_provider_managed_mcp_state_rejects_wildcard_tool_filters() -> None:
     config = AgentConfig(
         name="billing",

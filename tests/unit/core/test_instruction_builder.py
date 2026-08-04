@@ -2,7 +2,6 @@
 
 import pytest
 
-from fast_agent.constants import SMART_AGENT_INSTRUCTION
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.instruction import InstructionBuilder
 
@@ -200,32 +199,21 @@ class TestInstructionBuilderInternalPatterns:
     @pytest.mark.asyncio
     async def test_internal_pattern_resolution(self):
         """{{internal:...}} should load packaged markdown resources."""
-        builder = InstructionBuilder("{{internal:smart_prompt}}")
-        result = await builder.build()
-
-        assert "You are a helpful AI Agent" in result
-        assert "fast-agent home paths:" in result
-        assert "{{internal:smart_prompt}}" not in result
-        assert "{{currentDate}}" not in result
-
-    @pytest.mark.asyncio
-    async def test_internal_partial_resolution_for_smart_agent_cards(self):
-        """{{internal:smart_agent_cards}} should resolve the AgentCard guidance partial."""
-        builder = InstructionBuilder("{{internal:smart_agent_cards}}")
+        builder = InstructionBuilder("{{internal:agent_cards}}")
         result = await builder.build()
 
         assert "<AgentCards>" in result
-        assert "Agent Card (type: `agent`)" in result
-        assert "{{internal:smart_agent_cards}}" not in result
+        assert "{{internal:agent_cards}}" not in result
 
     @pytest.mark.asyncio
-    async def test_smart_agent_instruction_uses_internal_resource(self):
-        """SMART_AGENT_INSTRUCTION should resolve via packaged internal prompt."""
-        builder = InstructionBuilder(SMART_AGENT_INSTRUCTION)
+    async def test_internal_partial_resolution_for_agent_cards(self):
+        """{{internal:agent_cards}} should resolve the AgentCard guidance partial."""
+        builder = InstructionBuilder("{{internal:agent_cards}}")
         result = await builder.build()
 
-        assert SMART_AGENT_INSTRUCTION == "{{internal:smart_prompt}}"
-        assert "Use the smart tool" in result
+        assert "<AgentCards>" in result
+        assert "Main fields (frontmatter, type = `agent`)" in result
+        assert "{{internal:agent_cards}}" not in result
 
     @pytest.mark.asyncio
     async def test_internal_pattern_missing_resource_raises(self):
@@ -233,6 +221,17 @@ class TestInstructionBuilderInternalPatterns:
         builder = InstructionBuilder("{{internal:this_resource_does_not_exist}}")
 
         with pytest.raises(AgentConfigError, match="Unknown internal resource"):
+            await builder.build()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "resource_id",
+        ["/etc/passwd", "../agent_cards", r"..\agent_cards", "agent_cards/model_overlays"],
+    )
+    async def test_internal_pattern_rejects_path_resource_ids(self, resource_id: str):
+        builder = InstructionBuilder(f"{{{{internal:{resource_id}}}}}")
+
+        with pytest.raises(AgentConfigError, match="Invalid internal resource"):
             await builder.build()
 
 

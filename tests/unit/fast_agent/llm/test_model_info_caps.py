@@ -11,21 +11,25 @@ Testing notes:
 
 import pathlib
 import sys
-import types
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / "src"))
 
 if "a2a" not in sys.modules:
-    a2a_module = types.ModuleType("a2a")
-    types_module = types.ModuleType("a2a.types")
 
     class AgentCard:  # minimal stub for imports
         pass
 
-    setattr(types_module, "AgentCard", AgentCard)
-    setattr(a2a_module, "types", types_module)
+    class A2ATypesModule(ModuleType):
+        AgentCard = AgentCard
+
+    class A2AModule(ModuleType):
+        types: ModuleType
+
+    types_module = A2ATypesModule("a2a.types")
+    a2a_module = A2AModule("a2a")
+    a2a_module.types = types_module
     sys.modules["a2a"] = a2a_module
     sys.modules["a2a.types"] = types_module
 

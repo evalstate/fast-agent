@@ -1,127 +1,129 @@
-"""
-Advanced test server for comprehensive elicitation functionality
-"""
+"""Modern MCPServer fixture for form elicitation integration tests."""
 
-import logging
-import sys
+from typing import Annotated
 
-from fastmcp import FastMCP
-from fastmcp.server.dependencies import get_context
-from fastmcp.server.elicitation import (
+from mcp.server.mcpserver import (
     AcceptedElicitation,
     CancelledElicitation,
+    Context,
     DeclinedElicitation,
+    Elicit,
+    ElicitationResult,
+    MCPServer,
+    Resolve,
 )
 from pydantic import BaseModel, Field
 
-# Configure detailed logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    stream=sys.stderr,
-)
-logger = logging.getLogger("elicitation_server_advanced")
 
-# Create MCP server
-mcp = FastMCP("MCP Advanced Elicitation Server")
+class ServerRating(BaseModel):
+    rating: bool = Field(description="Do you like this server?")
 
 
-@mcp.resource(uri="elicitation://client-capabilities")
-async def client_capabilities_resource() -> str:
-    """Expose the client capabilities received during initialization."""
-
-    ctx = get_context()
-
-    if not ctx.session.client_params:
-        text = "No client initialization params available"
-    else:
-        client_capabilities = ctx.session.client_params.capabilities
-
-        # Check if elicitation capability is present
-        has_elicitation = (
-            hasattr(client_capabilities, "elicitation")
-            and client_capabilities.elicitation is not None
-        )
-        has_sampling = (
-            hasattr(client_capabilities, "sampling") and client_capabilities.sampling is not None
-        )
-        has_roots = hasattr(client_capabilities, "roots") and client_capabilities.roots is not None
-
-        capabilities_list = []
-        if has_elicitation:
-            capabilities_list.append("✓ Elicitation")
-        else:
-            capabilities_list.append("✗ Elicitation")
-
-        if has_sampling:
-            capabilities_list.append("✓ Sampling")
-        else:
-            capabilities_list.append("✗ Sampling")
-
-        if has_roots:
-            capabilities_list.append("✓ Roots")
-        else:
-            capabilities_list.append("✗ Roots")
-
-        text = "Client Capabilities:\n" + "\n".join(capabilities_list)
-
-        # Add client info for debugging
-        client_info = ctx.session.client_params.clientInfo
-        text += f"\n\nClient Info: {client_info.name} v{client_info.version}"
-        text += f"\nProtocol Version: {ctx.session.client_params.protocolVersion}"
-
-    return text
+class UserProfile(BaseModel):
+    name: str = Field(description="Your full name", min_length=2, max_length=50)
+    age: int = Field(description="Your age", ge=0, le=150)
+    role: str = Field(
+        description="Your job role",
+        json_schema_extra={
+            "enum": ["developer", "designer", "manager", "qa", "other"],
+            "enumNames": [
+                "Software Developer",
+                "UI/UX Designer",
+                "Project Manager",
+                "Quality Assurance",
+                "Other",
+            ],
+        },
+    )
+    email: str = Field(
+        "", description="Your email address (optional)", json_schema_extra={"format": "email"}
+    )
+    subscribe_newsletter: bool = Field(False, description="Subscribe to our newsletter?")
 
 
-@mcp.resource(uri="elicitation://simple-rating")
-async def simple_rating() -> str:
-    """Simple boolean rating elicitation"""
+class Preferences(BaseModel):
+    theme: str = Field(
+        description="Choose your preferred theme",
+        json_schema_extra={
+            "enum": ["light", "dark", "auto"],
+            "enumNames": ["Light Theme", "Dark Theme", "Auto Theme"],
+        },
+    )
+    language: str = Field(
+        description="Select your language",
+        json_schema_extra={
+            "enum": ["en", "es", "fr", "de"],
+            "enumNames": ["English", "Spanish", "French", "German"],
+        },
+    )
+    notifications: bool = Field(True, description="Enable notifications?")
 
-    class ServerRating(BaseModel):
-        rating: bool = Field(description="Do you like this server?")
 
-    result = await get_context().elicit("Please rate this server", ServerRating)
+class Feedback(BaseModel):
+    overall_rating: int = Field(description="Overall rating (1-5)", ge=1, le=5)
+    ease_of_use: float = Field(description="Ease of use (0.0-10.0)", ge=0.0, le=10.0)
+    would_recommend: bool = Field(description="Would you recommend to others?")
+    comments: str = Field("", description="Additional comments", max_length=500)
 
+
+def request_simple_rating() -> Elicit[ServerRating]:
+    return Elicit("Please rate this server", ServerRating)
+
+
+def request_user_profile() -> Elicit[UserProfile]:
+    return Elicit("Please provide your user profile information", UserProfile)
+
+
+def request_preferences() -> Elicit[Preferences]:
+    return Elicit("Configure your preferences", Preferences)
+
+
+def request_feedback() -> Elicit[Feedback]:
+    return Elicit("We'd love your feedback!", Feedback)
+
+
+server = MCPServer("MCP Advanced Elicitation Server")
+
+
+@server.tool()
+def client_capabilities(ctx: Context) -> str:
+    """Expose the capabilities the modern client supplied for this call."""
+    capabilities = ctx.client_capabilities
+    if capabilities is None:
+        return "No client capabilities available"
+
+    capability_lines = [
+        f"{'✓' if capabilities.elicitation is not None else '✗'} Elicitation",
+        f"{'✓' if capabilities.sampling is not None else '✗'} Sampling",
+        f"{'✓' if capabilities.roots is not None else '✗'} Roots",
+    ]
+    return "Client Capabilities:\n" + "\n".join(capability_lines)
+
+
+@server.tool()
+def simple_rating(
+    result: Annotated[ElicitationResult[ServerRating], Resolve(request_simple_rating)],
+) -> str:
+    """Request a simple boolean rating."""
     match result:
         case AcceptedElicitation(data=data):
-            response = f"You {'liked' if data.rating else 'did not like'} the server"
+            assert isinstance(data, ServerRating)
+            return f"You {'liked' if data.rating else 'did not like'} the server"
         case DeclinedElicitation():
-            response = "Rating declined"
+            return "Rating declined"
         case CancelledElicitation():
-            response = "Rating cancelled"
+            return "Rating cancelled"
+    raise AssertionError(f"Unexpected elicitation result: {result}")
 
-    return response
 
-
-@mcp.resource(uri="elicitation://user-profile")
-async def user_profile() -> str:
-    """Complex form with multiple field types"""
-
-    class UserProfile(BaseModel):
-        name: str = Field(description="Your full name", min_length=2, max_length=50)
-        age: int = Field(description="Your age", ge=0, le=150)
-        role: str = Field(
-            description="Your job role",
-            json_schema_extra={
-                "enum": ["developer", "designer", "manager", "qa", "other"],
-                "enumNames": [
-                    "Software Developer",
-                    "UI/UX Designer",
-                    "Project Manager",
-                    "Quality Assurance",
-                    "Other",
-                ],
-            },
-        )
-        email: str = Field(
-            "", description="Your email address (optional)", json_schema_extra={"format": "email"}
-        )
-        subscribe_newsletter: bool = Field(False, description="Subscribe to our newsletter?")
-
-    result = await get_context().elicit("Please provide your user profile information", UserProfile)
-
+@server.tool()
+def user_profile(
+    result: Annotated[ElicitationResult[UserProfile], Resolve(request_user_profile)],
+) -> str:
+    """Request a complex user profile form."""
     match result:
         case AcceptedElicitation(data=data):
+            assert isinstance(data, UserProfile)
             lines = [
                 f"Name: {data.name}",
                 f"Age: {data.age}",
@@ -129,63 +131,41 @@ async def user_profile() -> str:
                 f"Email: {data.email or 'Not provided'}",
                 f"Newsletter: {'Yes' if data.subscribe_newsletter else 'No'}",
             ]
-            response = "Profile received:\n" + "\n".join(lines)
+            return "Profile received:\n" + "\n".join(lines)
         case DeclinedElicitation():
-            response = "Profile declined"
+            return "Profile declined"
         case CancelledElicitation():
-            response = "Profile cancelled"
+            return "Profile cancelled"
+    raise AssertionError(f"Unexpected elicitation result: {result}")
 
-    return response
 
-
-@mcp.resource(uri="elicitation://preferences")
-async def preferences() -> str:
-    """Enum-based preference selection"""
-
-    class Preferences(BaseModel):
-        theme: str = Field(
-            description="Choose your preferred theme",
-            json_schema_extra={
-                "enum": ["light", "dark", "auto"],
-                "enumNames": ["Light Theme", "Dark Theme", "Auto Theme"],
-            },
-        )
-        language: str = Field(
-            description="Select your language",
-            json_schema_extra={
-                "enum": ["en", "es", "fr", "de"],
-                "enumNames": ["English", "Spanish", "French", "German"],
-            },
-        )
-        notifications: bool = Field(True, description="Enable notifications?")
-
-    result = await get_context().elicit("Configure your preferences", Preferences)
-
+@server.tool()
+def preferences(
+    result: Annotated[ElicitationResult[Preferences], Resolve(request_preferences)],
+) -> str:
+    """Request enum-based preferences."""
     match result:
         case AcceptedElicitation(data=data):
-            response = f"Preferences set: Theme={data.theme}, Language={data.language}, Notifications={data.notifications}"
+            assert isinstance(data, Preferences)
+            return (
+                "Preferences set: "
+                f"Theme={data.theme}, Language={data.language}, Notifications={data.notifications}"
+            )
         case DeclinedElicitation():
-            response = "Preferences declined"
+            return "Preferences declined"
         case CancelledElicitation():
-            response = "Preferences cancelled"
+            return "Preferences cancelled"
+    raise AssertionError(f"Unexpected elicitation result: {result}")
 
-    return response
 
-
-@mcp.resource(uri="elicitation://feedback")
-async def feedback() -> str:
-    """Feedback form with number ratings"""
-
-    class Feedback(BaseModel):
-        overall_rating: int = Field(description="Overall rating (1-5)", ge=1, le=5)
-        ease_of_use: float = Field(description="Ease of use (0.0-10.0)", ge=0.0, le=10.0)
-        would_recommend: bool = Field(description="Would you recommend to others?")
-        comments: str = Field("", description="Additional comments", max_length=500)
-
-    result = await get_context().elicit("We'd love your feedback!", Feedback)
-
+@server.tool()
+def feedback(
+    result: Annotated[ElicitationResult[Feedback], Resolve(request_feedback)],
+) -> str:
+    """Request rating and feedback fields."""
     match result:
         case AcceptedElicitation(data=data):
+            assert isinstance(data, Feedback)
             lines = [
                 f"Overall: {data.overall_rating}/5",
                 f"Ease of use: {data.ease_of_use}/10.0",
@@ -193,15 +173,13 @@ async def feedback() -> str:
             ]
             if data.comments:
                 lines.append(f"Comments: {data.comments}")
-            response = "Feedback received:\n" + "\n".join(lines)
+            return "Feedback received:\n" + "\n".join(lines)
         case DeclinedElicitation():
-            response = "Feedback declined"
+            return "Feedback declined"
         case CancelledElicitation():
-            response = "Feedback cancelled"
-
-    return response
+            return "Feedback cancelled"
+    raise AssertionError(f"Unexpected elicitation result: {result}")
 
 
 if __name__ == "__main__":
-    logger.info("Starting advanced elicitation test server...")
-    mcp.run()
+    server.run(transport="stdio")

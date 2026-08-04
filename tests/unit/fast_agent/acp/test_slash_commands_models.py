@@ -19,7 +19,9 @@ if TYPE_CHECKING:
 
 
 class _Agent:
-    acp_commands = {}
+    @property
+    def acp_commands(self) -> dict[str, ACPCommand]:
+        return {}
 
     def __init__(self) -> None:
         self.config = SimpleNamespace(model=None)
@@ -95,17 +97,15 @@ class _TaskBudgetLlm(_FastModeLlm):
 
 
 class _FastModeAgent:
-    acp_commands = {}
-
     def __init__(self) -> None:
+        self.acp_commands: dict[str, object] = {}
         self.llm = _FastModeLlm()
         self._llm = self.llm
 
 
 class _TaskBudgetAgent:
-    acp_commands = {}
-
     def __init__(self) -> None:
+        self.acp_commands: dict[str, object] = {}
         self.llm = _TaskBudgetLlm()
         self._llm = self.llm
 
@@ -138,9 +138,10 @@ class _App:
 @pytest.mark.asyncio
 async def test_slash_command_model_catalog() -> None:
     app = _App()
+    agent = _FastModeAgent()
     instance = AgentInstance(
         app=cast("AgentApp", app),
-        agents={"main": cast("AgentProtocol", _Agent())},
+        agents={"main": cast("AgentProtocol", agent)},
         registry_version=0,
     )
     handler = SlashCommandHandler(
@@ -153,6 +154,27 @@ async def test_slash_command_model_catalog() -> None:
 
     assert "# model.catalog" in output
     assert "Provider: Anthropic" in output
+
+
+@pytest.mark.asyncio
+async def test_slash_command_model_defaults_to_status() -> None:
+    app = _App()
+    agent = _FastModeAgent()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", agent)},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+    )
+
+    output = await handler.execute_command("model", "")
+
+    assert "# model" in output
+    assert "Selected model" in output
 
 
 @pytest.mark.asyncio
@@ -178,6 +200,8 @@ async def test_slash_command_models_not_registered_in_available_commands(tmp_pat
         os.chdir(previous_cwd)
 
     assert "models" not in command_names
+    assert "cards" not in command_names
+    assert "packs" in command_names
     assert "commands" in command_names
     assert "model" in command_names
 
@@ -382,17 +406,17 @@ async def test_slash_command_hints_use_catalog_actions() -> None:
 
     commands = {command.name: command for command in handler.get_available_commands()}
     skills_hint = commands["skills"].input
-    cards_hint = commands["cards"].input
+    packs_hint = commands["packs"].input
 
     assert skills_hint is not None
-    assert cards_hint is not None
+    assert packs_hint is not None
     skills_hint_text = skills_hint.root.hint
-    cards_hint_text = cards_hint.root.hint
+    packs_hint_text = packs_hint.root.hint
     assert skills_hint_text is not None
-    assert cards_hint_text is not None
+    assert packs_hint_text is not None
     assert "available|search <query>" in skills_hint_text
     assert "add <name|number>" in skills_hint_text
-    assert "add|remove|update|publish|registry" in cards_hint_text
+    assert "add|remove|update|publish|registry" in packs_hint_text
 
 
 @pytest.mark.asyncio

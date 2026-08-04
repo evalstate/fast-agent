@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.a2a.config import A2AAgentConfig
 from fast_agent.a2a.remote_agent import A2ARemoteAgent
@@ -303,8 +303,7 @@ async def test_a2a_remote_agent_clone_preserves_remote_config(a2a_test_server) -
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_a2a_remote_agent_sends_url_and_raw_parts(a2a_test_server) -> None:
-    from mcp.types import ImageContent, ResourceLink
-    from pydantic import AnyUrl
+    from mcp_types import ImageContent, ResourceLink
 
     agent = A2ARemoteAgent(
         config=AgentConfig(name="remote_attachments", agent_type=AgentType.A2A, use_history=False),
@@ -321,10 +320,10 @@ async def test_a2a_remote_agent_sends_url_and_raw_parts(a2a_test_server) -> None
                         ResourceLink(
                             type="resource_link",
                             name="report.pdf",
-                            uri=AnyUrl("https://example.com/report.pdf"),
-                            mimeType="application/pdf",
+                            uri="https://example.com/report.pdf",
+                            mime_type="application/pdf",
                         ),
-                        ImageContent(type="image", data="YWJj", mimeType="image/png"),
+                        ImageContent(type="image", data="YWJj", mime_type="image/png"),
                     ],
                 )
             ]

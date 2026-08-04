@@ -12,7 +12,7 @@ from fast_agent.commands.tool_summaries import build_provider_tool_summaries, bu
 from fast_agent.interfaces import AgentProtocol
 
 if TYPE_CHECKING:
-    from mcp.types import ListToolsResult
+    from mcp_types import ListToolsResult
 
     from fast_agent.acp.slash_commands import SlashCommandHandler
 

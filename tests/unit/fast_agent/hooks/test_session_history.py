@@ -5,8 +5,10 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
+from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.context import Context
 from fast_agent.hooks.hook_context import HookContext
 from fast_agent.hooks.session_history import save_session_history
 from fast_agent.llm.request_params import RequestParams
@@ -76,15 +78,20 @@ class _Agent:
         *,
         acp_context: object,
         history: list[PromptMessageExtended],
+        session_manager: _Manager | None = None,
         use_history: bool = True,
     ) -> None:
         self.name = "main"
-        self.config = SimpleNamespace(
+        self.config = AgentConfig(
+            name=self.name,
             tool_only=False,
             model="passthrough",
             use_history=use_history,
         )
-        self.context = SimpleNamespace(acp=acp_context, session_manager=None)
+        self.context = Context.model_construct(
+            acp=acp_context,
+            session_manager=session_manager,
+        )
         self.message_history = history
         self.usage_accumulator = None
         self.agent_registry = None
@@ -141,8 +148,8 @@ async def test_save_session_history_uses_app_store_for_app_scoped_acp_session(
     agent = _Agent(
         acp_context=acp_context,
         history=history,
+        session_manager=app_manager,
     )
-    agent.context.session_manager = app_manager
     ctx = HookContext(
         runner=SimpleNamespace(iteration=1, request_params=None),
         agent=agent,
@@ -201,8 +208,12 @@ async def test_save_session_history_skips_agents_with_use_history_false(
             content=[TextContent(type="text", text="stateless answer")],
         )
     ]
-    agent = _Agent(acp_context=None, history=history, use_history=False)
-    agent.context.session_manager = manager
+    agent = _Agent(
+        acp_context=None,
+        history=history,
+        session_manager=manager,
+        use_history=False,
+    )
     ctx = HookContext(
         runner=SimpleNamespace(iteration=1, request_params=None),
         agent=agent,
@@ -231,8 +242,7 @@ async def test_save_session_history_skips_request_use_history_false(
             content=[TextContent(type="text", text="one-shot answer")],
         )
     ]
-    agent = _Agent(acp_context=None, history=history)
-    agent.context.session_manager = manager
+    agent = _Agent(acp_context=None, history=history, session_manager=manager)
     ctx = HookContext(
         runner=SimpleNamespace(iteration=1, request_params=RequestParams(use_history=False)),
         agent=agent,

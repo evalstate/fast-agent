@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 from mcp import CallToolRequest, Tool
-from mcp.types import CallToolRequestParams, CallToolResult, PromptMessage, TextContent
+from mcp_types import CallToolRequestParams, CallToolResult, PromptMessage, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -318,8 +318,8 @@ async def test_list_tools_merges_base_and_child():
     await agent.initialize()
 
     # Inject a base MCP tool via the filtered MCP path to ensure merge behavior.
-    base_tool = Tool(name="base_tool", description="base", inputSchema={"type": "object"})
-    setattr(agent, "_get_filtered_mcp_tools", AsyncMock(return_value=[base_tool]))
+    base_tool = Tool(name="base_tool", description="base", input_schema={"type": "object"})
+    agent._get_filtered_mcp_tools = AsyncMock(return_value=[base_tool])
 
     result = await agent.list_tools()
     tool_names = {t.name for t in result.tools}
@@ -346,8 +346,8 @@ async def test_call_tool_routes_collision_to_advertised_base_tool(monkeypatch):
     agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
     await agent.initialize()
 
-    base_tool = Tool(name="agent__child", description="base", inputSchema={"type": "object"})
-    setattr(agent, "_get_filtered_mcp_tools", AsyncMock(return_value=[base_tool]))
+    base_tool = Tool(name="agent__child", description="base", input_schema={"type": "object"})
+    agent._get_filtered_mcp_tools = AsyncMock(return_value=[base_tool])
 
     async def fake_base_call_tool(
         self,
@@ -358,13 +358,13 @@ async def test_call_tool_routes_collision_to_advertised_base_tool(monkeypatch):
         request_params: RequestParams | None = None,
     ) -> CallToolResult:
         del self, arguments, tool_use_id, request_params
-        return CallToolResult(content=[text_content(f"base:{name}")], isError=False)
+        return CallToolResult(content=[text_content(f"base:{name}")], is_error=False)
 
     monkeypatch.setattr(McpAgent, "call_tool", fake_base_call_tool)
 
     result = await agent.call_tool("agent__child", {"message": "hi"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert get_text(result.content[0]) == "base:agent__child"
     assert child.last_input_text is None
@@ -376,8 +376,8 @@ async def test_run_tools_routes_collision_to_advertised_base_tool(monkeypatch):
     agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
     await agent.initialize()
 
-    base_tool = Tool(name="agent__child", description="base", inputSchema={"type": "object"})
-    setattr(agent, "_get_filtered_mcp_tools", AsyncMock(return_value=[base_tool]))
+    base_tool = Tool(name="agent__child", description="base", input_schema={"type": "object"})
+    agent._get_filtered_mcp_tools = AsyncMock(return_value=[base_tool])
 
     async def fake_base_run_tools(
         self,
@@ -390,7 +390,7 @@ async def test_run_tools_routes_collision_to_advertised_base_tool(monkeypatch):
             tool_results={
                 cid: CallToolResult(
                     content=[text_content(f"base:{tool.params.name}")],
-                    isError=False,
+                    is_error=False,
                 )
                 for cid, tool in (request.tool_calls or {}).items()
             },
@@ -433,7 +433,7 @@ async def test_list_tools_uses_child_tool_input_schema():
     result = await agent.list_tools()
     child_tool = next(tool for tool in result.tools if tool.name == "agent__child")
 
-    assert child_tool.inputSchema == child.config.tool_input_schema
+    assert child_tool.input_schema == child.config.tool_input_schema
 
 
 @pytest.mark.asyncio
@@ -446,9 +446,9 @@ async def test_list_tools_adds_response_mode_when_child_tool_result_mode_is_sele
 
     result = await agent.list_tools()
     child_tool = next(tool for tool in result.tools if tool.name == "agent__child")
-    properties = child_tool.inputSchema.get("properties", {})
+    properties = child_tool.input_schema.get("properties", {})
 
-    assert child_tool.inputSchema.get("required") == ["message"]
+    assert child_tool.input_schema.get("required") == ["message"]
     assert properties.get("response_mode") == {
         "type": "string",
         "description": "Override how the child agent returns tool results for this call.",
@@ -482,10 +482,10 @@ async def test_run_tools_respects_max_parallel_and_timeout():
     fast_result = result_message.tool_results["1"]
     slow_result = result_message.tool_results["2"]
 
-    assert not fast_result.isError
+    assert not fast_result.is_error
     # max_parallel limits concurrency without dropping requested calls; the slow
     # call still runs and then hits the per-child timeout.
-    assert slow_result.isError
+    assert slow_result.is_error
     assert slow_result.content is not None
     assert slow_result.content[0].type == "text"
     assert isinstance(slow_result.content[0], TextContent)
@@ -503,7 +503,7 @@ async def test_run_tools_respects_max_parallel_and_timeout():
     single_result = await agent.run_tools(request_single)
     assert single_result.tool_results is not None
     err_res = single_result.tool_results["3"]
-    assert err_res.isError
+    assert err_res.is_error
     assert err_res.content is not None
     assert any(
         isinstance(block, TextContent) and "Tool execution failed" in (block.text or "")
@@ -531,7 +531,7 @@ async def test_run_tools_preserves_interleaved_child_and_mcp_result_order(
             tool_results={
                 correlation_id: CallToolResult(
                     content=[text_content(f"mcp:{correlation_id}")],
-                    isError=False,
+                    is_error=False,
                 )
                 for correlation_id in request.tool_calls
             },
@@ -586,7 +586,7 @@ async def test_invoke_child_uses_structured_json_input_for_custom_schema():
         {"query": "find updates", "sources": ["docs.fast-agent.ai"]},
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert child.last_input_text is not None
     assert json.loads(child.last_input_text) == {
         "query": "find updates",
@@ -624,7 +624,7 @@ async def test_invoke_child_uses_structured_json_input_for_mixed_message_schema(
         {"message": "context", "query": "find updates", "filters": ["docs", "code"]},
     )
 
-    assert result.isError is False
+    assert result.is_error is False
     assert child.last_input_text is not None
     assert json.loads(child.last_input_text) == {
         "message": "context",
@@ -652,7 +652,7 @@ async def test_invoke_child_uses_legacy_message_input_for_message_only_schema():
 
     result = await agent._invoke_child_agent(child, {"message": "hello child"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert child.last_input_text == "hello child"
 
 
@@ -664,7 +664,7 @@ async def test_child_delegation_keeps_workflow_settings_without_parent_llm_defau
 
     parent_request_params = RequestParams(
         model="parent-model",
-        maxTokens=123,
+        max_tokens=123,
         tool_result_mode="passthrough",
     )
     await agent._invoke_child_agent(
@@ -675,7 +675,7 @@ async def test_child_delegation_keeps_workflow_settings_without_parent_llm_defau
 
     assert child.last_request_params is not None
     assert child.last_request_params.model is None
-    assert "maxTokens" not in child.last_request_params.model_dump(exclude_unset=True)
+    assert "max_tokens" not in child.last_request_params.model_dump(exclude_unset=True)
     assert child.last_request_params.tool_result_mode == "passthrough"
 
 
@@ -699,7 +699,7 @@ async def test_child_response_mode_overrides_inherited_passthrough_and_is_stripp
 
     parent_request_params = RequestParams(
         model="parent-model",
-        maxTokens=123,
+        max_tokens=123,
         tool_result_mode="passthrough",
     )
     await agent._invoke_child_agent(
@@ -713,7 +713,7 @@ async def test_child_response_mode_overrides_inherited_passthrough_and_is_stripp
 
     assert child.last_request_params is not None
     assert child.last_request_params.model is None
-    assert "maxTokens" not in child.last_request_params.model_dump(exclude_unset=True)
+    assert "max_tokens" not in child.last_request_params.model_dump(exclude_unset=True)
     assert child.last_request_params.tool_result_mode == "postprocess"
     assert child.last_input_text is not None
     assert json.loads(child.last_input_text) == {"query": "find updates"}
@@ -742,7 +742,7 @@ async def test_child_response_mode_rejects_invalid_value_when_control_enabled() 
         },
     )
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     error_text = get_text(result.content[0])
     assert error_text is not None
@@ -782,7 +782,7 @@ async def test_child_response_mode_field_is_preserved_when_control_disabled() ->
 
     assert child.last_request_params is not parent_request_params
     assert child.last_request_params is not None
-    assert child.last_request_params.systemPrompt is None
+    assert child.last_request_params.system_prompt is None
     assert child.last_request_params.model is None
     assert child.last_request_params.tool_result_mode == "passthrough"
     assert child.last_input_text is not None
@@ -817,7 +817,7 @@ async def test_child_owned_response_mode_field_is_preserved_when_selectable() ->
     listed_tools = await agent.list_tools()
     child_tool = next(tool for tool in listed_tools.tools if tool.name == "agent__child")
 
-    assert child_tool.inputSchema == child.config.tool_input_schema
+    assert child_tool.input_schema == child.config.tool_input_schema
 
     await agent._invoke_child_agent(
         child,
@@ -990,7 +990,7 @@ def test_history_options_reject_unsupported_message_merge_target() -> None:
 
 def test_child_request_params_strip_parent_system_prompt() -> None:
     request_params = RequestParams(
-        systemPrompt="parent instruction",
+        system_prompt="parent instruction",
         model="passthrough",
         tool_result_mode="selectable",
     )
@@ -1001,14 +1001,14 @@ def test_child_request_params_strip_parent_system_prompt() -> None:
     )
 
     assert child_params is not None
-    assert child_params.systemPrompt is None
+    assert child_params.system_prompt is None
     assert child_params.model is None
     assert child_params.tool_result_mode == "selectable"
 
 
 def test_child_request_params_strip_parent_system_prompt_with_response_mode_override() -> None:
     request_params = RequestParams(
-        systemPrompt="parent instruction",
+        system_prompt="parent instruction",
         model="passthrough",
         tool_result_mode="selectable",
     )
@@ -1019,14 +1019,14 @@ def test_child_request_params_strip_parent_system_prompt_with_response_mode_over
     )
 
     assert child_params is not None
-    assert child_params.systemPrompt is None
+    assert child_params.system_prompt is None
     assert child_params.model is None
     assert child_params.tool_result_mode == "passthrough"
 
 
 def test_child_request_params_preserve_explicit_no_history() -> None:
     request_params = RequestParams(
-        systemPrompt="parent instruction",
+        system_prompt="parent instruction",
         model="passthrough",
         use_history=False,
     )
@@ -1037,7 +1037,7 @@ def test_child_request_params_preserve_explicit_no_history() -> None:
     )
 
     assert child_params is not None
-    assert child_params.systemPrompt is None
+    assert child_params.system_prompt is None
     assert child_params.model is None
     assert child_params.use_history is False
 
@@ -1050,7 +1050,7 @@ async def test_invoke_child_appends_error_channel():
 
     call_result = await agent._invoke_child_agent(child, {"text": "hi"})
 
-    assert call_result.isError
+    assert call_result.is_error
     assert call_result.content is not None
     texts = [block.text for block in call_result.content if isinstance(block, TextContent)]
     assert "err-block" in texts
@@ -1075,7 +1075,7 @@ async def test_nested_agents_as_tools_preserves_instance_labels():
     result_message = await parent.run_tools(request)
     assert result_message.tool_results is not None
     result = result_message.tool_results["1"]
-    assert not result.isError
+    assert not result.is_error
     # Reply should include the instance-suffixed nested agent name.
     assert result.content is not None
     assert any(

@@ -21,14 +21,17 @@ mcp:
     sampling_test:
       command: "uv"
       args: ["run", "sampling_test_server.py"]
+      protocol_mode: legacy
       sampling:
         model: "passthrough"
     slow_sampling:
       command: "uv"
       args: ["run", "sampling_test_server.py"]
+      protocol_mode: legacy
       sampling:
         model: "slow"
     sampling_test_no_config:
       command: "uv"
       args: ["run", "sampling_test_server.py"]
+      protocol_mode: legacy
       # No explicit sampling configuration - relies on auto_sampling

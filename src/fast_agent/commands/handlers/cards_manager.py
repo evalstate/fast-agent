@@ -1,4 +1,4 @@
-"""Shared /cards command handlers."""
+"""Shared /packs command handlers."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def _format_local_card_packs(*, home_paths, packs) -> Text:
     if not packs:
         content.append_text(Text("No card packs installed.", style="yellow"))
         content.append("\n")
-        content.append_text(Text("Use /cards add to install a card pack", style="dim"))
+        content.append_text(Text("Use /packs add to install a card pack", style="dim"))
         return content
 
     for entry in packs:
@@ -105,9 +105,9 @@ def _format_local_card_packs(*, home_paths, packs) -> Text:
         content.append("\n")
         content.append("\n")
 
-    content.append_text(Text("Install with /cards add <number|name>", style="dim"))
+    content.append_text(Text("Install with /packs add <number|name>", style="dim"))
     content.append("\n")
-    content.append_text(Text("Remove with /cards remove <number|name>", style="dim"))
+    content.append_text(Text("Remove with /packs remove <number|name>", style="dim"))
     return content
 
 
@@ -144,7 +144,7 @@ def _add_empty_cards_registry_warning(outcome: CommandOutcome, url: str) -> None
     )
     content.append("\n")
     content.append_text(Text(f"Registry: {format_marketplace_display_url(url)}", style="dim"))
-    outcome.add_message(content, channel="warning", right_info="cards")
+    outcome.add_message(content, channel="warning", right_info="packs")
 
 
 def _format_install_result(
@@ -291,7 +291,7 @@ async def handle_list_cards(ctx: CommandContext, *, agent_name: str) -> CommandO
     packs = card_service.list_installed_packs(home_paths=home_paths)
     outcome.add_message(
         _format_local_card_packs(home_paths=home_paths, packs=packs),
-        right_info="cards",
+        right_info="packs",
         agent_name=agent_name,
     )
     return outcome
@@ -321,8 +321,8 @@ async def handle_set_cards_registry(
             )
 
         content.append("\n")
-        content.append_text(Text("Usage: /cards registry <number|url|path>", style="dim"))
-        outcome.add_message(content, right_info="cards")
+        content.append_text(Text("Usage: /packs registry <number|url|path>", style="dim"))
+        outcome.add_message(content, right_info="packs")
         return outcome
 
     resolved = resolve_registry_argument(registry_arg, configured_urls)
@@ -357,7 +357,7 @@ async def handle_set_cards_registry(
     )
     content.append("\n")
     content.append_text(Text(f"Card packs discovered: {len(marketplace.packs)}", style="dim"))
-    outcome.add_message(content, right_info="cards")
+    outcome.add_message(content, right_info="packs")
     return outcome
 
 
@@ -379,11 +379,11 @@ async def _select_card_pack_for_add(
     content.append_text(_format_marketplace_packs(packs))
 
     if not interactive:
-        outcome.add_message(content, right_info="cards", agent_name=agent_name)
+        outcome.add_message(content, right_info="packs", agent_name=agent_name)
         add_info_messages(
             outcome,
-            ("Install with `/cards add <number|name>`.",),
-            right_info="cards",
+            ("Install with `/packs add <number|name>`.",),
+            right_info="packs",
             agent_name=agent_name,
         )
         return None
@@ -391,7 +391,7 @@ async def _select_card_pack_for_add(
     return await prompt_selection_after_message(
         ctx,
         content=content,
-        right_info="cards",
+        right_info="packs",
         agent_name=agent_name,
         prompt="Install card pack by number or name (empty to cancel): ",
         options=[entry.name for entry in packs],
@@ -419,11 +419,11 @@ async def _select_local_card_pack(
 
     content = _format_local_card_packs(home_paths=home_paths, packs=packs)
     if not interactive:
-        outcome.add_message(content, right_info="cards", agent_name=agent_name)
+        outcome.add_message(content, right_info="packs", agent_name=agent_name)
         add_info_messages(
             outcome,
             (usage_hint,),
-            right_info="cards",
+            right_info="packs",
             agent_name=agent_name,
         )
         return None
@@ -431,7 +431,7 @@ async def _select_local_card_pack(
     return await prompt_selection_after_message(
         ctx,
         content=content,
-        right_info="cards",
+        right_info="packs",
         agent_name=agent_name,
         prompt=prompt,
         options=[entry.name for entry in packs],
@@ -496,14 +496,14 @@ async def handle_add_card_pack(
             install_path=install_result.install_result.pack_dir,
             installed_files=install_result.install_result.installed_files,
         ),
-        right_info="cards",
+        right_info="packs",
         agent_name=agent_name,
     )
     if install_result.readme:
         outcome.add_message(
             install_result.readme,
             title=f"{install_result.pack.name} README",
-            right_info="cards",
+            right_info="packs",
             agent_name=agent_name,
             render_markdown=True,
         )
@@ -533,7 +533,7 @@ async def handle_remove_card_pack(
         argument=argument,
         interactive=interactive,
         prompt="Remove card pack by number or name (empty to cancel): ",
-        usage_hint="Remove with `/cards remove <number|name>`.",
+        usage_hint="Remove with `/packs remove <number|name>`.",
     )
     if selector is None:
         return outcome
@@ -554,7 +554,7 @@ async def handle_remove_card_pack(
         pack_name=removal.pack_name,
         skipped_paths=removal.skipped_paths,
     )
-    outcome.add_message(message, right_info="cards", agent_name=agent_name)
+    outcome.add_message(message, right_info="packs", agent_name=agent_name)
     return outcome
 
 
@@ -581,7 +581,7 @@ async def handle_card_pack_readme(
         argument=argument,
         interactive=interactive,
         prompt="Show README for card pack by number or name (empty to cancel): ",
-        usage_hint="Show with `/cards readme <number|name>`.",
+        usage_hint="Show with `/packs readme <number|name>`.",
     )
     if selected_name is None:
         return outcome
@@ -599,7 +599,7 @@ async def handle_card_pack_readme(
         outcome.add_message(
             f"Card pack '{readme_record.pack_name}' does not include a README.md.",
             channel="warning",
-            right_info="cards",
+            right_info="packs",
             agent_name=agent_name,
         )
         return outcome
@@ -607,7 +607,7 @@ async def handle_card_pack_readme(
     outcome.add_message(
         readme_record.readme,
         title=f"{readme_record.pack_name} README",
-        right_info="cards",
+        right_info="packs",
         agent_name=agent_name,
         render_markdown=True,
     )
@@ -632,13 +632,13 @@ async def handle_update_card_pack(
     if parsed.selector is None:
         outcome.add_message(
             _format_update_results(updates, title="Card pack update check:"),
-            right_info="cards",
+            right_info="packs",
             agent_name=agent_name,
         )
         add_info_messages(
             outcome,
-            ("Apply with `/cards update <number|name|all> [--force] [--yes]`.",),
-            right_info="cards",
+            ("Apply with `/packs update <number|name|all> [--force] [--yes]`.",),
+            right_info="packs",
             agent_name=agent_name,
         )
         return outcome
@@ -652,13 +652,13 @@ async def handle_update_card_pack(
     if len(plan.selected) > 1 and not parsed.yes:
         outcome.add_message(
             _format_update_results(plan.selected, title="Update plan:"),
-            right_info="cards",
+            right_info="packs",
             agent_name=agent_name,
         )
         outcome.add_message(
             "Multiple card packs selected. Re-run with `--yes` to apply updates.",
             channel="warning",
-            right_info="cards",
+            right_info="packs",
             agent_name=agent_name,
         )
         return outcome
@@ -672,7 +672,7 @@ async def handle_update_card_pack(
     _refresh_provider_plugins(ctx, _config_path_for_settings(ctx))
     outcome.add_message(
         _format_update_results(applied.applied, title="Card pack update results:"),
-        right_info="cards",
+        right_info="packs",
         agent_name=agent_name,
     )
 
@@ -682,7 +682,7 @@ async def handle_update_card_pack(
             outcome.add_message(
                 readme_record.readme,
                 title=f"{readme_record.pack_name} README (updated)",
-                right_info="cards",
+                right_info="packs",
                 agent_name=agent_name,
                 render_markdown=True,
             )
@@ -711,16 +711,18 @@ async def handle_publish_card_pack(
     if parsed.selector is None:
         outcome.add_message(
             _format_local_card_packs(home_paths=home_paths, packs=packs),
-            right_info="cards",
+            right_info="packs",
             agent_name=agent_name,
         )
         add_info_messages(
             outcome,
             [
-                "Publish with `/cards publish <number|name> [--no-push] [--message ...] "
-                "[--temp-dir <path>] [--keep-temp]`."
+                (
+                    "Publish with `/packs publish <number|name> [--no-push] [--message ...] "
+                    "[--temp-dir <path>] [--keep-temp]`."
+                )
             ],
-            right_info="cards",
+            right_info="packs",
             agent_name=agent_name,
         )
         return outcome
@@ -741,7 +743,7 @@ async def handle_publish_card_pack(
 
     outcome.add_message(
         _format_publish_result(result, title="Card pack publish:"),
-        right_info="cards",
+        right_info="packs",
         agent_name=agent_name,
     )
 
@@ -750,7 +752,7 @@ async def handle_publish_card_pack(
         outcome.add_message(
             warning,
             channel="warning",
-            right_info="cards",
+            right_info="packs",
             agent_name=agent_name,
         )
 
@@ -758,7 +760,7 @@ async def handle_publish_card_pack(
         add_info_messages(
             outcome,
             (f"Retained temporary clone at: {result.retained_temp_dir}",),
-            right_info="cards",
+            right_info="packs",
             agent_name=agent_name,
         )
 
@@ -845,11 +847,11 @@ async def handle_cards_command(
     action: str | None,
     argument: str | None,
 ) -> CommandOutcome:
-    normalized = normalize_command_action("cards", action)
+    normalized = normalize_command_action("packs", action)
 
     if is_help_flag(action) or is_help_flag(argument):
         outcome = CommandOutcome()
-        add_info_messages(outcome, ("\n".join(command_usage_lines("cards")),), right_info="cards")
+        add_info_messages(outcome, ("\n".join(command_usage_lines("packs")),), right_info="packs")
         return outcome
 
     handler = _CARDS_ACTION_HANDLERS.get(normalized)
@@ -858,9 +860,9 @@ async def handle_cards_command(
 
     outcome = CommandOutcome()
     outcome.add_message(
-        format_unknown_command_action("cards", normalized),
+        format_unknown_command_action("packs", normalized),
         channel="warning",
-        right_info="cards",
+        right_info="packs",
     )
-    add_info_messages(outcome, ("\n".join(command_usage_lines("cards")),), right_info="cards")
+    add_info_messages(outcome, ("\n".join(command_usage_lines("packs")),), right_info="packs")
     return outcome

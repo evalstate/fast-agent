@@ -403,7 +403,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             target_dir.mkdir(parents=True, exist_ok=True)
             (target_dir / "agent-cards").mkdir(parents=True, exist_ok=True)
             (target_dir / "tool-cards").mkdir(parents=True, exist_ok=True)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return f"Error resetting `{target_dir}`: {exc}"
 
         return (
@@ -750,7 +750,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         self.config.model = new_model
         if self.config.default_request_params is not None:
             params_without_model = self.config.default_request_params.model_dump(
-                exclude={"model", "maxTokens"}
+                exclude={"model", "max_tokens"}
             )
             self.config.default_request_params = RequestParams(**params_without_model)
 

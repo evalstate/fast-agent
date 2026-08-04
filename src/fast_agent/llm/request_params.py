@@ -5,7 +5,7 @@ Request parameters definitions for LLM interactions.
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeGuard
 
 from mcp import SamplingMessage
-from mcp.types import CreateMessageRequestParams
+from mcp_types import CreateMessageRequestParams
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS, DEFAULT_STREAMING_TIMEOUT
@@ -19,6 +19,7 @@ else:
 ResponseMode: TypeAlias = Literal["inherit", "postprocess", "passthrough"]
 ToolResultMode: TypeAlias = Literal["postprocess", "passthrough", "selectable"]
 StructuredToolPolicy: TypeAlias = Literal["auto", "always", "defer", "no_tools"]
+SamplingToolChoicePolicy: TypeAlias = Literal["auto", "required", "none"]
 _RESPONSE_MODE_TOOL_RESULT_MODES: dict[ResponseMode, ToolResultMode | None] = {
     "inherit": None,
     "postprocess": "postprocess",
@@ -71,7 +72,7 @@ class RequestParams(CreateMessageRequestParams):
     to avoid confusion with the 'message' parameter on 'generate' method.
     """
 
-    maxTokens: int | None = None
+    max_tokens: int | None = None
     """The maximum number of tokens to sample, as requested by the server."""
 
     model: str | None = None
@@ -120,6 +121,14 @@ class RequestParams(CreateMessageRequestParams):
       present, useful for models that otherwise answer JSON instead of calling a
       required tool.
     - ``no_tools``: suppress regular tools and produce one structured response.
+    """
+
+    sampling_tool_choice: SamplingToolChoicePolicy | None = None
+    """
+    MCP sampling tool-choice policy, translated at the provider boundary.
+
+    The inherited MCP ``tools`` and ``tool_choice`` fields remain transport
+    inputs only and must not be forwarded as provider arguments.
     """
 
     template_vars: dict[str, Any] = Field(default_factory=dict)
@@ -203,7 +212,7 @@ class RequestParams(CreateMessageRequestParams):
     """Responses-family service tier override (fast/priority or flex)."""
 
     @field_validator(
-        "maxTokens",
+        "max_tokens",
         "max_iterations",
         "streaming_timeout",
         "temperature",

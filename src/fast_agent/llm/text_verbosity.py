@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final, Literal, TypeAlias, cast
+from typing import Final, Literal, TypeAlias
 
 from fast_agent.utils.text import strip_casefold
 
@@ -39,7 +39,7 @@ def parse_text_verbosity(value: object) -> TextVerbosityLevel | None:
         return None
     normalized = VERBOSITY_ALIASES.get(cleaned, cleaned)
     if normalized in TEXT_VERBOSITY_LEVELS:
-        return cast("TextVerbosityLevel", normalized)
+        return normalized
     return None
 
 

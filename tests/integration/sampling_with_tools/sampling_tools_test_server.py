@@ -1,17 +1,11 @@
-"""
-Test server for sampling with tools integration tests.
+"""Modern MCPServer fixture for sampling-with-tools integration tests."""
 
-This server provides tools that test the sampling with tools functionality.
-"""
+from typing import Annotated
 
-import logging
-import sys
-
-from fastmcp import Context, FastMCP
-from fastmcp.tools import ToolResult
-from mcp.types import (
-    AudioContent,
-    ImageContent,
+from mcp.server.mcpserver import MCPServer, Resolve, Sample
+from mcp_types import (
+    CreateMessageResult,
+    CreateMessageResultWithTools,
     SamplingMessage,
     TextContent,
     Tool,
@@ -20,179 +14,136 @@ from mcp.types import (
     ToolUseContent,
 )
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    stream=sys.stderr,
-)
-logger = logging.getLogger("sampling_tools_test_server")
-
-type SamplingMessageContentBlock = (
-    TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
-)
-
-
-def _sampling_content(*blocks: SamplingMessageContentBlock) -> list[SamplingMessageContentBlock]:
-    """Build list-valued sampling content with the full supported block union."""
-    return list(blocks)
-
-
-mcp = FastMCP("Sampling Tools Test Server")
-
-# Simple test tool definitions
 TEST_TOOLS = [
     Tool(
         name="echo",
         description="Echo back the input",
-        inputSchema={
+        input_schema={
             "type": "object",
-            "properties": {
-                "message": {"type": "string", "description": "Message to echo"},
-            },
+            "properties": {"message": {"type": "string", "description": "Message to echo"}},
             "required": ["message"],
         },
     ),
 ]
 
 
-@mcp.tool()
-async def test_sampling_with_tools(ctx: Context, message: str) -> ToolResult:
-    """
-    Test sampling with tools - sends a request with tools and checks the response.
-
-    This tool verifies that:
-    1. The sampling request with tools is properly sent
-    2. The client processes tools correctly
-    """
-    logger.info(f"test_sampling_with_tools called with message: {message}")
-
-    # Send sampling request with tools
-    result = await ctx.session.create_message(
+def request_sampling_with_tools(message: str) -> Sample:
+    return Sample(
         max_tokens=256,
-        messages=[
-            SamplingMessage(
-                role="user",
-                content=TextContent(type="text", text=message),
-            )
-        ],
+        messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
         tools=TEST_TOOLS,
         tool_choice=ToolChoice(mode="auto"),
     )
 
-    logger.info(f"Received result: stopReason={result.stopReason}")
 
-    # Return info about what we received
-    info = f"stopReason={result.stopReason}, model={result.model}"
-    return ToolResult(content=[TextContent(type="text", text=f"Sampling completed: {info}")])
-
-
-@mcp.tool()
-async def test_sampling_without_tools(ctx: Context, message: str) -> ToolResult:
-    """
-    Test sampling without tools - verifies backward compatibility.
-    """
-    logger.info(f"test_sampling_without_tools called with message: {message}")
-
-    result = await ctx.session.create_message(
+def request_sampling_without_tools(message: str) -> Sample:
+    return Sample(
         max_tokens=256,
-        messages=[
-            SamplingMessage(
-                role="user",
-                content=TextContent(type="text", text=message),
-            )
-        ],
+        messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
     )
 
-    logger.info(f"Received result: stopReason={result.stopReason}")
 
-    # Extract text from result
-    if isinstance(result.content, TextContent):
-        response_text = result.content.text
-    elif isinstance(result.content, list):
-        response_text = " ".join(c.text for c in result.content if isinstance(c, TextContent))
-    else:
-        response_text = str(result.content)
-
-    return ToolResult(content=[TextContent(type="text", text=f"Response: {response_text}")])
-
-
-@mcp.tool()
-async def test_tool_result_handling(ctx: Context) -> ToolResult:
-    """
-    Test a multi-turn tool conversation.
-
-    This sends an initial request, receives a tool use response,
-    then sends tool results back.
-    """
-    logger.info("test_tool_result_handling called")
-
-    # First request - ask for tool use
-    result = await ctx.session.create_message(
+def request_tool_result_handling() -> Sample:
+    return Sample(
         max_tokens=256,
         messages=[
             SamplingMessage(
                 role="user",
-                content=TextContent(type="text", text="Use the echo tool to say hello"),
+                content=TextContent(
+                    type="text",
+                    text='***CALL_TOOL echo {"message": "hello"}',
+                ),
             )
         ],
         tools=TEST_TOOLS,
-        tool_choice=ToolChoice(mode="required"),  # Force tool use
+        tool_choice=ToolChoice(mode="required"),
     )
 
-    logger.info(f"First result: stopReason={result.stopReason}")
 
-    # With passthrough model, we might not get a tool use response
-    # Just verify we got a response
-    if result.stopReason == "toolUse":
-        # Extract tool uses
-        tool_uses = []
-        if isinstance(result.content, list):
-            tool_uses = [c for c in result.content if isinstance(c, ToolUseContent)]
-        elif isinstance(result.content, ToolUseContent):
-            tool_uses = [result.content]
-
-        if tool_uses:
-            # Send follow-up with tool results
-            tool_results = _sampling_content(
-                *(
-                    ToolResultContent(
-                        type="tool_result",
-                        toolUseId=tu.id,
-                        content=[TextContent(type="text", text="echo: hello")],
-                    )
-                    for tu in tool_uses
-                )
-            )
-
-            # Second request with tool results
-            final_result = await ctx.session.create_message(
-                max_tokens=256,
-                messages=[
-                    SamplingMessage(
-                        role="user",
-                        content=TextContent(type="text", text="Use the echo tool to say hello"),
-                    ),
-                    SamplingMessage(role="assistant", content=result.content),
-                    SamplingMessage(role="user", content=tool_results),
-                ],
-                tools=TEST_TOOLS,
-            )
-
-            return ToolResult(
-                content=[
-                    TextContent(
-                        type="text",
-                        text=f"Multi-turn completed: first={result.stopReason}, final={final_result.stopReason}",
-                    )
-                ]
-            )
-
-    # Single turn response
-    return ToolResult(
-        content=[TextContent(type="text", text=f"Single turn: stopReason={result.stopReason}")]
+def finish_tool_result_handling(
+    first_result: Annotated[
+        CreateMessageResultWithTools,
+        Resolve(request_tool_result_handling),
+    ],
+) -> Sample | CreateMessageResultWithTools:
+    content = first_result.content
+    tool_uses = (
+        [block for block in content if isinstance(block, ToolUseContent)]
+        if isinstance(content, list)
+        else [content]
+        if isinstance(content, ToolUseContent)
+        else []
     )
+    if not tool_uses:
+        return first_result
+
+    tool_results = [
+        ToolResultContent(
+            type="tool_result",
+            tool_use_id=tool_use.id,
+            content=[TextContent(type="text", text="echo: hello")],
+        )
+        for tool_use in tool_uses
+    ]
+    return Sample(
+        max_tokens=256,
+        messages=[
+            SamplingMessage(
+                role="user",
+                content=TextContent(
+                    type="text",
+                    text='***CALL_TOOL echo {"message": "hello"}',
+                ),
+            ),
+            SamplingMessage(role="assistant", content=content),
+            SamplingMessage(role="user", content=tool_results),
+        ],
+        tools=TEST_TOOLS,
+    )
+
+
+def text_content(result: CreateMessageResult | CreateMessageResultWithTools) -> str:
+    content = result.content
+    if isinstance(content, TextContent):
+        return content.text
+    if isinstance(content, list):
+        return " ".join(block.text for block in content if isinstance(block, TextContent))
+    return str(content)
+
+
+server = MCPServer("Sampling Tools Test Server")
+
+
+@server.tool()
+def test_sampling_with_tools(
+    message: str,
+    result: Annotated[CreateMessageResultWithTools, Resolve(request_sampling_with_tools)],
+) -> str:
+    """Sample with a tool declaration through the modern resolver API."""
+    del message
+    return f"Sampling completed: stopReason={result.stop_reason}, model={result.model}"
+
+
+@server.tool()
+def test_sampling_without_tools(
+    message: str,
+    result: Annotated[CreateMessageResult, Resolve(request_sampling_without_tools)],
+) -> str:
+    """Sample without tools through the modern resolver API."""
+    del message
+    return f"Response: {text_content(result)}"
+
+
+@server.tool()
+def test_tool_result_handling(
+    result: Annotated[
+        CreateMessageResultWithTools,
+        Resolve(finish_tool_result_handling),
+    ],
+) -> str:
+    """Complete a second sampling turn when the model requests a tool."""
+    return f"Multi-turn completed: stopReason={result.stop_reason}, response={text_content(result)}"
 
 
 if __name__ == "__main__":
-    logger.info("Starting sampling tools test server...")
-    mcp.run()
+    server.run(transport="stdio")

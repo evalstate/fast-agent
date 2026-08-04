@@ -1,6 +1,6 @@
 import pytest
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, Tool
+from mcp_types import CallToolRequestParams, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent

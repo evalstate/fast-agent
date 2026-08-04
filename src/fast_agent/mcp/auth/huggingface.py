@@ -6,7 +6,7 @@ import contextlib
 from collections.abc import Mapping
 from typing import Any
 
-import httpx
+import httpx2 as httpx
 from fastmcp.server.auth import AccessToken
 from fastmcp.server.auth.providers.huggingface import (
     DEFAULT_HUGGINGFACE_SCOPES,

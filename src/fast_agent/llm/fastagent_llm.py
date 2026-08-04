@@ -22,7 +22,7 @@ from typing import (
 from anthropic import BadRequestError as AnthropicBadRequestError
 from anthropic import RequestTooLargeError as AnthropicRequestTooLargeError
 from mcp import Tool
-from mcp.types import GetPromptResult
+from mcp_types import GetPromptResult
 from openai import APIError as OpenAIAPIError
 from openai import BadRequestError as OpenAIBadRequestError
 from pydantic_core import from_json
@@ -115,9 +115,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     # Common parameter names used across providers
     PARAM_MESSAGES = "messages"
     PARAM_MODEL = "model"
-    PARAM_MAX_TOKENS = "maxTokens"
-    PARAM_SYSTEM_PROMPT = "systemPrompt"
-    PARAM_STOP_SEQUENCES = "stopSequences"
+    PARAM_MAX_TOKENS = "max_tokens"
+    PARAM_SYSTEM_PROMPT = "system_prompt"
+    PARAM_STOP_SEQUENCES = "stop_sequences"
     PARAM_PARALLEL_TOOL_CALLS = "parallel_tool_calls"
     PARAM_METADATA = "metadata"
     PARAM_USE_HISTORY = "use_history"
@@ -132,6 +132,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     PARAM_SERVICE_TIER = "service_tier"
     PARAM_STRUCTURED_SCHEMA = "structured_schema"
     PARAM_STRUCTURED_TOOL_POLICY = "structured_tool_policy"
+    PARAM_SAMPLING_TOOL_CHOICE = "sampling_tool_choice"
+    PARAM_MCP_TOOLS = "tools"
+    PARAM_MCP_TOOL_CHOICE = "tool_choice"
 
     # Base set of fields that should always be excluded
     BASE_EXCLUDE_FIELDS: ClassVar[set[str]] = {
@@ -144,6 +147,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         PARAM_SERVICE_TIER,
         PARAM_STRUCTURED_SCHEMA,
         PARAM_STRUCTURED_TOOL_POLICY,
+        PARAM_SAMPLING_TOOL_CHOICE,
+        PARAM_MCP_TOOLS,
+        PARAM_MCP_TOOL_CHOICE,
     }
 
     """
@@ -627,7 +633,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _resolve_default_model_name(
         self,
         requested_model: str | None,
-        hardcoded_default: str | None,
+        provider_default: str | None,
     ) -> str | None:
         """Resolve model name using explicit value, then provider config, then fallback."""
         normalized_requested = self._normalize_model_name(requested_model)
@@ -638,7 +644,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if config_default:
             return self._resolve_model_references(config_default)
 
-        normalized_fallback = self._normalize_model_name(hardcoded_default)
+        normalized_fallback = self._normalize_model_name(provider_default)
         if not normalized_fallback:
             return None
 
@@ -647,10 +653,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _initialize_default_params_with_model_fallback(
         self,
         kwargs: dict[str, Any],
-        hardcoded_default: str | None,
+        provider_default: str | None,
     ) -> RequestParams:
         """Initialize params via shared model resolution precedence."""
-        chosen_model = self._resolve_default_model_name(kwargs.get("model"), hardcoded_default)
+        chosen_model = self._resolve_default_model_name(kwargs.get("model"), provider_default)
         resolved_kwargs = dict(kwargs)
         if chosen_model is not None:
             resolved_kwargs["model"] = chosen_model

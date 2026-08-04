@@ -22,6 +22,8 @@ nav = [
   { "fast-agent" = "index.md" },
   { "Guides" = [
     { "Core Concepts" = "guides/core-concepts.md" },
+    "guides/subagents.md",
+    { "Migrating to 0.10" = "guides/migrating-to-0-10.md" },
     "guides/tui.md",
     "guides/codex.md",
     "guides/hf-dev.md",
@@ -90,23 +92,25 @@ nav = [
   ] },
   { "MCP" = [
     { "Overview" = "mcp/index.md" },
+    { "Migrate MCP Configuration" = "mcp/migration.md" },
     { "Client" = [
       { "Connect to Servers" = "mcp/client-servers.md" },
       { "Connect with OAuth" = "mcp/mcp-oauth.md" },
-      { "Inspect Servers" = "mcp/mcp_display.md" },
-      "mcp/mcp-ui.md",
-      "mcp/openai-apps-sdk.md",
+      { "Inspect MCP Transports" = "mcp/mcp-inspect-transport.md" },
+    ] },
+    { "Apps" = [
+      { "MCP Apps" = "mcp/mcp-apps.md" },
+      { "OpenAI Apps SDK" = "mcp/openai-apps-sdk.md" },
+      { "FastMCP Apps Adapter" = "mcp/fastmcp-apps.md" },
     ] },
     { "Server" = [
       { "Run an MCP Server" = "mcp/mcp-server.md" },
       { "Custom MCP Servers" = "mcp/harness-adapter.md" },
       { "Host on Hugging Face Spaces" = "mcp/huggingface-spaces.md" },
-      { "FastMCP Apps" = "mcp/fastmcp-apps.md" },
     ] },
     { "Features" = [
       { "Skills over MCP" = "mcp/skills-over-mcp.md" },
       { "Elicitations" = "mcp/elicitations.md" },
-      { "State Transfer" = "mcp/state_transfer.md" },
       "mcp/resources.md",
     ] },
   ] },

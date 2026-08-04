@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import os
-import re
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from typing import (
     TYPE_CHECKING,
-    Literal,
     Protocol,
     TypeAlias,
     cast,
@@ -20,35 +17,30 @@ from rich.text import Text
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.mcp.connect_targets import (
     McpConnectMode,
-    NormalizedMcpTarget,
     ParsedMcpConnectRequest,
     build_server_config_from_target,
-    infer_server_name,
+    redact_mcp_url,
     render_normalized_target,
+    resolve_connect_auth_token,
+)
+from fast_agent.mcp.failures import (
+    MCPFailureSurface,
+    classify_mcp_failure,
+    render_mcp_failure,
 )
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
-from fast_agent.utils.action_normalization import normalize_action_token
 from fast_agent.utils.commandline import join_commandline
 from fast_agent.utils.count_display import format_count_parts
 from fast_agent.utils.numeric import nonnegative_int_or_none
-from fast_agent.utils.text import strip_casefold, strip_to_none
+from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
+    from fast_agent.commands.context import CommandContext
     from fast_agent.config import MCPServerSettings
     from fast_agent.mcp.oauth_client import OAuthEvent
 
 
-_McpConnectRuntimeMode: TypeAlias = Literal["configured", "url", "stdio", "npx", "uvx"]
-
-
-def _connect_runtime_mode(
-    *,
-    configured_alias: str | None,
-    target_mode: McpConnectMode,
-) -> _McpConnectRuntimeMode:
-    if configured_alias is not None:
-        return "configured"
-    return target_mode
+_McpConnectRuntimeMode: TypeAlias = McpConnectMode
 
 
 class McpRuntimeManager(Protocol):
@@ -78,68 +70,8 @@ class _McpConnectPlan:
     mode: _McpConnectRuntimeMode
     server_name: str
     config: "MCPServerSettings | None"
+    configured: bool
     attach_options: MCPAttachOptions
-
-
-@dataclass(frozen=True, slots=True)
-class _McpConnectFailureClassification:
-    oauth_related: bool
-    oauth_registration_404: bool
-    oauth_fallback_unavailable: bool
-    oauth_timeout: bool
-
-
-_AUTH_ENV_BRACED_RE = re.compile(r"^\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::(?P<default>.*))?\}$")
-_AUTH_ENV_SIMPLE_RE = re.compile(r"^\$(?P<name>[A-Za-z_][A-Za-z0-9_]*)$")
-
-
-def _normalize_auth_token_value(raw_value: str) -> str:
-    """Normalize user-provided --auth values before environment lookup.
-
-    ``--auth`` takes the raw token value. If a user passes an Authorization
-    header style value (``Bearer <token>``), strip the prefix so downstream
-    code can still compose a single valid ``Authorization: Bearer ...`` header.
-    """
-
-    normalized = strip_to_none(raw_value) or ""
-    if normalize_action_token(normalized).startswith("bearer "):
-        normalized = strip_to_none(normalized[7:]) or ""
-    return normalized
-
-
-def _resolve_auth_token_value(raw_value: str) -> str:
-    """Resolve --auth values that reference environment variables.
-
-    Supported forms:
-    - ``$VAR``
-    - ``${VAR}``
-    - ``${VAR:default}``
-    """
-
-    normalized_value = _normalize_auth_token_value(raw_value)
-    if not normalized_value:
-        raise ValueError("Missing value for --auth")
-
-    match = _AUTH_ENV_BRACED_RE.match(normalized_value)
-    if match:
-        env_name = match.group("name")
-        default = match.group("default")
-        resolved = os.environ.get(env_name)
-        if resolved is not None:
-            return resolved
-        if default is not None:
-            return default
-        raise ValueError(f"Environment variable '{env_name}' is not set for --auth")
-
-    match = _AUTH_ENV_SIMPLE_RE.match(normalized_value)
-    if match:
-        env_name = match.group("name")
-        resolved = os.environ.get(env_name)
-        if resolved is None:
-            raise ValueError(f"Environment variable '{env_name}' is not set for --auth")
-        return resolved
-
-    return normalized_value
 
 
 def _resolve_request_auth(request: ParsedMcpConnectRequest) -> ParsedMcpConnectRequest:
@@ -150,7 +82,7 @@ def _resolve_request_auth(request: ParsedMcpConnectRequest) -> ParsedMcpConnectR
         request,
         options=replace(
             request.options,
-            auth_token=_resolve_auth_token_value(auth_token),
+            auth_token=resolve_connect_auth_token(auth_token),
         ),
     )
 
@@ -172,7 +104,7 @@ def _describe_server_config_source(
 
     url = strip_to_none(url_value) if isinstance(url_value, str) else None
     if url is not None:
-        return url
+        return redact_mcp_url(url)
 
     command = strip_to_none(command_value) if isinstance(command_value, str) else None
     if command is not None:
@@ -184,7 +116,10 @@ def _describe_server_config_source(
     return None
 
 
-def _resolve_configured_source_from_context(ctx, server_name: str) -> str | None:
+def _resolve_configured_source_from_context(
+    ctx: "CommandContext",
+    server_name: str,
+) -> str | None:
     """Resolve configured server description from runtime settings."""
 
     try:
@@ -202,39 +137,34 @@ def _resolve_configured_source_from_context(ctx, server_name: str) -> str | None
     return _describe_server_config_source(server_config)
 
 
-async def _resolve_configured_server_alias(
+def _configured_connect_server(
+    ctx: "CommandContext",
+    parsed: ParsedMcpConnectRequest,
     *,
-    manager: McpRuntimeManager,
-    agent_name: str,
-    request: ParsedMcpConnectRequest,
-) -> str | None:
-    """Return configured server name when target text is an alias.
-
-    We treat a single stdio token as a server alias only when no explicit
-    --name override or URL auth token is provided.
-    """
-
-    if request.target.server_name is not None or request.options.auth_token is not None:
+    enabled: bool,
+) -> tuple[str, "MCPServerSettings"] | None:
+    target = parsed.target
+    candidate = parsed.configured_name_candidate
+    if not enabled or (
+        candidate is None
+        and (
+            target.mode != "stdio"
+            or target.command is None
+            or target.args
+            or target.server_name is not None
+            or parsed.options.auth_token is not None
+            or parsed.options.protocol_mode is not None
+        )
+    ):
         return None
 
-    if request.target.mode != "stdio":
+    server_name = candidate or target.command
+    if server_name is None:
         return None
-
-    if not request.target.command or request.target.args:
+    mcp_settings = ctx.resolve_settings().mcp
+    if mcp_settings is None or (server_config := mcp_settings.servers.get(server_name)) is None:
         return None
-
-    candidate = request.target.command
-    if not candidate or candidate.startswith("-"):
-        return None
-
-    configured_names: set[str] = set()
-    with suppress(Exception):
-        configured_names.update(await manager.list_configured_detached_mcp_servers(agent_name))
-
-    with suppress(Exception):
-        configured_names.update(await manager.list_attached_mcp_servers(agent_name))
-
-    return candidate if candidate in configured_names else None
+    return server_name, server_config
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,7 +279,6 @@ def _mcp_attach_counts(result: MCPAttachResult) -> _McpAttachCounts:
 async def handle_mcp_list(*, manager: McpRuntimeManager, agent_name: str) -> CommandOutcome:
     outcome = CommandOutcome()
     attached = await manager.list_attached_mcp_servers(agent_name)
-    detached: list[str] = []
     try:
         detached = await manager.list_configured_detached_mcp_servers(agent_name)
     except Exception:
@@ -372,6 +301,62 @@ async def handle_mcp_list(*, manager: McpRuntimeManager, agent_name: str) -> Com
             agent_name=agent_name,
         )
 
+    return outcome
+
+
+async def handle_mcp_attach(
+    ctx,
+    *,
+    manager: McpRuntimeManager,
+    agent_name: str,
+    server_name: str,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    source = _resolve_configured_source_from_context(ctx, server_name)
+    try:
+        result = await manager.attach_mcp_server(
+            agent_name,
+            server_name,
+            server_config=None,
+        )
+    except Exception as exc:
+        failure = classify_mcp_failure(
+            exc,
+            server_name=server_name,
+            origin="central" if source else "card",
+            surface="configured_attach",
+            input_ref=source or server_name,
+            stage="initialize",
+        )
+        outcome.add_message(
+            render_mcp_failure(failure),
+            channel="error",
+            metadata={"mcp_failure": failure},
+        )
+        return outcome
+
+    if result.already_attached:
+        outcome.add_message(
+            f"MCP server '{server_name}' is already attached.",
+            channel="warning",
+            right_info="mcp",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    source_suffix = f": {source}." if source else "."
+    outcome.add_message(
+        f"Attached configured MCP server '{server_name}'{source_suffix}",
+        right_info="mcp",
+        agent_name=agent_name,
+    )
+    outcome.add_message(
+        _format_added_summary(_mcp_attach_counts(result)),
+        right_info="mcp",
+        agent_name=agent_name,
+    )
+    for warning in result.warnings:
+        outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)
     return outcome
 
 
@@ -431,39 +416,50 @@ def _default_connect_timeout_seconds(
 
 def _connect_server_config(
     *,
-    configured_alias: str | None,
     parsed: ParsedMcpConnectRequest,
 ) -> tuple[str, MCPServerSettings | None]:
-    if configured_alias is not None:
-        return configured_alias, None
-
+    overrides = (
+        {"protocol_mode": parsed.options.protocol_mode}
+        if parsed.options.protocol_mode is not None
+        else None
+    )
     built_config = build_server_config_from_target(
         parsed.target,
         auth_token=parsed.options.auth_token,
+        overrides=overrides,
     )
     return built_config.server_name, built_config.settings
 
 
 def _build_connect_plan(
     *,
+    ctx: "CommandContext",
     parsed: ParsedMcpConnectRequest,
-    configured_alias: str | None,
+    resolve_configured_name: bool,
     oauth_event_handler: Callable[[OAuthEvent], Awaitable[None]] | None,
     allow_oauth_paste_fallback: bool,
 ) -> _McpConnectPlan:
-    mode = _connect_runtime_mode(
-        configured_alias=configured_alias,
-        target_mode=parsed.target.mode,
+    configured_server = _configured_connect_server(
+        ctx,
+        parsed,
+        enabled=resolve_configured_name,
     )
-    server_name = configured_alias or infer_server_name(parsed.target)
+    if configured_server is None:
+        if parsed.configured_name_parse_error is not None:
+            raise ValueError(parsed.configured_name_parse_error)
+        server_name, config = _connect_server_config(parsed=parsed)
+        mode = parsed.target.mode
+    else:
+        server_name, configured_config = configured_server
+        config = None
+        mode = "url" if configured_config.url is not None else "stdio"
+
     startup_timeout_seconds = parsed.options.timeout_seconds
     if startup_timeout_seconds is None:
         startup_timeout_seconds = _default_connect_timeout_seconds(
             mode=mode,
             trigger_oauth=parsed.options.trigger_oauth,
         )
-
-    server_name, config = _connect_server_config(configured_alias=configured_alias, parsed=parsed)
     attach_options = MCPAttachOptions(
         startup_timeout_seconds=startup_timeout_seconds,
         trigger_oauth=parsed.options.trigger_oauth,
@@ -476,139 +472,24 @@ def _build_connect_plan(
         mode=mode,
         server_name=server_name,
         config=config,
+        configured=configured_server is not None,
         attach_options=attach_options,
     )
 
 
-def _add_oauth_registration_404_guidance(
-    outcome: CommandOutcome,
-    *,
-    error_text: str,
-    agent_name: str,
-) -> None:
-    normalized_error = strip_casefold(error_text)
-    outcome.add_message(
-        (
-            "OAuth client registration returned HTTP 404. "
-            "This server likely does not allow dynamic client registration."
-        ),
-        channel="warning",
-        right_info="mcp",
-        agent_name=agent_name,
-    )
-    outcome.add_message(
-        (
-            "Try either `--client-metadata-url <https-url>` (CIMD) "
-            "or connect with bearer auth via `--auth <token>`."
-        ),
-        channel="info",
-        right_info="mcp",
-        agent_name=agent_name,
-    )
-    if "githubcopilot.com" in normalized_error:
-        outcome.add_message(
-            (
-                "For GitHub Copilot MCP, token auth is commonly required. "
-                "Try `--auth $GITHUB_TOKEN`."
-            ),
-            channel="info",
-            right_info="mcp",
-            agent_name=agent_name,
-        )
-
-
-def _add_oauth_recovery_guidance(outcome: CommandOutcome, *, agent_name: str) -> None:
-    outcome.add_message(
-        (
-            "OAuth could not be completed in this connection mode. "
-            "Run `fast-agent auth mcp login <server-name-or-mcp-name>` on the fast-agent host, "
-            "then retry `/mcp connect ...`."
-        ),
-        channel="warning",
-        right_info="mcp",
-        agent_name=agent_name,
-    )
-    outcome.add_message(
-        (
-            "To cancel an in-flight ACP connection, use your client's Stop/Cancel control "
-            "(ACP `session/cancel`)."
-        ),
-        channel="info",
-        right_info="mcp",
-        agent_name=agent_name,
-    )
-
-
-def _add_connect_failure_guidance(
-    outcome: CommandOutcome,
-    *,
-    error_text: str,
-    oauth_paste_fallback_enabled: bool,
-    agent_name: str,
-) -> None:
-    classification = _classify_connect_failure(error_text)
-
-    if classification.oauth_registration_404:
-        _add_oauth_registration_404_guidance(
-            outcome,
-            error_text=error_text,
-            agent_name=agent_name,
-        )
-
-    if classification.oauth_related and (
-        classification.oauth_fallback_unavailable
-        or classification.oauth_timeout
-        or not oauth_paste_fallback_enabled
-    ):
-        _add_oauth_recovery_guidance(outcome, agent_name=agent_name)
-
-
-def _classify_connect_failure(error_text: str) -> _McpConnectFailureClassification:
-    normalized_error = strip_casefold(error_text)
-    non_oauth_startup_timeout = "non-oauth startup budget" in normalized_error
-    oauth_related = "oauth" in normalized_error and not non_oauth_startup_timeout
-    oauth_registration_404 = (
-        "oauth" in normalized_error and "registration failed: 404" in normalized_error
-    )
-    oauth_fallback_unavailable = (
-        "paste fallback is disabled" in normalized_error
-        or "non-interactive connection mode" in normalized_error
-    )
-    oauth_timeout = oauth_related and any(
-        phrase in normalized_error
-        for phrase in (
-            "timed out",
-            "timeout",
-            "deadline",
-            "callback wait",
-        )
-    )
-    return _McpConnectFailureClassification(
-        oauth_related=oauth_related,
-        oauth_registration_404=oauth_registration_404,
-        oauth_fallback_unavailable=oauth_fallback_unavailable,
-        oauth_timeout=oauth_timeout,
-    )
-
-
 def _connect_success_message(
-    ctx,
     *,
     action: str,
     mode: _McpConnectRuntimeMode,
     server_name: str,
-    target: NormalizedMcpTarget,
+    configured: bool,
 ) -> str:
-    if mode != "configured":
-        return f"{action} MCP server '{server_name}' ({mode})."
-
-    configured_source = _resolve_configured_source_from_context(ctx, server_name)
-    source_text = configured_source or render_normalized_target(target)
-    return f"{action} MCP server '{server_name}' from configuration: {source_text}."
+    if configured:
+        return f"{action} configured MCP server '{server_name}'."
+    return f"{action} MCP server '{server_name}' ({mode})."
 
 
 async def _add_connect_success_messages(
-    ctx,
     outcome: CommandOutcome,
     *,
     result: MCPAttachResult,
@@ -616,6 +497,7 @@ async def _add_connect_success_messages(
     counts: _McpAttachCounts,
     mode: _McpConnectRuntimeMode,
     server_name: str,
+    configured: bool,
     agent_name: str,
     on_progress: Callable[[str], Awaitable[None]] | None,
 ) -> None:
@@ -643,11 +525,10 @@ async def _add_connect_success_messages(
     reconnected = result.already_attached and parsed.options.force_reconnect
     action = "Reconnected" if reconnected else "Connected"
     message_text = _connect_success_message(
-        ctx,
         action=action,
         mode=mode,
         server_name=server_name,
-        target=parsed.target,
+        configured=configured,
     )
     outcome.add_message(
         message_text,
@@ -664,11 +545,13 @@ async def _add_connect_success_messages(
 
 
 async def handle_mcp_connect(
-    ctx,
+    ctx: "CommandContext",
     *,
     manager: McpRuntimeManager,
     agent_name: str,
     request: ParsedMcpConnectRequest,
+    resolve_configured_name: bool = False,
+    surface: MCPFailureSurface = "terminal_connect",
     on_progress: Callable[[str], Awaitable[None]] | None = None,
     on_oauth_event: Callable[[OAuthEvent], Awaitable[None]] | None = None,
 ) -> CommandOutcome:
@@ -688,32 +571,41 @@ async def handle_mcp_connect(
 
     try:
         parsed = _resolve_request_auth(request)
+        plan = _build_connect_plan(
+            ctx=ctx,
+            parsed=parsed,
+            resolve_configured_name=resolve_configured_name,
+            oauth_event_handler=emit_oauth_event
+            if (on_progress is not None or on_oauth_event is not None)
+            else None,
+            allow_oauth_paste_fallback=oauth_paste_fallback_enabled,
+        )
     except ValueError as exc:
-        outcome.add_message(f"Invalid MCP connect arguments: {exc}", channel="error")
+        failure = classify_mcp_failure(
+            exc,
+            server_name=request.target.server_name,
+            origin="session",
+            surface=surface,
+            input_ref=render_normalized_target(request.target),
+            stage="parse",
+            explicit_auth=request.options.auth_token is not None,
+        )
+        outcome.add_message(
+            render_mcp_failure(
+                failure,
+                output_format="markdown" if surface == "acp_connect" else "terminal",
+            ),
+            channel="error",
+            render_markdown=surface == "acp_connect",
+            metadata={"mcp_failure": failure},
+        )
         return outcome
-
-    configured_alias = await _resolve_configured_server_alias(
-        manager=manager,
-        agent_name=agent_name,
-        request=parsed,
+    progress_message = (
+        f"Connecting configured MCP server '{plan.server_name}'…"
+        if plan.configured
+        else f"Connecting MCP server '{plan.server_name}' via {plan.mode}…"
     )
-
-    plan = _build_connect_plan(
-        parsed=parsed,
-        configured_alias=configured_alias,
-        oauth_event_handler=emit_oauth_event
-        if (on_progress is not None or on_oauth_event is not None)
-        else None,
-        allow_oauth_paste_fallback=oauth_paste_fallback_enabled,
-    )
-    if plan.mode == "configured":
-        await _emit_connect_progress(
-            on_progress, f"Connecting MCP server '{plan.server_name}' from config file…"
-        )
-    else:
-        await _emit_connect_progress(
-            on_progress, f"Connecting MCP server '{plan.server_name}' via {plan.mode}…"
-        )
+    await _emit_connect_progress(on_progress, progress_message)
 
     try:
         result = await manager.attach_mcp_server(
@@ -726,28 +618,59 @@ async def handle_mcp_connect(
         await _emit_connect_progress(
             on_progress, f"Failed to connect MCP server '{plan.server_name}'."
         )
-        error_text = str(exc)
-        outcome.add_message(f"Failed to connect MCP server: {error_text}", channel="error")
-        _add_connect_failure_guidance(
-            outcome,
-            error_text=error_text,
-            oauth_paste_fallback_enabled=oauth_paste_fallback_enabled,
+        failure = classify_mcp_failure(
+            exc,
+            server_name=plan.server_name,
+            origin="central" if plan.configured else "session",
+            surface=surface,
+            input_ref=(
+                _resolve_configured_source_from_context(ctx, plan.server_name) or plan.server_name
+                if plan.configured
+                else render_normalized_target(parsed.target)
+            ),
+            stage="initialize",
+            explicit_auth=parsed.options.auth_token is not None,
+        )
+        outcome.add_message(
+            render_mcp_failure(
+                failure,
+                output_format="markdown" if surface == "acp_connect" else "terminal",
+            ),
+            channel="error",
+            right_info="mcp",
             agent_name=agent_name,
+            render_markdown=surface == "acp_connect",
+            metadata={"mcp_failure": failure},
         )
         return outcome
 
     counts = _mcp_attach_counts(result)
     await _add_connect_success_messages(
-        ctx,
         outcome,
         result=result,
         parsed=parsed,
         counts=counts,
         mode=plan.mode,
         server_name=plan.server_name,
+        configured=plan.configured,
         agent_name=agent_name,
         on_progress=on_progress,
     )
+    if (
+        parsed.target.mode == "url"
+        and parsed.target.input_url is not None
+        and parsed.target.url != parsed.target.input_url
+    ):
+        outcome.add_message(
+            (
+                f"Resolved MCP URL '{redact_mcp_url(parsed.target.input_url)}' to "
+                f"'{redact_mcp_url(parsed.target.url or parsed.target.input_url)}'. "
+                "Automatic '/mcp' suffixing is deprecated; pass the complete URL explicitly."
+            ),
+            channel="warning",
+            right_info="mcp",
+            agent_name=agent_name,
+        )
     for warning in result.warnings:
         outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)
 
@@ -819,10 +742,22 @@ async def handle_mcp_reconnect(
         return outcome
 
     if server_name not in attached_servers:
+        configured = await manager.list_configured_detached_mcp_servers(agent_name)
+        if server_name in configured:
+            outcome.add_message(
+                (
+                    f"MCP server '{server_name}' is configured but not attached. "
+                    f"Use `/mcp attach {server_name}`."
+                ),
+                channel="warning",
+                right_info="mcp",
+                agent_name=agent_name,
+            )
+            return outcome
         outcome.add_message(
             (
                 f"MCP server '{server_name}' is not currently attached. "
-                "Use `/mcp connect <target>` to attach it first."
+                "Use `/mcp connect --name <name> <target>` to connect it first."
             ),
             channel="warning",
             right_info="mcp",

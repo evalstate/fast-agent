@@ -9,8 +9,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
-from mcp.types import CallToolResult, TextContent
+from fastmcp import FastMCP
+from mcp_types import CallToolResult, TextContent
 
 app = FastMCP(name="Structured Content Preview Demo")
 
@@ -25,9 +25,9 @@ def _text_block(payload: Any) -> TextContent:
 def _tool_result(*, text_payloads: list[Any], structured_payload: dict[str, Any]) -> CallToolResult:
     result = CallToolResult(
         content=[_text_block(payload) for payload in text_payloads],
-        isError=False,
+        is_error=False,
     )
-    setattr(result, "structuredContent", structured_payload)
+    result.structured_content = structured_payload
     return result
 
 

@@ -2,19 +2,19 @@
 Unit tests for the prompt rendering utilities.
 """
 
-from mcp.types import BlobResourceContents, EmbeddedResource, TextContent, TextResourceContents
+from mcp_types import BlobResourceContents, EmbeddedResource, TextContent, TextResourceContents
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_render import render_content_blocks
-from fast_agent.mcp.resource_utils import create_image_content, to_any_url
+from fast_agent.mcp.resource_utils import create_image_content
 
 
 def create_blob_resource(resource_path: str, content: str, mime_type: str) -> EmbeddedResource:
     return EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri=to_any_url(resource_path),
-            mimeType=mime_type,
+            uri=resource_path,
+            mime_type=mime_type,
             blob=content,
         ),
     )
@@ -24,8 +24,8 @@ def create_text_resource(resource_path: str, content: str, mime_type: str) -> Em
     return EmbeddedResource(
         type="resource",
         resource=TextResourceContents(
-            uri=to_any_url(resource_path),
-            mimeType=mime_type,
+            uri=resource_path,
+            mime_type=mime_type,
             text=content,
         ),
     )

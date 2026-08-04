@@ -8,8 +8,7 @@ Handlers are async Python callables with this signature:
 ```python
 async def handler(
     ctx: PluginCommandActionContext,
-) -> PluginCommandActionResult | str | None:
-    ...
+) -> PluginCommandActionResult | str | None: ...
 ```
 
 Returning a plain string is shorthand for `PluginCommandActionResult(message=...)`.

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
-from mcp.types import BlobResourceContents, EmbeddedResource, ImageContent, TextContent
+from mcp_types import BlobResourceContents, EmbeddedResource, ImageContent, TextContent
 from rich.console import Group, RenderableType
 from rich.text import Text
 
@@ -92,7 +92,7 @@ def render_assistant_images_for_settings(
     settings: TerminalImageSettings | None,
     content: Sequence[object] | PromptMessageExtended | None,
 ) -> RenderableType | None:
-    if settings is None or content is None:
+    if settings is None or content is None or not settings.enabled or settings.backend == "none":
         return None
 
     blocks: Sequence[object]
@@ -116,7 +116,7 @@ def render_tool_result_images_for_settings(
     settings: TerminalImageSettings | None,
     content: Sequence[object] | None,
 ) -> RenderableType | None:
-    if settings is None or content is None:
+    if settings is None or content is None or not settings.enabled or settings.backend == "none":
         return None
     return render_image_items(settings, extract_image_render_items(content))
 
@@ -168,14 +168,7 @@ def _assistant_settings(config: Settings | None) -> TerminalImageSettings | None
 
 
 def _tool_result_settings(config: Settings | None) -> TerminalImageSettings | None:
-    terminal_images = _active_terminal_image_settings(config)
-    if terminal_images is None:
-        return None
-    # Tool-result images are rendered at the tool-result boundary. Keep
-    # render_assistant as the user-facing "show generated images" switch.
-    if not terminal_images.render_assistant:
-        return None
-    return terminal_images
+    return _active_terminal_image_settings(config)
 
 
 def _active_terminal_image_settings(
@@ -196,12 +189,12 @@ def _artifact_from_content(item: object, index: int) -> ImageArtifact | None:
             return None
         return ImageArtifact(
             data=data,
-            mime_type=item.mimeType,
-            label=_label(index, item.mimeType, len(data), None),
+            mime_type=item.mime_type,
+            label=_label(index, item.mime_type, len(data), None),
         )
 
     if isinstance(item, EmbeddedResource) and isinstance(item.resource, BlobResourceContents):
-        mime_type = item.resource.mimeType or "application/octet-stream"
+        mime_type = item.resource.mime_type or "application/octet-stream"
         if not mime_type.startswith("image/"):
             return None
         data = _decode_base64(item.resource.blob)
@@ -353,9 +346,25 @@ def _resolve_textual_image_class(backend: str) -> Any | None:
     if class_name is None:
         return None
 
+    if backend == "sixel":
+        try:
+            module = import_module("fast_agent.ui.terminal_images.sixel")
+        except ImportError:
+            logger.debug("textual-image is not installed; terminal image rendering disabled")
+            return None
+        return getattr(module, "ViewportAwareSixelImage", None)
+
     try:
         module = import_module("textual_image.renderable")
     except ImportError:
         logger.debug("textual-image is not installed; terminal image rendering disabled")
         return None
-    return getattr(module, class_name, None)
+
+    image_cls = getattr(module, class_name, None)
+    if (
+        class_name == "Image"
+        and image_cls is not None
+        and image_cls is getattr(module, "SixelImage", None)
+    ):
+        return _resolve_textual_image_class("sixel")
+    return image_cls

@@ -127,7 +127,7 @@ def _wait_for_server(process: subprocess.Popen[str]) -> None:
         if process.poll() is not None:
             raise RuntimeError("fake A2A server exited before it was ready")
         try:
-            with urllib.request.urlopen(url, timeout=0.5) as response:  # noqa: S310 - local test server
+            with urllib.request.urlopen(url, timeout=0.5) as response:
                 if response.status == 200:
                     return
         except OSError:

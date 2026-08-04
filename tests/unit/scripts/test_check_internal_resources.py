@@ -28,5 +28,5 @@ validate_internal_resources = _check_module.validate_internal_resources
 def test_validate_internal_resources_returns_known_uri() -> None:
     uris = validate_internal_resources()
 
-    assert "internal://fast-agent/smart-agent-cards" in uris
+    assert "internal://fast-agent/agent-cards" in uris
     assert "internal://fast-agent/model-overlays" in uris

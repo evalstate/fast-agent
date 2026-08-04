@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from mcp.types import EmbeddedResource, TextResourceContents
-from pydantic import AnyUrl
+from mcp_types import EmbeddedResource, TextResourceContents
 
 from fast_agent.mcp.mcp_content import MCPPrompt
 
 
-@dataclass(frozen=True)
+@dataclass
 class _ResourceLike:
     type: str
     resource: object
@@ -16,9 +15,9 @@ class _ResourceLike:
 
 def test_mcp_prompt_accepts_resource_like_object_without_dynamic_probe() -> None:
     resource = TextResourceContents(
-        uri=AnyUrl("file:///tmp/example.txt"),
+        uri="file:///tmp/example.txt",
         text="example",
-        mimeType="text/plain",
+        mime_type="text/plain",
     )
 
     messages = MCPPrompt(_ResourceLike(type="resource", resource=resource))

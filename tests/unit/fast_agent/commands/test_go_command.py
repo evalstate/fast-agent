@@ -268,6 +268,44 @@ def test_go_accepts_timeout_flag(monkeypatch) -> None:
     assert captured_requests[0].timeout_seconds == 120
 
 
+def test_go_preserves_repeated_and_comma_separated_mcp_urls(monkeypatch) -> None:
+    captured_requests = []
+    monkeypatch.setattr(go_command, "run_request", captured_requests.append)
+
+    result = CliRunner().invoke(
+        go_command.app,
+        [
+            "--no-home",
+            "--url",
+            "https://one.example/mcp,https://two.example/mcp",
+            "--url",
+            "https://three.example/mcp",
+            "--mcp-protocol",
+            "modern",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    request = captured_requests[0]
+    assert request.startup_mcp_servers is not None
+    assert list(request.startup_mcp_servers) == [
+        "one_example",
+        "two_example",
+        "three_example",
+    ]
+    assert {config.protocol_mode for config in request.startup_mcp_servers.values()} == {"modern"}
+
+
+def test_go_rejects_invalid_mcp_protocol() -> None:
+    result = CliRunner().invoke(
+        go_command.app,
+        ["--no-home", "--mcp-protocol", "future"],
+    )
+
+    assert result.exit_code == 2
+    assert "Invalid value for '--mcp-protocol'" in strip_ansi(result.output)
+
+
 def test_go_workspace_sets_default_home_base(monkeypatch, tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()

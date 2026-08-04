@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import math
+import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Literal, cast
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import mslex
 
@@ -27,12 +29,14 @@ if TYPE_CHECKING:
 
 McpConnectMode = Literal["url", "stdio", "npx", "uvx"]
 McpTransport = Literal["http", "sse", "stdio"]
+McpProtocolMode = Literal["auto", "modern", "legacy"]
 
 MCP_CONNECT_FLAG_DESCRIPTIONS: dict[str, str] = {
     "--name": "set attached server name",
     "-n": "set attached server name",
     "--auth": "set bearer token for URL servers",
     "--timeout": "set startup timeout in seconds",
+    "--protocol": "set MCP protocol mode: auto, modern, or legacy",
     "--oauth": "enable oauth flow",
     "--no-oauth": "disable oauth flow",
     "--reconnect": "force reconnect and refresh tools",
@@ -42,6 +46,8 @@ _NPX_PACKAGE_VALUE_OPTIONS = frozenset({"--package", "-p"})
 _UVX_PACKAGE_VALUE_OPTIONS = frozenset({"--from"})
 
 _WHOLE_SINGLE_QUOTED_ARG_PATTERN = re.compile(r"(^|\s)'([^']+)'(?=\s|$)")
+_AUTH_ENV_BRACED_RE = re.compile(r"^\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::(?P<default>.*))?\}$")
+_AUTH_ENV_SIMPLE_RE = re.compile(r"^\$(?P<name>[A-Za-z_][A-Za-z0-9_]*)$")
 
 
 def _rewrite_shell_single_quotes_for_windows(text: str) -> str:
@@ -49,6 +55,36 @@ def _rewrite_shell_single_quotes_for_windows(text: str) -> str:
         lambda match: f"{match.group(1)}{mslex.quote(match.group(2))}",
         text,
     )
+
+
+def resolve_connect_auth_token(raw_value: str) -> str:
+    """Normalize an auth token and resolve supported environment references."""
+    normalized = strip_to_none(raw_value) or ""
+    if strip_casefold(normalized).startswith("bearer "):
+        normalized = strip_to_none(normalized[7:]) or ""
+    if not normalized:
+        raise ValueError("Missing value for --auth")
+
+    match = _AUTH_ENV_BRACED_RE.match(normalized)
+    if match:
+        env_name = match.group("name")
+        default = match.group("default")
+        resolved = os.environ.get(env_name)
+        if resolved is not None:
+            return resolved
+        if default is not None:
+            return default
+        raise ValueError(f"Environment variable '{env_name}' is not set")
+
+    match = _AUTH_ENV_SIMPLE_RE.match(normalized)
+    if match:
+        env_name = match.group("name")
+        resolved = os.environ.get(env_name)
+        if resolved is None:
+            raise ValueError(f"Environment variable '{env_name}' is not set")
+        return resolved
+
+    return normalized
 
 
 def _split_connect_command_text(
@@ -76,12 +112,14 @@ class NormalizedMcpTarget:
     command: str | None
     args: tuple[str, ...]
     server_name: str | None
+    input_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class McpConnectOptions:
     auth_token: str | None
     timeout_seconds: float | None
+    protocol_mode: McpProtocolMode | None
     trigger_oauth: bool | None
     reconnect_on_disconnect: bool | None
     force_reconnect: bool
@@ -91,6 +129,8 @@ class McpConnectOptions:
 class ParsedMcpConnectRequest:
     target: NormalizedMcpTarget
     options: McpConnectOptions
+    configured_name_candidate: str | None = None
+    configured_name_parse_error: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,11 +199,19 @@ def _validate_timeout(value: str) -> float:
     return timeout_seconds
 
 
+def _validate_protocol_mode(value: str) -> McpProtocolMode:
+    normalized = strip_casefold(value)
+    if normalized not in {"auto", "modern", "legacy"}:
+        raise ValueError("Invalid value for --protocol: expected one of auto, modern, or legacy")
+    return normalized
+
+
 @dataclass(slots=True)
 class _ConnectOptionState:
     server_name: str | None = None
     auth_token: str | None = None
     timeout_seconds: float | None = None
+    protocol_mode: McpProtocolMode | None = None
     trigger_oauth: bool | None = None
     reconnect_on_disconnect: bool | None = None
     force_reconnect: bool = False
@@ -245,6 +293,10 @@ def _set_timeout_seconds(options: _ConnectOptionState, value: str) -> None:
     options.timeout_seconds = _validate_timeout(value)
 
 
+def _set_protocol_mode(options: _ConnectOptionState, value: str) -> None:
+    options.protocol_mode = _validate_protocol_mode(value)
+
+
 def _server_name_already_set(options: _ConnectOptionState) -> bool:
     return options.server_name is not None
 
@@ -255,6 +307,10 @@ def _auth_token_already_set(options: _ConnectOptionState) -> bool:
 
 def _timeout_seconds_already_set(options: _ConnectOptionState) -> bool:
     return options.timeout_seconds is not None
+
+
+def _protocol_mode_already_set(options: _ConnectOptionState) -> bool:
+    return options.protocol_mode is not None
 
 
 _CONNECT_VALUE_OPTIONS: tuple[_ConnectValueOption, ...] = (
@@ -275,6 +331,12 @@ _CONNECT_VALUE_OPTIONS: tuple[_ConnectValueOption, ...] = (
         error_name="--timeout",
         apply=_set_timeout_seconds,
         already_set=_timeout_seconds_already_set,
+    ),
+    _ConnectValueOption(
+        option_names=("--protocol",),
+        error_name="--protocol",
+        apply=_set_protocol_mode,
+        already_set=_protocol_mode_already_set,
     ),
 )
 
@@ -437,6 +499,7 @@ def _normalize_target_tokens(
             command=None,
             args=(),
             server_name=resolved_server_name,
+            input_url=tokens[0],
         )
 
     if mode == "npx":
@@ -526,6 +589,7 @@ def parse_connect_command_tokens(tokens: Sequence[str]) -> ParsedMcpConnectReque
         options=McpConnectOptions(
             auth_token=options.auth_token,
             timeout_seconds=options.timeout_seconds,
+            protocol_mode=options.protocol_mode,
             trigger_oauth=options.trigger_oauth,
             reconnect_on_disconnect=options.reconnect_on_disconnect,
             force_reconnect=options.force_reconnect,
@@ -620,8 +684,34 @@ def parse_connect_command_text(
     text: str,
     *,
     syntax: CommandLineSyntax = "auto",
+    resolve_configured_name: bool = False,
 ) -> ParsedMcpConnectRequest:
-    return parse_connect_command_tokens(_split_connect_command_text(text, syntax=syntax))
+    tokens = _split_connect_command_text(text, syntax=syntax)
+    candidate = tokens[0] if resolve_configured_name and len(tokens) == 1 else None
+    try:
+        request = parse_connect_command_tokens(tokens)
+    except ValueError as exc:
+        if candidate is None:
+            raise
+        return ParsedMcpConnectRequest(
+            target=_stdio_target(
+                mode="stdio",
+                command=candidate,
+                args=(),
+                server_name=None,
+            ),
+            options=McpConnectOptions(
+                auth_token=None,
+                timeout_seconds=None,
+                protocol_mode=None,
+                trigger_oauth=None,
+                reconnect_on_disconnect=None,
+                force_reconnect=False,
+            ),
+            configured_name_candidate=candidate,
+            configured_name_parse_error=str(exc),
+        )
+    return replace(request, configured_name_candidate=candidate) if candidate else request
 
 
 def render_normalized_target(
@@ -630,6 +720,30 @@ def render_normalized_target(
     syntax: CommandLineSyntax = "auto",
 ) -> str:
     return join_commandline(_render_target_argv(target), syntax=syntax)
+
+
+def redact_mcp_url(url: str) -> str:
+    """Redact URL userinfo, query values, and fragments for user-facing output."""
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return "[REDACTED INVALID URL]"
+    netloc = parsed.netloc
+    if "@" in netloc:
+        netloc = f"[REDACTED]@{netloc.rsplit('@', 1)[1]}"
+    query = urlencode([(key, "[REDACTED]") for key, _value in parse_qsl(parsed.query)])
+    fragment = "[REDACTED]" if parsed.fragment else ""
+    return urlunsplit((parsed.scheme, netloc, parsed.path, query, fragment))
+
+
+def render_redacted_target(
+    target: NormalizedMcpTarget,
+    *,
+    syntax: CommandLineSyntax = "auto",
+) -> str:
+    if target.mode == "url" and target.url is not None:
+        return redact_mcp_url(target.url)
+    return render_normalized_target(target, syntax=syntax)
 
 
 def _render_target_argv(target: NormalizedMcpTarget) -> list[str]:
@@ -664,6 +778,8 @@ def render_connect_request(
         argv.extend(["--auth", "[REDACTED]" if redact_auth else request.options.auth_token])
     if request.options.timeout_seconds is not None:
         argv.extend(["--timeout", str(request.options.timeout_seconds)])
+    if request.options.protocol_mode is not None:
+        argv.extend(["--protocol", request.options.protocol_mode])
     if request.options.trigger_oauth is True:
         argv.append("--oauth")
     elif request.options.trigger_oauth is False:
@@ -838,6 +954,7 @@ def build_server_config_from_target(
             command=normalized_target.command,
             args=normalized_target.args,
             server_name=server_name,
+            input_url=normalized_target.input_url,
         )
     )
 
@@ -912,6 +1029,7 @@ __all__ = [
     "McpConnectMode",
     "McpConnectOptions",
     "McpTransport",
+    "McpProtocolMode",
     "NormalizedConnectConfigTarget",
     "NormalizedMcpTarget",
     "ParsedMcpConnectRequest",
@@ -930,5 +1048,8 @@ __all__ = [
     "parse_connect_command_tokens",
     "render_connect_request",
     "render_normalized_target",
+    "render_redacted_target",
+    "redact_mcp_url",
+    "resolve_connect_auth_token",
     "resolve_target_entry",
 ]

@@ -11,7 +11,7 @@ from pathlib import Path
 from shutil import rmtree
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 import fast_agent.tools.shell_runtime as shell_runtime_module
 from fast_agent.config import Settings, ShellSettings

@@ -47,6 +47,8 @@ def _fast_agent_cmd(
         "passthrough",
         "--name",
         name,
+        "--home",
+        str(TEST_DIR / ".fast-agent"),
     ]
     if servers:
         cmd.extend(["--servers", *servers])

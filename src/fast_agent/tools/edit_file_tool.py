@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Final
 
-from mcp.types import Tool
+from mcp_types import Tool
 
 from fast_agent.tools.filesystem_tool_args import (
     coerce_required_string_argument,
@@ -30,7 +30,7 @@ def build_edit_file_tool() -> Tool:
     return Tool(
         name=EDIT_FILE_TOOL_NAME,
         description=EDIT_FILE_TOOL_DESCRIPTION,
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "path": {

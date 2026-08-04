@@ -1,6 +1,6 @@
 import asyncio
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.server.dependencies import get_context
 
 # Create the FastMCP server
@@ -21,51 +21,17 @@ async def progress_task(steps: int = 5) -> str:
         steps: Number of steps to simulate (default: 5)
     """
     context = get_context()
-    request_context = context.request_context
-    assert request_context is not None
+    await context.report_progress(0, steps, "Starting task...")
 
-    # Get the progress token from the request metadata
-    progress_token = request_context.meta.progressToken if request_context.meta else None
-
-    if progress_token is None:
-        # Client didn't request progress updates
-        # Just do the work without progress notifications
-        for i in range(steps):
-            await asyncio.sleep(0.1)
-        return f"Successfully completed {steps} steps (no progress tracking)"
-
-    # Use the session directly to properly send progress with related_request_id
-    session = request_context.session
-    request_id = context.request_id
-
-    # Send progress notifications with proper correlation
-    await session.send_progress_notification(
-        progress_token=progress_token,
-        progress=0,
-        total=steps,
-        message="Starting task...",
-        related_request_id=request_id,  # ✅ Properly correlate with request
-    )
-
-    # Simulate work with progress updates
     for i in range(steps):
-        await asyncio.sleep(0.1)  # Simulate work
-        await session.send_progress_notification(
-            progress_token=progress_token,
-            progress=i + 1,
-            total=steps,
-            message=f"Completed step {i + 1} of {steps}",
-            related_request_id=request_id,  # ✅ Properly correlate with request
+        await asyncio.sleep(0.1)
+        await context.report_progress(
+            i + 1,
+            steps,
+            f"Completed step {i + 1} of {steps}",
         )
 
-    # Final completion
-    await session.send_progress_notification(
-        progress_token=progress_token,
-        progress=steps,
-        total=steps,
-        message="Task completed!",
-        related_request_id=request_id,  # ✅ Properly correlate with request
-    )
+    await context.report_progress(steps, steps, "Task completed!")
 
     return f"Successfully completed {steps} steps"
 
@@ -82,55 +48,21 @@ async def progress_task_no_message(steps: int = 3) -> str:
         steps: Number of steps to simulate (default: 3)
     """
     context = get_context()
-    request_context = context.request_context
-    assert request_context is not None
-
-    # Get the progress token from the request metadata
-    progress_token = request_context.meta.progressToken if request_context.meta else None
-
-    if progress_token is None:
-        # Client didn't request progress updates
-        for i in range(steps):
-            await asyncio.sleep(0.1)
-        return f"Completed {steps} steps (no progress tracking)"
-
-    # Use the session directly for proper correlation
-    session = request_context.session
-    request_id = context.request_id
-
-    # Send progress without messages
     for i in range(steps):
-        await asyncio.sleep(0.1)  # Simulate work
-        await session.send_progress_notification(
-            progress_token=progress_token,
-            progress=i + 1,
-            total=steps,
-            message=None,  # No message
-            related_request_id=request_id,  # ✅ Properly correlate with request
-        )
+        await asyncio.sleep(0.1)
+        await context.report_progress(i + 1, steps)
 
     return f"Completed {steps} steps without messages"
 
 
-# Alternative: Create a helper function to wrap the correct usage
 async def send_progress(
-    context, progress: float, total: float | None = None, message: str | None = None
+    context: Context,
+    progress: float,
+    total: float | None = None,
+    message: str | None = None,
 ) -> None:
-    """Helper function that correctly sends progress with related_request_id."""
-    request_context = context.request_context
-    assert request_context is not None
-    progress_token = request_context.meta.progressToken if request_context.meta else None
-
-    if progress_token is None:
-        return
-
-    await request_context.session.send_progress_notification(
-        progress_token=progress_token,
-        progress=progress,
-        total=total,
-        message=message,
-        related_request_id=context.request_id,  # ✅ Always include this
-    )
+    """Report progress through FastMCP's public request context."""
+    await context.report_progress(progress, total, message)
 
 
 @app.tool(

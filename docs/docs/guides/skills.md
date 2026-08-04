@@ -28,7 +28,13 @@ When valid `SKILL.md` files are found:
 
 !!! note "Skills over MCP"
 
-    Thanks to Ola Hungerford, fast-agent has early access support for MCP SEP-2640: [Skills over MCP](../mcp/skills-over-mcp.md)
+    Thanks to Ola Hungerford, fast-agent supports the SEP-2640 Skills Extension
+    Draft at `d7490ecd` through `skills/list` and `skills/get` resource
+    manifests. Legacy `skill://index.json` and archive-artifact servers are
+    unsupported. SHA-256 checks validate bytes against the selected server's
+    manifest; they do not establish publisher or content trust. Use only
+    trusted servers and review installed skills. See
+    [Skills over MCP](../mcp/skills-over-mcp.md).
 
 
 ## Installing Skills
@@ -253,6 +259,7 @@ Skills directories can be defined on a per-agent basis:
 
 ```python
 from fast_agent.constants import DEFAULT_SKILLS_PATHS
+
 
 # Define the agent
 @fast.agent(instruction=default_instruction, skills=DEFAULT_SKILLS_PATHS + ["~/source/skills"])

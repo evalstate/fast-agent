@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator, Mapping
     from contextlib import AbstractAsyncContextManager
 
-    from mcp.types import PromptMessage
+    from mcp_types import PromptMessage
 
     from fast_agent.config import Settings
     from fast_agent.core.agent_app import AgentApp

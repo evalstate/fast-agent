@@ -33,17 +33,17 @@ def test_render_command_detail_markdown_contains_registry_action() -> None:
 
 
 def test_render_commands_json_detail_has_schema_version() -> None:
-    rendered = render_commands_json(command_name="cards")
+    rendered = render_commands_json(command_name="packs")
 
     assert '"schema_version": "1"' in rendered
     assert '"kind": "command_detail"' in rendered
 
 
 def test_render_command_action_detail_markdown_contains_options() -> None:
-    rendered = render_command_detail_markdown("cards", "publish")
+    rendered = render_command_detail_markdown("packs", "publish")
 
     assert rendered is not None
-    assert "# commands cards publish" in rendered
+    assert "# commands packs publish" in rendered
     assert "`--no-push`" in rendered
     assert "`--message text`, `-m`" in rendered
 
@@ -82,4 +82,7 @@ def test_render_commands_index_markdown_has_tree_actions() -> None:
 
     assert "Command map:" in rendered
     assert "- `/skills`" in rendered
+    assert "- `/packs`" in rendered
+    assert "- `/cards`" not in rendered
+    assert "- `/models`" not in rendered
     assert "  - list, available, search, add, remove, update, registry, help" in rendered

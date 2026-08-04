@@ -10,7 +10,7 @@ from typing import Any, cast
 import pytest
 import typer
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, ListToolsResult, TextContent
+from mcp_types import CallToolRequestParams, ListToolsResult, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
@@ -273,14 +273,13 @@ def _make_request(
         json_schema=json_schema,
         result_file=result_file,
         resume=None,
-        url_servers=None,
-        stdio_servers=None,
+        startup_mcp_servers=None,
+        mcp_startup_notices=(),
         agent_name="agent",
         target_agent_name=target_agent_name,
         skills_directory=None,
         home=None,
         no_home=False,
-        force_smart=False,
         shell_runtime=False,
         no_shell=False,
         mode="interactive",
@@ -315,6 +314,7 @@ def test_trajectory_output_enables_stateless_child_capture(tmp_path: Path) -> No
     _enable_atif_child_capture(app, request)
 
     assert child.config.save_trajectory is True
+    assert child.subagent_trajectory_capture_enabled
 
 
 def test_select_loaded_card_agent_targets_single_runnable_card() -> None:

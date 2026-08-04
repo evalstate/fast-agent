@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from rich import print as rich_print
 from rich.text import Text
 
 from fast_agent.commands.handlers import history as history_handlers
@@ -21,6 +20,7 @@ from fast_agent.ui.command_payloads import (
     SwitchAgentCommand,
     is_command_payload,
 )
+from fast_agent.ui.console import rich_print
 from fast_agent.ui.prompt.command_help import render_help_lines
 
 if TYPE_CHECKING:

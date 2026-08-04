@@ -45,6 +45,8 @@ class AgentCardManager(Protocol):
 
     def registered_agent_names(self) -> Iterable[str]: ...
 
+    def visible_agent_names(self, *, force_include: str | None = None) -> Iterable[str]: ...
+
 
 class CardLoadAction(StrEnum):
     LOAD = "load"
@@ -52,30 +54,11 @@ class CardLoadAction(StrEnum):
     LOAD_AND_DETACH = "load_and_detach"
 
 
-class AgentCommandAction(StrEnum):
-    DUMP = "dump"
-    ATTACH_TOOL = "attach_tool"
-    DETACH_TOOL = "detach_tool"
-    INVALID = "invalid"
-
-
 @dataclass(frozen=True, slots=True)
 class CardLoadToolActionPolicy:
     can_perform: "Callable[[AgentCardManager], bool]"
     unavailable_message: str
     missing_agent_message: str
-
-
-@dataclass(frozen=True, slots=True)
-class AgentCommandRequest:
-    action: AgentCommandAction
-    target: str
-
-
-@dataclass(frozen=True, slots=True)
-class AgentCommandActionPolicy:
-    requires_target: bool = False
-    missing_target_message: str = ""
 
 
 _CARD_LOAD_TOOL_ACTION_POLICIES: dict[CardLoadAction, CardLoadToolActionPolicy] = {
@@ -91,17 +74,6 @@ _CARD_LOAD_TOOL_ACTION_POLICIES: dict[CardLoadAction, CardLoadToolActionPolicy] 
     ),
 }
 
-_AGENT_COMMAND_ACTION_POLICIES: dict[AgentCommandAction, AgentCommandActionPolicy] = {
-    AgentCommandAction.DUMP: AgentCommandActionPolicy(),
-    AgentCommandAction.ATTACH_TOOL: AgentCommandActionPolicy(
-        requires_target=True,
-        missing_target_message="Agent name is required for /agent --tool.",
-    ),
-    AgentCommandAction.DETACH_TOOL: AgentCommandActionPolicy(
-        requires_target=True,
-        missing_target_message="Agent name is required for /agent --tool remove.",
-    ),
-}
 _AGENT_TOOL_NOOP_ACTION_LABELS = {
     "Attached": "attached",
     "Detached": "detached",
@@ -114,51 +86,6 @@ def _resolve_card_load_action(*, add_tool: bool, remove_tool: bool) -> CardLoadA
     if add_tool:
         return CardLoadAction.LOAD_AND_ATTACH
     return CardLoadAction.LOAD
-
-
-def _resolve_agent_command_action(
-    *,
-    add_tool: bool,
-    remove_tool: bool,
-    dump: bool,
-) -> AgentCommandAction:
-    if dump:
-        return AgentCommandAction.INVALID if add_tool or remove_tool else AgentCommandAction.DUMP
-    if add_tool and remove_tool:
-        return AgentCommandAction.DETACH_TOOL
-    if add_tool:
-        return AgentCommandAction.ATTACH_TOOL
-    return AgentCommandAction.INVALID
-
-
-def _agent_command_action_policy(
-    action: AgentCommandAction,
-) -> AgentCommandActionPolicy | None:
-    return _AGENT_COMMAND_ACTION_POLICIES.get(action)
-
-
-def _agent_command_request(
-    outcome: CommandOutcome,
-    *,
-    action: AgentCommandAction,
-    current_agent: str,
-    target_agent: str | None,
-    error: str | None,
-) -> AgentCommandRequest | None:
-    if error:
-        outcome.add_message(error, channel="error")
-        return None
-
-    policy = _agent_command_action_policy(action)
-    if policy is None:
-        outcome.add_message("Invalid /agent command.", channel="error")
-        return None
-
-    if policy.requires_target and target_agent is None:
-        outcome.add_message(policy.missing_target_message, channel="error")
-        return None
-
-    return AgentCommandRequest(action=action, target=target_agent or current_agent)
 
 
 def _card_load_tool_action_policy(action: CardLoadAction) -> CardLoadToolActionPolicy | None:
@@ -258,7 +185,7 @@ async def handle_card_load(
             channel="error",
         )
         outcome.add_message(
-            "Usage: /card <filename|url> [--tool]",
+            "Usage: /card load <filename|url> [--as-tool]",
             channel="info",
         )
         return outcome
@@ -384,47 +311,62 @@ async def handle_agent_command(
     *,
     manager: AgentCardManager,
     current_agent: str,
+    action: str,
     target_agent: str | None,
-    add_tool: bool,
-    remove_tool: bool,
-    dump: bool,
-    error: str | None = None,
 ) -> CommandOutcome:
     del ctx
 
     outcome = CommandOutcome()
-    action = _resolve_agent_command_action(add_tool=add_tool, remove_tool=remove_tool, dump=dump)
-    request = _agent_command_request(
-        outcome,
-        action=action,
-        current_agent=current_agent,
-        target_agent=target_agent,
-        error=error,
-    )
-    if request is None:
+    if action == "status":
+        outcome.add_message(f"Current agent: {current_agent}", right_info="agent")
         return outcome
-
-    if request.action is AgentCommandAction.DUMP:
-        return await _handle_agent_dump(outcome, manager=manager, target=request.target)
-
-    if request.action is AgentCommandAction.DETACH_TOOL:
+    if action == "list":
+        names = list(manager.visible_agent_names(force_include=current_agent))
+        if not names:
+            outcome.add_message("No selectable agents.", channel="warning", right_info="agent")
+            return outcome
+        lines = [f"- {name}{' (current)' if name == current_agent else ''}" for name in names]
+        outcome.add_message("Agents:\n" + "\n".join(lines), right_info="agent")
+        return outcome
+    if action == "use":
+        if target_agent not in set(manager.visible_agent_names(force_include=current_agent)):
+            outcome.add_message(f"Agent '{target_agent}' not found", channel="error")
+            return outcome
+        outcome.switch_agent = target_agent
+        outcome.add_message(f"Switched to agent: {target_agent}", right_info="agent")
+        return outcome
+    if action == "tool_remove" and target_agent is not None:
         return await _handle_agent_detach_tool(
             outcome,
             manager=manager,
             current_agent=current_agent,
-            target=request.target,
+            target=target_agent,
         )
-
-    if request.action is AgentCommandAction.ATTACH_TOOL:
+    if action == "tool_add" and target_agent is not None:
         return await _handle_agent_attach_tool(
             outcome,
             manager=manager,
             current_agent=current_agent,
-            target=request.target,
+            target=target_agent,
         )
 
     outcome.add_message("Invalid /agent command.", channel="error")
     return outcome
+
+
+async def handle_card_show(
+    ctx: CommandContext,
+    *,
+    manager: AgentCardManager,
+    current_agent: str,
+    target_agent: str | None,
+) -> CommandOutcome:
+    del ctx
+    return await _handle_agent_dump(
+        CommandOutcome(),
+        manager=manager,
+        target=target_agent or current_agent,
+    )
 
 
 async def handle_reload_agents(

@@ -23,7 +23,7 @@ class GenericLLM(OpenAILLM):
 
         return RequestParams(
             model=chosen_model,
-            systemPrompt=self.instruction,
+            system_prompt=self.instruction,
             parallel_tool_calls=True,
             max_iterations=DEFAULT_MAX_ITERATIONS,
             use_history=True,

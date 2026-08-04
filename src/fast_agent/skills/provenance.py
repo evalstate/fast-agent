@@ -13,6 +13,7 @@ from fast_agent.skills.models import (
     SKILL_SOURCE_SCHEMA_VERSION,
     InstalledSkillSource,
     MarketplaceSkill,
+    McpSkillResource,
     SkillProvenance,
     SkillSourceOrigin,
 )
@@ -45,15 +46,15 @@ def read_installed_skill_source(
 
 
 def write_installed_skill_source(skill_dir: Path, source: InstalledSkillSource) -> None:
-    extra_payload: dict[str, str] = {}
+    extra_payload: dict[str, Any] = {}
     if source.mcp_server_name is not None:
         extra_payload["mcp_server_name"] = source.mcp_server_name
     if source.mcp_server_version is not None:
         extra_payload["mcp_server_version"] = source.mcp_server_version
-    if source.artifact_digest is not None:
-        extra_payload["artifact_digest"] = source.artifact_digest
-    if source.artifact_type is not None:
-        extra_payload["artifact_type"] = source.artifact_type
+    if source.mcp_resources is not None:
+        extra_payload["mcp_resources"] = [
+            {"uri": resource.uri, "digest": resource.digest} for resource in source.mcp_resources
+        ]
 
     marketplace_provenance_io.write_installed_source_file(
         get_skill_source_sidecar_path(skill_dir),
@@ -107,7 +108,14 @@ def format_skill_provenance_details(skill_dir: Path) -> tuple[str, str | None]:
     )
     if source.source_origin == "mcp":
         version = f"@{source.mcp_server_version}" if source.mcp_server_version else ""
-        integrity = " • integrity: sha256" if source.artifact_digest else ""
+        integrity = ""
+        if source.mcp_resources:
+            count = len(source.mcp_resources)
+            noun = "file" if count == 1 else "files"
+            integrity = (
+                f" • integrity: SHA-256 checked at install ({count} {noun}; "
+                "server manifest, not publisher verification)"
+            )
         provenance_value = (
             f"mcp-server {source.mcp_server_name or source.repo_url}{version} "
             f"({source.repo_path}){integrity}"
@@ -160,8 +168,6 @@ def parse_installed_skill_source_payload(payload: dict[str, Any]) -> InstalledSk
         installed_revision=parsed.installed_revision,
         installed_at=parsed.installed_at,
         content_fingerprint=parsed.content_fingerprint,
-        artifact_digest=_optional_string(payload.get("artifact_digest")),
-        artifact_type=_optional_string(payload.get("artifact_type")),
     )
 
 
@@ -202,14 +208,6 @@ def _parse_mcp_installed_skill_source_payload(payload: dict[str, Any]) -> Instal
     if not isinstance(content_fingerprint, str) or not content_fingerprint.startswith("sha256:"):
         raise ValueError("content_fingerprint must be a sha256 fingerprint")
 
-    artifact_digest = payload.get("artifact_digest")
-    if artifact_digest is not None and not isinstance(artifact_digest, str):
-        raise ValueError("artifact_digest must be a string or null")
-
-    artifact_type = payload.get("artifact_type")
-    if artifact_type is not None and not isinstance(artifact_type, str):
-        raise ValueError("artifact_type must be a string or null")
-
     server_name = payload.get("mcp_server_name")
     if server_name is not None and not isinstance(server_name, str):
         raise ValueError("mcp_server_name must be a string or null")
@@ -233,8 +231,7 @@ def _parse_mcp_installed_skill_source_payload(payload: dict[str, Any]) -> Instal
         content_fingerprint=content_fingerprint,
         mcp_server_name=server_name.strip() if isinstance(server_name, str) else None,
         mcp_server_version=server_version.strip() if isinstance(server_version, str) else None,
-        artifact_digest=artifact_digest.strip() if isinstance(artifact_digest, str) else None,
-        artifact_type=artifact_type.strip() if isinstance(artifact_type, str) else None,
+        mcp_resources=_parse_mcp_resources(payload.get("mcp_resources")),
     )
 
 
@@ -270,8 +267,8 @@ def build_mcp_installed_skill_source(
     server_version: str | None,
     skill_uri: str,
     fingerprint: str,
-    artifact_digest: str,
-    artifact_type: str,
+    resources: tuple[McpSkillResource, ...],
+    revision: str,
 ) -> InstalledSkillSource:
     return InstalledSkillSource(
         schema_version=SKILL_SOURCE_SCHEMA_VERSION,
@@ -283,11 +280,27 @@ def build_mcp_installed_skill_source(
         source_url=skill_uri,
         installed_commit=None,
         installed_path_oid=None,
-        installed_revision=artifact_digest,
+        installed_revision=revision,
         installed_at=marketplace_formatting.iso_utc_now(),
         content_fingerprint=fingerprint,
         mcp_server_name=server_name,
         mcp_server_version=server_version,
-        artifact_digest=artifact_digest,
-        artifact_type=artifact_type,
+        mcp_resources=resources,
     )
+
+
+def _parse_mcp_resources(value: object) -> tuple[McpSkillResource, ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValueError("mcp_resources must be a list or null")
+    resources: list[McpSkillResource] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("mcp_resources entries must be objects")
+        uri = _optional_string(item.get("uri"))
+        digest = _optional_string(item.get("digest"))
+        if uri is None or digest is None:
+            raise ValueError("mcp_resources entries require uri and digest")
+        resources.append(McpSkillResource(uri=uri, digest=digest))
+    return tuple(resources)

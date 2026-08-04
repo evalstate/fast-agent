@@ -1,10 +1,9 @@
 """Unit tests for the history trimmer hook."""
 
-from types import SimpleNamespace
-
 import pytest
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 
+from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.hooks.history_trimmer import (
     _find_turn_start,
     _trim_turn_messages,
@@ -20,7 +19,7 @@ def _make_user_msg(text: str, has_tool_results: bool = False) -> PromptMessageEx
     msg = PromptMessageExtended(role="user", content=[TextContent(type="text", text=text)])
     if has_tool_results:
         # Simulate tool results by setting the attribute
-        msg.tool_results = {"tool1": CallToolResult(content=[], isError=False)}
+        msg.tool_results = {"tool1": CallToolResult(content=[], is_error=False)}
     return msg
 
 
@@ -192,7 +191,7 @@ class TestTrimToolLoopHistory:
             name = "mock"
             usage_accumulator = None
             context = None
-            config = SimpleNamespace(tool_only=False, model=None)
+            config = AgentConfig(name=name, tool_only=False, model=None)
             agent_registry = None
 
             def __init__(self):
@@ -248,7 +247,7 @@ class TestTrimToolLoopHistory:
             name = "mock"
             usage_accumulator = None
             context = None
-            config = SimpleNamespace(tool_only=False, model=None)
+            config = AgentConfig(name=name, tool_only=False, model=None)
             agent_registry = None
 
             def __init__(self):
@@ -297,7 +296,7 @@ class TestTrimToolLoopHistory:
             name = "mock"
             usage_accumulator = None
             context = None
-            config = SimpleNamespace(tool_only=False, model=None)
+            config = AgentConfig(name=name, tool_only=False, model=None)
             agent_registry = None
 
             def __init__(self):

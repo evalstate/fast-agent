@@ -248,7 +248,7 @@ defaults:
             assert remote_llm._base_url() == "https://remote.example/v1"
             assert local_llm._api_key() == ""
             assert remote_llm._api_key() == "remote-key"
-            assert local_llm.default_request_params.maxTokens == 4096
+            assert local_llm.default_request_params.max_tokens == 4096
     finally:
         if previous_remote_key is None:
             os.environ.pop("REMOTE_QWEN_KEY", None)
@@ -697,12 +697,12 @@ metadata:
         await agent.attach_llm(ModelFactory.create_factory("big-local"))
 
         assert agent.llm is not None
-        assert agent.llm.default_request_params.maxTokens == 8192
+        assert agent.llm.default_request_params.max_tokens == 8192
 
         await agent.set_model("tiny-local")
 
         assert agent.llm is not None
-        assert agent.llm.default_request_params.maxTokens == 1024
+        assert agent.llm.default_request_params.max_tokens == 1024
         assert agent.llm.resolved_model is not None
         assert agent.llm.resolved_model.overlay_name == "tiny-local"
 

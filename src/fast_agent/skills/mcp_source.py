@@ -1,13 +1,15 @@
-"""MCP registry-backed skill install source."""
+"""MCP resource-manifest-backed skill source."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from fast_agent.skills.mcp_registry import (
     McpRegistrySkill,
     McpSkillInstallClient,
     McpSkillRegistry,
+    get_mcp_registry_skill,
     install_mcp_registry_skill,
     select_mcp_registry_skill,
     update_mcp_registry_skill,
@@ -26,12 +28,7 @@ if TYPE_CHECKING:
 
 
 class McpSkillSource:
-    def __init__(
-        self,
-        *,
-        aggregator: McpSkillInstallClient,
-        registry: McpSkillRegistry,
-    ) -> None:
+    def __init__(self, *, aggregator: McpSkillInstallClient, registry: McpSkillRegistry) -> None:
         self._aggregator = aggregator
         self._registry = registry
 
@@ -44,34 +41,34 @@ class McpSkillSource:
         )
 
     async def list_skills(self, *, query: str | None = None) -> list[SkillCatalogEntry]:
-        normalized_query = strip_to_none(query)
-        if normalized_query is None:
+        query = strip_to_none(query)
+        if query is None:
             return list(self._registry.skills)
-        query_lower = normalized_query.lower()
+        needle = query.casefold()
         return [
             skill
             for skill in self._registry.skills
-            if query_lower in skill.name.lower() or query_lower in (skill.description or "").lower()
+            if needle in skill.name.casefold() or needle in skill.description.casefold()
         ]
 
     async def select_skill(self, selector: str) -> SkillCatalogEntry | None:
+        if _is_uri(selector):
+            return await get_mcp_registry_skill(
+                self._aggregator,
+                selector.strip(),
+                self._registry.server_name,
+                server_version=self._registry.server_version,
+            )
         return select_mcp_registry_skill(self._registry.skills, selector)
 
-    async def install_skill(
-        self,
-        selector: str,
-        *,
-        destination_root: Path,
-    ) -> SkillInstallResult:
-        skill = select_mcp_registry_skill(self._registry.skills, selector)
-        if skill is None:
+    async def install_skill(self, selector: str, *, destination_root: Path) -> SkillInstallResult:
+        skill = await self.select_skill(selector)
+        if skill is None or not isinstance(skill, McpRegistrySkill):
             raise LookupError(f"Skill not found: {selector}")
-        install_dir = await install_mcp_registry_skill(
-            self._aggregator,
-            skill,
-            destination_root=destination_root,
+        skill_dir = await install_mcp_registry_skill(
+            self._aggregator, skill, destination_root=destination_root
         )
-        return SkillInstallResult(name=skill.name, skill_dir=install_dir)
+        return SkillInstallResult(name=skill.name, skill_dir=skill_dir)
 
     async def check_updates(self, updates: Sequence[SkillUpdateInfo]) -> list[SkillUpdateInfo]:
         checked: list[SkillUpdateInfo] = []
@@ -80,36 +77,34 @@ class McpSkillSource:
             if source is None:
                 checked.append(update)
                 continue
-
-            skill = _find_mcp_skill_for_update(self._registry, update)
+            try:
+                skill = await self._skill_for_update(update)
+            except Exception as exc:
+                checked.append(_unreachable_update(update, detail=str(exc)))
+                continue
             if skill is None:
                 checked.append(_missing_registry_entry_update(update))
                 continue
-
-            status = "up_to_date"
-            detail = "already up to date"
-            if skill.digest != source.artifact_digest:
-                status = "update_available"
-                detail = "MCP skill artifact changed"
+            available = skill.revision
+            status = "up_to_date" if available == source.installed_revision else "update_available"
             checked.append(
                 SkillUpdateInfo(
                     index=update.index,
                     name=update.name,
                     skill_dir=update.skill_dir,
                     status=status,
-                    detail=detail,
-                    current_revision=source.artifact_digest or source.installed_revision,
-                    available_revision=skill.digest,
+                    detail="already up to date"
+                    if status == "up_to_date"
+                    else "MCP resource set changed",
+                    current_revision=source.installed_revision,
+                    available_revision=available,
                     managed_source=source,
                 )
             )
         return checked
 
     async def apply_updates(
-        self,
-        updates: Sequence[SkillUpdateInfo],
-        *,
-        force: bool,
+        self, updates: Sequence[SkillUpdateInfo], *, force: bool
     ) -> list[SkillUpdateInfo]:
         results: list[SkillUpdateInfo] = []
         for update in updates:
@@ -125,14 +120,32 @@ class McpSkillSource:
                     )
                 )
                 continue
-
-            skill = _find_mcp_skill_for_update(self._registry, update)
+            try:
+                skill = await self._skill_for_update(update)
+            except Exception as exc:
+                results.append(_unreachable_update(update, detail=str(exc)))
+                continue
             if skill is None:
                 results.append(_missing_registry_entry_update(update))
                 continue
-
-            fingerprint = compute_skill_content_fingerprint(update.skill_dir)
-            if fingerprint != source.content_fingerprint and not force:
+            if skill.revision == source.installed_revision:
+                results.append(
+                    SkillUpdateInfo(
+                        index=update.index,
+                        name=update.name,
+                        skill_dir=update.skill_dir,
+                        status="up_to_date",
+                        detail="already up to date",
+                        current_revision=source.installed_revision,
+                        available_revision=skill.revision,
+                        managed_source=source,
+                    )
+                )
+                continue
+            if (
+                compute_skill_content_fingerprint(update.skill_dir) != source.content_fingerprint
+                and not force
+            ):
                 results.append(
                     SkillUpdateInfo(
                         index=update.index,
@@ -141,34 +154,17 @@ class McpSkillSource:
                         status="skipped_dirty",
                         detail="local modifications detected; rerun with --force",
                         current_revision=source.installed_revision,
-                        available_revision=skill.digest,
+                        available_revision=skill.revision,
                         managed_source=source,
                     )
                 )
                 continue
-
             try:
-                await update_mcp_registry_skill(
-                    self._aggregator,
-                    skill,
-                    skill_dir=update.skill_dir,
-                )
-                installed_source = read_installed_skill_source(update.skill_dir).source
+                await update_mcp_registry_skill(self._aggregator, skill, skill_dir=update.skill_dir)
+                installed = read_installed_skill_source(update.skill_dir).source
             except Exception as exc:
-                results.append(
-                    SkillUpdateInfo(
-                        index=update.index,
-                        name=update.name,
-                        skill_dir=update.skill_dir,
-                        status="source_unreachable",
-                        detail=str(exc),
-                        current_revision=source.installed_revision,
-                        available_revision=skill.digest,
-                        managed_source=source,
-                    )
-                )
+                results.append(_unreachable_update(update, detail=str(exc)))
                 continue
-
             results.append(
                 SkillUpdateInfo(
                     index=update.index,
@@ -177,23 +173,44 @@ class McpSkillSource:
                     status="updated",
                     detail="updated",
                     current_revision=source.installed_revision,
-                    available_revision=skill.digest,
-                    managed_source=installed_source or source,
+                    available_revision=skill.revision,
+                    managed_source=installed or source,
                 )
             )
         return results
 
+    async def _skill_for_update(self, update: SkillUpdateInfo) -> McpRegistrySkill | None:
+        source = update.managed_source
+        if source is None or source.mcp_server_name != self._registry.server_name:
+            return None
+        if source.source_url:
+            return await get_mcp_registry_skill(
+                self._aggregator,
+                source.source_url,
+                self._registry.server_name,
+                server_version=self._registry.server_version,
+            )
+        return select_mcp_registry_skill(self._registry.skills, update.name)
+
     def list_heading(self, *, query: str | None = None) -> str:
-        normalized_query = strip_to_none(query)
-        if normalized_query is None:
-            return f"MCP skills from {self._registry.display_name}:"
-        return f"MCP skills from {self._registry.display_name} (search: {normalized_query}):"
+        query = strip_to_none(query)
+        suffix = "" if query is None else f" (search: {query})"
+        return f"MCP skills from {self._registry.display_name}:{suffix}"
 
     def empty_message(self) -> str:
         return "No skills found in the MCP registry."
 
     def selection_options(self, entries: Sequence[SkillCatalogEntry]) -> list[str]:
-        return [entry.name for entry in entries]
+        names = [entry.name.casefold() for entry in entries]
+        return [
+            entry.source_url
+            if (
+                (names.count(entry.name.casefold()) > 1 or entry.name.isdigit())
+                and entry.source_url is not None
+            )
+            else entry.name
+            for entry in entries
+        ]
 
     def repository_hint(self, entries: Sequence[SkillCatalogEntry]) -> str | None:
         del entries
@@ -221,12 +238,7 @@ class UnavailableMcpSkillSource:
         del selector
         return None
 
-    async def install_skill(
-        self,
-        selector: str,
-        *,
-        destination_root: Path,
-    ) -> SkillInstallResult:
+    async def install_skill(self, selector: str, *, destination_root: Path) -> SkillInstallResult:
         del selector, destination_root
         raise RuntimeError(self._detail)
 
@@ -234,10 +246,7 @@ class UnavailableMcpSkillSource:
         return [_unreachable_update(update, detail=self._detail) for update in updates]
 
     async def apply_updates(
-        self,
-        updates: Sequence[SkillUpdateInfo],
-        *,
-        force: bool,
+        self, updates: Sequence[SkillUpdateInfo], *, force: bool
     ) -> list[SkillUpdateInfo]:
         del force
         return [_unreachable_update(update, detail=self._detail) for update in updates]
@@ -258,17 +267,8 @@ class UnavailableMcpSkillSource:
         return None
 
 
-def _find_mcp_skill_for_update(
-    registry: McpSkillRegistry,
-    update: SkillUpdateInfo,
-) -> McpRegistrySkill | None:
-    source = update.managed_source
-    if source is None or source.mcp_server_name != registry.server_name:
-        return None
-    for skill in registry.skills:
-        if skill.source_url == source.source_url or skill.name == update.name:
-            return skill
-    return None
+def _is_uri(value: str) -> bool:
+    return bool(urlsplit(value.strip()).scheme)
 
 
 def _missing_registry_entry_update(update: SkillUpdateInfo) -> SkillUpdateInfo:

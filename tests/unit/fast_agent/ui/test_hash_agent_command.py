@@ -183,7 +183,7 @@ class TestHashAgentCommandPayload:
         cmd = HashAgentCommand(agent_name="test", message="hello")
 
         with pytest.raises(AttributeError):
-            setattr(cmd, "agent_name", "other")
+            setattr(cmd, "agent_name", "other")  # noqa: B010 - frozen assignment is under test
 
     def test_hash_agent_command_kind(self):
         """Test that kind is always 'hash_agent'."""

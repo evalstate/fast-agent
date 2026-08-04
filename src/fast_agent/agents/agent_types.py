@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from mcp.client.session import ElicitationFnT
 
@@ -14,6 +14,7 @@ from fast_agent.command_actions import PluginCommandActionSpec
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.hooks.lifecycle_hook_types import LifecycleHookType
+from fast_agent.mcp.server_declaration import MCPServerDeclaration
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
 from fast_agent.tools.function_tool_config import FunctionToolSpec
 
@@ -26,7 +27,6 @@ class AgentType(StrEnum):
 
     LLM = auto()
     BASIC = auto()
-    SMART = auto()
     CUSTOM = auto()
     ORCHESTRATOR = auto()
     PARALLEL = auto()
@@ -66,6 +66,8 @@ FunctionToolConfig: TypeAlias = (
 )
 
 FunctionToolsConfig: TypeAlias = list[FunctionToolConfig] | None
+SubagentActivationSource: TypeAlias = Literal["configuration", "cli", "instruction", "runtime"]
+MCPConnectSourceForm: TypeAlias = Literal["list", "mapping"]
 
 
 # Tool hooks config maps hook type to function spec string
@@ -75,19 +77,7 @@ LifecycleHooksConfig: TypeAlias = dict[LifecycleHookType, str] | None
 PluginCommandsConfig: TypeAlias = dict[str, PluginCommandActionSpec] | None
 
 
-@dataclass(frozen=True, slots=True)
-class MCPConnectTarget:
-    """Runtime MCP connect target declared on an AgentCard."""
-
-    target: str | None = None
-    name: str | None = None
-    description: str | None = None
-    management: str | None = None
-    connector_id: str | None = None
-    headers: dict[str, str] | None = None
-    access_token: str | None = None
-    defer_loading: bool | None = None
-    auth: dict[str, Any] | None = None
+MCPConnectTarget: TypeAlias = MCPServerDeclaration
 
 
 @dataclass
@@ -120,6 +110,14 @@ class AgentConfig:
     agent_type: AgentType = AgentType.BASIC
     default: bool = False
     tool_only: bool = False
+    subagents: bool | None = None
+    subagent_model: str | None = None
+    harness_tools: bool = False
+    subagent_activation_source: SubagentActivationSource | None = field(
+        default=None,
+        init=False,
+    )
+    subagent_child: bool = field(default=False, init=False, repr=False)
     elicitation_handler: ElicitationFnT | None = None
     api_key: str | None = None
     function_tools: FunctionToolsConfig = None  # Local Python function tools
@@ -130,18 +128,21 @@ class AgentConfig:
     commands: PluginCommandsConfig = None
     trim_tool_history: bool = False
     mcp_connect: list[MCPConnectTarget] = field(default_factory=list)
+    mcp_connect_source_form: MCPConnectSourceForm = field(default="list", repr=False)
     source_path: Path | None = field(default=None, repr=False)
 
     def __post_init__(self):
         """Ensure default_request_params exists with proper history setting"""
+        if self.subagents is not None:
+            self.subagent_activation_source = "configuration"
         if self.save_trajectory and self.use_history:
             raise AgentConfigError("save_trajectory requires use_history=False")
         if self.default_request_params is None:
             self.default_request_params = RequestParams(
-                use_history=self.use_history, systemPrompt=self.instruction
+                use_history=self.use_history, system_prompt=self.instruction
             )
         else:
             # Override the request params history setting if explicitly configured
             self.default_request_params.use_history = self.use_history
             # Ensure instruction takes precedence over any existing systemPrompt
-            self.default_request_params.systemPrompt = self.instruction
+            self.default_request_params.system_prompt = self.instruction

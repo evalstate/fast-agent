@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
@@ -444,9 +444,9 @@ async def test_execute_rejects_invalid_argument_payloads() -> None:
     missing_command_result = await runtime.execute({})
     blank_command_result = await runtime.execute({"command": "   "})
 
-    assert non_dict_result.isError is True
-    assert missing_command_result.isError is True
-    assert blank_command_result.isError is True
+    assert non_dict_result.is_error is True
+    assert missing_command_result.is_error is True
+    assert blank_command_result.is_error is True
     assert conn.calls == []
     assert non_dict_result.content is not None
     assert missing_command_result.content is not None
@@ -472,7 +472,7 @@ async def test_execute_rejects_invalid_args_before_terminal_create() -> None:
 
     result = await runtime.execute({"command": "echo", "args": "abc"})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "Error: 'args' argument must be a list of strings"
@@ -488,7 +488,7 @@ async def test_execute_rejects_invalid_env_before_terminal_create() -> None:
 
     result = await runtime.execute({"command": "env", "env": {"RETRIES": 3}})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "Error: 'env' argument must contain string keys and values"
@@ -504,7 +504,7 @@ async def test_execute_rejects_empty_string_env_before_terminal_create() -> None
 
     result = await runtime.execute({"command": "env", "env": ""})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert (
@@ -523,7 +523,7 @@ async def test_execute_rejects_invalid_cwd_before_terminal_create() -> None:
 
     result = await runtime.execute({"command": "pwd", "cwd": 123})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "Error: 'cwd' argument must be a string"
@@ -539,7 +539,7 @@ async def test_execute_rejects_blank_cwd_before_terminal_create() -> None:
 
     result = await runtime.execute({"command": "pwd", "cwd": "   "})
 
-    assert result.isError is True
+    assert result.is_error is True
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "Error: 'cwd' argument must be a non-empty string"
@@ -559,7 +559,7 @@ async def test_permission_denial_notifies_tool_progress() -> None:
 
     result = await runtime.execute({"command": "echo denied"}, tool_use_id="llm-tool-1")
 
-    assert result.isError is True
+    assert result.is_error is True
     assert conn.calls == []
     assert tool_handler.starts == []
     assert tool_handler.completes == []
@@ -610,7 +610,7 @@ async def test_malformed_terminal_output_is_normalized() -> None:
 
     result = await runtime.execute({"command": "echo test"})
 
-    assert result.isError is False
+    assert result.is_error is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     text = result.content[0].text
@@ -649,7 +649,7 @@ async def test_missing_terminal_id_completes_tool_progress() -> None:
 
     result = await runtime.execute({"command": "echo test"}, tool_use_id="llm-tool-1")
 
-    assert result.isError is True
+    assert result.is_error is True
     assert [method for method, _params in conn.calls] == ["terminal/create"]
     assert tool_handler.starts == [
         ("execute", "acp_terminal", {"command": "echo test"}, "llm-tool-1")
@@ -691,7 +691,7 @@ async def test_session_id_in_all_terminal_requests():
     assert len(conn.calls) == 4
 
     for (expected_method, should_have_session), (method_name, params) in zip(
-        expected_calls, conn.calls
+        expected_calls, conn.calls, strict=True
     ):
         assert method_name == expected_method
         if should_have_session:

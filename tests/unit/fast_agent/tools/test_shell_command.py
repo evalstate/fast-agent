@@ -1,6 +1,6 @@
 import pytest
 
-from fast_agent.tools.shell_command import classify_shell_detachment
+from fast_agent.tools.shell_command import classify_shell_detachment, shell_heredoc_bodies
 
 
 @pytest.mark.parametrize(
@@ -56,3 +56,130 @@ def test_shell_detachment_classifier(
         )
         == expected
     )
+
+
+def test_shell_heredoc_bodies_match_static_redirect_targets() -> None:
+    command = (
+        "cat <<'PY' > src/example.py\n"
+        "print('hello')\n"
+        "PY\n"
+        'cat > "web/example.ts" <<-TS\n'
+        "\texport const answer = 42;\n"
+        "\tTS\n"
+    )
+
+    bodies = shell_heredoc_bodies(command)
+
+    assert [body.target_path for body in bodies] == ["src/example.py", "web/example.ts"]
+    assert [command[body.start : body.end] for body in bodies] == [
+        "print('hello')\n",
+        "\texport const answer = 42;\n",
+    ]
+
+
+def test_shell_heredoc_bodies_match_direct_stdin_interpreter() -> None:
+    command = "/usr/bin/python3.14 - <<'PY'\nprint('hello')\nPY\n"
+
+    body = shell_heredoc_bodies(command)[0]
+
+    assert body.target_path is None
+    assert body.stdin_interpreter == "python3.14"
+
+
+def test_shell_heredoc_bodies_can_include_incomplete_direct_interpreter_body() -> None:
+    command = "python - <<'PY'\nprint('hello')"
+
+    assert shell_heredoc_bodies(command) == []
+
+    body = shell_heredoc_bodies(command, include_incomplete=True)[0]
+    assert body.stdin_interpreter == "python"
+    assert command[body.start : body.end] == "print('hello')"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "uv run python - <<'PY'\nprint('hello')\nPY\n",
+        "uv run --no-sync python3.14 - <<'PY'\nprint('hello')\nPY\n",
+    ],
+)
+def test_shell_heredoc_bodies_match_uv_run_stdin_interpreter(command: str) -> None:
+    body = shell_heredoc_bodies(command)[0]
+
+    assert body.stdin_interpreter in {"python", "python3.14"}
+    assert command[body.start : body.end] == "print('hello')\n"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pnpm exec tsx - <<'TS'\nconst answer = 42;\nTS\n",
+        "pnpm -C packages/app exec tsx - <<'TS'\nconst answer = 42;\nTS\n",
+        "pnpm --dir=packages/app exec tsx - <<'TS'\nconst answer = 42;\nTS\n",
+    ],
+)
+def test_shell_heredoc_bodies_match_pnpm_exec_stdin_interpreter(command: str) -> None:
+    body = shell_heredoc_bodies(command)[0]
+
+    assert body.stdin_interpreter == "tsx"
+    assert command[body.start : body.end] == "const answer = 42;\n"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat <<'PY'\nprint('hello')\nPY\n",
+        "python -c 'print(1)' - <<'PY'\nprint('hello')\nPY\n",
+        "uv run --python 3.14 python - <<'PY'\nprint('hello')\nPY\n",
+        "uv run echo python - <<'PY'\nprint('hello')\nPY\n",
+        "pnpm --filter app exec tsx - <<'TS'\nconst answer = 42;\nTS\n",
+        "pnpm echo exec tsx - <<'TS'\nconst answer = 42;\nTS\n",
+        "cat <<A <<B\nfirst\nA\nsecond\nB\n",
+    ],
+)
+def test_shell_heredoc_bodies_do_not_guess_stdin_interpreter(command: str) -> None:
+    bodies = shell_heredoc_bodies(command)
+
+    assert bodies
+    assert all(body.stdin_interpreter is None for body in bodies)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat <<'EOF'\ntext\nEOF\n",
+        "cat > \"$OUTPUT.py\" <<'EOF'\ntext\nEOF\n",
+        "cat > one.py <<A <<B\nfirst\nA\nsecond\nB\n",
+        "cat > incomplete.py <<'EOF'\ntext\n",
+        "echo ignored > unrelated.py; cat <<'EOF'\ntext\nEOF\n",
+        "# cat > commented.py <<'EOF'\ntext\nEOF\n",
+        "((value<<EOF))\ntext\nEOF\n",
+    ],
+)
+def test_shell_heredoc_bodies_leave_ambiguous_or_incomplete_targets_unsplit(command: str) -> None:
+    assert not [body for body in shell_heredoc_bodies(command) if body.target_path is not None]
+
+
+def test_shell_heredoc_body_preserves_trailing_whitespace() -> None:
+    command = "cat 1> example.md <<'EOF'\ntrailing spaces  \nEOF\n"
+
+    body = shell_heredoc_bodies(command)[0]
+
+    assert body.target_path == "example.md"
+    assert command[body.start : body.end] == "trailing spaces  \n"
+
+
+def test_shell_heredoc_single_quoted_dollar_path_is_static() -> None:
+    command = "cat > '$OUTPUT.py' <<'EOF'\nprint('literal path')\nEOF\n"
+
+    body = shell_heredoc_bodies(command)[0]
+
+    assert body.target_path == "$OUTPUT.py"
+
+
+def test_shell_heredoc_uses_final_stdout_redirect() -> None:
+    command = "cat > ignored.py > actual.txt <<'EOF'\nplain text\nEOF\n"
+
+    body = shell_heredoc_bodies(command)[0]
+
+    assert body.target_path == "actual.txt"

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, cast
 
+from rich.cells import cell_len
+from rich.console import Group
 from rich.markup import escape as escape_markup
 from rich.syntax import Syntax
 from rich.text import Text
@@ -13,8 +15,14 @@ from rich.text import Text
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.constants import FAST_AGENT_SHELL_PROCESS_METADATA
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.tool_result_metadata import get_tool_result_media_preview
+from fast_agent.mcp.app_integrations import AppIntegrationKind
+from fast_agent.mcp.tool_result_metadata import (
+    get_tool_result_media_preview,
+    tool_result_display_metadata,
+)
 from fast_agent.tools.apply_patch_tool import extract_apply_patch_input, is_apply_patch_tool_name
+from fast_agent.tools.edit_file_tool import EDIT_FILE_TOOL_NAME
+from fast_agent.tools.tool_sources import FAST_AGENT_TOOL_SOURCE_META, TOOL_SOURCE_LABELS
 from fast_agent.ui import console
 from fast_agent.ui.apply_patch_preview import (
     build_apply_patch_preview,
@@ -25,16 +33,19 @@ from fast_agent.ui.apply_patch_preview import (
     shell_syntax_language,
     style_apply_patch_preview_text,
 )
+from fast_agent.ui.edit_file_preview import build_edit_file_preview, format_edit_file_preview
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 from fast_agent.ui.shell_output_truncation import (
     format_shell_output_line_count,
     truncate_shell_output_lines,
 )
+from fast_agent.ui.streaming.json_prefix import format_json_prefix
+from fast_agent.ui.syntax_highlighting import shell_syntax_blocks, syntax_language_for_path
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.numeric import positive_int_or_none
 from fast_agent.utils.path_display import fit_path_for_display
-from fast_agent.utils.text import strip_casefold, strip_str_to_none
+from fast_agent.utils.text import strip_str_to_none
 from fast_agent.utils.tool_names import (
     POLL_PROCESS_TOOL_NAME,
     PROCESS_TOOL_NAME,
@@ -44,12 +55,12 @@ from fast_agent.utils.tool_names import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Sequence
 
-    from mcp.types import CallToolResult
+    from mcp_types import CallToolResult
     from rich.console import RenderableType
 
-    from fast_agent.mcp.skybridge import SkybridgeServerConfig
+    from fast_agent.mcp.app_integrations import AppServerConfig
     from fast_agent.ui.console_display import ConsoleDisplay
 
 
@@ -74,8 +85,8 @@ class PreparedToolResultContent:
 
 
 @dataclass(frozen=True, slots=True)
-class SkybridgeResultDetails:
-    is_skybridge_tool: bool
+class AppIntegrationResultDetails:
+    is_app_integration_tool: bool
     resource_uri: str | None = None
 
 
@@ -106,37 +117,68 @@ class PreparedToolCallDisplay:
     render_markdown: bool | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ToolCallDisplayRequest:
+    tool_name: str
+    tool_args: dict[str, Any] | None
+    bottom_items: list[str] | None = None
+    highlight_indexes: list[int] | None = None
+    max_item_length: int | None = None
+    name: str | None = None
+    metadata: dict[str, Any] | None = None
+    tool_call_id: str | None = None
+    type_label: str = "tool call"
+    source_label: str | None = None
+    server_name: str | None = None
+    show_hook_indicator: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultDisplayRequest:
+    result: "CallToolResult"
+    name: str | None = None
+    tool_name: str | None = None
+    app_integration_config: "AppServerConfig | None" = None
+    timing_ms: float | None = None
+    tool_call_id: str | None = None
+    type_label: str | None = None
+    truncate_content: bool = True
+    source_label: str | None = None
+    server_name: str | None = None
+    show_hook_indicator: bool = False
+
+
 _TRANSPORT_METADATA_LABELS: dict[str, str] = {
     "post-json": "HTTP (JSON-RPC)",
-    "post-sse": "HTTP (SSE)",
-    "get": "Legacy SSE",
+    "post-sse": "HTTP (SSE response)",
+    "get": "HTTP (GET stream)",
     "resumption": "Resumption",
     "stdio": "STDIO",
 }
+_COMPACT_GENERIC_ARGUMENT_ROWS = 6
+_SENSITIVE_TOOL_ARGUMENT_KEYS = frozenset(
+    {
+        "accesstoken",
+        "apikey",
+        "auth",
+        "authorization",
+        "clientsecret",
+        "cookie",
+        "credentials",
+        "password",
+        "privatekey",
+        "proxyauthorization",
+        "refreshtoken",
+        "secret",
+        "setcookie",
+        "token",
+        "xapikey",
+    }
+)
 
 
 class ToolDisplay:
     """Encapsulates rendering logic for tool calls and results."""
-
-    _READ_TEXT_FILE_LANGUAGE_BY_EXTENSION: ClassVar[dict[str, str]] = {
-        ".py": "python",
-        ".js": "javascript",
-        ".ts": "typescript",
-        ".tsx": "tsx",
-        ".jsx": "jsx",
-        ".json": "json",
-        ".yaml": "yaml",
-        ".yml": "yaml",
-        ".toml": "toml",
-        ".md": "markdown",
-        ".sh": "bash",
-        ".bash": "bash",
-        ".zsh": "bash",
-        ".xml": "xml",
-        ".html": "html",
-        ".css": "css",
-        ".sql": "sql",
-    }
 
     def __init__(self, display: "ConsoleDisplay") -> None:
         self._display = display
@@ -221,6 +263,502 @@ class ToolDisplay:
             return tool_name[7:]
         return tool_name
 
+    @staticmethod
+    def _base_tool_name(tool_name: str) -> str:
+        if "__" in tool_name:
+            return tool_name.split("__", 1)[1]
+        return ToolDisplay._display_tool_name(tool_name)
+
+    @staticmethod
+    def _metadata_source_label(metadata: Mapping[str, Any]) -> str | None:
+        source = metadata.get(FAST_AGENT_TOOL_SOURCE_META)
+        return TOOL_SOURCE_LABELS.get(source) if source in TOOL_SOURCE_LABELS else None
+
+    @staticmethod
+    def _compact_event_line(
+        *,
+        message_type: MessageType,
+        name: str | None,
+        identity: str,
+        annotations: list[str],
+        is_error: bool = False,
+        show_hook_indicator: bool = False,
+    ) -> Text:
+        config = MESSAGE_CONFIGS[message_type]
+        color = "red" if is_error else config["block_color"]
+        line = Text()
+        line.append("▎", style=color)
+        line.append(config["arrow"], style=config["arrow_style"])
+        if show_hook_indicator:
+            line.append(" ◆", style=color)
+        if name:
+            line.append(f" {name}", style=color)
+        line.append(f" {identity}")
+        if annotations:
+            line.append(" · ", style="dim")
+            line.append(" · ".join(annotations), style="dim")
+        return line
+
+    @staticmethod
+    def _compact_tool_identity(
+        *,
+        tool_name: str,
+        metadata: Mapping[str, Any],
+        source_label: str | None,
+        server_name: str | None,
+    ) -> str:
+        variant = metadata.get("variant")
+        normalized_name = normalize_tool_name(tool_name)
+        if variant == "shell":
+            shell_name = str(metadata.get("shell_name") or "bash")
+            shell_path = metadata.get("shell_path")
+            identity = shell_name
+            if isinstance(shell_path, str) and shell_path and shell_path != shell_name:
+                identity += f" ({shell_path})"
+            if metadata.get("background"):
+                return f"{identity} | backgrounded"
+            idle = metadata.get("idle_yield_seconds")
+            total = metadata.get("foreground_yield_seconds")
+            timeout = metadata.get("timeout_seconds")
+            if idle and total:
+                return f"{identity} | yield {idle}s idle / {total}s total"
+            if idle:
+                return f"{identity} | idle yield {idle}s"
+            if timeout:
+                return f"{identity} | timeout {timeout}s"
+            return identity
+        if variant == "shell_process":
+            action = str(metadata.get("action") or "process")
+            if action == "list":
+                return "process list"
+            process_id = str(metadata.get("process_id") or "process")
+            return f"process {action} {process_id}"
+        if normalized_name in {POLL_PROCESS_TOOL_NAME, PROCESS_TOOL_NAME, "terminate_process"}:
+            return "process"
+        if is_shell_execution_tool(tool_name):
+            return "bash"
+        if is_read_text_file_tool_name(tool_name):
+            return "file read"
+        if is_apply_patch_tool_name(tool_name) or normalized_name == EDIT_FILE_TOOL_NAME:
+            return f"edit {ToolDisplay._base_tool_name(tool_name)}"
+
+        source = source_label or ToolDisplay._metadata_source_label(metadata)
+        parts = ["tool"]
+        if source:
+            parts.append(f"({source})")
+        if server_name:
+            parts.append(server_name)
+        parts.append(ToolDisplay._base_tool_name(tool_name))
+        return " ".join(parts)
+
+    @staticmethod
+    def _compact_shell_annotations(
+        metadata: Mapping[str, Any],
+        *,
+        tool_call_id: str | None,
+    ) -> list[str]:
+        annotations: list[str] = []
+        working_dir = metadata.get("working_dir_display") or metadata.get("working_dir")
+        if isinstance(working_dir, str) and working_dir:
+            annotations.append(f"cwd: {working_dir}")
+        if short_id := format_tool_call_id(tool_call_id):
+            annotations.append(f"id: {short_id}")
+        return annotations
+
+    def _compact_call_annotations(
+        self,
+        *,
+        metadata: Mapping[str, Any],
+        tool_call_id: str | None,
+        request_count: int,
+    ) -> list[str]:
+        if metadata.get("variant") == "shell":
+            return self._compact_shell_annotations(metadata, tool_call_id=tool_call_id)
+        annotations = [f"{request_count} requests"] if request_count > 1 else []
+        if short_id := format_tool_call_id(tool_call_id):
+            annotations.append(f"id: {short_id}")
+        return annotations
+
+    @staticmethod
+    def _is_sensitive_tool_argument_key(key: object) -> bool:
+        normalized = "".join(character for character in str(key).casefold() if character.isalnum())
+        return normalized in _SENSITIVE_TOOL_ARGUMENT_KEYS
+
+    @classmethod
+    def _redact_compact_tool_arguments(cls, value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {
+                str(key): (
+                    "[REDACTED]"
+                    if cls._is_sensitive_tool_argument_key(key)
+                    else cls._redact_compact_tool_arguments(item)
+                )
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [cls._redact_compact_tool_arguments(item) for item in value]
+        return value
+
+    def _compact_generic_argument_preview(self, tool_args: Mapping[str, Any]) -> Group | Syntax:
+        redacted_args = self._redact_compact_tool_arguments(tool_args)
+        compact_args = json.dumps(
+            redacted_args,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=str,
+        )
+        lines = (format_json_prefix(compact_args) or compact_args).splitlines()
+        visible_lines = lines[:_COMPACT_GENERIC_ARGUMENT_ROWS]
+        truncated = len(lines) > _COMPACT_GENERIC_ARGUMENT_ROWS or any(
+            cell_len(line) > console.console.size.width for line in visible_lines
+        )
+        if truncated:
+            visible_lines = lines[: _COMPACT_GENERIC_ARGUMENT_ROWS - 1]
+
+        preview = Syntax(
+            "\n".join(visible_lines),
+            "json",
+            theme=self._display.code_style,
+            background_color="default",
+            line_numbers=False,
+            word_wrap=False,
+        )
+        if not truncated:
+            return preview
+        return Group(preview, Text("…", style="dim"))
+
+    def _show_compact_tool_call(
+        self,
+        *,
+        prepared: PreparedToolCallDisplay,
+        tool_name: str,
+        tool_args: Mapping[str, Any],
+        metadata: Mapping[str, Any],
+        name: str | None,
+        tool_call_id: str | None,
+        source_label: str | None,
+        server_name: str | None,
+        request_count: int,
+        show_hook_indicator: bool,
+    ) -> None:
+        identity = self._compact_tool_identity(
+            tool_name=tool_name,
+            metadata=metadata,
+            source_label=source_label,
+            server_name=server_name,
+        )
+        line = self._compact_event_line(
+            message_type=MessageType.TOOL_CALL,
+            name=name,
+            identity=identity,
+            annotations=self._compact_call_annotations(
+                metadata=metadata,
+                tool_call_id=tool_call_id,
+                request_count=request_count,
+            ),
+            show_hook_indicator=show_hook_indicator,
+        )
+        console.ensure_blocking_console()
+        console.console.print(line, markup=self._markup)
+
+        arguments = self._display.tool_display_settings.arguments
+        if arguments == "none":
+            return
+        if (
+            arguments == "auto"
+            and request_count == 1
+            and self._is_generic_tool(tool_name, metadata)
+        ):
+            console.console.print(self._compact_generic_argument_preview(tool_args))
+            return
+        show_specialized_body = (
+            metadata.get("variant") in {"code", "shell"}
+            or is_apply_patch_tool_name(tool_name)
+            or normalize_tool_name(tool_name) == EDIT_FILE_TOOL_NAME
+        )
+        if arguments != "all" and (arguments != "auto" or not show_specialized_body):
+            return
+        self._display._display_content(
+            prepared.content,
+            prepared.truncate_content,
+            False,
+            MessageType.TOOL_CALL,
+            check_markdown_markers=False,
+            render_markdown=prepared.render_markdown,
+        )
+
+    @staticmethod
+    def _parallel_call_identity(request: ToolCallDisplayRequest) -> tuple[str | None, ...]:
+        return (
+            request.name,
+            request.source_label,
+            request.server_name,
+            request.tool_name,
+        )
+
+    @staticmethod
+    def _parallel_result_identity(request: ToolResultDisplayRequest) -> tuple[str | None, ...]:
+        return (
+            request.name,
+            request.source_label,
+            request.server_name,
+            request.tool_name,
+        )
+
+    @staticmethod
+    def _is_generic_tool(tool_name: str | None, metadata: Mapping[str, Any] | None = None) -> bool:
+        normalized_name = normalize_tool_name(tool_name)
+        if metadata and metadata.get("variant") in {"code", "shell", "shell_process"}:
+            return False
+        return not (
+            is_shell_execution_tool(tool_name)
+            or is_read_text_file_tool_name(tool_name)
+            or is_apply_patch_tool_name(tool_name or "")
+            or normalized_name == EDIT_FILE_TOOL_NAME
+        )
+
+    def _can_aggregate_parallel_call(self, request: ToolCallDisplayRequest) -> bool:
+        return (
+            self._display.tool_display_layout == "compact"
+            and self._display.tool_display_settings.aggregate_parallel
+            and self._display.tool_display_settings.arguments == "none"
+            and not request.show_hook_indicator
+            and self._is_generic_tool(request.tool_name, request.metadata)
+        )
+
+    def show_parallel_tool_calls(self, requests: "Sequence[ToolCallDisplayRequest]") -> None:
+        """Render a parallel call batch, compacting identical safe requests."""
+        groups: dict[tuple[str | None, ...], list[ToolCallDisplayRequest]] = {}
+        for request in requests:
+            if self._can_aggregate_parallel_call(request):
+                groups.setdefault(self._parallel_call_identity(request), []).append(request)
+
+        aggregated_ids = {
+            id(request) for group in groups.values() if len(group) > 1 for request in group
+        }
+        rendered_groups: set[tuple[str | None, ...]] = set()
+        for request in requests:
+            identity = self._parallel_call_identity(request)
+            group = groups.get(identity)
+            if id(request) in aggregated_ids:
+                if identity in rendered_groups:
+                    continue
+                rendered_groups.add(identity)
+                self.show_tool_call(
+                    request.tool_name,
+                    request.tool_args,
+                    bottom_items=request.bottom_items,
+                    highlight_indexes=request.highlight_indexes,
+                    max_item_length=request.max_item_length,
+                    name=request.name,
+                    metadata=request.metadata,
+                    type_label=request.type_label,
+                    source_label=request.source_label,
+                    server_name=request.server_name,
+                    request_count=len(group or []),
+                )
+                continue
+            self.show_tool_call(
+                request.tool_name,
+                request.tool_args,
+                bottom_items=request.bottom_items,
+                highlight_indexes=request.highlight_indexes,
+                max_item_length=request.max_item_length,
+                name=request.name,
+                metadata=request.metadata,
+                tool_call_id=request.tool_call_id,
+                type_label=request.type_label,
+                source_label=request.source_label,
+                server_name=request.server_name,
+                show_hook_indicator=request.show_hook_indicator,
+            )
+
+    @staticmethod
+    def _generic_text_result_char_count(result: "CallToolResult") -> int | None:
+        from mcp_types import TextContent
+
+        if result.is_error or result.structured_content is not None:
+            return None
+        if get_tool_result_media_preview(result):
+            return None
+        content = result.content
+        text_blocks = [block for block in content if isinstance(block, TextContent)]
+        if not text_blocks or len(text_blocks) != len(content):
+            return None
+        return sum(len(block.text) for block in text_blocks)
+
+    def _can_aggregate_parallel_result(self, request: ToolResultDisplayRequest) -> bool:
+        return (
+            self._display.tool_display_layout == "compact"
+            and self._display.tool_display_settings.aggregate_parallel
+            and self._display.tool_display_settings.results != "all"
+            and not request.show_hook_indicator
+            and self._is_generic_tool(request.tool_name)
+            and self._generic_text_result_char_count(request.result) is not None
+        )
+
+    def _show_compact_parallel_result(
+        self,
+        requests: "Sequence[ToolResultDisplayRequest]",
+    ) -> None:
+        first = requests[0]
+        char_count = sum(
+            char_count
+            for request in requests
+            if (char_count := self._generic_text_result_char_count(request.result)) is not None
+        )
+        annotations = [
+            f"{format_count(len(requests), 'result')}, {format_count(char_count, 'char')}"
+        ]
+        timings = [request.timing_ms for request in requests if request.timing_ms is not None]
+        if timings:
+            annotations.append(self._display._format_elapsed(max(timings) / 1000))
+        line = self._compact_event_line(
+            message_type=MessageType.TOOL_RESULT,
+            name=first.name,
+            identity=self._compact_tool_identity(
+                tool_name=first.tool_name or "tool",
+                metadata={},
+                source_label=first.source_label,
+                server_name=first.server_name,
+            ),
+            annotations=annotations,
+        )
+        console.ensure_blocking_console()
+        console.console.print(line, markup=self._markup)
+
+    def show_parallel_tool_results(self, requests: "Sequence[ToolResultDisplayRequest]") -> None:
+        """Render a parallel result batch, compacting safe generic text results."""
+        groups: dict[tuple[str | None, ...], list[ToolResultDisplayRequest]] = {}
+        for request in requests:
+            if self._can_aggregate_parallel_result(request):
+                groups.setdefault(self._parallel_result_identity(request), []).append(request)
+
+        aggregated_ids = {
+            id(request) for group in groups.values() if len(group) > 1 for request in group
+        }
+        rendered_groups: set[tuple[str | None, ...]] = set()
+        for request in requests:
+            identity = self._parallel_result_identity(request)
+            group = groups.get(identity)
+            if id(request) in aggregated_ids:
+                if identity in rendered_groups:
+                    continue
+                rendered_groups.add(identity)
+                self._show_compact_parallel_result(group or [])
+                continue
+            self.show_tool_result(
+                request.result,
+                name=request.name,
+                tool_name=request.tool_name,
+                app_integration_config=request.app_integration_config,
+                timing_ms=request.timing_ms,
+                tool_call_id=request.tool_call_id,
+                type_label=request.type_label or "tool result",
+                truncate_content=request.truncate_content,
+                source_label=request.source_label,
+                server_name=request.server_name,
+                show_hook_indicator=request.show_hook_indicator,
+            )
+
+    def _compact_result_body_visible(
+        self,
+        *,
+        result: "CallToolResult",
+        tool_name: str | None,
+    ) -> bool:
+        result_policy = self._display.tool_display_settings.results
+        if result_policy == "all":
+            return True
+        if is_read_text_file_tool_name(tool_name) or result_policy == "none":
+            return False
+        if normalize_tool_name(tool_name) in {
+            POLL_PROCESS_TOOL_NAME,
+            PROCESS_TOOL_NAME,
+            "terminate_process",
+        }:
+            return True
+        if is_shell_execution_tool(tool_name):
+            return False
+        if result.is_error:
+            return True
+        return False
+
+    def _show_compact_tool_result(
+        self,
+        *,
+        result: "CallToolResult",
+        name: str | None,
+        tool_name: str | None,
+        status: str,
+        display_content: object,
+        truncate_content: bool,
+        render_markdown: bool | None,
+        additional_message: Text | None,
+        post_content: "RenderableType | None",
+        bottom_metadata: list[str] | None,
+        tool_call_id: str | None,
+        source_label: str | None,
+        server_name: str | None,
+        show_hook_indicator: bool,
+        is_app_integration_tool: bool,
+        structured_content: object,
+        app_resource_uri: str | None,
+    ) -> None:
+        result_policy = self._display.tool_display_settings.results
+        collapse_shell_exit = (
+            result_policy != "all"
+            and is_shell_execution_tool(tool_name)
+            and additional_message is not None
+            and not show_hook_indicator
+            and structured_content is None
+        )
+        console.ensure_blocking_console()
+        if collapse_shell_exit:
+            console.console.print(additional_message, markup=self._markup)
+            if post_content is not None:
+                console.console.print(post_content, markup=self._markup)
+            return
+
+        identity = self._compact_tool_identity(
+            tool_name=tool_name or "tool",
+            metadata={},
+            source_label=source_label,
+            server_name=server_name,
+        )
+        annotations = [status, *(bottom_metadata or [])]
+        if short_id := format_tool_call_id(tool_call_id):
+            annotations.append(f"id: {short_id}")
+        line = self._compact_event_line(
+            message_type=MessageType.TOOL_RESULT,
+            name=name,
+            identity=identity,
+            annotations=annotations,
+            is_error=result.is_error,
+            show_hook_indicator=show_hook_indicator,
+        )
+        console.console.print(line, markup=self._markup)
+
+        show_body = self._compact_result_body_visible(result=result, tool_name=tool_name)
+        if show_body:
+            self._display._display_content(
+                display_content,
+                truncate_content,
+                result.is_error,
+                MessageType.TOOL_RESULT,
+                check_markdown_markers=False,
+                render_markdown=render_markdown,
+            )
+        if additional_message and (show_body or is_shell_execution_tool(tool_name)):
+            console.console.print(additional_message, markup=self._markup)
+        if post_content is not None:
+            console.console.print(post_content, markup=self._markup)
+        if is_app_integration_tool:
+            self._render_app_integration_structured_content(
+                structured_content=structured_content,
+                resource_uri=app_resource_uri,
+            )
+
     @classmethod
     def _normalize_tool_footer_items(
         cls,
@@ -275,14 +813,13 @@ class ToolDisplay:
     def _extract_exit_code_line(lines: list[str]) -> ShellOutputExitCodeExtraction:
         if not lines:
             return ShellOutputExitCodeExtraction(lines=lines, exit_code_line=None)
-        index = len(lines) - 1
-        while index >= 0 and not lines[index].strip():
-            index -= 1
-        if index < 0:
-            return ShellOutputExitCodeExtraction(lines=lines, exit_code_line=None)
-        candidate = lines[index].strip()
-        if candidate.startswith(("[Exit code:", "process exit code was")):
-            return ShellOutputExitCodeExtraction(lines=lines[:index], exit_code_line=candidate)
+        for index in range(len(lines) - 1, -1, -1):
+            candidate = lines[index].strip()
+            if candidate.startswith(("[Exit code:", "process exit code was")):
+                return ShellOutputExitCodeExtraction(
+                    lines=[*lines[:index], *lines[index + 1 :]],
+                    exit_code_line=candidate,
+                )
         return ShellOutputExitCodeExtraction(lines=lines, exit_code_line=None)
 
     @staticmethod
@@ -342,7 +879,7 @@ class ToolDisplay:
         tool_call_id: str | None,
         output_line_count: int | None = None,
     ):
-        from mcp.types import TextContent
+        from mcp_types import TextContent
 
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
 
@@ -405,7 +942,7 @@ class ToolDisplay:
         return "\n".join(output_lines)
 
     def _limit_shell_output_content(self, content, line_limit: int):
-        from mcp.types import TextContent
+        from mcp_types import TextContent
 
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
 
@@ -444,7 +981,7 @@ class ToolDisplay:
         )
 
     def _limit_read_text_output_content(self, content, line_limit: int):
-        from mcp.types import TextContent
+        from mcp_types import TextContent
 
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
 
@@ -463,14 +1000,11 @@ class ToolDisplay:
             return 0
         return max(len(match) for match in matches)
 
-    @classmethod
-    def _read_text_file_language_from_path(cls, path_value: object) -> str | None:
+    @staticmethod
+    def _read_text_file_language_from_path(path_value: object) -> str | None:
         if not isinstance(path_value, str):
             return None
-        suffix = strip_casefold(Path(path_value).suffix)
-        if not suffix:
-            return None
-        return cls._READ_TEXT_FILE_LANGUAGE_BY_EXTENSION.get(suffix)
+        return syntax_language_for_path(path_value)
 
     def _format_read_text_file_content_as_markdown(
         self,
@@ -625,7 +1159,7 @@ class ToolDisplay:
     @staticmethod
     def _compact_managed_process_result(content, *, tool_name: str | None):
         """Hide model-oriented process metadata in favor of one lifecycle line."""
-        from mcp.types import TextContent
+        from mcp_types import TextContent
 
         if normalize_tool_name(tool_name) not in SHELL_EXECUTION_TOOL_NAMES:
             return content
@@ -709,7 +1243,7 @@ class ToolDisplay:
         tool_name: str | None,
     ) -> bool:
         """Return whether a poll result contains liveness metadata but no new output."""
-        from mcp.types import TextContent
+        from mcp_types import TextContent
 
         if normalize_tool_name(tool_name) != POLL_PROCESS_TOOL_NAME:
             if normalize_tool_name(tool_name) != normalize_tool_name(PROCESS_TOOL_NAME):
@@ -739,7 +1273,7 @@ class ToolDisplay:
         content,
         structured_content: object = None,
     ):
-        from mcp.types import TextContent
+        from mcp_types import TextContent
 
         from fast_agent.mcp.helpers.content_helpers import is_text_content
 
@@ -759,35 +1293,37 @@ class ToolDisplay:
         ]
 
     @staticmethod
-    def _resolve_skybridge_result_details(
+    def _resolve_app_integration_result_details(
         *,
         has_structured: bool,
         tool_name: str | None,
-        skybridge_config: "SkybridgeServerConfig | None",
-    ) -> SkybridgeResultDetails:
-        if not has_structured or not tool_name or skybridge_config is None:
-            return SkybridgeResultDetails(is_skybridge_tool=False)
+        app_integration_config: "AppServerConfig | None",
+    ) -> AppIntegrationResultDetails:
+        if not has_structured or not tool_name or app_integration_config is None:
+            return AppIntegrationResultDetails(is_app_integration_tool=False)
 
-        for tool_cfg in skybridge_config.tools:
+        for tool_cfg in app_integration_config.tools:
             if tool_cfg.tool_name == tool_name and tool_cfg.is_valid:
                 resource_uri = (
-                    str(tool_cfg.resource_uri) if tool_cfg.resource_uri is not None else None
+                    str(tool_cfg.linked_resource_uri)
+                    if tool_cfg.linked_resource_uri is not None
+                    else None
                 )
-                return SkybridgeResultDetails(
-                    is_skybridge_tool=True,
+                return AppIntegrationResultDetails(
+                    is_app_integration_tool=True,
                     resource_uri=resource_uri,
                 )
 
-        return SkybridgeResultDetails(is_skybridge_tool=False)
+        return AppIntegrationResultDetails(is_app_integration_tool=False)
 
     def _default_tool_result_status(self, result: "CallToolResult") -> str:
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
 
         content = self._structured_tool_result_display_content(
             content=result.content,
-            structured_content=getattr(result, "structuredContent", None),
+            structured_content=getattr(result, "structured_content", None),
         )
-        if result.isError:
+        if result.is_error:
             return "ERROR"
 
         if not content:
@@ -805,20 +1341,20 @@ class ToolDisplay:
         return format_count(len(content), "Content Block", "Content Blocks")
 
     @staticmethod
-    def _optional_string_attribute(result: "CallToolResult", name: str) -> str | None:
-        value = getattr(result, name, None)
+    def _optional_string_metadata(metadata: dict[str, object], name: str) -> str | None:
+        value = metadata.get(name)
         return strip_str_to_none(value)
 
     @staticmethod
-    def _optional_int_attribute(result: "CallToolResult", name: str) -> int | None:
-        return positive_int_or_none(getattr(result, name, None))
+    def _optional_int_metadata(metadata: dict[str, object], name: str) -> int | None:
+        return positive_int_or_none(metadata.get(name))
 
     @staticmethod
     def _optional_nonnegative_int_attribute(
-        result: "CallToolResult",
+        metadata: dict[str, object],
         name: str,
     ) -> int | None:
-        value = getattr(result, name, None)
+        value = metadata.get(name)
         if type(value) is not int or value < 0:
             return None
         return value
@@ -828,15 +1364,25 @@ class ToolDisplay:
         cls,
         result: "CallToolResult",
     ) -> ToolResultDisplayMetadata:
-        return ToolResultDisplayMetadata(
-            read_text_file_path=cls._optional_string_attribute(result, "read_text_file_path"),
-            read_text_file_line=cls._optional_int_attribute(result, "read_text_file_line"),
-            read_text_file_limit=cls._optional_int_attribute(result, "read_text_file_limit"),
-            transport_channel=cls._optional_string_attribute(result, "transport_channel"),
-            output_line_count=cls._optional_nonnegative_int_attribute(
-                result,
+        metadata = dict(tool_result_display_metadata(result))
+        process_metadata = (result.meta or {}).get(FAST_AGENT_SHELL_PROCESS_METADATA)
+        if not isinstance(process_metadata, Mapping):
+            process_metadata = {}
+        output_line_count = cls._optional_nonnegative_int_attribute(
+            metadata,
+            "output_line_count",
+        )
+        if output_line_count is None:
+            output_line_count = cls._optional_nonnegative_int_attribute(
+                dict(process_metadata),
                 "output_line_count",
-            ),
+            )
+        return ToolResultDisplayMetadata(
+            read_text_file_path=cls._optional_string_metadata(metadata, "read_text_file_path"),
+            read_text_file_line=cls._optional_int_metadata(metadata, "read_text_file_line"),
+            read_text_file_limit=cls._optional_int_metadata(metadata, "read_text_file_limit"),
+            transport_channel=cls._optional_string_metadata(metadata, "transport_channel"),
+            output_line_count=output_line_count,
         )
 
     def _tool_result_status(
@@ -846,7 +1392,13 @@ class ToolDisplay:
         tool_name: str | None,
         metadata: ToolResultDisplayMetadata,
     ) -> str:
-        if is_read_text_file_tool_name(tool_name) and not result.isError:
+        if background_status := self._background_process_launch_status(
+            result,
+            tool_name=tool_name,
+        ):
+            return background_status
+
+        if is_read_text_file_tool_name(tool_name) and not result.is_error:
             return self._read_text_file_header_status(
                 metadata.read_text_file_path,
                 line_value=metadata.read_text_file_line,
@@ -854,6 +1406,25 @@ class ToolDisplay:
             )
 
         return self._default_tool_result_status(result)
+
+    @staticmethod
+    def _background_process_launch_status(
+        result: "CallToolResult",
+        *,
+        tool_name: str | None,
+    ) -> str | None:
+        if result.is_error or not is_shell_execution_tool(tool_name):
+            return None
+        process_metadata = (result.meta or {}).get(FAST_AGENT_SHELL_PROCESS_METADATA)
+        if not isinstance(process_metadata, Mapping):
+            return None
+        if (
+            process_metadata.get("process_status") != "running"
+            or process_metadata.get("process_yield_reason") != "background"
+        ):
+            return None
+        process_id = strip_str_to_none(process_metadata.get("process_id"))
+        return f"started {process_id}" if process_id else None
 
     @staticmethod
     def _transport_metadata_label(channel: str) -> str:
@@ -888,7 +1459,7 @@ class ToolDisplay:
     def _has_structured_text_content_mismatch(result: "CallToolResult") -> bool:
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
 
-        structured_content = getattr(result, "structuredContent", None)
+        structured_content = getattr(result, "structured_content", None)
         content = getattr(result, "content", None)
         if not (
             isinstance(structured_content, (dict, list))
@@ -926,7 +1497,7 @@ class ToolDisplay:
         display_content,
         read_omitted_line_count: int,
     ) -> PreparedReadTextFileResultDisplay:
-        if not is_read_text_file_tool_name(tool_name) or result.isError:
+        if not is_read_text_file_tool_name(tool_name) or result.is_error:
             return PreparedReadTextFileResultDisplay(display_content=display_content)
 
         render_markdown: bool | None = None
@@ -977,7 +1548,7 @@ class ToolDisplay:
         console.console.print(line, markup=self._markup)
         console.console.print()
 
-    def _render_skybridge_structured_content(
+    def _render_app_integration_structured_content(
         self,
         *,
         structured_content: object,
@@ -1009,13 +1580,13 @@ class ToolDisplay:
         right_info: str,
         bottom_metadata_items: list[str] | None,
         structured_content: object,
-        is_skybridge_tool: bool,
-        skybridge_resource_uri: str | None,
+        is_app_integration_tool: bool,
+        app_resource_uri: str | None,
         show_hook_indicator: bool,
         post_content: RenderableType | None = None,
     ) -> None:
         config_map = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
-        block_color = "red" if result.isError else config_map["block_color"]
+        block_color = "red" if result.is_error else config_map["block_color"]
         arrow = config_map["arrow"]
         arrow_style = config_map["arrow_style"]
 
@@ -1024,7 +1595,7 @@ class ToolDisplay:
             arrow=arrow,
             arrow_style=arrow_style,
             name=name,
-            is_error=result.isError,
+            is_error=result.is_error,
             show_hook_indicator=show_hook_indicator,
         )
 
@@ -1032,7 +1603,7 @@ class ToolDisplay:
         self._display._display_content(
             display_content,
             truncate_content,
-            result.isError,
+            result.is_error,
             MessageType.TOOL_RESULT,
             check_markdown_markers=False,
         )
@@ -1041,10 +1612,10 @@ class ToolDisplay:
             console.console.print(post_content, markup=self._markup)
         console.console.print()
 
-        if is_skybridge_tool:
-            self._render_skybridge_structured_content(
+        if is_app_integration_tool:
+            self._render_app_integration_structured_content(
                 structured_content=structured_content,
-                resource_uri=skybridge_resource_uri,
+                resource_uri=app_resource_uri,
             )
             return
 
@@ -1059,11 +1630,13 @@ class ToolDisplay:
         *,
         name: str | None = None,
         tool_name: str | None = None,
-        skybridge_config: "SkybridgeServerConfig | None" = None,
+        app_integration_config: "AppServerConfig | None" = None,
         timing_ms: float | None = None,
         tool_call_id: str | None = None,
         type_label: str = "tool result",
         truncate_content: bool = True,
+        source_label: str | None = None,
+        server_name: str | None = None,
         show_hook_indicator: bool = False,
     ) -> None:
         """Display a tool result in the console."""
@@ -1075,7 +1648,7 @@ class ToolDisplay:
 
         try:
             metadata = self._tool_result_display_metadata(result)
-            structured_content = getattr(result, "structuredContent", None)
+            structured_content = getattr(result, "structured_content", None)
             has_structured = structured_content is not None
             prepared_content = self._prepare_tool_result_content(
                 content=result.content,
@@ -1087,10 +1660,10 @@ class ToolDisplay:
             source_content = prepared_content.source_content
             truncate_content = prepared_content.truncate_content
 
-            skybridge_details = self._resolve_skybridge_result_details(
+            app_integration_details = self._resolve_app_integration_result_details(
                 has_structured=has_structured,
                 tool_name=tool_name,
-                skybridge_config=skybridge_config,
+                app_integration_config=app_integration_config,
             )
             status = self._tool_result_status(result, tool_name=tool_name, metadata=metadata)
             bottom_metadata = self._build_tool_result_bottom_metadata(
@@ -1140,6 +1713,35 @@ class ToolDisplay:
                     image_content,
                 )
 
+            if self._display.tool_display_layout == "compact":
+                successful_read = is_read_text_file_tool_name(tool_name) and not result.is_error
+                if (
+                    successful_read
+                    and not self._display.tool_display_settings.show_successful_file_reads
+                    and post_content is None
+                ):
+                    return
+                self._show_compact_tool_result(
+                    result=result,
+                    name=name,
+                    tool_name=tool_name,
+                    status=status,
+                    display_content=display_content,
+                    truncate_content=truncate_content,
+                    render_markdown=read_text_display.render_markdown,
+                    additional_message=additional_message,
+                    post_content=post_content,
+                    bottom_metadata=bottom_metadata,
+                    tool_call_id=tool_call_id,
+                    source_label=source_label,
+                    server_name=server_name,
+                    show_hook_indicator=show_hook_indicator,
+                    is_app_integration_tool=(app_integration_details.is_app_integration_tool),
+                    structured_content=structured_content,
+                    app_resource_uri=app_integration_details.resource_uri,
+                )
+                return
+
             if has_structured:
                 self._render_structured_tool_result(
                     result=result,
@@ -1149,8 +1751,8 @@ class ToolDisplay:
                     right_info=right_info,
                     bottom_metadata_items=bottom_metadata,
                     structured_content=structured_content,
-                    is_skybridge_tool=skybridge_details.is_skybridge_tool,
-                    skybridge_resource_uri=skybridge_details.resource_uri,
+                    is_app_integration_tool=(app_integration_details.is_app_integration_tool),
+                    app_resource_uri=app_integration_details.resource_uri,
                     show_hook_indicator=show_hook_indicator,
                     post_content=post_content,
                 )
@@ -1161,7 +1763,7 @@ class ToolDisplay:
                     name=name,
                     right_info=right_info,
                     bottom_metadata=bottom_metadata,
-                    is_error=result.isError,
+                    is_error=result.is_error,
                     truncate_content=truncate_content,
                     additional_message=additional_message,
                     post_content=post_content,
@@ -1173,7 +1775,7 @@ class ToolDisplay:
                 "Tool result display failed",
                 tool_name=tool_name,
                 agent_name=name,
-                is_error=result.isError,
+                is_error=result.is_error,
             )
 
     def _shell_tool_call_content(
@@ -1212,9 +1814,16 @@ class ToolDisplay:
             metadata.get("shell_name"),
             shell_path=cast("str | None", metadata.get("shell_path")),
         )
+        blocks = shell_syntax_blocks(command, shell_language=shell_language)
+        if len(blocks) == 1:
+            block = blocks[0]
+            return self._shell_syntax(block.code, block.language)
+        return Group(*(self._shell_syntax(block.code, block.language) for block in blocks))
+
+    def _shell_syntax(self, code: str, language: str) -> Syntax:
         return Syntax(
-            command.rstrip(),
-            shell_language,
+            code,
+            language,
             theme=self._display.code_style,
             line_numbers=False,
             word_wrap=self._display.code_word_wrap,
@@ -1365,6 +1974,18 @@ class ToolDisplay:
             patch_text.append("(no apply_patch input provided)", style="dim")
         return patch_text
 
+    def _edit_file_tool_call_content(self, tool_args: dict[str, Any]) -> Text:
+        preview = build_edit_file_preview(tool_args)
+        if preview is None:
+            return Text("(incomplete edit_file arguments)", style="dim")
+        return style_apply_patch_preview_text(
+            format_edit_file_preview(
+                preview,
+                max_lines=self._display.apply_patch_preview_max_lines,
+            ),
+            default_style="dim",
+        )
+
     def _prepare_tool_call_display(
         self,
         *,
@@ -1423,6 +2044,17 @@ class ToolDisplay:
                 render_markdown=False,
             )
 
+        if normalize_tool_name(tool_name) == EDIT_FILE_TOOL_NAME:
+            return PreparedToolCallDisplay(
+                content=self._edit_file_tool_call_content(tool_args),
+                right_info=right_info,
+                bottom_items=normalized_bottom_items,
+                highlight_indexes=highlight_indexes,
+                max_item_length=max_item_length,
+                truncate_content=False,
+                render_markdown=False,
+            )
+
         content: object = tool_args
         truncate_content = True
         if is_read_text_file_tool_name(tool_name):
@@ -1452,6 +2084,9 @@ class ToolDisplay:
         metadata: dict[str, Any] | None = None,
         tool_call_id: str | None = None,
         type_label: str = "tool call",
+        source_label: str | None = None,
+        server_name: str | None = None,
+        request_count: int = 1,
         show_hook_indicator: bool = False,
     ) -> None:
         """Display a tool call header and body."""
@@ -1551,6 +2186,23 @@ class ToolDisplay:
                 type_label=type_label,
             )
 
+            if self._display.tool_display_layout == "compact":
+                if is_read_text_file_tool_name(tool_name):
+                    return
+                self._show_compact_tool_call(
+                    prepared=prepared,
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    metadata=metadata,
+                    name=name,
+                    tool_call_id=tool_call_id,
+                    source_label=source_label,
+                    server_name=server_name,
+                    request_count=request_count,
+                    show_hook_indicator=show_hook_indicator,
+                )
+                return
+
             self._display.display_message(
                 content=prepared.content,
                 message_type=MessageType.TOOL_CALL,
@@ -1605,25 +2257,27 @@ class ToolDisplay:
             console.console.print()
 
     @staticmethod
-    def _has_skybridge_signal(config: "SkybridgeServerConfig", resources: list[Any]) -> bool:
+    def _has_app_integration_signal(config: "AppServerConfig", resources: list[Any]) -> bool:
         return bool(config.enabled or resources or config.tools or config.warnings)
 
     @staticmethod
-    def _skybridge_resource_counts(resources: list[Any]) -> dict[str, int]:
+    def _app_resource_counts(resources: list[Any]) -> dict[str, int]:
         return {
-            "valid_resource_count": sum(
-                1 for resource in resources if resource.is_valid_app_resource
+            "valid_resource_count": sum(1 for resource in resources if resource.is_valid),
+            "mcp_apps_resource_count": sum(
+                1 for resource in resources if resource.kind is AppIntegrationKind.MCP_APPS
             ),
-            "mcp_app_resource_count": sum(1 for resource in resources if resource.is_mcp_app),
-            "skybridge_resource_count": sum(1 for resource in resources if resource.is_skybridge),
+            "openai_apps_sdk_resource_count": sum(
+                1 for resource in resources if resource.kind is AppIntegrationKind.OPENAI_APPS_SDK
+            ),
         }
 
     @staticmethod
-    def _active_skybridge_tools(config: "SkybridgeServerConfig") -> list[dict[str, Any]]:
+    def _active_app_tools(config: "AppServerConfig") -> list[dict[str, Any]]:
         return [
             {
                 "name": tool.display_name,
-                "template": str(tool.template_uri) if tool.template_uri else None,
+                "resource_uri": str(tool.resource_uri) if tool.resource_uri else None,
                 "kind": tool.kind,
             }
             for tool in config.tools
@@ -1631,36 +2285,40 @@ class ToolDisplay:
         ]
 
     @staticmethod
-    def _skybridge_tool_counts(config: "SkybridgeServerConfig") -> dict[str, int]:
+    def _app_tool_counts(config: "AppServerConfig") -> dict[str, int]:
         return {
-            "mcp_app_tool_count": sum(
-                1 for tool in config.tools if tool.is_valid and tool.kind == "mcp_app"
+            "mcp_apps_tool_count": sum(
+                1
+                for tool in config.tools
+                if tool.is_valid and tool.kind is AppIntegrationKind.MCP_APPS
             ),
-            "skybridge_tool_count": sum(
-                1 for tool in config.tools if tool.is_valid and tool.kind == "skybridge"
+            "openai_apps_sdk_tool_count": sum(
+                1
+                for tool in config.tools
+                if tool.is_valid and tool.kind is AppIntegrationKind.OPENAI_APPS_SDK
             ),
         }
 
     @classmethod
-    def _skybridge_server_row(
+    def _app_integration_server_row(
         cls,
         server_name: str,
-        config: "SkybridgeServerConfig",
+        config: "AppServerConfig",
         resources: list[Any],
     ) -> dict[str, Any]:
         return {
             "server_name": server_name,
             "config": config,
             "resources": resources,
-            **cls._skybridge_resource_counts(resources),
-            **cls._skybridge_tool_counts(config),
+            **cls._app_resource_counts(resources),
+            **cls._app_tool_counts(config),
             "total_resource_count": len(resources),
-            "active_tools": cls._active_skybridge_tools(config),
+            "active_tools": cls._active_app_tools(config),
             "enabled": config.enabled,
         }
 
     @staticmethod
-    def _add_skybridge_warning(
+    def _add_app_integration_warning(
         *,
         warnings: list[str],
         warning_seen: set[str],
@@ -1677,11 +2335,11 @@ class ToolDisplay:
             warning_seen.add(message)
 
     @classmethod
-    def summarize_skybridge_configs(
+    def summarize_app_integration_configs(
         cls,
-        configs: Mapping[str, "SkybridgeServerConfig"] | None,
+        configs: Mapping[str, "AppServerConfig"] | None,
     ) -> tuple[list[dict[str, Any]], list[str]]:
-        """Convert Skybridge configs into display-ready structures."""
+        """Convert app integration configs into display-ready structures."""
         server_rows: list[dict[str, Any]] = []
         warnings: list[str] = []
         warning_seen: set[str] = set()
@@ -1693,14 +2351,14 @@ class ToolDisplay:
             config = configs.get(server_name)
             if not config:
                 continue
-            resources = list(config.ui_resources or [])
-            if not cls._has_skybridge_signal(config, resources):
+            resources = list(config.resources)
+            if not cls._has_app_integration_signal(config, resources):
                 continue
 
-            server_rows.append(cls._skybridge_server_row(server_name, config, resources))
+            server_rows.append(cls._app_integration_server_row(server_name, config, resources))
 
             for warning in config.warnings:
-                cls._add_skybridge_warning(
+                cls._add_app_integration_warning(
                     warnings=warnings,
                     warning_seen=warning_seen,
                     server_name=server_name,
@@ -1709,19 +2367,19 @@ class ToolDisplay:
 
         return server_rows, warnings
 
-    def show_skybridge_summary(
+    def show_app_integration_summary(
         self,
         agent_name: str,
-        configs: Mapping[str, "SkybridgeServerConfig"] | None,
+        configs: Mapping[str, "AppServerConfig"] | None,
     ) -> None:
-        """Display aggregated Skybridge status."""
+        """Display aggregated interactive app integration status."""
         del agent_name
-        server_rows, warnings = self.summarize_skybridge_configs(configs)
+        server_rows, warnings = self.summarize_app_integration_configs(configs)
 
         if not server_rows and not warnings:
             return
 
-        heading = "[dim]Interactive MCP app integrations detected:[/dim]"
+        heading = "[dim]Interactive app integrations detected:[/dim]"
         console.console.print()
         console.console.print(heading, markup=self._markup)
 
@@ -1734,17 +2392,17 @@ class ToolDisplay:
                 enabled = row["enabled"]
 
                 segments: list[str] = []
-                if row["mcp_app_tool_count"] or row["mcp_app_resource_count"]:
+                if row["mcp_apps_tool_count"] or row["mcp_apps_resource_count"]:
                     segments.append(
                         "[cyan]MCP Apps[/cyan][dim]: "
-                        f"{format_count(row['mcp_app_tool_count'], 'tool')}, "
-                        f"{format_count(row['mcp_app_resource_count'], 'resource')}[/dim]"
+                        f"{format_count(row['mcp_apps_tool_count'], 'tool')}, "
+                        f"{format_count(row['mcp_apps_resource_count'], 'resource')}[/dim]"
                     )
-                if row["skybridge_tool_count"] or row["skybridge_resource_count"]:
+                if row["openai_apps_sdk_tool_count"] or row["openai_apps_sdk_resource_count"]:
                     segments.append(
                         "[cyan]OpenAI Apps SDK[/cyan][dim]: "
-                        f"{format_count(row['skybridge_tool_count'], 'tool')}, "
-                        f"{format_count(row['skybridge_resource_count'], 'resource')}[/dim]"
+                        f"{format_count(row['openai_apps_sdk_tool_count'], 'tool')}, "
+                        f"{format_count(row['openai_apps_sdk_resource_count'], 'resource')}[/dim]"
                     )
                 integration_segment = (
                     "[dim]; [/dim]".join(segments)
@@ -1762,13 +2420,13 @@ class ToolDisplay:
 
                 if tool_infos:
                     for tool in tool_infos:
-                        template_info = (
-                            f" [dim]({escape_markup(tool['template'])})[/dim]"
-                            if tool["template"]
+                        resource_info = (
+                            f" [dim]({escape_markup(tool['resource_uri'])})[/dim]"
+                            if tool["resource_uri"]
                             else ""
                         )
                         console.console.print(
-                            f"[dim]     · [/dim]{escape_markup(tool['name'])}{template_info}",
+                            f"[dim]     · [/dim]{escape_markup(tool['name'])}{resource_info}",
                             markup=self._markup,
                         )
                 else:

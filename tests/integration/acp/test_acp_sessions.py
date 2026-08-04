@@ -12,7 +12,7 @@ from acp.exceptions import RequestError
 from acp.helpers import text_block
 from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation
 from acp.stdio import spawn_agent_process
-from mcp.types import TextContent
+from mcp_types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -104,7 +104,7 @@ async def test_acp_prompt_saves_session_history(
     session_meta_path = session_dir / "session.json"
     assert session_meta_path.exists()
     metadata = json.loads(session_meta_path.read_text())
-    assert metadata["schema_version"] == 3
+    assert metadata["schema_version"] == 4
     active_agent = metadata["continuation"]["active_agent"]
     assert isinstance(active_agent, str)
     assert active_agent

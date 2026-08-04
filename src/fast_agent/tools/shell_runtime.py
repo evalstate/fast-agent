@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
-from mcp.types import CallToolResult, TextContent, Tool
+from mcp_types import CallToolResult, TextContent, Tool
 from rich.text import Text
 
 if TYPE_CHECKING:
@@ -30,6 +30,9 @@ from fast_agent.constants import (
     TERMINAL_BYTES_PER_TOKEN,
 )
 from fast_agent.event_progress import ProgressAction
+from fast_agent.mcp.tool_result_metadata import (
+    update_tool_result_display_metadata,
+)
 from fast_agent.tools.execution_environment import (
     ShellExecution,
     ShellExecutionRequest,
@@ -120,7 +123,7 @@ _RESOURCE_OBSERVATION_TIMEOUT_SECONDS = 0.075
 
 def _text_result(message: str, *, is_error: bool) -> CallToolResult:
     return CallToolResult(
-        isError=is_error,
+        is_error=is_error,
         content=[TextContent(type="text", text=message)],
     )
 
@@ -639,9 +642,14 @@ class ShellRuntime:
         *,
         defer_display_to_tool_result: bool,
         display_line_limit: int | None = None,
+        respect_tool_display: bool = True,
     ) -> ShellDisplayState:
+        compact_summary_only = respect_tool_display and self._compact_shell_summary_only()
         use_live_shell_display = (
-            self._show_bash_output and not defer_display_to_tool_result and display_tools_enabled()
+            self._show_bash_output
+            and not defer_display_to_tool_result
+            and not compact_summary_only
+            and display_tools_enabled()
         )
         state = ShellDisplayState(
             use_live_shell_display=use_live_shell_display,
@@ -653,6 +661,12 @@ class ShellRuntime:
             state.display_tail_limit = display_window.tail_lines
             state.display_tail_buffer = deque(maxlen=max(display_window.tail_lines, 1))
         return state
+
+    def _compact_shell_summary_only(self) -> bool:
+        return self._config is not None and (
+            self._display.tool_display_layout == "compact"
+            and self._display.tool_display_settings.results != "all"
+        )
 
     def _maybe_print_truncation_notice(
         self,
@@ -828,12 +842,17 @@ class ShellRuntime:
             )
 
         suppress_display = True
-        if defer_display_to_tool_result and self._show_bash_output:
+        compact_summary_only = self._compact_shell_summary_only()
+        if (defer_display_to_tool_result or compact_summary_only) and self._show_bash_output:
             suppress_display = False
-        result_meta = cast("Any", result)
-        result_meta._suppress_display = suppress_display
-        result_meta.exit_code = shell_result.exit_code
-        result_meta.output_line_count = output_state.output_line_count
+        update_tool_result_display_metadata(
+            result,
+            {
+                "suppress_display": suppress_display,
+                "exit_code": shell_result.exit_code,
+                "output_line_count": output_state.output_line_count,
+            },
+        )
         return result
 
     async def _execute_shell_command(
@@ -846,6 +865,7 @@ class ShellRuntime:
         output_byte_limit: int | None,
         defer_display_to_tool_result: bool,
         display_line_limit: int | None,
+        respect_tool_display: bool = True,
     ) -> _ShellRuntimeExecution:
         output_state = ShellOutputBuffer(
             output_byte_limit=(
@@ -859,6 +879,7 @@ class ShellRuntime:
         display_state = self._build_display_state(
             defer_display_to_tool_result=defer_display_to_tool_result,
             display_line_limit=display_line_limit,
+            respect_tool_display=respect_tool_display,
         )
         execution = await self._environment.execute(
             ShellExecutionRequest(
@@ -1549,8 +1570,8 @@ class ShellRuntime:
             action=ProgressAction.TOOL_PROGRESS,
             tool_use_id=tool_use_id,
             tool_name=name,
-            details=details or ("failed" if result.isError else "completed"),
-            tool_state="failed" if result.isError else "completed",
+            details=details or ("failed" if result.is_error else "completed"),
+            tool_state="failed" if result.is_error else "completed",
             tool_terminal=True,
             process_yield_reason=yield_reason,
         )
@@ -1629,6 +1650,7 @@ class ShellRuntime:
             output_byte_limit=None,
             defer_display_to_tool_result=False,
             display_line_limit=None,
+            respect_tool_display=False,
         )
         execution = runtime_execution.execution
         output_state = runtime_execution.output_state
@@ -1753,7 +1775,7 @@ class ShellRuntime:
                     self._flush_live_display_tail(process.display_state)
                     process.display_state.use_live_shell_display = False
                     if defer_display_to_tool_result:
-                        cast("Any", result)._suppress_display = False
+                        update_tool_result_display_metadata(result, {"suppress_display": False})
                     else:
                         self._display.show_managed_process_status(
                             process_id=process.process_id,
@@ -1787,7 +1809,7 @@ class ShellRuntime:
                     action=ProgressAction.TOOL_PROGRESS,
                     tool_use_id=tool_use_id,
                     details=completion_details,
-                    tool_state="failed" if result.isError else "completed",
+                    tool_state="failed" if result.is_error else "completed",
                     tool_terminal=True,
                 )
                 return result

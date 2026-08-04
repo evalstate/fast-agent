@@ -13,13 +13,12 @@ import typer.main
 from typer.core import TyperGroup
 
 from fast_agent.cli.command_support import ensure_context_object
-from fast_agent.cli.constants import normalize_resume_flag_args
+from fast_agent.cli.constants import normalize_convenience_flag_args, normalize_resume_flag_args
 from fast_agent.cli.display import print_section_header
-from fast_agent.cli.home_helpers import resolve_home_option
+from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
 from fast_agent.cli.terminal import Application
 from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
-from fast_agent.cli.workspace_helpers import resolve_workspace_option
-from fast_agent.constants import DEFAULT_HOME_DIR, FAST_AGENT_SHELL_CHILD_ENV
+from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.ui.console import console as shared_console
 
 LAZY_SUBCOMMANDS: dict[str, str] = {
@@ -62,6 +61,7 @@ class LazyGroup(TyperGroup):
     lazy_subcommands: ClassVar[dict[str, str]] = {}
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        normalize_convenience_flag_args(args)
         if _first_root_command(args) == "go":
             normalize_resume_flag_args(args)
         return super().parse_args(ctx, args)
@@ -196,13 +196,12 @@ def main(
     context_payload = ensure_context_object(ctx)
     context_payload["no_update_check"] = no_update_check
 
-    resolved_workspace = resolve_workspace_option(ctx, workspace)
+    resolved_workspace, resolved_home = resolve_workspace_and_home_options(
+        ctx,
+        workspace=workspace,
+        home=home,
+    )
     context_payload["workspace"] = resolved_workspace
-
-    home_option = home
-    if home_option is None and resolved_workspace is not None:
-        home_option = resolved_workspace / DEFAULT_HOME_DIR
-    resolved_home = resolve_home_option(ctx, home_option)
     context_payload["home"] = resolved_home
 
     application.verbosity = _resolve_root_verbosity(verbose=verbose, quiet=quiet)

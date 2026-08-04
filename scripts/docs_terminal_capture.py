@@ -50,18 +50,19 @@ def _run_with_pty(command: str, cwd: Path) -> str:
 
 
 def render_svg(command: str, output: str, *, title: str, width: int) -> str:
-    console = Console(
-        record=True,
-        width=88,
-        force_terminal=True,
-        color_system="truecolor",
-        file=open(os.devnull, "w", encoding="utf-8"),
-    )
-    decoder = AnsiDecoder()
-    console.print(Text(f"$ {command}", style="bold #9CDCFE"))
-    for segment in decoder.decode(output):
-        console.print(segment, end="")
-    svg = console.export_svg(title=title, theme=None, clear=True)
+    with open(os.devnull, "w", encoding="utf-8") as null:
+        console = Console(
+            record=True,
+            width=88,
+            force_terminal=True,
+            color_system="truecolor",
+            file=null,
+        )
+        decoder = AnsiDecoder()
+        console.print(Text(f"$ {command}", style="bold #9CDCFE"))
+        for segment in decoder.decode(output):
+            console.print(segment, end="")
+        svg = console.export_svg(title=title, theme=None, clear=True)
     # Rich exports scalable SVGs; setting a stable width keeps docs layout predictable.
     return svg.replace("<svg ", f'<svg width="{width}" ', 1)
 

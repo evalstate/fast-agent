@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import os
 import tempfile
-from pathlib import Path  # noqa: TC003 - typer resolves Path annotations at runtime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import typer
 
 from fast_agent.a2a.connect import normalize_a2a_transport, normalize_a2a_url
 from fast_agent.cli.command_support import ensure_context_object
-from fast_agent.cli.home_helpers import resolve_home_option
+from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
 from fast_agent.cli.runtime.request_builders import (
     DEFAULT_AGENT_CARDS_DIR as _DEFAULT_AGENT_CARDS_DIR,
 )
@@ -31,9 +31,8 @@ from fast_agent.cli.runtime.request_builders import (
     resolve_instruction_option as _resolve_instruction_option,
 )
 from fast_agent.cli.runtime.runner import run_request
-from fast_agent.cli.shared_options import CommonAgentOptions
-from fast_agent.cli.workspace_helpers import resolve_workspace_option
-from fast_agent.constants import DEFAULT_HOME_DIR, FAST_AGENT_SHELL_CHILD_ENV
+from fast_agent.cli.shared_options import CommonAgentOptions, McpProtocolOption
+from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.agent_card_paths import AGENT_CARD_EXTENSIONS as _CARD_EXTENSIONS
 from fast_agent.core.exceptions import AgentConfigError, EnvironmentStartupError
 from fast_agent.mcp.hf_auth import add_explicit_bearer_auth_header
@@ -228,9 +227,10 @@ def go(
         help="Force or disable browser OAuth for --a2a remote agents.",
     ),
     card_tools: list[str] | None = CommonAgentOptions.card_tools(),
-    urls: str | None = CommonAgentOptions.urls(),
+    urls: list[str] | None = CommonAgentOptions.urls(),
     auth: str | None = CommonAgentOptions.auth(),
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
+    mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
     model: str | None = CommonAgentOptions.model(),
     pack: str | None = typer.Option(
         None,
@@ -298,13 +298,14 @@ def go(
     workspace: Path | None = CommonAgentOptions.workspace(),
     home: Path | None = CommonAgentOptions.home(),
     no_home: bool = CommonAgentOptions.no_home(),
-    smart: bool = CommonAgentOptions.smart(),
     skills_dir: Path | None = CommonAgentOptions.skills_dir(),
     npx: str | None = CommonAgentOptions.npx(),
     uvx: str | None = CommonAgentOptions.uvx(),
     stdio: str | None = CommonAgentOptions.stdio(),
     shell: bool = CommonAgentOptions.shell(),
     no_shell: bool = CommonAgentOptions.no_shell(),
+    subagents: bool | None = CommonAgentOptions.subagents(),
+    subagent_model: str | None = CommonAgentOptions.subagent_model(),
     reload: bool = typer.Option(
         False,
         "--reload",
@@ -334,11 +335,12 @@ def go(
         )
         raise typer.Exit(1)
 
-    resolved_workspace = resolve_workspace_option(ctx, workspace)
-    home_option = home
-    if home_option is None and resolved_workspace is not None and not no_home:
-        home_option = resolved_workspace / DEFAULT_HOME_DIR
-    resolved_home = resolve_home_option(ctx, home_option, set_env_var=not no_home)
+    resolved_workspace, resolved_home = resolve_workspace_and_home_options(
+        ctx,
+        workspace=workspace,
+        home=home,
+        no_home=no_home,
+    )
     effective_home = resolved_home
 
     if pack:
@@ -422,6 +424,7 @@ def go(
         urls=urls,
         auth=auth,
         client_metadata_url=client_metadata_url,
+        mcp_protocol=mcp_protocol.value if mcp_protocol is not None else None,
         agent_cards=agent_cards,
         card_tools=card_tools,
         model=model,
@@ -444,9 +447,10 @@ def go(
         home=effective_home,
         workspace=resolved_workspace,
         no_home=no_home,
-        force_smart=smart,
         shell_enabled=shell,
         no_shell=no_shell,
+        subagents=subagents,
+        subagent_model=subagent_model,
         mode="interactive",
         instance_scope="shared",
         reload=reload,

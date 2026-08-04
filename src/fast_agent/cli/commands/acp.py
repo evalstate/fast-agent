@@ -9,12 +9,11 @@ from typing import TYPE_CHECKING
 import typer
 
 from fast_agent.cli.commands import serve
-from fast_agent.cli.home_helpers import resolve_home_option
+from fast_agent.cli.constants import normalize_convenience_flag_args
+from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
 from fast_agent.cli.runtime.request_builders import build_command_run_request
 from fast_agent.cli.runtime.runner import run_request
-from fast_agent.cli.shared_options import CommonAgentOptions
-from fast_agent.cli.workspace_helpers import resolve_workspace_option
-from fast_agent.constants import DEFAULT_HOME_DIR
+from fast_agent.cli.shared_options import CommonAgentOptions, McpProtocolOption
 
 if TYPE_CHECKING:
     from fast_agent.cli.runtime.run_request import AgentRunRequest
@@ -45,13 +44,13 @@ def _build_run_request(
     servers: str | None,
     agent_cards: list[str] | None,
     card_tools: list[str] | None,
-    urls: str | None,
+    urls: list[str] | None,
     auth: str | None,
     client_metadata_url: str | None,
+    mcp_protocol: McpProtocolOption | None = None,
     model: str | None,
     home: Path | None,
     no_home: bool,
-    force_smart: bool,
     skills_dir: Path | None,
     npx: str | None,
     uvx: str | None,
@@ -68,12 +67,15 @@ def _build_run_request(
     missing_shell_cwd: serve.MissingShellCwdPolicy | None = None,
     no_shell: bool = False,
     workspace: Path | None = None,
+    subagents: bool | None = None,
+    subagent_model: str | None = None,
 ) -> AgentRunRequest:
-    resolved_workspace = resolve_workspace_option(ctx, workspace)
-    home_option = home
-    if home_option is None and resolved_workspace is not None and not no_home:
-        home_option = resolved_workspace / DEFAULT_HOME_DIR
-    resolved_home = resolve_home_option(ctx, home_option, set_env_var=not no_home)
+    resolved_workspace, resolved_home = resolve_workspace_and_home_options(
+        ctx,
+        workspace=workspace,
+        home=home,
+        no_home=no_home,
+    )
     return build_command_run_request(
         name=name,
         instruction_option=instruction,
@@ -82,6 +84,7 @@ def _build_run_request(
         urls=urls,
         auth=auth,
         client_metadata_url=client_metadata_url,
+        mcp_protocol=mcp_protocol.value if mcp_protocol is not None else None,
         agent_cards=agent_cards,
         card_tools=card_tools,
         model=model,
@@ -97,9 +100,10 @@ def _build_run_request(
         home=resolved_home,
         workspace=resolved_workspace,
         no_home=no_home,
-        force_smart=force_smart,
         shell_enabled=shell,
         no_shell=no_shell,
+        subagents=subagents,
+        subagent_model=subagent_model,
         prefer_local_shell=prefer_local_shell,
         mode="serve",
         transport=serve.ServeTransport.ACP.value,
@@ -123,12 +127,12 @@ def run_acp(
     config_path: str | None = CommonAgentOptions.config_path(),
     servers: str | None = CommonAgentOptions.servers(),
     model: str | None = CommonAgentOptions.model(),
-    smart: bool = CommonAgentOptions.smart(),
     agent_cards: list[str] | None = CommonAgentOptions.agent_cards(),
     card_tools: list[str] | None = CommonAgentOptions.card_tools(),
-    urls: str | None = CommonAgentOptions.urls(),
+    urls: list[str] | None = CommonAgentOptions.urls(),
     auth: str | None = CommonAgentOptions.auth(),
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
+    mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
     workspace: Path | None = CommonAgentOptions.workspace(),
     home: Path | None = CommonAgentOptions.home(),
     no_home: bool = CommonAgentOptions.no_home(),
@@ -154,6 +158,8 @@ def run_acp(
     ),
     shell: bool = CommonAgentOptions.shell(),
     no_shell: bool = CommonAgentOptions.no_shell(),
+    subagents: bool | None = CommonAgentOptions.subagents(),
+    subagent_model: str | None = CommonAgentOptions.subagent_model(),
     prefer_local_shell: bool = typer.Option(
         False,
         "--prefer-local-shell",
@@ -192,11 +198,11 @@ def run_acp(
         urls=urls,
         auth=auth,
         client_metadata_url=client_metadata_url,
+        mcp_protocol=mcp_protocol,
         model=model,
         workspace=workspace,
         home=home,
         no_home=no_home,
-        force_smart=smart,
         skills_dir=skills_dir,
         npx=npx,
         uvx=uvx,
@@ -206,6 +212,8 @@ def run_acp(
         port=port,
         shell=shell,
         no_shell=no_shell,
+        subagents=subagents,
+        subagent_model=subagent_model,
         prefer_local_shell=prefer_local_shell,
         no_permissions=no_permissions,
         resume=resume,
@@ -222,6 +230,7 @@ def main() -> None:
 
     click.exceptions.UsageError.exit_code = 1
 
+    normalize_convenience_flag_args(sys.argv, start_index=1)
     args = sys.argv[1:]
     if args and args[0] in ROOT_SUBCOMMANDS:
         from fast_agent.cli.__main__ import main as root_cli_main

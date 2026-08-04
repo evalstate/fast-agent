@@ -33,6 +33,12 @@ The `apply_patch` tool (supplied, and exposed by default to Codex and `GPT-5.2`+
 
 Tools can be labelled as generating python code for syntax highlighting (especially useful when integrating with [Pydantic Monty](https://github.com/pydantic/monty))
 
+Shell tool previews also highlight recognized heredoc bodies using the language
+of the stdin interpreter. This includes direct interpreters such as
+`python -`, repository-standard wrappers such as `uv run python -`, and
+TypeScript executed with `pnpm exec tsx -` (including `pnpm -C <dir> exec`).
+Highlighting is applied while the heredoc is still streaming.
+
 ## Shell Integration
 
 You can run a shell command with `!` - for example `! git status`. When the active agent uses a local shell environment, commands run attached to your terminal, so interactive programs such as `! nano` work as expected. If the active agent uses a remote or sandbox environment, `!` runs in that environment; use `!!` to force a local shell command instead.
@@ -73,19 +79,31 @@ When the internal `read_text_file` tool is used, by default 5 lines of the file 
 
 Use `/history detail` to review the full contents of a turn and tool calls. 
 
+## Output Review
+
+By default, **`fast-agent`** truncates tool inputs and outputs. 
+
+You can review the entire output by using the `/history review` command. 
+
 ## Image Viewer
 
 Images received from the Assistant or tool calls are rendered to the console on the final turn. Local images that you attach to a user message are previewed in the user panel beneath the attachment link text.
 
+The recording below uses Hugging Face's live MCP server. It shows progress
+notifications during image generation, renders the returned image as terminal
+cells, and then opens `/mcp` to inspect the same modern connection with a
+60-segment, one-second-resolution activity timeline.
+
 !!! note "Recording format"
     The image in this asciinema capture uses halfblock rendering so it can be recorded as plain terminal cells. In a real terminal, `fast-agent` can use higher-resolution terminal image protocols when your terminal supports them.
+    
 
 <div
   class="fa-terminal-demo"
   data-fa-asciinema-cast="../../assets/tui/hf-image-generation.cast"
   data-fa-asciinema-cols="120"
   data-fa-asciinema-rows="34"
-  data-fa-asciinema-poster="npt:0:36"
+  data-fa-asciinema-poster="npt:0:42.3"
   data-fa-asciinema-speed="1"
   data-fa-asciinema-idle-time-limit="1.3"
   data-fa-asciinema-fit="width"

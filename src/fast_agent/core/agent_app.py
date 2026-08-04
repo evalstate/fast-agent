@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from deprecated import deprecated
 from rich.markup import escape
@@ -27,6 +27,7 @@ from fast_agent.ui.turn_usage_display import (
     TurnUsageDisplay,
     display_parallel_turn_usage,
     display_regular_turn_usage,
+    display_regular_turn_usage_with_subagents,
 )
 from fast_agent.utils.text import strip_to_none
 
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping, Sequence
     from pathlib import Path
 
-    from mcp.types import GetPromptResult, PromptMessage
+    from mcp_types import GetPromptResult, PromptMessage
 
     from fast_agent.agents.agent_types import AgentType
     from fast_agent.cli.runtime.shell_cwd_policy import MissingShellCwdPolicy
@@ -42,7 +43,7 @@ if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
     from fast_agent.core.harness import HarnessSession
     from fast_agent.interfaces import AgentProtocol
-    from fast_agent.llm.usage_tracking import TurnUsage
+    from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
     from fast_agent.session.session_manager import ResumeSessionAgentsResult, SessionManager
     from fast_agent.types import PromptMessageExtended, RequestParams
@@ -55,6 +56,13 @@ logger = get_logger(__name__)
 # https://platform.openai.com/docs/guides/prompt-caching
 _OPENAI_MINIMUM_CACHE_TTL_MODEL_VERSION = (5, 6)
 _OPENAI_MINIMUM_CACHE_TTL_SECONDS = 30 * 60
+_SUBAGENT_TURN_INDEX_SUFFIX = "::subagents"
+
+
+@runtime_checkable
+class _SubagentUsageAgent(Protocol):
+    @property
+    def subagent_usage_accumulator(self) -> "UsageAccumulator": ...
 
 
 @dataclass(slots=True, frozen=True)
@@ -802,7 +810,7 @@ class AgentApp:
         if isinstance(agent, ParallelAgent):
             self._show_parallel_agent_usage(agent, turn_start_indices or {})
         else:
-            self._show_regular_agent_usage(agent, (turn_start_indices or {}).get(agent.name))
+            self._show_regular_agent_usage(agent, turn_start_indices or {})
 
     def _capture_turn_start_indices(self, agent_name: str | None) -> dict[str, int]:
         """Capture usage accumulator turn indices for a user-initiated turn."""
@@ -815,9 +823,13 @@ class AgentApp:
         indices: dict[str, int] = {}
 
         def record(target: AgentProtocol) -> None:
-            accumulator = getattr(target, "usage_accumulator", None)
+            accumulator = target.usage_accumulator
             if accumulator is not None:
                 indices[target.name] = len(accumulator.turns)
+            if isinstance(target, _SubagentUsageAgent):
+                indices[f"{target.name}{_SUBAGENT_TURN_INDEX_SUFFIX}"] = len(
+                    target.subagent_usage_accumulator.turns
+                )
 
         if isinstance(agent, ParallelAgent):
             for child_agent in agent.fan_out_agents:
@@ -828,11 +840,38 @@ class AgentApp:
 
         return indices
 
-    def _show_regular_agent_usage(self, agent, turn_start_index: int | None) -> None:
+    def _show_regular_agent_usage(
+        self,
+        agent: AgentProtocol,
+        turn_start_indices: dict[str, int],
+    ) -> None:
         """Show usage for a regular (non-parallel) agent."""
-        usage = self._collect_agent_turn_usage(agent, turn_start_index)
-        if usage:
+        usage = self._collect_agent_turn_usage(agent, turn_start_indices.get(agent.name))
+        if usage is None:
+            return
+
+        subagent_usage = self._collect_subagent_turn_usage(
+            agent,
+            turn_start_indices.get(f"{agent.name}{_SUBAGENT_TURN_INDEX_SUFFIX}"),
+        )
+        if subagent_usage is None:
             display_regular_turn_usage(usage)
+        else:
+            display_regular_turn_usage_with_subagents(usage, subagent_usage)
+
+    def _collect_subagent_turn_usage(
+        self,
+        agent: AgentProtocol,
+        turn_start_index: int | None,
+    ) -> TurnUsageDisplay | None:
+        if not isinstance(agent, _SubagentUsageAgent):
+            return None
+        return self._collect_accumulator_turn_usage(
+            agent.subagent_usage_accumulator,
+            turn_start_index,
+            context_agent=None,
+            fallback_to_last=False,
+        )
 
     def _show_parallel_agent_usage(
         self, parallel_agent: ParallelAgent, turn_start_indices: dict[str, int]
@@ -870,18 +909,34 @@ class AgentApp:
         accumulator = agent.usage_accumulator
         if accumulator is None:
             return None
+        return self._collect_accumulator_turn_usage(
+            accumulator,
+            turn_start_index,
+            context_agent=agent,
+            fallback_to_last=True,
+        )
 
+    def _collect_accumulator_turn_usage(
+        self,
+        accumulator: UsageAccumulator,
+        turn_start_index: int | None,
+        *,
+        context_agent: AgentProtocol | None,
+        fallback_to_last: bool,
+    ) -> TurnUsageDisplay | None:
         turns = accumulator.turns
         if not turns:
             return None
 
         totals = last_turn_usage(accumulator, turn_start_index)
-        if totals:
+        if totals is not None:
             turn_slice = turns[turn_start_index:] if turn_start_index is not None else [turns[-1]]
             input_tokens = totals["prompt_tokens"]
             output_tokens = totals["completion_tokens"]
             tool_calls = totals["tool_calls"]
         else:
+            if not fallback_to_last:
+                return None
             last_turn = turns[-1]
             if last_turn.prompt.total is None or last_turn.completion.total is None:
                 return None
@@ -900,8 +955,14 @@ class AgentApp:
             tool_calls=tool_calls,
             cache_percentage=self._cached_prompt_percentage(turn_slice),
             cache_write_tokens=self._cache_write_tokens(turn_slice),
-            context_percentage=accumulator.context_usage_percentage,
-            cache_ttl=self._cache_ttl_display(agent, turn_slice, has_cache_activity),
+            context_percentage=(
+                accumulator.context_usage_percentage if context_agent is not None else None
+            ),
+            cache_ttl=(
+                self._cache_ttl_display(context_agent, turn_slice, has_cache_activity)
+                if context_agent is not None
+                else None
+            ),
         )
 
     @staticmethod

@@ -459,8 +459,10 @@ class _SplitListPicker:
             fragments.append(
                 (
                     line_style,
-                    f"{cursor}{availability_display.marker} "
-                    f"{self._tabulate_model_label(model.label, panel_width=self._model_panel_width())}\n",
+                    (
+                        f"{cursor}{availability_display.marker} "
+                        f"{self._tabulate_model_label(model.label, panel_width=self._model_panel_width())}\n"
+                    ),
                 )
             )
 
@@ -494,8 +496,10 @@ class _SplitListPicker:
             ),
             (
                 "class:muted",
-                "Keys: ←/→ focus · ↑/↓ move · Tab swap · c scope · "
-                "Enter select/authenticate · q quit",
+                (
+                    "Keys: ←/→ focus · ↑/↓ move · Tab swap · c scope · "
+                    "Enter select/authenticate · q quit"
+                ),
             ),
         ]
 

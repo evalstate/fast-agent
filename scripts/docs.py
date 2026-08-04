@@ -35,13 +35,13 @@ SCREENSHOT_DIR = DOCS_DIR / "screenshots"
 
 
 def _run_docs_tool(*args: str) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(["uv", "run", *args], cwd=DOCS_DIR)
+    return subprocess.run(["uv", "run", *args], cwd=DOCS_DIR, check=False)
 
 
 def install() -> int:
     """Install/sync documentation dependencies using uv."""
     print("Syncing development dependencies...")
-    result = subprocess.run(["uv", "sync", "--group", "dev"], cwd=ROOT)
+    result = subprocess.run(["uv", "sync", "--group", "dev"], cwd=ROOT, check=False)
     if result.returncode == 0:
         print("Docs dependencies synced successfully.")
     return result.returncode
@@ -55,7 +55,7 @@ def generate() -> int:
         DOCS_DIR / "generate_plugin_api_docs.py",
     ]
     for script in scripts:
-        result = subprocess.run([sys.executable, str(script)], cwd=ROOT)
+        result = subprocess.run([sys.executable, str(script)], cwd=ROOT, check=False)
         if result.returncode != 0:
             return result.returncode
     print(f"Generated docs in {DOCS_DIR / 'docs' / '_generated'}")
@@ -67,12 +67,14 @@ def a2a() -> int:
     result = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "a2a_docs_pipeline.py"), "generate"],
         cwd=ROOT,
+        check=False,
     )
     if result.returncode != 0:
         return result.returncode
     result = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "a2a_docs_pipeline.py"), "check"],
         cwd=ROOT,
+        check=False,
     )
     return result.returncode
 
@@ -81,7 +83,9 @@ def social(args: list[str]) -> int:
     """Generate per-page Open Graph card PNGs using google-chrome."""
     print("Generating docs social cards...", flush=True)
     result = subprocess.run(
-        [sys.executable, str(DOCS_DIR / "generate_social_cards.py"), *args], cwd=ROOT
+        [sys.executable, str(DOCS_DIR / "generate_social_cards.py"), *args],
+        cwd=ROOT,
+        check=False,
     )
     return result.returncode
 
@@ -91,6 +95,7 @@ def check_social() -> int:
     result = subprocess.run(
         [sys.executable, str(DOCS_DIR / "generate_social_cards.py"), "--check"],
         cwd=ROOT,
+        check=False,
     )
     return result.returncode
 
@@ -100,6 +105,7 @@ def social_contact_sheet() -> int:
     result = subprocess.run(
         [sys.executable, str(DOCS_DIR / "generate_social_cards.py"), "--contact-sheet"],
         cwd=ROOT,
+        check=False,
     )
     return result.returncode
 
@@ -109,6 +115,7 @@ def social_variants() -> int:
     result = subprocess.run(
         [sys.executable, str(DOCS_DIR / "generate_social_cards.py"), "--variant-previews"],
         cwd=ROOT,
+        check=False,
     )
     return result.returncode
 
@@ -117,7 +124,9 @@ def assets(args: list[str]) -> int:
     """Build or verify committed interactive documentation assets."""
     command = args or ["build"]
     result = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "docs_assets.py"), *command], cwd=ROOT
+        [sys.executable, str(ROOT / "scripts" / "docs_assets.py"), *command],
+        cwd=ROOT,
+        check=False,
     )
     return result.returncode
 
@@ -180,6 +189,7 @@ def screenshot() -> int:
                 url,
             ],
             cwd=ROOT,
+            check=False,
         )
         if result.returncode != 0:
             return result.returncode
@@ -197,6 +207,7 @@ def assess() -> int:
             str(SCREENSHOT_DIR),
         ],
         cwd=ROOT,
+        check=False,
     )
     return result.returncode
 

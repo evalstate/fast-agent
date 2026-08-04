@@ -1,6 +1,6 @@
 import json
 
-from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.commands.history_summaries import build_history_turn_report
 from fast_agent.constants import (
@@ -88,7 +88,7 @@ def test_build_history_turn_report_calculates_turn_metrics() -> None:
             tool_results={
                 "call_1": CallToolResult(
                     content=[TextContent(type="text", text="result")],
-                    isError=False,
+                    is_error=False,
                 )
             },
             channels={

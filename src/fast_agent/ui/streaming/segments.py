@@ -28,6 +28,12 @@ from fast_agent.ui.apply_patch_preview import (
     is_shell_execution_tool,
     shell_syntax_language,
 )
+from fast_agent.ui.edit_file_preview import (
+    build_edit_file_preview,
+    build_partial_edit_file_preview,
+    format_edit_file_preview,
+)
+from fast_agent.ui.streaming.json_prefix import JsonPrefixFormatter
 from fast_agent.utils.reasoning_stream_parser import ReasoningSegment, ReasoningStreamParser
 from fast_agent.utils.text import strip_casefold
 
@@ -413,10 +419,12 @@ class StreamSegmentBuffer:
 class ToolStreamState:
     tool_use_id: str
     tool_name: str
+    canonical_tool_name: str
     family: ToolActivityFamily
     segment_index: int | None
     tool_metadata: Mapping[str, Any] | None = None
     apply_patch_preview_max_lines: int | None = None
+    stream_edit_previews: bool = True
     preserve_details: bool = False
     raw_text: str = ""
     display_text: str = ""
@@ -424,6 +432,8 @@ class ToolStreamState:
     result_text: str = ""
     completed: bool = False
     decoder: LiteralNewlineDecoder = field(default_factory=LiteralNewlineDecoder)
+    json_formatter: JsonPrefixFormatter | None = None
+    json_formatter_length: int = 0
 
     def append(self, chunk: str) -> None:
         if not chunk:
@@ -453,13 +463,19 @@ class ToolStreamState:
             code=extracted.value,
             language=preview_spec.language,
             complete=extracted.complete,
+            variant=preview_spec.variant,
         )
 
     def has_apply_patch_preview(self) -> bool:
-        tool_name = self.tool_name or "tool"
+        if not self.stream_edit_previews:
+            return False
+        tool_name = self.canonical_tool_name or self.tool_name or "tool"
         stripped_text = self.raw_text.strip()
         if not stripped_text:
             return False
+
+        if tool_name == "edit_file":
+            return self._edit_file_preview() is not None
 
         if is_apply_patch_tool_name(tool_name):
             return build_apply_patch_preview_from_input(
@@ -502,15 +518,18 @@ class ToolStreamState:
         )
 
     def render_text(self, *, prefix: str, pretty: bool) -> str:
-        tool_name = self.tool_name or "tool"
-        header = self._render_header(prefix=prefix, tool_name=tool_name)
-        args_text = self._render_args_text(tool_name=tool_name, pretty=pretty)
+        display_name = self.tool_name or "tool"
+        canonical_name = self.canonical_tool_name or display_name
+        header = self._render_header(prefix=prefix, tool_name=display_name)
+        args_text = self._render_args_text(tool_name=canonical_name)
 
         if self.preserve_details and not self.completed:
             return header + self._preserved_in_progress_body(args_text, pretty=pretty)
 
         if self.completed:
             compact_body = self._completed_body(args_text)
+            if self._is_generic_json_prefix(canonical_name):
+                return header + compact_body
             return header + self._with_trailing_newline(compact_body)
 
         if pretty:
@@ -522,23 +541,50 @@ class ToolStreamState:
         header_prefix = prefix.strip()
         return f"{header_prefix} {tool_name}\n" if header_prefix else f"{tool_name}\n"
 
-    def _render_args_text(self, *, tool_name: str, pretty: bool) -> str:
+    def _render_args_text(self, *, tool_name: str) -> str:
+        if self.stream_edit_previews:
+            edit_file_preview = self._edit_file_preview()
+            if edit_file_preview is not None:
+                return edit_file_preview
+
         args_text = self._apply_patch_args_text(tool_name)
         if not self.raw_text.strip():
             return args_text
 
-        parsed_args = _parse_json_value(self.raw_text)
-        if parsed_args is _JSON_PARSE_FAILED:
+        if self._uses_specialized_formatting(tool_name):
+            parsed_args = _parse_json_value(self.raw_text)
+            if isinstance(parsed_args, dict) and is_shell_execution_tool(tool_name):
+                return self._shell_args_text(parsed_args) or args_text
             return self._partial_shell_args_text(tool_name) or args_text
 
-        if pretty:
-            args_text = json.dumps(parsed_args, indent=2, ensure_ascii=True)
+        return self._generic_json_prefix(tool_name) or args_text
 
-        if isinstance(parsed_args, dict) and is_shell_execution_tool(tool_name):
-            return self._shell_args_text(parsed_args) or args_text
-        return args_text
+    def _uses_specialized_formatting(self, tool_name: str) -> bool:
+        return (
+            tool_name == "tool"
+            or tool_name == "edit_file"
+            or is_apply_patch_tool_name(tool_name)
+            or is_shell_execution_tool(tool_name)
+            or _tool_code_preview_spec(self.tool_metadata) is not None
+        )
+
+    def _is_generic_json_prefix(self, tool_name: str) -> bool:
+        return self._generic_json_prefix(tool_name) is not None
+
+    def _generic_json_prefix(self, tool_name: str) -> str | None:
+        if self._uses_specialized_formatting(tool_name):
+            return None
+        if self.json_formatter is None or self.json_formatter_length > len(self.raw_text):
+            self.json_formatter = JsonPrefixFormatter()
+            self.json_formatter_length = 0
+        if self.json_formatter_length < len(self.raw_text):
+            self.json_formatter.append(self.raw_text[self.json_formatter_length :])
+            self.json_formatter_length = len(self.raw_text)
+        return self.json_formatter.formatted
 
     def _apply_patch_args_text(self, tool_name: str) -> str:
+        if not self.stream_edit_previews:
+            return self.display_text
         if not is_apply_patch_tool_name(tool_name):
             return self.display_text
 
@@ -560,6 +606,8 @@ class ToolStreamState:
         return self.display_text
 
     def _shell_args_text(self, parsed_args: dict[str, Any]) -> str | None:
+        if not self.stream_edit_previews:
+            return None
         command = parsed_args.get("command")
         if not isinstance(command, str):
             return None
@@ -580,6 +628,8 @@ class ToolStreamState:
         )
 
     def _partial_shell_args_text(self, tool_name: str) -> str | None:
+        if not self.stream_edit_previews:
+            return None
         if not is_shell_execution_tool(tool_name):
             return None
 
@@ -588,6 +638,35 @@ class ToolStreamState:
             return None
         return build_partial_apply_patch_preview(
             extracted.value,
+            max_lines=self.apply_patch_preview_max_lines,
+        )
+
+    def _edit_file_preview(self) -> str | None:
+        if self.canonical_tool_name != "edit_file":
+            return None
+
+        parsed_args = _parse_json_value(self.raw_text)
+        if isinstance(parsed_args, dict):
+            preview = build_edit_file_preview(parsed_args)
+            if preview is not None:
+                return format_edit_file_preview(
+                    preview,
+                    max_lines=self.apply_patch_preview_max_lines,
+                )
+
+        fields = {
+            field_name: extract_partial_json_string_field(self.raw_text, field_name=field_name)
+            for field_name in ("path", "old_string", "new_string")
+        }
+        preview = build_partial_edit_file_preview(
+            path=fields["path"].value if fields["path"] else None,
+            old_string=fields["old_string"].value if fields["old_string"] else None,
+            new_string=fields["new_string"].value if fields["new_string"] else None,
+        )
+        if preview is None:
+            return None
+        return format_edit_file_preview(
+            preview,
             max_lines=self.apply_patch_preview_max_lines,
         )
 
@@ -680,6 +759,7 @@ class ToolStreamState:
 class ToolEventContext:
     tool_use_id: str
     tool_name: str
+    canonical_tool_name: str
     family: ToolActivityFamily
     tool_metadata: Mapping[str, Any] | None
     preserve_details: bool
@@ -698,12 +778,14 @@ class ToolCodePreview:
     code: str
     language: str
     complete: bool
+    variant: Literal["code", "shell"] = "code"
 
 
 @dataclass(frozen=True)
 class ToolCodePreviewSpec:
     field_name: str
     language: str
+    variant: Literal["code", "shell"]
 
 
 def _tool_code_preview_spec(metadata: Mapping[str, Any] | None) -> ToolCodePreviewSpec | None:
@@ -728,7 +810,7 @@ def _tool_code_preview_spec(metadata: Mapping[str, Any] | None) -> ToolCodePrevi
         return None
     if not isinstance(language, str) or not language:
         return None
-    return ToolCodePreviewSpec(field_name=code_arg, language=language)
+    return ToolCodePreviewSpec(field_name=code_arg, language=language, variant=variant)
 
 
 def _decode_json_string_at(raw_text: str, start_index: int) -> tuple[str, int, bool]:
@@ -977,6 +1059,7 @@ class StreamSegmentAssembler:
         tool_prefix: str,
         tool_metadata_resolver: Callable[[str], Mapping[str, Any] | None] | None = None,
         apply_patch_preview_max_lines: int | None = None,
+        stream_edit_previews: bool = True,
     ) -> None:
         self._base_kind = base_kind
         self._buffer = StreamSegmentBuffer(base_kind)
@@ -985,6 +1068,7 @@ class StreamSegmentAssembler:
         self._tool_prefix = tool_prefix
         self._tool_metadata_resolver = tool_metadata_resolver
         self._apply_patch_preview_max_lines = apply_patch_preview_max_lines
+        self._stream_edit_previews = stream_edit_previews
         self._tool_states: dict[str, ToolStreamState] = {}
         self._fallback_tool_counter = 0
         self._last_tool_id: str | None = None
@@ -1122,18 +1206,18 @@ class StreamSegmentAssembler:
         event_type: str,
         info: Mapping[str, Any] | None,
     ) -> ToolEventContext:
-        lookup_tool_name = str(info.get("tool_name") or "tool") if info else "tool"
+        raw_tool_name = info.get("tool_name") if info else None
+        lookup_tool_name = str(raw_tool_name) if raw_tool_name else ""
+        presentation_tool_name = lookup_tool_name or "tool"
         presentation_family = self._resolve_presentation_family(lookup_tool_name, info)
         presentation = build_tool_activity_presentation(
-            tool_name=lookup_tool_name,
+            tool_name=presentation_tool_name,
             family=presentation_family,
             phase="call",
         )
-        tool_name = (
-            str(info.get("tool_display_name") or presentation.display_name)
-            if info
-            else presentation.display_name
-        )
+        raw_display_name = info.get("tool_display_name") if info else None
+        provided_identity = bool(raw_display_name or raw_tool_name)
+        tool_name = str(raw_display_name or presentation.display_name)
         tool_use_id = str(info.get("tool_use_id")) if info and info.get("tool_use_id") else ""
 
         if not tool_use_id:
@@ -1144,10 +1228,19 @@ class StreamSegmentAssembler:
         self._last_tool_id = tool_use_id
 
         state = self._tool_states.get(tool_use_id)
-        if state is not None and tool_name and state.tool_name != tool_name:
-            state.tool_name = tool_name
-        if state is not None:
+        if state is not None and provided_identity:
+            if raw_display_name or not state.canonical_tool_name:
+                state.tool_name = tool_name
+            if lookup_tool_name:
+                state.canonical_tool_name = lookup_tool_name
+        if state is not None and (
+            provided_identity or (info and info.get("presentation_family") is not None)
+        ):
             state.family = presentation_family
+        if state is not None:
+            tool_name = state.tool_name
+            lookup_tool_name = state.canonical_tool_name
+            presentation_family = state.family
         tool_metadata = self._resolve_tool_metadata(lookup_tool_name, info)
         if state is not None and tool_metadata is not None:
             state.tool_metadata = tool_metadata
@@ -1161,6 +1254,7 @@ class StreamSegmentAssembler:
         return ToolEventContext(
             tool_use_id=tool_use_id,
             tool_name=tool_name,
+            canonical_tool_name=lookup_tool_name,
             family=presentation_family,
             tool_metadata=tool_metadata,
             preserve_details=preserve_details,
@@ -1172,16 +1266,17 @@ class StreamSegmentAssembler:
             state=context.state,
             tool_use_id=context.tool_use_id,
             tool_name=context.tool_name,
+            canonical_tool_name=context.canonical_tool_name,
             family=context.family,
             tool_metadata=context.tool_metadata,
             preserve_details=context.preserve_details,
         )
 
     def _start_tool_event(self, context: ToolEventContext, chunk: str) -> bool:
-        if not chunk:
-            return False
         state = self._ensure_context_tool_state(context)
         state.completed = False
+        if not chunk:
+            return False
         state.append(chunk)
         self._update_tool_segment(state, pretty=False)
         return True
@@ -1266,6 +1361,7 @@ class StreamSegmentAssembler:
         self,
         tool_use_id: str,
         tool_name: str,
+        canonical_tool_name: str,
         *,
         family: ToolActivityFamily,
         tool_metadata: Mapping[str, Any] | None = None,
@@ -1288,10 +1384,12 @@ class StreamSegmentAssembler:
         state = ToolStreamState(
             tool_use_id=tool_use_id,
             tool_name=tool_name,
+            canonical_tool_name=canonical_tool_name,
             family=family,
             segment_index=segment_index,
             tool_metadata=tool_metadata,
             apply_patch_preview_max_lines=self._apply_patch_preview_max_lines,
+            stream_edit_previews=self._stream_edit_previews,
             preserve_details=preserve_details,
         )
         self._tool_states[tool_use_id] = state
@@ -1303,6 +1401,7 @@ class StreamSegmentAssembler:
         state: ToolStreamState | None,
         tool_use_id: str,
         tool_name: str,
+        canonical_tool_name: str,
         family: ToolActivityFamily,
         tool_metadata: Mapping[str, Any] | None,
         preserve_details: bool,
@@ -1312,6 +1411,7 @@ class StreamSegmentAssembler:
         return self._start_tool(
             tool_use_id,
             tool_name,
+            canonical_tool_name,
             family=family,
             tool_metadata=tool_metadata,
             preserve_details=preserve_details,
@@ -1323,6 +1423,8 @@ class StreamSegmentAssembler:
         state.raw_text = ""
         state.display_text = ""
         state.decoder = LiteralNewlineDecoder()
+        state.json_formatter = None
+        state.json_formatter_length = 0
 
     @classmethod
     def _apply_replacement(cls, state: ToolStreamState, chunk: str) -> None:
@@ -1391,6 +1493,7 @@ class StreamSegmentAssembler:
             state.segment_index = len(self._buffer.segments) - 1
         segment = self._buffer.segments[state.segment_index]
         segment.text = state.render_text(prefix=self._tool_prefix, pretty=pretty)
+        segment.tool_name = state.tool_name
         segment.tool_family = state.family
         segment.tool_completed = state.completed
         segment.code_preview = state.code_preview()

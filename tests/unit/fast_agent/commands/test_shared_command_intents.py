@@ -1,9 +1,43 @@
 from fast_agent.commands.shared_command_intents import (
+    AgentCommandIntent,
+    CardCommandIntent,
     HistoryActionIntent,
+    parse_agent_command_intent,
+    parse_card_command_intent,
     parse_current_agent_history_intent,
     parse_session_command_intent,
     should_default_export_agent,
 )
+
+
+def test_parse_agent_command_intent_uses_structured_actions() -> None:
+    assert parse_agent_command_intent(None) == AgentCommandIntent(action="status")
+    assert parse_agent_command_intent("list") == AgentCommandIntent(action="list")
+    assert parse_agent_command_intent("use reviewer") == AgentCommandIntent(
+        action="use",
+        agent_name="reviewer",
+    )
+    assert parse_agent_command_intent('tool add "code reviewer"') == AgentCommandIntent(
+        action="tool_add",
+        agent_name="code reviewer",
+    )
+    assert parse_agent_command_intent("tool remove reviewer") == AgentCommandIntent(
+        action="tool_remove",
+        agent_name="reviewer",
+    )
+
+
+def test_parse_card_command_intent_uses_structured_actions() -> None:
+    assert parse_card_command_intent(None) == CardCommandIntent(action="show")
+    assert parse_card_command_intent("show reviewer") == CardCommandIntent(
+        action="show",
+        agent_name="reviewer",
+    )
+    assert parse_card_command_intent('load "cards/reviewer.md" --as-tool') == CardCommandIntent(
+        action="load",
+        source="cards/reviewer.md",
+        as_tool=True,
+    )
 
 
 def test_parse_current_agent_history_intent_unquotes_quoted_arguments() -> None:

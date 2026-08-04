@@ -28,7 +28,7 @@ Choose the smallest surface that fits what you are building:
 | Package an `agent.py` as a server | `uv run agent.py --transport http` |
 | Design your own FastMCP tools | [Custom MCP Servers](harness-adapter.md) |
 | Deploy with Hugging Face OAuth | [Host on Hugging Face Spaces](huggingface-spaces.md) |
-| Return interactive UI | [FastMCP Apps](fastmcp-apps.md) |
+| Return interactive UI | [FastMCP Apps Adapter](fastmcp-apps.md) |
 
 The default server and custom FastMCP integrations use the same harness-backed
 application boundary:
@@ -56,11 +56,18 @@ the standard MCP tool surface. Use a custom FastMCP server only when you want to
 own the MCP-facing interface or expose non-AgentCard tools.
 
 For hosted MCP, prefer request-scoped serving. Each tool call opens a transient
-harness session and durable state lives in storage you control. For stateful MCP
-clients, connection-scoped serving can use the current `Mcp-Session-Id` as the
-default harness session key. Server authors can also expose their own handle
-arguments on custom MCP tools and pass any chosen key to the Harness API;
-fast-agent does not require a universal state-handle convention.
+harness session and durable state lives in storage you control.
+
+In connection scope, `HarnessMCPAdapter` uses an explicit `session_id` supplied
+by a custom tool as the harness session key. If the tool does not supply one,
+the adapter falls back to an ambient `Mcp-Session-Id` when the transport has
+one. Modern sessionless clients therefore need an explicit application handle
+for portable continuity.
+
+Managed agent-named tools do not expose a generic `session_id` argument. To
+define an application handle such as a workspace, conversation, or job ID,
+create a custom FastMCP tool with `HarnessMCPAdapter` or implement the policy in
+`harness_app.entrypoint`.
 
 #### Using the CLI (fast-agent serve)
 
@@ -74,8 +81,8 @@ Key options:
 - `--port / --host` (for HTTP; host defaults to `127.0.0.1`)
 - `--instance-scope [shared|connection|request] `– choose how agent state is isolated
     - `shared` (default) reuses a single agent for all clients
-    - `connection` (sessions) Create one Agent per MCP session (separate history per client)
-    - `request` (stateless) - create a new Agent for every tool call and disable MCP Sessions
+    - `connection` – keep harness continuity using an explicit custom-tool handle, falling back to `Mcp-Session-Id` when available
+    - `request` (stateless) – create a transient harness session for every tool call
 - `--shell`, `-x` – Enable local shell tool access (bash or pwsh)
 - `--no-shell` – Disable local shell/filesystem tools even when skills or config request them
 - `--workspace` – Override the workspace root; when `--home` is omitted, the home defaults to `<workspace>/.fast-agent`

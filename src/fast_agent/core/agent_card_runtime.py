@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +16,6 @@ from fast_agent.core.agent_app import AgentRefreshResult
 from fast_agent.core.agent_card_paths import is_agent_card_path, is_markdown_agent_card_path
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.connect_targets import resolve_target_entry
 from fast_agent.tools.function_tool_config import function_tool_entrypoint
 from fast_agent.tools.python_file_loader import parse_callable_file_spec
 from fast_agent.utils.text import strip_casefold
@@ -633,10 +634,32 @@ class AgentCardRuntimeMixin:
         )
 
     @staticmethod
-    def _copy_server_settings(settings: "MCPServerSettings", *, name: str) -> "MCPServerSettings":
+    def _copy_server_settings(
+        settings: "MCPServerSettings",
+        *,
+        name: str,
+        display_name: str | None = None,
+    ) -> "MCPServerSettings":
         copied = settings.model_copy(deep=True)
-        copied.name = name
+        copied.name = display_name or name
         return copied
+
+    @staticmethod
+    def _card_mcp_server_name(
+        config_obj: AgentConfig,
+        entry: MCPConnectTarget,
+        visible_name: str,
+    ) -> str:
+        source = str(config_obj.source_path or config_obj.name)
+        source_id = hashlib.sha256(source.encode()).hexdigest()[:10]
+        revision = hashlib.sha256(
+            json.dumps(
+                entry.source_view(redact=False, include_name=True),
+                sort_keys=True,
+                default=str,
+            ).encode()
+        ).hexdigest()[:10]
+        return f"card-{source_id}-{revision}-{visible_name}"
 
     def _ensure_app_mcp_settings(self):
         context = getattr(self.app, "context", None)
@@ -692,39 +715,13 @@ class AgentCardRuntimeMixin:
             effective_servers.setdefault(name, server)
         return effective_servers
 
-    @staticmethod
-    def _connector_mcp_payload(entry: MCPConnectTarget, explicit_name: str) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "name": explicit_name,
-            "description": entry.description,
-            "management": entry.management,
-            "connector_id": entry.connector_id,
-            "headers": dict(entry.headers) if entry.headers is not None else None,
-            "access_token": entry.access_token,
-            "auth": dict(entry.auth) if entry.auth is not None else None,
-        }
-        if entry.defer_loading is not None:
-            payload["defer_loading"] = entry.defer_loading
-        return payload
-
-    @staticmethod
-    def _target_mcp_overrides(entry: MCPConnectTarget) -> dict[str, Any]:
-        optional_fields = {
-            "description": entry.description,
-            "management": entry.management,
-            "headers": dict(entry.headers) if entry.headers is not None else None,
-            "access_token": entry.access_token,
-            "defer_loading": entry.defer_loading,
-            "auth": dict(entry.auth) if entry.auth is not None else None,
-        }
-        return {name: value for name, value in optional_fields.items() if value is not None}
-
     def _resolve_connector_mcp_entry(
         self,
         agent_name: str,
         index: int,
         entry: MCPConnectTarget,
         explicit_name: str | None,
+        defaults: dict[str, Any],
     ) -> ResolvedMCPConnectEntry:
         if entry.target is not None:
             raise AgentConfigError(
@@ -738,8 +735,9 @@ class AgentCardRuntimeMixin:
             )
 
         try:
-            settings = config.MCPServerSettings.model_validate(
-                self._connector_mcp_payload(entry, explicit_name)
+            settings = entry.model_copy(update={"name": explicit_name}).materialize(
+                source_path=f"mcp_connect[{index}]",
+                defaults=defaults,
             )
         except Exception as exc:
             raise AgentConfigError(
@@ -759,6 +757,7 @@ class AgentCardRuntimeMixin:
         index: int,
         entry: MCPConnectTarget,
         explicit_name: str | None,
+        defaults: dict[str, Any],
     ) -> ResolvedMCPConnectEntry:
         target = entry.target
         if target is None:
@@ -768,11 +767,10 @@ class AgentCardRuntimeMixin:
             )
 
         try:
-            resolved_entry = resolve_target_entry(
-                target=target,
-                default_name=explicit_name,
-                overrides=self._target_mcp_overrides(entry),
-                source_path=f"mcp_connect[{index}].target",
+            declaration = entry.model_copy(update={"name": explicit_name})
+            settings = declaration.materialize(
+                source_path=f"mcp_connect[{index}]",
+                defaults=defaults,
             )
         except Exception as exc:
             raise AgentConfigError(
@@ -781,8 +779,8 @@ class AgentCardRuntimeMixin:
             ) from exc
 
         return ResolvedMCPConnectEntry(
-            name=resolved_entry.server_name,
-            settings=resolved_entry.settings,
+            name=settings.name or explicit_name or "mcp-server",
+            settings=settings,
             target_label=target,
         )
 
@@ -791,17 +789,37 @@ class AgentCardRuntimeMixin:
         agent_name: str,
         index: int,
         entry: MCPConnectTarget,
+        defaults: dict[str, Any],
     ) -> ResolvedMCPConnectEntry:
         if entry.connector_id is not None:
-            return self._resolve_connector_mcp_entry(agent_name, index, entry, entry.name)
-        return self._resolve_target_mcp_entry(agent_name, index, entry, entry.name)
+            return self._resolve_connector_mcp_entry(
+                agent_name,
+                index,
+                entry,
+                entry.name,
+                defaults,
+            )
+        return self._resolve_target_mcp_entry(
+            agent_name,
+            index,
+            entry,
+            entry.name,
+            defaults,
+        )
 
     def _resolve_agent_mcp_connect_servers(
         self,
         effective_servers: dict[str, "MCPServerSettings"],
-    ) -> tuple[dict[str, list[str]], set[str]]:
+    ) -> tuple[dict[str, list[str]], dict[str, set[str]], set[str]]:
         resolved_servers_by_agent: dict[str, list[str]] = {}
+        replaced_declared_names: dict[str, set[str]] = {}
         all_dynamic_server_names: set[str] = set()
+        app_config = self.app.context.config
+        defaults = (
+            app_config.mcp.defaults.model_dump()
+            if app_config is not None and app_config.mcp is not None
+            else {}
+        )
 
         for agent_name in sorted(self.agents.keys()):
             agent_data = self.agents[agent_name]
@@ -814,9 +832,32 @@ class AgentCardRuntimeMixin:
                 resolved_servers_by_agent[agent_name] = []
                 continue
 
+            namespace_servers: dict[str, str] = {}
+            for configured_name in config_obj.servers:
+                configured = effective_servers.get(configured_name)
+                if configured is not None:
+                    namespace_servers[configured.name or configured_name] = configured_name
+
             for index, entry in enumerate(entries):
-                resolved = self._resolve_mcp_connect_entry(agent_name, index, entry)
-                existing = effective_servers.get(resolved.name)
+                resolved = self._resolve_mcp_connect_entry(
+                    agent_name,
+                    index,
+                    entry,
+                    defaults,
+                )
+                existing_name = namespace_servers.get(resolved.name)
+                existing = (
+                    effective_servers.get(existing_name) if existing_name is not None else None
+                )
+                if existing is not None and existing_name not in all_dynamic_server_names:
+                    origin = (
+                        "central" if existing_name in (self._base_mcp_servers or {}) else "runtime"
+                    )
+                    raise AgentConfigError(
+                        f"MCP server ownership collision for '{resolved.name}'.",
+                        f"Card declaration collides with {origin} definition "
+                        f"'{existing_name}' in the owning agent's tool namespace.",
+                    )
                 if existing is not None and not self._settings_equivalent(
                     existing,
                     resolved.settings,
@@ -829,20 +870,31 @@ class AgentCardRuntimeMixin:
                         "Set an explicit unique `name` or change target.",
                     )
 
-                if existing is None:
-                    effective_servers[resolved.name] = self._copy_server_settings(
-                        resolved.settings,
-                        name=resolved.name,
+                internal_name = existing_name
+                if internal_name is None:
+                    internal_name = self._card_mcp_server_name(
+                        config_obj,
+                        entry,
+                        resolved.name,
                     )
+                    effective_servers[internal_name] = self._copy_server_settings(
+                        resolved.settings,
+                        name=internal_name,
+                        display_name=resolved.name,
+                    )
+                    namespace_servers[resolved.name] = internal_name
+                    all_dynamic_server_names.add(internal_name)
+                    if resolved.name in config_obj.servers:
+                        replaced_declared_names.setdefault(agent_name, set()).add(resolved.name)
 
-                resolved_servers_by_agent.setdefault(agent_name, []).append(resolved.name)
-                all_dynamic_server_names.add(resolved.name)
+                resolved_servers_by_agent.setdefault(agent_name, []).append(internal_name)
 
-        return resolved_servers_by_agent, all_dynamic_server_names
+        return resolved_servers_by_agent, replaced_declared_names, all_dynamic_server_names
 
     def _merge_agent_mcp_servers(
         self,
         resolved_servers_by_agent: dict[str, list[str]],
+        replaced_declared_names: dict[str, set[str]],
     ) -> None:
         active_agent_names = set(self.agents.keys())
         for name, agent_data in self.agents.items():
@@ -854,8 +906,12 @@ class AgentCardRuntimeMixin:
             if name not in self._agent_declared_servers or name in self._agent_card_last_changed:
                 self._agent_declared_servers[name] = current_declared
 
-            base_servers = list(self._agent_declared_servers.get(name, []))
-            self._agent_declared_servers[name] = base_servers
+            replaced = replaced_declared_names.get(name, set())
+            base_servers = [
+                server
+                for server in self._agent_declared_servers.get(name, [])
+                if server not in replaced
+            ]
             config_obj.servers = list(
                 dict.fromkeys(base_servers + resolved_servers_by_agent.get(name, []))
             )
@@ -869,16 +925,31 @@ class AgentCardRuntimeMixin:
         app_config: Any,
         registry: Any,
         effective_servers: dict[str, "MCPServerSettings"],
+        card_server_names: set[str],
     ) -> None:
+        if registry is not None:
+            try:
+                registry.replace_card_servers(
+                    {
+                        name: self._copy_server_settings(
+                            effective_servers[name],
+                            name=name,
+                            display_name=effective_servers[name].name,
+                        )
+                        for name in card_server_names
+                        if name in effective_servers
+                    }
+                )
+            except ValueError as exc:
+                raise AgentConfigError("MCP server ownership collision", str(exc)) from exc
         app_config.mcp.servers = {
-            name: self._copy_server_settings(server, name=name)
+            name: self._copy_server_settings(
+                server,
+                name=name,
+                display_name=server.name,
+            )
             for name, server in effective_servers.items()
         }
-        if registry is not None:
-            registry.registry = {
-                name: self._copy_server_settings(server, name=name)
-                for name, server in effective_servers.items()
-            }
 
     def _sync_agent_card_mcp_servers(self) -> None:
         sync_context = self._ensure_app_mcp_settings()
@@ -893,12 +964,20 @@ class AgentCardRuntimeMixin:
         effective_servers = self._effective_mcp_servers(
             self._preserved_runtime_mcp_servers(existing_registry)
         )
-        resolved_servers_by_agent, all_dynamic_server_names = (
+        resolved_servers_by_agent, replaced_declared_names, all_dynamic_server_names = (
             self._resolve_agent_mcp_connect_servers(effective_servers)
         )
 
-        self._merge_agent_mcp_servers(resolved_servers_by_agent)
-        self._publish_effective_mcp_servers(app_config, registry, effective_servers)
+        self._publish_effective_mcp_servers(
+            app_config,
+            registry,
+            effective_servers,
+            all_dynamic_server_names,
+        )
+        self._merge_agent_mcp_servers(
+            resolved_servers_by_agent,
+            replaced_declared_names,
+        )
         self._dynamic_mcp_server_names = all_dynamic_server_names
 
     async def _watch_agent_cards(self) -> None:

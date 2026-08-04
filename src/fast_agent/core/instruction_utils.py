@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from fast_agent.core.instruction_refresh import (
     McpInstructionCapable,
+    RenderedInstructionProcessor,
     build_instruction,
     resolve_instruction_skill_manifests,
 )
@@ -155,6 +156,8 @@ async def apply_instruction_context(
             context=dict(resolved_context),
             source=agent.name,
         )
+        if isinstance(agent, RenderedInstructionProcessor):
+            resolved = agent.process_rendered_instruction(resolved)
         if resolved is None or resolved == template:
             continue
 

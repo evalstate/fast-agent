@@ -9,7 +9,7 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
-from mcp.types import PromptMessage
+from mcp_types import PromptMessage
 from pydantic import BaseModel
 
 from fast_agent.core.agent_instance_factory import (
@@ -341,6 +341,7 @@ class HarnessSessions:
         | None = None,
         delete_persisted_session: Callable[[str], Awaitable[None]] | None = None,
         shell_environment: ShellEnvironment | None = None,
+        validate_instance: Callable[[AgentInstance], None] | None = None,
     ) -> None:
         instance_factory = _resolve_instance_factory(
             instance_factory=instance_factory,
@@ -353,6 +354,7 @@ class HarnessSessions:
             delete_persisted_session=delete_persisted_session,
         )
         self._shell_environment = shell_environment
+        self._validate_instance = validate_instance
         self._registry: InMemoryLiveSessionRegistry[_HarnessSessionRecord, str | None] = (
             InMemoryLiveSessionRegistry(
                 instance_factory=instance_factory,
@@ -459,9 +461,11 @@ class HarnessSessions:
                     instance,
                     default_agent_name,
                 )
+            if self._validate_instance is not None:
+                self._validate_instance(instance)
             return record
         except Exception:
-            record.closed = True
+            self._close_record(record)
             raise
 
     @staticmethod
@@ -566,6 +570,11 @@ class AgentHarness:
                 ),
                 persistence=self._harness_persistence(),
                 shell_environment=self._shell_environment,
+                validate_instance=(
+                    None
+                    if self._runtime.is_acp_server_mode
+                    else self._validate_instance_provider_state
+                ),
             )
             return self
         except Exception:
@@ -765,6 +774,7 @@ class AgentHarness:
         refresh_result = await self._fast_agent._finalize_initial_agent_instance(
             self._runtime,
             instance,
+            validate_provider_state=False,
         )
         instance.app.set_refresh_result(refresh_result)
         state = ManagedRunState(
@@ -781,6 +791,12 @@ class AgentHarness:
         )
         self._fast_agent._configure_streaming_for_run(instance.agents)
         return instance
+
+    @staticmethod
+    def _validate_instance_provider_state(instance: AgentInstance) -> None:
+        from fast_agent.core.runtime_finalization import validate_final_provider_state
+
+        validate_final_provider_state(instance.agents)
 
     async def _dispose_instance(self, instance: AgentInstance) -> None:
         if self._runtime is None:

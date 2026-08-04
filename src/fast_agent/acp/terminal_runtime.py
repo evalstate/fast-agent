@@ -15,7 +15,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from mcp.types import CallToolResult, Tool
+from mcp_types import CallToolResult, Tool
 
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT, TERMINAL_BYTES_PER_TOKEN
 from fast_agent.core.logging.logger import get_logger
@@ -81,7 +81,7 @@ class _TerminalOutputResult:
 
 
 def _error_result(message: str) -> CallToolResult:
-    return CallToolResult(content=[text_content(message)], isError=True)
+    return CallToolResult(content=[text_content(message)], is_error=True)
 
 
 def _needs_shell_wrapper(command: str) -> bool:
@@ -284,7 +284,7 @@ class ACPTerminalRuntime:
             Tool(
                 name=EXECUTE_TOOL_NAME,
                 description="Execute a shell command.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "command": {
@@ -415,7 +415,7 @@ class ACPTerminalRuntime:
 
             result = CallToolResult(
                 content=[text_content(result_text)],
-                isError=is_error,
+                is_error=is_error,
             )
 
             await self._notify_tool_complete(
@@ -618,9 +618,11 @@ class ACPTerminalRuntime:
             estimated_tokens = max(int(output_byte_limit / TERMINAL_BYTES_PER_TOKEN), 1)
             result_text = "\n".join(
                 [
-                    "[Output truncated by ACP terminal outputByteLimit: "
-                    f"{output_byte_limit} bytes (~{estimated_tokens} tokens). "
-                    "Client returned partial output only.]",
+                    (
+                        "[Output truncated by ACP terminal outputByteLimit: "
+                        f"{output_byte_limit} bytes (~{estimated_tokens} tokens). "
+                        "Client returned partial output only.]"
+                    ),
                     result_text,
                 ]
             )

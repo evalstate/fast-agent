@@ -11,8 +11,8 @@ social:
 
 - **Client**: connect agents to local or remote MCP servers.
 - **Server**: expose fast-agent agents, AgentCards, and Harness apps as MCP servers with [FastMCP](https://gofastmcp.com/getting-started/welcome).
-- **Protocol features**: work with MCP types, resources, elicitations, state transfer,
-  OAuth, UI content, and MCP Apps.
+- **Protocol features**: work with MCP types, resources, elicitations, OAuth,
+  MCP Apps, and OpenAI Apps SDK integrations.
 
 ## Choose your path
 
@@ -20,7 +20,9 @@ social:
 | ---------------------------------------------- | --------------------------------------------------------------------------------------- |
 | Connect an agent to MCP tools                  | [Connect to MCP Servers](client-servers.md)                                             |
 | Authenticate to remote MCP servers             | [Client OAuth](mcp-oauth.md)                                                            |
-| Inspect tools, transports, and server metadata | [Inspect MCP Servers](mcp_display.md)                                                   |
+| Inspect tools, transports, and server metadata | [Inspect MCP Transports](mcp-inspect-transport.md)                                    |
+| Inspect MCP Apps metadata                      | [MCP Apps](mcp-apps.md)                                                                |
+| Connect to OpenAI Apps SDK servers             | [OpenAI Apps SDK](openai-apps-sdk.md)                                                  |
 | Serve a fast-agent agent over MCP              | [Run an MCP Server](mcp-server.md)                                                      |
 | Build custom FastMCP tools backed by agents    | [Custom MCP Servers](harness-adapter.md)                                                |
 | Host an MCP server on Hugging Face Spaces      | [Host on Hugging Face Spaces](huggingface-spaces.md)                                    |
@@ -82,8 +84,9 @@ async def main() -> None:
         await agent.interactive(agent_name="openai")
 ```
 
-For MCP resources and linked content, see [Resources](resources.md). For UI
-content returned by MCP servers, see [mcp-ui and fast-agent](mcp-ui.md).
+For MCP resources and linked content, see [Resources](resources.md). For app
+resources, see [MCP Apps](mcp-apps.md) and
+[OpenAI Apps SDK](openai-apps-sdk.md).
 
 ## Client mode
 
@@ -95,9 +98,10 @@ Common client topics:
 
 - [Connect to MCP Servers](client-servers.md)
 - [Client OAuth](mcp-oauth.md)
-- [Inspect MCP Servers](mcp_display.md)
+- [Inspect MCP Transports](mcp-inspect-transport.md)
 - [MCP Resources](resources.md)
-- [mcp-ui and fast-agent](mcp-ui.md)
+- [MCP Apps](mcp-apps.md)
+- [OpenAI Apps SDK](openai-apps-sdk.md)
 
 ## Server mode
 
@@ -117,8 +121,8 @@ Common server topics:
 
 fast-agent supports several MCP protocol features directly in the agent runtime:
 
-- [Skills over MCP](skills-over-mcp.md)
+- [Skills over MCP — SEP-2640 Draft (`d7490ecd`)](skills-over-mcp.md)
 - [Elicitations](elicitations.md)
-- [State Transfer](state_transfer.md)
 - [Resources](resources.md)
-- [mcp-ui](mcp-ui.md)
+- [MCP Apps](mcp-apps.md)
+- [OpenAI Apps SDK](openai-apps-sdk.md)

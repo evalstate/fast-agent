@@ -19,12 +19,8 @@ from fast_agent.commands.mcp_command_intents import (
 )
 from fast_agent.commands.session_export_help import build_session_export_action_detail
 from fast_agent.commands.shared_command_intents import (
-    ADD_TOOL_TOKEN_DESCRIPTIONS,
-    DUMP_TOOL_TOKEN_DESCRIPTIONS,
     HISTORY_COMMAND_COMPLETION_DESCRIPTIONS,
-    MODEL_MANAGER_COMMAND_ACTIONS,
     MODEL_VALUE_COMMAND_ACTIONS,
-    REMOVE_TOOL_TOKEN_DESCRIPTIONS,
     SESSION_COMMAND_COMPLETION_DESCRIPTIONS,
 )
 from fast_agent.llm.model_selection import ModelSelectionCatalog
@@ -38,7 +34,7 @@ if TYPE_CHECKING:
 
 MODEL_TOOL_STATE_VALUES = ("on", "off", "default")
 ModelValueCompletionSpec = tuple["Iterable[str]", str]
-_MODEL_VALUE_COMPLETION_SUBCOMMANDS = MODEL_VALUE_COMMAND_ACTIONS - frozenset(("switch",))
+_MODEL_VALUE_COMPLETION_SUBCOMMANDS = MODEL_VALUE_COMMAND_ACTIONS - frozenset(("status", "switch"))
 ModelManagerCompletionHandler = Callable[
     ["AgentCompleter", str, list[Completion]],
     list[Completion],
@@ -71,27 +67,17 @@ _SKILLS_UPDATE_ACTIONS = _catalog_action_tokens("skills", "update")
 _SKILLS_REGISTRY_ACTIONS = _catalog_action_tokens("skills", "registry")
 _SKILLS_SEARCH_ACTIONS = _catalog_action_tokens("skills", "search")
 
-_CARDS_ADD_ACTIONS = _catalog_action_tokens("cards", "add")
-_CARDS_REMOVE_ACTIONS = _catalog_action_tokens("cards", "remove")
-_CARDS_UPDATE_ACTIONS = _catalog_action_tokens("cards", "update")
-_CARDS_REGISTRY_ACTIONS = _catalog_action_tokens("cards", "registry")
-_CARDS_README_ACTIONS = _catalog_action_tokens("cards", "readme")
-_CARDS_PUBLISH_ACTIONS = _catalog_action_tokens("cards", "publish")
+_CARDS_ADD_ACTIONS = _catalog_action_tokens("packs", "add")
+_CARDS_REMOVE_ACTIONS = _catalog_action_tokens("packs", "remove")
+_CARDS_UPDATE_ACTIONS = _catalog_action_tokens("packs", "update")
+_CARDS_REGISTRY_ACTIONS = _catalog_action_tokens("packs", "registry")
+_CARDS_README_ACTIONS = _catalog_action_tokens("packs", "readme")
+_CARDS_PUBLISH_ACTIONS = _catalog_action_tokens("packs", "publish")
 
 _PLUGINS_ADD_ACTIONS = _catalog_action_tokens("plugins", "add")
 _PLUGINS_REMOVE_ACTIONS = _catalog_action_tokens("plugins", "remove")
 _PLUGINS_UPDATE_ACTIONS = _catalog_action_tokens("plugins", "update")
 _PLUGINS_REGISTRY_ACTIONS = _catalog_action_tokens("plugins", "registry")
-
-_CARD_TOOL_FLAG_DESCRIPTIONS = {
-    **ADD_TOOL_TOKEN_DESCRIPTIONS,
-    **REMOVE_TOOL_TOKEN_DESCRIPTIONS,
-}
-_AGENT_TOOL_FLAG_DESCRIPTIONS = {
-    **ADD_TOOL_TOKEN_DESCRIPTIONS,
-    **REMOVE_TOOL_TOKEN_DESCRIPTIONS,
-    **DUMP_TOOL_TOKEN_DESCRIPTIONS,
-}
 
 
 @runtime_checkable
@@ -302,13 +288,19 @@ def _complete_attached_mcp_servers(completer: "AgentCompleter", partial: str) ->
     ]
 
 
-def _mcp_connect_completions(completer: "AgentCompleter", remainder: str) -> list[Completion]:
+def _mcp_connect_completions(
+    completer: "AgentCompleter",
+    remainder: str,
+    *,
+    include_configured: bool = False,
+) -> list[Completion]:
     connect_context = completer._mcp_connect_context(remainder)
 
     if connect_context.context in {"target", "new_token"} and connect_context.target_count == 0:
-        results = [completer._mcp_connect_target_hint(connect_context.partial)]
-        results.extend(list(completer._complete_configured_mcp_servers(connect_context.partial)))
-        return results
+        completions = [completer._mcp_connect_target_hint(connect_context.partial)]
+        if include_configured:
+            completions.extend(completer._complete_configured_mcp_servers(connect_context.partial))
+        return completions
 
     if connect_context.context == "new_token" and connect_context.target_count > 0:
         return _mcp_connect_flag_completions("", start_position=0)
@@ -440,21 +432,6 @@ def _model_subcommands_for_completion(
     for subcommand in _MODEL_VALUE_COMPLETION_SUBCOMMANDS:
         if subcommand not in supported_features:
             subcommands.pop(subcommand, None)
-    return subcommands
-
-
-def _models_subcommands_for_completion(*, include_aliases: bool = False) -> dict[str, str]:
-    spec = get_command_spec("models")
-    if spec is None:
-        return {}
-
-    subcommands: dict[str, str] = {}
-    for action in spec.actions:
-        if action.action not in MODEL_MANAGER_COMMAND_ACTIONS:
-            continue
-        subcommands[action.action] = action.help
-        if include_aliases:
-            subcommands.update({alias: f"alias for {action.action}" for alias in action.aliases})
     return subcommands
 
 
@@ -898,7 +875,7 @@ def _cards_add_completions(
     argument: str,
     results: list[Completion],
 ) -> list[Completion]:
-    results.extend(_catalog_option_completions("cards", "add", argument))
+    results.extend(_catalog_option_completions("packs", "add", argument))
     if not argument:
         results.extend(_signature_hints("marketplace card pack"))
     return results
@@ -909,7 +886,7 @@ def _cards_publish_completions(
     argument: str,
     results: list[Completion],
 ) -> list[Completion]:
-    results.extend(_catalog_option_completions("cards", "publish", argument))
+    results.extend(_catalog_option_completions("packs", "publish", argument))
 
     results.extend(
         list(
@@ -958,7 +935,7 @@ def _cards_update_completions(
     return _extend_managed_update_completions(
         results,
         argument,
-        command_name="cards",
+        command_name="packs",
         all_meta="update all managed card packs",
         name_completions=(
             completer._complete_local_card_pack_names(
@@ -993,7 +970,7 @@ _CARDS_COMPLETION_DISPATCH: MarketplaceCompletionDispatch = (
 )
 _cards_command_completions = partial(
     _marketplace_command_completions,
-    command_name="cards",
+    command_name="packs",
     dispatch=_CARDS_COMPLETION_DISPATCH,
 )
 
@@ -1104,7 +1081,7 @@ def _model_references_completions(
         return results
 
     if (not current_token and alias_argument.endswith(" ")) or current_token.startswith("--"):
-        alias_flags = {
+        alias_flags: dict[str, str] = {
             "--target": "choose write target (env|project)",
             "--dry-run": "preview changes without writing",
         }
@@ -1178,11 +1155,6 @@ _MODEL_MANAGER_COMPLETION_HANDLERS: dict[str, ModelManagerCompletionHandler] = {
     "catalog": _model_catalog_completion_handler,
 }
 
-_MODEL_COMMAND_COMPLETION_MODES = {
-    "model": True,
-    "models": False,
-}
-
 
 def _model_value_completion_specs(
     completer: "AgentCompleter",
@@ -1210,17 +1182,15 @@ def _model_command_completions_for_name(
     *,
     command_name: str,
     text: str,
-    include_value_actions: bool,
 ) -> list[Completion] | None:
     include_aliases = _include_subcommand_aliases(command_name, text)
     parts, _remainder, results, needs_subcommand_only = _command_completion_context(
         completer,
         command_name=command_name,
         text=text,
-        subcommands=(
-            _model_subcommands_for_completion(completer, include_aliases=include_aliases)
-            if include_value_actions
-            else _models_subcommands_for_completion(include_aliases=include_aliases)
+        subcommands=_model_subcommands_for_completion(
+            completer,
+            include_aliases=include_aliases,
         ),
     )
     if needs_subcommand_only:
@@ -1228,9 +1198,7 @@ def _model_command_completions_for_name(
 
     subcmd = strip_casefold(parts[0])
     argument = parts[1] if len(parts) > 1 else ""
-    if include_value_actions and (
-        value_completion_spec := _model_value_completion_specs(completer).get(subcmd)
-    ):
+    if value_completion_spec := _model_value_completion_specs(completer).get(subcmd):
         values, display_meta = value_completion_spec
         results.extend(_value_completions(argument, values, display_meta=display_meta))
         return results
@@ -1245,15 +1213,13 @@ def _model_command_completions(
     text: str,
     text_lower: str,
 ) -> list[Completion] | None:
-    for command_name, include_value_actions in _MODEL_COMMAND_COMPLETION_MODES.items():
-        if text_lower.startswith(f"/{command_name} "):
-            return _model_command_completions_for_name(
-                completer,
-                command_name=command_name,
-                text=text,
-                include_value_actions=include_value_actions,
-            )
-    return None
+    if not text_lower.startswith("/model "):
+        return None
+    return _model_command_completions_for_name(
+        completer,
+        command_name="model",
+        text=text,
+    )
 
 
 def _mcp_prefix_completion(
@@ -1262,10 +1228,18 @@ def _mcp_prefix_completion(
     text_lower: str,
 ) -> list[Completion] | None:
     for prefix, completion_fn in (
+        ("/mcp attach ", lambda owner, partial: owner._complete_configured_mcp_servers(partial)),
         ("/mcp disconnect ", _complete_attached_mcp_servers),
         ("/mcp reconnect ", _complete_attached_mcp_servers),
         ("/mcp connect ", _mcp_connect_completions),
-        ("/connect ", _mcp_connect_completions),
+        (
+            "/connect ",
+            lambda owner, remainder: _mcp_connect_completions(
+                owner,
+                remainder,
+                include_configured=True,
+            ),
+        ),
     ):
         if text_lower.startswith(prefix):
             return completion_fn(completer, text[len(prefix) :])
@@ -1309,16 +1283,31 @@ def _card_command_completions(
     if not text_lower.startswith("/card "):
         return None
 
-    partial = text[len("/card ") :]
-    current_token = _current_argument_token(partial)
-    if current_token.startswith("-") or _completion_subject_is_finished(partial):
-        return _flag_completions(current_token, _CARD_TOOL_FLAG_DESCRIPTIONS)
-    return list(completer._complete_agent_card_files(partial))
+    parts, _remainder, results, needs_subcommand_only = _command_completion_context(
+        completer,
+        command_name="card",
+        text=text,
+    )
+    if needs_subcommand_only:
+        return results
+    action = strip_casefold(parts[0])
+    argument = parts[1] if len(parts) > 1 else ""
+    if action == "show":
+        results.extend(_agent_name_completions(completer, argument, include_current=True))
+    elif action == "load":
+        current_token = _current_argument_token(argument)
+        if current_token.startswith("-") or _completion_subject_is_finished(argument):
+            results.extend(_flag_completions(current_token, {"--as-tool": "Attach as agent tool"}))
+        else:
+            results.extend(completer._complete_agent_card_files(argument))
+    return results
 
 
 def _agent_name_completions(
     completer: "AgentCompleter",
     partial: str,
+    *,
+    include_current: bool = False,
 ) -> list[Completion]:
     partial = partial.removeprefix("@")
     return [
@@ -1329,7 +1318,8 @@ def _agent_name_completions(
             display_meta=completer.agent_types.get(agent, AgentType.BASIC).value,
         )
         for agent in completer.agents
-        if agent != completer.current_agent and starts_with_casefold(agent, partial)
+        if (include_current or agent != completer.current_agent)
+        and starts_with_casefold(agent, partial)
     ]
 
 
@@ -1341,11 +1331,50 @@ def _agent_command_completions(
     if not text_lower.startswith("/agent "):
         return None
 
-    partial = text[len("/agent ") :].lstrip()
-    current_token = _current_argument_token(partial)
-    if current_token.startswith("-") or _completion_subject_is_finished(partial):
-        return _flag_completions(current_token, _AGENT_TOOL_FLAG_DESCRIPTIONS)
-    return _agent_name_completions(completer, current_token)
+    parts, _remainder, results, needs_subcommand_only = _command_completion_context(
+        completer,
+        command_name="agent",
+        text=text,
+    )
+    if needs_subcommand_only:
+        return results
+    action = strip_casefold(parts[0])
+    argument = parts[1] if len(parts) > 1 else ""
+    if action == "use":
+        results.extend(_agent_name_completions(completer, argument))
+    elif action == "tool":
+        tool_parts = _completion_parts(argument)
+        if len(tool_parts) <= 1 and not argument.endswith(" "):
+            partial = tool_parts[0] if tool_parts else ""
+            results.extend(
+                Completion(
+                    operation,
+                    start_position=-len(partial),
+                    display=operation,
+                    display_meta=f"{operation} agent tool",
+                )
+                for operation in ("add", "remove")
+                if starts_with_casefold(operation, partial)
+            )
+        elif tool_parts:
+            target = tool_parts[1] if len(tool_parts) > 1 else ""
+            results.extend(_agent_name_completions(completer, target))
+    return results
+
+
+def _subagents_command_completions(
+    completer: "AgentCompleter",
+    text: str,
+    text_lower: str,
+) -> list[Completion] | None:
+    if not text_lower.startswith("/subagents "):
+        return None
+    _parts, _remainder, results, _needs_subcommand_only = _command_completion_context(
+        completer,
+        command_name="subagents",
+        text=text,
+    )
+    return results
 
 
 def _tools_command_completions(
@@ -1398,6 +1427,7 @@ def command_completions(
         _mcp_command_completions,
         _card_command_completions,
         _agent_command_completions,
+        _subagents_command_completions,
     )
     for provider in providers:
         result = provider(completer, text, text_lower)

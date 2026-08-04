@@ -80,7 +80,6 @@ type LlamaCppAuthMode = Literal["none", "env", "secret_ref"]
 type _LlamaCppImportAction = Literal[
     "start_now",
     "start_now_with_shell",
-    "start_now_smart",
     "generate_overlay",
 ]
 type _LlamaCppStringGroupOptionName = Literal[
@@ -452,11 +451,7 @@ def _build_common_setup_items(
     items: list[ModelReferenceSetupItem] = []
     hidden_tokens = suppressed_tokens or set()
     system_references = valid_references.get("system", {})
-    if (
-        "default" not in system_references
-        and "last_used" not in system_references
-        and "$system.default" not in hidden_tokens
-    ):
+    if "default" not in system_references and "$system.default" not in hidden_tokens:
         items.append(
             ModelReferenceSetupItem(
                 token="$system.default",
@@ -801,7 +796,6 @@ class _LlamaCppSelection:
 @dataclass(frozen=True, slots=True)
 class _LlamaCppLaunchOptions:
     with_shell: bool = False
-    smart: bool = False
 
 
 _LLAMACPP_LAUNCH_OPTIONS_BY_ACTION: dict[
@@ -810,7 +804,6 @@ _LLAMACPP_LAUNCH_OPTIONS_BY_ACTION: dict[
 ] = {
     "start_now": _LlamaCppLaunchOptions(),
     "start_now_with_shell": _LlamaCppLaunchOptions(with_shell=True),
-    "start_now_smart": _LlamaCppLaunchOptions(with_shell=True, smart=True),
 }
 
 
@@ -1403,7 +1396,6 @@ def _finalize_llamacpp_import(
             overlay_name=result.overlay_name,
             home=resolved_home,
             with_shell=launch_options.with_shell,
-            smart=launch_options.smart,
             announce=not json_output,
         )
 
@@ -1475,11 +1467,8 @@ def _build_llamacpp_start_now_argv(
     overlay_name: str,
     home: Path | None,
     with_shell: bool,
-    smart: bool,
 ) -> list[str]:
     argv = [sys.executable, "-m", "fast_agent.cli", "go", "--model", overlay_name]
-    if smart:
-        argv.append("--smart")
     if with_shell:
         argv.append("-x")
     if home is not None:
@@ -1492,7 +1481,6 @@ def _launch_llamacpp_overlay_now(
     overlay_name: str,
     home: Path | None,
     with_shell: bool = False,
-    smart: bool = False,
     announce: bool = True,
     execvpe_fn: Callable[[str, list[str], dict[str, str]], object] = os.execvpe,
 ) -> None:
@@ -1500,7 +1488,6 @@ def _launch_llamacpp_overlay_now(
         overlay_name=overlay_name,
         home=home,
         with_shell=with_shell,
-        smart=smart,
     )
     if announce:
         typer.echo(f"Launching: {join_commandline(argv, syntax='posix')}")
@@ -2123,11 +2110,6 @@ def model_llamacpp_import(
         "--with-shell",
         help="Use fast-agent go -x when launching with --start-now.",
     ),
-    smart: bool = typer.Option(
-        False,
-        "--smart",
-        help="Use fast-agent go --smart -x when launching with --start-now.",
-    ),
 ) -> None:
     """Import a discovered llama.cpp model as a local overlay."""
 
@@ -2144,17 +2126,13 @@ def model_llamacpp_import(
     )
     if with_shell and not start_now:
         raise typer.BadParameter("--with-shell requires --start-now.")
-    if smart and not start_now:
-        raise typer.BadParameter("--smart requires --start-now.")
 
     preserve_existing_auth = not any(
         _llamacpp_option_was_explicit(ctx, option_name=option_name)
         for option_name in ("auth", "api_key_env", "secret_ref")
     )
     requested_action: _LlamaCppImportAction
-    if smart:
-        requested_action = "start_now_smart"
-    elif with_shell:
+    if with_shell:
         requested_action = "start_now_with_shell"
     elif start_now:
         requested_action = "start_now"

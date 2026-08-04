@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LLMFactoryProtocol
+from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.provider_types import Provider
@@ -831,120 +832,7 @@ def _validate_service_tier_constraints(
 class ModelFactory:
     """Factory for creating LLM instances based on model specifications"""
 
-    MODEL_PRESETS: ClassVar[dict[str, str]] = {
-        "gpt51": "responses.gpt-5.1",
-        "gpt52": "responses.gpt-5.2",
-        "gpt54": "responses.gpt-5.4",
-        "gpt55": "responses.gpt-5.5",
-        "gpt56": "responses.gpt-5.6",
-        "gpt56-sol": "responses.gpt-5.6-sol",
-        "gpt56-terra": "responses.gpt-5.6-terra",
-        "gpt56-luna": "responses.gpt-5.6-luna",
-        "gpt54-mini": "responses.gpt-5.4-mini",
-        "gpt54-nano": "responses.gpt-5.4-nano",
-        "chatgpt": "responses.chat-latest",
-        "chat-latest": "responses.chat-latest",
-        "codex": "responses.gpt-5.3-codex",
-        "sol": "codexresponses.gpt-5.6-sol?reasoning=medium",
-        "terra": "codexresponses.gpt-5.6-terra?reasoning=medium",
-        "luna": "codexresponses.gpt-5.6-luna?reasoning=medium",
-        "codexplan": "codexresponses.gpt-5.6-terra?reasoning=medium",
-        "codexplan54": "codexresponses.gpt-5.4?reasoning=high",
-        "codexplan53": "codexresponses.gpt-5.3-codex?reasoning=medium",
-        "codexspark": "codexresponses.gpt-5.3-codex-spark",
-        "sonnet": "claude-sonnet-5",
-        "sonnet5": "claude-sonnet-5",
-        "sonnet4": "claude-sonnet-4-6",
-        "sonnet46": "claude-sonnet-4-6",
-        "claude": "claude-sonnet-5",
-        "haiku": "claude-haiku-4-5",
-        "haiku45": "claude-haiku-4-5",
-        "opus": "claude-opus-5",
-        "opus4": "claude-opus-4-8",
-        "opus5": "claude-opus-5",
-        "opus46": "claude-opus-4-6",
-        "opus47": "claude-opus-4-7",
-        "opus48": "claude-opus-4-8",
-        "fable": "claude-fable-5",
-        "fable5": "claude-fable-5",
-        "deepseek": "deepseek.deepseek-v4-flash",
-        "gemini": "gemini-3.1-pro-preview",
-        "gemini2": "gemini-2.0-flash",
-        "gemini25": "gemini-2.5-flash",
-        "gemini25pro": "gemini-2.5-pro",
-        "gemini35": "gemini-3.5-flash",
-        "gemini35flash": "gemini-3.5-flash",
-        "gemini3.5flash": "gemini-3.5-flash",
-        "gemini3": "gemini-3-pro-preview",
-        "gemini3.1": "gemini-3.1-pro-preview",
-        "gemini31pro": "gemini-3.1-pro-preview",
-        "gemini3.1flashlite": "gemini-3.1-flash-lite-preview",
-        "gemini3flash": "gemini-3-flash-preview",
-        "grok": "xai.grok-4.5",
-        "grok4": "xai.grok-4.5",
-        "grok43": "xai.grok-4.3",
-        "grok45": "xai.grok-4.5",
-        "muse": "metaai.muse-spark-1.1",
-        "muse-spark": "metaai.muse-spark-1.1",
-        "minimax": "hf.MiniMaxAI/MiniMax-M3:together?temperature=1.0&top_p=0.95&top_k=40",
-        "minimax25": "hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
-        "minimax27": "hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
-        "minimax3": "hf.MiniMaxAI/MiniMax-M3:together?temperature=1.0&top_p=0.95&top_k=40",
-        "minimax2.5": "hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
-        "minimax21": "hf.MiniMaxAI/MiniMax-M2.1:novita",
-        "kimi": (
-            "hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
-        ),
-        "kimi27code": (
-            "hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
-        ),
-        "kimik3": "moonshot.kimi-k3",
-        "kimithink": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
-        "gpt-oss": "hf.openai/gpt-oss-120b:cerebras",
-        "gpt-oss-20b": "hf.openai/gpt-oss-20b",
-        "glm47": "hf.zai-org/GLM-4.7:cerebras",
-        "glm51": "hf.zai-org/GLM-5.1:together",
-        "glm5": "hf.zai-org/GLM-5:novita",
-        "glm52": "hf.zai-org/GLM-5.2:zai-org",
-        "glm": "hf.zai-org/GLM-5.2:zai-org",
-        "zaiglm": "zai.glm-5.2",
-        "deepseek-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
-        "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
-        "deepseek4-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
-        "deepseek4pro-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
-        "deepseekv4pro-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
-        "gemma4": "hf.google/gemma-4-31B-it:cerebras?temperature=1.0&top_p=0.95",
-        "kimi26": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
-        "kimi26instant": (
-            "hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off"
-        ),
-        "kimi-2.6": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
-        "kimi25": ("hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on"),
-        "kimi25instant": (
-            "hf.moonshotai/Kimi-K2.5:novita?temperature=0.6&top_p=0.95&reasoning=off"
-        ),
-        "kimi-2.5": ("hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on"),
-        "qwen35": (
-            "hf.Qwen/Qwen3.5-397B-A17B:novita"
-            "?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0"
-            "&presence_penalty=0.0&repetition_penalty=1.0&reasoning=on"
-        ),
-        "qwen35instruct": (
-            "hf.Qwen/Qwen3.5-397B-A17B:novita"
-            "?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0"
-            "&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off"
-        ),
-        "qwen36": (
-            "hf.Qwen/Qwen3.6-35B-A3B:deepinfra"
-            "?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0"
-            "&presence_penalty=0.0&repetition_penalty=1.0&reasoning=on"
-        ),
-        "qwen36instruct": (
-            "hf.Qwen/Qwen3.6-35B-A3B:deepinfra"
-            "?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0"
-            "&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off"
-        ),
-    }
+    MODEL_PRESETS: ClassVar[dict[str, str]] = dict(BUILTIN_MODEL_ALIASES)
 
     @staticmethod
     def _bedrock_pattern_matches(model_name: str) -> bool:
@@ -970,17 +858,8 @@ class ModelFactory:
 
     @classmethod
     def get_runtime_presets(cls) -> dict[str, str]:
-        """Return built-in model presets, including curated catalog presets."""
+        """Return built-in and locally configured model presets."""
         presets = dict(cls.MODEL_PRESETS)
-
-        from fast_agent.llm.model_selection import ModelSelectionCatalog
-
-        for entry in ModelSelectionCatalog.list_current_entries():
-            preset_token = entry.alias.strip()
-            if not preset_token:
-                continue
-            presets.setdefault(preset_token, entry.model)
-
         presets.update(load_model_overlay_registry().runtime_presets())
         return presets
 

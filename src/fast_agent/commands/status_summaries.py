@@ -114,6 +114,7 @@ class StatusSummary:
     uptime_seconds: float
     error_report: ErrorHandlingSummary
     warnings: list[str]
+    subagent_activation_source: str | None = None
 
 
 @dataclass(slots=True)
@@ -492,6 +493,18 @@ def _resolve_model_source(agent: "AgentProtocol | None") -> str | None:
     return optional_string(source)
 
 
+def _resolve_subagent_activation_source(agent: "AgentProtocol | None") -> str | None:
+    if agent is None or agent.config.subagents is not True:
+        return None
+    source = agent.config.subagent_activation_source or "configuration"
+    return {
+        "cli": "CLI",
+        "configuration": "configuration",
+        "instruction": "instruction directive",
+        "runtime": "runtime override",
+    }[source]
+
+
 def build_status_summary(
     *,
     fast_agent_version: str,
@@ -529,6 +542,7 @@ def build_status_summary(
         model_summary=model_summary,
         parallel_summary=parallel_summary,
         model_source=_resolve_model_source(agent),
+        subagent_activation_source=_resolve_subagent_activation_source(agent),
         conversation_stats=conversation_stats,
         uptime_seconds=uptime_seconds,
         error_report=error_report,

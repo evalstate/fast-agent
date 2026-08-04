@@ -5,8 +5,7 @@ Tests for serializing PromptMessageExtended objects to delimited format.
 from datetime import datetime, timezone
 
 import pytest
-from mcp.types import EmbeddedResource, ImageContent, TextContent, TextResourceContents
-from pydantic import AnyUrl
+from mcp_types import EmbeddedResource, ImageContent, TextContent, TextResourceContents
 
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -34,8 +33,8 @@ class TestPromptSerialization:
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri=AnyUrl("resource://data.json"),
-                            mimeType="application/json",
+                            uri="resource://data.json",
+                            mime_type="application/json",
                             text='{"key": "value"}',
                         ),
                     ),
@@ -45,7 +44,7 @@ class TestPromptSerialization:
                 role="assistant",
                 content=[
                     TextContent(type="text", text="I've processed your resource."),
-                    ImageContent(type="image", data="base64EncodedImage", mimeType="image/jpeg"),
+                    ImageContent(type="image", data="base64EncodedImage", mime_type="image/jpeg"),
                 ],
             ),
         ]
@@ -81,7 +80,7 @@ class TestPromptSerialization:
         resource = resource_block.resource
         assert isinstance(resource, TextResourceContents)
         assert str(resource.uri) == "resource://data.json"
-        assert resource.mimeType == "application/json"
+        assert resource.mime_type == "application/json"
         assert resource.text == '{"key": "value"}'
 
         # Check second message
@@ -94,7 +93,7 @@ class TestPromptSerialization:
         assert isinstance(image_block, ImageContent)
         assert image_block.type == "image"
         assert image_block.data == "base64EncodedImage"
-        assert image_block.mimeType == "image/jpeg"
+        assert image_block.mime_type == "image/jpeg"
 
     def test_enhanced_json_round_trips_assistant_phase(self):
         original_messages = [
@@ -172,8 +171,8 @@ class TestPromptSerialization:
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri=AnyUrl("resource://example.py"),
-                            mimeType="text/x-python",
+                            uri="resource://example.py",
+                            mime_type="text/x-python",
                             text="def hello():\n    print('Hello, world!')",
                         ),
                     ),

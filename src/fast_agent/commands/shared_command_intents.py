@@ -33,6 +33,7 @@ HistoryAction = Literal[
     "unknown",
 ]
 ModelCommandAction = Literal[
+    "status",
     "reasoning",
     "task_budget",
     "verbosity",
@@ -48,8 +49,7 @@ ModelCommandAction = Literal[
     "unknown",
 ]
 ModelCommandActionCategory = Literal["value", "manager"]
-ToolFlagAction = Literal["add_tool", "remove_tool", "dump"]
-ToolMutationAction = Literal["add_tool", "remove_tool"]
+SubagentsCommandAction = Literal["list", "status", "on", "off", "toggle", "help", "unknown"]
 _ExportValueName = Literal[
     "agent",
     "output",
@@ -64,10 +64,8 @@ _ExportValueName = Literal[
 _ExportFlagName = Literal["privacy_filter", "download_privacy_filter", "show_redactions"]
 
 _MODEL_COMMAND_ACTIONS = frozenset(command_action_names("model"))
-ADD_TOOL_ACTION: Final[ToolMutationAction] = "add_tool"
-REMOVE_TOOL_ACTION: Final[ToolMutationAction] = "remove_tool"
-DUMP_TOOL_ACTION: Final[ToolFlagAction] = "dump"
 MODEL_COMMAND_ACTION_CATEGORIES: dict[ModelCommandAction, ModelCommandActionCategory] = {
+    "status": "value",
     "reasoning": "value",
     "task_budget": "value",
     "verbosity": "value",
@@ -87,13 +85,6 @@ MODEL_VALUE_COMMAND_ACTIONS: frozenset[ModelCommandAction] = frozenset(
 MODEL_MANAGER_COMMAND_ACTIONS: frozenset[ModelCommandAction] = frozenset(
     action for action, category in MODEL_COMMAND_ACTION_CATEGORIES.items() if category == "manager"
 )
-TOOL_MUTATION_ACTIONS: frozenset[ToolMutationAction] = frozenset(
-    (ADD_TOOL_ACTION, REMOVE_TOOL_ACTION)
-)
-
-
-def is_tool_mutation_action(action: ToolFlagAction | None) -> bool:
-    return action in TOOL_MUTATION_ACTIONS
 
 
 def _normalize_model_command_action(value: str) -> ModelCommandAction | None:
@@ -134,7 +125,7 @@ class ModelCommandIntent:
 def parse_model_command_intent(
     remainder: str | None,
     *,
-    default_action: ModelCommandAction = "reasoning",
+    default_action: ModelCommandAction = "status",
 ) -> ModelCommandIntent:
     stripped = strip_to_none(remainder)
     if stripped is None:
@@ -152,57 +143,131 @@ def parse_model_command_intent(
     argument = _argument_after_first_token(stripped, tokens)
     action = _normalize_model_command_action(subcmd)
     if action is not None:
+        if action == "status" and argument is not None:
+            return ModelCommandIntent(
+                action="unknown",
+                error="Usage: /model status",
+            )
         return ModelCommandIntent(action=action, argument=argument)
     return ModelCommandIntent(action="unknown", argument=argument, raw_subcommand=subcmd)
 
 
 @dataclass(frozen=True, slots=True)
-class CardLoadIntent:
-    filename: str | None
-    tool_action: ToolFlagAction | None = None
+class SubagentsCommandIntent:
+    action: SubagentsCommandAction
     error: str | None = None
 
-    @property
-    def add_tool(self) -> bool:
-        return is_tool_mutation_action(self.tool_action)
 
-    @property
-    def remove_tool(self) -> bool:
-        return self.tool_action == REMOVE_TOOL_ACTION
+def parse_subagents_command_intent(remainder: str | None) -> SubagentsCommandIntent:
+    tokens, error = _strict_command_tokens(remainder, command_name="subagents")
+    if error is not None:
+        return SubagentsCommandIntent(action="unknown", error=error)
+    if not tokens:
+        return SubagentsCommandIntent(action="list")
+    if len(tokens) != 1:
+        return SubagentsCommandIntent(
+            action="unknown",
+            error="Usage: /subagents [list|status|on|off|toggle|help]",
+        )
+
+    action = normalize_command_action("subagents", tokens[0])
+    if action in {"list", "status", "on", "off", "toggle", "help"}:
+        return SubagentsCommandIntent(action=cast("SubagentsCommandAction", action))
+    return SubagentsCommandIntent(
+        action="unknown",
+        error=f"Unknown /subagents action: {tokens[0]}",
+    )
+
+
+AgentCommandAction = Literal["status", "list", "use", "tool_add", "tool_remove", "unknown"]
+CardCommandAction = Literal["show", "load", "unknown"]
 
 
 @dataclass(frozen=True, slots=True)
-class AgentToolIntent:
-    agent_name: str | None
-    tool_action: ToolFlagAction | None = None
+class AgentCommandIntent:
+    action: AgentCommandAction
+    agent_name: str | None = None
     error: str | None = None
-
-    @property
-    def add_tool(self) -> bool:
-        return is_tool_mutation_action(self.tool_action)
-
-    @property
-    def remove_tool(self) -> bool:
-        return self.tool_action == REMOVE_TOOL_ACTION
-
-    @property
-    def dump(self) -> bool:
-        return self.tool_action == DUMP_TOOL_ACTION
 
 
 @dataclass(frozen=True, slots=True)
-class _ToolFlagParse:
-    subject: str | None
-    action: ToolFlagAction | None
-    unknown: list[str]
-    empty_subject: bool = False
-    conflicting_action: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class _ParsedToolFlagTokens:
-    parsed: _ToolFlagParse | None = None
+class CardCommandIntent:
+    action: CardCommandAction
+    source: str | None = None
+    agent_name: str | None = None
+    as_tool: bool = False
     error: str | None = None
+
+
+def _strict_command_tokens(
+    remainder: str | None,
+    *,
+    command_name: str,
+) -> tuple[list[str], str | None]:
+    stripped = strip_to_none(remainder)
+    if stripped is None:
+        return [], None
+    try:
+        return split_commandline(stripped, syntax="posix"), None
+    except ValueError as exc:
+        return [], f"Invalid /{command_name} arguments: {exc}"
+
+
+def parse_agent_command_intent(remainder: str | None) -> AgentCommandIntent:
+    tokens, error = _strict_command_tokens(remainder, command_name="agent")
+    if error is not None:
+        return AgentCommandIntent(action="unknown", error=error)
+    if not tokens:
+        return AgentCommandIntent(action="status")
+
+    action = normalize_action_token(tokens[0])
+    if action in {"status", "list"}:
+        if len(tokens) == 1:
+            return AgentCommandIntent(action=cast("AgentCommandAction", action))
+    elif action == "use":
+        if len(tokens) == 2:
+            return AgentCommandIntent(action="use", agent_name=tokens[1])
+    elif action == "tool" and len(tokens) == 3:
+        operation = normalize_action_token(tokens[1])
+        if operation in {"add", "remove"}:
+            return AgentCommandIntent(
+                action="tool_add" if operation == "add" else "tool_remove",
+                agent_name=tokens[2],
+            )
+
+    return AgentCommandIntent(
+        action="unknown",
+        error=("Usage: /agent [status|list|use <name>|tool add <name>|tool remove <name>]"),
+    )
+
+
+def parse_card_command_intent(remainder: str | None) -> CardCommandIntent:
+    tokens, error = _strict_command_tokens(remainder, command_name="card")
+    if error is not None:
+        return CardCommandIntent(action="unknown", error=error)
+    if not tokens:
+        return CardCommandIntent(action="show")
+
+    action = normalize_action_token(tokens[0])
+    if action == "show" and len(tokens) <= 2:
+        return CardCommandIntent(
+            action="show",
+            agent_name=tokens[1] if len(tokens) == 2 else None,
+        )
+    if action == "load":
+        as_tool = tokens[-1:] == ["--as-tool"]
+        positional = tokens[1:-1] if as_tool else tokens[1:]
+        if len(positional) == 1:
+            return CardCommandIntent(
+                action="load",
+                source=positional[0],
+                as_tool=as_tool,
+            )
+
+    return CardCommandIntent(
+        action="unknown",
+        error="Usage: /card [show [agent]|load <path-or-url> [--as-tool]]",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,203 +351,6 @@ _SIMPLE_SESSION_ACTIONS: dict[str, "SessionAction"] = {
     "clear": "delete",
     "unpin": "unpin",
 }
-ADD_TOOL_TOKEN_DESCRIPTIONS: Final[dict[str, str]] = {
-    "tool": "Add as tool",
-    "--tool": "Add as tool",
-    "--as-tool": "Add as tool",
-    "-t": "Add as tool",
-}
-REMOVE_TOOL_TOKEN_DESCRIPTIONS: Final[dict[str, str]] = {
-    "remove": "Remove tool",
-    "--remove": "Remove tool",
-    "--rm": "Remove tool",
-}
-DUMP_TOOL_TOKEN_DESCRIPTIONS: Final[dict[str, str]] = {
-    "dump": "Show agent card",
-    "--dump": "Show agent card",
-    "-d": "Show agent card",
-}
-_ADD_TOOL_TOKENS = frozenset(ADD_TOOL_TOKEN_DESCRIPTIONS)
-_REMOVE_TOOL_TOKENS = frozenset(REMOVE_TOOL_TOKEN_DESCRIPTIONS)
-_DUMP_TOOL_TOKENS = frozenset(DUMP_TOOL_TOKEN_DESCRIPTIONS)
-_TOOL_FLAG_ACTIONS: dict[str, ToolFlagAction] = {
-    **dict.fromkeys(_ADD_TOOL_TOKENS, ADD_TOOL_ACTION),
-    **dict.fromkeys(_REMOVE_TOOL_TOKENS, REMOVE_TOOL_ACTION),
-    **dict.fromkeys(_DUMP_TOOL_TOKENS, DUMP_TOOL_ACTION),
-}
-
-
-def _tool_flag_action(token: str, *, allow_dump: bool) -> ToolFlagAction | None:
-    action = _TOOL_FLAG_ACTIONS.get(token)
-    if action == DUMP_TOOL_ACTION and not allow_dump:
-        return None
-    return action
-
-
-def _tool_flag_conflicts(
-    current_action: ToolFlagAction | None,
-    next_action: ToolFlagAction,
-) -> bool:
-    return current_action == DUMP_TOOL_ACTION or (
-        next_action == DUMP_TOOL_ACTION and current_action is not None
-    )
-
-
-def _tool_flag_subject(token: str, *, strip_agent_prefix: bool) -> str:
-    if strip_agent_prefix and token.startswith("@"):
-        return token[1:]
-    return token
-
-
-def _parse_tool_flag_tokens(
-    tokens: list[str],
-    *,
-    allow_dump: bool,
-    strip_agent_prefix: bool,
-) -> _ToolFlagParse:
-    action: ToolFlagAction | None = None
-    conflicting_action = False
-    subject: str | None = None
-    unknown: list[str] = []
-
-    for token in tokens:
-        next_action = _tool_flag_action(token, allow_dump=allow_dump)
-        if next_action is not None:
-            conflicting_action = conflicting_action or _tool_flag_conflicts(
-                action,
-                next_action,
-            )
-            if action is None or next_action != ADD_TOOL_ACTION:
-                action = next_action
-            continue
-        if subject is None:
-            candidate = _tool_flag_subject(token, strip_agent_prefix=strip_agent_prefix)
-            if not candidate:
-                return _ToolFlagParse(
-                    subject=None,
-                    action=action,
-                    unknown=unknown,
-                    empty_subject=True,
-                    conflicting_action=conflicting_action,
-                )
-            subject = candidate
-            continue
-        unknown.append(token)
-
-    return _ToolFlagParse(
-        subject=subject,
-        action=action,
-        unknown=unknown,
-        empty_subject=False,
-        conflicting_action=conflicting_action,
-    )
-
-
-def _parse_tool_flag_remainder(
-    remainder: str | None,
-    *,
-    empty_error: str,
-    allow_dump: bool,
-    strip_agent_prefix: bool,
-) -> _ParsedToolFlagTokens:
-    stripped = strip_to_none(remainder)
-    if stripped is None:
-        return _ParsedToolFlagTokens(error=empty_error)
-
-    try:
-        tokens = split_commandline(stripped, syntax="posix")
-    except ValueError as exc:
-        return _ParsedToolFlagTokens(error=f"Invalid arguments: {exc}")
-
-    return _ParsedToolFlagTokens(
-        parsed=_parse_tool_flag_tokens(
-            tokens,
-            allow_dump=allow_dump,
-            strip_agent_prefix=strip_agent_prefix,
-        )
-    )
-
-
-def parse_agent_tool_intent(
-    remainder: str | None,
-    *,
-    require_tool_agent: bool = False,
-) -> AgentToolIntent:
-    parse_result = _parse_tool_flag_remainder(
-        remainder,
-        empty_error="Usage: /agent <name> --tool | /agent [name] --dump",
-        allow_dump=True,
-        strip_agent_prefix=True,
-    )
-    if parse_result.error is not None:
-        return AgentToolIntent(agent_name=None, error=parse_result.error)
-
-    parsed = parse_result.parsed
-    if parsed is None:
-        return AgentToolIntent(agent_name=None, error="Invalid arguments")
-    error = _validate_agent_tool_intent(
-        parsed,
-        require_tool_agent=require_tool_agent,
-    )
-    return AgentToolIntent(
-        agent_name=parsed.subject,
-        tool_action=parsed.action,
-        error=error,
-    )
-
-
-def _validate_agent_tool_intent(
-    parsed: _ToolFlagParse,
-    *,
-    require_tool_agent: bool,
-) -> str | None:
-    if parsed.unknown:
-        return f"Unexpected arguments: {', '.join(parsed.unknown)}"
-    if parsed.empty_subject:
-        return "Agent name cannot be empty."
-    if parsed.conflicting_action:
-        return "Use either --tool or --dump, not both."
-    if parsed.action is None:
-        return "Usage: /agent <name> --tool [remove] | /agent [name] --dump"
-    if require_tool_agent and is_tool_mutation_action(parsed.action) and not parsed.subject:
-        suffix = " remove" if parsed.action == REMOVE_TOOL_ACTION else ""
-        return f"Agent name is required for /agent --tool{suffix}"
-    return None
-
-
-def parse_card_load_intent(remainder: str | None) -> CardLoadIntent:
-    parse_result = _parse_tool_flag_remainder(
-        remainder,
-        empty_error="Filename required for /card",
-        allow_dump=False,
-        strip_agent_prefix=False,
-    )
-    if parse_result.error is not None:
-        return CardLoadIntent(filename=None, error=parse_result.error)
-
-    parsed = parse_result.parsed
-    if parsed is None:
-        return CardLoadIntent(filename=None, error="Invalid arguments")
-    if parsed.empty_subject or parsed.subject is None:
-        return _card_load_intent_from_parse(parsed, error="Filename required for /card")
-    if parsed.unknown:
-        return _card_load_intent_from_parse(
-            parsed,
-            error=f"Unexpected arguments: {', '.join(parsed.unknown)}",
-        )
-    return _card_load_intent_from_parse(parsed)
-
-
-def _card_load_intent_from_parse(
-    parsed: _ToolFlagParse,
-    *,
-    error: str | None = None,
-) -> CardLoadIntent:
-    return CardLoadIntent(
-        filename=parsed.subject,
-        tool_action=parsed.action,
-        error=error,
-    )
 
 
 @dataclass(frozen=True, slots=True)

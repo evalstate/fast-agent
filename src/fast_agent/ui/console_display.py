@@ -4,9 +4,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from json import JSONDecodeError
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkable
 
-from mcp.types import CallToolResult, ContentBlock
+from mcp_types import CallToolResult, ContentBlock
 from rich.console import Group, RenderableType
 from rich.markdown import Markdown
 from rich.markup import escape as escape_markup
@@ -15,7 +15,7 @@ from rich.protocol import is_renderable
 from rich.syntax import Syntax
 from rich.text import Text
 
-from fast_agent.config import LoggerSettings, TerminalImageSettings
+from fast_agent.config import LoggerSettings, TerminalImageSettings, ToolDisplaySettings
 from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS, REASONING
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.model_display_name import resolve_llm_display_name, resolve_model_display_name
@@ -27,7 +27,6 @@ from fast_agent.ui.display_suppression import (
     display_tools_enabled,
 )
 from fast_agent.ui.markdown import build_markdown_renderable, prepare_markdown_content
-from fast_agent.ui.mcp_ui_utils import UILink
 from fast_agent.ui.mermaid_utils import (
     MermaidDiagram,
     create_mermaid_live_link,
@@ -55,13 +54,17 @@ from fast_agent.ui.streaming.preferences import (
     resolve_streaming_preferences,
 )
 from fast_agent.ui.tool_call_ids import format_tool_call_id
-from fast_agent.ui.tool_display import ToolDisplay
+from fast_agent.ui.tool_display import (
+    ToolCallDisplayRequest,
+    ToolDisplay,
+    ToolResultDisplayRequest,
+)
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
+    from fast_agent.mcp.app_integrations import AppServerConfig
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-    from fast_agent.mcp.skybridge import SkybridgeServerConfig
     from fast_agent.ui.terminal_images import ImageRenderItem
 
 logger = get_logger(__name__)
@@ -110,6 +113,7 @@ class ConsoleDisplay:
         code_word_wrap: bool | None = None,
         render_fences_with_syntax: bool | None = None,
         code_theme: str | None = None,
+        tool_display_layout: Literal["compact", "full"] | None = None,
     ) -> None:
         """
         Initialize the console display handler.
@@ -131,6 +135,11 @@ class ConsoleDisplay:
             else render_fences_with_syntax
         )
         self._code_style = self._logger_settings.code_theme if code_theme is None else code_theme
+        self._tool_display_layout = (
+            self._logger_settings.tool_display.layout
+            if tool_display_layout is None
+            else tool_display_layout
+        )
         self._apply_console_theme()
         self._style = A3MessageStyle()
         self._tool_display = ToolDisplay(self)
@@ -251,6 +260,14 @@ class ConsoleDisplay:
     @property
     def terminal_image_settings(self) -> TerminalImageSettings:
         return self._logger_settings.terminal_images
+
+    @property
+    def tool_display_settings(self) -> ToolDisplaySettings:
+        return self._logger_settings.tool_display
+
+    @property
+    def tool_display_layout(self) -> Literal["compact", "full"]:
+        return self._tool_display_layout
 
     @property
     def style(self) -> A3MessageStyle:
@@ -506,6 +523,7 @@ class ConsoleDisplay:
         render_markdown: bool | None = None,
         show_hook_indicator: bool = False,
         header_rule_fill: bool = False,
+        show_reprint_banner: bool = False,
     ) -> None:
         """
         Unified method to display formatted messages to the console.
@@ -526,6 +544,7 @@ class ConsoleDisplay:
             render_markdown: Force markdown rendering (True) or plain rendering (False)
             show_hook_indicator: Whether to show the hook indicator glyph (◆)
             header_rule_fill: Whether to extend the header with a dim rule to the right edge
+            show_reprint_banner: Whether to emit the bright banner before the main content
         """
         console.ensure_blocking_console()
 
@@ -545,6 +564,9 @@ class ConsoleDisplay:
         )
 
         self._print_pre_content(pre_content, skip_empty_content=skip_empty_content)
+
+        if show_reprint_banner:
+            self.show_stream_reprint_banner()
 
         if not skip_empty_content:
             self._display_content(
@@ -997,20 +1019,24 @@ class ConsoleDisplay:
         result: CallToolResult,
         name: str | None = None,
         tool_name: str | None = None,
-        skybridge_config: "SkybridgeServerConfig | None" = None,
+        app_integration_config: "AppServerConfig | None" = None,
         timing_ms: float | None = None,
         tool_call_id: str | None = None,
         type_label: str | None = None,
         truncate_content: bool = True,
+        source_label: str | None = None,
+        server_name: str | None = None,
         show_hook_indicator: bool = False,
     ) -> None:
         kwargs: dict[str, Any] = {
             "name": name,
             "tool_name": tool_name,
-            "skybridge_config": skybridge_config,
+            "app_integration_config": app_integration_config,
             "timing_ms": timing_ms,
             "tool_call_id": tool_call_id,
             "truncate_content": truncate_content,
+            "source_label": source_label,
+            "server_name": server_name,
             "show_hook_indicator": show_hook_indicator,
         }
         if type_label is not None:
@@ -1031,6 +1057,9 @@ class ConsoleDisplay:
         metadata: dict[str, Any] | None = None,
         tool_call_id: str | None = None,
         type_label: str | None = None,
+        source_label: str | None = None,
+        server_name: str | None = None,
+        request_count: int = 1,
         show_hook_indicator: bool = False,
     ) -> None:
         kwargs: dict[str, Any] = {
@@ -1040,6 +1069,9 @@ class ConsoleDisplay:
             "name": name,
             "metadata": metadata,
             "tool_call_id": tool_call_id,
+            "source_label": source_label,
+            "server_name": server_name,
+            "request_count": request_count,
             "show_hook_indicator": show_hook_indicator,
         }
         if type_label is not None:
@@ -1048,6 +1080,16 @@ class ConsoleDisplay:
         if not display_tools_enabled():
             return
         self._tool_display.show_tool_call(tool_name, tool_args, **kwargs)
+
+    def show_parallel_tool_calls(self, calls: list[ToolCallDisplayRequest]) -> None:
+        if not display_tools_enabled():
+            return
+        self._tool_display.show_parallel_tool_calls(calls)
+
+    def show_parallel_tool_results(self, results: list[ToolResultDisplayRequest]) -> None:
+        if not display_tools_enabled():
+            return
+        self._tool_display.show_parallel_tool_results(results)
 
     async def show_tool_update(self, updated_server: str, agent_name: str | None = None) -> None:
         if not display_tools_enabled():
@@ -1077,17 +1119,17 @@ class ConsoleDisplay:
             console.console.print()
 
     @staticmethod
-    def summarize_skybridge_configs(
-        configs: Mapping[str, "SkybridgeServerConfig"] | None,
+    def summarize_app_integration_configs(
+        configs: Mapping[str, "AppServerConfig"] | None,
     ) -> tuple[list[dict[str, Any]], list[str]]:
-        return ToolDisplay.summarize_skybridge_configs(configs)
+        return ToolDisplay.summarize_app_integration_configs(configs)
 
-    def show_skybridge_summary(
+    def show_app_integration_summary(
         self,
         agent_name: str,
-        configs: Mapping[str, "SkybridgeServerConfig"] | None,
+        configs: Mapping[str, "AppServerConfig"] | None,
     ) -> None:
-        self._tool_display.show_skybridge_summary(agent_name, configs)
+        self._tool_display.show_app_integration_summary(agent_name, configs)
 
     def _extract_reasoning_content(self, message: "PromptMessageExtended") -> Text | Group | None:
         """Extract reasoning channel content as dim text."""
@@ -1330,9 +1372,6 @@ class ConsoleDisplay:
         display_model = resolve_model_display_name(model)
         right_info = f"[dim]{display_model}[/dim]" if display_model else ""
 
-        if show_reprint_banner:
-            self.show_stream_reprint_banner()
-
         # Display main message using unified method
         self.display_message(
             content=display_text,
@@ -1348,6 +1387,7 @@ class ConsoleDisplay:
             post_content=post_content,
             render_markdown=render_markdown,
             show_hook_indicator=show_hook_indicator,
+            show_reprint_banner=show_reprint_banner,
         )
 
         # Handle mermaid diagrams separately (after the main message)
@@ -1435,6 +1475,14 @@ class ConsoleDisplay:
 
         # Determine renderer based on streaming mode
         use_plain_text = streaming_preferences.mode == "plain"
+        edit_preview_policy = self.tool_display_settings.stream_edit_previews
+        stream_edit_previews = edit_preview_policy == "all" or (
+            edit_preview_policy == "primary"
+            and (
+                progress_display.default_agent_name is None
+                or progress_display.is_default_agent_name(name)
+            )
+        )
 
         handle = _StreamingMessageHandle(
             display=self,
@@ -1443,6 +1491,7 @@ class ConsoleDisplay:
             header_right=right_info,
             tool_header_name=name,
             tool_metadata_resolver=tool_metadata_resolver,
+            stream_edit_previews=stream_edit_previews,
             progress_display=progress_display,
         )
         try:
@@ -1477,27 +1526,6 @@ class ConsoleDisplay:
         # Display diagrams on a simple new line (more space efficient)
         console.console.print()
         console.console.print(diagram_content, markup=self._markup)
-
-    async def show_mcp_ui_links(self, links: list[UILink]) -> None:
-        """Display MCP-UI links beneath the chat like mermaid links."""
-        if not self._chat_output_enabled():
-            return
-
-        if not links:
-            return
-
-        content = Text()
-        content.append("● mcp-ui ", style="dim")
-        for i, link in enumerate(links, 1):
-            if i > 1:
-                content.append(" • ", style="dim")
-            # Prefer a web-friendly URL (http(s) or data:) if available; fallback to local file
-            url = link.web_url if getattr(link, "web_url", None) else f"file://{link.file_path}"
-            label = f"{i} - {link.title}"
-            content.append(label, style=f"bright_blue link {url}")
-
-        console.console.print()
-        console.console.print(content, markup=self._markup)
 
     def show_url_elicitation(
         self,

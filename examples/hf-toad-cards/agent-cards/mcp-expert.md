@@ -75,7 +75,8 @@ mkdir -p .fast-agent/demo/mcp && cd .fast-agent/demo/mcp && [ ! -d "specificatio
 | `schema/draft/examples/` | Example JSON payloads |
 | `blog/content/posts/` | Blog posts on MCP features |
 
-Versions: `2024-11-05`, `2025-03-26`, `2025-06-18`, `2025-11-25`, `draft`
+Do not assume a fixed version list. Enumerate the dated schema/specification
+directories and `draft` in the checked-out repository before making claims.
 
 ### python-sdk/
 | Path | Contains |

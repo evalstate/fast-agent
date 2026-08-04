@@ -225,9 +225,9 @@ def create_local_output_spool() -> ShellOutputSpoolPaths:
 def open_local_output_spool(
     paths: ShellOutputSpoolPaths,
 ) -> tuple[BinaryIO, BinaryIO]:
-    stdout = Path(paths.stdout).open("ab", buffering=0)
+    stdout = os.fdopen(os.open(paths.stdout, os.O_WRONLY | os.O_APPEND), "ab", buffering=0)
     try:
-        stderr = Path(paths.stderr).open("ab", buffering=0)
+        stderr = os.fdopen(os.open(paths.stderr, os.O_WRONLY | os.O_APPEND), "ab", buffering=0)
     except BaseException:
         stdout.close()
         raise

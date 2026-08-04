@@ -8,7 +8,7 @@ import json
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, ClassVar, Sequence
 
 from rich.console import Group
 from rich.markdown import Markdown
@@ -25,7 +25,7 @@ from fast_agent.ui.markdown import prepare_markdown_content
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 
 if TYPE_CHECKING:
-    from mcp.types import CallToolResult
+    from mcp_types import CallToolResult
 
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.llm.stream_types import StreamChunk
@@ -375,7 +375,7 @@ class TextualDisplay(ConsoleDisplay):
         result: CallToolResult,
         name: str | None = None,
         tool_name: str | None = None,
-        skybridge_config=None,
+        app_integration_config=None,
     ) -> None:
         self._app.handle_display_tool_result(result, agent_name=name, tool_name=tool_name)
 
@@ -397,7 +397,7 @@ class MarkdownLLMApp(App[None]):
         margin: 1 2;
     }
     """
-    BINDINGS = [
+    BINDINGS: ClassVar[list[tuple[str, str, str]]] = [
         ("r", "regenerate", "Regenerate"),
         ("q", "quit", "Quit"),
     ]
@@ -758,7 +758,7 @@ class MarkdownLLMApp(App[None]):
                 content_blocks.append(text)
         content = "\n\n".join(content_blocks) if content_blocks else "_No content returned._"
 
-        structured = getattr(result, "structuredContent", None)
+        structured = getattr(result, "structured_content", None)
         if structured is not None:
             try:
                 structured_text = json.dumps(structured, indent=2)
@@ -766,7 +766,7 @@ class MarkdownLLMApp(App[None]):
                 structured_text = str(structured)
             content += f"\n\n```json\n{structured_text}\n```"
 
-        status = "ERROR" if result.isError else "success"
+        status = "ERROR" if result.is_error else "success"
         right_info = f"tool result - {status}"
 
         bottom_metadata: list[str] = []
@@ -782,9 +782,9 @@ class MarkdownLLMApp(App[None]):
             name=agent_name or "Tool",
             right_info=right_info,
             bottom_metadata=bottom_metadata or None,
-            highlight_color_override="red" if result.isError else None,
-            block_color_override="red" if result.isError else None,
-            arrow_style_override="dim red" if result.isError else None,
+            highlight_color_override="red" if result.is_error else None,
+            block_color_override="red" if result.is_error else None,
+            arrow_style_override="dim red" if result.is_error else None,
         )
         self._messages.append(message)
         self._refresh_chat()
@@ -793,8 +793,8 @@ class MarkdownLLMApp(App[None]):
     def _format_transport_channel(channel: str) -> str:
         mapping = {
             "post-json": "HTTP (JSON-RPC)",
-            "post-sse": "Legacy SSE",
-            "get": "Legacy SSE",
+            "post-sse": "HTTP (SSE response)",
+            "get": "HTTP (GET stream)",
             "resumption": "Resumption",
             "stdio": "STDIO",
         }

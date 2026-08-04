@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -94,6 +94,9 @@ class _CaptureDisplay(ConsoleDisplay):
         metadata: dict[str, Any] | None = None,
         tool_call_id: str | None = None,
         type_label: str | None = None,
+        source_label: str | None = None,
+        server_name: str | None = None,
+        request_count: int = 1,
         show_hook_indicator: bool = False,
     ) -> None:
         self.event_order.append("tool_call")
@@ -108,6 +111,9 @@ class _CaptureDisplay(ConsoleDisplay):
                 "metadata": metadata,
                 "tool_call_id": tool_call_id,
                 "type_label": type_label,
+                "source_label": source_label,
+                "server_name": server_name,
+                "request_count": request_count,
                 "show_hook_indicator": show_hook_indicator,
             }
         )
@@ -117,11 +123,13 @@ class _CaptureDisplay(ConsoleDisplay):
         result: CallToolResult,
         name: str | None = None,
         tool_name: str | None = None,
-        skybridge_config: Any = None,
+        app_integration_config: Any = None,
         timing_ms: float | None = None,
         tool_call_id: str | None = None,
         type_label: str | None = None,
         truncate_content: bool = True,
+        source_label: str | None = None,
+        server_name: str | None = None,
         show_hook_indicator: bool = False,
     ) -> None:
         self.event_order.append("tool_result")
@@ -130,11 +138,13 @@ class _CaptureDisplay(ConsoleDisplay):
                 "result": result,
                 "name": name,
                 "tool_name": tool_name,
-                "skybridge_config": skybridge_config,
+                "app_integration_config": app_integration_config,
                 "timing_ms": timing_ms,
                 "tool_call_id": tool_call_id,
                 "type_label": type_label,
                 "truncate_content": truncate_content,
+                "source_label": source_label,
+                "server_name": server_name,
                 "show_hook_indicator": show_hook_indicator,
             }
         )

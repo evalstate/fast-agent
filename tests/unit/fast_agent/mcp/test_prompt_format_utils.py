@@ -7,13 +7,12 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from mcp.types import (
+from mcp_types import (
     EmbeddedResource,
     ImageContent,
     TextContent,
     TextResourceContents,
 )
-from pydantic import AnyUrl
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import (
@@ -53,8 +52,8 @@ class TestPromptFormatUtils:
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri=AnyUrl("resource://code.py"),
-                            mimeType="text/x-python",
+                            uri="resource://code.py",
+                            mime_type="text/x-python",
                             text='print("Hello, World!")',
                         ),
                     ),
@@ -70,8 +69,8 @@ class TestPromptFormatUtils:
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri=AnyUrl("resource://improved_code.py"),
-                            mimeType="text/x-python",
+                            uri="resource://improved_code.py",
+                            mime_type="text/x-python",
                             text='def main():\n    print("Hello, World!")\n\nif __name__ == "__main__":\n    main()',
                         ),
                     ),
@@ -186,7 +185,7 @@ I've reviewed your CSS and made it more efficient:
         resource = _resource(messages[0].content[1])
         assert resource.type == "resource"
         assert str(resource.resource.uri) == "resource://styles.css"
-        assert resource.resource.mimeType == "text/css"
+        assert resource.resource.mime_type == "text/css"
         assert _resource_text(resource.resource) == "body { color: black; }"
 
         assert messages[1].role == "assistant"
@@ -196,7 +195,7 @@ I've reviewed your CSS and made it more efficient:
         resource = _resource(messages[1].content[1])
         assert resource.type == "resource"
         assert str(resource.resource.uri) == "resource://improved_styles.css"
-        assert resource.resource.mimeType == "text/css"
+        assert resource.resource.mime_type == "text/css"
         assert _resource_text(resource.resource) == "body { color: #000; }"
 
     def test_multiple_resources_in_one_message(self):
@@ -209,16 +208,16 @@ I've reviewed your CSS and made it more efficient:
                 EmbeddedResource(
                     type="resource",
                     resource=TextResourceContents(
-                        uri=AnyUrl("resource://data1.csv"),
-                        mimeType="text/csv",
+                        uri="resource://data1.csv",
+                        mime_type="text/csv",
                         text="id,name,value\n1,A,10\n2,B,20",
                     ),
                 ),
                 EmbeddedResource(
                     type="resource",
                     resource=TextResourceContents(
-                        uri=AnyUrl("resource://data2.csv"),
-                        mimeType="text/csv",
+                        uri="resource://data2.csv",
+                        mime_type="text/csv",
                         text="id,name,value\n3,C,30\n4,D,40",
                     ),
                 ),
@@ -266,12 +265,12 @@ I've reviewed your CSS and made it more efficient:
         # Verify resource content is preserved
         resource = _resource(messages[0].content[1])
         assert str(resource.resource.uri) == "resource://data1.csv"
-        assert resource.resource.mimeType == "text/csv"
+        assert resource.resource.mime_type == "text/csv"
         assert "id,name,value" in _resource_text(resource.resource)
 
         resource = _resource(messages[0].content[2])
         assert str(resource.resource.uri) == "resource://data2.csv"
-        assert resource.resource.mimeType == "text/csv"
+        assert resource.resource.mime_type == "text/csv"
         assert "id,name,value" in _resource_text(resource.resource)
 
     def test_image_handling(self):
@@ -281,7 +280,7 @@ I've reviewed your CSS and made it more efficient:
             role="user",
             content=[
                 TextContent(type="text", text="Look at this image:"),
-                ImageContent(type="image", data="base64EncodedImageData", mimeType="image/png"),
+                ImageContent(type="image", data="base64EncodedImageData", mime_type="image/png"),
             ],
         )
 
@@ -339,8 +338,8 @@ analysis.md""")
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri=AnyUrl("resource://config.json"),
-                            mimeType="application/json",
+                            uri="resource://config.json",
+                            mime_type="application/json",
                             text='{"key": "value"}',
                         ),
                     ),
@@ -374,16 +373,16 @@ analysis.md""")
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri=AnyUrl("resource://script.js"),
-                            mimeType="application/javascript",
+                            uri="resource://script.js",
+                            mime_type="application/javascript",
                             text="function hello() { return 'Hello!'; }",
                         ),
                     ),
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri=AnyUrl("resource://style.css"),
-                            mimeType="text/css",
+                            uri="resource://style.css",
+                            mime_type="text/css",
                             text="body { color: blue; }",
                         ),
                     ),

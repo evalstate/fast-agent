@@ -1,13 +1,18 @@
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 
 from fast_agent.config import Settings, ShellSettings
+from fast_agent.mcp.tool_result_metadata import update_tool_result_display_metadata
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.tool_display import ToolDisplay
 
 
+def _full_display(config: Settings | None = None) -> ConsoleDisplay:
+    return ConsoleDisplay(config=config, tool_display_layout="full")
+
+
 def test_read_text_file_tool_call_shows_summary_with_offset() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
     long_path = "/tmp/" + "/".join(["very-long-directory-name"] * 8) + "/target_file.py"
 
     with console.console.capture() as capture:
@@ -28,7 +33,7 @@ def test_read_text_file_tool_call_shows_summary_with_offset() -> None:
 
 
 def test_read_text_file_tool_call_ignores_boolean_line_and_limit() -> None:
-    display = ConsoleDisplay()
+    display = _full_display()
 
     with console.console.capture() as capture:
         display.show_tool_call(
@@ -48,10 +53,10 @@ def test_read_text_file_tool_call_ignores_boolean_line_and_limit() -> None:
 
 
 def test_read_text_file_result_truncates_with_head_and_more_lines_note() -> None:
-    display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=4)))
+    display = _full_display(Settings(shell_execution=ShellSettings(output_display_lines=4)))
     output_lines = [f"line-{i}" for i in range(1, 8)]
     result_text = "\n".join(output_lines)
-    result = CallToolResult(content=[TextContent(type="text", text=result_text)], isError=False)
+    result = CallToolResult(content=[TextContent(type="text", text=result_text)], is_error=False)
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -72,10 +77,10 @@ def test_read_text_file_result_truncates_with_head_and_more_lines_note() -> None
 
 
 def test_read_text_file_result_skips_truncation_when_only_two_lines_over_limit() -> None:
-    display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=4)))
+    display = _full_display(Settings(shell_execution=ShellSettings(output_display_lines=4)))
     output_lines = [f"line-{i}" for i in range(1, 7)]
     result_text = "\n".join(output_lines)
-    result = CallToolResult(content=[TextContent(type="text", text=result_text)], isError=False)
+    result = CallToolResult(content=[TextContent(type="text", text=result_text)], is_error=False)
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -91,10 +96,10 @@ def test_read_text_file_result_skips_truncation_when_only_two_lines_over_limit()
 
 
 def test_read_text_file_result_hides_content_when_line_limit_is_zero() -> None:
-    display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=0)))
+    display = _full_display(Settings(shell_execution=ShellSettings(output_display_lines=0)))
     output_lines = [f"line-{i}" for i in range(1, 4)]
     result_text = "\n".join(output_lines)
-    result = CallToolResult(content=[TextContent(type="text", text=result_text)], isError=False)
+    result = CallToolResult(content=[TextContent(type="text", text=result_text)], is_error=False)
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -111,11 +116,16 @@ def test_read_text_file_result_hides_content_when_line_limit_is_zero() -> None:
 
 
 def test_read_text_file_result_shows_no_lines_message_when_empty() -> None:
-    display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=4)))
-    result = CallToolResult(content=[TextContent(type="text", text="")], isError=False)
-    setattr(result, "read_text_file_path", "/tmp/one/two/example.py")
-    setattr(result, "read_text_file_line", 300)
-    setattr(result, "read_text_file_limit", 80)
+    display = _full_display(Settings(shell_execution=ShellSettings(output_display_lines=4)))
+    result = CallToolResult(content=[TextContent(type="text", text="")], is_error=False)
+    update_tool_result_display_metadata(
+        result,
+        {
+            "read_text_file_path": "/tmp/one/two/example.py",
+            "read_text_file_line": 300,
+            "read_text_file_limit": 80,
+        },
+    )
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -133,7 +143,7 @@ def test_read_text_file_result_shows_no_lines_message_when_empty() -> None:
 
 
 def test_read_text_file_truncation_skips_leading_blank_lines() -> None:
-    tool_display = ToolDisplay(ConsoleDisplay())
+    tool_display = ToolDisplay(_full_display())
     text = "\n\n   \nline-1\nline-2\nline-3\nline-4\nline-5\nline-6"
 
     limited = tool_display._limit_read_text_output_text(text, line_limit=4)
@@ -143,7 +153,7 @@ def test_read_text_file_truncation_skips_leading_blank_lines() -> None:
 
 
 def test_read_text_file_markdown_wrap_uses_language_from_path() -> None:
-    tool_display = ToolDisplay(ConsoleDisplay())
+    tool_display = ToolDisplay(_full_display())
     content = [TextContent(type="text", text="def f() -> int:\n    return 1")]
 
     wrapped = tool_display._format_read_text_file_content_as_markdown(
@@ -157,9 +167,9 @@ def test_read_text_file_markdown_wrap_uses_language_from_path() -> None:
 
 
 def test_read_text_file_result_header_uses_preview_status() -> None:
-    display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=3)))
+    display = _full_display(Settings(shell_execution=ShellSettings(output_display_lines=3)))
     result_text = "\n".join(["a", "b", "c", "d", "e"])
-    result = CallToolResult(content=[TextContent(type="text", text=result_text)], isError=False)
+    result = CallToolResult(content=[TextContent(type="text", text=result_text)], is_error=False)
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -175,10 +185,13 @@ def test_read_text_file_result_header_uses_preview_status() -> None:
 
 
 def test_read_text_file_result_header_shows_short_path_when_available() -> None:
-    display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=3)))
+    display = _full_display(Settings(shell_execution=ShellSettings(output_display_lines=3)))
     result_text = "\n".join(["a", "b", "c", "d", "e"])
-    result = CallToolResult(content=[TextContent(type="text", text=result_text)], isError=False)
-    setattr(result, "read_text_file_path", "/tmp/one/two/example.py")
+    result = CallToolResult(content=[TextContent(type="text", text=result_text)], is_error=False)
+    update_tool_result_display_metadata(
+        result,
+        {"read_text_file_path": "/tmp/one/two/example.py"},
+    )
 
     with console.console.capture() as capture:
         display.show_tool_result(
@@ -193,12 +206,17 @@ def test_read_text_file_result_header_shows_short_path_when_available() -> None:
 
 
 def test_read_text_file_result_header_includes_offset_and_limit_when_available() -> None:
-    display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=3)))
+    display = _full_display(Settings(shell_execution=ShellSettings(output_display_lines=3)))
     result_text = "\n".join(["a", "b", "c", "d", "e"])
-    result = CallToolResult(content=[TextContent(type="text", text=result_text)], isError=False)
-    setattr(result, "read_text_file_path", "/tmp/one/two/example.py")
-    setattr(result, "read_text_file_line", 93)
-    setattr(result, "read_text_file_limit", 30)
+    result = CallToolResult(content=[TextContent(type="text", text=result_text)], is_error=False)
+    update_tool_result_display_metadata(
+        result,
+        {
+            "read_text_file_path": "/tmp/one/two/example.py",
+            "read_text_file_line": 93,
+            "read_text_file_limit": 30,
+        },
+    )
 
     with console.console.capture() as capture:
         display.show_tool_result(

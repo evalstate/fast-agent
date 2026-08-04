@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel
 
+from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import ModelOverlayRegistry, load_model_overlay_registry
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
@@ -31,62 +32,54 @@ class CatalogModelEntry:
     description: str | None = None
 
 
+def _builtin_entry(
+    alias: str,
+    *,
+    current: bool = True,
+    fast: bool = False,
+    display_label: str | None = None,
+    description: str | None = None,
+) -> CatalogModelEntry:
+    """Create picker metadata for a canonical built-in alias."""
+    return CatalogModelEntry(
+        alias=alias,
+        model=BUILTIN_MODEL_ALIASES[alias],
+        current=current,
+        fast=fast,
+        display_label=display_label,
+        description=description,
+    )
+
+
 class ModelSelectionCatalog:
     """Catalog of current/listed and fast model preset tokens."""
 
     CATALOG_ENTRIES_BY_PROVIDER: ClassVar[dict[Provider, tuple[CatalogModelEntry, ...]]] = {
         Provider.RESPONSES: (
-            CatalogModelEntry(
-                alias="gpt-5.6-sol",
-                model="responses.gpt-5.6-sol?reasoning=medium",
-            ),
-            CatalogModelEntry(
-                alias="gpt-5.6-terra",
-                model="responses.gpt-5.6-terra?reasoning=medium",
-                fast=True,
-            ),
-            CatalogModelEntry(
-                alias="gpt-5.6-luna",
-                model="responses.gpt-5.6-luna?reasoning=medium",
-                fast=True,
-            ),
-            CatalogModelEntry(
-                alias="chat-latest",
-                model="responses.chat-latest",
-            ),
-            CatalogModelEntry(
-                alias="gpt-5.5",
-                model="responses.gpt-5.5?reasoning=medium",
-            ),
-            CatalogModelEntry(alias="gpt-5.4", model="responses.gpt-5.4?reasoning=medium"),
-            CatalogModelEntry(
-                alias="gpt-5.4-mini",
-                model="responses.gpt-5.4-mini?reasoning=medium",
-                fast=True,
-            ),
-            CatalogModelEntry(
-                alias="gpt-5.4-nano",
-                model="responses.gpt-5.4-nano?reasoning=medium",
-                fast=True,
-            ),
-            CatalogModelEntry(
-                alias="gpt-5.3-codex", model="responses.gpt-5.3-codex?reasoning=high"
-            ),
-            CatalogModelEntry(alias="gpt-5.2", model="responses.gpt-5.2?reasoning=medium"),
+            _builtin_entry("gpt-5.6-sol"),
+            _builtin_entry("gpt-5.6-terra", fast=True),
+            _builtin_entry("gpt-5.6-luna", fast=True),
+            _builtin_entry("chat-latest"),
+            _builtin_entry("gpt-5.5"),
+            _builtin_entry("gpt-5.4"),
+            _builtin_entry("gpt-5.4-mini", fast=True),
+            _builtin_entry("gpt-5.4-nano", fast=True),
+            _builtin_entry("gpt-5.3-codex"),
+            _builtin_entry("gpt-5.2"),
         ),
         Provider.OPENAI: (
-            CatalogModelEntry(alias="gpt-4.1", model="openai.gpt-4.1"),
-            CatalogModelEntry(alias="gpt-4o", model="openai.gpt-4o"),
-            CatalogModelEntry(alias="gpt-4.1-mini", model="openai.gpt-4.1-mini", fast=True),
-            CatalogModelEntry(alias="gpt-4.1-nano", model="openai.gpt-4.1-nano", fast=True),
+            _builtin_entry("gpt-4.1"),
+            _builtin_entry("gpt-4o"),
+            _builtin_entry("gpt-4.1-mini", fast=True),
+            _builtin_entry("gpt-4.1-nano", fast=True),
         ),
         Provider.ANTHROPIC: (
-            CatalogModelEntry(alias="fable", model="claude-fable-5"),
-            CatalogModelEntry(alias="opus", model="claude-opus-5"),
-            CatalogModelEntry(alias="sonnet", model="claude-sonnet-5"),
-            CatalogModelEntry(alias="opus48", model="claude-opus-4-8"),
-            CatalogModelEntry(alias="opus46", model="claude-opus-4-6"),
-            CatalogModelEntry(alias="haiku", model="claude-haiku-4-5", fast=True),
+            _builtin_entry("fable"),
+            _builtin_entry("opus"),
+            _builtin_entry("sonnet"),
+            _builtin_entry("opus48"),
+            _builtin_entry("opus46"),
+            _builtin_entry("haiku", fast=True),
         ),
         Provider.ANTHROPIC_VERTEX: (
             CatalogModelEntry(alias="opus", model="anthropic-vertex.claude-opus-4-7"),
@@ -123,230 +116,124 @@ class ModelSelectionCatalog:
             ),
         ),
         Provider.XAI: (
-            CatalogModelEntry(alias="Grok 4.5", model="xai.grok-4.5"),
-            CatalogModelEntry(alias="Grok 4.5 (X Search)", model="xai.grok-4.5?x_search=true"),
-            CatalogModelEntry(alias="Grok 4.3", model="xai.grok-4.3"),
-            CatalogModelEntry(alias="Grok 4.3 (instant)", model="xai.grok-4.3?reasoning=none"),
+            _builtin_entry("Grok 4.5"),
+            _builtin_entry("Grok 4.5 (X Search)"),
+            _builtin_entry("Grok 4.3"),
+            _builtin_entry("Grok 4.3 (instant)"),
         ),
-        Provider.META_AI: (
-            CatalogModelEntry(alias="Muse Spark 1.1", model="metaai.muse-spark-1.1"),
-        ),
+        Provider.META_AI: (_builtin_entry("Muse Spark 1.1"),),
         Provider.DEEPSEEK: (
-            CatalogModelEntry(
-                alias="deepseek",
+            _builtin_entry(
+                "deepseek",
                 display_label="DeepSeek V4 Flash",
-                model="deepseek.deepseek-v4-flash",
                 fast=True,
             ),
         ),
-        Provider.ZAI: (
-            CatalogModelEntry(
-                alias="zaiglm",
-                display_label="GLM 5.2",
-                model="zai.glm-5.2",
-            ),
-        ),
-        Provider.MOONSHOT: (
-            CatalogModelEntry(
-                alias="kimik3",
-                display_label="Kimi K3",
-                model="moonshot.kimi-k3",
-            ),
-        ),
+        Provider.ZAI: (_builtin_entry("zaiglm", display_label="GLM 5.2"),),
+        Provider.MOONSHOT: (_builtin_entry("kimik3", display_label="Kimi K3"),),
         Provider.OPENROUTER: (),
         Provider.ALIYUN: (
-            CatalogModelEntry(alias="qwen-turbo", model="aliyun.qwen-turbo", fast=True),
-            CatalogModelEntry(alias="qwen3-max", model="aliyun.qwen3-max"),
+            _builtin_entry("qwen-turbo", fast=True),
+            _builtin_entry("qwen3-max"),
         ),
         Provider.HUGGINGFACE: (
-            CatalogModelEntry(
-                alias="Kimi K3 (fireworks-ai)",
+            _builtin_entry(
+                "Kimi K3 (fireworks-ai)",
                 display_label="Kimi K3 (fireworks-ai)",
                 description="image-only HF route",
-                model="hf.moonshotai/Kimi-K3:fireworks-ai",
-                current=True,
             ),
-            CatalogModelEntry(
-                alias="Kimi K3 (together)",
+            _builtin_entry(
+                "Kimi K3 (together)",
                 display_label="Kimi K3 (together)",
                 description="image-only HF route",
-                model="hf.moonshotai/Kimi-K3:together",
-                current=True,
             ),
-            CatalogModelEntry(
-                alias="GLM 5.2 (zai-org)",
+            _builtin_entry(
+                "GLM 5.2 (zai-org)",
                 display_label="GLM 5.2 (zai-org)",
-                model=("hf.zai-org/GLM-5.2:zai-org"),
-                current=True,
             ),
-            CatalogModelEntry(
-                alias="GLM 5.2 (fireworks-ai)",
+            _builtin_entry(
+                "GLM 5.2 (fireworks-ai)",
                 display_label="GLM 5.2 (fireworks-ai)",
-                model=("hf.zai-org/GLM-5.2:fireworks-ai"),
-                current=True,
             ),
-            CatalogModelEntry(
-                alias="GLM 5.2 (deepinfra)",
+            _builtin_entry(
+                "GLM 5.2 (deepinfra)",
                 display_label="GLM 5.2 (deepinfra)",
-                model=("hf.zai-org/GLM-5.2:deepinfra"),
-                current=True,
             ),
-            CatalogModelEntry(
-                alias="kimi27",
+            _builtin_entry(
+                "kimi27",
                 display_label="Kimi 2.7-Code",
                 description="thinking mode",
-                model=(
-                    "hf.moonshotai/Kimi-K2.7-Code:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
-                ),
                 fast=True,
             ),
-            CatalogModelEntry(
-                alias="gemma4",
-                display_label="Gemma 4 31B",
-                model="hf.google/gemma-4-31B-it:cerebras?temperature=1.0&top_p=0.95",
-            ),
-            CatalogModelEntry(
-                alias="minimax3",
-                display_label="Minimax 3.0",
-                model="hf.MiniMaxAI/MiniMax-M3:together?temperature=1.0&top_p=0.95&top_k=40",
-            ),
-            CatalogModelEntry(
-                alias="deepseek-hf",
-                display_label="DeepSeek V4 Pro (HF)",
-                model="hf.deepseek-ai/DeepSeek-V4-Pro:together",
-                current=True,
-            ),
-            CatalogModelEntry(
-                alias="kimi26",
+            _builtin_entry("gemma4", display_label="Gemma 4 31B"),
+            _builtin_entry("minimax3", display_label="Minimax 3.0"),
+            _builtin_entry("deepseek-hf", display_label="DeepSeek V4 Pro (HF)"),
+            _builtin_entry(
+                "kimi26",
                 display_label="Kimi 2.6",
                 description="thinking mode",
-                model=("hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on"),
             ),
-            CatalogModelEntry(
-                alias="kimi26instant",
+            _builtin_entry(
+                "kimi26instant",
                 display_label="Kimi 2.6 (instant)",
                 description="instant mode",
-                model=("hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off"),
                 fast=True,
             ),
-            CatalogModelEntry(
-                alias="glm51", display_label="GLM 5.1", model="hf.zai-org/GLM-5.1:together"
-            ),
-            CatalogModelEntry(
-                alias="minimax27",
+            _builtin_entry("glm51", display_label="GLM 5.1"),
+            _builtin_entry(
+                "minimax27",
                 display_label="Minimax 2.7",
-                model="hf.MiniMaxAI/MiniMax-M2.7:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
                 current=False,
             ),
-            CatalogModelEntry(
-                alias="qwen35",
+            _builtin_entry(
+                "qwen35",
                 display_label="Qwen 3.5-397B-A17B",
-                model=(
-                    "hf.Qwen/Qwen3.5-397B-A17B:novita"
-                    "?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0"
-                    "&presence_penalty=0.0&repetition_penalty=1.0&reasoning=on"
-                ),
             ),
-            CatalogModelEntry(
-                alias="qwen35instruct",
+            _builtin_entry(
+                "qwen35instruct",
                 display_label="Qwen 3.5-397B-A17B (instruct)",
-                model=(
-                    "hf.Qwen/Qwen3.5-397B-A17B:novita"
-                    "?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0"
-                    "&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off"
-                ),
             ),
-            CatalogModelEntry(
-                alias="qwen36",
+            _builtin_entry(
+                "qwen36",
                 display_label="Qwen 3.6 35B-A3B",
-                model=(
-                    "hf.Qwen/Qwen3.6-35B-A3B:deepinfra"
-                    "?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0"
-                    "&presence_penalty=0.0&repetition_penalty=1.0&reasoning=on"
-                ),
             ),
-            CatalogModelEntry(
-                alias="qwen36instruct",
+            _builtin_entry(
+                "qwen36instruct",
                 display_label="Qwen 3.6 35B-A3B (instruct)",
-                model=(
-                    "hf.Qwen/Qwen3.6-35B-A3B:deepinfra"
-                    "?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0"
-                    "&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off"
-                ),
             ),
-            CatalogModelEntry(
-                alias="minimax25",
+            _builtin_entry(
+                "minimax25",
                 display_label="Minimax 2.5",
-                model="hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
                 current=False,
             ),
-            CatalogModelEntry(
-                alias="kimi25",
+            _builtin_entry(
+                "kimi25",
                 display_label="Kimi 2.5",
-                model=("hf.moonshotai/Kimi-K2.5:novita?temperature=1.0&top_p=0.95&reasoning=on"),
                 fast=True,
                 current=False,
             ),
-            CatalogModelEntry(
-                alias="kimi25instant",
+            _builtin_entry(
+                "kimi25instant",
                 display_label="Kimi 2.5 (instant)",
-                model=("hf.moonshotai/Kimi-K2.5:novita?temperature=0.6&top_p=0.95&reasoning=off"),
                 fast=True,
                 current=False,
             ),
-            CatalogModelEntry(
-                alias="glm5",
-                model="hf.zai-org/GLM-5:novita",
-                current=False,
-            ),
-            CatalogModelEntry(alias="gpt-oss", model="hf.openai/gpt-oss-120b:cerebras", fast=True),
-            CatalogModelEntry(
-                alias="glm47",
-                model="hf.zai-org/GLM-4.7:cerebras",
-                current=False,
-            ),
-            CatalogModelEntry(alias="gpt-oss-20b", model="hf.openai/gpt-oss-20b"),
+            _builtin_entry("glm5", current=False),
+            _builtin_entry("gpt-oss", fast=True),
+            _builtin_entry("glm47", current=False),
+            _builtin_entry("gpt-oss-20b"),
             #            CatalogModelEntry(alias="deepseek31", model="hf.deepseek-ai/DeepSeek-V3.1"),
-            CatalogModelEntry(
-                alias="deepseek32",
-                model="hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
-                current=False,
-            ),
+            _builtin_entry("deepseek32", current=False),
         ),
         Provider.CODEX_RESPONSES: (
-            CatalogModelEntry(
-                alias="sol",
-                model="codexresponses.gpt-5.6-sol?reasoning=medium",
-            ),
-            CatalogModelEntry(
-                alias="terra",
-                model="codexresponses.gpt-5.6-terra?reasoning=medium",
-            ),
-            CatalogModelEntry(
-                alias="luna",
-                model="codexresponses.gpt-5.6-luna?reasoning=medium",
-            ),
-            CatalogModelEntry(
-                alias="codexplan",
-                model="codexresponses.gpt-5.6-terra?reasoning=medium",
-            ),
-            CatalogModelEntry(
-                alias="codexplan55",
-                model="codexresponses.gpt-5.5?reasoning=medium",
-            ),
-            CatalogModelEntry(
-                alias="codexplan54",
-                model="codexresponses.gpt-5.4?reasoning=high",
-            ),
-            CatalogModelEntry(
-                alias="codexplan53",
-                model="codexresponses.gpt-5.3-codex?reasoning=medium",
-            ),
-            CatalogModelEntry(
-                alias="codexspark",
-                model="codexresponses.gpt-5.3-codex-spark",
-                fast=True,
-            ),
+            _builtin_entry("sol"),
+            _builtin_entry("terra"),
+            _builtin_entry("luna"),
+            _builtin_entry("codexplan"),
+            _builtin_entry("codexplan55"),
+            _builtin_entry("codexplan54"),
+            _builtin_entry("codexplan53"),
+            _builtin_entry("codexspark", fast=True),
             CatalogModelEntry(
                 alias="gpt-5.4-mini",
                 model="codexresponses.gpt-5.4-mini?reasoning=medium",
@@ -354,26 +241,12 @@ class ModelSelectionCatalog:
             ),
         ),
         Provider.GROQ: (
-            CatalogModelEntry(
-                alias="qwen3.6-27b",
-                model="groq.qwen/qwen3.6-27b",
-                fast=True,
-            ),
-            CatalogModelEntry(
-                alias="qwen3-32b",
-                model="groq.qwen/qwen3-32b",
-                fast=True,
-            ),
+            _builtin_entry("qwen3.6-27b", fast=True),
+            _builtin_entry("qwen3-32b", fast=True),
         ),
         Provider.FAST_AGENT: (
-            CatalogModelEntry(
-                alias="passthrough",
-                model="passthrough",
-            ),
-            CatalogModelEntry(
-                alias="playback",
-                model="playback",
-            ),
+            _builtin_entry("passthrough"),
+            _builtin_entry("playback"),
         ),
     }
 

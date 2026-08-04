@@ -26,15 +26,15 @@ We can then send messages to the Agent:
 
 ```python
 async with fast.run() as agent:
-  moon_size = await agent("the moon")
-  print(moon_size)
+    moon_size = await agent("the moon")
+    print(moon_size)
 ```
 
 Or start an interactive chat with the Agent:
 
 ```python
 async with fast.run() as agent:
-  await agent.interactive()
+    await agent.interactive()
 ```
 
 Here is the complete `sizer.py` Agent application, with boilerplate code:
@@ -46,12 +46,12 @@ from fast_agent.core.fastagent import FastAgent
 # Create the application
 fast = FastAgent("Agent Example")
 
-@fast.agent(
-  instruction="Given an object, respond only with an estimate of its size."
-)
+
+@fast.agent(instruction="Given an object, respond only with an estimate of its size.")
 async def main():
-  async with fast.run() as agent:
-    await agent()
+    async with fast.run() as agent:
+        await agent()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -9,7 +9,6 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from shutil import rmtree
 from typing import TYPE_CHECKING, Callable, Literal
 
 from fast_agent.core.exceptions import EnvironmentStartupError
@@ -22,10 +21,15 @@ from fast_agent.tools.execution_environment import (
     ShellExecutionResult,
     ShellOutputActivityCallbacks,
     ShellRuntimeInfo,
+    TemporaryArtifact,
 )
 from fast_agent.tools.shell_output_spool import (
     ShellOutputSpoolPaths,
     ShellOutputSpoolTailer,
+)
+from fast_agent.tools.transient_artifacts import (
+    bounded_temporary_text,
+    validate_artifact_name_parts,
 )
 
 if TYPE_CHECKING:
@@ -94,6 +98,19 @@ _DOCKER_WRITE_FILE_SCRIPT = """
 path="$1"
 parent="$2"
 mkdir -p -- "$parent" && cat > "$path"
+""".strip()
+_DOCKER_WRITE_TEMPORARY_FILE_SCRIPT = """
+set -eu
+directory="$1"
+prefix="$2"
+suffix="$3"
+umask 077
+if [ -z "$directory" ]; then
+    directory="$(mktemp -d /tmp/fast-agent-output-XXXXXXXXXX)"
+fi
+path="$(mktemp "$directory/$prefix"'XXXXXXXXXX'"$suffix")"
+cat > "$path"
+printf '%s\\n%s\\n' "$directory" "$path"
 """.strip()
 
 DockerMountMode = Literal["ro", "rw"]
@@ -167,6 +184,9 @@ class DockerShellEnvironment:
         self._timeout_seconds = timeout_seconds
         self._warning_interval_seconds = warning_interval_seconds
         self._startup_progress_callback: Callable[[str], None] | None = None
+        self._temporary_artifact_directory: str | None = None
+        self._temporary_artifact_paths: set[str] = set()
+        self._temporary_artifact_lock = asyncio.Lock()
 
     async def open(self) -> None:
         self._emit_startup_stage(f"using existing container {self._container}")
@@ -775,8 +795,57 @@ class DockerShellEnvironment:
         if result.exit_code != 0:
             self._raise_filesystem_error(result, path=resolved, operation="remove")
 
+    async def write_temporary_text(
+        self,
+        *,
+        prefix: str,
+        suffix: str,
+        content: str,
+        max_bytes: int,
+    ) -> TemporaryArtifact:
+        validate_artifact_name_parts(prefix=prefix, suffix=suffix)
+        payload, complete = bounded_temporary_text(content, max_bytes=max_bytes)
+        async with self._temporary_artifact_lock:
+            result = await self._docker_shell_bytes(
+                _DOCKER_WRITE_TEMPORARY_FILE_SCRIPT,
+                [self._temporary_artifact_directory or "", prefix, suffix],
+                stdin=payload,
+            )
+            if result.exit_code != 0:
+                self._raise_filesystem_error(result, path="/tmp", operation="temporary write")
+            lines = result.stdout.decode("utf-8", errors="strict").splitlines()
+            if len(lines) != 2:
+                raise RuntimeError("Docker temporary artifact allocation returned invalid data.")
+            directory, path = lines
+            self._temporary_artifact_directory = directory
+            self._temporary_artifact_paths.add(path)
+        return TemporaryArtifact(
+            path=path,
+            retained_bytes=len(payload),
+            complete=complete,
+        )
+
+    async def remove_temporary_artifact(self, artifact: TemporaryArtifact) -> None:
+        async with self._temporary_artifact_lock:
+            if artifact.path not in self._temporary_artifact_paths:
+                return
+            result = await self._docker_shell_bytes('rm -f -- "$1"', [artifact.path])
+            if result.exit_code == 0:
+                self._temporary_artifact_paths.discard(artifact.path)
+
+    async def _cleanup_temporary_artifacts(self) -> None:
+        async with self._temporary_artifact_lock:
+            directory = self._temporary_artifact_directory
+            if directory is not None:
+                try:
+                    await self._docker_shell_bytes('rm -rf -- "$1"', [directory])
+                except Exception:
+                    pass
+            self._temporary_artifact_directory = None
+            self._temporary_artifact_paths.clear()
+
     async def close(self) -> None:
-        return None
+        await self._cleanup_temporary_artifacts()
 
 
 class DockerManagedShellEnvironment(DockerShellEnvironment):
@@ -862,6 +931,7 @@ class DockerManagedShellEnvironment(DockerShellEnvironment):
         container = self._owned_container
         if container is None:
             return
+        await self._cleanup_temporary_artifacts()
         argv = (
             [self._container_cli, "rm", "-f", container]
             if self._remove
@@ -894,81 +964,20 @@ class DockerMountedEnvironment(DockerManagedShellEnvironment):
         timeout_seconds: int = 90,
         warning_interval_seconds: int = 30,
     ) -> None:
-        self._host_workspace = Path(workspace).resolve()
-        self._target = _normalize_container_path(target)
+        workspace_path = Path(workspace).resolve()
+        target_path = _normalize_container_path(target)
         super().__init__(
             image=image,
             container_cli=container_cli,
             shell=shell,
-            cwd=self._target,
-            mounts=(DockerMount(self._host_workspace, self._target, "rw"),),
+            cwd=target_path,
+            mounts=(DockerMount(workspace_path, target_path, "rw"),),
             docker_args=docker_args,
             default_env=default_env,
             remove=remove,
             timeout_seconds=timeout_seconds,
             warning_interval_seconds=warning_interval_seconds,
         )
-
-    def resolve_path(self, path: str) -> str:
-        if path.startswith("/"):
-            return _normalize_container_path(path)
-        return _normalize_container_path(posixpath.join(self.cwd, path))
-
-    async def read_text(self, path: str) -> str:
-        return self._host_path(path).read_text(encoding="utf-8", errors="replace")
-
-    async def write_text(self, path: str, content: str) -> None:
-        host_path = self._host_path(path)
-        host_path.parent.mkdir(parents=True, exist_ok=True)
-        host_path.write_text(content, encoding="utf-8")
-
-    async def read_bytes(self, path: str) -> bytes:
-        return self._host_path(path).read_bytes()
-
-    async def write_bytes(self, path: str, content: bytes) -> None:
-        host_path = self._host_path(path)
-        host_path.parent.mkdir(parents=True, exist_ok=True)
-        host_path.write_bytes(content)
-
-    async def exists(self, path: str) -> bool:
-        return self._host_path(path).exists()
-
-    async def list_dir(self, path: str) -> list[EnvironmentFileEntry]:
-        host_dir = self._host_path(path)
-        container_dir = self.resolve_path(path)
-        entries: list[EnvironmentFileEntry] = []
-        for child in sorted(host_dir.iterdir(), key=lambda item: item.name):
-            if child.is_symlink():
-                kind = "other"
-            elif child.is_dir():
-                kind = "directory"
-            elif child.is_file():
-                kind = "file"
-            else:
-                kind = "other"
-            entries.append(
-                EnvironmentFileEntry(
-                    path=_normalize_container_path(posixpath.join(container_dir, child.name)),
-                    name=child.name,
-                    kind=kind,
-                )
-            )
-        return entries
-
-    async def mkdir(self, path: str) -> None:
-        self._host_path(path).mkdir(parents=True, exist_ok=True)
-
-    async def remove(self, path: str) -> None:
-        host_path = self._host_path(path)
-        if host_path.is_dir():
-            rmtree(host_path)
-            return
-        host_path.unlink()
-
-    def _host_path(self, path: str) -> Path:
-        container_path = self.resolve_path(path)
-        relative = _relative_to_mount(container_path, self._target)
-        return self._host_workspace / relative
 
 
 __all__ = [
@@ -1003,16 +1012,3 @@ def _parse_docker_directory_entries(payload: bytes) -> list[EnvironmentFileEntry
         kind = "directory" if type_code == "d" else "file" if type_code == "f" else "other"
         entries.append(EnvironmentFileEntry(path=path, name=name, kind=kind))
     return entries
-
-
-def _relative_to_mount(path: str, mount_target: str) -> Path:
-    normalized_path = _normalize_container_path(path)
-    normalized_target = _normalize_container_path(mount_target)
-    if normalized_path == normalized_target:
-        return Path()
-    prefix = f"{normalized_target}/"
-    if not normalized_path.startswith(prefix):
-        raise ValueError(
-            f"Path {path!r} is outside the mounted Docker workspace {normalized_target!r}."
-        )
-    return Path(normalized_path[len(prefix) :])

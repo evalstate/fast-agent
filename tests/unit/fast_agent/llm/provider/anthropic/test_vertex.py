@@ -1,10 +1,8 @@
-import types
-
 import pytest
 from anthropic.types.beta import BetaToolParam
 from pydantic import BaseModel
 
-from fast_agent.config import AnthropicSettings, Settings
+from fast_agent.config import AnthropicSettings, AnthropicVertexSettings, Settings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
@@ -37,16 +35,13 @@ def test_cache_diagnosis_is_first_party_only() -> None:
 
 
 def test_vertex_cfg_accepts_model_object() -> None:
-    anthropic = AnthropicSettings()
-    setattr(
-        anthropic,
-        "vertex_ai",
-        types.SimpleNamespace(
+    anthropic = AnthropicSettings(
+        vertex_ai=AnthropicVertexSettings(
             enabled=True,
             project_id="  proj  ",
             location="  global  ",
             base_url="https://vertex.example",
-        ),
+        )
     )
     config = Settings(anthropic=anthropic)
 

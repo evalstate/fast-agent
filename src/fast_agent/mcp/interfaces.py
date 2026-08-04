@@ -3,16 +3,12 @@ Interface definitions to prevent circular imports.
 This module defines protocols (interfaces) that can be used to break circular dependencies.
 """
 
-from contextlib import AbstractAsyncContextManager
-from datetime import timedelta
 from typing import (
     TYPE_CHECKING,
+    Literal,
     Protocol,
     runtime_checkable,
 )
-
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from mcp import ClientSession
 
 from fast_agent.interfaces import (
     AgentProtocol,
@@ -24,70 +20,67 @@ from fast_agent.interfaces import (
 )
 
 if TYPE_CHECKING:
-    from mcp.types import ServerCapabilities
+    from pathlib import Path
+
+    from mcp_types import (
+        ServerCapabilities,
+    )
 
     from fast_agent.config import MCPServerSettings
-    from fast_agent.mcp.transport_tracking import TransportChannelMetrics
-
 __all__ = [
     "AgentProtocol",
-    "ClientSessionFactory",
     "FastAgentLLMProtocol",
     "LLMFactoryProtocol",
     "LlmAgentProtocol",
     "ModelFactoryFunctionProtocol",
     "ModelT",
-    "ServerConnection",
-    "ServerInitializerProtocol",
     "ServerRegistryProtocol",
 ]
 
 
 @runtime_checkable
-class ClientSessionFactory(Protocol):
-    """Protocol for creating client sessions across persistent and temporary connections."""
-
-    def __call__(
-        self,
-        read_stream: MemoryObjectReceiveStream,
-        write_stream: MemoryObjectSendStream,
-        read_timeout: timedelta | None,
-        *,
-        server_config: "MCPServerSettings | None" = None,
-        transport_metrics: "TransportChannelMetrics | None" = None,
-    ) -> ClientSession: ...
-
-
-@runtime_checkable
-class ServerInitializerProtocol(Protocol):
-    """Protocol for temporary (non-persistent) server connections used by gen_client."""
-
-    def initialize_server(
-        self,
-        server_name: str,
-        client_session_factory: ClientSessionFactory | None = None,
-        trigger_oauth: bool | None = None,
-    ) -> AbstractAsyncContextManager[ClientSession]:
-        """Initialize a server and yield a client session."""
-        ...
-
-    def get_server_capabilities(self, server_name: str) -> "ServerCapabilities | None":
-        """Return cached capabilities for a server, or None if not yet initialized."""
-        ...
-
-
-@runtime_checkable
-class ServerRegistryProtocol(ServerInitializerProtocol, Protocol):
-    """Protocol defining the minimal interface of ServerRegistry needed by gen_client."""
+class ServerRegistryProtocol(Protocol):
+    """Configuration and capability storage used by MCP clients."""
 
     @property
     def registry(self) -> dict[str, "MCPServerSettings"]: ...
 
-    def get_server_config(self, server_name: str) -> "MCPServerSettings | None": ...
-
-
-class ServerConnection(Protocol):
-    """Protocol for server connection objects returned by MCPConnectionManager."""
+    @property
+    def active_home(self) -> "str | Path | None": ...
 
     @property
-    def session(self) -> ClientSession: ...
+    def no_home(self) -> bool: ...
+
+    def get_server_config(self, server_name: str) -> "MCPServerSettings | None": ...
+
+    def get_server_capabilities(self, server_name: str) -> "ServerCapabilities | None":
+        """Return cached capabilities for a server."""
+        ...
+
+    def set_server_capabilities(
+        self, server_name: str, capabilities: "ServerCapabilities"
+    ) -> None: ...
+
+    def clear_server_capabilities(self, server_name: str) -> None: ...
+
+    def register_runtime(
+        self,
+        server_name: str,
+        config: "MCPServerSettings",
+        *,
+        owner: str = "process",
+    ) -> None: ...
+
+    def remove_runtime(self, server_name: str, *, owner: str = "process") -> bool: ...
+
+    def get_runtime_owners(self, server_name: str) -> frozenset[str]: ...
+
+    def register_attachment(self, server_name: str, *, owner: str) -> None: ...
+
+    def release_attachment(self, server_name: str, *, owner: str) -> bool: ...
+
+    def get_attachment_owners(self, server_name: str) -> frozenset[str]: ...
+
+    def get_server_origin(
+        self, server_name: str
+    ) -> "Literal['central', 'card', 'runtime'] | None": ...

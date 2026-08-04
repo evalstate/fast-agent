@@ -18,7 +18,6 @@ import pytest
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.exceptions import ModelConfigError
-from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory, ParsedModelSpec, Provider
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
@@ -402,7 +401,7 @@ def test_minimax25_alias_sets_sampling_defaults() -> None:
 def test_model_query_transport_websocket_alias():
     config = ModelFactory.parse_model_string("codexplan?transport=ws")
     assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-5.6-terra"
+    assert config.model_name == "gpt-5.6-sol"
     assert config.transport == "websocket"
 
 
@@ -988,45 +987,12 @@ def test_gemma4_alias_resolves_to_hf_cerebras_vision_model():
     assert resolved.max_output_tokens == 40_000
 
 
-def test_curated_catalog_aliases_are_parseable():
-    runtime_presets = ModelFactory.get_runtime_presets()
-    for entry in ModelSelectionCatalog.list_current_entries():
-        if entry.model.startswith("anthropic-vertex."):
-            continue
-        preset_token = entry.alias.strip()
-        if runtime_presets.get(preset_token) != entry.model:
-            continue
-
-        alias_config = ModelFactory.parse_model_string(entry.alias)
-        model_config = ModelFactory.parse_model_string(entry.model)
-
-        assert alias_config.provider == model_config.provider
-        assert ModelDatabase.normalize_model_name(
-            alias_config.model_name
-        ) == ModelDatabase.normalize_model_name(model_config.model_name)
-        assert alias_config.reasoning_effort == model_config.reasoning_effort
-
-
 def test_query_backed_catalog_alias_applies_runtime_defaults() -> None:
     config = ModelFactory.parse_model_string("gpt-5.5")
 
     assert config.provider == Provider.RESPONSES
     assert config.model_name == "gpt-5.5"
     assert config.reasoning_effort == ReasoningEffortSetting(kind="effort", value="medium")
-
-
-def test_codexplan_aliases_use_codex_oauth_provider():
-    config = ModelFactory.parse_model_string("codexplan")
-    assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-5.6-terra"
-
-    config = ModelFactory.parse_model_string("gpt54")
-    assert config.provider == Provider.RESPONSES
-    assert config.model_name == "gpt-5.4"
-
-    config = ModelFactory.parse_model_string("codexspark")
-    assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-5.3-codex-spark"
 
 
 @pytest.mark.parametrize(
@@ -1217,15 +1183,15 @@ def test_factory_passes_max_tokens_query_to_request_params() -> None:
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
 
-    assert llm.default_request_params.maxTokens == 48_000
+    assert llm.default_request_params.max_tokens == 48_000
 
 
 def test_factory_max_tokens_query_overrides_explicit_request_params() -> None:
     factory = ModelFactory.create_factory("zai/glm-5.2?reasoning=max&max_tokens=48000")
     agent = LlmAgent(AgentConfig(name="test"))
-    llm = factory(agent, request_params=RequestParams(maxTokens=16_000))
+    llm = factory(agent, request_params=RequestParams(max_tokens=16_000))
 
-    assert llm.default_request_params.maxTokens == 48_000
+    assert llm.default_request_params.max_tokens == 48_000
 
 
 def test_model_sampling_query_aliases_preserve_url_order() -> None:

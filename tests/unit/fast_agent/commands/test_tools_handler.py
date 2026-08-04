@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from mcp.types import ListToolsResult, Tool
+from mcp_types import ListToolsResult, Tool
 from rich.text import Text
 
 from fast_agent.commands.context import CommandContext, NonInteractiveCommandIOBase
@@ -44,7 +44,6 @@ class _MutableLlm:
 class _Agent:
     name = "main"
     agent_type = "agent"
-    message_history = []
     usage_accumulator = None
     initialized = True
     instruction = ""
@@ -53,6 +52,7 @@ class _Agent:
     def __init__(self, llm: _MutableLlm, tools: list[Tool] | None = None) -> None:
         self.llm = llm
         self.tools = tools or []
+        self.message_history: list[object] = []
         self.config = SimpleNamespace(model=llm.model_name)
 
     async def list_tools(self) -> ListToolsResult:
@@ -217,7 +217,7 @@ async def test_tools_named_selection_renders_complete_input_schema() -> None:
     }
     agent = _Agent(
         _MutableLlm(),
-        [Tool(name="search", description="Search things", inputSchema=schema)],
+        [Tool(name="search", description="Search things", input_schema=schema)],
     )
     ctx = CommandContext(
         agent_provider=_Provider(agent),
@@ -241,7 +241,7 @@ async def test_tools_named_selection_renders_complete_input_schema() -> None:
 async def test_tools_summary_argument_keeps_existing_list_behavior() -> None:
     agent = _Agent(
         _MutableLlm(),
-        [Tool(name="search", description="Search things", inputSchema={"type": "object"})],
+        [Tool(name="search", description="Search things", input_schema={"type": "object"})],
     )
     ctx = CommandContext(
         agent_provider=_Provider(agent),

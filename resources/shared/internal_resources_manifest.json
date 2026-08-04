@@ -1,12 +1,12 @@
 [
   {
-    "uri": "internal://fast-agent/smart-agent-cards",
-    "title": "Smart Agent Card Guidance",
+    "uri": "internal://fast-agent/agent-cards",
+    "title": "AgentCard Guidance",
     "description": "AgentCard schema, placeholders, and execution behavior reference.",
-    "why": "Use when creating, validating, or loading AgentCards (subagents) through the smart workflow.",
+    "why": "Use when creating, validating, or loading AgentCards and ToolCards.",
     "mime_type": "text/markdown",
-    "source": "smart_agent_cards.md",
-    "tags": ["smart", "agent-cards", "reference"]
+    "source": "agent_cards.md",
+    "tags": ["agent-cards", "reference"]
   },
   {
     "uri": "internal://fast-agent/model-overlays",
@@ -15,7 +15,7 @@
     "why": "Use when creating, validating, or editing local model overlays and overlay-related model config.",
     "mime_type": "text/markdown",
     "source": "model_overlays.md",
-    "tags": ["smart", "models", "overlays", "reference"]
+    "tags": ["models", "overlays", "reference"]
   },
   {
     "uri": "internal://fast-agent/execution-environments",
@@ -24,6 +24,6 @@
     "why": "Use when creating, validating, or editing local, Docker, Hugging Face Sandbox, or custom execution environments in fast-agent.yaml.",
     "mime_type": "text/markdown",
     "source": "execution_environments.md",
-    "tags": ["smart", "environments", "config", "reference"]
+    "tags": ["environments", "config", "reference"]
   }
 ]

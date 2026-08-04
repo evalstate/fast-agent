@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from click.utils import strip_ansi
-from mcp.types import TextContent
+from mcp_types import TextContent
 from typer.testing import CliRunner
 
 import fast_agent.cli.commands.export as export_command

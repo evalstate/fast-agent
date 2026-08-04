@@ -3,9 +3,9 @@
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Callable, ClassVar
 
-from mcp.types import ElicitRequestedSchema
+from mcp_types import ElicitRequestedSchema
 from prompt_toolkit import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.filters import Condition
@@ -132,7 +132,7 @@ class FormatValidator(Validator):
 
     _EMAIL_ADAPTER = TypeAdapter(EmailStr)
     _URI_ADAPTER = TypeAdapter(AnyUrl)
-    _VALIDATORS = {
+    _VALIDATORS: ClassVar[dict[str, Callable[[str], object]]] = {
         "email": _EMAIL_ADAPTER.validate_python,
         "uri": _URI_ADAPTER.validate_strings,
         "date": date.fromisoformat,

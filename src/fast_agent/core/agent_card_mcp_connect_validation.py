@@ -1,243 +1,239 @@
-"""Agent card mcp_connect validation."""
+"""Shared AgentCard ``mcp_connect`` parsing and validation."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
-from fast_agent.config import MCPServerSettings
+from fast_agent.agents.agent_types import (
+    MCPConnectSourceForm,
+    MCPConnectTarget,
+)
 from fast_agent.core.agent_card_rules import MCP_CONNECT_ALLOWED_KEYS
-from fast_agent.mcp.connect_targets import resolve_target_entry
 from fast_agent.utils.text import strip_str_to_none
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
-
-@dataclass(frozen=True)
-class _McpConnectEntry:
-    index: int
-    target: str | None
-    name: str | None
-    connector_id: str | None
-    headers: dict[str, str] | None
-    auth: dict[str, Any] | None
-    management: str | None
-    description: str | None
-    access_token: str | None
-    defer_loading: bool | None
+_PROTOCOL_MODES = frozenset({"auto", "modern", "legacy"})
 
 
-def _optional_non_empty_mcp_string(
+@dataclass(frozen=True, slots=True)
+class ParsedMCPConnect:
+    entries: list[MCPConnectTarget]
+    field_paths: list[str]
+    source_form: MCPConnectSourceForm
+    errors: list[str]
+
+
+def _optional_non_empty_string(
     raw_entry: dict[str, Any],
-    idx: int,
+    field_path: str,
     key: str,
     errors: list[str],
-) -> tuple[str | None, bool]:
+) -> str | None:
     value = raw_entry.get(key)
     if value is None:
-        return None, True
+        return None
     normalized = strip_str_to_none(value)
     if normalized is None:
-        errors.append(f"'mcp_connect[{idx}].{key}' must be a non-empty string")
-        return None, False
-    return normalized, True
+        errors.append(f"'{field_path}.{key}' must be a non-empty string")
+    return normalized
 
 
-def _optional_mcp_string(
+def _optional_string(
     raw_entry: dict[str, Any],
-    idx: int,
+    field_path: str,
     key: str,
     errors: list[str],
-) -> tuple[str | None, bool]:
+) -> str | None:
     value = raw_entry.get(key)
     if value is None:
-        return None, True
+        return None
     if not isinstance(value, str):
-        errors.append(f"'mcp_connect[{idx}].{key}' must be a string")
-        return None, False
-    return value, True
+        errors.append(f"'{field_path}.{key}' must be a string")
+        return None
+    return value
 
 
-def _mcp_connect_headers(
+def _headers(
     value: Any,
-    idx: int,
+    field_path: str,
     errors: list[str],
-) -> tuple[dict[str, str] | None, bool]:
+) -> dict[str, str] | None:
     if value is None:
-        return None, True
+        return None
     if not isinstance(value, dict):
-        errors.append(f"'mcp_connect[{idx}].headers' must be a mapping")
-        return None, False
+        errors.append(f"'{field_path}.headers' must be a mapping")
+        return None
 
     headers: dict[str, str] = {}
     for key, header_value in value.items():
         if strip_str_to_none(key) is None:
-            errors.append(f"'mcp_connect[{idx}].headers' keys must be non-empty strings")
-            return None, False
+            errors.append(f"'{field_path}.headers' keys must be non-empty strings")
+            return None
         if not isinstance(header_value, str):
-            errors.append(f"'mcp_connect[{idx}].headers' values must be strings")
-            return None, False
+            errors.append(f"'{field_path}.headers' values must be strings")
+            return None
         headers[key] = header_value
-    return headers, True
+    return headers
 
 
-def _mcp_connect_auth(
-    value: Any,
-    idx: int,
-    errors: list[str],
-) -> tuple[dict[str, Any] | None, bool]:
+def _auth(value: Any, field_path: str, errors: list[str]) -> dict[str, Any] | None:
     if value is None:
-        return None, True
+        return None
     if not is_str_object_dict(value):
-        errors.append(f"'mcp_connect[{idx}].auth' must be a mapping")
-        return None, False
-    return value.copy(), True
+        errors.append(f"'{field_path}.auth' must be a mapping")
+        return None
+    return value.copy()
 
 
-def _mcp_connect_defer_loading(
-    value: Any,
-    idx: int,
-    errors: list[str],
-) -> tuple[bool | None, bool]:
+def _optional_bool(value: Any, field_path: str, key: str, errors: list[str]) -> bool | None:
     if value is None:
-        return None, True
+        return None
     if not isinstance(value, bool):
-        errors.append(f"'mcp_connect[{idx}].defer_loading' must be a boolean")
-        return None, False
-    return value, True
+        errors.append(f"'{field_path}.{key}' must be a boolean")
+        return None
+    return value
 
 
-def _parse_mcp_connect_entry(
-    raw_entry: dict[str, Any],
-    idx: int,
+def _protocol_mode(
+    value: Any,
+    field_path: str,
     errors: list[str],
-) -> _McpConnectEntry | None:
-    unknown_keys = set(raw_entry.keys()) - MCP_CONNECT_ALLOWED_KEYS
+) -> Literal["auto", "modern", "legacy"] | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in _PROTOCOL_MODES:
+        errors.append(f"'{field_path}.protocol_mode' must be one of auto, modern, legacy")
+        return None
+    return value
+
+
+def _management_mode(
+    value: Any,
+    field_path: str,
+    errors: list[str],
+) -> Literal["client", "provider"] | None:
+    if value is None:
+        return None
+    normalized = strip_str_to_none(value)
+    if normalized == "client":
+        return "client"
+    if normalized == "provider":
+        return "provider"
+    errors.append(f"'{field_path}.management' must be one of client, provider")
+    return None
+
+
+def _parse_entry(
+    raw_entry: dict[str, Any],
+    *,
+    field_path: str,
+    implicit_name: str | None,
+    errors: list[str],
+) -> MCPConnectTarget | None:
+    error_count = len(errors)
+    unknown_keys = set(raw_entry) - MCP_CONNECT_ALLOWED_KEYS
     if unknown_keys:
         unknown_text = ", ".join(sorted(str(key) for key in unknown_keys))
-        errors.append(f"'mcp_connect[{idx}]' has unsupported keys: {unknown_text}")
+        errors.append(f"'{field_path}' has unsupported keys: {unknown_text}")
 
-    target, target_ok = _optional_non_empty_mcp_string(raw_entry, idx, "target", errors)
-    name, name_ok = _optional_non_empty_mcp_string(raw_entry, idx, "name", errors)
-    connector_id, connector_id_ok = _optional_non_empty_mcp_string(
-        raw_entry, idx, "connector_id", errors
-    )
-    headers, headers_ok = _mcp_connect_headers(raw_entry.get("headers"), idx, errors)
-    auth, auth_ok = _mcp_connect_auth(raw_entry.get("auth"), idx, errors)
-    management, management_ok = _optional_non_empty_mcp_string(raw_entry, idx, "management", errors)
-    description, description_ok = _optional_mcp_string(raw_entry, idx, "description", errors)
-    access_token, access_token_ok = _optional_mcp_string(raw_entry, idx, "access_token", errors)
-    defer_loading, defer_loading_ok = _mcp_connect_defer_loading(
-        raw_entry.get("defer_loading"), idx, errors
-    )
-
-    if not all(
-        [
-            target_ok,
-            name_ok,
-            connector_id_ok,
-            headers_ok,
-            auth_ok,
-            management_ok,
-            description_ok,
-            access_token_ok,
-            defer_loading_ok,
-        ]
-    ):
-        return None
+    target = _optional_non_empty_string(raw_entry, field_path, "target", errors)
+    explicit_name = _optional_non_empty_string(raw_entry, field_path, "name", errors)
+    connector_id = _optional_non_empty_string(raw_entry, field_path, "connector_id", errors)
+    if implicit_name is not None and explicit_name is not None and explicit_name != implicit_name:
+        errors.append(f"'{field_path}.name' must match mapping key '{implicit_name}' when provided")
+    name = implicit_name or explicit_name
 
     if target is None and connector_id is None:
         errors.append(
-            f"'mcp_connect[{idx}].target' must be a non-empty string unless connector_id is set"
+            f"'{field_path}.target' must be a non-empty string unless connector_id is set"
         )
-        return None
-    if target is not None and connector_id is not None:
-        errors.append(f"'mcp_connect[{idx}]' must set exactly one of 'target' or 'connector_id'")
-        return None
+    elif target is not None and connector_id is not None:
+        errors.append(f"'{field_path}' must set exactly one of 'target' or 'connector_id'")
     if connector_id is not None and name is None:
-        errors.append(
-            f"'mcp_connect[{idx}].name' must be a non-empty string when connector_id is set"
-        )
-        return None
+        errors.append(f"'{field_path}.name' must be a non-empty string when connector_id is set")
 
-    return _McpConnectEntry(
-        index=idx,
+    entry = MCPConnectTarget(
         target=target,
         name=name,
+        description=_optional_string(raw_entry, field_path, "description", errors),
+        management=_management_mode(raw_entry.get("management"), field_path, errors),
         connector_id=connector_id,
-        headers=headers,
-        auth=auth,
-        management=management,
-        description=description,
-        access_token=access_token,
-        defer_loading=defer_loading,
+        headers=_headers(raw_entry.get("headers"), field_path, errors),
+        access_token=_optional_string(raw_entry, field_path, "access_token", errors),
+        defer_loading=_optional_bool(
+            raw_entry.get("defer_loading"), field_path, "defer_loading", errors
+        ),
+        auth=_auth(raw_entry.get("auth"), field_path, errors),
+        protocol_mode=_protocol_mode(raw_entry.get("protocol_mode"), field_path, errors),
+    )
+    return entry if len(errors) == error_count else None
+
+
+def parse_mcp_connect_entries(value: Any) -> ParsedMCPConnect:
+    """Parse list-compatible or canonical named mapping declarations."""
+    if value is None:
+        return ParsedMCPConnect(entries=[], field_paths=[], source_form="list", errors=[])
+
+    errors: list[str] = []
+    entries: list[MCPConnectTarget] = []
+    field_paths: list[str] = []
+    if isinstance(value, list):
+        source_form: MCPConnectSourceForm = "list"
+        raw_entries = [
+            (f"mcp_connect[{index}]", None, raw_entry) for index, raw_entry in enumerate(value)
+        ]
+    elif isinstance(value, dict):
+        source_form = "mapping"
+        raw_entries = []
+        for raw_name, raw_entry in value.items():
+            name = strip_str_to_none(raw_name)
+            if name is None:
+                errors.append("'mcp_connect' keys must be non-empty strings")
+                continue
+            raw_entries.append((f"mcp_connect.{name}", name, raw_entry))
+    else:
+        return ParsedMCPConnect(
+            entries=[],
+            field_paths=[],
+            source_form="list",
+            errors=["'mcp_connect' must be a mapping or list"],
+        )
+
+    for field_path, implicit_name, raw_entry in raw_entries:
+        if not is_str_object_dict(raw_entry):
+            errors.append(f"'{field_path}' must be a mapping")
+            continue
+        entry = _parse_entry(
+            raw_entry,
+            field_path=field_path,
+            implicit_name=implicit_name,
+            errors=errors,
+        )
+        if entry is not None:
+            entries.append(entry)
+            field_paths.append(field_path)
+
+    if source_form == "mapping" and len({entry.name for entry in entries}) != len(entries):
+        errors.append("'mcp_connect' mapping keys must be unique after trimming")
+
+    return ParsedMCPConnect(
+        entries=entries,
+        field_paths=field_paths,
+        source_form=source_form,
+        errors=errors,
     )
 
 
-def _validate_mcp_connector_entry(entry: _McpConnectEntry) -> None:
-    payload: dict[str, Any] = {
-        "name": entry.name,
-        "description": entry.description,
-        "management": entry.management,
-        "connector_id": entry.connector_id,
-        "headers": entry.headers,
-        "access_token": entry.access_token,
-        "auth": entry.auth,
-    }
-    if entry.defer_loading is not None:
-        payload["defer_loading"] = entry.defer_loading
-    MCPServerSettings.model_validate(payload)
-
-
-def _validate_mcp_target_entry(entry: _McpConnectEntry) -> None:
-    if entry.target is None:
-        raise ValueError("'target' is required")
-
-    overrides: dict[str, Any] = {}
-    if entry.description is not None:
-        overrides["description"] = entry.description
-    if entry.management is not None:
-        overrides["management"] = entry.management
-    if entry.headers is not None:
-        overrides["headers"] = entry.headers
-    if entry.access_token is not None:
-        overrides["access_token"] = entry.access_token
-    if entry.defer_loading is not None:
-        overrides["defer_loading"] = entry.defer_loading
-    if entry.auth is not None:
-        overrides["auth"] = entry.auth
-
-    resolve_target_entry(
-        target=entry.target,
-        default_name=entry.name,
-        overrides=overrides,
-        source_path=f"mcp_connect[{entry.index}].target",
-    )
-
-
-def _validate_mcp_connect_entry(raw_entry: dict[str, Any], idx: int, errors: list[str]) -> None:
-    entry = _parse_mcp_connect_entry(raw_entry, idx, errors)
-    if entry is None:
-        return
-
-    try:
-        if entry.connector_id is not None:
-            _validate_mcp_connector_entry(entry)
-        else:
-            _validate_mcp_target_entry(entry)
-    except Exception as exc:
-        errors.append(f"Invalid mcp_connect target at index {idx}: {exc}")
+def validate_parsed_mcp_connect_entry(entry: MCPConnectTarget, field_path: str) -> None:
+    entry.materialize(source_path=field_path)
 
 
 def validate_mcp_connect_entries(value: Any, errors: list[str]) -> None:
-    if value is None:
-        return
-
-    if not isinstance(value, list):
-        errors.append("'mcp_connect' must be a list")
-        return
-
-    for idx, raw_entry in enumerate(value):
-        if not is_str_object_dict(raw_entry):
-            errors.append(f"'mcp_connect[{idx}]' must be a mapping")
-            continue
-        _validate_mcp_connect_entry(raw_entry, idx, errors)
+    parsed = parse_mcp_connect_entries(value)
+    errors.extend(parsed.errors)
+    for field_path, entry in zip(parsed.field_paths, parsed.entries, strict=True):
+        try:
+            validate_parsed_mcp_connect_entry(entry, field_path)
+        except Exception as exc:
+            errors.append(f"Invalid mcp_connect target '{field_path}': {exc}")

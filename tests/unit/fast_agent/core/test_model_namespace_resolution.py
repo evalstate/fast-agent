@@ -74,16 +74,12 @@ def test_resolve_model_reference_recursive() -> None:
     )
 
 
-def test_resolve_model_reference_default_falls_back_to_last_used() -> None:
-    # The 0.7.21 model picker persists selections as ``$system.last_used``; when no
-    # explicit ``default`` reference exists, ``$system.default`` resolves to it.
-    assert (
+def test_resolve_model_reference_default_does_not_use_last_used() -> None:
+    with pytest.raises(ModelConfigError, match="Unknown key"):
         resolve_model_reference(
             "$system.default",
             {"system": {"last_used": "codexresponses.gpt-5.5?reasoning=medium"}},
         )
-        == "codexresponses.gpt-5.5?reasoning=medium"
-    )
 
 
 def test_resolve_model_reference_default_prefers_explicit_default_over_last_used() -> None:
@@ -94,24 +90,6 @@ def test_resolve_model_reference_default_prefers_explicit_default_over_last_used
         )
         == "claude-haiku-4-5"
     )
-
-
-def test_resolve_model_reference_default_last_used_recurses_through_references() -> None:
-    assert (
-        resolve_model_reference(
-            "$system.default",
-            {"system": {"last_used": "$system.fast", "fast": "claude-haiku-4-5"}},
-        )
-        == "claude-haiku-4-5"
-    )
-
-
-def test_resolve_model_reference_default_last_used_cycle_is_detected() -> None:
-    with pytest.raises(ModelConfigError, match="cycle"):
-        resolve_model_reference(
-            "$system.default",
-            {"system": {"last_used": "$system.default"}},
-        )
 
 
 def test_resolve_model_reference_default_without_default_or_last_used_is_unknown_key() -> None:
@@ -159,7 +137,6 @@ def test_resolve_model_spec_resolves_default_alias_from_context() -> None:
     context = _build_context()
     resolved_model = resolve_model_spec(
         context,
-        hardcoded_default="playback",
         env_var="FAST_AGENT_MODEL_TEST_UNSET",
     )
     assert resolved_model.model == "passthrough"
@@ -172,7 +149,6 @@ def test_resolve_model_spec_precedence_with_aliases() -> None:
         context,
         model="$system.fast",
         cli_model="gpt-5-mini?reasoning=low",
-        hardcoded_default="playback",
     )
     assert resolved_model.model == "claude-haiku-4-5"
     assert resolved_model.source == "explicit model"
@@ -184,7 +160,6 @@ def test_resolve_model_spec_cli_overrides_explicit_system_default_alias() -> Non
         context,
         model="$system.default",
         cli_model="gpt-5-mini?reasoning=low",
-        hardcoded_default="playback",
     )
 
     assert resolved_model.model == "gpt-5-mini?reasoning=low"
@@ -198,7 +173,6 @@ def test_resolve_model_spec_ignores_blank_higher_precedence_candidates() -> None
         context,
         model="   ",
         cli_model="   ",
-        hardcoded_default="playback",
         env_var="FAST_AGENT_MODEL_TEST_UNSET",
     )
 
@@ -255,19 +229,32 @@ def test_get_model_factory_inherits_context_cli_override_for_system_default() ->
     assert llm.model_name == "passthrough"
 
 
+def test_get_model_factory_requires_configured_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FAST_AGENT_MODEL", raising=False)
+    context = Context(config=Settings())
+
+    with pytest.raises(ModelConfigError, match="No model configured") as exc_info:
+        get_model_factory(context)
+
+    assert "agent model" in exc_info.value.details
+    assert "FAST_AGENT_MODEL" in exc_info.value.details
+    assert "default_model" in exc_info.value.details
+
+
 def test_resolve_model_spec_falls_back_when_explicit_alias_unresolved() -> None:
     context = _build_context()
     resolved_model = resolve_model_spec(
         context,
         model="$system.unknown",
-        hardcoded_default="playback",
     )
 
     assert resolved_model.model == "passthrough"
     assert resolved_model.source == "config file"
 
 
-def test_resolve_model_spec_falls_back_to_hardcoded_when_config_alias_unresolved() -> None:
+def test_resolve_model_spec_returns_none_when_config_alias_unresolved() -> None:
     context = Context(
         config=Settings(
             default_model="$system.missing",
@@ -281,12 +268,11 @@ def test_resolve_model_spec_falls_back_to_hardcoded_when_config_alias_unresolved
 
     resolved_model = resolve_model_spec(
         context,
-        hardcoded_default="playback",
         env_var="FAST_AGENT_MODEL_TEST_UNSET",
     )
 
-    assert resolved_model.model == "playback"
-    assert resolved_model.source == "hardcoded default"
+    assert resolved_model.model is None
+    assert resolved_model.source is None
 
 
 def test_resolve_model_spec_env_alias() -> None:
@@ -306,7 +292,6 @@ def test_resolve_model_spec_env_alias() -> None:
         resolved_model = resolve_model_spec(
             context,
             default_model=None,
-            fallback_to_hardcoded=False,
         )
     finally:
         if original is None:

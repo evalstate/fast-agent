@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from mcp.types import Tool
+from mcp_types import Tool
 
 from fast_agent.commands import tool_summaries
 from fast_agent.commands.tool_summaries import (
@@ -48,7 +48,7 @@ def _tool(
         title=None,
         description=description,
         _meta=meta or {},
-        inputSchema=input_schema or {},
+        input_schema=input_schema or {},
     )
 
 
@@ -57,32 +57,14 @@ class _AgentStub:
         self,
         *,
         card_tool_names: Iterable[str] = (),
-        smart_tool_names: Iterable[str] = (),
         agent_backed_tools: dict[str, object] | None = None,
     ) -> None:
         self._card_tool_names: set[str] = set(card_tool_names)
-        self._smart_tool_names: set[str] = set(smart_tool_names)
         self._agent_backed_tools = agent_backed_tools or {}
 
     @property
     def card_tool_names(self) -> set[str]:
         return self._card_tool_names
-
-    @property
-    def smart_tool_names(self) -> set[str]:
-        return self._smart_tool_names
-
-    @smart_tool_names.setter
-    def smart_tool_names(self, value: Iterable[str]) -> None:
-        self._smart_tool_names = set(value)
-
-    @property
-    def parallel_smart_tool_calls(self) -> bool:
-        return False
-
-    @parallel_smart_tool_calls.setter
-    def parallel_smart_tool_calls(self, value: bool) -> None:
-        del value
 
     @property
     def agent_backed_tools(self) -> dict[str, object]:
@@ -173,15 +155,6 @@ def _provider_summary_by_name(
     return next(summary for summary in summaries if summary.name == name)
 
 
-def test_build_tool_summaries_marks_smart_tools() -> None:
-    agent = _AgentStub(smart_tool_names={"smart", "smart_with_resource"})
-
-    summaries = build_tool_summaries(agent, [_tool("smart"), _tool("smart_with_resource")])
-
-    assert summaries[0].suffix == "(Smart)"
-    assert summaries[1].suffix == "(Smart)"
-
-
 def test_build_tool_summaries_strips_blank_descriptions() -> None:
     summaries = build_tool_summaries(_AgentStub(), [_tool("demo", description="   ")])
 
@@ -211,17 +184,8 @@ def test_build_tool_summaries_does_not_label_unstamped_execute_internal() -> Non
     assert summaries[0].suffix is None
 
 
-def test_build_tool_summaries_prefers_smart_suffix_over_source() -> None:
-    agent = _AgentStub(smart_tool_names={"smart"})
-
-    summaries = build_tool_summaries(agent, [_tool_with_source("smart", "shell")])
-
-    assert summaries[0].suffix == "(Smart)"
-
-
-def test_build_tool_summaries_preserves_non_smart_suffixes() -> None:
-    agent = _AgentStub(smart_tool_names={"smart"})
-
+def test_build_tool_summaries_preserves_mcp_suffixes() -> None:
+    agent = _AgentStub()
     summaries = build_tool_summaries(agent, [_tool("demo__search")])
 
     assert summaries[0].suffix == "(MCP)"
@@ -230,7 +194,6 @@ def test_build_tool_summaries_preserves_non_smart_suffixes() -> None:
 def test_build_tool_summaries_orders_mcp_tools_last() -> None:
     agent = _AgentStub(
         card_tool_names={"card"},
-        smart_tool_names={"smart"},
         agent_backed_tools={"child": object()},
     )
 
@@ -238,7 +201,6 @@ def test_build_tool_summaries_orders_mcp_tools_last() -> None:
         agent,
         [
             _tool("server__search"),
-            _tool("smart"),
             _tool("server__fetch"),
             _tool("card"),
             _tool("child"),
@@ -246,24 +208,23 @@ def test_build_tool_summaries_orders_mcp_tools_last() -> None:
     )
 
     assert [summary.name for summary in summaries] == [
-        "smart",
         "card",
         "child",
         "server__search",
         "server__fetch",
     ]
-    assert [summary.is_mcp for summary in summaries] == [False, False, False, True, True]
+    assert [summary.is_mcp for summary in summaries] == [False, False, True, True]
 
 
-def test_build_tool_summaries_marks_smart_skybridge_tools() -> None:
-    agent = _AgentStub(smart_tool_names={"smart_with_resource"})
+def test_build_tool_summaries_marks_card_openai_apps_sdk_tools() -> None:
+    agent = _AgentStub(card_tool_names={"card_app"})
 
     summaries = build_tool_summaries(
         agent,
-        [_tool("smart_with_resource", meta={"openai/skybridgeEnabled": True})],
+        [_tool("card_app", meta={"fast-agent/appIntegrationKind": "openai_apps_sdk"})],
     )
 
-    assert summaries[0].suffix == "(Smart) (Apps SDK)"
+    assert summaries[0].suffix == "(Card Function) (OpenAI Apps SDK)"
 
 
 def test_build_tool_summaries_marks_mcp_app_tools() -> None:
@@ -271,20 +232,36 @@ def test_build_tool_summaries_marks_mcp_app_tools() -> None:
 
     summaries = build_tool_summaries(
         agent,
-        [_tool("app_tool", meta={"ui/appEnabled": True, "ui/appTemplate": "ui://app"})],
+        [
+            _tool(
+                "app_tool",
+                meta={
+                    "fast-agent/appIntegrationKind": "mcp_apps",
+                    "fast-agent/appResourceUri": "ui://app",
+                },
+            )
+        ],
     )
 
-    assert summaries[0].suffix == "(MCP App)"
+    assert summaries[0].suffix == "(MCP Apps)"
     assert summaries[0].template == "ui://app"
 
 
 def test_build_tool_summaries_ignores_non_string_template_metadata() -> None:
     summaries = build_tool_summaries(
         _AgentStub(),
-        [_tool("app_tool", meta={"ui/appEnabled": True, "ui/appTemplate": {"uri": "ui://app"}})],
+        [
+            _tool(
+                "app_tool",
+                meta={
+                    "fast-agent/appIntegrationKind": "mcp_apps",
+                    "fast-agent/appResourceUri": {"uri": "ui://app"},
+                },
+            )
+        ],
     )
 
-    assert summaries[0].suffix == "(MCP App)"
+    assert summaries[0].suffix == "(MCP Apps)"
     assert summaries[0].template is None
 
 
@@ -295,15 +272,14 @@ def test_build_tool_summaries_strips_blank_template_metadata() -> None:
             _tool(
                 "app_tool",
                 meta={
-                    "ui/appEnabled": True,
-                    "ui/appTemplate": "   ",
-                    "openai/skybridgeTemplate": " ui://fallback ",
+                    "fast-agent/appIntegrationKind": "mcp_apps",
+                    "fast-agent/appResourceUri": " ui://app ",
                 },
             )
         ],
     )
 
-    assert summaries[0].template == "ui://fallback"
+    assert summaries[0].template == "ui://app"
 
 
 def test_build_tool_summaries_filters_non_string_schema_keys() -> None:
@@ -328,13 +304,16 @@ def test_build_tool_summaries_keeps_app_badges_additive_with_source_suffix() -> 
         _AgentStub(),
         [
             set_tool_source(
-                _tool("read_text_file", meta={"ui/appEnabled": True}),
+                _tool(
+                    "read_text_file",
+                    meta={"fast-agent/appIntegrationKind": "mcp_apps"},
+                ),
                 SHELL_TOOL_SOURCE,
             )
         ],
     )
 
-    assert summaries[0].suffix == "(Shell) (MCP App)"
+    assert summaries[0].suffix == "(Shell) (MCP Apps)"
 
 
 def test_build_provider_tool_summaries_lists_enabled_supported_hosted_tools() -> None:

@@ -8,14 +8,12 @@ from pathlib import Path  # noqa: TC003 - typer resolves Path annotations at run
 from typing import TYPE_CHECKING
 
 import typer
-from rich.console import Console
 
-from fast_agent.cli.home_helpers import resolve_home_option
+from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
 from fast_agent.cli.runtime.request_builders import build_command_run_request
 from fast_agent.cli.runtime.runner import run_request
-from fast_agent.cli.shared_options import CommonAgentOptions
-from fast_agent.cli.workspace_helpers import resolve_workspace_option
-from fast_agent.constants import DEFAULT_HOME_DIR
+from fast_agent.cli.shared_options import CommonAgentOptions, McpProtocolOption
+from fast_agent.ui.console import SurrogateSafeConsole
 
 if TYPE_CHECKING:
     from fast_agent.cli.runtime.run_request import AgentRunRequest
@@ -41,7 +39,7 @@ class MissingShellCwdPolicy(str, Enum):
     ERROR = "error"
 
 
-_WARNING_CONSOLE = Console(stderr=True)
+_WARNING_CONSOLE = SurrogateSafeConsole(stderr=True)
 DEFAULT_HTTP_HOST = "127.0.0.1"
 
 
@@ -125,14 +123,14 @@ def _build_run_request(
     servers: str | None,
     agent_cards: list[str] | None,
     card_tools: list[str] | None,
-    urls: str | None,
+    urls: list[str] | None,
     auth: str | None,
     client_metadata_url: str | None,
+    mcp_protocol: McpProtocolOption | None = None,
     model: str | None,
     skills_dir: Path | None,
     home: Path | None,
     no_home: bool,
-    force_smart: bool,
     npx: str | None,
     uvx: str | None,
     stdio: str | None,
@@ -148,17 +146,20 @@ def _build_run_request(
     missing_shell_cwd: MissingShellCwdPolicy | None = None,
     no_shell: bool = False,
     workspace: Path | None = None,
+    subagents: bool | None = None,
+    subagent_model: str | None = None,
 ) -> AgentRunRequest:
     if watch and transport in (ServeTransport.HTTP, ServeTransport.STDIO):
         raise typer.BadParameter(
             "--watch is not supported for MCP serving; restart the server after card changes.",
             param_hint="--watch",
         )
-    resolved_workspace = resolve_workspace_option(ctx, workspace)
-    home_option = home
-    if home_option is None and resolved_workspace is not None and not no_home:
-        home_option = resolved_workspace / DEFAULT_HOME_DIR
-    resolved_home = resolve_home_option(ctx, home_option, set_env_var=not no_home)
+    resolved_workspace, resolved_home = resolve_workspace_and_home_options(
+        ctx,
+        workspace=workspace,
+        home=home,
+        no_home=no_home,
+    )
     return build_command_run_request(
         name=name,
         instruction_option=instruction,
@@ -167,6 +168,7 @@ def _build_run_request(
         urls=urls,
         auth=auth,
         client_metadata_url=client_metadata_url,
+        mcp_protocol=mcp_protocol.value if mcp_protocol is not None else None,
         agent_cards=agent_cards,
         card_tools=card_tools,
         model=model,
@@ -182,9 +184,10 @@ def _build_run_request(
         home=resolved_home,
         workspace=resolved_workspace,
         no_home=no_home,
-        force_smart=force_smart,
         shell_enabled=shell,
         no_shell=no_shell,
+        subagents=subagents,
+        subagent_model=subagent_model,
         prefer_local_shell=prefer_local_shell,
         mode="serve",
         transport=transport.value,
@@ -218,13 +221,13 @@ def serve(
     servers: str | None = CommonAgentOptions.servers(),
     agent_cards: list[str] | None = CommonAgentOptions.agent_cards(),
     card_tools: list[str] | None = CommonAgentOptions.card_tools(),
-    urls: str | None = CommonAgentOptions.urls(),
+    urls: list[str] | None = CommonAgentOptions.urls(),
     auth: str | None = CommonAgentOptions.auth(),
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
+    mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
     workspace: Path | None = CommonAgentOptions.workspace(),
     home: Path | None = CommonAgentOptions.home(),
     no_home: bool = CommonAgentOptions.no_home(),
-    smart: bool = CommonAgentOptions.smart(),
     skills_dir: Path | None = CommonAgentOptions.skills_dir(),
     npx: str | None = CommonAgentOptions.npx(),
     uvx: str | None = CommonAgentOptions.uvx(),
@@ -246,6 +249,8 @@ def serve(
     ),
     shell: bool = CommonAgentOptions.shell(),
     no_shell: bool = CommonAgentOptions.no_shell(),
+    subagents: bool | None = CommonAgentOptions.subagents(),
+    subagent_model: str | None = CommonAgentOptions.subagent_model(),
     prefer_local_shell: bool = typer.Option(
         False,
         "--prefer-local-shell",
@@ -286,12 +291,12 @@ def serve(
         urls=urls,
         auth=auth,
         client_metadata_url=client_metadata_url,
+        mcp_protocol=mcp_protocol,
         model=model,
         skills_dir=skills_dir,
         workspace=workspace,
         home=home,
         no_home=no_home,
-        force_smart=smart,
         npx=npx,
         uvx=uvx,
         stdio=stdio,
@@ -300,6 +305,8 @@ def serve(
         port=port,
         shell=shell,
         no_shell=no_shell,
+        subagents=subagents,
+        subagent_model=subagent_model,
         prefer_local_shell=prefer_local_shell,
         instance_scope=_resolve_instance_scope(
             ctx,
@@ -325,13 +332,13 @@ def serve_a2a(
     servers: str | None = CommonAgentOptions.servers(),
     agent_cards: list[str] | None = CommonAgentOptions.agent_cards(),
     card_tools: list[str] | None = CommonAgentOptions.card_tools(),
-    urls: str | None = CommonAgentOptions.urls(),
+    urls: list[str] | None = CommonAgentOptions.urls(),
     auth: str | None = CommonAgentOptions.auth(),
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
+    mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
     workspace: Path | None = CommonAgentOptions.workspace(),
     home: Path | None = CommonAgentOptions.home(),
     no_home: bool = CommonAgentOptions.no_home(),
-    smart: bool = CommonAgentOptions.smart(),
     skills_dir: Path | None = CommonAgentOptions.skills_dir(),
     npx: str | None = CommonAgentOptions.npx(),
     uvx: str | None = CommonAgentOptions.uvx(),
@@ -347,6 +354,8 @@ def serve_a2a(
     ),
     shell: bool = CommonAgentOptions.shell(),
     no_shell: bool = CommonAgentOptions.no_shell(),
+    subagents: bool | None = CommonAgentOptions.subagents(),
+    subagent_model: str | None = CommonAgentOptions.subagent_model(),
     instance_scope: InstanceScope = typer.Option(
         InstanceScope.SHARED,
         "--instance-scope",
@@ -367,12 +376,12 @@ def serve_a2a(
         urls=urls,
         auth=auth,
         client_metadata_url=client_metadata_url,
+        mcp_protocol=mcp_protocol,
         model=model,
         skills_dir=skills_dir,
         workspace=workspace,
         home=home,
         no_home=no_home,
-        force_smart=smart,
         npx=npx,
         uvx=uvx,
         stdio=None,
@@ -381,6 +390,8 @@ def serve_a2a(
         port=port,
         shell=shell,
         no_shell=no_shell,
+        subagents=subagents,
+        subagent_model=subagent_model,
         instance_scope=instance_scope,
         no_permissions=False,
         reload=reload,

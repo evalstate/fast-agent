@@ -87,6 +87,125 @@ or as YAML-only files:
 Markdown cards are usually easier to read because the frontmatter contains
 configuration and the body contains the instruction prompt.
 
+## Configure built-in subagents
+
+The built-in `subagent` tool is disabled unless the card sets
+`subagents: true`. Tool-only agents and children created by the built-in tool
+always keep it disabled.
+
+Pin all built-in child runs to a model with `subagent_model`:
+
+```md
+---
+name: coordinator
+model: sonnet
+subagents: true
+subagent_model: gpt-oss
+---
+
+Delegate focused tasks to subagents.
+```
+
+With `subagent_model`, the model-visible `subagent` tool schema has no `model`
+argument and every child uses the configured model. `subagent_model` has no
+effect unless `subagents: true`.
+
+The model calls `subagent(message, model?, label?, include_user_message?)`. Each call:
+
+- starts a one-shot child with a clean conversation context;
+- inherits the parent's instruction and available capabilities, except the
+  built-in `subagent` tool, so children cannot recursively delegate;
+- accepts an optional model override and short display label when
+  `subagent_model` is not fixed;
+- can optionally include only the latest external user message's text and
+  attachments (never conversation history) in the child request. This can
+  forward user content to another model or provider. Text is XML-escaped and
+  appended after the explicit task inside
+  `<included_user_context>...</included_user_context>`;
+- can run concurrently with other subagent calls while the parent waits for
+  all results; and
+- persists its complete transcript as a nested, non-resumable child session.
+
+Persisted runs receive a short alias scoped to the parent session:
+
+```text
+01_investigate_item
+02_review_api_contract
+```
+
+The ordinal is allocated when the run starts. The slug comes from the supplied
+label, or from the task when no label is supplied, and is normalized to bounded
+lowercase ASCII. Use `/subagents` to list runs in the current session:
+
+```text
+/subagents
+/subagents status
+/subagents off
+/subagents on
+/subagents toggle
+```
+
+`on`, `off`, and `toggle` are runtime-only overrides for the current agent.
+They do not rewrite its AgentCard, and `on` does not override an explicit
+AgentCard or CLI disable.
+
+The tool returns the child's final response first. When the active execution
+environment supports private temporary artifacts, it also returns a temporary
+path to a bounded, line-oriented transcript. The parent can search that file or
+read selected line ranges without loading the whole transcript into context.
+The path is valid only during the current runtime and is removed when the
+parent shuts down. The transcript includes child messages and tool activity,
+but excludes reasoning content.
+
+For repository-level opt-in without editing an AgentCard, add this exact
+standalone directive to the system prompt or an embedded `AGENTS.md`:
+
+```md
+<!-- fast-agent-subagents -->
+```
+
+fast-agent removes the directive before sending the instruction to the model.
+It only enables subagents when the AgentCard leaves `subagents` unset.
+
+The comment can include instructions intended only for the parent agent:
+
+```md
+<!-- fast-agent-subagents
+use terra for analysis
+-->
+```
+
+The body is included in the parent system instruction, while the complete
+comment is excluded from built-in subagent instructions.
+`--no-subagents` and `subagents: false` always win.
+
+## Enable harness tools
+
+Basic agents can opt into model-visible tools for inspecting and managing
+fast-agent itself:
+
+```yaml
+harness_tools: true
+```
+
+This installs:
+
+- `slash_command(command)` for an allow-listed slash-command surface, including
+  `/mcp` and `/skills`;
+- `get_resource(uri, server_name?)` for bundled `internal://` resources and
+  resources from attached MCP servers.
+
+Use `slash_command("/commands")` to list the commands available to the model.
+The `/mcp` and `/skills` families can connect servers and install or remove
+skills. Installing an active skill may also enable the shell and filesystem
+tools needed to use it. Model-initiated OAuth is non-interactive; use an
+explicit token or complete OAuth from a user-facing command. Ad-hoc stdio MCP
+commands require shell access, while configured servers and MCP URLs do not.
+Enable harness tools only for agents and sources you trust.
+Harness tools are disabled by default, can be enabled or disabled on a live
+agent, and are not inherited by detached or built-in subagent clones. The
+setting is accepted only by basic `agent` cards.
+
 ## Add Python function tools
 
 Cards can expose local Python functions as tools with `function_tools`. This is
@@ -219,26 +338,33 @@ Use `mcp_connect` when a card needs MCP servers that are not preconfigured under
 
 ```yaml
 mcp_connect:
-  - target: "https://demo.hf.space"
+  docs:
+    target: "https://demo.hf.space"
+    protocol_mode: modern
     headers:
       Authorization: "Bearer ${DEMO_TOKEN}"
     auth:
       oauth: true
-  - target: "@modelcontextprotocol/server-everything"
-    name: "everything"
+  everything:
+    target: "@modelcontextprotocol/server-everything"
 ```
 
+- The canonical form is a mapping from server name to target settings.
+- The legacy list form remains accepted and is preserved when a card is dumped.
 - `target` (required): URL, `@pkg`, `npx ...`, `uvx ...`, or stdio command.
-- `name` (optional): explicit server alias; if omitted, fast-agent infers one.
+- `protocol_mode` (optional): `auto`, `modern`, or `legacy`.
 - `headers` (optional): structured HTTP headers.
 - `auth` (optional): structured auth settings, for example `oauth: true`.
+- Process fields (`command`, `args`, `env`, and `cwd`) are not permitted in
+  AgentCards. Declare a trusted `target`; fast-agent materializes process
+  settings from that target.
 
 For provider-managed remote MCP, use:
 
 ```yaml
 mcp_connect:
-  - target: "https://huggingface.co/mcp"
-    name: "huggingface"
+  huggingface:
+    target: "https://huggingface.co/mcp"
     management: provider
     access_token: "${HF_TOKEN}"
     description: "Hugging Face MCP"
@@ -265,7 +391,7 @@ card entries. Use `connector_id` instead of `target`:
 
 ```yaml
 mcp_connect:
-  - name: dropbox
+  dropbox:
     management: provider
     connector_id: connector_dropbox
     access_token: "${DROPBOX_OAUTH_ACCESS_TOKEN}"
@@ -274,8 +400,8 @@ mcp_connect:
 ```
 
 Connector-backed entries are supported only by the OpenAI `responses` provider.
-They require `name` and `access_token`; omit `target`, `transport`, `headers`,
-and `auth`.
+They require a mapping key (or `name` in the compatible list form) and
+`access_token`; omit `target`, `transport`, `headers`, and `auth`.
 
 For provider-managed servers, use exact tool names in `tools.<server_name>`.
 Wildcard tool filters, prompt filters, and resource filters are not supported.

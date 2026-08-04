@@ -38,6 +38,7 @@ async def get() -> str:
     ret = "nothing"
     match result:
         case AcceptedElicitation(data=data):
+            assert isinstance(data, ServerRating)
             if data.rating:
                 ret = str(data.rating)
         case DeclinedElicitation():

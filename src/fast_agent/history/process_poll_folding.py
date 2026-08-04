@@ -7,7 +7,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
-from mcp.types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent
 
 from fast_agent.constants import (
     FAST_AGENT_PROCESS_POLL_FOLD,

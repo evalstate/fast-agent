@@ -2,7 +2,7 @@
 
 import pytest
 from mcp import CallToolRequest, Tool
-from mcp.types import CallToolRequestParams
+from mcp_types import CallToolRequestParams
 
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.request_params import RequestParams
@@ -249,8 +249,7 @@ instruction: Parent agent that uses child.
 
             # Verify child's hook was called by checking marker file
             assert marker_file.exists(), "Child agent's after_turn_complete hook should have fired"
-            with open(marker_file) as f:
-                hook_data = json.load(f)
+            hook_data = json.loads(marker_file.read_text())
             assert hook_data["called"] is True
             assert hook_data["hook_type"] == "after_turn_complete"
     finally:

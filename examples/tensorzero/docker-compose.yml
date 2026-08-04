@@ -77,10 +77,9 @@ services:
       test:
         [
           "CMD",
-          "wget",
-          "--spider",
-          "--tries=1",
-          "http://localhost:8000/t0-example-server/sse",
+          "python",
+          "-c",
+          "import socket; socket.create_connection(('127.0.0.1', 8000), 2).close()",
         ]
       interval: 10s
       timeout: 5s

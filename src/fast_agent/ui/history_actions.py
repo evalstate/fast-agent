@@ -7,21 +7,26 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from mcp.types import TextContent
+from mcp_types import TextContent
 from rich.text import Text
 
-from fast_agent.constants import FAST_AGENT_TOOL_METADATA
+from fast_agent.agents.subagent_labels import requested_subagent_display_label
+from fast_agent.constants import (
+    BUILTIN_SUBAGENT_TOOL_NAME,
+    FAST_AGENT_TOOL_METADATA,
+)
 from fast_agent.history.tool_activities import display_remote_tool_activities
 from fast_agent.ui.citation_display import (
     render_sources_pre_content,
     web_tool_badges,
 )
+from fast_agent.ui.subagent_result_presentation import build_subagent_result_presentation
 from fast_agent.utils.tool_names import (
     is_read_text_file_tool_name as is_read_text_file_tool_name_shared,
 )
 
 if TYPE_CHECKING:
-    from mcp.types import CallToolRequest
+    from mcp_types import CallToolRequest, CallToolResult
 
     from fast_agent.config import Settings
     from fast_agent.types import PromptMessageExtended
@@ -130,7 +135,7 @@ class _HistoryTurnDisplayContext:
         self.flush_user_group()
         if message.role == "assistant":
             await self._display_assistant_message(message)
-        self._display_tool_results(message)
+        await self._display_tool_results(message)
 
     async def _display_assistant_message(self, message: "PromptMessageExtended") -> None:
         rendered_remote_activities = display_remote_tool_activities(
@@ -220,20 +225,38 @@ class _HistoryTurnDisplayContext:
             tool_name = self.tool_name_lookup.get(call_id, call_id)
             if is_read_text_file_tool_name_shared(tool_name):
                 continue
+            metadata = self.tool_metadata_lookup.get(call_id)
+            if _is_builtin_subagent_tool(metadata):
+                self._display_subagent_message(call_id, call)
+                continue
             self.display.show_tool_call(
                 tool_name=tool_name,
                 tool_args=_tool_args_from_call(call),
                 name=self.agent_name,
-                metadata=self.tool_metadata_lookup.get(call_id),
+                metadata=metadata,
                 tool_call_id=call_id,
             )
 
-    def _display_tool_results(self, message: "PromptMessageExtended") -> None:
+    def _display_subagent_message(self, _call_id: str, call: "CallToolRequest") -> None:
+        arguments = _tool_args_from_call(call)
+        message = None if arguments is None else arguments.get("message")
+        if not isinstance(message, str):
+            return
+        label = None if arguments is None else arguments.get("label")
+        self.display.show_user_message(
+            message=message,
+            name=f"{self.agent_name} → {requested_subagent_display_label(label)}",
+        )
+
+    async def _display_tool_results(self, message: "PromptMessageExtended") -> None:
         tool_results = message.tool_results
         if not tool_results:
             return
 
         for call_id, result in tool_results.items():
+            if _is_builtin_subagent_tool(self.tool_metadata_lookup.get(call_id)):
+                await self._display_subagent_result(result)
+                continue
             self.display.show_tool_result(
                 result=result,
                 name=self.agent_name,
@@ -241,6 +264,23 @@ class _HistoryTurnDisplayContext:
                 tool_call_id=call_id,
                 truncate_content=False,
             )
+
+    async def _display_subagent_result(self, result: "CallToolResult") -> None:
+        presentation = build_subagent_result_presentation(result)
+        await self.display.show_assistant_message(
+            message_text=presentation.message_text,
+            name=presentation.name,
+            model=presentation.model,
+            bottom_items=presentation.bottom_items,
+            highlight_indexes=presentation.highlight_indexes,
+        )
+
+
+def _is_builtin_subagent_tool(metadata: JsonObject | None) -> bool:
+    if metadata is None:
+        return False
+    builtin = _json_object(metadata.get("fast_agent"))
+    return builtin is not None and builtin.get("builtin") == BUILTIN_SUBAGENT_TOOL_NAME
 
 
 def _append_web_activity_badges(additional_message: Text | None, badges: list[str]) -> Text | None:
@@ -278,10 +318,23 @@ async def display_history_turn(
     turn_index: int | None = None,
     total_turns: int | None = None,
 ) -> None:
+    from fast_agent.config import Settings
     from fast_agent.ui.console_display import ConsoleDisplay
 
+    replay_config = config or Settings()
+    replay_config = replay_config.model_copy(
+        update={
+            "logger": replay_config.logger.model_copy(
+                update={
+                    "tool_display": replay_config.logger.tool_display.model_copy(
+                        update={"layout": "full"}
+                    )
+                }
+            )
+        }
+    )
     context = _HistoryTurnDisplayContext(
-        display=cast("_HistoryDisplay", ConsoleDisplay(config=config)),
+        display=cast("_HistoryDisplay", ConsoleDisplay(config=replay_config)),
         agent_name=agent_name,
         turn_index=turn_index,
         total_turns=total_turns,

@@ -1,0 +1,37 @@
+default_model: passthrough
+
+logger:
+  level: error
+  type: console
+
+mcp:
+  servers:
+    modern:
+      command: uv
+      args: [run, mrtr_server.py]
+      transport: stdio
+      elicitation:
+        mode: none
+    sandbox_example:
+      command: uv
+      args: [run, ../../../examples/mcp/elicitations/sandbox_server.py]
+      transport: stdio
+      protocol_mode: modern
+    url_example:
+      command: uv
+      args: [run, ../../../examples/mcp/elicitations/url_server.py]
+      transport: stdio
+      protocol_mode: modern
+    forced_modern:
+      command: uv
+      args: [run, mrtr_server.py]
+      transport: stdio
+      protocol_mode: modern
+    forced_legacy:
+      command: uv
+      args: [run, mrtr_server.py]
+      transport: stdio
+      protocol_mode: legacy
+    modern_http:
+      url: http://127.0.0.1:${FAST_AGENT_TEST_HTTP_PORT}/mcp
+      transport: http

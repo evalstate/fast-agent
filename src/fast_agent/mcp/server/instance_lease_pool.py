@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from fast_agent.core.logging.logger import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from contextlib import AsyncExitStack
 
     from fast_agent.core.agent_instance_factory import AgentInstanceFactory
     from fast_agent.core.fastagent import AgentInstance
@@ -37,6 +38,16 @@ class AgentInstanceLeasePool(Protocol):
     async def release(self, lease: AgentInstanceLease, ctx: object | None = None) -> None: ...
 
     async def shutdown(self) -> None: ...
+
+
+@runtime_checkable
+class _ContextWithSession(Protocol):
+    session: object
+
+
+@runtime_checkable
+class _SessionWithExitStack(Protocol):
+    _exit_stack: AsyncExitStack
 
 
 class ScopedAgentInstancePool:
@@ -106,9 +117,8 @@ class ScopedAgentInstancePool:
                 await self._instance_factory.dispose_instance(instance)
 
         session = _ctx_session(ctx)
-        exit_stack = getattr(session, "_exit_stack", None)
-        if exit_stack is not None:
-            exit_stack.push_async_callback(cleanup)
+        if isinstance(session, _SessionWithExitStack):
+            session._exit_stack.push_async_callback(cleanup)
             return
         self._connection_cleanup_tasks[session_key] = cleanup
 
@@ -191,8 +201,10 @@ class ScopedAgentInstancePool:
         await self.dispose_all_stale_instances()
 
 
-def _ctx_session(ctx: object) -> Any:
-    return getattr(ctx, "session")
+def _ctx_session(ctx: object) -> object:
+    if not isinstance(ctx, _ContextWithSession):
+        raise TypeError("Connection context must provide a session")
+    return ctx.session
 
 
 __all__ = [

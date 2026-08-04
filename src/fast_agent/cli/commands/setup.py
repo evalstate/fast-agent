@@ -166,9 +166,7 @@ def _print_secrets_next_steps(created: list[str]) -> None:
         "1. Add your API keys to fast-agent.secrets.yaml, or set environment variables. Use [cyan]fast-agent check[/cyan] to verify."
     )
     console.print("2. Keep fast-agent.secrets.yaml secure and never commit it to version control")
-    console.print(
-        "3. Update fast-agent.yaml to set a default model (currently system default is 'gpt-5.4-mini?reasoning=low')"
-    )
+    console.print("3. Set default_model in fast-agent.yaml for unattended runs, or pass --model")
 
 
 def _print_scaffold_result(
@@ -184,8 +182,8 @@ def _print_scaffold_result(
     _print_created_file_summary(config_path, created)
     _print_gitignore_note(needs_gitignore=needs_gitignore)
     _print_secrets_next_steps(created)
-    console.print("\nTo get started, run:")
-    console.print("  uv run agent.py")
+    console.print("\nSet default_model in fast-agent.yaml, or select a model when starting:")
+    console.print("  uv run agent.py --model sonnet")
 
 
 @app.callback(invoke_without_command=True)

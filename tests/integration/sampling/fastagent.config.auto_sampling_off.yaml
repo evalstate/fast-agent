@@ -1,5 +1,4 @@
 default_model: passthrough
-auto_sampling: false  # Disable auto-sampling
 
 # Logging and Console Configuration:
 logger:
@@ -17,8 +16,11 @@ logger:
   truncate_tools: true
 
 mcp:
+  client:
+    auto_sampling: false  # Disable auto-sampling
   servers:
     sampling_test:
       command: "uv"
       args: ["run", "sampling_test_server.py"]
+      protocol_mode: legacy
       # No explicit sampling configuration - should fail with auto_sampling=false

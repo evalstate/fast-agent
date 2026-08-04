@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from mcp.types import (
+from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -13,12 +13,16 @@ from mcp.types import (
     TextContent,
 )
 
+from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.config import CompactionSettings, Settings, get_settings
 from fast_agent.context import Context
 from fast_agent.history.compaction import (
     _CHARS_PER_TOKEN,
     DEFAULT_COMPACTION_PROMPT,
     FAST_AGENT_COMPACTION_CHANNEL,
+    LEGACY_SUMMARY_NOTICE,
+    SUMMARY_NOTICE,
     CompactionSkipped,
     _plan_compaction_with_budget,
     _plan_mid_turn_compaction,
@@ -26,6 +30,7 @@ from fast_agent.history.compaction import (
     compact_conversation,
     estimate_tokens,
     is_compaction_message,
+    normalize_compaction_notice,
     persist_compacted_session,
     plan_compaction,
     resolve_compaction_prompt,
@@ -49,7 +54,7 @@ def _user(text: str, *, template: bool = False) -> PromptMessageExtended:
 def _tool_result(text: str) -> PromptMessageExtended:
     msg = PromptMessageExtended(role="user", content=[])
     msg.tool_results = {
-        "call_1": CallToolResult(content=[TextContent(type="text", text=text)], isError=False)
+        "call_1": CallToolResult(content=[TextContent(type="text", text=text)], is_error=False)
     }
     return msg
 
@@ -355,7 +360,7 @@ class TestEstimateTokens:
     def test_counts_non_text_content_and_channels(self):
         plain = estimate_tokens([_user("hello")])
         msg = _user("hello")
-        msg.content.append(ImageContent(type="image", data="x" * 20_000, mimeType="image/png"))
+        msg.content.append(ImageContent(type="image", data="x" * 20_000, mime_type="image/png"))
         msg.channels = {"diagnostics": [TextContent(type="text", text="y" * 20_000)]}
 
         assert estimate_tokens([msg]) > plain + 5_000
@@ -430,6 +435,69 @@ class TestCompactConversation:
         assert agent.usage_accumulator.current_context_tokens == result.tokens_after_estimate
         assert result.tokens_after_estimate < 90_000
 
+    def test_checkpoint_guidance_defers_to_current_runtime(self):
+        message = build_summary_message(
+            "The subagent tool is unavailable.",
+            prompt_text=DEFAULT_COMPACTION_PROMPT,
+            instructions=None,
+            messages_compacted=2,
+            tokens_before=100,
+            context_window=1_000,
+            model="test",
+        )
+
+        text = message.first_text()
+        assert "declared tools override conflicting runtime-state claims" in text
+        assert "Do not claim that a tool or capability is currently available" in (
+            DEFAULT_COMPACTION_PROMPT
+        )
+
+    def test_normalizes_legacy_checkpoint_guidance(self):
+        message = build_summary_message(
+            "The subagent tool is unavailable.",
+            prompt_text=DEFAULT_COMPACTION_PROMPT,
+            instructions=None,
+            messages_compacted=2,
+            tokens_before=100,
+            context_window=1_000,
+            model="test",
+        )
+        content = message.content[0]
+        assert isinstance(content, TextContent)
+        content.text = content.text.replace(
+            SUMMARY_NOTICE,
+            LEGACY_SUMMARY_NOTICE,
+        )
+
+        normalize_compaction_notice(message)
+
+        assert SUMMARY_NOTICE in message.first_text()
+        assert LEGACY_SUMMARY_NOTICE not in message.first_text()
+
+    def test_history_load_normalizes_legacy_checkpoint_guidance(self):
+        message = build_summary_message(
+            "The subagent tool is unavailable.",
+            prompt_text=DEFAULT_COMPACTION_PROMPT,
+            instructions=None,
+            messages_compacted=2,
+            tokens_before=100,
+            context_window=1_000,
+            model="test",
+        )
+        content = message.content[0]
+        assert isinstance(content, TextContent)
+        content.text = content.text.replace(
+            SUMMARY_NOTICE,
+            LEGACY_SUMMARY_NOTICE,
+        )
+        agent = ToolAgent(AgentConfig(name="test", model="passthrough"))
+
+        agent.load_message_history([message])
+
+        loaded = agent.message_history[0].first_text()
+        assert SUMMARY_NOTICE in loaded
+        assert LEGACY_SUMMARY_NOTICE not in loaded
+
     async def test_summarizer_sees_compact_region_plus_prompt(self):
         history = _turn("one", "1") + _turn("two", "2") + _turn("three", "3")
         agent = _FakeAgent(history)
@@ -446,7 +514,7 @@ class TestCompactConversation:
     async def test_reduces_retained_tail_when_tail_exceeds_budget(self):
         huge_tail = _user("latest huge artifact")
         huge_tail.content.append(
-            ImageContent(type="image", data="x" * 300_000, mimeType="image/png")
+            ImageContent(type="image", data="x" * 300_000, mime_type="image/png")
         )
         history = _turn("one", "1") + _turn("two", "2") + [huge_tail, _assistant("after huge")]
         agent = _FakeAgent(history, summary="summary including huge artifact")

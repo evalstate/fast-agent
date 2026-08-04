@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable, Collection, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from mcp.types import CallToolResult
+from mcp_types import CallToolResult
 
 from fast_agent.types import RequestParams
 
@@ -38,7 +38,7 @@ class PlannedToolCallResult:
 
 
 type ToolCallExecutor = Callable[
-    [str, dict[str, Any], RequestParams | None],
+    [PlannedToolCall, RequestParams | None],
     Awaitable[CallToolResult],
 ]
 
@@ -78,6 +78,6 @@ async def execute_planned_tool_call(
     request_params: RequestParams | None,
 ) -> PlannedToolCallResult:
     start_time = time.perf_counter()
-    result = await execute_tool(planned_call.name, planned_call.arguments, request_params)
+    result = await execute_tool(planned_call, request_params)
     duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
     return PlannedToolCallResult(result=result, duration_ms=duration_ms)

@@ -1,6 +1,6 @@
 import pytest
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, ContentBlock, ImageContent, Tool
+from mcp_types import CallToolRequestParams, ContentBlock, ImageContent, Tool
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -157,7 +157,7 @@ class MediaStagingLlm(PassthroughLLM):
 
 class MediaStagingToolAgent(ToolAgent):
     def _consume_pending_media_attachments(self) -> list[ContentBlock]:
-        return [ImageContent(type="image", data="abcd", mimeType="image/png")]
+        return [ImageContent(type="image", data="abcd", mime_type="image/png")]
 
 
 @pytest.mark.unit
@@ -535,6 +535,9 @@ class ToolEventCapturingDisplay(CapturingConsoleDisplay):
         metadata: dict[str, object] | None = None,
         tool_call_id: str | None = None,
         type_label: str | None = None,
+        source_label: str | None = None,
+        server_name: str | None = None,
+        request_count: int = 1,
         show_hook_indicator: bool = False,
     ) -> None:
         del (
@@ -546,6 +549,9 @@ class ToolEventCapturingDisplay(CapturingConsoleDisplay):
             metadata,
             tool_call_id,
             type_label,
+            source_label,
+            server_name,
+            request_count,
             show_hook_indicator,
         )
         self.events.append(f"tool_call:{tool_name}")
@@ -555,21 +561,25 @@ class ToolEventCapturingDisplay(CapturingConsoleDisplay):
         result,
         name: str | None = None,
         tool_name: str | None = None,
-        skybridge_config=None,
+        app_integration_config=None,
         timing_ms: float | None = None,
         tool_call_id: str | None = None,
         type_label: str | None = None,
         truncate_content: bool = True,
+        source_label: str | None = None,
+        server_name: str | None = None,
         show_hook_indicator: bool = False,
     ) -> None:
         del (
             result,
             name,
-            skybridge_config,
+            app_integration_config,
             timing_ms,
             tool_call_id,
             type_label,
             truncate_content,
+            source_label,
+            server_name,
             show_hook_indicator,
         )
         self.events.append(f"tool_result:{tool_name}")

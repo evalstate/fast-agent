@@ -6,10 +6,9 @@ import hashlib
 import json
 import re
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from fast_agent.marketplace.source_models import (
-    InstalledSourcePayloadFields,
     InstalledSourceReadResult,
     ParsedInstalledSourceFields,
 )
@@ -21,6 +20,44 @@ if TYPE_CHECKING:
 
 SourceT = TypeVar("SourceT")
 _SHA256_FINGERPRINT_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+class InstalledSourcePayloadFields(Protocol):
+    @property
+    def schema_version(self) -> int: ...
+
+    @property
+    def installed_via(self) -> str: ...
+
+    @property
+    def source_origin(self) -> str: ...
+
+    @property
+    def repo_url(self) -> str: ...
+
+    @property
+    def repo_ref(self) -> str | None: ...
+
+    @property
+    def repo_path(self) -> str: ...
+
+    @property
+    def source_url(self) -> str | None: ...
+
+    @property
+    def installed_commit(self) -> str | None: ...
+
+    @property
+    def installed_path_oid(self) -> str | None: ...
+
+    @property
+    def installed_revision(self) -> str: ...
+
+    @property
+    def installed_at(self) -> str: ...
+
+    @property
+    def content_fingerprint(self) -> str: ...
 
 
 def read_installed_source_file(

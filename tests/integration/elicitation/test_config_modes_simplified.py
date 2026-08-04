@@ -23,8 +23,9 @@ async def test_forms_mode(fast_agent):
     )
     async def test_agent():
         async with fast_agent.run() as agent:
+            app = agent["forms-elicitation-agent"]
             # Check capabilities reported by server
-            result = await agent.get_resource("elicitation://client-capabilities")
+            result = await app.call_tool("client_capabilities", {})
             capabilities_text = str(result)
             print(f"Server reports capabilities: {capabilities_text}")
 
@@ -50,8 +51,9 @@ async def test_custom_handler_mode(fast_agent):
     )
     async def test_agent():
         async with fast_agent.run() as agent:
+            app = agent["custom-handler-agent"]
             # Check capabilities - should have elicitation
-            capabilities_result = await agent.get_resource("elicitation://client-capabilities")
+            capabilities_result = await app.call_tool("client_capabilities", {})
             capabilities_text = str(capabilities_result)
 
             assert "✓ Elicitation" in capabilities_text, (
@@ -60,7 +62,7 @@ async def test_custom_handler_mode(fast_agent):
             )
 
             # Test the actual elicitation - should use our custom handler
-            result = await agent.get_resource("elicitation://user-profile")
+            result = await app.call_tool("user_profile", {})
             result_str = str(result)
 
             assert "Test User" in result_str, (

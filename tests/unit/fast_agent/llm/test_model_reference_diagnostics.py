@@ -23,11 +23,11 @@ def test_collect_model_reference_setup_diagnostics_reports_pack_and_card_referen
         encoding="utf-8",
     )
 
-    pack_dir = home / "card-packs" / "smart"
+    pack_dir = home / "card-packs" / "alpha"
     pack_dir.mkdir(parents=True, exist_ok=True)
     (pack_dir / "card-pack.yaml").write_text(
         "schema_version: 1\n"
-        "name: smart\n"
+        "name: alpha\n"
         "kind: card\n"
         "model_references_required:\n"
         "  - $system.default\n"
@@ -60,7 +60,7 @@ def test_collect_model_reference_setup_diagnostics_reports_pack_and_card_referen
             status="invalid",
             current_value="",
             summary="Configured reference value is empty.",
-            references=("card pack smart", "default_model"),
+            references=("card pack alpha", "default_model"),
         ),
         ModelReferenceSetupItem(
             token="$system.fast",
@@ -68,7 +68,7 @@ def test_collect_model_reference_setup_diagnostics_reports_pack_and_card_referen
             status="missing",
             current_value=None,
             summary="Referenced model reference is not configured.",
-            references=("agent card helper", "card pack smart"),
+            references=("agent card helper", "card pack alpha"),
         ),
     )
 

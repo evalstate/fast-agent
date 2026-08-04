@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 from fastmcp import Context as MCPContext  # noqa: TC002 - FastMCP inspects tool annotations.
-from fastmcp.server.dependencies import get_access_token, get_context
+from fastmcp.server.dependencies import get_access_token, get_context, get_http_headers
 from fastmcp.tools import Tool
-from mcp.types import TextContent
+from mcp_types import TextContent
 from pydantic import PrivateAttr
 
 from fast_agent.core.agent_tool_shape import (
@@ -336,18 +336,10 @@ class HarnessMCPAdapter:
 
     @staticmethod
     def _raw_bearer_token_from_request() -> str | None:
-        try:
-            ctx = get_context()
-        except Exception:
-            return None
-        request_context = getattr(ctx, "request_context", None)
-        request = getattr(request_context, "request", None)
-        headers = getattr(request, "headers", None)
-        if headers is None:
-            return None
+        headers = get_http_headers(include={"authorization", "x-hf-authorization"})
         for header_name in ("authorization", "x-hf-authorization"):
             value = headers.get(header_name)
-            if isinstance(value, str) and value.lower().startswith("bearer "):
+            if value is not None and value.lower().startswith("bearer "):
                 token = value[7:].strip()
                 return token or None
         return None

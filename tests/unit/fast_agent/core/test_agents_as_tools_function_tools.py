@@ -8,7 +8,10 @@ import pytest_asyncio
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.core import Core
-from fast_agent.core.direct_factory import create_agents_in_dependency_order
+from fast_agent.core.direct_factory import (
+    _ContextCoreShim,
+    create_agents_in_dependency_order,
+)
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.llm.model_factory import ModelFactory
 
@@ -85,7 +88,9 @@ async def test_agents_as_tools_loads_function_tools_from_agent_data(
     core = Core(settings=str(config_path))
     await core.initialize()
     try:
-        agents = await create_agents_in_dependency_order(core, agents_dict, model_factory)
+        agents = await create_agents_in_dependency_order(
+            _ContextCoreShim(core.context), agents_dict, model_factory
+        )
         parent = agents["vertex-rag"]
         tools = await parent.list_tools()
         tool_names = {tool.name for tool in tools.tools}
@@ -138,7 +143,9 @@ async def test_agents_as_tools_requires_messages_for_history_source_messages(
     await core.initialize()
     try:
         with pytest.raises(AgentConfigError):
-            await create_agents_in_dependency_order(core, agents_dict, model_factory)
+            await create_agents_in_dependency_order(
+                _ContextCoreShim(core.context), agents_dict, model_factory
+            )
     finally:
         await core.cleanup()
 
@@ -180,7 +187,9 @@ async def test_agents_as_tools_rejects_invalid_history_mode(tmp_path) -> None:
     await core.initialize()
     try:
         with pytest.raises(AgentConfigError, match="Invalid agents_as_tools_options"):
-            await create_agents_in_dependency_order(core, agents_dict, model_factory)
+            await create_agents_in_dependency_order(
+                _ContextCoreShim(core.context), agents_dict, model_factory
+            )
     finally:
         await core.cleanup()
 
@@ -212,7 +221,9 @@ async def test_agents_as_tools_rejects_unknown_option_key(tmp_path) -> None:
     await core.initialize()
     try:
         with pytest.raises(AgentConfigError, match="Invalid agents_as_tools_options"):
-            await create_agents_in_dependency_order(core, agents_dict, model_factory)
+            await create_agents_in_dependency_order(
+                _ContextCoreShim(core.context), agents_dict, model_factory
+            )
     finally:
         await core.cleanup()
 
@@ -244,6 +255,8 @@ async def test_agents_as_tools_rejects_non_mapping_options(tmp_path) -> None:
     await core.initialize()
     try:
         with pytest.raises(AgentConfigError, match="Invalid agents_as_tools_options"):
-            await create_agents_in_dependency_order(core, agents_dict, model_factory)
+            await create_agents_in_dependency_order(
+                _ContextCoreShim(core.context), agents_dict, model_factory
+            )
     finally:
         await core.cleanup()

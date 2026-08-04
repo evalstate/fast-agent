@@ -91,8 +91,8 @@ class MoonshotLLM(OpenAICompatibleLLM):
             for field in ignored_sampling_fields:
                 arguments.pop(field)
         arguments.pop("max_tokens", None)
-        if request_params.maxTokens is not None:
-            arguments["max_completion_tokens"] = request_params.maxTokens
+        if request_params.max_tokens is not None:
+            arguments["max_completion_tokens"] = request_params.max_tokens
         return arguments
 
     async def _normalize_chat_completion_files(

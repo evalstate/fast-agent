@@ -9,13 +9,17 @@ from fast_agent.commands.context import (
     NonInteractiveCommandIOBase,
     StaticAgentProvider,
 )
+from fast_agent.commands.handlers import skills_registry as skills_registry_handlers
 from fast_agent.commands.handlers.skills import (
+    _format_install_result,
     handle_list_marketplace_skills,
     handle_set_skills_registry,
     handle_update_skill,
 )
 from fast_agent.config import Settings, SkillsSettings
+from fast_agent.mcp.skills_extension import GetSkillResult, SkillEntry, SkillResource
 from fast_agent.skills.mcp_registry import McpRegistrySkill, McpSkillRegistry
+from fast_agent.skills.models import McpSkillResource
 from fast_agent.skills.provenance import (
     build_mcp_installed_skill_source,
     compute_skill_content_fingerprint,
@@ -37,14 +41,38 @@ class _Aggregator:
                     McpRegistrySkill(
                         name="hub-search",
                         description="Search the Hub",
-                        source_url="skill://hub-search/SKILL.md",
+                        uri="skill://hub-search/SKILL.md",
                         server_name="hf",
-                        digest=_digest("---\nname: hub-search\ndescription: Search\n---\nv2\n"),
                         server_version="1.2.3",
+                        frontmatter={"name": "hub-search", "description": "Search"},
+                        resources=(
+                            SkillResource(
+                                uri="skill://hub-search/SKILL.md",
+                                digest=_digest(
+                                    "---\nname: hub-search\ndescription: Search\n---\nv2\n"
+                                ),
+                            ),
+                        ),
                     )
                 ],
             )
         ]
+
+    async def get_skill(self, uri: str, server_name: str) -> GetSkillResult:
+        del server_name
+        assert uri == "skill://hub-search/SKILL.md"
+        return GetSkillResult(
+            skill=SkillEntry(
+                uri=uri,
+                frontmatter={"name": "hub-search", "description": "Search"},
+                resources=[
+                    SkillResource(
+                        uri=uri,
+                        digest=_digest("---\nname: hub-search\ndescription: Search\n---\nv2\n"),
+                    )
+                ],
+            )
+        )
 
 
 class _Agent:
@@ -110,6 +138,33 @@ async def test_skills_registry_can_select_mcp_server_by_name() -> None:
 
 
 @pytest.mark.asyncio
+async def test_nonpersistent_registry_selection_does_not_mutate_settings() -> None:
+    settings = Settings()
+    overrides: dict[str, str] = {}
+    ctx = CommandContext(
+        agent_provider=StaticAgentProvider({"main": _Agent()}),
+        current_agent_name="main",
+        io=NonInteractiveCommandIOBase(),
+        settings=settings,
+        skill_source_overrides=overrides,
+        persist_skill_source_overrides=False,
+    )
+
+    async def fetch_registry(url: str) -> tuple[list[object], str]:
+        return [object()], url
+
+    await skills_registry_handlers.handle_set_skills_registry(
+        ctx,
+        agent_name="main",
+        argument="https://example.com/skills.json",
+        fetch_skills_with_source=fetch_registry,
+    )
+
+    assert settings.skills.marketplace_url is None
+    assert overrides == {"main": "https://example.com/skills.json"}
+
+
+@pytest.mark.asyncio
 async def test_skills_registry_filters_active_mcp_source_from_configured_numbers() -> None:
     settings = Settings(
         skills=SkillsSettings(
@@ -147,6 +202,19 @@ async def test_skills_available_uses_selected_mcp_registry() -> None:
     rendered = "\n".join(_plain(message.text) for message in outcome.messages)
     assert "MCP skills from mcp-server hf@1.2.3" in rendered
     assert "hub-search" in rendered
+    assert "integrity: SHA-256 manifest; checked on install" in rendered
+    assert "They do not verify the server or publisher" in rendered
+
+
+def test_mcp_install_result_qualifies_integrity_check(tmp_path) -> None:
+    rendered = _format_install_result(
+        "hub-search",
+        tmp_path / "hub-search",
+        mcp_integrity=True,
+    ).plain
+
+    assert "SHA-256 digests matched the server-supplied manifest" in rendered
+    assert "does not authenticate the server or publisher" in rendered
 
 
 @pytest.mark.asyncio
@@ -184,8 +252,10 @@ async def test_skills_update_reports_mcp_digest_update_available(tmp_path) -> No
             server_version="1.2.3",
             skill_uri="skill://hub-search/SKILL.md",
             fingerprint=fingerprint,
-            artifact_digest=_digest(skill_text),
-            artifact_type="skill-md",
+            resources=(
+                McpSkillResource(uri="skill://hub-search/SKILL.md", digest=_digest(skill_text)),
+            ),
+            revision=_digest(skill_text),
         ),
     )
     settings = Settings(

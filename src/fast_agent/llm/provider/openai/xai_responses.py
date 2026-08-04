@@ -4,7 +4,7 @@ import json
 import os
 from typing import TYPE_CHECKING, Any
 
-from mcp.types import ContentBlock, TextContent
+from mcp_types import ContentBlock, TextContent
 
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
@@ -223,7 +223,7 @@ class XAIResponsesLLM(ResponsesLLM):
         if get_xai_access_token(force_refresh=True) is None:
             raise ProviderKeyError(
                 "xAI OAuth token rejected",
-                "Run `fast-agent auth login xai` to reauthenticate.",
+                "Run `fast-agent auth provider login xai` to reauthenticate.",
             )
         return await super()._create_websocket_connection(
             url,

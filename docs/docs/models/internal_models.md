@@ -38,9 +38,7 @@ Generate some JSON
 }
 ```
 
-This can then be used with the `prompt-server`; you can apply the MCP Prompt to the agent either programmatically with `apply_prompt` or with the `/prompts` command in the interactive shell.
-
-Alternatively, you can load the file with `load_prompt`.
+Load the file with `load_prompt`, or expose it from an external MCP prompt server. You can apply external MCP prompts programmatically with `apply_prompt` or with the `/prompts` command in the interactive shell.
 
 JSON contents can be converted to structured outputs:
 

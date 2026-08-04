@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from rich import print as rich_print
 from rich.markup import escape as escape_markup
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.commands.protocols import HfDisplayInfoProvider
+from fast_agent.ui.console import rich_print
 from fast_agent.ui.message_primitives import MessageType
 from fast_agent.ui.model_shortcuts import build_model_shortcut_hints
 from fast_agent.ui.prompt.status_bar import resolve_active_llm
@@ -261,15 +261,17 @@ def show_input_help_banner(
         return
 
     attachment_hint = (
-        "Use /attach, `^file:`, `^url:`, or [yellow]Ctrl+Alt+V[/yellow] "
-        "for attachments [dim](experimental)[/dim]."
+        "[dim]Use [/dim]/attach[dim], '[/dim]^file:[dim]', '[/dim]^url:[dim]', [dim]or [/dim]"
+        "Ctrl+Alt+V[dim] to paste attachments.[/dim]"
         if supports_clipboard_image_paste
-        else "Use /attach, `^file:`, or `^url:` for attachments."
+        else "[dim]Use [/dim]/attach[dim], '[/dim]^file:[dim]', or '[/dim]^url:[dim]' for attachments.[/dim]"
     )
     rich_print(
-        """[dim]Use '/' for commands, '!' for shell. '#' to query, '@' to switch agents\n"""
-        """CTRL+T multiline, CTRL+Y copy last message, CTRL+E external editor.\n"""
-        f"""CTRL+Space or Tab for path completion. {attachment_hint} F10 to clear.[/dim]"""
+        """CTRL+T [dim]multiline, [/dim]CTRL+Y[dim] copy last message, [/dim]CTRL+E[dim] external editor.[/dim]\n"""
+        """CTRL+C[dim] to interrupt generation or background waiting, [/dim]CTRL+D[dim] to exit.[/dim]\n"""
+        """CTRL+Space[dim] or [/dim]Tab[dim] for path completion.[/dim]\n"""
+        f"""{attachment_hint} F10[dim] to clear.[/dim]\n"""
+        """[dim]Use '[/dim][bold]/[/bold][dim]' for commands, '[/dim][bold]![/bold][dim]' for shell. '[/dim][bold]#[/bold][dim]' to query, '[/dim][bold]@[/bold][dim]' to switch agents[/dim]\n"""
     )
 
 
@@ -284,7 +286,7 @@ def show_model_shortcut_hints(
         return
     rich_print("[dim]Model shortcuts:[/dim]")
     for hint in shortcut_hints:
-        rich_print(f"[dim]  {hint.key} = {hint.label} ({hint.values_text})[/dim]")
+        rich_print(f"  {hint.key}[dim] = {hint.label} ({hint.values_text})[/dim]")
     rich_print()
 
 

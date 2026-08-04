@@ -78,9 +78,7 @@ class HookedToolAgent(ToolAgent, ToolRunnerHookCapable):
     def tool_runner_hooks(self) -> ToolRunnerHooks | None:
         return self._hooks
 
-    async def _add_style_hint(
-        self, runner, messages: list[PromptMessageExtended]
-    ) -> None:
+    async def _add_style_hint(self, runner, messages: list[PromptMessageExtended]) -> None:
         if runner.iteration == 0:
             runner.append_messages("Keep the answer to one short sentence.")
 

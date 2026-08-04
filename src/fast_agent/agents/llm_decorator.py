@@ -24,10 +24,11 @@ if TYPE_CHECKING:
     from fast_agent.agents.tool_runner import ToolRunnerHooks
     from fast_agent.hooks.lifecycle_hook_loader import AgentLifecycleHooks
     from fast_agent.hooks.lifecycle_hook_types import LifecycleHookType
+    from fast_agent.session.trajectory import TrajectoryRecord
 
 from a2a.types import AgentCard
 from mcp import ListToolsResult, Tool
-from mcp.types import (
+from mcp_types import (
     CallToolResult,
     ContentBlock,
     EmbeddedResource,
@@ -203,11 +204,24 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._llm_factory_ref: LLMFactoryProtocol | None = None
         self._llm_attach_kwargs: dict[str, Any] | None = None
         self._lifecycle_hooks: "AgentLifecycleHooks | None" = None
+        self._session_history_persistence_enabled = True
+        self._subagent_usage_accumulator = UsageAccumulator()
+        self._capture_subagent_trajectories = False
+        self._subagent_trajectory_records: list["TrajectoryRecord"] = []
 
     @property
     def context(self) -> Context | None:
         """Optional execution context supplied at construction time."""
         return self._context
+
+    @property
+    def session_history_persistence_enabled(self) -> bool:
+        """Whether this agent may write to its context's resumable session."""
+        return self._session_history_persistence_enabled
+
+    def set_session_history_persistence_enabled(self, enabled: bool) -> None:
+        """Enable or disable resumable session persistence for this instance."""
+        self._session_history_persistence_enabled = enabled
 
     @property
     def initialized(self) -> bool:
@@ -319,10 +333,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """Set the agent's instruction/system prompt."""
         self._instruction = instruction
         if self._default_request_params:
-            self._default_request_params.systemPrompt = instruction
+            self._default_request_params.system_prompt = instruction
         if self._llm is not None:
             self._llm.instruction = instruction
-            self._llm.default_request_params.systemPrompt = instruction
+            self._llm.default_request_params.system_prompt = instruction
 
     async def set_model(self, model: str | None) -> None:
         """Set the default model for this agent and reattach the LLM if needed."""
@@ -445,45 +459,122 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """Hook for subclasses/mixins to supply constructor kwargs when cloning."""
         return {}
 
+    def _clone_config(self) -> AgentConfig:
+        """Return the instance-local config used to construct a clone."""
+        return deepcopy(self.config)
+
+    async def _configure_cloned_instance(self, clone: "LlmDecorator") -> None:
+        """Apply runtime state that is not represented in the clone config."""
+
     async def spawn_detached_instance(self, *, name: str | None = None) -> Self:
+        """Create a detached agent that preserves the current clone behavior."""
+        return await self._spawn_detached_instance(
+            name=name,
+            model=None,
+            copy_hooks=True,
+        )
+
+    async def spawn_isolated_instance(
+        self,
+        *,
+        name: str | None = None,
+        model: str | None = None,
+        for_subagent: bool = False,
+    ) -> Self:
+        """Create a detached agent with an optional model and no parent hooks."""
+        return await self._spawn_detached_instance(
+            name=name,
+            model=model,
+            copy_hooks=False,
+            for_subagent=for_subagent,
+        )
+
+    async def _spawn_detached_instance(
+        self,
+        *,
+        name: str | None,
+        model: str | None,
+        copy_hooks: bool,
+        for_subagent: bool = False,
+    ) -> Self:
         """Create a fresh agent instance with its own MCP/LLM stack."""
 
-        new_config = deepcopy(self.config)
+        new_config = self._clone_config()
         if name:
             new_config.name = name
+        if not copy_hooks:
+            new_config.lifecycle_hooks = None
+            new_config.harness_tools = False
+        if for_subagent:
+            new_config.subagent_child = True
+            new_config.subagents = False
+            new_config.subagent_activation_source = None
 
         constructor_kwargs = self._clone_constructor_kwargs()
         clone = type(self)(config=new_config, context=self.context, **constructor_kwargs)
-        await clone.initialize()
+        try:
+            await clone.initialize()
+            await self._configure_cloned_instance(clone)
 
-        if self._agent_registry is not None:
-            clone.set_agent_registry(self._agent_registry)
+            if self._agent_registry is not None:
+                clone.set_agent_registry(self._agent_registry)
 
-        # Copy tool_runner_hooks if present
-        hooks: ToolRunnerHooks | None = None
-        if isinstance(self, ToolRunnerHookCapable):
-            hooks = self.tool_runner_hooks
-        if hooks is not None and isinstance(clone, ToolRunnerHookCapable):
-            clone.tool_runner_hooks = hooks
+            if copy_hooks:
+                hooks: ToolRunnerHooks | None = None
+                if isinstance(self, ToolRunnerHookCapable):
+                    hooks = self.tool_runner_hooks
+                if hooks is not None and isinstance(clone, ToolRunnerHookCapable):
+                    clone.tool_runner_hooks = hooks
 
-        if self._llm_factory_ref is not None:
-            if self._llm_attach_kwargs is None:
-                raise RuntimeError(
-                    "LLM attachment parameters missing despite factory being available"
+            if self._llm_factory_ref is not None:
+                if self._llm_attach_kwargs is None:
+                    raise RuntimeError(
+                        "LLM attachment parameters missing despite factory being available"
+                    )
+
+                attach_kwargs = dict(self._llm_attach_kwargs)
+                request_params = attach_kwargs.pop("request_params", None)
+                if request_params is not None:
+                    request_params = deepcopy(request_params)
+
+                llm_factory = self._llm_factory_ref
+                wire_model = None
+                if model is not None:
+                    from fast_agent.llm.model_factory import ModelFactory
+
+                    model_with_aliases = resolve_model_reference(
+                        model,
+                        get_context_model_references(self._context),
+                    )
+                    resolved_model = ModelFactory.resolve_model_spec(model_with_aliases)
+                    llm_factory = ModelFactory.create_factory(model_with_aliases)
+                    wire_model = resolved_model.wire_model_name
+                    if request_params is not None:
+                        request_params.model = wire_model
+
+                await clone.attach_llm(
+                    llm_factory,
+                    model=wire_model,
+                    request_params=request_params,
+                    **attach_kwargs,
                 )
 
-            attach_kwargs = dict(self._llm_attach_kwargs)
-            request_params = attach_kwargs.pop("request_params", None)
-            if request_params is not None:
-                request_params = deepcopy(request_params)
+            from fast_agent.core.instruction_refresh import McpInstructionCapable
+            from fast_agent.core.instruction_utils import apply_instruction_context
 
-            await clone.attach_llm(
-                self._llm_factory_ref,
-                request_params=request_params,
-                **attach_kwargs,
-            )
+            if isinstance(self, McpInstructionCapable) and isinstance(clone, McpInstructionCapable):
+                await apply_instruction_context([clone], self.instruction_context)
 
-        return clone
+            return clone
+        except BaseException:
+            try:
+                await clone.shutdown()
+            except BaseException as shutdown_exc:
+                logger.warning(
+                    "Failed to shut down incomplete detached agent",
+                    data={"agent_name": clone.name, "error": str(shutdown_exc)},
+                )
+            raise
 
     def merge_usage_from(self, other: "LlmAgent") -> None:
         """Merge LLM usage metrics from another agent instance into this one."""
@@ -504,6 +595,39 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             except AttributeError:
                 # Fallback if turn doesn't provide model_copy
                 target_usage.add_turn(turn)
+
+    def merge_subagent_usage_from(self, other: "LlmAgent") -> None:
+        """Merge child usage into totals while retaining a delegated subtotal."""
+
+        source_usage = other.usage_accumulator
+        if source_usage is None:
+            return
+
+        self.merge_usage_from(other)
+        for turn in source_usage.turns:
+            self._subagent_usage_accumulator.add_turn(turn.model_copy(deep=True))
+
+    @property
+    def subagent_usage_accumulator(self) -> UsageAccumulator:
+        """Usage incurred by built-in subagents and included in the agent total."""
+
+        return self._subagent_usage_accumulator
+
+    def enable_subagent_trajectory_capture(self) -> None:
+        """Retain sessionless built-in subagent traces for live export."""
+
+        self._capture_subagent_trajectories = True
+
+    @property
+    def subagent_trajectory_capture_enabled(self) -> bool:
+        return self._capture_subagent_trajectories
+
+    def record_subagent_trajectory(self, record: "TrajectoryRecord") -> None:
+        self._subagent_trajectory_records.append(record)
+
+    @property
+    def subagent_trajectory_records(self) -> tuple["TrajectoryRecord", ...]:
+        return tuple(self._subagent_trajectory_records)
 
     async def __call__(
         self,
@@ -659,6 +783,8 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         if not self._llm:
             return
         self._llm.clear(clear_prompts=clear_prompts)
+        self._subagent_usage_accumulator.reset()
+        self._subagent_trajectory_records.clear()
         if clear_prompts:
             self._message_history = []
         else:
@@ -985,7 +1111,8 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
                         updated_result = tool_result.model_copy(update={"content": filtered_blocks})
                     except AttributeError:
                         updated_result = CallToolResult(
-                            content=filtered_blocks, isError=getattr(tool_result, "isError", False)
+                            content=filtered_blocks,
+                            is_error=getattr(tool_result, "is_error", False),
                         )
                 else:
                     updated_result = tool_result
@@ -1081,7 +1208,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             return self._embedded_resource_metadata(block)
 
         if isinstance(block, ResourceLink):
-            mime = getattr(block, "mimeType", None)
+            mime = getattr(block, "mime_type", None)
             return mime, self._category_from_mime(mime)
 
         return None, "document"
@@ -1094,11 +1221,11 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             return "text/plain", "text"
 
         if isinstance(block, TextResourceContents):
-            mime = getattr(block, "mimeType", None) or "text/plain"
+            mime = getattr(block, "mime_type", None) or "text/plain"
             return mime, "text"
 
         if isinstance(block, ImageContent):
-            mime = getattr(block, "mimeType", None) or "image/*"
+            mime = getattr(block, "mime_type", None) or "image/*"
             return mime, "vision"
 
         return None
@@ -1108,7 +1235,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         block: EmbeddedResource,
     ) -> tuple[str | None, str]:
         resource = getattr(block, "resource", None)
-        mime = getattr(resource, "mimeType", None)
+        mime = getattr(resource, "mime_type", None)
         if isinstance(resource, TextResourceContents):
             return mime or "text/plain", "text"
         return mime, self._category_from_mime(mime)
@@ -1301,15 +1428,23 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
         """Replace message history with a deep copy of supplied messages (or empty list)."""
+        from fast_agent.history.compaction import normalize_compaction_notice
+
         msgs = messages or []
         self._message_history = [msg.model_copy(deep=True) for msg in msgs]
+        for message in self._message_history:
+            normalize_compaction_notice(message)
 
     def append_history(self, messages: list[PromptMessageExtended] | None) -> None:
         """Append messages to history as deep copies."""
         if not messages:
             return
+        from fast_agent.history.compaction import normalize_compaction_notice
+
         for msg in messages:
-            self._message_history.append(msg.model_copy(deep=True))
+            copied = msg.model_copy(deep=True)
+            normalize_compaction_notice(copied)
+            self._message_history.append(copied)
 
     def pop_last_message(self) -> PromptMessageExtended | None:
         """Remove and return the most recent message from the conversation history."""

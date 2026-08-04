@@ -24,8 +24,14 @@
 | `logger.render_fences_with_syntax` | `LOGGER__RENDER_FENCES_WITH_SYNTAX` | `bool` | `True` | Render Markdown code fences with Rich Syntax. |
 | `logger.code_word_wrap` | `LOGGER__CODE_WORD_WRAP` | `bool` | `True` | Wrap Syntax-rendered code blocks instead of cropping. |
 | `logger.apply_patch_preview_max_lines` | `LOGGER__APPLY_PATCH_PREVIEW_MAX_LINES` | `int \| None` | `120` | Maximum lines to show in apply_patch previews. |
+| `logger.tool_display.layout` | `LOGGER__TOOL_DISPLAY__LAYOUT` | `Literal['compact', 'full']` | `compact` | Compact summary-first or full legacy tool rendering. |
+| `logger.tool_display.arguments` | `LOGGER__TOOL_DISPLAY__ARGUMENTS` | `Literal['auto', 'all', 'none']` | `auto` | Tool argument visibility; auto shows redacted six-row JSON previews and specialized bodies. |
+| `logger.tool_display.results` | `LOGGER__TOOL_DISPLAY__RESULTS` | `Literal['auto', 'all', 'none']` | `auto` | Tool result body visibility. |
+| `logger.tool_display.show_successful_file_reads` | `LOGGER__TOOL_DISPLAY__SHOW_SUCCESSFUL_FILE_READS` | `bool` | `False` | Show successful complete file-read activity in compact layout. |
+| `logger.tool_display.stream_edit_previews` | `LOGGER__TOOL_DISPLAY__STREAM_EDIT_PREVIEWS` | `Literal['off', 'primary', 'all']` | `primary` | Stream apply_patch/edit_file previews for the primary agent or all agents. |
+| `logger.tool_display.aggregate_parallel` | `LOGGER__TOOL_DISPLAY__AGGREGATE_PARALLEL` | `bool` | `True` | Aggregate safe parallel generic calls when argument bodies are disabled. |
 | `logger.terminal_images.enabled` | `LOGGER__TERMINAL_IMAGES__ENABLED` | `bool` | `True` | Render image content in capable terminals. |
-| `logger.terminal_images.backend` | `LOGGER__TERMINAL_IMAGES__BACKEND` | `Literal['auto', 'textual-image', 'kitty', 'sixel', 'halfcell', 'unicode', 'none']` | `auto` | Terminal image backend to use. |
+| `logger.terminal_images.backend` | `LOGGER__TERMINAL_IMAGES__BACKEND` | `Literal['auto', 'textual-image', 'kitty', 'sixel', 'halfcell', 'unicode', 'none']` | `auto` | Terminal image backend; automatic Sixel rendering is fitted to the viewport. |
 | `logger.terminal_images.width` | `LOGGER__TERMINAL_IMAGES__WIDTH` | `TerminalImageSize` | `80%` | Image render width. |
 | `logger.terminal_images.height` | `LOGGER__TERMINAL_IMAGES__HEIGHT` | `TerminalImageSize` | `auto` | Image render height. |
 | `shell_execution.tool_profile` | `SHELL_EXECUTION__TOOL_PROFILE` | `ShellToolProfile` | `minimal_process` | Model-facing Bash/Process contract. |

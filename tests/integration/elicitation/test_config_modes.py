@@ -24,10 +24,11 @@ async def test_auto_cancel_mode(fast_agent):
     )
     async def test_agent():
         async with fast_agent.run() as agent:
+            app = agent["auto-cancel-agent"]
             # This should auto-cancel due to config
             # Auto-cancel might result in an exception or a cancellation response
             try:
-                result = await agent.get_resource("elicitation://generate")
+                result = await app.call_tool("simple_rating", {})
                 print(f"Result: {result}")
                 # If we get a result, it should indicate cancellation
                 result_str = str(result).lower()
@@ -54,8 +55,9 @@ async def test_none_mode(fast_agent):
     )
     async def test_agent():
         async with fast_agent.run() as agent:
+            app = agent["no-elicitation-agent"]
             # Check capabilities reported by server
-            result = await agent.get_resource("elicitation://client-capabilities")
+            result = await app.call_tool("client_capabilities", {})
             capabilities_text = str(result)
             print(f"Server reports capabilities: {capabilities_text}")
 

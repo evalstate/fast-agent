@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Any, Literal
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.utils.action_normalization import normalize_action_token
 
 CardType = Literal[
     "agent",
-    "smart",
     "chain",
     "parallel",
     "evaluator_optimizer",
@@ -20,9 +19,15 @@ CardType = Literal[
     "a2a",
 ]
 
+LEGACY_SMART_TYPE_WARNING = (
+    "AgentCard type 'smart' is deprecated in fast-agent 0.10 and will be removed in 0.11. "
+    "Treating it as type 'agent' and defaulting subagents and harness_tools to true. "
+    "The legacy Smart tool is not restored; use harness_tools for supported commands, "
+    "including /mcp and /skills."
+)
+
 CARD_TYPE_TO_AGENT_TYPE: dict[CardType, AgentType] = {
     "agent": AgentType.BASIC,
-    "smart": AgentType.SMART,
     "chain": AgentType.CHAIN,
     "parallel": AgentType.PARALLEL,
     "evaluator_optimizer": AgentType.EVALUATOR_OPTIMIZER,
@@ -49,6 +54,9 @@ COMMON_CARD_FIELDS = {
 
 AGENT_CARD_FIELDS = {
     *COMMON_CARD_FIELDS,
+    "subagents",
+    "subagent_model",
+    "harness_tools",
     "agents",
     "servers",
     "tools",
@@ -81,7 +89,6 @@ AGENT_CARD_FIELDS = {
 
 ALLOWED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
     "agent": set(AGENT_CARD_FIELDS),
-    "smart": set(AGENT_CARD_FIELDS),
     "chain": {
         *COMMON_CARD_FIELDS,
         "sequence",
@@ -164,7 +171,6 @@ ALLOWED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
 
 REQUIRED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
     "agent": set(),
-    "smart": set(),
     "chain": {"sequence"},
     "parallel": {"fan_out"},
     "evaluator_optimizer": {"generator", "evaluator"},
@@ -177,7 +183,6 @@ REQUIRED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
 
 DEFAULT_USE_HISTORY_BY_TYPE: dict[CardType, bool] = {
     "agent": True,
-    "smart": True,
     "chain": True,
     "parallel": True,
     "evaluator_optimizer": True,
@@ -199,6 +204,7 @@ MCP_CONNECT_ALLOWED_KEYS = frozenset(
         "access_token",
         "defer_loading",
         "auth",
+        "protocol_mode",
     }
 )
 
@@ -212,4 +218,16 @@ def normalize_card_type(raw_type: str | None) -> CardType | None:
     if normalized not in ALLOWED_FIELDS_BY_TYPE:
         return None
 
-    return cast("CardType", normalized)
+    return normalized
+
+
+def apply_legacy_smart_defaults(raw: dict[str, Any]) -> bool:
+    """Normalize the 0.10 compatibility alias without restoring a Smart agent type."""
+    raw_type = raw.get("type")
+    if not isinstance(raw_type, str) or normalize_action_token(raw_type) != "smart":
+        return False
+
+    raw["type"] = "agent"
+    raw.setdefault("subagents", True)
+    raw.setdefault("harness_tools", True)
+    return True
