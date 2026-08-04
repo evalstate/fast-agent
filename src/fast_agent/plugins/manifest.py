@@ -14,12 +14,19 @@ from fast_agent.plugins.models import PLUGIN_MANIFEST_FILENAME, PluginManifest
 from fast_agent.utils.text import strip_to_none
 
 
+class _PluginHooksModel(BaseModel):
+    post_user_turn: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class _PluginManifestModel(BaseModel):
     schema_version: int = 1
     name: str
     version: str | None = None
     description: str | None = None
     commands: dict[str, Any] = Field(default_factory=dict)
+    hooks: _PluginHooksModel = Field(default_factory=_PluginHooksModel)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -47,9 +54,14 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest:
         raise AgentConfigError(f"Plugin manifest must be a mapping: {manifest_path}")
 
     model = _PluginManifestModel.model_validate(data)
-    if model.schema_version != 1:
+    if model.schema_version not in (1, 2):
         raise AgentConfigError(
             f"Unsupported plugin schema_version: {model.schema_version}",
+            f"Manifest: {manifest_path}",
+        )
+    if model.schema_version == 1 and model.hooks.post_user_turn is not None:
+        raise AgentConfigError(
+            "Plugin hooks require schema_version: 2",
             f"Manifest: {manifest_path}",
         )
 
@@ -65,12 +77,22 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest:
         )
         for name, spec in commands.items()
     }
+    post_user_turn = None
+    if model.hooks.post_user_turn is not None:
+        from fast_agent.plugins.models import PluginPostUserTurnSpec
+
+        post_user_turn = PluginPostUserTurnSpec(
+            plugin_name=model.name,
+            handler=_resolve_handler(model.hooks.post_user_turn, plugin_dir),
+        )
+
     return PluginManifest(
         schema_version=model.schema_version,
         name=model.name,
         version=model.version,
         description=model.description,
         commands=commands,
+        post_user_turn=post_user_turn,
         path=manifest_path,
     )
 

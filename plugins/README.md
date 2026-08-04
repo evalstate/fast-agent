@@ -1,9 +1,11 @@
 # Plugin development area
 
-This directory holds source for command plugins under development. Each
+This directory holds source for plugins under development. Each
 subdirectory is a plugin containing a `plugin.yaml` manifest and handler
 modules — see `docs/docs/agents/plugins.md` for the manifest format and the
 local development loop.
+
+Plugins may contribute slash commands, a post-user-turn display hook, or both.
 
 These sources are not loaded from this path at runtime. Install a plugin into
 an environment's `plugins/` directory (for example `.fast-agent/plugins/`, or

@@ -26,6 +26,7 @@ from fast_agent.ui.turn_usage_display import (
     NamedTurnUsageDisplay,
     TurnUsageDisplay,
     display_parallel_turn_usage,
+    display_plugin_post_user_turn,
     display_regular_turn_usage,
     display_regular_turn_usage_with_subagents,
 )
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
+    from fast_agent.plugins.models import PluginPostUserTurnSpec
     from fast_agent.session.session_manager import ResumeSessionAgentsResult, SessionManager
     from fast_agent.types import PromptMessageExtended, RequestParams
     from fast_agent.ui.interactive_prompt import PromptLoopResult
@@ -145,6 +147,8 @@ class AgentApp:
         no_home_mode: bool = False,
         plugin_commands: dict[str, PluginCommandActionSpec] | None = None,
         plugin_command_base_path: Path | None = None,
+        plugin_post_user_turn: Sequence[PluginPostUserTurnSpec] = (),
+        plugin_config: Mapping[str, Mapping[str, object]] | None = None,
     ) -> None:
         """
         Initialize the DirectAgentApp.
@@ -179,6 +183,7 @@ class AgentApp:
         self._card_collision_warnings: list[str] = card_collision_warnings or []
         self._plugin_commands = plugin_commands
         self._plugin_command_base_path = plugin_command_base_path
+        self.set_plugin_post_user_turn(plugin_post_user_turn, config=plugin_config or {})
         self._last_refresh_result = AgentRefreshResult(changed=False)
         self._session_restore_result: ResumeSessionAgentsResult | None = None
         self._no_home_mode = no_home_mode
@@ -224,6 +229,17 @@ class AgentApp:
     ) -> None:
         self._plugin_commands = commands
         self._plugin_command_base_path = base_path
+
+    def set_plugin_post_user_turn(
+        self,
+        specs: Sequence[PluginPostUserTurnSpec],
+        *,
+        config: Mapping[str, Mapping[str, object]],
+    ) -> None:
+        from fast_agent.plugins.post_user_turn import load_plugin_post_user_turn_handlers
+
+        self._plugin_post_user_turn = load_plugin_post_user_turn_handlers(specs)
+        self._plugin_config = config
 
     def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
         if agent_name is None:
@@ -732,6 +748,7 @@ class AgentApp:
                     )
                     if show_usage and display_usage_enabled():
                         self._show_turn_usage(agent_name, turn_start_indices)
+                        await self._show_plugin_post_user_turn(agent_name, turn_start_indices)
                     return result
                 except Exception as e:
                     if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
@@ -783,6 +800,7 @@ class AgentApp:
             result = await self.send(message, agent_name, request_params)
             if show_usage and display_usage_enabled():
                 self._show_turn_usage(agent_name, turn_start_indices)
+                await self._show_plugin_post_user_turn(agent_name, turn_start_indices)
             return result
         except Exception as e:
             # If we catch an exception here, it means all retries failed.
@@ -811,6 +829,55 @@ class AgentApp:
             self._show_parallel_agent_usage(agent, turn_start_indices or {})
         else:
             self._show_regular_agent_usage(agent, turn_start_indices or {})
+
+    async def _show_plugin_post_user_turn(
+        self,
+        agent_name: str | None,
+        turn_start_indices: Mapping[str, int],
+    ) -> None:
+        if agent_name is None or not self._plugin_post_user_turn:
+            return
+        agent = self._agents.get(agent_name)
+        if agent is None:
+            return
+
+        from fast_agent.plugins.post_user_turn import run_plugin_post_user_turn
+
+        turn_usage, session_usage = self._collect_plugin_usage(agent, turn_start_indices)
+        await run_plugin_post_user_turn(
+            self._plugin_post_user_turn,
+            agent_name=agent_name,
+            turn_usage=turn_usage,
+            session_usage=session_usage,
+            config=self._plugin_config,
+            display=display_plugin_post_user_turn,
+        )
+
+    @staticmethod
+    def _collect_plugin_usage(
+        agent: AgentProtocol,
+        turn_start_indices: Mapping[str, int],
+    ) -> tuple[tuple[TurnUsage, ...], tuple[TurnUsage, ...]]:
+        targets = (
+            [*agent.fan_out_agents, agent.fan_in_agent]
+            if isinstance(agent, ParallelAgent)
+            else [agent]
+        )
+        seen: set[int] = set()
+        turn_usage: list[TurnUsage] = []
+        session_usage: list[TurnUsage] = []
+        for target in targets:
+            if target is None:
+                continue
+            accumulator = target.usage_accumulator
+            if accumulator is None or id(accumulator) in seen:
+                continue
+            seen.add(id(accumulator))
+            session_usage.extend(accumulator.turns)
+            start = turn_start_indices.get(target.name)
+            if start is not None:
+                turn_usage.extend(accumulator.turns[start:])
+        return tuple(turn_usage), tuple(session_usage)
 
     def _capture_turn_start_indices(self, agent_name: str | None) -> dict[str, int]:
         """Capture usage accumulator turn indices for a user-initiated turn."""

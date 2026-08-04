@@ -1,4 +1,4 @@
-"""Install, remove, update, and load fast-agent command plugins."""
+"""Install, remove, update, and load fast-agent plugins."""
 
 from __future__ import annotations
 
@@ -27,6 +27,8 @@ from fast_agent.plugins.models import (
     InstalledPluginSource,
     LocalPlugin,
     MarketplacePlugin,
+    PluginContributions,
+    PluginPostUserTurnSpec,
     PluginSourceOrigin,
     PluginUpdateInfo,
     PluginUpdateStatus,
@@ -198,7 +200,19 @@ def load_enabled_plugin_commands(
     destination_root: Path,
     enabled: Sequence[str],
 ) -> dict[str, Any]:
+    return load_enabled_plugin_contributions(
+        destination_root=destination_root,
+        enabled=enabled,
+    ).commands
+
+
+def load_enabled_plugin_contributions(
+    *,
+    destination_root: Path,
+    enabled: Sequence[str],
+) -> PluginContributions:
     commands: dict[str, Any] = {}
+    post_user_turn: dict[str, PluginPostUserTurnSpec] = {}
     for name in enabled:
         plugin_dir = _resolve_enabled_plugin_dir(destination_root=destination_root, name=name)
         if not (plugin_dir / PLUGIN_MANIFEST_FILENAME).is_file():
@@ -213,7 +227,9 @@ def load_enabled_plugin_commands(
             )
             continue
         commands.update(manifest.commands)
-    return commands
+        if manifest.post_user_turn is not None:
+            post_user_turn[manifest.name] = manifest.post_user_turn
+    return PluginContributions(commands=commands, post_user_turn=post_user_turn)
 
 
 def _resolve_enabled_plugin_dir(*, destination_root: Path, name: str) -> Path:
