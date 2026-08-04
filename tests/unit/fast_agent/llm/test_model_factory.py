@@ -709,6 +709,32 @@ def test_factory_request_streaming_timeout_overrides_model_default(
     assert llm.default_request_params.streaming_timeout == request_timeout
 
 
+@pytest.mark.parametrize(
+    ("timeout_spec", "expected_timeout"),
+    [("45", 45.0), ("none", None)],
+)
+def test_xai_streaming_timeout_query_overrides_high_reasoning_default(
+    timeout_spec: str,
+    expected_timeout: float | None,
+) -> None:
+    factory = ModelFactory.create_factory(
+        f"xai.grok-4.5?reasoning=high&streaming_timeout={timeout_spec}"
+    )
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+
+    assert llm.default_request_params.streaming_timeout == expected_timeout
+
+
+def test_xai_grok_45_high_reasoning_defaults_to_extended_streaming_timeout() -> None:
+    factory = ModelFactory.create_factory("xai/grok-4.5?reasoning=high")
+    llm = factory(
+        LlmAgent(AgentConfig(name="Test Agent")),
+        request_params=RequestParams(use_history=False),
+    )
+
+    assert llm.default_request_params.streaming_timeout == 180.0
+
+
 def test_model_streaming_timeout_query_overrides_preset_default() -> None:
     config = ModelFactory.parse_model_string(
         "timed?streaming_timeout=none",

@@ -56,6 +56,49 @@ def test_shell_syntax_blocks_highlights_incomplete_direct_interpreter_body_when_
     ]
 
 
+def test_shell_syntax_blocks_highlights_multiline_python_c_argument() -> None:
+    command = (
+        'cd /tmp/plane && /usr/bin/python3 -c "\n'
+        "from PIL import Image\n"
+        "import numpy as np\n"
+        "for y in range(780, 1010, 6):\n"
+        "    # also sample a pixel inside the fuselage\n"
+        "    print(f'y={y}')\n"
+        '" | head -30'
+    )
+
+    assert shell_syntax_blocks(command, shell_language="bash") == [
+        SyntaxBlock(code='cd /tmp/plane && /usr/bin/python3 -c "', language="bash"),
+        SyntaxBlock(
+            code=(
+                "from PIL import Image\n"
+                "import numpy as np\n"
+                "for y in range(780, 1010, 6):\n"
+                "    # also sample a pixel inside the fuselage\n"
+                "    print(f'y={y}')"
+            ),
+            language="python",
+        ),
+        SyntaxBlock(code='" | head -30', language="bash"),
+    ]
+
+
+def test_shell_syntax_blocks_highlights_incomplete_multiline_python_c_argument() -> None:
+    command = 'cd /tmp && python -c "\nfrom pathlib import Path\nprint(Path.cwd())'
+
+    assert shell_syntax_blocks(command, shell_language="bash") == [
+        SyntaxBlock(code=command, language="bash")
+    ]
+    assert shell_syntax_blocks(
+        command,
+        shell_language="bash",
+        include_incomplete=True,
+    ) == [
+        SyntaxBlock(code='cd /tmp && python -c "', language="bash"),
+        SyntaxBlock(code="from pathlib import Path\nprint(Path.cwd())", language="python"),
+    ]
+
+
 def test_shell_syntax_blocks_highlights_uv_run_python_heredoc() -> None:
     command = (
         "uv run python - <<'PY'\n"

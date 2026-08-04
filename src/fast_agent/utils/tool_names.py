@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from fast_agent.tools.filesystem_tool_definitions import READ_TEXT_FILE_TOOL_NAME
+from fast_agent.tools.filesystem_tool_definitions import (
+    READ_TEXT_FILE_TOOL_NAME,
+    WRITE_TEXT_FILE_TOOL_NAME,
+)
 from fast_agent.utils.action_normalization import normalize_action_token
 
 EXECUTE_TOOL_NAME = "execute"
@@ -66,3 +69,7 @@ def matches_tool_name(tool_name: str | None, canonical_name: str) -> bool:
 
 def is_read_text_file_tool_name(tool_name: str | None) -> bool:
     return matches_tool_name(tool_name, READ_TEXT_FILE_TOOL_NAME)
+
+
+def is_write_text_file_tool_name(tool_name: str | None) -> bool:
+    return matches_tool_name(tool_name, WRITE_TEXT_FILE_TOOL_NAME)

@@ -1,6 +1,10 @@
 import pytest
 
-from fast_agent.tools.shell_command import classify_shell_detachment, shell_heredoc_bodies
+from fast_agent.tools.shell_command import (
+    classify_shell_detachment,
+    shell_heredoc_bodies,
+    shell_inline_code_bodies,
+)
 
 
 @pytest.mark.parametrize(
@@ -183,3 +187,67 @@ def test_shell_heredoc_uses_final_stdout_redirect() -> None:
     body = shell_heredoc_bodies(command)[0]
 
     assert body.target_path == "actual.txt"
+
+
+def test_shell_inline_code_bodies_match_multiline_python_c_argument() -> None:
+    command = (
+        'cd /tmp/plane && /usr/bin/python3 -c "\n'
+        "from PIL import Image\n"
+        "for y in range(780, 1010, 6):\n"
+        "    # also sample a pixel inside the fuselage\n"
+        "    print(f'y={y}')\n"
+        '" | head -30'
+    )
+
+    body = shell_inline_code_bodies(command)[0]
+
+    assert body.interpreter == "python3"
+    assert command[body.start : body.end] == (
+        "from PIL import Image\n"
+        "for y in range(780, 1010, 6):\n"
+        "    # also sample a pixel inside the fuselage\n"
+        "    print(f'y={y}')\n"
+    )
+
+
+def test_shell_inline_code_bodies_can_include_incomplete_python_c_argument() -> None:
+    command = 'python -c "\nprint('
+
+    assert shell_inline_code_bodies(command) == []
+
+    body = shell_inline_code_bodies(command, include_incomplete=True)[0]
+    assert body.interpreter == "python"
+    assert command[body.start : body.end] == "print("
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'python -c "\nprint(1)\n">result.txt',
+        'python \\\n-c "\nprint(1)\n"',
+    ],
+)
+def test_shell_inline_code_bodies_accept_shell_argument_boundaries(command: str) -> None:
+    body = shell_inline_code_bodies(command)[0]
+
+    assert command[body.start : body.end] == "print(1)\n"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'python -c "print(1)"',
+        '# python -c "\nprint(1)\n"',
+        'node -c "\nconsole.log(1)\n"',
+        'python -c "\nprint(\\"$HOME\\")\n"',
+        'python -c "\nprint(1)\n"suffix',
+    ],
+)
+def test_shell_inline_code_bodies_do_not_guess_ambiguous_arguments(command: str) -> None:
+    assert shell_inline_code_bodies(command, include_incomplete=True) == []
+
+
+def test_shell_inline_code_bodies_do_not_overlap_heredoc_bodies() -> None:
+    command = "cat > out.js <<'EOF'; python -c '\nprint(1)\n'\nconst answer = 42;\nEOF"
+
+    assert shell_inline_code_bodies(command, include_incomplete=True) == []

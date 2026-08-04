@@ -49,6 +49,13 @@ class ShellHeredocBody:
 
 
 @dataclass(frozen=True, slots=True)
+class ShellInlineCodeBody:
+    start: int
+    end: int
+    interpreter: str
+
+
+@dataclass(frozen=True, slots=True)
 class _HeredocDeclaration:
     delimiter: str
     strip_tabs: bool
@@ -343,6 +350,125 @@ def shell_heredoc_bodies(
                     stdin_interpreter=current.stdin_interpreter,
                 )
             )
+
+    return bodies
+
+
+def _quoted_argument_end(command: str, start: int, quote: str) -> tuple[int | None, bool]:
+    dynamic = False
+    index = start
+    while index < len(command):
+        char = command[index]
+        if quote == '"' and char == "\\":
+            index += 2
+            continue
+        if quote == '"' and char in {"$", "`"}:
+            dynamic = True
+        if char == quote:
+            return index, dynamic
+        index += 1
+    return None, dynamic
+
+
+def _direct_python_inline_code_interpreter(prefix: str) -> str | None:
+    prefix = prefix.replace("\\\r\n", "").replace("\\\n", "")
+    try:
+        words = shlex.split(prefix, posix=True)
+    except ValueError:
+        return None
+    if len(words) != 2 or words[1] != "-c":
+        return None
+    interpreter = posixpath.basename(words[0]).casefold()
+    if re.fullmatch(r"(?:python|pypy)(?:\d+(?:\.\d+)*)?", interpreter):
+        return interpreter
+    return None
+
+
+def shell_inline_code_bodies(
+    command: str,
+    *,
+    include_incomplete: bool = False,
+) -> list[ShellInlineCodeBody]:
+    """Return static multiline Python/PyPy ``-c`` bodies."""
+    bodies: list[ShellInlineCodeBody] = []
+    heredocs = iter(shell_heredoc_bodies(command, include_incomplete=True))
+    heredoc = next(heredocs, None)
+    command_start = 0
+    index = 0
+
+    while index < len(command):
+        if heredoc is not None and index >= heredoc.start:
+            index = heredoc.end
+            heredoc = next(heredocs, None)
+            continue
+
+        char = command[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == "#" and (index == 0 or command[index - 1].isspace()):
+            newline = command.find("\n", index)
+            if newline < 0:
+                break
+            index = newline + 1
+            command_start = index
+            continue
+        if char in {";", "&", "|", "(", ")", "\n"}:
+            index += 1
+            command_start = index
+            continue
+        if char not in {"'", '"'}:
+            index += 1
+            continue
+
+        interpreter = _direct_python_inline_code_interpreter(command[command_start:index])
+        quote_end, dynamic = _quoted_argument_end(command, index + 1, char)
+        if heredoc is not None and heredoc.start < (quote_end or len(command)):
+            index = heredoc.end
+            heredoc = next(heredocs, None)
+            continue
+        if quote_end is None:
+            if interpreter is not None and include_incomplete and not dynamic:
+                body_start = index + 1
+                if command.startswith("\r\n", body_start):
+                    body_start += 2
+                elif command.startswith("\n", body_start):
+                    body_start += 1
+                if "\n" in command[index + 1 :] or "\r" in command[index + 1 :]:
+                    bodies.append(
+                        ShellInlineCodeBody(
+                            start=body_start,
+                            end=len(command),
+                            interpreter=interpreter,
+                        )
+                    )
+            break
+
+        quote_follow = quote_end + 1
+        followed_by_boundary = quote_follow == len(command) or (
+            command[quote_follow].isspace()
+            or command[quote_follow] in {";", "&", "|", "(", ")", "<", ">"}
+        )
+        raw_body = command[index + 1 : quote_end]
+        if (
+            interpreter is not None
+            and not dynamic
+            and followed_by_boundary
+            and ("\n" in raw_body or "\r" in raw_body)
+        ):
+            body_start = index + 1
+            if command.startswith("\r\n", body_start):
+                body_start += 2
+            elif command.startswith("\n", body_start):
+                body_start += 1
+            bodies.append(
+                ShellInlineCodeBody(
+                    start=body_start,
+                    end=quote_end,
+                    interpreter=interpreter,
+                )
+            )
+        index = quote_end + 1
 
     return bodies
 

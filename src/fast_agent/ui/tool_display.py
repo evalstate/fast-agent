@@ -51,6 +51,7 @@ from fast_agent.utils.tool_names import (
     PROCESS_TOOL_NAME,
     SHELL_EXECUTION_TOOL_NAMES,
     is_read_text_file_tool_name,
+    is_write_text_file_tool_name,
     normalize_tool_name,
 )
 
@@ -2020,6 +2021,20 @@ class ToolDisplay:
                 metadata=metadata,
                 tool_call_id=tool_call_id,
             )
+
+        if is_write_text_file_tool_name(tool_name):
+            path_value = tool_args.get("path")
+            language = (
+                syntax_language_for_path(path_value.strip())
+                if isinstance(path_value, str)
+                else None
+            )
+            metadata = {
+                **metadata,
+                "variant": "code",
+                "code_arg": "content",
+                "language": language or "text",
+            }
 
         if metadata.get("variant") == "code":
             content, footer_items = self._build_code_tool_call_syntax(tool_args, metadata)

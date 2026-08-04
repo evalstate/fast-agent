@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from fast_agent.tools.shell_command import shell_heredoc_bodies
+from fast_agent.tools.shell_command import shell_heredoc_bodies, shell_inline_code_bodies
 
 _LANGUAGE_BY_EXTENSION: dict[str, str] = {
     ".py": "python",
@@ -40,6 +40,13 @@ class SyntaxBlock:
     language: str
 
 
+@dataclass(frozen=True, slots=True)
+class _SyntaxSpan:
+    start: int
+    end: int
+    language: str
+
+
 def syntax_language_for_path(path: str) -> str | None:
     return _LANGUAGE_BY_EXTENSION.get(Path(path).suffix.casefold())
 
@@ -58,8 +65,8 @@ def shell_syntax_blocks(
     shell_language: str,
     include_incomplete: bool = False,
 ) -> list[SyntaxBlock]:
-    heredoc_bodies = [
-        (body, language)
+    spans = [
+        _SyntaxSpan(start=body.start, end=body.end, language=language)
         for body in shell_heredoc_bodies(command, include_incomplete=include_incomplete)
         if (
             language := _syntax_language_for_interpreter(body.stdin_interpreter)
@@ -67,21 +74,27 @@ def shell_syntax_blocks(
         )
         and command[body.start : body.end].strip()
     ]
-    if not heredoc_bodies:
+    spans.extend(
+        _SyntaxSpan(start=body.start, end=body.end, language=language)
+        for body in shell_inline_code_bodies(command, include_incomplete=include_incomplete)
+        if (language := _syntax_language_for_interpreter(body.interpreter))
+        and command[body.start : body.end].strip()
+    )
+    if not spans:
         return [SyntaxBlock(command.rstrip(), shell_language)]
 
     blocks: list[SyntaxBlock] = []
     cursor = 0
-    for body, language in heredoc_bodies:
-        if shell_text := command[cursor : body.start].rstrip():
+    for span in sorted(spans, key=lambda span: (span.start, span.end)):
+        if shell_text := command[cursor : span.start].rstrip():
             blocks.append(SyntaxBlock(shell_text, shell_language))
         blocks.append(
             SyntaxBlock(
-                command[body.start : body.end].rstrip("\r\n"),
-                language,
+                command[span.start : span.end].rstrip("\r\n"),
+                span.language,
             )
         )
-        cursor = body.end
+        cursor = span.end
     if shell_text := command[cursor:].rstrip():
         blocks.append(SyntaxBlock(shell_text, shell_language))
     return blocks

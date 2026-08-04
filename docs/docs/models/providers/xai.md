@@ -73,6 +73,11 @@ Useful xAI query parameters:
 
 `web_search` and `x_search` are distinct provider-managed tools.
 
+Grok 4.5 with `reasoning=high` defaults to a 180-second idle timeout between
+stream events. Other model and reasoning combinations retain the global
+120-second default. Set `streaming_timeout=<seconds>` to override the default,
+or `streaming_timeout=none` to disable stream-idle enforcement.
+
 ## Capabilities
 
 Capabilities are model-dependent. See [Models Reference](../models_reference/) for fast-agent's known structured output, reasoning, modality, and tool metadata.

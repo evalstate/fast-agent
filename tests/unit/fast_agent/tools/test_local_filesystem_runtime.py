@@ -93,6 +93,7 @@ def test_write_text_file_tool_schema_matches_acp_signature() -> None:
         "required": ["path", "content"],
         "additionalProperties": False,
     }
+    assert list(tool.input_schema["properties"]) == ["path", "content"]
 
 
 def test_tools_property_respects_enable_flags() -> None:
