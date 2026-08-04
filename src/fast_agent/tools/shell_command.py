@@ -49,6 +49,13 @@ class ShellHeredocBody:
 
 
 @dataclass(frozen=True, slots=True)
+class ShellInlineCodeSpan:
+    start: int
+    end: int
+    interpreter: str
+
+
+@dataclass(frozen=True, slots=True)
 class _HeredocDeclaration:
     delimiter: str
     strip_tabs: bool
@@ -62,6 +69,13 @@ class _PendingHeredoc:
     body_start: int
     target_path: str | None
     stdin_interpreter: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ShellToken:
+    value: str
+    start: int
+    end: int
 
 
 def _heredoc_declarations(
@@ -345,6 +359,320 @@ def shell_heredoc_bodies(
             )
 
     return bodies
+
+
+def _skip_shell_redirect(text: str, index: int) -> int | None:
+    length = len(text)
+    while index < length and text[index].isdigit():
+        index += 1
+    if index >= length or text[index] not in {"<", ">"}:
+        return None
+    if text.startswith(">>", index) or text.startswith("<<", index):
+        index += 2
+    else:
+        index += 1
+    if index < length and text[index] == "&":
+        index += 1
+        target_start = index
+        while index < length and text[index].isdigit():
+            index += 1
+        if index > target_start:
+            return index
+    while index < length and text[index].isspace():
+        index += 1
+    if index >= length:
+        return index
+    if text[index] in {"'", '"'}:
+        quote = text[index]
+        index += 1
+        escaped = False
+        while index < length:
+            char = text[index]
+            if escaped:
+                escaped = False
+            elif char == "\\" and quote == '"':
+                escaped = True
+            elif char == quote:
+                return index + 1
+            index += 1
+        return None
+    target_start = index
+    while index < length and not text[index].isspace():
+        if text[index] in ";&|<>()":
+            break
+        if text[index] == "\\" and index + 1 < length:
+            index += 2
+            continue
+        index += 1
+    return index if index > target_start else None
+
+
+def _tokenize_shell_span(text: str, absolute_start: int) -> list[_ShellToken] | None:
+    tokens: list[_ShellToken] = []
+    length = len(text)
+    index = 0
+    while index < length:
+        while index < length and text[index].isspace():
+            index += 1
+        if index >= length:
+            break
+        if text[index] in ";&|()":
+            return None
+        redirect_end = _skip_shell_redirect(text, index)
+        if redirect_end is not None and redirect_end > index:
+            index = redirect_end
+            continue
+        start = index
+        quote = text[index] if text[index] in {"'", '"'} else None
+        if quote is not None:
+            index += 1
+            escaped = False
+            while index < length:
+                char = text[index]
+                if escaped:
+                    escaped = False
+                elif char == "\\" and quote == '"':
+                    escaped = True
+                elif char == quote:
+                    index += 1
+                    break
+                index += 1
+            else:
+                return None
+            try:
+                value = shlex.split(text[start:index], posix=True)[0]
+            except (ValueError, IndexError):
+                return None
+        else:
+            while index < length and not text[index].isspace():
+                if text[index] in ";&|<>()":
+                    break
+                if text[index] == "\\" and index + 1 < length:
+                    index += 2
+                    continue
+                index += 1
+            if start == index:
+                return None
+            try:
+                value = shlex.split(text[start:index], posix=True)[0]
+            except (ValueError, IndexError):
+                return None
+        tokens.append(
+            _ShellToken(
+                value=value,
+                start=absolute_start + start,
+                end=absolute_start + index,
+            )
+        )
+    return tokens
+
+
+def _inline_code_flag(interpreter: str) -> str | None:
+    if re.fullmatch(r"(?:python|pypy)(?:\d+(?:\.\d+)*)?", interpreter):
+        return "-c"
+    basename = posixpath.basename(interpreter).casefold()
+    if basename == "php":
+        return "-r"
+    if basename in {
+        "lua",
+        "node",
+        "nodejs",
+        "osascript",
+        "perl",
+        "ruby",
+    }:
+        return "-e"
+    return None
+
+
+def _match_inline_code_span(tokens: list[_ShellToken]) -> ShellInlineCodeSpan | None:
+    if len(tokens) < 3:
+        return None
+
+    index = 0
+    while index < len(tokens):
+        value = tokens[index].value
+        basename = posixpath.basename(value).casefold()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", value):
+            index += 1
+            continue
+        if basename == "command":
+            index += 1
+            if index < len(tokens) and tokens[index].value in {"-v", "-V"}:
+                return None
+            while index < len(tokens) and tokens[index].value in {"-p", "--"}:
+                index += 1
+            continue
+        if basename == "exec":
+            index += 1
+            while index < len(tokens):
+                option = tokens[index].value
+                if option == "--":
+                    index += 1
+                    break
+                if option == "-a" and index + 1 < len(tokens):
+                    index += 2
+                    continue
+                if option in {"-c", "-l"}:
+                    index += 1
+                    continue
+                break
+            continue
+        if basename == "env":
+            index += 1
+            while index < len(tokens):
+                option = tokens[index].value
+                if option == "--":
+                    index += 1
+                    break
+                if not option.startswith("-") or option == "-":
+                    break
+                index += 1
+                if option in {
+                    "-C",
+                    "-S",
+                    "-u",
+                    "--argv0",
+                    "--block-signal",
+                    "--chdir",
+                    "--default-signal",
+                    "--ignore-signal",
+                    "--split-string",
+                    "--unset",
+                } and index < len(tokens):
+                    index += 1
+            while index < len(tokens) and re.fullmatch(
+                r"[A-Za-z_][A-Za-z0-9_]*=.*",
+                tokens[index].value,
+            ):
+                index += 1
+            continue
+        if basename == "uv":
+            if index + 1 >= len(tokens) or tokens[index + 1].value != "run":
+                return None
+            index += 2
+            while index < len(tokens) and tokens[index].value in _UV_RUN_FLAG_OPTIONS:
+                index += 1
+            continue
+        break
+    else:
+        return None
+
+    interpreter = posixpath.basename(tokens[index].value).casefold()
+    flag = _inline_code_flag(interpreter)
+    if flag is None:
+        return None
+
+    flag_index = index + 1
+    if flag_index >= len(tokens) or tokens[flag_index].value != flag:
+        return None
+    code_index = flag_index + 1
+    if code_index >= len(tokens):
+        return None
+    code_token = tokens[code_index]
+    if not code_token.value:
+        return None
+    return ShellInlineCodeSpan(
+        start=code_token.start,
+        end=code_token.end,
+        interpreter=interpreter,
+    )
+
+
+def _strip_shell_quotes(command: str, start: int, end: int) -> tuple[int, int]:
+    if end - start < 2:
+        return start, end
+    opening = command[start]
+    if opening not in {"'", '"'} or command[end - 1] != opening:
+        return start, end
+    return start + 1, end - 1
+
+
+def shell_inline_code_spans(command: str) -> list[ShellInlineCodeSpan]:
+    """Return inline interpreter payloads (`python -c`, `node -e`, ...)."""
+    heredoc_bodies = shell_heredoc_bodies(command, include_incomplete=True)
+    blocked = [(body.start, body.end) for body in heredoc_bodies]
+    spans: list[ShellInlineCodeSpan] = []
+    quote: str | None = None
+    escaped = False
+    segment_start = 0
+    index = 0
+    length = len(command)
+
+    def in_heredoc_body(position: int) -> bool:
+        return any(start <= position < end for start, end in blocked)
+
+    def consume_segment(start: int, end: int) -> None:
+        if start >= end or in_heredoc_body(start):
+            return
+        text = command[start:end]
+        if not text.strip() or "<<" in text:
+            # Heredoc declaration lines are handled by shell_heredoc_bodies.
+            return
+        tokens = _tokenize_shell_span(text, start)
+        if tokens is None:
+            return
+        matched = _match_inline_code_span(tokens)
+        if matched is not None:
+            payload_start, payload_end = _strip_shell_quotes(
+                command,
+                matched.start,
+                matched.end,
+            )
+            if payload_start < payload_end:
+                spans.append(
+                    ShellInlineCodeSpan(
+                        start=payload_start,
+                        end=payload_end,
+                        interpreter=matched.interpreter,
+                    )
+                )
+
+    while index < length:
+        if in_heredoc_body(index):
+            if segment_start < index:
+                consume_segment(segment_start, index)
+            body_end = next(end for start, end in blocked if start <= index < end)
+            # Skip the delimiter line that terminates a completed heredoc.
+            index = body_end
+            while index < length and command[index] not in {"\n", "\r"}:
+                index += 1
+            while index < length and command[index] in {"\n", "\r"}:
+                index += 1
+            segment_start = index
+            quote = None
+            escaped = False
+            continue
+        char = command[index]
+        if escaped:
+            escaped = False
+            index += 1
+            continue
+        if quote is not None:
+            if char == "\\" and quote == '"':
+                escaped = True
+            elif char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char == "\\":
+            escaped = True
+            index += 1
+            continue
+        if char in {";", "|", "&"}:
+            separator_end = index + (1 if index + 1 >= length or command[index + 1] != char else 2)
+            consume_segment(segment_start, index)
+            segment_start = separator_end
+            index = separator_end
+            continue
+        index += 1
+    consume_segment(segment_start, length)
+    spans.sort(key=lambda span: span.start)
+    return spans
 
 
 def _command_chunks(words: list[tuple[str, bool]]) -> list[list[str]]:

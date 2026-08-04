@@ -1,6 +1,10 @@
 import pytest
 
-from fast_agent.tools.shell_command import classify_shell_detachment, shell_heredoc_bodies
+from fast_agent.tools.shell_command import (
+    classify_shell_detachment,
+    shell_heredoc_bodies,
+    shell_inline_code_spans,
+)
 
 
 @pytest.mark.parametrize(
@@ -142,6 +146,50 @@ def test_shell_heredoc_bodies_do_not_guess_stdin_interpreter(command: str) -> No
 
     assert bodies
     assert all(body.stdin_interpreter is None for body in bodies)
+
+
+@pytest.mark.parametrize(
+    ("command", "interpreter", "payload"),
+    [
+        ("python -c 'print(1)'", "python", "print(1)"),
+        ('node -e "console.log(1)"', "node", "console.log(1)"),
+        ("uv run --quiet python -c 'print(2)'", "python", "print(2)"),
+        (
+            "env FOO=1 node -e 'console.log(process.env.FOO)'",
+            "node",
+            "console.log(process.env.FOO)",
+        ),
+        ("ruby -e 'puts 1'", "ruby", "puts 1"),
+    ],
+)
+def test_shell_inline_code_spans_match_allowlisted_interpreters(
+    command: str,
+    interpreter: str,
+    payload: str,
+) -> None:
+    spans = shell_inline_code_spans(command)
+
+    assert len(spans) == 1
+    assert spans[0].interpreter == interpreter
+    assert command[spans[0].start : spans[0].end].strip("\"'") == payload
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python script.py",
+        "node server.js",
+        "python -m pytest",
+        "grep -e pattern file",
+        "bash -c 'echo hi'",
+        "python -c",
+        "node -e",
+        "python - <<'PY'\nprint(1)\nPY\n",
+        "python -c 'print(1)' - <<'PY'\nprint(2)\nPY\n",
+    ],
+)
+def test_shell_inline_code_spans_skip_non_matches(command: str) -> None:
+    assert shell_inline_code_spans(command) == []
 
 
 @pytest.mark.parametrize(

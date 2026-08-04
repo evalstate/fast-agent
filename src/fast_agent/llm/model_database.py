@@ -255,7 +255,7 @@ class ModelDatabase:
     OPENAI_GPT_56_CLASS_REASONING = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["none", "low", "medium", "high", "xhigh", "max"],
-        default=ReasoningEffortSetting(kind="effort", value="medium"),
+        default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
     OPENAI_GPT_5_CODEX_CLASS_REASONING = ReasoningEffortSpec(
@@ -313,7 +313,7 @@ class ModelDatabase:
         kind="effort",
         allowed_efforts=["none", "low", "high", "max"],
         allow_toggle_disable=True,
-        default=ReasoningEffortSetting(kind="effort", value="high"),
+        default=ReasoningEffortSetting(kind="effort", value="max"),
     )
 
     ANTHROPIC_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
@@ -364,7 +364,7 @@ class ModelDatabase:
     XAI_GROK_43_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["none", "low", "medium", "high"],
-        default=ReasoningEffortSetting(kind="effort", value="low"),
+        default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
     # Muse Spark: Responses reasoning.effort; "none" is rejected by the API.
@@ -850,7 +850,7 @@ class ModelDatabase:
 
     GROK_45 = ModelParameters(
         context_window=500_000,
-        max_output_tokens=65535,
+        max_output_tokens=500_000,
         tokenizes=XAI_VISION,
         json_mode="schema",
         structured_tool_policy="always",
