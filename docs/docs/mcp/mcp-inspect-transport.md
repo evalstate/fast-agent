@@ -24,21 +24,22 @@ connection is not necessarily the configured legacy SSE transport.
 a server's legacy compatibility path, connect with `--protocol legacy`; forcing
 a mode changes client negotiation behavior, not the HTTP transport.
 
-## Modern remote MCP: image generation and progress
+## Modern remote MCP: JSON, SSE, and progress
 
-This recording shows a connection to Hugging Face's MCP Server that generates
-an image, receives progress notifications, renders the image, and opens
-`/mcp`. The diagnostic timeline shows request, response, and notification
-activity. SSE streams and direct JSON-RPC messages are distinguished on the
-timeline. The `LISTEN (SSE)` channel is disabled because the server does not
-advertise list-change notifications or resource subscriptions.
+This recording connects to Hugging Face's MCP Server, calls `hf_whoami` for a
+direct JSON response, then generates an image over SSE. The image call receives
+progress notifications and renders the result before `/mcp` opens. The
+diagnostic timeline distinguishes direct JSON-RPC messages from SSE streams
+and shows request, response, and notification activity. The `LISTEN (SSE)`
+channel is disabled because the server does not advertise list-change
+notifications or resource subscriptions.
 
 <div
   class="fa-terminal-demo"
   data-fa-asciinema-cast="../../assets/tui/hf-image-generation.cast"
   data-fa-asciinema-cols="120"
   data-fa-asciinema-rows="34"
-  data-fa-asciinema-poster="npt:0:48.24"
+  data-fa-asciinema-poster="npt:0:61.39"
   data-fa-asciinema-speed="1"
   data-fa-asciinema-idle-time-limit="1.3"
   data-fa-asciinema-fit="width"
@@ -60,9 +61,10 @@ protocol  2026-07-28 (modern)
 ```
 
 The modern display intentionally omits the legacy Session and Health fields,
-and its channel timeline has no legacy ping column. Progress notifications
-from the image tool appear both during execution and as notification activity
-in the subsequent transport display.
+and its channel timeline has no legacy ping column. The identity lookup appears
+on `POST (JSON)`. The image request and its progress notifications appear on
+`POST (SSE)`, both during execution and as notification activity in the
+subsequent transport display.
 
 <!--
 Cast asset:
@@ -148,9 +150,9 @@ source. Public `httpx` hooks classify outgoing Streamable HTTP requests,
 responses, resumptions, and errors without consuming response bodies or
 streamed SSE events.
 
-`LISTEN (SSE)` and `POST (SSE)` describe observed HTTP channels and the
-response mode requested in the client's `Accept` header. They do not describe
-the response body's actual content type, and do not mean the server was
+`POST (JSON)` and `POST (SSE)` classify observed POST responses by their
+`Content-Type`. `LISTEN (SSE)` is the separate server-event listening channel.
+These labels describe live HTTP behavior; they do not mean the server was
 configured with the legacy SSE transport.
 
 Timeline symbols prioritize significant events in this order:

@@ -678,6 +678,7 @@ tmux attach-session -t "$SESSION" || true
 def _hf_image_generation_record_script(scenario: TerminalCastScenario) -> str:
     startup_wait = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_STARTUP_WAIT", "8")
     connect_timeout = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_CONNECT_TIMEOUT", "60")
+    whoami_timeout = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_WHOAMI_TIMEOUT", "60")
     response_timeout = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_RESPONSE_TIMEOUT", "180")
     prompt_timeout = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_PROMPT_TIMEOUT", "60")
     status_wait = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_STATUS_WAIT", "2.5")
@@ -686,6 +687,13 @@ def _hf_image_generation_record_script(scenario: TerminalCastScenario) -> str:
     session = f"fast_agent_docs_{scenario.name.replace('-', '_')}"
     command = scenario.shell_command.replace("'", "'\"'\"'")
     prompt = scenario.prompt.replace("'", "'\"'\"'")
+    whoami_prompt = os.environ.get(
+        "FAST_AGENT_HF_IMAGE_DEMO_WHOAMI_PROMPT",
+        (
+            "Identify my authenticated Hugging Face username. "
+            "Reply with only the username and no other account details."
+        ),
+    ).replace("'", "'\"'\"'")
     server_url = os.environ.get(
         "FAST_AGENT_HF_IMAGE_DEMO_SERVER",
         "https://huggingface.co/mcp",
@@ -760,6 +768,10 @@ tmux set-option -t "$SESSION" status off >/dev/null
   type_slow "$SESSION" '/mcp connect {server_url} --name hf --auth $HF_TOKEN --no-oauth' {typing_delay}
   tmux send-keys -t "$SESSION" Enter
   wait_for_pane "$SESSION" "Connected MCP server 'hf'" {connect_timeout}
+  wait_for_prompt "$SESSION" {prompt_timeout}
+  type_slow "$SESSION" '{whoami_prompt}' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  wait_for_pane "$SESSION" 'hf_whoami' {whoami_timeout}
   wait_for_prompt "$SESSION" {prompt_timeout}
   type_slow "$SESSION" '{prompt}' {typing_delay}
   tmux send-keys -t "$SESSION" Enter

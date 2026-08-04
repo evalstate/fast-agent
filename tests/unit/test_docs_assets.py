@@ -52,10 +52,14 @@ def test_mcp_inspect_casts_show_modern_progress_and_legacy_health() -> None:
     assert "Connected MCP server 'hf'" in modern
     assert "$HF_TOKEN" in modern
     assert re.search(r"\bhf_[A-Za-z0-9]{20,}\b", modern) is None
+    assert "hf_whoami" in modern
     assert "gr1_z_image_turbo_generate - Progress: Step" in modern
     assert "[IMAGE 1:" in modern
     assert "2026-07-28 (modern)" in modern
     assert "LISTEN (SSE)" in modern
+    assert "POST (JSON)" in modern
+    assert "POST (SSE)" in modern
+    assert "tools/call:2" in modern
     assert "notif" in modern
 
     assert "Docs Legacy Remote" in legacy
