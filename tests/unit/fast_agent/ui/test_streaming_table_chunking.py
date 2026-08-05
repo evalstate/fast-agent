@@ -1,3 +1,5 @@
+import pytest
+
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.ui.streaming.segments import StreamSegmentAssembler
 
@@ -35,3 +37,19 @@ def test_table_pending_row_not_duplicated_after_reasoning() -> None:
     assembler.handle_stream_chunk(StreamChunk(" Fact |\n", is_reasoning=False))
     text = "".join(segment.text for segment in assembler.segments)
     assert text.endswith(" | Fact |\n")
+
+
+@pytest.mark.parametrize("chunk_size", [1, 2, 3, 5, 7, 11])
+def test_markdown_segmentation_is_stable_across_small_chunks(chunk_size: int) -> None:
+    text = "Intro\n\n  | Mission | Landing |\n| --- | --- |\n| Apollo | Moon |\n\nOutro"
+
+    whole = StreamSegmentAssembler(base_kind="markdown", tool_prefix="->")
+    whole.handle_text(text)
+    streamed = StreamSegmentAssembler(base_kind="markdown", tool_prefix="->")
+    for offset in range(0, len(text), chunk_size):
+        streamed.handle_text(text[offset : offset + chunk_size])
+
+    assert [(segment.text, segment.frozen) for segment in streamed.segments] == [
+        (segment.text, segment.frozen) for segment in whole.segments
+    ]
+    assert streamed.pending_table_row == whole.pending_table_row

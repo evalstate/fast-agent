@@ -981,12 +981,13 @@ def _history_handler(
                 turn_index=turn_index,
                 error=error,
             )
-        case HistoryReviewCommand(turn_index=turn_index, error=error):
+        case HistoryReviewCommand(turn_index=turn_index, error=error, action=action):
             handler = partial(
                 history_handlers.handle_history_review,
                 agent_name=agent,
                 turn_index=turn_index,
                 error=error,
+                action=action,
             )
         case HistoryFixCommand(agent=target_agent):
             handler = partial(
@@ -1963,7 +1964,12 @@ def _plugin_action_outcome(
         requires_refresh=action_result.refresh_agents,
     )
     if action_result.markdown:
-        outcome.add_message(action_result.markdown, render_markdown=True, post_content=post_content)
+        outcome.add_message(
+            action_result.markdown,
+            render_markdown=True,
+            markdown_styles=action_result.markdown_styles,
+            post_content=post_content,
+        )
     elif action_result.message:
         outcome.add_message(action_result.message, post_content=post_content)
     elif post_content is not None:

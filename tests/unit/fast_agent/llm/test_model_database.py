@@ -493,16 +493,20 @@ def test_model_database_xai_image_input_mime_types_match_docs():
 
 
 def test_model_database_metaai_muse_spark_metadata():
-    assert ModelDatabase.get_default_provider("muse-spark-1.1") == Provider.META_AI
-    assert ModelDatabase.get_context_window("muse-spark-1.1") == 1_048_576
-    assert ModelDatabase.get_response_transports("muse-spark-1.1") == ("sse",)
-    assert not ModelDatabase.supports_response_websocket_provider(
+    models = (
+        "muse-spark-1.2",
+        "muse-spark-1.2-contributor",
         "muse-spark-1.1",
-        Provider.META_AI,
     )
-    assert ModelDatabase.supports_mime("muse-spark-1.1", "image/png")
-    assert ModelDatabase.supports_mime("muse-spark-1.1", "application/pdf")
-    assert ModelDatabase.supports_mime("muse-spark-1.1", "video/mp4")
+
+    for model in models:
+        assert ModelDatabase.get_default_provider(model) == Provider.META_AI
+        assert ModelDatabase.get_context_window(model) == 1_048_576
+        assert ModelDatabase.get_response_transports(model) == ("sse",)
+        assert not ModelDatabase.supports_response_websocket_provider(model, Provider.META_AI)
+        assert ModelDatabase.supports_mime(model, "image/png")
+        assert ModelDatabase.supports_mime(model, "application/pdf")
+        assert ModelDatabase.supports_mime(model, "video/mp4")
 
 
 def test_model_database_google_video_audio_mime_types():

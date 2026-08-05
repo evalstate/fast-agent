@@ -149,6 +149,8 @@ class StreamSegmentBuffer:
         self._base_kind: BaseSegmentKind = base_kind
         self._segments: list[StreamSegment] = []
         self._pending_table_row = ""
+        self._markdown_line_has_content = False
+        self._markdown_line_is_table = False
         self._reasoning_separator_pending = False
         self._plain_decoder = LiteralNewlineDecoder()
         self._reasoning_decoder = LiteralNewlineDecoder()
@@ -222,8 +224,7 @@ class StreamSegmentBuffer:
 
         last_segment = self._last_segment(kind="markdown")
         text_so_far = last_segment.text if last_segment else ""
-        last_line = self._current_line(text_so_far)
-        currently_in_table = bool(last_segment) and last_line.strip().startswith("|")
+        currently_in_table = bool(last_segment) and self._markdown_line_is_table
         starts_table_row = text.lstrip().startswith("|")
 
         if "\n" not in text and (currently_in_table or starts_table_row):
@@ -245,15 +246,28 @@ class StreamSegmentBuffer:
             self._append_to_segment("markdown", self._pending_table_row)
             self._pending_table_row = ""
 
+        should_check_stable_tail = "\n" in text or (
+            not self._markdown_line_has_content and not text.strip()
+        )
         self._append_to_segment("markdown", text)
-        self._freeze_completed_markdown_tail()
+        if should_check_stable_tail:
+            self._freeze_completed_markdown_tail()
         return True
 
-    @staticmethod
-    def _current_line(text: str) -> str:
-        if not text or text.endswith("\n"):
-            return ""
-        return text.split("\n")[-1]
+    def _update_markdown_line_state(self, text: str) -> None:
+        if "\n" in text:
+            tail = text.rsplit("\n", 1)[-1]
+            stripped = tail.strip()
+            self._markdown_line_has_content = bool(stripped)
+            self._markdown_line_is_table = stripped.startswith("|")
+            return
+
+        if self._markdown_line_has_content:
+            return
+        stripped = text.strip()
+        if stripped:
+            self._markdown_line_has_content = True
+            self._markdown_line_is_table = stripped.startswith("|")
 
     def _consume_reasoning_gap(self) -> str:
         if not self._reasoning_separator_pending:
@@ -293,6 +307,8 @@ class StreamSegmentBuffer:
             last_segment.append(text)
         else:
             self._segments.append(StreamSegment(kind=kind, text=text))
+        if kind == "markdown":
+            self._update_markdown_line_state(text)
 
     def _last_segment(self, *, kind: SegmentKind) -> StreamSegment | None:
         if not self._segments:

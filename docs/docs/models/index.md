@@ -7,7 +7,7 @@ social:
   alt: fast-agent social card — Getting Started with Models
 ---
 
-**`fast-agent`** has native support for **OpenAI Responses** and **Chat Completions**, **Anthropic Messages**, **Google GenAI** and **Amazon Bedrock** APIs. 
+**`fast-agent`** has native support for **OpenAI Responses** and **Chat Completions**, **Anthropic Messages**, **Google GenAI**, **DeepSeek Responses**, and **Amazon Bedrock** APIs.
 
 OpenAI Codex users can use their subscription with **`fast-agent`**, using their existing installation or logging in with `fast-agent auth provider login codex`.
 
@@ -102,9 +102,10 @@ Start with the native providers for common use, or use additional providers for 
 | OpenAI Responses     | `gpt55`, `gpt54`, `gpt52`, `gpt-5-mini`, `codex`         | GPT-5 class models, reasoning, text verbosity, structured outputs, `web_search`, SSE/WebSocket transports, service tiers, connectors            |
 | Anthropic            | `fable`, `sonnet`, `opus`, `opus5`, `opus48`, `haiku`    | Claude 4.x/5, prompt caching, adaptive reasoning/effort, structured outputs, `web_search`, `web_fetch` where supported, long context, task budget |
 | Google               | `gemini`, `gemini35flash`                                | Gemini native API, structured outputs, thinking controls, text/image/PDF/audio/video input, YouTube links through media attachments             |
+| DeepSeek             | `deepseek`                                               | Native stateless Responses API, reasoning, function tools, JSON Schema structured output, and web search                                       |
 | xAI / Grok           | `grok43`, `grok45`, `grok-4.3`, `grok-4.5`               | Grok models, reasoning controls, `web_search`, `x_search`, SSE/WebSocket transports                                                             |
 | Hugging Face         | `kimi`, `kimi26instant`, `deepseek-hf`, `glm`, `minimax` | Hugging Face Inference Providers routing, curated aliases, and HF MCP authentication                                                            |
-| Additional providers | `deepseek`, `qwen-turbo`, `gpt-oss`                      | Groq, DeepSeek, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints                                         |
+| Additional providers | `qwen-turbo`, `gpt-oss`                                  | Groq, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints                                                   |
 
 ### OpenAI Responses
 
@@ -183,6 +184,21 @@ Useful query parameters:
 - `structured=json`
 - sampling controls such as `temperature`, `top_p`, and `top_k` where applicable
 
+### DeepSeek
+
+Use the native [DeepSeek provider](providers/deepseek/) for DeepSeek's
+stateless Responses API:
+
+```bash
+fast-agent --model deepseek
+fast-agent --model "deepseek?reasoning=high"
+fast-agent --model "deepseek?web_search=true"
+```
+
+The native route currently supports `deepseek-v4-flash`. It provides reasoning,
+function tools, JSON Schema structured output, and provider-managed web search.
+Hugging Face aliases such as `deepseek-hf` are separate routes.
+
 ### xAI
 
 Use the [xAI provider](providers/xai/) for Grok models.
@@ -205,10 +221,9 @@ fast-agent --model "hf.moonshotai/Kimi-K2.6:novita?reasoning=on"
 
 ### Additional providers
 
-Use [Additional Providers](providers/additional/) for hosted OpenAI-compatible APIs, routers, and local endpoints such as Groq, DeepSeek, Aliyun, OpenRouter, Open Responses, TensorZero, and generic endpoints.
+Use [Additional Providers](providers/additional/) for hosted OpenAI-compatible APIs, routers, and local endpoints such as Groq, Aliyun, OpenRouter, Open Responses, TensorZero, and generic endpoints.
 
 ```bash
-fast-agent --model deepseek
 fast-agent --model qwen-turbo
 fast-agent --model groq.openai/gpt-oss-120b
 fast-agent --model openrouter.google/gemini-2.5-pro-exp-03-25:free
@@ -225,7 +240,7 @@ Model strings follow this format:
 provider.model_name[?reasoning=value][&query=value...]
 ```
 
-- **provider**: the LLM provider, for example `responses`, `anthropic`, `google`, `xai`,
+- **provider**: the LLM provider, for example `responses`, `anthropic`, `google`, `deepseek`, `xai`,
   `hf`, `azure`, `openrouter`, `generic`, or `tensorzero`
 - **model_name**: the model or deployment name
 - **query parameters**: provider/model-specific overrides such as `reasoning`, `structured`,
@@ -241,6 +256,7 @@ Examples:
 - `opus?web_search=on`
 - `opus48?web_search=on&web_fetch=on`
 - `gemini3?reasoning=auto`
+- `deepseek?reasoning=high`
 - `xai.grok-4.3?x_search=on`
 - `kimi26instant`
 - `hf.moonshotai/Kimi-K2.6:novita?reasoning=on`
@@ -271,6 +287,7 @@ You can also set reasoning directly in the model string query. This is especiall
 - `opus?reasoning=auto` (adaptive default)
 - `opus?reasoning=xhigh&task_budget=128k` (adaptive Opus + task budget)
 - `gemini3?reasoning=high`
+- `deepseek?reasoning=max`
 - `xai.grok-4.3?reasoning=none`
 
 Reasoning, Verbosity and Task Budget settings are also available from the `/model` command, or by using ++f6++ or ++f7++ keys.

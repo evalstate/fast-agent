@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from fast_agent.commands.renderers.markdown_blocks import markdown_heading
 from fast_agent.commands.results import command_channel_label
-from fast_agent.utils.markdown import escape_markdown_text
+from fast_agent.utils.markdown import escape_markdown_text, markdown_code_block
 from fast_agent.utils.text import strip_to_none
 
 if TYPE_CHECKING:
@@ -16,14 +16,20 @@ if TYPE_CHECKING:
 
 
 def _formatted_message_text(message: "CommandMessage") -> str | None:
-    text = strip_to_none(message.plain_text())
-    if text is None:
+    plain_text = message.plain_text()
+    if strip_to_none(plain_text) is None:
         return None
-    if not message.render_markdown:
-        text = escape_markdown_text(text)
+    if message.verbatim:
+        text = markdown_code_block(plain_text)
+    elif message.render_markdown:
+        text = plain_text.strip()
+    else:
+        text = escape_markdown_text(plain_text.strip())
+
     label = command_channel_label(message.channel)
     if label is not None and message.channel != "info":
-        return f"**{label}:** {text}"
+        separator = "\n\n" if message.verbatim else " "
+        return f"**{label}:**{separator}{text}"
     return text
 
 

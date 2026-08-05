@@ -696,7 +696,18 @@ async def test_card_tool_refresh_preserves_visible_namespace() -> None:
 
         async def _execute_on_server(self, *args, **kwargs):
             del args, kwargs
-            return ListToolsResult(tools=[Tool(name="search", input_schema={})])
+            return ListToolsResult(
+                tools=[
+                    Tool(
+                        name="search",
+                        input_schema={},
+                        output_schema={
+                            "type": "object",
+                            "properties": {"matches": {"type": "array"}},
+                        },
+                    )
+                ]
+            )
 
     aggregator = _RefreshAggregator(
         server_names=[internal_name],
@@ -717,6 +728,10 @@ async def test_card_tool_refresh_preserves_visible_namespace() -> None:
     await aggregator._refresh_server_tools(internal_name)
 
     assert set(aggregator._namespaced_tool_map) == {"docs__search"}
+    assert aggregator._namespaced_tool_map["docs__search"].tool.output_schema == {
+        "type": "object",
+        "properties": {"matches": {"type": "array"}},
+    }
 
 
 @pytest.mark.asyncio

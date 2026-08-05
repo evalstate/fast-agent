@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from fast_agent.llm.request_params import is_structured_tool_policy
-
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -127,6 +125,8 @@ class AgentRunRequest:
             self._validate_structured_output_mode()
 
     def _validate_structured_tool_policy(self) -> None:
+        from fast_agent.llm.request_params import is_structured_tool_policy
+
         if not is_structured_tool_policy(self.structured_tool_policy):
             raise ValueError(
                 "structured tool policy must be 'auto', 'always', 'defer', or 'no_tools'"

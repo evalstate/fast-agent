@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
     from rich.console import RenderableType
 
+    from fast_agent.command_actions import MarkdownTextStyle
     from fast_agent.commands.context import AgentProvider
     from fast_agent.config import Settings
     from fast_agent.llm.model_reference_diagnostics import ModelReferenceSetupItem
@@ -60,6 +61,7 @@ class TuiMarkdownDisplay(TuiStatusDisplay, Protocol):
         truncate_content: bool,
         render_markdown: bool,
         post_content: "RenderableType | None" = None,
+        markdown_styles: tuple["MarkdownTextStyle", ...] = (),
     ) -> None: ...
 
 
@@ -161,6 +163,7 @@ class TuiCommandIO(CommandIO):
                 truncate_content=False,
                 render_markdown=True,
                 post_content=message.post_content,
+                markdown_styles=message.markdown_styles,
             )
             return
 
@@ -177,7 +180,9 @@ class TuiCommandIO(CommandIO):
         content = message.text
 
         if not isinstance(content, Text):
-            if display.markup_enabled:
+            if message.verbatim:
+                content = Text(str(content))
+            elif display.markup_enabled:
                 content = Text.from_markup(str(content))
             else:
                 content = Text(str(content))

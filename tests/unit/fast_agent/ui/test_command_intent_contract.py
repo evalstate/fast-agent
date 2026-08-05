@@ -95,6 +95,7 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
         "attach",
         "check",
         "commands",
+        "tool",
         "tools",
         "process",
         "processes",
@@ -272,6 +273,16 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
             "/tools extra",
             ListToolsCommand(argument="extra"),
             id="tools-selects-named-schema",
+        ),
+        pytest.param(
+            "/tool extra",
+            ListToolsCommand(argument="extra"),
+            id="tool-selects-named-schema",
+        ),
+        pytest.param(
+            "/tool",
+            CommandError(message="Tool name required: /tool <tool-name>"),
+            id="tool-requires-name",
         ),
         pytest.param(
             "/tools summary",

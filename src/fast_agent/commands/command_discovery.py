@@ -325,7 +325,7 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         {
             "name": "history",
             "summary": "Inspect, save, load, or edit chat history",
-            "usage": "/history [turn|list|show|detail|review|save|load|clear|rewind|fix|webclear] [args]",
+            "usage": "/history [turn|list|show|detail <turn>|review [turn]|save|load|clear|rewind|fix|webclear] [args]",
             "actions": [
                 {"name": name, "summary": summary}
                 for name, summary in HISTORY_COMMAND_COMPLETION_DESCRIPTIONS.items()
@@ -378,8 +378,14 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         },
         _session_detail_entry(),
         _simple_command_entry(
+            "tool",
+            summary="Show one tool's input and structured output JSON schemas",
+            usage="/tool <tool-name>",
+            examples=["/tool <tool-name>"],
+        ),
+        _simple_command_entry(
             "tools",
-            summary="List callable tools or show a tool's JSON schema",
+            summary="List callable tools or show one tool's JSON schemas",
             usage="/tools [summary|<tool-name>]",
             examples=["/tools", "/tools <tool-name>"],
         ),

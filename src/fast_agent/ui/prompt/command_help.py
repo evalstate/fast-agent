@@ -74,6 +74,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /history <turn> - Show a prior user turn in full",
             "  /history rewind <turn> - Rewind to a prior user turn",
             "  /history detail <turn> - Show a prior user turn in full",
+            "  /history review [turn] - Review the latest or a specified turn in full",
             "  /history fix [agent_name] - Remove the last pending tool call",
         ]
     )

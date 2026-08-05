@@ -6,12 +6,12 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pydantic import ValidationError
 
 from fast_agent.core.exceptions import AgentConfigError
-from fast_agent.mcp.prompt_serialization import load_messages
+from fast_agent.mcp.prompt_serialization import load_messages, messages_from_dict
 from fast_agent.session.snapshot import SessionSnapshot, load_session_snapshot
 from fast_agent.session.trace_export_atif import AtifTraceWriter
 from fast_agent.session.trace_export_codex import CodexTraceWriter
@@ -41,7 +41,7 @@ from fast_agent.utils.filename import sanitize_filename_component
 from fast_agent.utils.text import strip_casefold, strip_str_to_none
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.privacy.sanitizer import TraceSanitizer
@@ -299,12 +299,18 @@ class SessionTraceExporter:
         return output_path
 
     def _load_history(self, history_path: Path) -> _LoadedExportHistory:
-        history = load_messages(str(history_path))
+        raw_timestamps: tuple[datetime | None, ...] | None = None
+        if _is_json_history_path(history_path):
+            with history_path.open(encoding="utf-8") as handle:
+                payload = json.load(handle)
+            history = messages_from_dict(payload)
+            raw_timestamps = self._message_timestamps(payload)
+        else:
+            history = load_messages(str(history_path))
         model_timestamps = tuple(
             _normalize_utc(message.timestamp) if message.timestamp is not None else None
             for message in history
         )
-        raw_timestamps = self._load_message_timestamps(history_path)
         if raw_timestamps is not None and len(raw_timestamps) == len(history):
             message_timestamps = tuple(
                 model_timestamp or raw_timestamp
@@ -318,13 +324,8 @@ class SessionTraceExporter:
             message_timestamps = model_timestamps
         return _LoadedExportHistory(messages=history, timestamps=message_timestamps)
 
-    def _load_message_timestamps(self, history_path: Path) -> tuple[datetime | None, ...] | None:
-        if not _is_json_history_path(history_path):
-            return None
-
-        with history_path.open(encoding="utf-8") as handle:
-            payload = json.load(handle)
-
+    @staticmethod
+    def _message_timestamps(payload: object) -> tuple[datetime | None, ...] | None:
         if not isinstance(payload, dict):
             return None
         messages = payload.get("messages")
@@ -335,7 +336,7 @@ class SessionTraceExporter:
         for item in messages:
             if not isinstance(item, dict):
                 return None
-            timestamps.append(_message_timestamp(item))
+            timestamps.append(_message_timestamp(cast("dict[object, object]", item)))
         return tuple(timestamps)
 
     def _writer_for_format(self, export_format: str, *, privacy_filter: bool):
@@ -358,7 +359,7 @@ class SessionTraceExporter:
         )
 
 
-def _message_timestamp(message: dict[object, object]) -> datetime | None:
+def _message_timestamp(message: Mapping[object, object]) -> datetime | None:
     for key in ("timestamp", "created_at", "started_at", "completed_at"):
         value = message.get(key)
         timestamp = _parse_timestamp(value)

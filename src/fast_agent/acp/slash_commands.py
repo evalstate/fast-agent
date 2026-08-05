@@ -68,7 +68,7 @@ from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol, FastAgentLLMP
 from fast_agent.session.context import SessionContextCapable
 from fast_agent.session.identity import SessionStoreScope, normalize_session_store_scope
 from fast_agent.utils.slash_commands import parse_slash_command_line
-from fast_agent.utils.text import strip_casefold
+from fast_agent.utils.text import strip_casefold, strip_to_none
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -313,6 +313,12 @@ class SlashCommandHandler:
                 input_hint="[summary|<tool-name>]",
             ),
             _BuiltinSlashCommandSpec(
+                name="tool",
+                description="Show one tool's input and structured output JSON schemas",
+                handler=self._handle_tool,
+                input_hint="<tool-name>",
+            ),
+            _BuiltinSlashCommandSpec(
                 name="environment",
                 description="List configured execution environments",
                 handler=self._handle_environment,
@@ -363,7 +369,7 @@ class SlashCommandHandler:
                 name="history",
                 description="Show or manage conversation history",
                 handler=self._handle_history,
-                input_hint="[show|detail <turn>|save|load] [args]",
+                input_hint="[show|detail <turn>|review [turn]|save|load] [args]",
             ),
             _BuiltinSlashCommandSpec(
                 name="clear",
@@ -876,7 +882,11 @@ class SlashCommandHandler:
             requires_refresh=result.refresh_agents,
         )
         if result.markdown:
-            outcome.add_message(result.markdown, render_markdown=True)
+            outcome.add_message(
+                result.markdown,
+                render_markdown=True,
+                markdown_styles=result.markdown_styles,
+            )
         elif result.message:
             outcome.add_message(result.message)
         if result.images:
@@ -916,6 +926,12 @@ class SlashCommandHandler:
 
     async def _handle_tools(self, arguments: str | None = None) -> str:
         return await tools_slash_handlers.handle_tools(self, arguments)
+
+    async def _handle_tool(self, arguments: str | None = None) -> str:
+        tool_name = strip_to_none(arguments)
+        if tool_name is None:
+            return "Tool name required: /tool <tool-name>"
+        return await tools_slash_handlers.handle_tools(self, tool_name)
 
     async def _handle_environment(self, arguments: str | None = None) -> str:
         del arguments

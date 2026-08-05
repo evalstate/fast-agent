@@ -1097,11 +1097,16 @@ class ToolDisplay:
         structured_content: object = None,
         tool_name: str | None,
         truncate_content: bool,
+        show_structured_content: bool = False,
     ) -> PreparedToolResultContent:
         source_content = content
-        display_content = self._structured_tool_result_display_content(
-            content=content,
-            structured_content=structured_content,
+        display_content = (
+            content
+            if show_structured_content
+            else self._structured_tool_result_display_content(
+                content=content,
+                structured_content=structured_content,
+            )
         )
         display_content = self._compact_managed_process_result(
             display_content,
@@ -1556,8 +1561,19 @@ class ToolDisplay:
         resource_uri: str | None,
     ) -> None:
         resource_label = f"app resource: {resource_uri}" if resource_uri else "app resource"
-        resource_text = Text(resource_label, style="magenta")
-        line = self._display.style.metadata_line(resource_text)
+        self._render_structured_content(
+            structured_content=structured_content,
+            label=resource_label,
+        )
+
+    def _render_structured_content(
+        self,
+        *,
+        structured_content: object,
+        label: str,
+    ) -> None:
+        label_text = Text(label, style="magenta")
+        line = self._display.style.metadata_line(label_text)
         console.console.print(line, markup=self._markup)
         console.console.print()
 
@@ -1584,6 +1600,7 @@ class ToolDisplay:
         is_app_integration_tool: bool,
         app_resource_uri: str | None,
         show_hook_indicator: bool,
+        show_structured_content: bool,
         post_content: RenderableType | None = None,
     ) -> None:
         config_map = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
@@ -1620,6 +1637,12 @@ class ToolDisplay:
             )
             return
 
+        if show_structured_content:
+            self._render_structured_content(
+                structured_content=structured_content,
+                label="■ structured content",
+            )
+
         self._render_tool_result_footer(
             highlight_color=config_map["highlight_color"],
             bottom_metadata_items=bottom_metadata_items,
@@ -1639,6 +1662,7 @@ class ToolDisplay:
         source_label: str | None = None,
         server_name: str | None = None,
         show_hook_indicator: bool = False,
+        show_structured_content: bool = False,
     ) -> None:
         """Display a tool result in the console."""
         logger = get_logger(__name__)
@@ -1656,6 +1680,7 @@ class ToolDisplay:
                 structured_content=structured_content,
                 tool_name=tool_name,
                 truncate_content=truncate_content,
+                show_structured_content=show_structured_content,
             )
             display_content = prepared_content.display_content
             source_content = prepared_content.source_content
@@ -1755,6 +1780,7 @@ class ToolDisplay:
                     is_app_integration_tool=(app_integration_details.is_app_integration_tool),
                     app_resource_uri=app_integration_details.resource_uri,
                     show_hook_indicator=show_hook_indicator,
+                    show_structured_content=show_structured_content,
                     post_content=post_content,
                 )
             else:

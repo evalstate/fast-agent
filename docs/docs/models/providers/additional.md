@@ -2,8 +2,8 @@
 title: Additional Providers
 social:
   title: Additional Providers
-  tagline: Configure Groq, DeepSeek, Aliyun, OpenRouter, TensorZero, and generic endpoints.
-  description: Configure Groq, DeepSeek, Aliyun, OpenRouter, TensorZero, and generic endpoints.
+  tagline: Configure Groq, Aliyun, OpenRouter, TensorZero, and generic endpoints.
+  description: Configure Groq, Aliyun, OpenRouter, TensorZero, and generic endpoints.
   alt: fast-agent social card — Additional model providers
 ---
 
@@ -13,7 +13,8 @@ These providers are useful when you want a specific hosted model, a router, or
 an OpenAI-compatible endpoint without needing a dedicated first-class provider
 guide. For Grok models, see the dedicated [xAI / Grok](xai.md) guide. For native
 GLM models, see [Z.ai](zai.md). For Hugging Face Inference Providers, see the
-dedicated [Hugging Face](huggingface.md) guide.
+dedicated [Hugging Face](huggingface.md) guide. For the native DeepSeek
+Responses route, see [DeepSeek](deepseek.md).
 
 Most entries use the same small configuration shape:
 
@@ -33,7 +34,6 @@ Run `fast-agent check` after adding credentials to confirm they are visible to f
 | Provider | Config key | API key environment variable | Default endpoint | Model string examples |
 | --- | --- | --- | --- | --- |
 | Groq | `groq` | `GROQ_API_KEY` | `https://api.groq.com/openai/v1` | `groq.openai/gpt-oss-120b` |
-| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `https://api.deepseek.com` | `deepseek`, `deepseek.deepseek-v4-flash` |
 | Aliyun | `aliyun` | `ALIYUN_API_KEY` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `qwen-turbo`, `aliyun.qwen3-max` |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` | `openrouter.google/gemini-2.5-pro-exp-03-25:free` |
 | Open Responses | `openresponses` | `OPENRESPONSES_API_KEY` | Your Open Responses endpoint | `openresponses.openai/gpt-oss-120b:groq` |
@@ -64,40 +64,6 @@ The shortcut `gpt-oss` currently resolves through the Hugging Face provider; use
 `groq.` prefix when you want Groq.
 
 --8<-- "_generated/model_aliases_groq.md"
-
-### DeepSeek
-
-```yaml
-deepseek:
-  api_key: "${DEEPSEEK_API_KEY}"
-```
-
-```bash
-fast-agent --model deepseek
-fast-agent --model 'deepseek.deepseek-v4-flash?reasoning=low'
-fast-agent --model 'deepseek?web_search=true'
-```
-
-DeepSeek uses its stateless Responses API over SSE. The native provider currently supports only
-`deepseek-v4-flash`; older native `deepseek-chat`, `deepseek-reasoner`, and `deepseek-v4-pro`
-routes have been removed until DeepSeek migrates those models to Responses. The provider supports
-`none`, `low`, `high` (default), and `max` reasoning effort, function tools, structured output,
-and provider-managed web search. Image and file inputs are not supported.
-
-DeepSeek silently ignores stateful Responses fields such as `previous_response_id` and `store`.
-When forcing a specific function with `tool_choice`, use `reasoning=none`; the live API rejects
-that forced-tool combination while thinking is enabled. Normal automatic tool calling supports
-thinking mode.
-
-`max_output_tokens` includes hidden reasoning. Leave generous headroom with `reasoning=max`: one
-live run exhausted an 8,192-token allowance entirely on reasoning without producing visible text,
-while a 32,768-token retry completed after 3,255 reasoning tokens. DeepSeek caching is automatic;
-a controlled repeated-prefix test reused 22,400 of 22,435 input tokens, while changing `user`
-correctly isolated the cache.
-
-Hugging Face aliases such as `deepseek-hf` are separate routes and remain available.
-
---8<-- "_generated/model_aliases_deepseek.md"
 
 ### Aliyun
 

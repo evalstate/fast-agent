@@ -45,3 +45,9 @@ def markdown_code_span(value: str) -> str:
     if not _code_span_needs_padding(value, fence):
         return f"{fence}{value}{fence}"
     return f"{fence} {value} {fence}"
+
+
+def markdown_code_block(value: str) -> str:
+    fence = "`" * max(3, _longest_backtick_run(value) + 1)
+    closing_prefix = "" if value.endswith("\n") else "\n"
+    return f"{fence}\n{value}{closing_prefix}{fence}"

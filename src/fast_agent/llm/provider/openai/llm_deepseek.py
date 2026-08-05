@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEFAULT_DEEPSEEK_REASONING_EFFORT = "max"
 
 
 class DeepSeekResponsesLLM(ResponsesLLM):
@@ -78,6 +79,17 @@ class DeepSeekResponsesLLM(ResponsesLLM):
     ) -> dict[str, Any] | None:
         payload = build_web_search_tool(resolved_web_search)
         return {"type": "web_search"} if payload is not None else None
+
+    def _resolve_reasoning_effort(self) -> str | None:
+        setting = self.reasoning_effort
+        if setting is None:
+            return DEFAULT_DEEPSEEK_REASONING_EFFORT
+        if setting.kind == "toggle":
+            return "none" if setting.value is False else DEFAULT_DEEPSEEK_REASONING_EFFORT
+        if setting.kind == "budget":
+            self.logger.warning("Ignoring budget reasoning setting for DeepSeek.")
+            return DEFAULT_DEEPSEEK_REASONING_EFFORT
+        return super()._resolve_reasoning_effort()
 
     def _apply_response_reasoning(self, base_args: dict[str, Any]) -> None:
         effort = self._resolve_reasoning_effort()

@@ -42,6 +42,24 @@ def test_parse_history_detail_requires_turn() -> None:
     assert result.error == "Turn number required for /history detail"
 
 
+def test_parse_history_review_defaults_to_latest_turn() -> None:
+    result = parse_special_input("/history review")
+    assert result == HistoryReviewCommand(
+        turn_index=None,
+        error=None,
+        action="review",
+    )
+
+
+def test_parse_history_review_accepts_turn() -> None:
+    result = parse_special_input("/history review 3")
+    assert result == HistoryReviewCommand(
+        turn_index=3,
+        error=None,
+        action="review",
+    )
+
+
 def test_parse_history_rewind_requires_turn() -> None:
     result = parse_special_input("/history rewind")
     assert isinstance(result, HistoryRewindCommand)

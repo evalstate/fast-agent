@@ -134,6 +134,27 @@ def _skills_over_mcp_scenario() -> TerminalCastScenario:
     )
 
 
+def _mcp_tool_schema_scenario() -> TerminalCastScenario:
+    command = os.environ.get(
+        "FAST_AGENT_TOOL_SCHEMA_DEMO_COMMAND",
+        "fast-agent --model passthrough",
+    )
+    return TerminalCastScenario(
+        name="mcp-tool-schema",
+        title="fast-agent MCP structured output schema",
+        output=ASSETS / "tui" / "mcp-tool-schema.cast",
+        cols=int(os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_COLS", "110")),
+        rows=int(os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_ROWS", "32")),
+        idle_time_limit=float(os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_IDLE_TIME_LIMIT", "3.0")),
+        prompt="",
+        shell_command=command,
+        notes=(
+            "Live MCP connection; defaults to the Hugging Face MCP server at "
+            "http://localhost:3000/mcp and inspects hf_whoami."
+        ),
+    )
+
+
 def _hf_image_generation_scenario() -> TerminalCastScenario:
     command = os.environ.get(
         "FAST_AGENT_HF_IMAGE_DEMO_COMMAND",
@@ -198,6 +219,7 @@ def _scenarios() -> dict[str, TerminalCastScenario]:
         _skills_direct_install_scenario(),
         _skills_slash_commands_scenario(),
         _skills_over_mcp_scenario(),
+        _mcp_tool_schema_scenario(),
         _hf_image_generation_scenario(),
         _elicitation_sandbox_scenario(),
         _mcp_inspect_legacy_scenario(),
@@ -675,6 +697,108 @@ tmux attach-session -t "$SESSION" || true
 """
 
 
+def _mcp_tool_schema_record_script(scenario: TerminalCastScenario) -> str:
+    startup_timeout = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_STARTUP_TIMEOUT", "30")
+    connect_timeout = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_CONNECT_TIMEOUT", "30")
+    schema_timeout = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_SCHEMA_TIMEOUT", "30")
+    prompt_timeout = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_PROMPT_TIMEOUT", "30")
+    input_schema_wait = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_INPUT_WAIT", "3.0")
+    output_schema_wait = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_OUTPUT_WAIT", "3.0")
+    output_page_wait = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_PAGE_WAIT", "2.5")
+    final_wait = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_FINAL_WAIT", "3.0")
+    typing_delay = os.environ.get("FAST_AGENT_TOOL_SCHEMA_DEMO_TYPING_DELAY", "0.035")
+    server_url = os.environ.get(
+        "FAST_AGENT_TOOL_SCHEMA_DEMO_SERVER",
+        "http://localhost:3000/mcp",
+    )
+    session = f"fast_agent_docs_{scenario.name.replace('-', '_')}"
+    command = scenario.shell_command.replace("'", "'\"'\"'")
+    server_url = server_url.replace("'", "'\"'\"'")
+    return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION='{session}'
+ROOT='{ROOT}'
+
+type_slow() {{
+  local target="$1"
+  local text="$2"
+  local delay="$3"
+  local i char
+  for (( i=0; i<${{#text}}; i++ )); do
+    char="${{text:i:1}}"
+    tmux send-keys -l -t "$target" "$char"
+    sleep "$delay"
+  done
+}}
+
+wait_for_pane() {{
+  local target="$1"
+  local pattern="$2"
+  local timeout="$3"
+  local attempts=$((timeout * 4))
+  local i
+  for (( i=0; i<attempts; i++ )); do
+    if tmux capture-pane -p -t "$target" -S -5000 | grep -Fq "$pattern"; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  tmux capture-pane -p -t "$target" -S -5000 >&2 || true
+  return 1
+}}
+
+wait_for_prompt() {{
+  local target="$1"
+  local timeout="$2"
+  local attempts=$((timeout * 4))
+  local i
+  for (( i=0; i<attempts; i++ )); do
+    if tmux capture-pane -p -t "$target" -S -8 | grep -Eq '^❯[[:space:]]*$'; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  tmux capture-pane -p -t "$target" -S -50 >&2 || true
+  return 1
+}}
+
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+tmux new-session -d -s "$SESSION" -x {scenario.cols} -y {scenario.rows} \\
+  "DEMO_FAST_AGENT_HOME=\\$(mktemp -d) && printf '{{}}\\n' > \\\"\\$DEMO_FAST_AGENT_HOME/fast-agent.yaml\\\" && export FAST_AGENT_HOME=\\\"\\$DEMO_FAST_AGENT_HOME\\\" && DEMO_WORKDIR=\\$(mktemp -d -t fast-agent-tool-schema.XXXXXX) && cd \\\"\\$DEMO_WORKDIR\\\" && unset ENVIRONMENT_DIR FAST_AGENT_RUNTIME_ENVIRONMENT VIRTUAL_ENV NO_COLOR && TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 FAST_AGENT_KEYRING_NOTICE=0 TUI__COMPLETION_MENU_RESERVED_LINES=${{TUI__COMPLETION_MENU_RESERVED_LINES:-4}} bash --noprofile --norc"
+tmux set-option -t "$SESSION" status off >/dev/null
+
+(
+  trap 'tmux kill-session -t "$SESSION" 2>/dev/null || true' EXIT
+  sleep 1
+  type_slow "$SESSION" '{command}' 0.035
+  tmux send-keys -t "$SESSION" Enter
+  wait_for_prompt "$SESSION" {startup_timeout}
+  type_slow "$SESSION" '/mcp connect {server_url} --name hf' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  wait_for_pane "$SESSION" "Connected MCP server 'hf'" {connect_timeout}
+  wait_for_prompt "$SESSION" {prompt_timeout}
+  type_slow "$SESSION" '/tool hf__hf_whoami' {typing_delay}
+  tmux send-keys -t "$SESSION" Enter
+  wait_for_pane "$SESSION" 'Structured output schema' {schema_timeout}
+  wait_for_prompt "$SESSION" {prompt_timeout}
+  tmux copy-mode -t "$SESSION"
+  tmux send-keys -X -t "$SESSION" search-backward 'Input schema'
+  sleep {input_schema_wait}
+  tmux send-keys -X -t "$SESSION" search-forward 'Structured output schema'
+  sleep {output_schema_wait}
+  tmux send-keys -X -t "$SESSION" page-down
+  sleep {output_page_wait}
+  tmux send-keys -X -t "$SESSION" search-backward 'Structured output schema'
+  sleep {final_wait}
+) &
+DRIVER_PID=$!
+
+tmux attach-session -t "$SESSION" || true
+wait "$DRIVER_PID"
+"""
+
+
 def _hf_image_generation_record_script(scenario: TerminalCastScenario) -> str:
     startup_wait = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_STARTUP_WAIT", "8")
     connect_timeout = os.environ.get("FAST_AGENT_HF_IMAGE_DEMO_CONNECT_TIMEOUT", "60")
@@ -1030,6 +1154,8 @@ def _record_script(scenario: TerminalCastScenario) -> str:
         return _skills_slash_commands_record_script(scenario)
     if scenario.name == "skills-over-mcp":
         return _skills_over_mcp_record_script(scenario)
+    if scenario.name == "mcp-tool-schema":
+        return _mcp_tool_schema_record_script(scenario)
     if scenario.name == "hf-image-generation":
         return _hf_image_generation_record_script(scenario)
     if scenario.name == "mcp-inspect-legacy":

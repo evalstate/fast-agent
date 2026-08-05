@@ -14,6 +14,7 @@ from fast_agent.commands.mcp_command_intents import (
 from fast_agent.commands.shared_command_intents import (
     MODEL_MANAGER_COMMAND_ACTIONS,
     HistoryActionIntent,
+    HistoryReviewAction,
     ModelCommandAction,
     SessionCommandIntent,
     parse_agent_command_intent,
@@ -340,13 +341,15 @@ def _history_load_payload_from_intent(intent: HistoryActionIntent) -> LoadHistor
 
 
 def _history_review_payload_from_intent(
+    action: HistoryReviewAction,
     turn_index: int | None,
     turn_error: str | None,
 ) -> HistoryReviewCommand:
-    error = _history_turn_error_message("detail", turn_error)
+    error = _history_turn_error_message(action, turn_error)
     return HistoryReviewCommand(
         turn_index=None if error else turn_index,
         error=error,
+        action=action,
     )
 
 
@@ -383,6 +386,12 @@ _HISTORY_PAYLOAD_FACTORIES: dict[
     "save": lambda intent: SaveHistoryCommand(filename=intent.argument),
     "load": _history_load_payload_from_intent,
     "detail": lambda intent: _history_review_payload_from_intent(
+        "detail",
+        intent.turn_index,
+        intent.turn_error,
+    ),
+    "review": lambda intent: _history_review_payload_from_intent(
+        "review",
         intent.turn_index,
         intent.turn_error,
     ),
@@ -726,6 +735,13 @@ def _parse_slash_alias_command(
     return None
 
 
+def _parse_tool_command(remainder: str) -> CommandPayload:
+    tool_name = strip_to_none(remainder)
+    if tool_name is None:
+        return CommandError(message="Tool name required: /tool <tool-name>")
+    return ListToolsCommand(argument=tool_name)
+
+
 _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
     "a2a": _parse_a2a_command,
     "tasks": lambda remainder: A2ACommand(action="tasks", argument=remainder or None),
@@ -742,6 +758,7 @@ _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
     "attach": _parse_attach_command,
     "check": lambda remainder: CheckCommand(argument=remainder or None),
     "commands": lambda remainder: CommandsCommand(argument=remainder or None),
+    "tool": _parse_tool_command,
     "tools": lambda remainder: ListToolsCommand(argument=strip_to_none(remainder)),
     "process": _parse_process_command,
     "processes": _parse_process_command,

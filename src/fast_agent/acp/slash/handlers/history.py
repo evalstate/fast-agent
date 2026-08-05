@@ -15,6 +15,7 @@ from fast_agent.commands.renderers.history_markdown import (
 from fast_agent.commands.shared_command_intents import (
     HistoryAction,
     HistoryActionIntent,
+    HistoryReviewAction,
     HistoryTurnAction,
     HistoryTurnError,
     parse_current_agent_history_intent,
@@ -28,13 +29,15 @@ if TYPE_CHECKING:
 _HistoryIntentHandler = Callable[["SlashCommandHandler", HistoryActionIntent], Awaitable[str]]
 
 
-_HISTORY_USAGE = (
-    "Usage: /history [turn|show|detail <turn>|save|load|clear [last]|rewind <turn>|fix] [args]"
-)
-_HISTORY_WEBCLEAR_USAGE = "Usage: /history [turn|show|detail <turn>|save|load|clear [last]|rewind <turn>|fix|webclear] [args]"
+_HISTORY_USAGE = "Usage: /history [turn|show|detail <turn>|review [turn]|save|load|clear [last]|rewind <turn>|fix] [args]"
+_HISTORY_WEBCLEAR_USAGE = "Usage: /history [turn|show|detail <turn>|review [turn]|save|load|clear [last]|rewind <turn>|fix|webclear] [args]"
 _TURN_ERROR_MESSAGES: dict[HistoryTurnAction, dict[HistoryTurnError, str]] = {
     "detail": {
         "missing": "Turn number required for /history detail.",
+        "invalid": "Turn number must be an integer.",
+    },
+    "review": {
+        "missing": "Turn number required for /history review.",
         "invalid": "Turn number must be an integer.",
     },
     "rewind": {
@@ -101,6 +104,19 @@ async def _handle_history_detail_intent(
 ) -> str:
     return await handle_detail(
         handler,
+        action="detail",
+        turn_index=intent.turn_index,
+        turn_error=intent.turn_error,
+    )
+
+
+async def _handle_history_review_intent(
+    handler: "SlashCommandHandler",
+    intent: HistoryActionIntent,
+) -> str:
+    return await handle_detail(
+        handler,
+        action="review",
         turn_index=intent.turn_index,
         turn_error=intent.turn_error,
     )
@@ -166,6 +182,7 @@ _HISTORY_ACTION_HANDLERS: dict[HistoryAction, _HistoryIntentHandler] = {
     "overview": _handle_history_overview_intent,
     "show": _handle_history_show_intent,
     "detail": _handle_history_detail_intent,
+    "review": _handle_history_review_intent,
     "save": _handle_history_save_intent,
     "load": _handle_history_load_intent,
     "clear_all": _handle_history_clear_all_intent,
@@ -246,10 +263,11 @@ async def handle_show(handler: "SlashCommandHandler", target_agent: str | None =
 async def handle_detail(
     handler: "SlashCommandHandler",
     *,
+    action: HistoryReviewAction,
     turn_index: int | None,
     turn_error: HistoryTurnError | None,
 ) -> str:
-    heading = "# history detail"
+    heading = f"# history {action}"
 
     _, error = handler._get_current_agent_or_error(
         heading,
@@ -264,9 +282,10 @@ async def handle_detail(
         ctx,
         agent_name=handler.current_agent_name,
         turn_index=turn_index,
-        error=_turn_error_message("detail", turn_error),
+        error=_turn_error_message(action, turn_error),
+        action=action,
     )
-    return handler._format_outcome_as_markdown(outcome, "history detail", io=io)
+    return handler._format_outcome_as_markdown(outcome, f"history {action}", io=io)
 
 
 async def handle_history_clear_all(

@@ -263,6 +263,7 @@ class HistoryRewindCommand(CommandBase):
 class HistoryReviewCommand(CommandBase):
     turn_index: int | None
     error: str | None
+    action: Literal["detail", "review"] = "detail"
     kind: Literal["history_review"] = "history_review"
 
 

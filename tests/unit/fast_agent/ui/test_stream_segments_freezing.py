@@ -1,4 +1,6 @@
-from fast_agent.ui.streaming.segments import StreamSegmentAssembler
+from unittest.mock import patch
+
+from fast_agent.ui.streaming.segments import StreamSegmentAssembler, StreamSegmentBuffer
 
 
 def test_markdown_freezes_completed_paragraph_before_mutable_tail() -> None:
@@ -49,3 +51,18 @@ def test_markdown_does_not_freeze_list_item_before_indented_continuation() -> No
     assert len(segments) == 1
     assert segments[0].text == "1. item\n\n   continuation"
     assert segments[0].frozen is False
+
+
+def test_markdown_checks_stable_blocks_only_after_a_completed_line() -> None:
+    buffer = StreamSegmentBuffer(base_kind="markdown")
+    with patch.object(
+        buffer,
+        "_stable_markdown_prefix_length",
+        wraps=buffer._stable_markdown_prefix_length,
+    ) as scan:
+        for chunk in ("A", " long", " paragraph"):
+            buffer.append_content(chunk)
+        scan.assert_not_called()
+
+        buffer.append_content("\n\n")
+        scan.assert_called_once_with("A long paragraph\n\n")

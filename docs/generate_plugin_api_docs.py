@@ -42,6 +42,10 @@ FIELD_DESCRIPTIONS = {
     "PluginCommandActionResult.buffer_prefill": "Draft text inserted into the user's input buffer.",
     "PluginCommandActionResult.switch_agent": "Switch the active TUI agent after the command.",
     "PluginCommandActionResult.refresh_agents": "Refresh agent/card state after the command.",
+    "PluginCommandActionResult.images": "Images rendered after command output where supported.",
+    "PluginCommandActionResult.markdown_styles": (
+        "Presentation-only Rich styles for literal visible Markdown text; ignored by portable clients."
+    ),
     "PluginCommandActionContext.command_name": "Slash command name being executed.",
     "PluginCommandActionContext.arguments": "Raw text after the slash command.",
     "PluginCommandActionContext.agent": "Active agent surface exposed to the command.",

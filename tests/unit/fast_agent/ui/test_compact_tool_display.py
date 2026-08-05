@@ -420,6 +420,8 @@ def test_primary_edit_preview_streaming_is_on_only_for_default_agent() -> None:
 @pytest.mark.asyncio
 async def test_history_review_forces_full_tool_bodies() -> None:
     config = Settings(logger=LoggerSettings(tool_display=ToolDisplaySettings(layout="compact")))
+    text_tail = "history-text-tail"
+    structured_tail = "structured-history-tail"
     turn = [
         PromptMessageExtended(
             role="assistant",
@@ -439,7 +441,20 @@ async def test_history_review_forces_full_tool_bodies() -> None:
             content=[],
             tool_results={
                 "call_history_1": CallToolResult(
-                    content=[TextContent(type="text", text="history result body")],
+                    content=[
+                        TextContent(
+                            type="text",
+                            text=f"history text content body {'x' * 2000} {text_tail}",
+                        )
+                    ],
+                    structured_content={
+                        "records": [
+                            {
+                                "id": "structured-history-record",
+                                "detail": f"{'y' * 2000} {structured_tail}",
+                            }
+                        ],
+                    },
                     is_error=False,
                 )
             },
@@ -451,4 +466,8 @@ async def test_history_review_forces_full_tool_bodies() -> None:
 
     rendered = capture.get()
     assert "history needle" in rendered
-    assert "history result body" in rendered
+    assert "history text content body" in rendered
+    assert text_tail in rendered
+    assert "■ structured content" in rendered
+    assert rendered.count("structured-history-record") == 1
+    assert structured_tail in rendered

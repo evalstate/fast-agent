@@ -316,8 +316,8 @@ def test_tool_result_prefers_structured_content_when_text_blocks_disagree() -> N
 def test_structured_tool_result_shows_transport_timing_and_structured_footer() -> None:
     display = _full_display()
     result = CallToolResult(
-        content=[TextContent(type="text", text='{"ok": true}')],
-        structured_content={"ok": True},
+        content=[TextContent(type="text", text='{"transport": true}')],
+        structured_content={"structured_only": True},
         is_error=False,
     )
     update_tool_result_display_metadata(result, {"transport_channel": "post-json"})
@@ -331,7 +331,8 @@ def test_structured_tool_result_shows_transport_timing_and_structured_footer() -
         )
 
     rendered = capture.get()
-    assert '{"ok": true}' in rendered
+    assert '{"transport": true}' in rendered
+    assert "structured_only" not in rendered
     assert "HTTP (JSON-RPC)" in rendered
     assert "1.50s" in rendered
     assert "Structured ■" in rendered

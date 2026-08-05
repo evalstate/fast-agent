@@ -170,6 +170,32 @@
       "embedded": [
         {
           "autoplay": false,
+          "cols": 110,
+          "fit": "width",
+          "idle_time_limit": 3.0,
+          "page": "docs/docs/guides/tui.md",
+          "poster": "npt:0:08",
+          "reference": "../../assets/tui/mcp-tool-schema.cast",
+          "rows": 32
+        }
+      ],
+      "height": 32,
+      "idle_time_limit": 3.0,
+      "line_count": 207,
+      "notes": "Live MCP connection; defaults to the Hugging Face MCP server at http://localhost:3000/mcp and inspects hf_whoami.",
+      "path": "docs/docs/assets/tui/mcp-tool-schema.cast",
+      "present": true,
+      "problems": [],
+      "record_command": "uv run scripts/docs.py cast-build mcp-tool-schema",
+      "recorder": "mcp-tool-schema",
+      "timestamp": 1785964543,
+      "title": "fast-agent MCP structured output schema",
+      "width": 110
+    },
+    {
+      "embedded": [
+        {
+          "autoplay": false,
           "cols": 96,
           "fit": "width",
           "idle_time_limit": 1.3,

@@ -13,6 +13,7 @@ from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider.openai.llm_deepseek import (
     DEEPSEEK_BASE_URL,
     DEFAULT_DEEPSEEK_MODEL,
+    DEFAULT_DEEPSEEK_REASONING_EFFORT,
     DeepSeekResponsesLLM,
 )
 from fast_agent.llm.provider_types import Provider
@@ -93,6 +94,8 @@ def test_deepseek_rejects_websocket_transport() -> None:
 @pytest.mark.parametrize(
     ("reasoning", "wire_effort"),
     [
+        (None, DEFAULT_DEEPSEEK_REASONING_EFFORT),
+        (True, DEFAULT_DEEPSEEK_REASONING_EFFORT),
         ("low", "low"),
         ("high", "high"),
         ("max", "max"),
@@ -101,7 +104,7 @@ def test_deepseek_rejects_websocket_transport() -> None:
     ],
 )
 def test_deepseek_responses_builds_native_reasoning_payload(
-    reasoning: str | bool,
+    reasoning: str | bool | None,
     wire_effort: str,
 ) -> None:
     llm = DeepSeekResponsesLLM(

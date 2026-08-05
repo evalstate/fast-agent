@@ -18,11 +18,13 @@ from fast_agent.utils.commandline import split_commandline, split_posix_like_pre
 from fast_agent.utils.text import strip_to_none
 
 HistoryTurnError = Literal["missing", "invalid"]
-HistoryTurnAction = Literal["detail", "rewind"]
+HistoryReviewAction = Literal["detail", "review"]
+HistoryTurnAction = Literal["detail", "review", "rewind"]
 HistoryAction = Literal[
     "overview",
     "show",
     "detail",
+    "review",
     "save",
     "load",
     "clear_all",
@@ -410,6 +412,12 @@ def _parse_turn_history_intent(
     return HistoryActionIntent(action=action, turn_index=turn_index)
 
 
+def _parse_review_history_intent(argument: str | None) -> HistoryActionIntent:
+    if not argument:
+        return HistoryActionIntent(action="review")
+    return _parse_turn_history_intent("review", argument)
+
+
 def _parse_clear_history_intent(argument: str | None) -> HistoryActionIntent:
     if not argument:
         return HistoryActionIntent(action="clear_all")
@@ -426,7 +434,7 @@ def _parse_clear_history_intent(argument: str | None) -> HistoryActionIntent:
 
 _HISTORY_ACTION_PARSERS: dict[str, HistoryIntentParser] = {
     "detail": partial(_parse_turn_history_intent, "detail"),
-    "review": partial(_parse_turn_history_intent, "detail"),
+    "review": _parse_review_history_intent,
     "rewind": partial(_parse_turn_history_intent, "rewind"),
     "clear": _parse_clear_history_intent,
 }

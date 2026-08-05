@@ -1,6 +1,10 @@
 from markdown_it import MarkdownIt
 
-from fast_agent.utils.markdown import escape_markdown_table_cell, markdown_code_span
+from fast_agent.utils.markdown import (
+    escape_markdown_table_cell,
+    markdown_code_block,
+    markdown_code_span,
+)
 
 
 def _inline_code_content(markdown: str) -> str:
@@ -50,6 +54,12 @@ def test_markdown_code_span_preserves_all_space_value_without_extra_padding() ->
     value = "   "
 
     assert _inline_code_content(markdown_code_span(value)) == value
+
+
+def test_markdown_code_block_uses_fence_longer_than_nested_fence() -> None:
+    value = "```python\nprint('hello')\n```"
+
+    assert markdown_code_block(value) == f"````\n{value}\n````"
 
 
 def test_escape_markdown_table_cell_normalizes_line_breaks() -> None:

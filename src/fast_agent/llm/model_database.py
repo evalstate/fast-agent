@@ -879,7 +879,7 @@ class ModelDatabase:
         shell_output_byte_limit=16_000,
     )
 
-    MUSE_SPARK_11 = ModelParameters(
+    MUSE_SPARK = ModelParameters(
         context_window=1_048_576,
         max_output_tokens=65535,
         tokenizes=META_AI_MULTIMODAL,
@@ -1196,7 +1196,9 @@ class ModelDatabase:
         # xAI Grok Models
         "grok-4.3": GROK_43,
         "grok-4.5": GROK_45,
-        "muse-spark-1.1": MUSE_SPARK_11,
+        "muse-spark-1.2": MUSE_SPARK,
+        "muse-spark-1.2-contributor": MUSE_SPARK,
+        "muse-spark-1.1": MUSE_SPARK,
         "moonshotai/kimi-k2": _with_fast(KIMI_MOONSHOT_INSTRUCT),
         "moonshotai/kimi-k2-instruct-0905": _with_fast(KIMI_MOONSHOT_INSTRUCT),
         "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,

@@ -6,9 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
 from pathlib import Path
-from typing import Any, Literal, TypeAlias
-
-from mcp.client.session import ElicitationFnT
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 from fast_agent.command_actions import PluginCommandActionSpec
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
@@ -20,6 +18,11 @@ from fast_agent.tools.function_tool_config import FunctionToolSpec
 
 # Forward imports to avoid circular dependencies
 from fast_agent.types import RequestParams
+
+if TYPE_CHECKING:
+    from mcp.client.session import ElicitationFnT
+else:
+    ElicitationFnT = Callable[..., Any]
 
 
 class AgentType(StrEnum):

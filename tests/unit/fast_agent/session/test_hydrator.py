@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
 from datetime import datetime
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Literal, cast
@@ -550,12 +551,27 @@ async def test_hydrate_session_restores_runtime_state_and_replaces_usage(
     )
     runtime_foo.usage_accumulator.turns.extend([_TurnRecord("stale-usage")])
 
-    def _fake_rehydrate_usage(agent: _Agent, path):
-        assert path == history_path
+    from fast_agent.mcp.prompts.prompt_load import load_prompt
+
+    loaded_paths: list[Path] = []
+    loader_threads: list[int] = []
+    caller_thread = threading.get_ident()
+
+    def _tracked_load_prompt(path: Path) -> list[PromptMessageExtended]:
+        loaded_paths.append(path)
+        loader_threads.append(threading.get_ident())
+        return load_prompt(path)
+
+    def _fake_rehydrate_usage(agent: _Agent, messages: list[PromptMessageExtended]):
+        assert [message.all_text() for message in messages] == ["resume hello", "resume done"]
         assert agent.usage_accumulator.turns == []
         agent.usage_accumulator.turns.append(_TurnRecord("restored-usage"))
         return "usage restored"
 
+    monkeypatch.setattr(
+        "fast_agent.session.hydrator.load_prompt",
+        _tracked_load_prompt,
+    )
     monkeypatch.setattr(
         "fast_agent.session.hydrator.rehydrate_usage_from_history",
         _fake_rehydrate_usage,
@@ -582,6 +598,8 @@ async def test_hydrate_session_restores_runtime_state_and_replaces_usage(
     assert runtime_foo.llm.default_request_params.system_prompt == "Stored foo prompt"
     assert runtime_foo.attached_servers == ["already-attached", "filesystem"]
     assert runtime_foo.usage_accumulator.turns == [_TurnRecord("restored-usage")]
+    assert loaded_paths == [history_path]
+    assert loader_threads[0] != caller_thread
 
 
 @pytest.mark.asyncio
