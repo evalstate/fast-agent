@@ -140,7 +140,18 @@ def _literal_style_matches(
         start = 0
         while (index := text.find(text_style.text, start)) >= 0:
             end = index + len(text_style.text)
-            matches.append(_StyleMatch(start=index, end=end, style=style))
+            starts_inside_token = (
+                index > 0
+                and (text_style.text[0].isalnum() or text_style.text[0] == "_")
+                and (text[index - 1].isalnum() or text[index - 1] == "_")
+            )
+            ends_inside_token = (
+                end < len(text)
+                and (text_style.text[-1].isalnum() or text_style.text[-1] == "_")
+                and (text[end].isalnum() or text[end] == "_")
+            )
+            if not starts_inside_token and not ends_inside_token:
+                matches.append(_StyleMatch(start=index, end=end, style=style))
             start = end
     return tuple(matches)
 
