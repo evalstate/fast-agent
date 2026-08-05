@@ -1163,6 +1163,28 @@ def test_stream_cursor_remains_visible_after_markdown_table() -> None:
     assert green_text == streaming_module.STREAM_CURSOR_BLOCK
 
 
+def test_stream_cursor_replaces_reasoning_markdown_suffix_at_segment_boundary() -> None:
+    handle = _make_handle("markdown")
+    renderable = handle._render_display_segment(
+        StreamSegment(kind="reasoning", text="*Thinking*"),
+        cursor_suffix=streaming_module.STREAM_CURSOR_BLOCK,
+    )
+    local_console = Console(force_terminal=True, color_system="standard", width=40)
+    segments = tuple(local_console.render(renderable, local_console.options))
+    visible = "".join(segment.text for segment in segments if not segment.control)
+    cursor_segments = [
+        segment for segment in segments if streaming_module.STREAM_CURSOR_BLOCK in segment.text
+    ]
+
+    assert visible.count(streaming_module.STREAM_CURSOR_BLOCK) == 1
+    assert visible.rstrip().endswith(f"Thinking{streaming_module.STREAM_CURSOR_BLOCK}")
+    assert len(cursor_segments) == 1
+    cursor_style = cursor_segments[0].style
+    assert cursor_style is not None
+    assert cursor_style.color is not None
+    assert cursor_style.color.name == "bright_green"
+
+
 @pytest.mark.asyncio
 async def test_async_stream_cursor_blinks_and_activity_makes_it_visible() -> None:
     original_console = _set_console_size()

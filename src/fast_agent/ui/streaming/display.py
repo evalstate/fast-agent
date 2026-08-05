@@ -206,7 +206,7 @@ def _style_terminal_stream_cursor(segments: tuple[Segment, ...]) -> tuple[Segmen
         start = offset
         end = start + len(segment.text)
         offset = end
-        if inserted or not start <= cursor_offset <= end:
+        if inserted or not start <= cursor_offset < end:
             output.append(segment)
             continue
 

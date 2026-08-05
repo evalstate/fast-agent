@@ -30,6 +30,7 @@ from fast_agent.ui.apply_patch_preview import (
     extract_non_command_args,
     format_apply_patch_preview,
     is_shell_execution_tool,
+    limit_preview_lines,
     shell_syntax_language,
     style_apply_patch_preview_text,
 )
@@ -428,6 +429,33 @@ class ToolDisplay:
             return preview
         return Group(preview, Text("…", style="dim"))
 
+    def _compact_write_text_file_preview(
+        self,
+        syntax: Syntax,
+        path_value: object,
+        *,
+        max_lines: int | None,
+    ) -> Group:
+        path = strip_str_to_none(path_value)
+        language = syntax_language_for_path(path) if path else None
+        preview = Syntax(
+            limit_preview_lines(syntax.code, max_lines=max_lines),
+            language or "text",
+            theme=self._display.code_style,
+            line_numbers=False,
+            word_wrap=self._display.code_word_wrap,
+        )
+        renderables: list[RenderableType] = []
+        if path:
+            label = Text("path: ", style="dim")
+            label.append(
+                fit_path_for_display(path, max(1, console.console.size.width - len("path: "))),
+                style="cyan",
+            )
+            renderables.append(label)
+        renderables.append(preview)
+        return Group(*renderables)
+
     def _show_compact_tool_call(
         self,
         *,
@@ -464,6 +492,17 @@ class ToolDisplay:
 
         arguments = self._display.tool_display_settings.arguments
         if arguments == "none":
+            return
+        if is_write_text_file_tool_name(tool_name) and isinstance(prepared.content, Syntax):
+            console.console.print(
+                self._compact_write_text_file_preview(
+                    prepared.content,
+                    tool_args.get("path"),
+                    max_lines=(
+                        self._display.apply_patch_preview_max_lines if arguments == "auto" else None
+                    ),
+                )
+            )
             return
         if (
             arguments == "auto"
@@ -514,6 +553,7 @@ class ToolDisplay:
         return not (
             is_shell_execution_tool(tool_name)
             or is_read_text_file_tool_name(tool_name)
+            or is_write_text_file_tool_name(tool_name)
             or is_apply_patch_tool_name(tool_name or "")
             or normalized_name == EDIT_FILE_TOOL_NAME
         )

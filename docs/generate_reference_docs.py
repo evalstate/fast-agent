@@ -910,7 +910,9 @@ def generate_tui_runtime_reference() -> str:
         "logger.code_theme": "Pygments/Rich syntax theme for Markdown code rendering.",
         "logger.render_fences_with_syntax": "Render Markdown code fences with Rich Syntax.",
         "logger.code_word_wrap": "Wrap Syntax-rendered code blocks instead of cropping.",
-        "logger.apply_patch_preview_max_lines": "Maximum lines to show in apply_patch previews.",
+        "logger.apply_patch_preview_max_lines": (
+            "Maximum lines to show in apply_patch and compact write_text_file previews."
+        ),
         "logger.tool_display.layout": "Compact summary-first or full legacy tool rendering.",
         "logger.tool_display.arguments": (
             "Tool argument visibility; auto shows redacted six-row JSON previews and specialized "

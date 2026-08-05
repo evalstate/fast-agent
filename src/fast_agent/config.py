@@ -1821,11 +1821,12 @@ class LoggerSettings(BaseModel):
     apply_patch_preview_max_lines: int | None = Field(
         default=120,
         description=(
-            "Maximum lines to show in apply_patch previews before appending "
+            "Maximum lines to show in apply_patch and compact write_text_file previews before "
+            "appending "
             "'(+N more lines)' (0/None = no limit)"
         ),
     )
-    """Maximum lines to show in apply_patch previews before truncation"""
+    """Maximum lines to show in apply_patch and compact write_text_file previews"""
 
     _theme_file_config_path: str | None = PrivateAttr(default=None)
 

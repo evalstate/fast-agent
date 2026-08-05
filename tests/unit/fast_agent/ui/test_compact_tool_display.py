@@ -258,6 +258,54 @@ def test_compact_metadata_code_tool_uses_specialized_preview() -> None:
     assert '"source"' not in rendered
 
 
+def test_compact_write_text_file_uses_path_labelled_limited_code_preview() -> None:
+    display = ConsoleDisplay(Settings(logger=LoggerSettings(apply_patch_preview_max_lines=2)))
+
+    with console.console.capture() as capture:
+        display.show_tool_call(
+            "write_text_file",
+            {
+                "path": "/tmp/plane/README.md",
+                "content": "# Heading\nvisible\nomitted\n",
+            },
+        )
+
+    rendered = capture.get()
+    assert "path:" in rendered
+    assert "plane/README.md" in rendered
+    assert "# Heading" in rendered
+    assert "visible" in rendered
+    assert "omitted" not in rendered
+    assert "(+1 more line)" in rendered
+    assert '"content"' not in rendered
+
+
+def test_compact_write_text_file_arguments_all_shows_complete_code() -> None:
+    display = ConsoleDisplay(
+        Settings(
+            logger=LoggerSettings(
+                apply_patch_preview_max_lines=1,
+                tool_display=ToolDisplaySettings(arguments="all"),
+            )
+        )
+    )
+
+    with console.console.capture() as capture:
+        display.show_tool_call(
+            "write_text_file",
+            {
+                "path": "example.py",
+                "content": "first = 1\nsecond = 2\n",
+            },
+        )
+
+    rendered = capture.get()
+    assert "example.py" in rendered
+    assert "first = 1" in rendered
+    assert "second = 2" in rendered
+    assert "more line" not in rendered
+
+
 def test_compact_background_shell_result_identifies_started_process() -> None:
     display = _display()
     result = CallToolResult(

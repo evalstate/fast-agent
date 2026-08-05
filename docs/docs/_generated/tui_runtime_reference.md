@@ -23,7 +23,7 @@
 | `logger.code_theme` | `LOGGER__CODE_THEME` | `str` | `native` | Pygments/Rich syntax theme for Markdown code rendering. |
 | `logger.render_fences_with_syntax` | `LOGGER__RENDER_FENCES_WITH_SYNTAX` | `bool` | `True` | Render Markdown code fences with Rich Syntax. |
 | `logger.code_word_wrap` | `LOGGER__CODE_WORD_WRAP` | `bool` | `True` | Wrap Syntax-rendered code blocks instead of cropping. |
-| `logger.apply_patch_preview_max_lines` | `LOGGER__APPLY_PATCH_PREVIEW_MAX_LINES` | `int \| None` | `120` | Maximum lines to show in apply_patch previews. |
+| `logger.apply_patch_preview_max_lines` | `LOGGER__APPLY_PATCH_PREVIEW_MAX_LINES` | `int \| None` | `120` | Maximum lines to show in apply_patch and compact write_text_file previews. |
 | `logger.tool_display.layout` | `LOGGER__TOOL_DISPLAY__LAYOUT` | `Literal['compact', 'full']` | `compact` | Compact summary-first or full legacy tool rendering. |
 | `logger.tool_display.arguments` | `LOGGER__TOOL_DISPLAY__ARGUMENTS` | `Literal['auto', 'all', 'none']` | `auto` | Tool argument visibility; auto shows redacted six-row JSON previews and specialized bodies. |
 | `logger.tool_display.results` | `LOGGER__TOOL_DISPLAY__RESULTS` | `Literal['auto', 'all', 'none']` | `auto` | Tool result body visibility. |
