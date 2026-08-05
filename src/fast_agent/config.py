@@ -55,7 +55,12 @@ from fast_agent.utils.transports import McpClientTransport
 
 type TerminalImageSize = int | Literal["auto"] | str | None
 type ShellWriteTextFileMode = Literal["auto", "on", "off", "apply_patch", "edit_file"]
-type ShellToolProfile = Literal["native", "minimal_process"]
+type ShellToolProfile = Literal[
+    "auto",
+    "native",
+    "minimal_process",
+    "grok_shell",
+]
 
 SHELL_WRITE_TEXT_FILE_MODES: tuple[ShellWriteTextFileMode, ...] = (
     "auto",
@@ -300,10 +305,12 @@ class ShellSettings(BaseModel):
     """Configuration for shell execution behavior."""
 
     tool_profile: ShellToolProfile = Field(
-        default="minimal_process",
+        default="auto",
         description=(
-            "Model-facing shell contract: 'minimal_process' exposes Bash and Process; "
-            "'native' retains the legacy execute/poll_process/terminate_process tools"
+            "Model-facing shell contract: 'auto' selects a model-specific contract; "
+            "'minimal_process' exposes Bash and Process; "
+            "'native' retains the legacy execute/poll_process/terminate_process tools; "
+            "'grok_shell' exposes aligned shell plus Process"
         ),
     )
     timeout_seconds: int = Field(

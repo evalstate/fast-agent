@@ -932,7 +932,7 @@ def generate_tui_runtime_reference() -> str:
         ),
         "logger.terminal_images.width": "Image render width.",
         "logger.terminal_images.height": "Image render height.",
-        "shell_execution.tool_profile": "Model-facing Bash/Process contract.",
+        "shell_execution.tool_profile": "Model-specific shell/process contract.",
         "shell_execution.output_display_lines": "Maximum shell/read_text_file lines to display.",
         "shell_execution.show_bash": "Show shell command output on the console.",
         "shell_execution.interactive_use_pty": "Use a PTY for interactive prompt shell commands.",

@@ -16,12 +16,14 @@ from fast_agent.tools.shell_command import classify_shell_detachment
 from fast_agent.utils.tool_names import (
     BASH_TOOL_NAME,
     EXECUTE_TOOL_NAME,
+    GROK_SHELL_TOOL_NAME,
     POLL_PROCESS_TOOL_NAME,
     PROCESS_TOOL_NAME,
     TERMINATE_PROCESS_TOOL_NAME,
 )
 
 MAX_IDLE_YIELD_SECONDS = 30
+MAX_GROK_SHELL_TIMEOUT_SECONDS = 600
 PROCESS_OUTPUT_DEBOUNCE_SECONDS = 2.0
 
 _EXECUTE_ARGUMENTS = frozenset(
@@ -38,6 +40,7 @@ _POLL_PROCESS_ARGUMENTS = frozenset({"process_id", "wait_sec", "wake_on_output"}
 _TERMINATE_PROCESS_ARGUMENTS = frozenset({"process_id"})
 _MINIMAL_BASH_ARGUMENTS = frozenset({"command", "description", "run_in_background"})
 _MINIMAL_PROCESS_ARGUMENTS = frozenset({"process_id", "action", "wait_sec"})
+_GROK_SHELL_ARGUMENTS = frozenset({"command", "working_directory", "background", "timeout"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +51,7 @@ class ShellExecuteArguments:
     lifecycle: Literal["session", "persistent"]
     yield_after_idle_sec: int | None
     output_byte_limit: int | None
+    hard_timeout_seconds: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -346,6 +350,49 @@ def build_minimal_process_tool(
     )
 
 
+def build_grok_shell_tool(*, shell_name: str) -> Tool:
+    return Tool(
+        name=GROK_SHELL_TOOL_NAME,
+        description=(
+            f"Run one shell command in {shell_name}. Omit `timeout` to preserve normal "
+            "foreground auto-yield behavior. When `timeout` is present, wait "
+            "synchronously for completion and terminate the process group if the hard "
+            "deadline expires. Set `background=true` only for a server, service, or "
+            "other command that must remain running for later checks or the verifier. "
+            "Do not use shell `&`, `nohup`, or `disown` to detach services."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "command": {"type": "string"},
+                "working_directory": {
+                    "type": "string",
+                    "description": "Optional working directory for this command only.",
+                },
+                "background": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Return promptly while the command continues as a managed "
+                        "persistent process. Do not combine with `timeout`."
+                    ),
+                },
+                "timeout": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": MAX_GROK_SHELL_TIMEOUT_SECONDS,
+                    "description": (
+                        "Optional foreground hard deadline in seconds. Suppresses "
+                        "normal auto-yield and terminates the process group on expiry."
+                    ),
+                },
+            },
+            "required": ["command"],
+            "additionalProperties": False,
+        },
+    )
+
+
 def set_poll_process_tool_default_wait_seconds(
     tool: Tool,
     *,
@@ -519,6 +566,52 @@ def parse_minimal_bash_arguments(
         lifecycle="persistent" if run_in_background else "session",
         yield_after_idle_sec=None,
         output_byte_limit=None,
+    )
+
+
+def parse_grok_shell_arguments(
+    arguments: dict[str, Any] | None,
+) -> ShellExecuteArguments:
+    payload = coerce_tool_arguments(arguments)
+    _reject_unknown_arguments(
+        payload,
+        _GROK_SHELL_ARGUMENTS,
+        tool_name=GROK_SHELL_TOOL_NAME,
+    )
+    background = payload.get("background", False)
+    if type(background) is not bool:
+        raise ValueError("Error: 'background' argument must be a boolean")
+    timeout = coerce_positive_int_argument(payload.get("timeout"), "timeout")
+    if timeout is not None and timeout > MAX_GROK_SHELL_TIMEOUT_SECONDS:
+        raise ValueError(
+            f"Error: 'timeout' argument must be at most {MAX_GROK_SHELL_TIMEOUT_SECONDS}"
+        )
+    if background and timeout is not None:
+        raise ValueError("Error: 'background=true' cannot be combined with 'timeout'")
+    command = coerce_required_string_argument(
+        payload.get("command"),
+        "command",
+        strip=True,
+    )
+    if classify_shell_detachment(command, run_in_background=background) != "none":
+        raise ValueError(
+            "Shell-level backgrounding was not executed.\n"
+            "Submit only the long-running service command with background=true, "
+            "then use a managed-process tool for lifecycle operations."
+        )
+    return ShellExecuteArguments(
+        command=command,
+        cwd=coerce_optional_string_argument(
+            payload.get("working_directory"),
+            "working_directory",
+            empty_as_none=True,
+            strip=True,
+        ),
+        background=background,
+        lifecycle="persistent" if background else "session",
+        yield_after_idle_sec=None,
+        output_byte_limit=None,
+        hard_timeout_seconds=timeout,
     )
 
 

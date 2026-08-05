@@ -799,7 +799,7 @@ skills:
 
 ```yaml
 shell_execution:
-  tool_profile: minimal_process  # Bash + Process (default); native retains legacy tools
+  tool_profile: auto  # Grok uses shell + process; other models use bash + process
   timeout_seconds: 90
   warning_interval_seconds: 30
   interactive_use_pty: true  # Use PTY for interactive prompt shell commands
@@ -811,13 +811,18 @@ shell_execution:
   managed_process_poll_history_folding: auto  # auto | on | off
 ```
 
-`tool_profile` controls the model-facing contract only. The default
-`minimal_process` profile exposes `Bash(command, run_in_background?)` and
-`Process(action, process_id?)`. Use `Process(action="list")` to list retained
-managed processes in creation order; `process_id` is required for `status`,
-`wait`, and `stop`. The `native` profile remains available as a
-compatibility escape hatch for the legacy `execute`, `poll_process`, and
-`terminate_process` schemas; both profiles use the same managed-process runtime.
+`tool_profile` controls the model-facing contract only. The default `auto`
+profile selects the catalog contract for the active model. Grok models expose
+`shell(command, working_directory?, background?, timeout?)` plus unified
+`process(...)`; other models retain `bash(...)` plus unified `process(...)`.
+Use `process(action="list")` to list retained managed processes in creation
+order; `process_id` is required for `status`, `wait`, and `stop`.
+
+Set `tool_profile` explicitly to `minimal_process`, `grok_shell`, or `native`
+to override automatic selection, including after runtime model switches.
+`native` remains a compatibility escape hatch for the legacy `execute`,
+`poll_process`, and `terminate_process` schemas. All profiles use the same
+managed-process runtime.
 
 When `output_byte_limit` is omitted, a model-catalog override is used when
 available, followed by the global 16,000-byte default. An explicit positive

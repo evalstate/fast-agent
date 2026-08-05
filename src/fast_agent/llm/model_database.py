@@ -62,6 +62,9 @@ class ModelParameters(BaseModel):
     shell_edit_tool: Literal["write_text_file", "edit_file", "apply_patch", "off"] | None = None
     """Optional model-specific default for the local file-edit tool contract."""
 
+    shell_tool_profile: Literal["native", "minimal_process", "grok_shell"] | None = None
+    """Optional model-specific shell contract selected when shell tool profile is auto."""
+
     reasoning: None | str = None
     """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
 
@@ -861,6 +864,7 @@ class ModelDatabase:
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.XAI,),
         process_poll_default_wait_seconds=240,
+        shell_tool_profile="grok_shell",
     )
 
     GROK_45 = ModelParameters(
@@ -877,6 +881,7 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=240,
         shell_output_byte_limit=16_000,
+        shell_tool_profile="grok_shell",
     )
 
     MUSE_SPARK = ModelParameters(

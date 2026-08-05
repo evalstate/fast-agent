@@ -46,6 +46,7 @@ from fast_agent.ui.tool_display import ToolCallDisplayRequest, ToolResultDisplay
 from fast_agent.utils.tool_names import (
     BASH_TOOL_NAME,
     EXECUTE_TOOL_NAME,
+    GROK_SHELL_TOOL_NAME,
     PROCESS_TOOL_NAME,
 )
 
@@ -1847,8 +1848,8 @@ async def test_grok_catalog_shell_output_limit_applies_when_setting_is_omitted()
 
 
 @pytest.mark.asyncio
-async def test_grok_uses_minimal_process_default_and_preserves_native_override() -> None:
-    minimal_agent = McpAgent(
+async def test_grok_uses_aligned_shell_default_and_preserves_native_override() -> None:
+    auto_agent = McpAgent(
         config=AgentConfig(
             name="minimal",
             instruction="Instruction",
@@ -1858,10 +1859,10 @@ async def test_grok_uses_minimal_process_default_and_preserves_native_override()
         ),
         context=Context(config=Settings(shell_execution=ShellSettings())),
     )
-    minimal_runtime = minimal_agent.shell_runtime
-    assert minimal_runtime is not None
-    assert {tool.name for tool in minimal_runtime.tools} == {
-        BASH_TOOL_NAME,
+    auto_runtime = auto_agent.shell_runtime
+    assert auto_runtime is not None
+    assert {tool.name for tool in auto_runtime.tools} == {
+        GROK_SHELL_TOOL_NAME,
         PROCESS_TOOL_NAME,
     }
 
@@ -1885,7 +1886,7 @@ async def test_grok_uses_minimal_process_default_and_preserves_native_override()
     assert not native_runtime.owns_tool(BASH_TOOL_NAME)
     assert not native_runtime.owns_tool(PROCESS_TOOL_NAME)
 
-    await minimal_agent._aggregator.close()
+    await auto_agent._aggregator.close()
     await native_agent._aggregator.close()
 
 
@@ -1908,6 +1909,40 @@ async def test_default_shell_output_limit_returns_after_switching_away_from_grok
     agent._on_llm_attached(cast("Any", StubLLM("claude-opus-4-6")))
 
     assert shell_runtime.output_byte_limit == DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+    assert {tool.name for tool in shell_runtime.tools} == {
+        BASH_TOOL_NAME,
+        PROCESS_TOOL_NAME,
+    }
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_auto_shell_profile_switches_to_aligned_shell_with_grok_llm() -> None:
+    settings = Settings(shell_execution=ShellSettings())
+    agent = McpAgent(
+        config=AgentConfig(
+            name="test",
+            instruction="Instruction",
+            servers=[],
+            shell=True,
+            model="claude-opus-4-6",
+        ),
+        context=Context(config=settings),
+    )
+    shell_runtime = agent.shell_runtime
+    assert shell_runtime is not None
+    assert {tool.name for tool in shell_runtime.tools} == {
+        BASH_TOOL_NAME,
+        PROCESS_TOOL_NAME,
+    }
+
+    agent._on_llm_attached(cast("Any", StubLLM("xai/grok-4.5")))
+
+    assert {tool.name for tool in shell_runtime.tools} == {
+        GROK_SHELL_TOOL_NAME,
+        PROCESS_TOOL_NAME,
+    }
 
     await agent._aggregator.close()
 

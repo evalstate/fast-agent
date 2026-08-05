@@ -261,6 +261,7 @@ def build_managed_process_result(
     *,
     yielded_reason: str | None,
     minimal_process_profile: bool,
+    aligned_shell_profile: bool,
     io_drain_timeout_seconds: float,
 ) -> CallToolResult:
     unread_output_line_count = process.output_state.unread_output_line_count
@@ -291,14 +292,21 @@ def build_managed_process_result(
             )
         else:
             status_message = "Command is still running; no completion result is available yet."
-        if minimal_process_profile and persistent_background:
+        if aligned_shell_profile and persistent_background:
+            next_action = (
+                "This command was intentionally started with background=true. "
+                "Do not wait for it to exit; use `process` with action='status' "
+                "to inspect it or action='stop' to terminate it, and run readiness "
+                "checks in a separate `shell` call."
+            )
+        elif minimal_process_profile and persistent_background:
             next_action = (
                 "This command was intentionally started with "
                 "run_in_background=true. Do not wait for it to exit; use `process` "
                 "with action='status' to inspect it or action='stop' to terminate it, "
                 "and run readiness checks in a separate `bash` call."
             )
-        elif minimal_process_profile:
+        elif minimal_process_profile or aligned_shell_profile:
             next_action = (
                 "Next: call `process` with action='wait' or 'status'. Do not rely "
                 "on partial output or end the task until the command completes."
@@ -318,16 +326,20 @@ def build_managed_process_result(
             ]
         )
         if (
-            minimal_process_profile
+            (minimal_process_profile or aligned_shell_profile)
             and process.lifecycle == "session"
             and yielded_reason in {"idle", "foreground"}
         ):
             sections.append(
                 "This process is session-scoped and will be stopped when the agent finishes. "
                 "If it must remain running, stop it and relaunch with "
-                "run_in_background=true."
+                f"{'background' if aligned_shell_profile else 'run_in_background'}=true."
             )
-        if process.callbacks.os_process_id is not None and not minimal_process_profile:
+        if (
+            process.callbacks.os_process_id is not None
+            and not minimal_process_profile
+            and not aligned_shell_profile
+        ):
             sections.insert(-3, f"os_pid: {process.callbacks.os_process_id}")
         result = process_result(
             "\n".join(sections),

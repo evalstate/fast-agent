@@ -13,11 +13,12 @@ POLL_PROCESS_TOOL_NAME = "poll_process"
 TERMINATE_PROCESS_TOOL_NAME = "terminate_process"
 BASH_TOOL_NAME = "bash"
 PROCESS_TOOL_NAME = "process"
+GROK_SHELL_TOOL_NAME = "shell"
 SHELL_COMMAND_TOOL_NAMES = frozenset(
     {
         EXECUTE_TOOL_NAME,
         BASH_TOOL_NAME.casefold(),
-        "shell",
+        GROK_SHELL_TOOL_NAME,
     }
 )
 SHELL_EXECUTION_TOOL_NAMES = frozenset(
