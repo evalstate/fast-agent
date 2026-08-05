@@ -290,6 +290,29 @@ def test_style_markdown_renderable_matches_across_segments_and_preserves_styles(
     assert styles[1].italic is True
 
 
+def test_style_markdown_renderable_does_not_match_numeric_suffixes() -> None:
+    markdown = build_markdown_renderable(
+        "| Cache read |\n| ---: |\n| 4,290,048 (89%) |\n| 0 (0%) |\n| 11,096,064 (90%) |\n",
+        code_theme="monokai",
+        escape_xml=True,
+    )
+    renderable = style_markdown_renderable(
+        markdown,
+        (MarkdownTextStyle(text="0%", style="red"),),
+    )
+    console = Console(force_terminal=True, color_system="standard", width=40)
+    segments = tuple(console.render(renderable, console.options))
+    red_text = "".join(
+        segment.text
+        for segment in segments
+        if segment.style is not None
+        and segment.style.color is not None
+        and segment.style.color.name == "red"
+    )
+
+    assert red_text == "0%"
+
+
 def test_build_markdown_renderable_adds_newline_after_optional_pipe_table_row() -> None:
     renderable = build_markdown_renderable(
         "Name | Value\n--- | ---\none | two |",

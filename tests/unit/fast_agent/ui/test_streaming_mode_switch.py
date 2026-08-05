@@ -1,3 +1,4 @@
+import asyncio
 import io
 from typing import Any, cast
 
@@ -1093,8 +1094,103 @@ def test_stream_cursor_suffix_only_targets_last_segment() -> None:
         == streaming_module.STREAM_CURSOR_BLOCK
     )
 
+    handle._stream_cursor_visible = False
+    assert handle._cursor_suffix(segment_index=1, total_segments=2) == " "
+
     handle._show_stream_cursor = False
     assert handle._cursor_suffix(segment_index=1, total_segments=2) == ""
+
+
+def test_stream_cursor_blinks_after_idle_delay_and_resets() -> None:
+    blink = streaming_module._StreamCursorBlink(
+        last_activity_at=10.0,
+        idle_delay=0.5,
+        half_cycle=0.5,
+    )
+
+    assert blink.visible_at(10.499) is True
+    assert blink.visible_at(10.5) is False
+    assert blink.visible_at(10.999) is False
+    assert blink.visible_at(11.0) is True
+    assert blink.visible_at(11.5) is False
+    assert blink.next_transition_at(11.6) == 12.0
+
+    blink.reset(20.0)
+    assert blink.visible_at(20.499) is True
+    assert blink.visible_at(20.5) is False
+
+
+def test_stream_cursor_is_bright_green_without_recoloring_content() -> None:
+    handle = _make_handle("plain")
+    renderable = handle._render_display_segment(
+        StreamSegment(kind="plain", text="prior ● content"),
+        cursor_suffix=streaming_module.STREAM_CURSOR_BLOCK,
+    )
+    local_console = Console(force_terminal=True, color_system="standard", width=40)
+    segments = tuple(local_console.render(renderable, local_console.options))
+    green_segments = [
+        segment
+        for segment in segments
+        if segment.style is not None
+        and segment.style.color is not None
+        and segment.style.color.name == "bright_green"
+    ]
+
+    assert (
+        "".join(segment.text for segment in green_segments) == streaming_module.STREAM_CURSOR_BLOCK
+    )
+    assert green_segments[0].style is not None
+    assert green_segments[0].style.bold is True
+    assert green_segments[0].style.dim is False
+
+
+def test_stream_cursor_remains_visible_after_markdown_table() -> None:
+    handle = _make_handle("markdown")
+    renderable = handle._render_display_segment(
+        StreamSegment(kind="markdown", text="| A | B |\n| - | - |\n| 1 | 2 |"),
+        cursor_suffix=streaming_module.STREAM_CURSOR_BLOCK,
+    )
+    local_console = Console(force_terminal=True, color_system="standard", width=40)
+    segments = tuple(local_console.render(renderable, local_console.options))
+    green_text = "".join(
+        segment.text
+        for segment in segments
+        if segment.style is not None
+        and segment.style.color is not None
+        and segment.style.color.name == "bright_green"
+    )
+
+    assert green_text == streaming_module.STREAM_CURSOR_BLOCK
+
+
+@pytest.mark.asyncio
+async def test_async_stream_cursor_blinks_and_activity_makes_it_visible() -> None:
+    original_console = _set_console_size()
+    handle = _make_handle("plain")
+    worker = handle._worker_task
+    try:
+        assert handle._async_mode is True
+        handle._stream_cursor_blink = streaming_module._StreamCursorBlink(
+            idle_delay=0.01,
+            half_cycle=0.01,
+        )
+
+        handle.update("first")
+        await handle.wait_for_drain()
+        assert handle._stream_cursor_visible is True
+
+        async with asyncio.timeout(0.25):
+            while handle._stream_cursor_visible:
+                await asyncio.sleep(0.001)
+
+        handle.update(" second")
+        await handle.wait_for_drain()
+        assert handle._stream_cursor_visible is True
+    finally:
+        handle.close()
+        if worker is not None:
+            await asyncio.gather(worker, return_exceptions=True)
+        _restore_console_size(original_console)
 
 
 def test_preserve_final_frame_requires_rendered_content() -> None:

@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from fast_agent.types import RequestParams
 
 DEFAULT_XAI_MODEL = "grok-4.3"
-GROK_45_HIGH_STREAMING_TIMEOUT: Final = 180.0
+GROK_45_HIGH_STREAMING_TIMEOUT: Final = 300.0
 XAI_BASE_URL = "https://api.x.ai/v1"
 XAI_X_SEARCH_INTERNAL_TOOL_NAMES = frozenset(
     {
