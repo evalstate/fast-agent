@@ -67,7 +67,7 @@ from fast_agent.constants import (
 from fast_agent.core.exceptions import AgentConfigError, PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
-from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_database import ModelDatabase, ModelParameters
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_max_tokens,
@@ -132,7 +132,7 @@ from fast_agent.ui.shell_notice import format_shell_notice
 from fast_agent.ui.tool_display import ToolCallDisplayRequest, ToolResultDisplayRequest
 from fast_agent.utils.async_utils import gather_with_cancel
 from fast_agent.utils.text import strip_casefold, strip_to_none
-from fast_agent.utils.tool_names import is_read_text_file_tool_name
+from fast_agent.utils.tool_names import BASH_TOOL_NAME, is_read_text_file_tool_name
 
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -919,31 +919,44 @@ class McpAgent(ABC, ToolAgent):
             return "auto"
         return self._context.config.shell_execution.enable_attach_media
 
-    def _resolve_shell_edit_tool_mode(self) -> ShellEditToolMode:
+    def _resolve_shell_edit_tool_mode(
+        self,
+        llm: FastAgentLLMProtocol | None = None,
+    ) -> ShellEditToolMode:
         """Return which shell edit tool should be exposed for the current model/config."""
-        model_name = self._resolve_shell_tool_model_name()
-        if self._prefers_apply_patch_model(model_name):
-            default_mode = ShellEditToolMode.APPLY_PATCH
-        elif self._prefers_anthropic_edit_file_model(model_name):
-            default_mode = ShellEditToolMode.EDIT_FILE
-        else:
-            default_mode = ShellEditToolMode.WRITE_TEXT_FILE
-
-        if not self._context or not self._context.config:
-            return default_mode
-
-        mode_raw = self._context.config.shell_execution.write_text_file_mode
+        mode_raw = (
+            self._context.config.shell_execution.write_text_file_mode
+            if self._context and self._context.config
+            else None
+        )
         mode = strip_casefold(mode_raw) if isinstance(mode_raw, str) else None
         configured_modes = {
             "on": ShellEditToolMode.WRITE_TEXT_FILE,
             ShellEditToolMode.OFF.value: ShellEditToolMode.OFF,
             ShellEditToolMode.APPLY_PATCH.value: ShellEditToolMode.APPLY_PATCH,
-            "auto": default_mode,
+            ShellEditToolMode.EDIT_FILE.value: ShellEditToolMode.EDIT_FILE,
         }
-        return configured_modes.get(mode or "", default_mode)
+        if mode in configured_modes:
+            return configured_modes[mode]
 
-    def _shell_edit_tool_flags(self) -> ShellEditToolFlags:
-        return ShellEditToolFlags.from_mode(self._resolve_shell_edit_tool_mode())
+        model_params = self._resolve_shell_model_params(llm)
+        if model_params is not None and model_params.shell_edit_tool is not None:
+            return ShellEditToolMode(model_params.shell_edit_tool)
+
+        model_name = (
+            resolve_model_name(llm) if llm is not None else self._resolve_shell_tool_model_name()
+        )
+        if self._prefers_apply_patch_model(model_name):
+            return ShellEditToolMode.APPLY_PATCH
+        if self._prefers_anthropic_edit_file_model(model_name):
+            return ShellEditToolMode.EDIT_FILE
+        return ShellEditToolMode.WRITE_TEXT_FILE
+
+    def _shell_edit_tool_flags(
+        self,
+        llm: FastAgentLLMProtocol | None = None,
+    ) -> ShellEditToolFlags:
+        return ShellEditToolFlags.from_mode(self._resolve_shell_edit_tool_mode(llm))
 
     def _resolve_shell_tool_model_name(self) -> str | None:
         """Resolve the best-available model name for shell tool policy decisions."""
@@ -956,6 +969,30 @@ class McpAgent(ABC, ToolAgent):
         if not model_name and self._context and self._context.config:
             model_name = self._context.config.default_model
         return model_name
+
+    def _resolve_shell_model_params(
+        self,
+        llm: FastAgentLLMProtocol | None = None,
+    ) -> ModelParameters | None:
+        active_llm = llm or self._llm
+        if active_llm is not None:
+            model_params = resolve_model_params(active_llm)
+            if model_params is not None:
+                return model_params
+        model_name = self._resolve_shell_tool_model_name()
+        return ModelDatabase.get_model_params(model_name) if model_name else None
+
+    def _resolve_minimal_shell_tool_contract(
+        self,
+        llm: FastAgentLLMProtocol | None = None,
+    ) -> tuple[str, bool]:
+        model_params = self._resolve_shell_model_params(llm)
+        if model_params is None:
+            return BASH_TOOL_NAME, False
+        return (
+            model_params.shell_tool_name or BASH_TOOL_NAME,
+            model_params.shell_tool_requires_description,
+        )
 
     @staticmethod
     def _prefers_apply_patch_model(model_name: str | None) -> bool:
@@ -1128,7 +1165,7 @@ class McpAgent(ABC, ToolAgent):
 
         local_runtime = self._local_filesystem_runtime()
         if local_runtime is not None:
-            edit_flags = self._shell_edit_tool_flags()
+            edit_flags = self._shell_edit_tool_flags(llm)
             local_runtime.set_model_info(llm.model_info)
             local_runtime.set_enabled_tools(
                 enable_read=self._shell_read_text_file_enabled(),
@@ -1139,7 +1176,7 @@ class McpAgent(ABC, ToolAgent):
             )
         environment_runtime = self._environment_filesystem_runtime()
         if environment_runtime is not None:
-            edit_flags = self._shell_edit_tool_flags()
+            edit_flags = self._shell_edit_tool_flags(llm)
             environment_runtime.set_enabled_tools(
                 enable_read=self._shell_read_text_file_enabled(),
                 enable_write=edit_flags.write_text_file,
@@ -1151,8 +1188,11 @@ class McpAgent(ABC, ToolAgent):
 
         if self._shell_runtime is None:
             return
-        self._shell_runtime.set_extended_guidance(
-            self._prefers_extended_shell_guidance(resolve_model_name(llm))
+        shell_tool_name, require_description = self._resolve_minimal_shell_tool_contract(llm)
+        self._shell_runtime.set_minimal_shell_tool_contract(
+            tool_name=shell_tool_name,
+            require_description=require_description,
+            extended_guidance=self._prefers_extended_shell_guidance(resolve_model_name(llm)),
         )
         self._bash_tool = self._shell_runtime.tool
         self._shell_runtime.set_process_poll_default_wait_seconds(
@@ -1220,6 +1260,7 @@ class McpAgent(ABC, ToolAgent):
         self._warn_if_invalid_shell_working_directory(working_directory)
 
         shell_settings = self._resolve_shell_runtime_settings()
+        shell_tool_name, require_description = self._resolve_minimal_shell_tool_contract()
 
         self._shell_runtime_activation_reason = activation_reason
         self._shell_runtime = ShellRuntime(
@@ -1233,6 +1274,8 @@ class McpAgent(ABC, ToolAgent):
             config=self._context.config if self._context else None,
             agent_name=self._name,
             shell_environment=self._shell_environment,
+            minimal_shell_tool_name=shell_tool_name,
+            minimal_shell_tool_requires_description=require_description,
             extended_guidance=self._prefers_extended_shell_guidance(
                 self._resolve_shell_tool_model_name()
             ),

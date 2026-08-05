@@ -420,7 +420,7 @@ def _normalize_shell_updates(result: dict[str, Any]) -> dict[str, Any]:
         if value is not None:
             shell_updates[key] = value
 
-    # write_text_file mode: auto|on|off|apply_patch (defaults to auto).
+    # File-edit tool mode: auto|on|off|apply_patch|edit_file (defaults to auto).
     mode_raw = result.get("write_text_file_mode", "auto")
     shell_updates["write_text_file_mode"] = normalize_shell_write_text_file_mode(mode_raw) or "auto"
 

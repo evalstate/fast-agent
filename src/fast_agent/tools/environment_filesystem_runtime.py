@@ -163,18 +163,35 @@ class EnvironmentFilesystemRuntime(FilesystemRuntimeBase):
         edit_input = extract_edit_file_input(arguments)
         if edit_input is None:
             return text_result(
-                "Error: 'path', 'old_string', and 'new_string' arguments are required",
+                (
+                    "Error: 'path' and 'new_string' are required strings; "
+                    "'old_string' must be a string when provided and defaults to empty "
+                    "for creation"
+                ),
                 is_error=True,
             )
 
         with tempfile.TemporaryDirectory(prefix="fast-agent-environment-edit-") as temp_dir:
             local_path = Path(temp_dir) / "target.txt"
-            try:
-                local_path.write_text(
-                    await self._filesystem.read_text(edit_input.path), encoding="utf-8"
-                )
-            except Exception as exc:
-                return text_result(f"Error reading file: {exc}", is_error=True)
+            if edit_input.old_string == "":
+                try:
+                    if await self._filesystem.exists(edit_input.path):
+                        return text_result(
+                            (
+                                f"File already exists: {edit_input.path}. Re-read it and "
+                                "provide old_string for an exact replacement."
+                            ),
+                            is_error=True,
+                        )
+                except Exception as exc:
+                    return text_result(f"Error checking file: {exc}", is_error=True)
+            else:
+                try:
+                    local_path.write_text(
+                        await self._filesystem.read_text(edit_input.path), encoding="utf-8"
+                    )
+                except Exception as exc:
+                    return text_result(f"Error reading file: {exc}", is_error=True)
 
             result = run_edit_file(
                 local_path,

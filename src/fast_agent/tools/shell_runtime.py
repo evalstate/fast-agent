@@ -180,6 +180,8 @@ class ShellRuntime:
         shell_environment: ShellEnvironment | None = None,
         idle_yield_seconds: float = _DEFAULT_IDLE_YIELD_SECONDS,
         foreground_yield_seconds: float = _DEFAULT_FOREGROUND_YIELD_SECONDS,
+        minimal_shell_tool_name: str = BASH_TOOL_NAME,
+        minimal_shell_tool_requires_description: bool = False,
         extended_guidance: bool = False,
     ) -> None:
         self._working_directory = str(working_directory) if working_directory is not None else None
@@ -204,6 +206,8 @@ class ShellRuntime:
         self._agent_name = agent_name
         self._idle_yield_seconds = idle_yield_seconds
         self._foreground_yield_seconds = foreground_yield_seconds
+        self._minimal_shell_tool_name = minimal_shell_tool_name
+        self._minimal_shell_tool_requires_description = minimal_shell_tool_requires_description
         self._extended_guidance = extended_guidance
         self._managed_processes: dict[str, ManagedShellProcess] = {}
         self._next_process_id = 1
@@ -247,6 +251,8 @@ class ShellRuntime:
                 self._tool = set_tool_source(
                     build_minimal_bash_tool(
                         shell_name=shell_name,
+                        tool_name=self._minimal_shell_tool_name,
+                        require_description=self._minimal_shell_tool_requires_description,
                         extended_guidance=self._extended_guidance,
                     ),
                     SHELL_TOOL_SOURCE,
@@ -255,6 +261,7 @@ class ShellRuntime:
                     build_minimal_process_tool(
                         default_wait_seconds=self._minimal_process_wait_seconds(),
                         max_wait_seconds=self._max_process_poll_seconds,
+                        shell_tool_name=self._minimal_shell_tool_name,
                         extended_guidance=self._extended_guidance,
                     ),
                     SHELL_TOOL_SOURCE,
@@ -304,16 +311,38 @@ class ShellRuntime:
 
     def set_extended_guidance(self, enabled: bool) -> None:
         """Refresh model-facing minimal tools when model guidance policy changes."""
-        if self._extended_guidance == enabled:
+        self.set_minimal_shell_tool_contract(
+            tool_name=self._minimal_shell_tool_name,
+            require_description=self._minimal_shell_tool_requires_description,
+            extended_guidance=enabled,
+        )
+
+    def set_minimal_shell_tool_contract(
+        self,
+        *,
+        tool_name: str,
+        require_description: bool,
+        extended_guidance: bool,
+    ) -> None:
+        """Refresh the catalog-driven model-facing minimal shell contract."""
+        if (
+            self._minimal_shell_tool_name == tool_name
+            and self._minimal_shell_tool_requires_description == require_description
+            and self._extended_guidance == extended_guidance
+        ):
             return
-        self._extended_guidance = enabled
+        self._minimal_shell_tool_name = tool_name
+        self._minimal_shell_tool_requires_description = require_description
+        self._extended_guidance = extended_guidance
         if not self.enabled or not self._minimal_process_profile:
             return
         shell_name = self.runtime_info().name
         self._tool = set_tool_source(
             build_minimal_bash_tool(
                 shell_name=shell_name,
-                extended_guidance=enabled,
+                tool_name=tool_name,
+                require_description=require_description,
+                extended_guidance=extended_guidance,
             ),
             SHELL_TOOL_SOURCE,
         )
@@ -321,7 +350,8 @@ class ShellRuntime:
             build_minimal_process_tool(
                 default_wait_seconds=self._minimal_process_wait_seconds(),
                 max_wait_seconds=self._max_process_poll_seconds,
-                extended_guidance=enabled,
+                shell_tool_name=tool_name,
+                extended_guidance=extended_guidance,
             ),
             SHELL_TOOL_SOURCE,
         )
@@ -1416,9 +1446,17 @@ class ShellRuntime:
         defer_display_to_tool_result: bool = False,
     ) -> CallToolResult:
         """Dispatch one model-facing shell lifecycle tool."""
-        if name.casefold() == BASH_TOOL_NAME and self._minimal_process_profile:
+        if (
+            self._tool is not None
+            and name.casefold() == self._tool.name.casefold()
+            and self._minimal_process_profile
+        ):
             try:
-                parsed = parse_minimal_bash_arguments(arguments)
+                parsed = parse_minimal_bash_arguments(
+                    arguments,
+                    tool_name=self._minimal_shell_tool_name,
+                    require_description=self._minimal_shell_tool_requires_description,
+                )
             except ValueError as exc:
                 return self._invalid_execute_result(str(exc))
             return await self._execute_parsed(

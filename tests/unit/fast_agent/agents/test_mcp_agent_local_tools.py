@@ -904,6 +904,98 @@ async def test_write_text_file_auto_mode_uses_edit_only_for_anthropic_series_mod
 
 
 @pytest.mark.asyncio
+async def test_deepseek_uses_catalog_driven_shell_and_edit_only_contract() -> None:
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="deepseek.deepseek-v4-flash",
+    )
+    agent = McpAgent(config=config, context=Context())
+
+    tools = {tool.name: tool for tool in (await agent.list_tools()).tools}
+    assert "Shell" in tools
+    assert "bash" not in tools
+    assert "write_text_file" not in tools
+    assert "edit_file" in tools
+    assert "apply_patch" not in tools
+    assert set(tools["Shell"].input_schema["properties"]) == {
+        "command",
+        "description",
+        "run_in_background",
+    }
+    assert tools["Shell"].input_schema["required"] == ["command", "description"]
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_write_mode_overrides_deepseek_edit_only_default() -> None:
+    settings = Settings(shell_execution=ShellSettings(write_text_file_mode="on"))
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="deepseek.deepseek-v4-flash",
+    )
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "write_text_file" in tool_names
+    assert "edit_file" in tool_names
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_attaching_deepseek_rebuilds_shell_and_file_tool_contract() -> None:
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="qwen35",
+    )
+    agent = McpAgent(config=config, context=Context())
+
+    initial = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "bash" in initial
+    assert "write_text_file" in initial
+
+    agent._on_llm_attached(cast("Any", StubLLM("deepseek-v4-flash")))
+
+    attached = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "Shell" in attached
+    assert "bash" not in attached
+    assert "write_text_file" not in attached
+    assert "edit_file" in attached
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_edit_file_mode_hides_writer_for_other_models() -> None:
+    settings = Settings(shell_execution=ShellSettings(write_text_file_mode="edit_file"))
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="qwen35",
+    )
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "write_text_file" not in tool_names
+    assert "edit_file" in tool_names
+    assert "apply_patch" not in tool_names
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
 async def test_write_text_file_auto_mode_remains_enabled_for_qwen35() -> None:
     config = AgentConfig(
         name="test",
@@ -1046,7 +1138,8 @@ async def test_minimal_shell_extended_guidance_is_gpt56_specific(
     agent = McpAgent(config=config, context=Context(config=Settings()))
 
     tools = {tool.name: tool for tool in (await agent.list_tools()).tools}
-    bash_description = tools["bash"].description or ""
+    shell_tool_name = "Shell" if model == "deepseek.deepseek-v4-flash" else "bash"
+    bash_description = tools[shell_tool_name].description or ""
     process_description = tools["process"].description or ""
 
     assert ("task-relevant verification" in bash_description) is expects_extended_guidance

@@ -43,6 +43,7 @@ def test_string_config_sentinels_are_case_and_space_insensitive() -> None:
     assert terminal_images.height is None
     assert logger.apply_patch_preview_max_lines is None
     assert normalize_shell_write_text_file_mode(" YES ") == "on"
+    assert normalize_shell_write_text_file_mode(" EDIT_FILE ") == "edit_file"
 
 
 def test_mcp_timeline_steps_rejects_boolean_values() -> None:

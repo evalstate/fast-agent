@@ -157,9 +157,11 @@ def test_process_cache_boundary_survives_poll_folding():
     assert managed_process_poll_cache_boundary(effective_history) == 2
 
 
+@pytest.mark.parametrize("start_tool_name", ["Bash", "Shell"])
 @pytest.mark.parametrize("explicit_wait_sec", [None, 30])
 def test_minimal_process_aliases_preserve_folding_and_cache_boundary(
     explicit_wait_sec: int | None,
+    start_tool_name: str,
 ) -> None:
     history = [
         PromptMessageExtended(
@@ -176,7 +178,7 @@ def test_minimal_process_aliases_preserve_folding_and_cache_boundary(
     start_calls = history[1].tool_calls
     assert start_calls is not None
     start = next(iter(start_calls.values()))
-    start.params.name = "Bash"
+    start.params.name = start_tool_name
     start.params.arguments = {
         "command": "sleep 500",
         "run_in_background": True,

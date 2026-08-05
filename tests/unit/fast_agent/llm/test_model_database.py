@@ -457,6 +457,15 @@ def test_model_database_supports_mime_basic():
     assert ModelDatabase.supports_mime("gpt-4o", "png")
 
 
+def test_deepseek_v4_flash_uses_learned_shell_contract() -> None:
+    params = ModelDatabase.get_model_params("deepseek-v4-flash")
+
+    assert params is not None
+    assert params.shell_tool_name == "Shell"
+    assert params.shell_tool_requires_description is True
+    assert params.shell_edit_tool == "edit_file"
+
+
 def test_model_database_xai_grok_aliases_and_responses_transport():
     assert ModelDatabase.get_default_provider("grok") == Provider.XAI
     assert ModelDatabase.get_default_provider("grok-4.3") == Provider.XAI

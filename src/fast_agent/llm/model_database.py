@@ -53,6 +53,15 @@ class ModelParameters(BaseModel):
     )
     """Optional model-specific default for model-facing shell output previews."""
 
+    shell_tool_name: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_-]*$")
+    """Optional model-facing name for the minimal-process shell tool."""
+
+    shell_tool_requires_description: bool = False
+    """Whether the minimal-process shell tool requires an operator-facing description."""
+
+    shell_edit_tool: Literal["write_text_file", "edit_file", "apply_patch", "off"] | None = None
+    """Optional model-specific default for the local file-edit tool contract."""
+
     reasoning: None | str = None
     """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
 
@@ -700,6 +709,9 @@ class ModelDatabase:
         # Intentional reuse of the file-writing guidance: probe data
         # showed ~-20% token usage with no pass-rate regression for this model.
         model_specific=MODEL_PREFERS_HEREDOCS,
+        shell_tool_name="Shell",
+        shell_tool_requires_description=True,
+        shell_edit_tool="edit_file",
     )
 
     DEEPSEEK_V_32 = ModelParameters(

@@ -54,7 +54,7 @@ from fast_agent.utils.text import strip_casefold, strip_str_to_none
 from fast_agent.utils.transports import McpClientTransport
 
 type TerminalImageSize = int | Literal["auto"] | str | None
-type ShellWriteTextFileMode = Literal["auto", "on", "off", "apply_patch"]
+type ShellWriteTextFileMode = Literal["auto", "on", "off", "apply_patch", "edit_file"]
 type ShellToolProfile = Literal["native", "minimal_process"]
 
 SHELL_WRITE_TEXT_FILE_MODES: tuple[ShellWriteTextFileMode, ...] = (
@@ -62,6 +62,7 @@ SHELL_WRITE_TEXT_FILE_MODES: tuple[ShellWriteTextFileMode, ...] = (
     "on",
     "off",
     "apply_patch",
+    "edit_file",
 )
 SHELL_WRITE_TEXT_FILE_MODE_HELP = "|".join(SHELL_WRITE_TEXT_FILE_MODES)
 _SHELL_WRITE_TEXT_FILE_MODE_ALIASES: dict[str, ShellWriteTextFileMode] = {
@@ -401,9 +402,10 @@ class ShellSettings(BaseModel):
         description=(
             "Control which local file edit tool is exposed when shell runtime is enabled "
             "('auto' uses apply_patch for Codex and GPT-5.2+ models, edit_file for "
-            "Anthropic-series models, and write_text_file plus edit_file otherwise; "
-            "'on' always exposes write_text_file plus edit_file; 'apply_patch' always "
-            "exposes apply_patch; 'off' disables local file edit tools)"
+            "models that prefer it, and write_text_file plus edit_file otherwise; "
+            "'on' always exposes write_text_file plus edit_file; 'edit_file' exposes "
+            "only edit_file; 'apply_patch' always exposes apply_patch; 'off' disables "
+            "local file edit tools)"
         ),
     )
     model_config = ConfigDict(extra="ignore")
@@ -486,7 +488,9 @@ class ShellSettings(BaseModel):
         normalized = normalize_shell_write_text_file_mode(value)
         if normalized is not None or value is None:
             return normalized
-        raise ValueError("write_text_file_mode must be one of: auto, on, off, apply_patch")
+        raise ValueError(
+            "write_text_file_mode must be one of: auto, on, off, apply_patch, edit_file"
+        )
 
 
 class CompactionSettings(BaseModel):

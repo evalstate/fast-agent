@@ -36,6 +36,38 @@ def test_edit_file_reports_missing_file_before_reading(tmp_path: Path) -> None:
     assert result["error"] == "file_not_found"
 
 
+def test_edit_file_creates_missing_file_and_parent_directories(tmp_path: Path) -> None:
+    target_file = tmp_path / "nested" / "created.txt"
+
+    result = edit_file(
+        target_file,
+        display_path="nested/created.txt",
+        old_string="",
+        new_string="created\n",
+    )
+
+    assert _is_success(result)
+    assert result["created"] is True
+    assert result["replacements"] == 0
+    assert _read_text(target_file) == "created\n"
+
+
+def test_edit_file_creation_refuses_to_overwrite_existing_file(tmp_path: Path) -> None:
+    target_file = tmp_path / "existing.txt"
+    target_file.write_text("keep\n", encoding="utf-8", newline="")
+
+    result = edit_file(
+        target_file,
+        display_path="existing.txt",
+        old_string="",
+        new_string="replace\n",
+    )
+
+    assert _is_error(result)
+    assert result["error"] == "file_exists"
+    assert _read_text(target_file) == "keep\n"
+
+
 def test_edit_file_reports_multiple_matches_with_locations(tmp_path: Path) -> None:
     target_file = tmp_path / "repeat.txt"
     target_file.write_text("one\none\n", encoding="utf-8", newline="")
@@ -90,6 +122,7 @@ def test_edit_file_replace_all_uses_non_overlapping_single_pass(tmp_path: Path) 
 
     assert _is_success(result)
     success = result
+    assert success["created"] is False
     assert _read_text(target_file) == "bb"
     assert success["replacements"] == 2
     assert success["line_start"] == 1

@@ -514,6 +514,22 @@ def test_set_enabled_tools_preserves_edit_file_flag_when_omitted() -> None:
 
 
 @pytest.mark.asyncio
+async def test_edit_file_creates_missing_local_file(tmp_path: Path) -> None:
+    runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        working_directory=tmp_path,
+        enable_edit_file=True,
+    )
+
+    result = await runtime.edit_file({"path": "nested/created.txt", "new_string": "created\n"})
+
+    assert result.is_error is False
+    assert result.structured_content is not None
+    assert result.structured_content["created"] is True
+    assert (tmp_path / "nested/created.txt").read_text() == "created\n"
+
+
+@pytest.mark.asyncio
 async def test_read_text_file_reads_full_file(tmp_path: Path) -> None:
     runtime = LocalFilesystemRuntime(logging.getLogger("local-filesystem-runtime-test"))
     test_file = tmp_path / "sample.txt"

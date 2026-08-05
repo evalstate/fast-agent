@@ -17,12 +17,12 @@ if TYPE_CHECKING:
 
 EditFileErrorCode = Literal[
     "file_not_found",
+    "file_exists",
     "is_directory",
     "no_match",
     "multiple_matches",
     "no_op",
     "permission_denied",
-    "empty_old_string",
     "encoding_error",
 ]
 
@@ -35,6 +35,7 @@ class MatchLocation(TypedDict):
 class EditFileSuccess(TypedDict):
     success: Literal[True]
     path: str
+    created: bool
     line_start: int
     line_end: int
     replacements: int
@@ -72,6 +73,7 @@ def _serialize_edit_file_success(result: EditFileSuccess) -> dict[str, Any]:
     return {
         "success": True,
         "path": result["path"],
+        "created": result["created"],
         "line_start": result["line_start"],
         "line_end": result["line_end"],
         "replacements": result["replacements"],
@@ -99,6 +101,13 @@ def edit_file(
     new_string: str,
     replace_all: bool = False,
 ) -> EditFileResult:
+    if old_string == "":
+        return _create_file(
+            path,
+            display_path=display_path,
+            new_string=new_string,
+        )
+
     preflight_error = _preflight_edit_file(
         path,
         display_path=display_path,
@@ -147,6 +156,7 @@ def edit_file(
     return {
         "success": True,
         "path": display_path,
+        "created": False,
         "line_start": line_start,
         "line_end": line_end,
         "replacements": len(selected_matches),
@@ -165,19 +175,13 @@ def _preflight_edit_file(
         return _error(
             display_path,
             "file_not_found",
-            f"File not found: {display_path}. Check the path, or use write_text_file to create it.",
+            (f"File not found: {display_path}. Check the path, or omit old_string to create it."),
         )
     if path.is_dir():
         return _error(
             display_path,
             "is_directory",
             f"Path is a directory, not a file: {display_path}. Use the correct file path.",
-        )
-    if old_string == "":
-        return _error(
-            display_path,
-            "empty_old_string",
-            "Empty search string is not allowed.",
         )
     if old_string == new_string:
         return _error(
@@ -186,6 +190,62 @@ def _preflight_edit_file(
             "old_string and new_string are identical. No change is needed.",
         )
     return None
+
+
+def _create_file(
+    path: Path,
+    *,
+    display_path: str,
+    new_string: str,
+) -> EditFileResult:
+    if path.exists():
+        if path.is_dir():
+            return _error(
+                display_path,
+                "is_directory",
+                f"Path is a directory, not a file: {display_path}. Use the correct file path.",
+            )
+        return _error(
+            display_path,
+            "file_exists",
+            (
+                f"File already exists: {display_path}. Re-read it and provide old_string "
+                "for an exact replacement."
+            ),
+        )
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("x", encoding="utf-8", newline="") as handle:
+            handle.write(new_string)
+    except FileExistsError:
+        return _error(
+            display_path,
+            "file_exists",
+            (
+                f"File already exists: {display_path}. Re-read it and provide old_string "
+                "for an exact replacement."
+            ),
+        )
+    except OSError as exc:
+        if is_permission_error(exc):
+            return _error(
+                display_path,
+                "permission_denied",
+                permission_denied_message(display_path),
+            )
+        raise
+
+    line_start, line_end = _line_range_for_span(new_string, 0, len(new_string))
+    return {
+        "success": True,
+        "path": display_path,
+        "created": True,
+        "line_start": line_start,
+        "line_end": line_end,
+        "replacements": 0,
+        "diff": _unified_diff(display_path, "", new_string),
+    }
 
 
 def _multiple_matches_error(

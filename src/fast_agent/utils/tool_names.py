@@ -13,6 +13,13 @@ POLL_PROCESS_TOOL_NAME = "poll_process"
 TERMINATE_PROCESS_TOOL_NAME = "terminate_process"
 BASH_TOOL_NAME = "bash"
 PROCESS_TOOL_NAME = "process"
+SHELL_COMMAND_TOOL_NAMES = frozenset(
+    {
+        EXECUTE_TOOL_NAME,
+        BASH_TOOL_NAME.casefold(),
+        "shell",
+    }
+)
 SHELL_EXECUTION_TOOL_NAMES = frozenset(
     {
         EXECUTE_TOOL_NAME,
@@ -59,6 +66,11 @@ def normalize_tool_name(tool_name: str | None) -> str:
 
 def is_shell_execution_tool_name(tool_name: str | None) -> bool:
     return normalize_tool_name(tool_name) in SHELL_EXECUTION_TOOL_NAMES
+
+
+def is_shell_command_tool_name(tool_name: str | None) -> bool:
+    """Return whether a tool starts a shell command rather than managing one."""
+    return normalize_tool_name(tool_name) in SHELL_COMMAND_TOOL_NAMES
 
 
 def matches_tool_name(tool_name: str | None, canonical_name: str) -> bool:

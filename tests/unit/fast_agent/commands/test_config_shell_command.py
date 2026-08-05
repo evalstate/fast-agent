@@ -229,3 +229,8 @@ def test_normalize_shell_updates_defaults_invalid_write_text_file_mode() -> None
 def test_shell_settings_write_text_file_mode_accepts_apply_patch_string() -> None:
     settings = ShellSettings.model_validate({"write_text_file_mode": "apply_patch"})
     assert settings.write_text_file_mode == "apply_patch"
+
+
+def test_shell_settings_write_text_file_mode_accepts_edit_file_string() -> None:
+    settings = ShellSettings.model_validate({"write_text_file_mode": "edit_file"})
+    assert settings.write_text_file_mode == "edit_file"

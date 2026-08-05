@@ -96,6 +96,14 @@ def test_export_preserves_managed_process_poll_folding_policy() -> None:
     assert manifest.metadata.managed_process_poll_folding is True
 
 
+def test_export_preserves_deepseek_shell_contract() -> None:
+    manifest = build_model_overlay_manifest_from_database("deepseek.deepseek-v4-flash")
+
+    assert manifest.metadata.shell_tool_name == "Shell"
+    assert manifest.metadata.shell_tool_requires_description is True
+    assert manifest.metadata.shell_edit_tool == "edit_file"
+
+
 def test_export_preserves_explicit_provider_over_catalog_default() -> None:
     manifest = build_model_overlay_manifest_from_database("openrouter.gpt-4o")
 
@@ -192,6 +200,36 @@ metadata:
 
     assert resolved.model_params is not None
     assert resolved.model_params.shell_output_byte_limit == 12_000
+
+
+def test_overlay_configures_model_facing_shell_contract(tmp_path: Path) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "shell-contract.yaml",
+        """
+name: shell-contract
+provider: openresponses
+model: overlay-tests/Shell-Contract
+connection:
+  base_url: http://localhost:8080/v1
+  auth: none
+metadata:
+  context_window: 65536
+  max_output_tokens: 4096
+  shell_tool_name: Shell
+  shell_tool_requires_description: true
+  shell_edit_tool: edit_file
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        resolved = ModelFactory.resolve_model_spec("shell-contract")
+
+    assert resolved.model_params is not None
+    assert resolved.model_params.shell_tool_name == "Shell"
+    assert resolved.model_params.shell_tool_requires_description is True
+    assert resolved.model_params.shell_edit_tool == "edit_file"
 
 
 def test_same_provider_overlays_create_distinct_openresponses_clients(tmp_path: Path) -> None:

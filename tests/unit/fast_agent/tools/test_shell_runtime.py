@@ -619,6 +619,49 @@ def test_minimal_process_profile_exposes_only_bash_and_process() -> None:
     )
 
 
+def test_minimal_process_profile_supports_catalog_driven_shell_contract() -> None:
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+        minimal_shell_tool_name="Shell",
+        minimal_shell_tool_requires_description=True,
+    )
+
+    assert [tool.name for tool in runtime.tools] == ["Shell", "process"]
+    assert runtime.tool is not None
+    assert set(runtime.tool.input_schema["properties"]) == {
+        "command",
+        "description",
+        "run_in_background",
+    }
+    assert runtime.tool.input_schema["required"] == ["command", "description"]
+    assert "returned by Shell" in (runtime.tools[1].description or "")
+
+
+@pytest.mark.asyncio
+async def test_catalog_driven_shell_contract_requires_description_at_runtime() -> None:
+    environment = _RecordingShellEnvironment()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-test"),
+        shell_environment=environment,
+        config=Settings(shell_execution=ShellSettings(tool_profile="minimal_process")),
+        minimal_shell_tool_name="Shell",
+        minimal_shell_tool_requires_description=True,
+    )
+
+    missing = await runtime.call_tool("Shell", {"command": "pwd"})
+    accepted = await runtime.call_tool(
+        "shell",
+        {"command": "pwd", "description": "Show the working directory"},
+    )
+
+    assert missing.is_error is True
+    assert accepted.is_error is False
+    assert [request.command for request in environment.requests] == ["pwd"]
+
+
 def test_shell_output_retention_product_defaults() -> None:
     settings = ShellSettings()
 

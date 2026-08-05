@@ -36,7 +36,7 @@ _EXECUTE_ARGUMENTS = frozenset(
 )
 _POLL_PROCESS_ARGUMENTS = frozenset({"process_id", "wait_sec", "wake_on_output"})
 _TERMINATE_PROCESS_ARGUMENTS = frozenset({"process_id"})
-_MINIMAL_BASH_ARGUMENTS = frozenset({"command", "run_in_background"})
+_MINIMAL_BASH_ARGUMENTS = frozenset({"command", "description", "run_in_background"})
 _MINIMAL_PROCESS_ARGUMENTS = frozenset({"process_id", "action", "wait_sec"})
 
 
@@ -230,7 +230,13 @@ def build_terminate_process_tool() -> Tool:
     )
 
 
-def build_minimal_bash_tool(*, shell_name: str, extended_guidance: bool = False) -> Tool:
+def build_minimal_bash_tool(
+    *,
+    shell_name: str,
+    tool_name: str = BASH_TOOL_NAME,
+    require_description: bool = False,
+    extended_guidance: bool = False,
+) -> Tool:
     process_guidance = (
         "Foreground commands that take time may yield a managed process ID. "
         "Do not assume a yielded process completed: use process with `wait` or "
@@ -245,8 +251,30 @@ def build_minimal_bash_tool(*, shell_name: str, extended_guidance: bool = False)
             "use process to inspect, wait for, or stop it."
         )
     )
+    properties: dict[str, Any] = {
+        "command": {
+            "type": "string",
+            "description": "Shell command string only, without a shell executable prefix.",
+        },
+        "run_in_background": {
+            "type": "boolean",
+            "default": False,
+            "description": (
+                "Use true for servers, services, and other commands that "
+                "must remain running. Do not also add shell `&`, `nohup`, "
+                "or `disown`."
+            ),
+        },
+    }
+    required = ["command"]
+    if require_description:
+        properties["description"] = {
+            "type": "string",
+            "description": "Short operator-facing description of what the command does.",
+        }
+        required.append("description")
     return Tool(
-        name=BASH_TOOL_NAME,
+        name=tool_name,
         description=(
             f"Run one shell command in {shell_name}. Set "
             "`run_in_background=true` for a server, service, or other "
@@ -256,19 +284,8 @@ def build_minimal_bash_tool(*, shell_name: str, extended_guidance: bool = False)
         ),
         input_schema={
             "type": "object",
-            "properties": {
-                "command": {"type": "string"},
-                "run_in_background": {
-                    "type": "boolean",
-                    "default": False,
-                    "description": (
-                        "Use true for servers, services, and other commands that "
-                        "must remain running. Do not also add shell `&`, `nohup`, "
-                        "or `disown`."
-                    ),
-                },
-            },
-            "required": ["command"],
+            "properties": properties,
+            "required": required,
             "additionalProperties": False,
         },
     )
@@ -278,10 +295,11 @@ def build_minimal_process_tool(
     *,
     default_wait_seconds: int,
     max_wait_seconds: int,
+    shell_tool_name: str = BASH_TOOL_NAME,
     extended_guidance: bool = False,
 ) -> Tool:
     completion_guidance = (
-        " When bash yields a foreground process ID, use `wait` or `status` until "
+        f" When {shell_tool_name} yields a foreground process ID, use `wait` or `status` until "
         "completion before relying on its result or ending the task."
         if extended_guidance
         else ""
@@ -289,7 +307,7 @@ def build_minimal_process_tool(
     return Tool(
         name=PROCESS_TOOL_NAME,
         description=(
-            "List, inspect, wait for, or stop managed processes returned by bash. "
+            f"List, inspect, wait for, or stop managed processes returned by {shell_tool_name}. "
             "`list` returns all retained processes in creation order and takes no "
             "process ID. "
             "`status` returns immediately. `wait` accepts an optional `wait_sec`; "
@@ -304,7 +322,7 @@ def build_minimal_process_tool(
                 "process_id": {
                     "type": "string",
                     "description": (
-                        "Managed process ID returned by bash. Required for status, "
+                        f"Managed process ID returned by {shell_tool_name}. Required for status, "
                         "wait, and stop; omit for list."
                     ),
                 },
@@ -451,13 +469,28 @@ def parse_poll_process_arguments(
 
 def parse_minimal_bash_arguments(
     arguments: dict[str, Any] | None,
+    *,
+    tool_name: str = BASH_TOOL_NAME,
+    require_description: bool = False,
 ) -> ShellExecuteArguments:
     payload = coerce_tool_arguments(arguments)
     _reject_unknown_arguments(
         payload,
         _MINIMAL_BASH_ARGUMENTS,
-        tool_name="bash",
+        tool_name=tool_name,
     )
+    if require_description:
+        coerce_required_string_argument(
+            payload.get("description"),
+            "description",
+            strip=True,
+        )
+    elif "description" in payload:
+        coerce_required_string_argument(
+            payload.get("description"),
+            "description",
+            strip=True,
+        )
     run_in_background = payload.get("run_in_background", False)
     if type(run_in_background) is not bool:
         raise ValueError("Error: 'run_in_background' argument must be a boolean")
@@ -477,7 +510,7 @@ def parse_minimal_bash_arguments(
             "Shell-level backgrounding was not executed.\n"
             "Submit only the long-running service command with "
             "run_in_background=true. Use process to inspect or stop it, "
-            "and run readiness checks in a separate bash call."
+            f"and run readiness checks in a separate {tool_name} call."
         )
     return ShellExecuteArguments(
         command=command,
