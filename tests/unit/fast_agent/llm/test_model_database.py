@@ -101,7 +101,7 @@ def test_anthropic_catalog_uses_posix_file_creation_guidance() -> None:
     for model in anthropic_models:
         assert (
             ModelDatabase.get_model_specific(model, provider=Provider.ANTHROPIC)
-            == ModelDatabase.ANTHROPIC_MODEL_SPECIFIC
+            == ModelDatabase.MODEL_PREFERS_HEREDOCS
         )
 
     assert (
@@ -109,7 +109,7 @@ def test_anthropic_catalog_uses_posix_file_creation_guidance() -> None:
             "claude-sonnet-4-6",
             provider=Provider.ANTHROPIC_VERTEX,
         )
-        == ModelDatabase.ANTHROPIC_MODEL_SPECIFIC
+        == ModelDatabase.MODEL_PREFERS_HEREDOCS
     )
 
 
@@ -624,7 +624,7 @@ def test_model_database_grok_43_reasoning_spec() -> None:
     assert spec.allowed_efforts == ["none", "low", "medium", "high"]
     assert spec.default is not None
     assert spec.default.kind == "effort"
-    assert spec.default.value == "low"
+    assert spec.default.value == "high"
 
 
 def test_glm_51_matches_glm_5_capabilities() -> None:
@@ -1105,7 +1105,7 @@ def test_gpt_56_supports_api_reasoning_efforts_through_max():
 
         assert spec is not None
         assert spec.allowed_efforts == ["none", "low", "medium", "high", "xhigh", "max"]
-        assert spec.default == ReasoningEffortSetting(kind="effort", value="medium")
+        assert spec.default == ReasoningEffortSetting(kind="effort", value="high")
         assert ModelDatabase.supports_mime(model_name, "application/pdf")
         assert ModelDatabase.supports_mime(model_name, "image/png")
 

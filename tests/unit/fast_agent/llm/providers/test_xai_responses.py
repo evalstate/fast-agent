@@ -253,7 +253,7 @@ def test_xai_responses_builds_parallel_response_payload_with_default_reasoning()
     assert args["input"] == input_items
     assert args["parallel_tool_calls"] is True
     assert "include" not in args
-    assert args["reasoning"] == {"effort": "low"}
+    assert args["reasoning"] == {"effort": "high"}
     assert "service_tier" not in args
     assert "stream" not in args
     assert "background" not in args

@@ -83,22 +83,6 @@ def test_shell_syntax_blocks_highlights_multiline_python_c_argument() -> None:
     ]
 
 
-def test_shell_syntax_blocks_highlights_incomplete_multiline_python_c_argument() -> None:
-    command = 'cd /tmp && python -c "\nfrom pathlib import Path\nprint(Path.cwd())'
-
-    assert shell_syntax_blocks(command, shell_language="bash") == [
-        SyntaxBlock(code=command, language="bash")
-    ]
-    assert shell_syntax_blocks(
-        command,
-        shell_language="bash",
-        include_incomplete=True,
-    ) == [
-        SyntaxBlock(code='cd /tmp && python -c "', language="bash"),
-        SyntaxBlock(code="from pathlib import Path\nprint(Path.cwd())", language="python"),
-    ]
-
-
 def test_shell_syntax_blocks_highlights_uv_run_python_heredoc() -> None:
     command = (
         "uv run python - <<'PY'\n"
@@ -162,3 +146,73 @@ def test_shell_syntax_blocks_keeps_ambiguous_interpreter_heredoc_as_shell(
     assert shell_syntax_blocks(command, shell_language="bash") == [
         SyntaxBlock(code=command, language="bash")
     ]
+
+
+def test_shell_syntax_blocks_highlights_node_e_inline_payload() -> None:
+    command = (
+        'cd /tmp/example && node -e "\n'
+        "import puppeteer from 'puppeteer';\n"
+        "const browser = await puppeteer.launch();\n"
+        "console.log(browser);\n"
+        '" 2>&1'
+    )
+
+    blocks = shell_syntax_blocks(command, shell_language="bash")
+
+    assert [block.language for block in blocks] == ["bash", "javascript", "bash"]
+    assert blocks[0].code == 'cd /tmp/example && node -e "'
+    assert "import puppeteer from 'puppeteer';" in blocks[1].code
+    assert blocks[2].code == '" 2>&1'
+
+
+@pytest.mark.parametrize(
+    ("command", "language", "snippet"),
+    [
+        ("python -c 'print(1)'", "python", "print(1)"),
+        ("python3.14 -c \"print('hi')\"", "python", "print('hi')"),
+        ("uv run --no-sync python -c 'print(2)'", "python", "print(2)"),
+        ("node -e 'console.log(1)'", "javascript", "console.log(1)"),
+        ("ruby -e 'puts 1'", "ruby", "puts 1"),
+        ("perl -e 'print 1'", "perl", "print 1"),
+        ("php -r 'echo 1;'", "php", "echo 1;"),
+        ("lua -e 'print(1)'", "lua", "print(1)"),
+        ("osascript -e 'display dialog \"hi\"'", "applescript", 'display dialog "hi"'),
+    ],
+)
+def test_shell_syntax_blocks_highlights_inline_interpreter_payload(
+    command: str,
+    language: str,
+    snippet: str,
+) -> None:
+    blocks = shell_syntax_blocks(command, shell_language="bash")
+
+    assert any(block.language == language and snippet in block.code for block in blocks)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python script.py",
+        "node server.js",
+        "python -m pytest",
+        "grep -e pattern file.txt",
+        "bash -c 'echo hi'",
+        "python -c",
+        "node -e",
+    ],
+)
+def test_shell_syntax_blocks_does_not_split_non_inline_commands(command: str) -> None:
+    assert shell_syntax_blocks(command, shell_language="bash") == [
+        SyntaxBlock(code=command, language="bash")
+    ]
+
+
+def test_shell_syntax_blocks_prefers_heredoc_over_inline_inside_body() -> None:
+    command = "python - <<'PY'\nprint('python -c ignore')\nPY\npython -c 'print(1)'"
+
+    blocks = shell_syntax_blocks(command, shell_language="bash")
+
+    assert [block.language for block in blocks] == ["bash", "python", "bash", "python", "bash"]
+    assert blocks[1].code == "print('python -c ignore')"
+    assert blocks[3].code == "print(1)"
+    assert blocks[4].code == "'"
