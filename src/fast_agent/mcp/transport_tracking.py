@@ -335,6 +335,11 @@ class TransportChannelMetrics:
             self._post_last_at = now
 
             self._record_response_channel(event)
+            if classification is ActivityState.ERROR:
+                detail = self._ping_failure_detail(event.message)
+                if detail is not None:
+                    self._post_last_error = detail
+                    mode_stats.last_error = detail
             if classification is not ActivityState.PING:
                 self._record_history(event.channel, classification, now)
         elif event.event_type == "error":
@@ -372,7 +377,15 @@ class TransportChannelMetrics:
             summary = _summarise_classified_message(classification, event.message)
             self._get_last_summary = summary
             self._get_last_at = now
-            self._get_last_event = "ping" if classification is ActivityState.PING else "message"
+            if classification is ActivityState.PING:
+                self._get_last_event = "ping"
+            elif classification is ActivityState.ERROR:
+                self._get_last_event = "error"
+                detail = self._ping_failure_detail(event.message)
+                if detail is not None:
+                    self._get_last_error = detail
+            else:
+                self._get_last_event = "message"
             self._get_last_event_at = now
 
             self._record_response_channel(event)
@@ -547,8 +560,18 @@ class TransportChannelMetrics:
             return classification
         if classification is ActivityState.RESPONSE and request_id in self._ping_request_ids:
             self._ping_request_ids.discard(request_id)
+            if isinstance(root, JSONRPCError):
+                return ActivityState.ERROR
             return ActivityState.PING
         return classification
+
+    @staticmethod
+    def _ping_failure_detail(message: JSONRPCMessage) -> str | None:
+        if isinstance(message, JSONRPCError):
+            code = message.error.code
+            text = message.error.message or "ping failed"
+            return f"{text} ({code})" if code is not None else text
+        return None
 
     def _tally_classification(
         self,
