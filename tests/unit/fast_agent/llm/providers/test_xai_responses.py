@@ -18,10 +18,12 @@ from fast_agent.llm.provider.openai.responses_websocket import (
 from fast_agent.llm.provider.openai.tool_stream_state import OpenAIToolStreamState
 from fast_agent.llm.provider.openai.xai_responses import (
     DEFAULT_XAI_MODEL,
+    GROK_45_HIGH_STREAMING_TIMEOUT,
     XAIResponsesLLM,
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
+from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.usage_tracking import UsageSchema
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -95,6 +97,54 @@ def test_xai_responses_default_model_used_when_model_missing() -> None:
     )
 
     assert llm.default_request_params.model == DEFAULT_XAI_MODEL
+
+
+@pytest.mark.parametrize(
+    ("model", "reasoning_effort", "expected_timeout"),
+    [
+        ("grok-4.5", "high", GROK_45_HIGH_STREAMING_TIMEOUT),
+        ("grok-4.5", "medium", 120.0),
+        ("grok-4.5", "low", 120.0),
+        ("grok-4.3", "high", 120.0),
+    ],
+)
+def test_xai_grok_45_high_reasoning_gets_extended_streaming_timeout(
+    model: str,
+    reasoning_effort: str,
+    expected_timeout: float,
+) -> None:
+    llm = XAIResponsesLLM(
+        context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
+        model=model,
+        reasoning_effort=reasoning_effort,
+    )
+
+    assert llm.default_request_params.streaming_timeout == expected_timeout
+
+
+@pytest.mark.parametrize("streaming_timeout", [45.0, None])
+def test_xai_explicit_streaming_timeout_overrides_high_reasoning_default(
+    streaming_timeout: float | None,
+) -> None:
+    llm = XAIResponsesLLM(
+        context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
+        model="grok-4.5",
+        reasoning_effort="high",
+        request_params=RequestParams(streaming_timeout=streaming_timeout),
+    )
+
+    assert llm.default_request_params.streaming_timeout == streaming_timeout
+
+
+def test_xai_implicit_request_timeout_does_not_block_high_reasoning_default() -> None:
+    llm = XAIResponsesLLM(
+        context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
+        model="grok-4.5",
+        reasoning_effort="high",
+        request_params=RequestParams(model="grok-4.5", use_history=False),
+    )
+
+    assert llm.default_request_params.streaming_timeout == GROK_45_HIGH_STREAMING_TIMEOUT
 
 
 def test_xai_responses_uses_xai_config_fallback() -> None:

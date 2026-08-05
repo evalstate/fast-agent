@@ -697,6 +697,9 @@ class ModelDatabase:
         reasoning="openai",
         reasoning_effort_spec=DEEPSEEK_REASONING_EFFORT_SPEC,
         default_provider=Provider.DEEPSEEK,
+        # Intentional reuse of the file-writing guidance: probe data
+        # showed ~-20% token usage with no pass-rate regression for this model.
+        model_specific=MODEL_PREFERS_HEREDOCS,
     )
 
     DEEPSEEK_V_32 = ModelParameters(

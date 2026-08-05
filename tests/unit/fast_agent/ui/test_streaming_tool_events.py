@@ -675,6 +675,60 @@ def test_tool_stream_code_preview_tracks_partial_code() -> None:
     assert preview.variant == "code"
 
 
+def test_write_text_file_stream_uses_early_path_for_content_highlighting() -> None:
+    assembler = _make_assembler()
+
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "write_text_file",
+            "tool_use_id": "tool-write-1",
+            "chunk": (
+                '{"path":"/tmp/plane/README.md","content":"# Boeing 747-400\\n\\nA highly detailed'
+            ),
+        },
+    )
+
+    preview = assembler.segments[0].code_preview
+    assert preview is not None
+    assert preview.language == "markdown"
+    assert preview.code == "# Boeing 747-400\n\nA highly detailed"
+    assert preview.complete is False
+
+
+def test_write_text_file_stream_rehighlights_content_after_late_path() -> None:
+    assembler = _make_assembler()
+
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "write_text_file",
+            "tool_use_id": "tool-write-2",
+            "chunk": '{"content":"# Boeing 747-400\\n\\nA highly detailed',
+        },
+    )
+
+    preview = assembler.segments[0].code_preview
+    assert preview is not None
+    assert preview.language == "text"
+    assert preview.complete is False
+
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "write_text_file",
+            "tool_use_id": "tool-write-2",
+            "chunk": ' model","path":"/tmp/plane/README.md"}',
+        },
+    )
+
+    preview = assembler.segments[0].code_preview
+    assert preview is not None
+    assert preview.language == "markdown"
+    assert preview.code == "# Boeing 747-400\n\nA highly detailed model"
+    assert preview.complete is True
+
+
 def test_tool_stream_shell_preview_tracks_partial_command() -> None:
     metadata = {
         "variant": "shell",

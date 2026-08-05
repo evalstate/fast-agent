@@ -619,6 +619,10 @@ def shell_inline_code_spans(command: str) -> list[ShellInlineCodeSpan]:
                 matched.start,
                 matched.end,
             )
+            if command.startswith("\r\n", payload_start):
+                payload_start += 2
+            elif command.startswith("\n", payload_start):
+                payload_start += 1
             if payload_start < payload_end:
                 spans.append(
                     ShellInlineCodeSpan(

@@ -34,8 +34,10 @@ from fast_agent.ui.edit_file_preview import (
     format_edit_file_preview,
 )
 from fast_agent.ui.streaming.json_prefix import JsonPrefixFormatter
+from fast_agent.ui.syntax_highlighting import syntax_language_for_path
 from fast_agent.utils.reasoning_stream_parser import ReasoningSegment, ReasoningStreamParser
 from fast_agent.utils.text import strip_casefold
+from fast_agent.utils.tool_names import is_write_text_file_tool_name
 
 if TYPE_CHECKING:
     from fast_agent.llm.stream_types import StreamChunk
@@ -445,6 +447,19 @@ class ToolStreamState:
         return bool(self.raw_text or self.display_text or self.status_text or self.result_text)
 
     def code_preview(self) -> "ToolCodePreview | None":
+        tool_name = self.canonical_tool_name or self.tool_name
+        if is_write_text_file_tool_name(tool_name):
+            content = extract_partial_json_string_field(self.raw_text, field_name="content")
+            if content is None or not content.value:
+                return None
+            path = extract_partial_json_string_field(self.raw_text, field_name="path")
+            language = syntax_language_for_path(path.value.strip()) if path is not None else None
+            return ToolCodePreview(
+                code=content.value,
+                language=language or "text",
+                complete=content.complete,
+            )
+
         preview_spec = _tool_code_preview_spec(self.tool_metadata)
         if preview_spec is None:
             return None
