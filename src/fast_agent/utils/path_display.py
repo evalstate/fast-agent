@@ -9,7 +9,10 @@ from fast_agent.utils.text import strip_to_none
 
 
 def format_relative_path(path: Path, *, cwd: Path | None = None) -> str:
-    base = cwd or Path.cwd()
+    try:
+        base = cwd or Path.cwd()
+    except OSError:
+        return str(path)
     try:
         return str(path.relative_to(base))
     except ValueError:
@@ -29,7 +32,10 @@ def format_home_relative_path(path: Path | str, *, home: Path | None = None) -> 
 
 
 def format_working_directory(path: Path, *, cwd: Path | None = None) -> str:
-    base = cwd or Path.cwd()
+    try:
+        base = cwd or Path.cwd()
+    except OSError:
+        return str(path)
     display = format_relative_path(path, cwd=base)
     if display != ".":
         return display

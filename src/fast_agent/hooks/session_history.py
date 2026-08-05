@@ -139,9 +139,14 @@ def _session_history_context(ctx: "HookContext") -> _SessionHistoryContext:
     agent_context = ctx.context
     acp_context = agent_context.acp if agent_context else None
     if acp_context is None:
+        session_manager = agent_context.session_manager if agent_context else None
         return _SessionHistoryContext(
-            session_cwd=Path.cwd().resolve(),
-            session_manager=agent_context.session_manager if agent_context else None,
+            session_cwd=(
+                session_manager.workspace_dir
+                if session_manager is not None
+                else Path.cwd().resolve()
+            ),
+            session_manager=session_manager,
         )
 
     assert agent_context is not None

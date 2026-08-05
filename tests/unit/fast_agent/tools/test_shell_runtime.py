@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import platform
+import shlex
 import signal
 import subprocess
 import sys
@@ -1284,6 +1285,74 @@ async def test_set_working_directory_updates_execute_shell_cwd(tmp_path: Path) -
 
     assert result.exit_code == 0
     assert result.stdout.strip() == str(updated_dir)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permits deleting the process cwd")
+@pytest.mark.asyncio
+async def test_shell_recovers_after_workspace_directory_is_replaced(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    previous_cwd = Path.cwd()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-cwd-recovery-test"),
+        timeout_seconds=10,
+        working_directory=workspace,
+        config=Settings(shell_execution=ShellSettings(show_bash=False)),
+    )
+
+    try:
+        os.chdir(workspace)
+        command = (
+            f"rm -rf -- {shlex.quote(str(workspace))} && mkdir -- {shlex.quote(str(workspace))}"
+        )
+        first = await runtime.execute_shell(command)
+
+        assert first.exit_code == 0
+        assert Path.cwd() == workspace
+        assert "Recovered deleted process working directory" in caplog.text
+        assert runtime.metadata({"command": "pwd"})["working_dir_display"] == "."
+
+        second = await runtime.execute_shell("pwd")
+
+        assert second.exit_code == 0
+        assert second.stdout.strip() == str(workspace)
+    finally:
+        os.chdir(previous_cwd)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permits deleting the process cwd")
+@pytest.mark.asyncio
+async def test_shell_recovers_to_parent_when_workspace_directory_remains_deleted(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    previous_cwd = Path.cwd()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logging.getLogger("shell-runtime-cwd-parent-recovery-test"),
+        timeout_seconds=10,
+        working_directory=workspace,
+        config=Settings(shell_execution=ShellSettings(show_bash=False)),
+    )
+
+    try:
+        os.chdir(workspace)
+        result = await runtime.execute_shell(f"rm -rf -- {shlex.quote(str(workspace))}")
+
+        assert result.exit_code == 0
+        assert Path.cwd() == tmp_path
+        assert "recovered to parent directory" in caplog.text
+        assert Path("trajectory.json").resolve() == tmp_path / "trajectory.json"
+        with pytest.raises(ValueError, match="Shell working directory does not exist"):
+            await runtime.execute_shell("pwd")
+    finally:
+        os.chdir(previous_cwd)
 
 
 @pytest.mark.asyncio
