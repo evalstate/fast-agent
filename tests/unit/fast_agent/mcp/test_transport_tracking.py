@@ -372,7 +372,9 @@ def test_ping_error_clears_on_the_next_successful_ping() -> None:
             ),
         )
     )
-    assert metrics.snapshot().get.state == "error"
+    first_snapshot = metrics.snapshot()
+    assert first_snapshot.get is not None
+    assert first_snapshot.get.state == "error"
 
     metrics.register_ping_request(2)
     metrics.record_event(
