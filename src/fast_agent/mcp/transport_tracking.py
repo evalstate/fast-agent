@@ -340,6 +340,11 @@ class TransportChannelMetrics:
                 if detail is not None:
                     self._post_last_error = detail
                     mode_stats.last_error = detail
+            elif classification is ActivityState.PING and isinstance(
+                event.message, JSONRPCResponse
+            ):
+                self._post_last_error = None
+                mode_stats.last_error = None
             if classification is not ActivityState.PING:
                 self._record_history(event.channel, classification, now)
         elif event.event_type == "error":
@@ -379,6 +384,8 @@ class TransportChannelMetrics:
             self._get_last_at = now
             if classification is ActivityState.PING:
                 self._get_last_event = "ping"
+                if isinstance(event.message, JSONRPCResponse):
+                    self._get_last_error = None
             elif classification is ActivityState.ERROR:
                 self._get_last_event = "error"
                 detail = self._ping_failure_detail(event.message)
@@ -872,10 +879,10 @@ class TransportChannelMetrics:
         )
 
     def _get_state(self) -> str:
-        if self._get_connected:
-            return "open"
         if self._get_last_error is not None:
             return "disabled" if self._get_last_status_code == 405 else "error"
+        if self._get_connected:
+            return "open"
         if self._get_had_connection:
             return "off"
         return "idle"
