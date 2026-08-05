@@ -421,6 +421,8 @@ class LocalShellExecutor:
             "cwd": working_dir,
             "env": child_env,
         }
+        if detach:
+            process_kwargs["stdin"] = asyncio.subprocess.DEVNULL
         if is_windows:
             creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
             if creation_flags:

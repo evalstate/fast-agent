@@ -237,6 +237,76 @@ async def test_cancelling_persistent_execution_leaves_child_and_spool_running(
 
 
 @pytest.mark.asyncio
+async def test_detached_execution_does_not_inherit_parent_stdin(tmp_path: Path) -> None:
+    child_script = tmp_path / "read_stdin.py"
+    child_script.write_text(
+        "\n".join(
+            [
+                "import sys",
+                "print('eof' if sys.stdin.read(1) == '' else 'input', flush=True)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    helper_script = tmp_path / "run_detached.py"
+    helper_script.write_text(
+        "\n".join(
+            [
+                "import asyncio",
+                "import logging",
+                "import sys",
+                "from pathlib import Path",
+                "",
+                "from fast_agent.tools.execution_environment import ShellExecutionRequest",
+                "from fast_agent.tools.local_shell_executor import LocalShellExecutor",
+                "",
+                "async def main() -> None:",
+                "    working_directory = Path(__file__).parent",
+                "    executor = LocalShellExecutor(",
+                "        logger=logging.getLogger(__name__),",
+                "        working_directory=working_directory,",
+                "    )",
+                "    child_script = working_directory / 'read_stdin.py'",
+                "    request = ShellExecutionRequest(",
+                '        command=f\'"{sys.executable}" "{child_script}"\',',
+                "        terminate_after_idle=False,",
+                "        detach=True,",
+                "    )",
+                "    try:",
+                "        execution = await asyncio.wait_for(executor.execute(request), timeout=1)",
+                "    except TimeoutError:",
+                "        raise SystemExit('detached child inherited open stdin') from None",
+                "    print(execution.result.stdout, end='')",
+                "",
+                "asyncio.run(main())",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    helper = await asyncio.create_subprocess_exec(
+        sys.executable,
+        str(helper_script),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    assert helper.stdin is not None
+    assert helper.stdout is not None
+    assert helper.stderr is not None
+
+    try:
+        exit_code = await asyncio.wait_for(helper.wait(), timeout=3)
+        stdout = await helper.stdout.read()
+        stderr = await helper.stderr.read()
+    finally:
+        helper.stdin.close()
+        await helper.stdin.wait_closed()
+
+    assert exit_code == 0, stderr.decode()
+    assert stdout == b"eof\n"
+
+
+@pytest.mark.asyncio
 async def test_completed_detached_execution_removes_drained_spool(
     tmp_path: Path,
 ) -> None:
