@@ -152,6 +152,7 @@ def test_shell_heredoc_bodies_do_not_guess_stdin_interpreter(command: str) -> No
     ("command", "interpreter", "payload"),
     [
         ("python -c 'print(1)'", "python", "print(1)"),
+        ("python -c '\r\nprint(1)\r\n'", "python", "print(1)\r\n"),
         ('node -e "console.log(1)"', "node", "console.log(1)"),
         ("uv run --quiet python -c 'print(2)'", "python", "print(2)"),
         (
