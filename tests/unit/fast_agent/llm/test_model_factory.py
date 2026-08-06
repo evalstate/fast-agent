@@ -732,7 +732,7 @@ def test_xai_grok_45_high_reasoning_defaults_to_extended_streaming_timeout() -> 
         request_params=RequestParams(use_history=False),
     )
 
-    assert llm.default_request_params.streaming_timeout == 180.0
+    assert llm.default_request_params.streaming_timeout == 300.0
 
 
 def test_model_streaming_timeout_query_overrides_preset_default() -> None:
