@@ -190,6 +190,42 @@ class _CursorStyledRenderable:
         yield from _style_terminal_stream_cursor(segments)
 
 
+class _CursorSyntax(Syntax):
+    """Append the stream cursor after lexing so it cannot become an error token."""
+
+    def __init__(
+        self,
+        code: str,
+        lexer: str,
+        *,
+        theme: str,
+        word_wrap: bool,
+        cursor_suffix: str,
+    ) -> None:
+        self._cursor_suffix = cursor_suffix
+        super().__init__(
+            code,
+            lexer,
+            theme=theme,
+            line_numbers=False,
+            word_wrap=word_wrap,
+        )
+
+    def highlight(
+        self,
+        code: str,
+        line_range: tuple[int | None, int | None] | None = None,
+    ) -> Text:
+        highlighted = super().highlight(code, line_range)
+        if self._cursor_suffix and code.endswith("\n") and not self.code.endswith("\n"):
+            highlighted.remove_suffix("\n")
+            highlighted.append(self._cursor_suffix)
+            highlighted.append("\n")
+        else:
+            highlighted.append(self._cursor_suffix)
+        return highlighted
+
+
 def _style_terminal_stream_cursor(segments: tuple[Segment, ...]) -> tuple[Segment, ...]:
     visible = "".join(segment.text for segment in segments if not segment.control)
     terminal = visible.rstrip()
@@ -1491,29 +1527,25 @@ class StreamingMessageHandle:
                 )
                 renderables: list[RenderableType] = [self._tool_header_text(segment)]
                 for index, block in enumerate(blocks):
-                    code_text = block.code
-                    if cursor_suffix and index == len(blocks) - 1:
-                        code_text += cursor_suffix
                     renderables.append(
-                        Syntax(
-                            code_text,
+                        _CursorSyntax(
+                            block.code,
                             block.language,
                             theme=self._display.code_style,
-                            line_numbers=False,
                             word_wrap=self._display.code_word_wrap,
+                            cursor_suffix=cursor_suffix if index == len(blocks) - 1 else "",
                         )
                     )
                 return Group(*renderables)
 
-            code_text = preview.code + cursor_suffix if cursor_suffix else preview.code
             return Group(
                 self._tool_header_text(segment),
-                Syntax(
-                    code_text,
+                _CursorSyntax(
+                    preview.code,
                     preview.language,
                     theme=self._display.code_style,
-                    line_numbers=False,
                     word_wrap=self._display.code_word_wrap,
+                    cursor_suffix=cursor_suffix,
                 ),
             )
 

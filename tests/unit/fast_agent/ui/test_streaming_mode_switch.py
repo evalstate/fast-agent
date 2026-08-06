@@ -1144,6 +1144,65 @@ def test_stream_cursor_is_bright_green_without_recoloring_content() -> None:
     assert green_segments[0].style.dim is False
 
 
+def test_stream_cursor_is_inserted_after_syntax_highlighting() -> None:
+    handle = _make_handle("markdown")
+    segment = StreamSegment(
+        kind="tool",
+        text="",
+        tool_name="execute",
+        code_preview=ToolCodePreview(
+            code="python - <<'PY'\nprint('hello')",
+            language="bash",
+            complete=False,
+            variant="shell",
+        ),
+    )
+
+    renderable = handle._render_display_segment(
+        segment,
+        cursor_suffix=streaming_module.STREAM_CURSOR_BLOCK,
+    )
+
+    assert isinstance(renderable, streaming_module._CursorStyledRenderable)
+    assert isinstance(renderable.renderable, Group)
+    syntax_blocks = [
+        child for child in renderable.renderable.renderables if isinstance(child, Syntax)
+    ]
+    assert syntax_blocks
+    assert all(streaming_module.STREAM_CURSOR_BLOCK not in block.code for block in syntax_blocks)
+
+    output = io.StringIO()
+    local_console = Console(
+        file=output,
+        force_terminal=True,
+        color_system="truecolor",
+        width=40,
+    )
+    local_console.print(renderable)
+
+    rendered = output.getvalue()
+    assert streaming_module.STREAM_CURSOR_BLOCK in rendered
+    assert "48;2;227;210;210" not in rendered
+
+    hidden = handle._render_display_segment(segment, cursor_suffix=" ")
+    plain_console = Console(force_terminal=True, color_system=None, width=40)
+    visible_lines = [
+        "".join(rendered.text for rendered in line)
+        for line in plain_console.render_lines(renderable, plain_console.options, pad=False)
+    ]
+    hidden_lines = [
+        "".join(rendered.text for rendered in line)
+        for line in plain_console.render_lines(hidden, plain_console.options, pad=False)
+    ]
+    assert any(
+        line.rstrip().endswith(f"print('hello'){streaming_module.STREAM_CURSOR_BLOCK}")
+        for line in visible_lines
+    )
+    assert [
+        line.replace(streaming_module.STREAM_CURSOR_BLOCK, " ") for line in visible_lines
+    ] == hidden_lines
+
+
 def test_stream_cursor_remains_visible_after_markdown_table() -> None:
     handle = _make_handle("markdown")
     renderable = handle._render_display_segment(
