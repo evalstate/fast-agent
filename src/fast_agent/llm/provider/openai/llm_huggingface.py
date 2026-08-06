@@ -105,6 +105,17 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             arguments["model"] = base_model
         return arguments
 
+    def _resolve_usage_attribution(
+        self,
+        model_name: str,
+        arguments: dict[str, Any],
+    ) -> tuple[str, str | None]:
+        wire_model = arguments.get("model")
+        if not isinstance(wire_model, str):
+            return model_name, None
+        base_model, upstream_provider = self._split_provider_suffix(wire_model)
+        return base_model or model_name, upstream_provider
+
     @staticmethod
     def _omit_empty_tools(arguments: dict[str, Any]) -> None:
         if arguments.get("tools") == []:

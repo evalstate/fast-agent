@@ -1338,7 +1338,21 @@ class OpenAILLM(
                 client, normalized_request, capture_filename
             )
 
-    def _track_openai_response_usage(self, response: Any, model_name: str) -> None:
+    def _resolve_usage_attribution(
+        self,
+        model_name: str,
+        arguments: dict[str, Any],
+    ) -> tuple[str, str | None]:
+        del arguments
+        return model_name, None
+
+    def _track_openai_response_usage(
+        self,
+        response: Any,
+        model_name: str,
+        *,
+        upstream_provider: str | None = None,
+    ) -> None:
         if isinstance(response, BaseException):
             return
         usage = _openai_usage(response)
@@ -1349,6 +1363,7 @@ class OpenAILLM(
                 usage,
                 provider=self.provider,
                 model=model_name,
+                upstream_provider=upstream_provider,
             )
             self._finalize_turn_usage(turn_usage)
         except Exception as e:
@@ -1456,7 +1471,15 @@ class OpenAILLM(
         completion: _OpenAICompletionResponse,
     ) -> PromptMessageExtended:
         response = completion.response
-        self._track_openai_response_usage(response, request.model_name)
+        usage_model, upstream_provider = self._resolve_usage_attribution(
+            request.model_name,
+            request.arguments,
+        )
+        self._track_openai_response_usage(
+            response,
+            usage_model,
+            upstream_provider=upstream_provider,
+        )
         self.logger.debug("OpenAI completion response:", data=response)
         self._raise_openai_response_error(response)
 
