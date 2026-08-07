@@ -26,7 +26,9 @@ from fast_agent.agents.mcp_agent import (
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.context import Context
+from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.terminal_output_limits import (
@@ -218,6 +220,71 @@ async def test_local_tools_listed_and_callable() -> None:
     assert result.content[0].text == "transcript for 1234"
     assert result.structured_content is None
 
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_model_query_poll_period_updates_shell_runtime_on_model_switch() -> None:
+    agent = McpAgent(
+        config=AgentConfig(name="poll-period", shell=True),
+        context=Context(config=Settings()),
+    )
+
+    await agent.attach_llm(ModelFactory.create_factory("silent?poll_period=90"))
+
+    assert agent._shell_runtime is not None
+    assert agent._shell_runtime._process_poll_default_wait_seconds == 90
+    assert agent._shell_runtime._minimal_process_wait_seconds() == 90
+
+    await agent.set_model("silent?poll_period=120")
+
+    assert agent._shell_runtime._process_poll_default_wait_seconds == 120
+    assert agent._shell_runtime._minimal_process_wait_seconds() == 120
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_model_query_poll_period_above_operator_ceiling_rejects_switch_atomically() -> None:
+    agent = McpAgent(
+        config=AgentConfig(
+            name="poll-period-limit",
+            model="silent?poll_period=30",
+            shell=True,
+        ),
+        context=Context(
+            config=Settings(shell_execution=ShellSettings(process_poll_max_wait_seconds=60))
+        ),
+    )
+    await agent.attach_llm(ModelFactory.create_factory("silent?poll_period=30"))
+    previous_llm = agent.llm
+
+    with pytest.raises(
+        ModelConfigError,
+        match=("poll_period=90 exceeds shell_execution.process_poll_max_wait_seconds=60"),
+    ):
+        await agent.set_model("silent?poll_period=90")
+
+    assert agent.llm is previous_llm
+    assert agent.config.model == "silent?poll_period=30"
+    assert agent._shell_runtime is not None
+    assert agent._shell_runtime._process_poll_default_wait_seconds == 30
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_catalog_poll_default_remains_capped_by_operator_ceiling() -> None:
+    agent = McpAgent(
+        config=AgentConfig(name="catalog-poll-limit", shell=True),
+        context=Context(
+            config=Settings(shell_execution=ShellSettings(process_poll_max_wait_seconds=60))
+        ),
+    )
+
+    await agent.attach_llm(_stub_llm_factory("grok-4.5"))
+
+    assert agent._shell_runtime is not None
+    assert agent._shell_runtime._process_poll_default_wait_seconds == 60
+    assert agent._shell_runtime._minimal_process_wait_seconds() == 60
     await agent._aggregator.close()
 
 
@@ -1119,7 +1186,6 @@ async def test_default_shell_profile_exposes_facades_with_file_tools() -> None:
 @pytest.mark.parametrize(
     ("model", "expects_extended_guidance"),
     [
-        ("gpt-5.6-luna", True),
         ("openai/gpt-5.6-sol", True),
         ("deepseek.deepseek-v4-flash", False),
         ("sonnet", False),

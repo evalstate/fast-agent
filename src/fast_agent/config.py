@@ -17,6 +17,7 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
+from fast_agent.constants import MAX_PROCESS_POLL_WAIT_SECONDS
 from fast_agent.core.exceptions import ConfigFileError
 from fast_agent.home import (
     ConfigDiscoveryResult,
@@ -60,6 +61,7 @@ type ShellToolProfile = Literal[
     "native",
     "minimal_process",
     "grok_shell",
+    "luna_exec",
 ]
 
 SHELL_WRITE_TEXT_FILE_MODES: tuple[ShellWriteTextFileMode, ...] = (
@@ -310,7 +312,8 @@ class ShellSettings(BaseModel):
             "Model-facing shell contract: 'auto' selects a model-specific contract; "
             "'minimal_process' exposes Bash and Process; "
             "'native' retains the legacy execute/poll_process/terminate_process tools; "
-            "'grok_shell' exposes aligned shell plus Process"
+            "'grok_shell' exposes aligned shell plus Process; "
+            "'luna_exec' exposes foreground-first exec plus Process"
         ),
     )
     timeout_seconds: int = Field(
@@ -364,12 +367,11 @@ class ShellSettings(BaseModel):
             "(None = platform temporary directory)"
         ),
     )
-    # Stay below Anthropic's 5-minute cache TTL; pinned boundaries make warm polling unnecessary.
     process_poll_max_wait_seconds: int = Field(
-        default=250,
+        default=MAX_PROCESS_POLL_WAIT_SECONDS,
         ge=1,
-        le=600,
-        description="Maximum wait accepted by poll_process",
+        le=MAX_PROCESS_POLL_WAIT_SECONDS,
+        description="Maximum duration of one model-initiated managed-process wait",
     )
     managed_process_poll_history_folding: Literal["auto", "on", "off"] = Field(
         default="auto",

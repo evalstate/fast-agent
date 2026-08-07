@@ -34,6 +34,7 @@ from fast_agent.llm.model_overlays import (
     load_model_overlay_registry,
 )
 from fast_agent.llm.model_selection import ModelSelectionCatalog
+from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
@@ -171,9 +172,14 @@ metadata:
 
     with _isolated_overlay_environment(home, cleanup_base=tmp_path):
         resolved = ModelFactory.resolve_model_spec("poll-wait")
+        overridden = ModelFactory.resolve_model_spec("poll-wait?poll_period=45")
 
     assert resolved.model_params is not None
     assert resolved.model_params.process_poll_default_wait_seconds == 30
+    assert resolved.process_poll_default_wait_seconds == 30
+    assert overridden.process_poll_default_wait_seconds == 45
+    assert overridden.model_params is not None
+    assert overridden.model_params.process_poll_default_wait_seconds == 30
 
 
 def test_overlay_configures_shell_output_byte_limit(tmp_path: Path) -> None:
@@ -292,6 +298,72 @@ defaults:
             os.environ.pop("REMOTE_QWEN_KEY", None)
         else:
             os.environ["REMOTE_QWEN_KEY"] = previous_remote_key
+
+
+@pytest.mark.parametrize(
+    ("reasoning_api", "expected_reasoning_effort", "expected_chat_template_kwargs"),
+    (
+        ("reasoning_effort", "max", None),
+        (
+            "chat_template_kwargs",
+            None,
+            {"thinking": True, "reasoning_effort": "max"},
+        ),
+    ),
+)
+def test_hf_overlay_configures_reasoning_api(
+    tmp_path: Path,
+    reasoning_api: str,
+    expected_reasoning_effort: str | None,
+    expected_chat_template_kwargs: dict[str, object] | None,
+) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "hf-reasoning.yaml",
+        f"""
+name: hf-reasoning
+provider: hf
+model: overlay-tests/Reasoning
+connection:
+  base_url: https://endpoint.example/v1
+  auth: env
+  api_key_env: HF_REASONING_TOKEN
+  reasoning_api: {reasoning_api}
+defaults:
+  reasoning: max
+metadata:
+  context_window: 65536
+  max_output_tokens: 4096
+""".strip(),
+    )
+
+    previous_token = os.environ.get("HF_REASONING_TOKEN")
+    os.environ["HF_REASONING_TOKEN"] = "test-token"
+    try:
+        with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+            llm = ModelFactory.create_factory("hf-reasoning")(
+                LlmAgent(AgentConfig(name="reasoning"))
+            )
+            assert isinstance(llm, HuggingFaceLLM)
+            request = llm._prepare_api_request(
+                [{"role": "user", "content": "hi"}],
+                None,
+                llm.default_request_params,
+            )
+    finally:
+        if previous_token is None:
+            os.environ.pop("HF_REASONING_TOKEN", None)
+        else:
+            os.environ["HF_REASONING_TOKEN"] = previous_token
+
+    assert request.get("reasoning_effort") == expected_reasoning_effort
+    extra_body = request.get("extra_body")
+    if expected_chat_template_kwargs is None:
+        assert extra_body is None
+    else:
+        assert isinstance(extra_body, dict)
+        assert extra_body["chat_template_kwargs"] == expected_chat_template_kwargs
 
 
 def test_overlay_presets_resolve_overlay_metadata_and_picker_entries(tmp_path: Path) -> None:

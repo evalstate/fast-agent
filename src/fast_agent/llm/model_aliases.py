@@ -127,7 +127,6 @@ BUILTIN_MODEL_ALIASES: Final[dict[str, str]] = {
     "Grok 4.5": "xai.grok-4.5",
     "Grok 4.5 (X Search)": "xai.grok-4.5?x_search=true",
     "Grok 4.3": "xai.grok-4.3",
-    "Grok 4.3 (instant)": "xai.grok-4.3?reasoning=none",
     "Muse Spark 1.2": "metaai.muse-spark-1.2",
     "Muse Spark 1.2 (Contributor)": "metaai.muse-spark-1.2-contributor",
     "Muse Spark 1.1": "metaai.muse-spark-1.1",

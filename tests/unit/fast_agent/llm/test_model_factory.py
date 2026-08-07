@@ -183,6 +183,32 @@ def test_model_query_unknown_parameter_rejected_for_non_anthropic_model():
         ModelFactory.parse_model_string("openai.gpt-4.1?routing=vertex")
 
 
+def test_process_poll_default_is_not_a_model_query_override() -> None:
+    with pytest.raises(
+        ModelConfigError,
+        match="Unsupported model query parameter 'process_poll_default_wait_seconds'",
+    ):
+        ModelFactory.parse_model_string("xai.grok-4.5?process_poll_default_wait_seconds=420")
+
+
+def test_model_query_poll_period_overrides_catalog_default() -> None:
+    resolved = ModelFactory.resolve_model_spec("xai.grok-4.5?poll_period=420")
+
+    assert resolved.model_config.process_poll_default_wait_seconds == 420
+    assert resolved.process_poll_default_wait_seconds == 420
+    assert resolved.model_params is not None
+    assert resolved.model_params.process_poll_default_wait_seconds == 240
+
+
+@pytest.mark.parametrize("value", ["9", "3601", "abc", ""])
+def test_model_query_poll_period_rejects_invalid_values(value: str) -> None:
+    with pytest.raises(
+        ModelConfigError,
+        match="Use an integer from 10 through 3600",
+    ):
+        ModelFactory.parse_model_string(f"xai.grok-4.5?poll_period={value}")
+
+
 def test_model_query_multiple_unknown_parameters_uses_plural_error() -> None:
     with pytest.raises(
         ModelConfigError,
@@ -1281,6 +1307,33 @@ def test_hf_sampling_overrides_route_non_openai_fields_to_extra_body() -> None:
     assert extra_body["min_p"] == 0.0
     assert extra_body["repetition_penalty"] == 1.0
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_hf_reasoning_api_query_emits_top_level_effort() -> None:
+    llm = ModelFactory.create_factory(
+        "hf.deepseek-ai/DeepSeek-V4-Flash-0731?reasoning=max&reasoning_api=reasoning_effort"
+    )(LlmAgent(AgentConfig(name="test")))
+    assert isinstance(llm, HuggingFaceLLM)
+
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert request["reasoning_effort"] == "max"
+    assert request["max_tokens"] == 393_216
+    assert llm.model_info is not None
+    assert llm.model_info.context_window == 1_048_576
+    assert llm.model_info.reasoning == "reasoning_content"
+
+
+def test_reasoning_api_query_rejects_non_hf_provider() -> None:
+    with pytest.raises(ModelConfigError, match="only for the HuggingFace provider"):
+        ModelFactory.parse_model_string(
+            "openrouter.deepseek-ai/DeepSeek-V4-Flash-0731"
+            "?reasoning=max&reasoning_api=reasoning_effort"
+        )
 
 
 def test_hf_omits_empty_tools_for_router_compatibility() -> None:

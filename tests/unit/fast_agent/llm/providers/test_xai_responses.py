@@ -279,26 +279,6 @@ def test_xai_responses_builds_payload_with_selected_reasoning_effort() -> None:
     assert args["reasoning"] == {"effort": "high"}
 
 
-def test_xai_responses_builds_payload_with_reasoning_none() -> None:
-    llm = XAIResponsesLLM(
-        context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
-        model="grok-4.3",
-        reasoning_effort="none",
-    )
-    input_items = [
-        {
-            "type": "message",
-            "role": "user",
-            "content": [{"type": "input_text", "text": "hello"}],
-        }
-    ]
-
-    args = llm._build_response_args(input_items, llm.default_request_params, tools=None)
-
-    assert llm.reasoning_effort == ReasoningEffortSetting(kind="effort", value="none")
-    assert args["reasoning"] == {"effort": "none"}
-
-
 def test_xai_responses_advertises_web_search() -> None:
     llm = XAIResponsesLLM(
         context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),

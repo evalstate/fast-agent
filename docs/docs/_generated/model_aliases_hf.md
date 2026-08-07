@@ -2,6 +2,7 @@
 | --- | --- |
 | `deepseek-ai/deepseek-v3.1` | `deepseek-ai/deepseek-v3.1` |
 | `deepseek-ai/deepseek-v3.2` | `deepseek-ai/deepseek-v3.2` |
+| `deepseek-ai/deepseek-v4-flash-0731` | `deepseek-ai/deepseek-v4-flash-0731` |
 | `deepseek-ai/deepseek-v4-pro` | `deepseek-ai/deepseek-v4-pro` |
 | `deepseek-hf` | `hf.deepseek-ai/DeepSeek-V4-Pro:together` |
 | `deepseek32` | `hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai` |

@@ -190,6 +190,7 @@ Model strings also accept query overrides. For example:
 - `uv run sizer.py --model "gpt-5?reasoning=low"`
 - `uv run sizer.py --model "claude-sonnet-4-6?web_search=on"`
 - `uv run sizer.py --model "claude-sonnet-4-5?context=1m"`
+- `uv run sizer.py --model "gpt-5?poll_period=240"`
 
 For Anthropic models, `?context=1m` is only needed for earlier Sonnet 4 / Sonnet 4.5
 models that still require the explicit 1M context opt-in. Claude Sonnet 4.6 and

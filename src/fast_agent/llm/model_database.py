@@ -9,7 +9,10 @@ from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
-from fast_agent.constants import MAX_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.constants import (
+    MAX_PROCESS_POLL_WAIT_SECONDS,
+    MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
+)
 from fast_agent.llm.model_mime_support import ResourceSource, tokenizes_support_mime
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
@@ -43,7 +46,11 @@ class ModelParameters(BaseModel):
     managed_process_poll_folding: bool | None = None
     """Whether managed-process poll folding has been validated for this model."""
 
-    process_poll_default_wait_seconds: int = Field(default=0, ge=0, le=600)
+    process_poll_default_wait_seconds: int = Field(
+        default=0,
+        ge=0,
+        le=MAX_PROCESS_POLL_WAIT_SECONDS,
+    )
     """Default poll_process wait when the model omits wait_sec."""
 
     shell_output_byte_limit: int | None = Field(
@@ -62,7 +69,15 @@ class ModelParameters(BaseModel):
     shell_edit_tool: Literal["write_text_file", "edit_file", "apply_patch", "off"] | None = None
     """Optional model-specific default for the local file-edit tool contract."""
 
-    shell_tool_profile: Literal["native", "minimal_process", "grok_shell"] | None = None
+    shell_tool_profile: (
+        Literal[
+            "native",
+            "minimal_process",
+            "grok_shell",
+            "luna_exec",
+        ]
+        | None
+    ) = None
     """Optional model-specific shell contract selected when shell tool profile is auto."""
 
     reasoning: None | str = None
@@ -375,7 +390,7 @@ class ModelDatabase:
 
     XAI_GROK_43_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
-        allowed_efforts=["none", "low", "medium", "high"],
+        allowed_efforts=["low", "medium", "high"],
         default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
@@ -549,7 +564,11 @@ class ModelDatabase:
     )
 
     OPENAI_GPT_56_LUNA = OPENAI_GPT_56.model_copy(
-        update={"context_window": 400_000, "codex_responses_lite": True}
+        update={
+            "context_window": 400_000,
+            "codex_responses_lite": True,
+            "shell_tool_profile": "luna_exec",
+        }
     )
 
     OPENAI_GPT_CODEX_SPARK = ModelParameters(
@@ -715,6 +734,12 @@ class ModelDatabase:
         shell_tool_name="Shell",
         shell_tool_requires_description=True,
         shell_edit_tool="edit_file",
+    )
+    DEEPSEEK_V4_FLASH_HF = DEEPSEEK_V4_FLASH.model_copy(
+        update={
+            "reasoning": "reasoning_content",
+            "default_provider": Provider.HUGGINGFACE,
+        }
     )
 
     DEEPSEEK_V_32 = ModelParameters(
@@ -1187,6 +1212,7 @@ class ModelDatabase:
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
         # DeepSeek Models
         "deepseek-v4-flash": _with_fast(DEEPSEEK_V4_FLASH),
+        "deepseek-ai/deepseek-v4-flash-0731": _with_fast(DEEPSEEK_V4_FLASH_HF),
         # Z.ai models
         "glm-5.2": GLM_5_2.model_copy(update={"default_provider": Provider.ZAI}),
         # Google Gemini Models (vanilla aliases and versioned)

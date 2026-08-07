@@ -1092,10 +1092,7 @@ def generate_models_reference() -> str:
         else:
             example_value = values[0] if values else "medium"
 
-        if spec.kind == "effort":
-            example = f"{model_base}.{example_value}"
-        else:
-            example = f"{model_base}?reasoning={example_value}"
+        example = f"{model_base}?reasoning={example_value}"
 
         return f"{spec.kind}: {values_text}<br>Example: `{example}`"
 

@@ -64,6 +64,12 @@ DEFAULT_MAX_ITERATIONS = 9999
 DEFAULT_STREAMING_TIMEOUT = 120.0
 """Default idle timeout in seconds between provider streaming events."""
 
+MIN_PROCESS_POLL_WAIT_SECONDS = 10
+"""Minimum positive managed-process wait exposed to models."""
+
+MAX_PROCESS_POLL_WAIT_SECONDS = 3600
+"""Maximum configurable managed-process wait in seconds."""
+
 DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 16_000
 """Baseline byte limit for ACP terminal output when no model info exists."""
 

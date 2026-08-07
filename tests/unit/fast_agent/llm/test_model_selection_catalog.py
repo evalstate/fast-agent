@@ -84,6 +84,12 @@ def test_metaai_picker_lists_muse_tiers_in_release_order() -> None:
     ]
 
 
+def test_xai_picker_omits_unsupported_instant_grok() -> None:
+    aliases = ModelSelectionCatalog.list_current_aliases(Provider.XAI)
+
+    assert "Grok 4.3 (instant)" not in aliases
+
+
 def test_metaai_muse_aliases_select_the_current_and_contributor_tiers() -> None:
     assert {
         alias: BUILTIN_MODEL_ALIASES[alias] for alias in ("muse", "muse-spark", "musecontrib")

@@ -125,6 +125,7 @@ Useful query parameters:
 - `web_search=on|off`
 - `transport=sse|ws|auto`
 - `service_tier=fast|flex` where supported
+- `poll_period=10..3600` for the default managed-process wait
 
 Use the `openai` provider for Chat Completions-style models such as `openai.gpt-4.1`.
 
@@ -153,6 +154,7 @@ Useful query parameters and config:
 - `task_budget=20k|128k|off` where supported
 - `anthropic.cache_mode: auto|prompt|off`
 - `anthropic.cache_ttl: 5m|1h`
+- `poll_period=10..3600` for the default managed-process wait
 
 `opus` and `opus5` resolve to `claude-opus-5`; use `opus48`, `opus47`, or `opus46` to pin an older
 Opus generation. Opus 5 does not support `web_fetch`, so use `web_search` alone or pin `opus48`
@@ -245,12 +247,14 @@ provider.model_name[?reasoning=value][&query=value...]
 - **model_name**: the model or deployment name
 - **query parameters**: provider/model-specific overrides such as `reasoning`, `structured`,
   `context`, `transport`, `service_tier`, `temperature` (`temp` alias), `web_search`,
-  `web_fetch`, `x_search`, `task_budget`, `max_tokens`, and `streaming_timeout`
+  `web_fetch`, `x_search`, `task_budget`, `max_tokens`, `streaming_timeout`, and
+  `poll_period`
 
 Examples:
 
 - `responses.gpt-5.5?reasoning=medium`
 - `responses.gpt-5.5?streaming_timeout=300`
+- `responses.gpt-5.5?poll_period=240`
 - `responses.gpt-5.5?web_search=on`
 - `sonnet?reasoning=4096`
 - `opus?web_search=on`
@@ -288,7 +292,7 @@ You can also set reasoning directly in the model string query. This is especiall
 - `opus?reasoning=xhigh&task_budget=128k` (adaptive Opus + task budget)
 - `gemini3?reasoning=high`
 - `deepseek?reasoning=max`
-- `xai.grok-4.3?reasoning=none`
+- `xai.grok-4.3?reasoning=low`
 
 Reasoning, Verbosity and Task Budget settings are also available from the `/model` command, or by using ++f6++ or ++f7++ keys.
 
@@ -302,6 +306,19 @@ Set the maximum time between provider stream events with `streaming_timeout`:
 The value must be a positive, finite number of seconds or `none`. An explicit
 request-level `RequestParams(streaming_timeout=...)` value takes precedence over the model-string
 default.
+
+### Managed-process wait period
+
+Set the default wait used when `process(action="wait")` omits `wait_sec`:
+
+- `responses.gpt-5.5?poll_period=240`
+- `opus?poll_period=3000` for an intentionally long wait with a one-hour cache policy
+
+`poll_period` is local fast-agent runtime policy and is not sent to the provider.
+It must be an integer from 10 through 3600. It overrides catalogue and model-overlay
+defaults, but an explicit value above
+`shell_execution.process_poll_max_wait_seconds` is rejected. A wait still returns
+as soon as the managed process completes.
 
 ### Output token limit
 

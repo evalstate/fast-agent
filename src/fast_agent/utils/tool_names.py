@@ -14,11 +14,13 @@ TERMINATE_PROCESS_TOOL_NAME = "terminate_process"
 BASH_TOOL_NAME = "bash"
 PROCESS_TOOL_NAME = "process"
 GROK_SHELL_TOOL_NAME = "shell"
+LUNA_EXEC_TOOL_NAME = "exec"
 SHELL_COMMAND_TOOL_NAMES = frozenset(
     {
         EXECUTE_TOOL_NAME,
         BASH_TOOL_NAME.casefold(),
         GROK_SHELL_TOOL_NAME,
+        LUNA_EXEC_TOOL_NAME,
     }
 )
 SHELL_EXECUTION_TOOL_NAMES = frozenset(
@@ -29,6 +31,7 @@ SHELL_EXECUTION_TOOL_NAMES = frozenset(
         BASH_TOOL_NAME.casefold(),
         PROCESS_TOOL_NAME.casefold(),
         "bash",
+        "exec",
         "shell",
     }
 )
@@ -41,6 +44,7 @@ SHELL_BUILTIN_TOOL_NAMES = frozenset(
         "powershell",
         "cmd",
         "shell",
+        "exec",
     }
 )
 EXECUTE_TOOL_KEYWORDS = (EXECUTE_TOOL_NAME, "run", "exec", "command", "bash", "shell")

@@ -5,7 +5,7 @@ from typing import Any, ClassVar, Literal
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
+from fast_agent.llm.reasoning_effort import ReasoningEffortApi, ReasoningEffortSetting
 from fast_agent.types import RequestParams
 
 HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
@@ -45,6 +45,9 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
     def __init__(self, **kwargs) -> None:
         explicit_reasoning_effort = "reasoning_effort" in kwargs
         self._hf_provider_suffix: str | None = None
+        self._configured_reasoning_api: ReasoningEffortApi | None = kwargs.pop(
+            "reasoning_api", None
+        )
         kwargs.pop("provider", None)
         super().__init__(provider=Provider.HUGGINGFACE, **kwargs)
         if not explicit_reasoning_effort:
@@ -144,7 +147,7 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
     def _set_chat_template_kwarg(
         extra_body: dict[str, Any],
         key: str,
-        value: bool,
+        value: object,
     ) -> None:
         chat_kwargs_raw = extra_body.get("chat_template_kwargs", {})
         chat_kwargs = chat_kwargs_raw if isinstance(chat_kwargs_raw, dict) else {}
@@ -152,6 +155,9 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         extra_body["chat_template_kwargs"] = chat_kwargs
 
     def _apply_reasoning_toggle(self, arguments: dict[str, Any]) -> None:
+        if self._configured_reasoning_api is not None:
+            self._apply_configured_reasoning_api(arguments)
+            return
         if self._uses_glm_52_reasoning_effort(arguments.get("model")):
             self._apply_glm_52_reasoning_effort(arguments)
             return
@@ -210,6 +216,29 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             )
         else:
             extra_body["disable_reasoning"] = disable_reasoning
+        arguments["extra_body"] = extra_body
+
+    def _apply_configured_reasoning_api(self, arguments: dict[str, Any]) -> None:
+        setting = self.reasoning_effort
+        if setting is None:
+            return
+        if setting.kind == "budget":
+            raise ValueError("Configured HF reasoning_api does not support token budgets.")
+
+        effort = setting.value if setting.kind == "effort" else "max"
+        if setting.kind == "toggle" and setting.value is False:
+            effort = "none"
+
+        if self._configured_reasoning_api == "reasoning_effort":
+            arguments["reasoning_effort"] = effort
+            return
+
+        extra_body_raw = arguments.get("extra_body", {})
+        extra_body: dict[str, Any] = extra_body_raw if isinstance(extra_body_raw, dict) else {}
+        enabled = effort not in {"none", "minimal"}
+        self._set_chat_template_kwarg(extra_body, "thinking", enabled)
+        if enabled:
+            self._set_chat_template_kwarg(extra_body, "reasoning_effort", effort)
         arguments["extra_body"] = extra_body
 
     def _apply_kimi_k3_reasoning_effort(self, arguments: dict[str, Any]) -> None:

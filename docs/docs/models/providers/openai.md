@@ -55,6 +55,9 @@ Responses-compatible models use WebSockets as the default transport, with contin
 
 WebSocket mode can be disabled by using `transport=sse` in the model string. 
 
+WebSockets are kept alive for up to 55 minutes, and have a robust retry and SSE
+fallback mechanisms for error recovery. 
+
 #### Encrypted Reasoning
 
 Reasoning summaries are displayed, with encrypted blocks stored locally for session resumption.

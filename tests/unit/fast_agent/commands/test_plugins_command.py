@@ -394,6 +394,9 @@ def test_plugins_list_marks_active_duplicate(
         assert project_row < global_row
         assert "active" in result.output
         assert "shadowed by project" in result.output
+        assert "Version" in result.output
+        assert "2.0.0" in result.output
+        assert "1.0.0" in result.output
     finally:
         update_global_settings(old_settings)
 

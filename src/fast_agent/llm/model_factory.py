@@ -7,6 +7,10 @@ from urllib.parse import parse_qsl
 
 from pydantic import BaseModel
 
+from fast_agent.constants import (
+    MAX_PROCESS_POLL_WAIT_SECONDS,
+    MIN_PROCESS_POLL_WAIT_SECONDS,
+)
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LLMFactoryProtocol
 from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
@@ -14,6 +18,7 @@ from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
+    ReasoningEffortApi,
     ReasoningEffortSetting,
     parse_reasoning_setting,
 )
@@ -53,6 +58,10 @@ _SERVICE_TIER_QUERY_VALUES: dict[str, ServiceTierSetting] = {
     "fast": "fast",
     "flex": "flex",
 }
+_REASONING_API_QUERY_VALUES: dict[str, ReasoningEffortApi] = {
+    "reasoning_effort": "reasoning_effort",
+    "chat_template_kwargs": "chat_template_kwargs",
+}
 _WEBSOCKET_TRANSPORT_PROVIDERS = (
     Provider.CODEX_RESPONSES,
     Provider.RESPONSES,
@@ -64,6 +73,7 @@ _FLEX_SERVICE_TIER_MODEL_CHECK_PROVIDERS = (
 )
 _SINGLE_VALUE_MODEL_QUERY_KEYS = (
     "reasoning",
+    "reasoning_api",
     "verbosity",
     "structured",
     "instant",
@@ -80,6 +90,7 @@ _STRUCTURED_TOOL_QUERY_KEYS = (
 _WEB_TOOL_QUERY_KEYS = ("web_search", "x_search", "web_fetch")
 _TASK_BUDGET_QUERY_KEYS = ("task_budget", "taskBudget")
 _MAX_TOKENS_QUERY_KEYS = ("max_tokens", "maxTokens")
+_POLL_PERIOD_QUERY_KEYS = ("poll_period",)
 _SAMPLING_QUERY_KEYS = {
     "temperature": ("temperature", "temp"),
     "top_p": ("top_p", "topP"),
@@ -95,6 +106,7 @@ SUPPORTED_MODEL_QUERY_KEYS = frozenset(
         *_WEB_TOOL_QUERY_KEYS,
         *_TASK_BUDGET_QUERY_KEYS,
         *_MAX_TOKENS_QUERY_KEYS,
+        *_POLL_PERIOD_QUERY_KEYS,
         *(key for key_group in _SAMPLING_QUERY_KEYS.values() for key in key_group),
     )
 )
@@ -156,6 +168,7 @@ class ModelConfig(BaseModel):
     provider: Provider
     model_name: str
     reasoning_effort: ReasoningEffortSetting | None = None
+    reasoning_api: ReasoningEffortApi | None = None
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
     structured_tool_policy: StructuredToolPolicy | None = None
@@ -174,6 +187,7 @@ class ModelConfig(BaseModel):
     min_p: float | None = None
     presence_penalty: float | None = None
     repetition_penalty: float | None = None
+    process_poll_default_wait_seconds: int | None = None
     streaming_timeout: float | None = None
     streaming_timeout_configured: bool = False
 
@@ -183,6 +197,7 @@ class ModelQueryOverrides:
     """Typed query overrides parsed from a model spec query string."""
 
     reasoning_effort: ReasoningEffortSetting | None = None
+    reasoning_api: ReasoningEffortApi | None = None
     instant: bool | None = None
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
@@ -202,6 +217,7 @@ class ModelQueryOverrides:
     min_p: float | None = None
     presence_penalty: float | None = None
     repetition_penalty: float | None = None
+    process_poll_default_wait_seconds: int | None = None
     streaming_timeout: float | None = None
     streaming_timeout_configured: bool = False
 
@@ -213,6 +229,7 @@ class ModelQueryOverrides:
 
         return ModelQueryOverrides(
             reasoning_effort=coalesce(self.reasoning_effort, defaults.reasoning_effort),
+            reasoning_api=coalesce(self.reasoning_api, defaults.reasoning_api),
             instant=coalesce(self.instant, defaults.instant),
             text_verbosity=coalesce(self.text_verbosity, defaults.text_verbosity),
             structured_output_mode=coalesce(
@@ -240,6 +257,10 @@ class ModelQueryOverrides:
             min_p=coalesce(self.min_p, defaults.min_p),
             presence_penalty=coalesce(self.presence_penalty, defaults.presence_penalty),
             repetition_penalty=coalesce(self.repetition_penalty, defaults.repetition_penalty),
+            process_poll_default_wait_seconds=coalesce(
+                self.process_poll_default_wait_seconds,
+                defaults.process_poll_default_wait_seconds,
+            ),
             streaming_timeout=(
                 self.streaming_timeout
                 if self.streaming_timeout_configured
@@ -268,6 +289,7 @@ class ParsedModelSpec:
             provider=self.provider,
             model_name=self.model_name,
             reasoning_effort=self.reasoning_effort,
+            reasoning_api=self.query_overrides.reasoning_api,
             text_verbosity=self.query_overrides.text_verbosity,
             structured_output_mode=self.query_overrides.structured_output_mode,
             structured_tool_policy=self.query_overrides.structured_tool_policy,
@@ -286,6 +308,9 @@ class ParsedModelSpec:
             min_p=self.query_overrides.min_p,
             presence_penalty=self.query_overrides.presence_penalty,
             repetition_penalty=self.query_overrides.repetition_penalty,
+            process_poll_default_wait_seconds=(
+                self.query_overrides.process_poll_default_wait_seconds
+            ),
             streaming_timeout=self.query_overrides.streaming_timeout,
             streaming_timeout_configured=self.query_overrides.streaming_timeout_configured,
         )
@@ -394,6 +419,32 @@ def _parse_positive_int_query(
     return value
 
 
+def _parse_poll_period_query(
+    query_params: ModelQueryPairs,
+    model_spec: str,
+) -> int | None:
+    values = _collect_query_values(query_params, _POLL_PERIOD_QUERY_KEYS)
+    if not values:
+        return None
+
+    raw_value = values[-1]
+    try:
+        value = int(raw_value)
+    except ValueError:
+        value = None
+    if (
+        value is None
+        or value < MIN_PROCESS_POLL_WAIT_SECONDS
+        or value > MAX_PROCESS_POLL_WAIT_SECONDS
+    ):
+        raise ModelConfigError(
+            f"Invalid poll_period query value: '{raw_value}' in '{model_spec}'. "
+            f"Use an integer from {MIN_PROCESS_POLL_WAIT_SECONDS} through "
+            f"{MAX_PROCESS_POLL_WAIT_SECONDS}."
+        )
+    return value
+
+
 def _parse_bool_query(raw_value: str, query_key: str, model_spec: str) -> bool:
     parsed_boolean = parse_boolean_alias(raw_value)
     if parsed_boolean is not None:
@@ -429,6 +480,21 @@ def _parse_reasoning_query(
             )
         return parsed_reasoning
     return None
+
+
+def _parse_reasoning_api_query(
+    query_params: ModelQueryPairs, model_spec: str
+) -> ReasoningEffortApi | None:
+    if not _has_query_key(query_params, "reasoning_api"):
+        return None
+    raw_value = _collect_query_values(query_params, ("reasoning_api",))[-1]
+    normalized_value = strip_casefold(raw_value)
+    reasoning_api = _REASONING_API_QUERY_VALUES.get(normalized_value)
+    if reasoning_api is None:
+        raise ModelConfigError(
+            f"Invalid reasoning_api query value: '{normalized_value}' in '{model_spec}'"
+        )
+    return reasoning_api
 
 
 def _parse_verbosity_query(
@@ -591,6 +657,7 @@ def _parse_query_overrides(
 
     return ModelQueryOverrides(
         reasoning_effort=_parse_reasoning_query(query_params, model_spec),
+        reasoning_api=_parse_reasoning_api_query(query_params, model_spec),
         instant=_parse_instant_query(query_params, model_spec),
         text_verbosity=_parse_verbosity_query(query_params, model_spec),
         structured_output_mode=_parse_structured_query(query_params, model_spec),
@@ -644,6 +711,10 @@ def _parse_query_overrides(
             model_spec,
             keys=_SAMPLING_QUERY_KEYS["repetition_penalty"],
             label="repetition_penalty",
+        ),
+        process_poll_default_wait_seconds=_parse_poll_period_query(
+            query_params,
+            model_spec,
         ),
         streaming_timeout=streaming_timeout,
         streaming_timeout_configured=streaming_timeout_configured,
@@ -803,6 +874,14 @@ def _validate_transport_constraints(
         )
 
 
+def _validate_reasoning_api_constraints(
+    provider: Provider,
+    reasoning_api: ReasoningEffortApi | None,
+) -> None:
+    if reasoning_api is not None and provider is not Provider.HUGGINGFACE:
+        raise ModelConfigError("reasoning_api is supported only for the HuggingFace provider.")
+
+
 def _validate_service_tier_constraints(
     provider: Provider,
     model_name: str,
@@ -915,6 +994,7 @@ class ModelFactory:
             )
 
         _validate_transport_constraints(provider, model_name, merged_overrides.transport)
+        _validate_reasoning_api_constraints(provider, merged_overrides.reasoning_api)
         _validate_service_tier_constraints(provider, model_name, merged_overrides.service_tier)
         return ParsedModelSpec(
             raw_input=raw_input,

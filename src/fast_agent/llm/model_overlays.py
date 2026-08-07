@@ -14,7 +14,10 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 import fast_agent.config as config_module
 from fast_agent.config import load_yaml_mapping
-from fast_agent.constants import MAX_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.constants import (
+    MAX_PROCESS_POLL_WAIT_SECONDS,
+    MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
+)
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.home import resolve_fast_agent_home
@@ -75,6 +78,7 @@ class ModelOverlayConnection(BaseModel):
     api_key_env: str | None = None
     secret_ref: str | None = None
     default_headers: dict[str, str] = Field(default_factory=dict)
+    reasoning_api: Literal["reasoning_effort", "chat_template_kwargs"] | None = None
 
     @model_validator(mode="after")
     def _validate_auth_configuration(self) -> "ModelOverlayConnection":
@@ -196,7 +200,11 @@ class ModelOverlayMetadata(BaseModel):
     json_mode: Literal["schema", "object"] | None = None
     structured_tool_policy: Literal["always", "defer", "no_tools"] | None = None
     managed_process_poll_folding: bool | None = None
-    process_poll_default_wait_seconds: int | None = Field(default=None, ge=0, le=600)
+    process_poll_default_wait_seconds: int | None = Field(
+        default=None,
+        ge=0,
+        le=MAX_PROCESS_POLL_WAIT_SECONDS,
+    )
     shell_output_byte_limit: int | None = Field(
         default=None,
         ge=1,
@@ -269,6 +277,12 @@ class ModelOverlayManifest(BaseModel):
         validation_alias=AliasChoices("metadata", "model_metadata"),
     )
     picker: ModelOverlayPicker = Field(default_factory=ModelOverlayPicker)
+
+    @model_validator(mode="after")
+    def _validate_provider_connection_options(self) -> "ModelOverlayManifest":
+        if self.connection.reasoning_api is not None and self.provider is not Provider.HUGGINGFACE:
+            raise ValueError("connection.reasoning_api is supported only for provider 'hf'")
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -368,6 +382,8 @@ class LoadedModelOverlay:
         default_headers = self.resolved_default_headers()
         if default_headers is not None:
             kwargs["default_headers"] = default_headers
+        if self.manifest.connection.reasoning_api is not None:
+            kwargs["reasoning_api"] = self.manifest.connection.reasoning_api
         return kwargs
 
     def build_model_parameters(self) -> ModelParameters | None:

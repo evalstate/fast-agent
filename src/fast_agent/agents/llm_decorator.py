@@ -340,9 +340,8 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     async def set_model(self, model: str | None) -> None:
         """Set the default model for this agent and reattach the LLM if needed."""
-        self.config.model = model
-
         if model is None:
+            self.config.model = None
             if self._default_request_params:
                 self._default_request_params.model = None
             return
@@ -355,8 +354,6 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         )
         resolved_model = ModelFactory.resolve_model_spec(model_with_aliases)
         wire_model = resolved_model.wire_model_name
-        if self._default_request_params:
-            self._default_request_params.model = wire_model
 
         if self._llm_attach_kwargs is None:
             raise RuntimeError("LLM attachment parameters missing despite factory being available")
@@ -375,6 +372,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             request_params=request_params,
             **attach_kwargs,
         )
+        self.config.model = model
+        if self._default_request_params:
+            self._default_request_params.model = wire_model
 
     @property
     def agent_type(self) -> AgentType:
@@ -434,10 +434,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             self._default_request_params, request_params, model
         )
 
-        # Create the LLM instance
-        self._llm = llm_factory(
+        # Create and validate the LLM before replacing the active attachment.
+        llm = llm_factory(
             agent=self, request_params=effective_params, context=self._context, **additional_kwargs
         )
+        self._validate_llm_attachment(llm)
+        self._llm = llm
 
         # Store attachment details for future cloning
         self._llm_factory_ref = llm_factory
@@ -451,6 +453,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._on_llm_attached(self._llm)
 
         return self._llm
+
+    def _validate_llm_attachment(self, llm: FastAgentLLMProtocol) -> None:
+        """Hook for subclasses to reject an LLM before it becomes active."""
 
     def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
         """Hook for subclasses that need to react when an LLM is attached."""

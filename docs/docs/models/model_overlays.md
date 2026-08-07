@@ -49,6 +49,7 @@ model: unsloth/Qwen3.5-9B-GGUF
 connection:
   base_url: http://localhost:8080/v1
   auth: none
+  # reasoning_api: reasoning_effort
 defaults:
   temperature: 0.8
   top_p: 0.95
@@ -155,6 +156,9 @@ Use `connection` when the overlay needs endpoint-specific transport details:
 - `api_key_env`: environment variable name to read when `auth: env`
 - `secret_ref`: companion secret entry name when `auth: secret_ref`
 - `default_headers`: optional headers to send on each request
+- `reasoning_api`: Hugging Face custom-endpoint reasoning encoding. Use
+  `reasoning_effort` for a top-level field or `chat_template_kwargs` for nested
+  `thinking` and `reasoning_effort` template arguments.
 
 ### Request defaults
 
@@ -193,7 +197,9 @@ Common fields:
   `auto`.
 - `process_poll_default_wait_seconds`: default `poll_process` wait when the model
   omits `wait_sec` (`0` keeps polling non-blocking). The value is capped by
-  `shell_execution.process_poll_max_wait_seconds`.
+  `shell_execution.process_poll_max_wait_seconds`. An explicit model-string
+  `poll_period` takes precedence over this metadata and is rejected if it
+  exceeds the configured maximum.
 - `fast`
 
 ## Authentication options

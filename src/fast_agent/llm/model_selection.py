@@ -119,7 +119,6 @@ class ModelSelectionCatalog:
             _builtin_entry("Grok 4.5"),
             _builtin_entry("Grok 4.5 (X Search)"),
             _builtin_entry("Grok 4.3"),
-            _builtin_entry("Grok 4.3 (instant)"),
         ),
         Provider.META_AI: (
             _builtin_entry("Muse Spark 1.2"),

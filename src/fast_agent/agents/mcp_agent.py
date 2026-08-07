@@ -58,17 +58,18 @@ from fast_agent.commands.model_capabilities import (
     resolve_model_params,
     resolve_resolved_model,
 )
-from fast_agent.config import MCPServerSettings, ShellToolProfile
+from fast_agent.config import MCPServerSettings, ShellSettings, ShellToolProfile
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     HUMAN_INPUT_TOOL_NAME,
     should_parallelize_tool_calls,
 )
-from fast_agent.core.exceptions import AgentConfigError, PromptExitError
+from fast_agent.core.exceptions import AgentConfigError, ModelConfigError, PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.resolved_model import ResolvedModelSpec
 from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_max_tokens,
     calculate_terminal_output_limit_for_model,
@@ -904,6 +905,8 @@ class McpAgent(ABC, ToolAgent):
         params = ModelDatabase.get_model_params(model_name) if model_name else None
         if params is not None and params.shell_tool_profile is not None:
             return params.shell_tool_profile
+        if cls._prefers_luna_exec_model(model_name):
+            return "luna_exec"
         return "grok_shell" if cls._prefers_grok_shell_model(model_name) else "minimal_process"
 
     def _model_process_poll_default_wait_seconds(
@@ -911,6 +914,9 @@ class McpAgent(ABC, ToolAgent):
         llm: FastAgentLLMProtocol | None = None,
     ) -> int:
         active_llm = llm or self._llm
+        resolved_model = resolve_resolved_model(active_llm) if active_llm is not None else None
+        if isinstance(resolved_model, ResolvedModelSpec):
+            return resolved_model.process_poll_default_wait_seconds
         model_params = resolve_model_params(active_llm)
         if model_params is not None:
             return model_params.process_poll_default_wait_seconds
@@ -1045,6 +1051,14 @@ class McpAgent(ABC, ToolAgent):
         return re.search(r"(?:^|/)grok(?:-|$)", normalized) is not None
 
     @staticmethod
+    def _prefers_luna_exec_model(model_name: str | None) -> bool:
+        """Return True for GPT-5.6 Luna names across provider routes."""
+        if not model_name:
+            return False
+        normalized = ModelDatabase.normalize_model_name(model_name)
+        return re.search(r"(?:^|/)gpt-5\.6-luna(?:$|[./:?])", normalized) is not None
+
+    @staticmethod
     def _prefers_anthropic_edit_file_model(model_name: str | None) -> bool:
         """Return True for Anthropic-series models."""
         if not model_name:
@@ -1167,6 +1181,26 @@ class McpAgent(ABC, ToolAgent):
             return False
         shell_config = self._context.config.shell_execution
         return shell_config.output_byte_limit_selection == "explicit"
+
+    def _validate_llm_attachment(self, llm: FastAgentLLMProtocol) -> None:
+        super()._validate_llm_attachment(llm)
+        resolved_model = resolve_resolved_model(llm)
+        if not isinstance(resolved_model, ResolvedModelSpec):
+            return
+        poll_period = resolved_model.model_config.process_poll_default_wait_seconds
+        if poll_period is None:
+            return
+        maximum = (
+            self._context.config.shell_execution.process_poll_max_wait_seconds
+            if self._context is not None and self._context.config is not None
+            else ShellSettings().process_poll_max_wait_seconds
+        )
+        if poll_period > maximum:
+            raise ModelConfigError(
+                f"Model query poll_period={poll_period} exceeds "
+                f"shell_execution.process_poll_max_wait_seconds={maximum}. "
+                "Lower poll_period or raise the configured maximum."
+            )
 
     def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
         super()._on_llm_attached(llm)

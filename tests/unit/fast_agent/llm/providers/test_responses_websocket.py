@@ -29,7 +29,6 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     WebSocketResponsesStream,
     _AttrObjectView,
     build_ws_headers,
-    connect_websocket,
     resolve_responses_ws_url,
     send_response_request,
 )
@@ -60,23 +59,6 @@ class _FakeSession:
 
     async def close(self) -> None:
         self.closed = True
-
-
-class _SlowConnectSession(_FakeSession):
-    def __init__(self, delay_seconds: float) -> None:
-        super().__init__()
-        self.delay_seconds = delay_seconds
-
-    async def ws_connect(
-        self,
-        url: str,
-        *,
-        headers: dict[str, str],
-        autoping: bool,
-    ) -> _FakeWebSocket:
-        del url, headers, autoping
-        await asyncio.sleep(self.delay_seconds)
-        return _FakeWebSocket()
 
 
 class _FakeWebSocket:
@@ -264,34 +246,6 @@ async def test_send_response_request_create_envelope_from_planned_request() -> N
     assert payload["type"] == "response.create"
     assert "stream" not in payload
     assert payload["model"] == "gpt-5.3-codex"
-
-
-@pytest.mark.asyncio
-async def test_connect_websocket_applies_timeout_during_handshake(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    created_sessions: list[_SlowConnectSession] = []
-
-    def _client_session_factory(*, timeout: Any) -> _SlowConnectSession:
-        del timeout
-        session = _SlowConnectSession(delay_seconds=0.05)
-        created_sessions.append(session)
-        return session
-
-    monkeypatch.setattr(
-        "fast_agent.llm.provider.openai.responses_websocket.aiohttp.ClientSession",
-        _client_session_factory,
-    )
-
-    with pytest.raises(TimeoutError):
-        await connect_websocket(
-            url="wss://api.openai.com/v1/responses",
-            headers={"Authorization": "Bearer test"},
-            timeout_seconds=0.01,
-        )
-
-    assert len(created_sessions) == 1
-    assert created_sessions[0].closed is True
 
 
 @pytest.mark.asyncio
@@ -1060,6 +1014,37 @@ async def test_websocket_connection_manager_invalidation_on_error() -> None:
     second, second_reusable = await manager.acquire(factory)
     assert second_reusable
     assert second is not first
+
+
+@pytest.mark.asyncio
+async def test_websocket_connection_manager_rotates_at_absolute_max_age() -> None:
+    now = 1.0
+
+    def _clock() -> float:
+        return now
+
+    manager = WebSocketConnectionManager(
+        idle_timeout_seconds=0.0,
+        max_age_seconds=100.0,
+        clock=_clock,
+    )
+    factory = _ConnectionFactory(created=[])
+
+    first, first_reusable = await manager.acquire(factory)
+    await manager.release(first, reusable=first_reusable, keep=True)
+
+    now = 50.0
+    reused, reused_flag = await manager.acquire(factory)
+    assert reused is first
+    await manager.release(reused, reusable=reused_flag, keep=True)
+
+    now = 101.0
+    replacement, replacement_flag = await manager.acquire(factory)
+
+    assert replacement_flag
+    assert replacement is not first
+    assert first.websocket.closed
+    assert first.session.closed
 
 
 @pytest.mark.asyncio

@@ -22,6 +22,7 @@ from fast_agent.config import LoggerSettings, Settings, ShellSettings, ToolDispl
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     FAST_AGENT_SHELL_PROCESS_METADATA,
+    MAX_PROCESS_POLL_WAIT_SECONDS,
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
 from fast_agent.event_progress import ProgressAction
@@ -576,7 +577,9 @@ def test_execute_tool_schema_declares_per_call_options() -> None:
         "wait_sec",
         "wake_on_output",
     }
-    assert poll_tool.input_schema["properties"]["wait_sec"]["maximum"] == 250
+    assert (
+        poll_tool.input_schema["properties"]["wait_sec"]["maximum"] == MAX_PROCESS_POLL_WAIT_SECONDS
+    )
     wake_schema = poll_tool.input_schema["properties"]["wake_on_output"]
     assert wake_schema["default"] is False
     assert "quiet for 2 seconds" in wake_schema["description"]
@@ -602,17 +605,21 @@ def test_minimal_process_profile_exposes_only_bash_and_process() -> None:
         "process_id",
         "action",
         "wait_sec",
+        "offset",
+        "limit",
+        "query",
     }
     assert process_tool.input_schema["properties"]["action"]["enum"] == [
         "list",
         "status",
         "wait",
         "stop",
+        "read_output",
     ]
     assert "required" not in process_tool.input_schema
     wait_schema = process_tool.input_schema["properties"]["wait_sec"]
     assert "default" not in wait_schema
-    assert wait_schema["maximum"] == 250
+    assert wait_schema["maximum"] == MAX_PROCESS_POLL_WAIT_SECONDS
     assert "Values below 10 are clamped to 10" in wait_schema["description"]
     assert "Use 30 seconds unless more frequent monitoring is needed" in (
         process_tool.description or ""

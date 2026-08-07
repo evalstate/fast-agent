@@ -161,7 +161,8 @@ Common fields:
   has been validated for this model
 - `process_poll_default_wait_seconds`: default `poll_process` wait when omitted;
   `0` keeps polls non-blocking, and `shell_execution.process_poll_max_wait_seconds`
-  caps the effective value
+  caps the effective value. An explicit model-string `poll_period` takes
+  precedence and is rejected if it exceeds the configured maximum
 - `shell_tool_name`: optional model-facing name for the minimal-process shell tool
 - `shell_tool_requires_description`: require a short operator-facing `description`
   argument on the minimal-process shell tool

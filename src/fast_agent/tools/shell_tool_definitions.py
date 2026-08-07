@@ -17,13 +17,15 @@ from fast_agent.utils.tool_names import (
     BASH_TOOL_NAME,
     EXECUTE_TOOL_NAME,
     GROK_SHELL_TOOL_NAME,
+    LUNA_EXEC_TOOL_NAME,
     POLL_PROCESS_TOOL_NAME,
     PROCESS_TOOL_NAME,
     TERMINATE_PROCESS_TOOL_NAME,
 )
 
 MAX_IDLE_YIELD_SECONDS = 30
-MAX_GROK_SHELL_TIMEOUT_SECONDS = 600
+MAX_ALIGNED_SHELL_TIMEOUT_SECONDS = 600
+MAX_PROCESS_OUTPUT_QUERY_CHARS = 512
 PROCESS_OUTPUT_DEBOUNCE_SECONDS = 2.0
 
 _EXECUTE_ARGUMENTS = frozenset(
@@ -39,8 +41,18 @@ _EXECUTE_ARGUMENTS = frozenset(
 _POLL_PROCESS_ARGUMENTS = frozenset({"process_id", "wait_sec", "wake_on_output"})
 _TERMINATE_PROCESS_ARGUMENTS = frozenset({"process_id"})
 _MINIMAL_BASH_ARGUMENTS = frozenset({"command", "description", "run_in_background"})
-_MINIMAL_PROCESS_ARGUMENTS = frozenset({"process_id", "action", "wait_sec"})
+_MINIMAL_PROCESS_ARGUMENTS = frozenset(
+    {
+        "process_id",
+        "action",
+        "wait_sec",
+        "offset",
+        "limit",
+        "query",
+    }
+)
 _GROK_SHELL_ARGUMENTS = frozenset({"command", "working_directory", "background", "timeout"})
+_LUNA_EXEC_ARGUMENTS = _GROK_SHELL_ARGUMENTS
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +85,20 @@ class MinimalProcessLifecycleArguments:
     wait_sec: int | None
 
 
-MinimalProcessArguments: TypeAlias = MinimalProcessListArguments | MinimalProcessLifecycleArguments
+@dataclass(frozen=True, slots=True)
+class MinimalProcessReadOutputArguments:
+    process_id: str
+    action: Literal["read_output"]
+    offset: int
+    limit: int | None
+    query: str | None
+
+
+MinimalProcessArguments: TypeAlias = (
+    MinimalProcessListArguments
+    | MinimalProcessLifecycleArguments
+    | MinimalProcessReadOutputArguments
+)
 
 
 def build_execute_tool(*, shell_name: str) -> Tool:
@@ -311,14 +336,17 @@ def build_minimal_process_tool(
     return Tool(
         name=PROCESS_TOOL_NAME,
         description=(
-            f"List, inspect, wait for, or stop managed processes returned by {shell_tool_name}. "
+            f"List, inspect, wait for, stop, or read retained output from managed "
+            f"processes returned by {shell_tool_name}. "
             "`list` returns all retained processes in creation order and takes no "
             "process ID. "
             "`status` returns immediately. `wait` accepts an optional `wait_sec`; "
             "when omitted it uses the configured model-specific polling interval "
             "(with a nonzero fallback when the model has none). "
             f"Use {default_wait_seconds} seconds unless more frequent monitoring "
-            f"is needed.{completion_guidance} `stop` terminates the process group."
+            f"is needed.{completion_guidance} `stop` terminates the process group. "
+            "`read_output` reads only the bounded retained output owned by that "
+            "managed process; it cannot access arbitrary filesystem paths."
         ),
         input_schema={
             "type": "object",
@@ -327,12 +355,12 @@ def build_minimal_process_tool(
                     "type": "string",
                     "description": (
                         f"Managed process ID returned by {shell_tool_name}. Required for status, "
-                        "wait, and stop; omit for list."
+                        "wait, stop, and read_output; omit for list."
                     ),
                 },
                 "action": {
                     "type": "string",
-                    "enum": ["list", "status", "wait", "stop"],
+                    "enum": ["list", "status", "wait", "stop", "read_output"],
                     "default": "status",
                 },
                 "wait_sec": {
@@ -343,6 +371,34 @@ def build_minimal_process_tool(
                     ),
                     "minimum": 0,
                     "maximum": max_wait_seconds,
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": (
+                        "Optional retained-output byte offset for action='read_output'. "
+                        "Defaults to 0. Omit when using query unless the search should "
+                        "start after a known byte offset."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
+                    "description": (
+                        "Optional maximum bytes returned by action='read_output'. "
+                        "Defaults to the configured shell preview limit and is capped "
+                        f"at {MAX_TERMINAL_OUTPUT_BYTE_LIMIT}."
+                    ),
+                },
+                "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": MAX_PROCESS_OUTPUT_QUERY_CHARS,
+                    "description": (
+                        "Optional case-sensitive literal search for action='read_output'. "
+                        "Returns matching retained-output lines within limit."
+                    ),
                 },
             },
             "additionalProperties": False,
@@ -380,7 +436,57 @@ def build_grok_shell_tool(*, shell_name: str) -> Tool:
                 "timeout": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": MAX_GROK_SHELL_TIMEOUT_SECONDS,
+                    "maximum": MAX_ALIGNED_SHELL_TIMEOUT_SECONDS,
+                    "description": (
+                        "Optional foreground hard deadline in seconds. Suppresses "
+                        "normal auto-yield and terminates the process group on expiry."
+                    ),
+                },
+            },
+            "required": ["command"],
+            "additionalProperties": False,
+        },
+    )
+
+
+def build_luna_exec_tool(*, shell_name: str) -> Tool:
+    return Tool(
+        name=LUNA_EXEC_TOOL_NAME,
+        description=(
+            f"Run one shell command in {shell_name}. Keep builds, tests, installs, "
+            "downloads, compilation, training, scripts, and any command whose "
+            "completion or exit status matters in the foreground. Foreground commands "
+            "automatically yield a managed process ID when they take time; use process "
+            "to wait, inspect, or stop them. Set `background=true` only for a server "
+            "or service that must remain alive for later checks or the verifier. "
+            "Omit `timeout` for normal foreground auto-yield. A supplied `timeout` is "
+            "a hard foreground deadline that terminates the process group on expiry. "
+            "Do not use shell `&`, `nohup`, or `disown`."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "Shell command string without a shell executable prefix.",
+                },
+                "working_directory": {
+                    "type": "string",
+                    "description": "Optional working directory for this command only.",
+                },
+                "background": {
+                    "type": "boolean",
+                    "description": (
+                        "Use true only for a verifier-persistent server or service. "
+                        "Never use for builds, tests, installs, downloads, compilation, "
+                        "training, scripts, or commands whose completion or exit status "
+                        "matters. Do not combine with timeout."
+                    ),
+                },
+                "timeout": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": MAX_ALIGNED_SHELL_TIMEOUT_SECONDS,
                     "description": (
                         "Optional foreground hard deadline in seconds. Suppresses "
                         "normal auto-yield and terminates the process group on expiry."
@@ -572,19 +678,42 @@ def parse_minimal_bash_arguments(
 def parse_grok_shell_arguments(
     arguments: dict[str, Any] | None,
 ) -> ShellExecuteArguments:
+    return _parse_aligned_shell_arguments(
+        arguments,
+        tool_name=GROK_SHELL_TOOL_NAME,
+        allowed_arguments=_GROK_SHELL_ARGUMENTS,
+    )
+
+
+def parse_luna_exec_arguments(
+    arguments: dict[str, Any] | None,
+) -> ShellExecuteArguments:
+    return _parse_aligned_shell_arguments(
+        arguments,
+        tool_name=LUNA_EXEC_TOOL_NAME,
+        allowed_arguments=_LUNA_EXEC_ARGUMENTS,
+    )
+
+
+def _parse_aligned_shell_arguments(
+    arguments: dict[str, Any] | None,
+    *,
+    tool_name: str,
+    allowed_arguments: frozenset[str],
+) -> ShellExecuteArguments:
     payload = coerce_tool_arguments(arguments)
     _reject_unknown_arguments(
         payload,
-        _GROK_SHELL_ARGUMENTS,
-        tool_name=GROK_SHELL_TOOL_NAME,
+        allowed_arguments,
+        tool_name=tool_name,
     )
     background = payload.get("background", False)
     if type(background) is not bool:
         raise ValueError("Error: 'background' argument must be a boolean")
     timeout = coerce_positive_int_argument(payload.get("timeout"), "timeout")
-    if timeout is not None and timeout > MAX_GROK_SHELL_TIMEOUT_SECONDS:
+    if timeout is not None and timeout > MAX_ALIGNED_SHELL_TIMEOUT_SECONDS:
         raise ValueError(
-            f"Error: 'timeout' argument must be at most {MAX_GROK_SHELL_TIMEOUT_SECONDS}"
+            f"Error: 'timeout' argument must be at most {MAX_ALIGNED_SHELL_TIMEOUT_SECONDS}"
         )
     if background and timeout is not None:
         raise ValueError("Error: 'background=true' cannot be combined with 'timeout'")
@@ -628,15 +757,65 @@ def parse_minimal_process_arguments(
         tool_name="process",
     )
     action = payload.get("action", "status")
-    if action not in {"list", "status", "wait", "stop"}:
-        raise ValueError("Error: 'action' must be 'list', 'status', 'wait', or 'stop'")
+    valid_actions = {"list", "status", "wait", "stop", "read_output"}
+    if action not in valid_actions:
+        raise ValueError(
+            "Error: 'action' must be 'list', 'status', 'wait', 'stop', or 'read_output'"
+        )
     if action == "list":
         if "process_id" in payload:
             raise ValueError("Error: 'process_id' must be omitted for action='list'")
         if "wait_sec" in payload:
             raise ValueError("Error: 'wait_sec' must be omitted for action='list'")
+        if {"offset", "limit", "query"} & payload.keys():
+            raise ValueError(
+                "Error: 'offset', 'limit', and 'query' must be omitted for action='list'"
+            )
         return MinimalProcessListArguments(action="list")
 
+    process_id = coerce_required_string_argument(
+        payload.get("process_id"),
+        "process_id",
+        strip=True,
+    )
+    if action == "read_output":
+        if "wait_sec" in payload:
+            raise ValueError("Error: 'wait_sec' must be omitted for action='read_output'")
+        offset = payload.get("offset", 0)
+        if type(offset) is not int or offset < 0:
+            raise ValueError("Error: 'offset' argument must be a non-negative integer")
+        limit = payload.get("limit")
+        if limit is not None:
+            if type(limit) is not int or limit <= 0:
+                raise ValueError("Error: 'limit' argument must be a positive integer")
+            if limit > MAX_TERMINAL_OUTPUT_BYTE_LIMIT:
+                raise ValueError(
+                    f"Error: 'limit' argument must be at most {MAX_TERMINAL_OUTPUT_BYTE_LIMIT}"
+                )
+        query = (
+            coerce_required_string_argument(
+                payload.get("query"),
+                "query",
+                strip=True,
+            )
+            if "query" in payload
+            else None
+        )
+        if query is not None and len(query) > MAX_PROCESS_OUTPUT_QUERY_CHARS:
+            raise ValueError(
+                f"Error: 'query' argument must be at most {MAX_PROCESS_OUTPUT_QUERY_CHARS} "
+                "characters"
+            )
+        return MinimalProcessReadOutputArguments(
+            process_id=process_id,
+            action="read_output",
+            offset=offset,
+            limit=limit,
+            query=query,
+        )
+
+    if {"offset", "limit", "query"} & payload.keys():
+        raise ValueError("Error: 'offset', 'limit', and 'query' require action='read_output'")
     wait_sec = payload.get("wait_sec")
     if action == "wait" and wait_sec is not None:
         if type(wait_sec) is not int or wait_sec < 0:
@@ -647,11 +826,7 @@ def parse_minimal_process_arguments(
     elif action != "wait":
         wait_sec = None
     return MinimalProcessLifecycleArguments(
-        process_id=coerce_required_string_argument(
-            payload.get("process_id"),
-            "process_id",
-            strip=True,
-        ),
+        process_id=process_id,
         action=cast("Literal['status', 'wait', 'stop']", action),
         wait_sec=wait_sec,
     )

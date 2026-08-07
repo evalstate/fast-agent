@@ -629,15 +629,16 @@ def test_model_database_response_websocket_provider_support() -> None:
     assert ModelDatabase.supports_response_websocket_provider("gpt-4o", Provider.RESPONSES) is None
 
 
-def test_model_database_grok_43_reasoning_spec() -> None:
-    spec = ModelDatabase.get_reasoning_effort_spec("grok-4.3")
+def test_model_database_grok_reasoning_spec() -> None:
+    specs = [ModelDatabase.get_reasoning_effort_spec(model) for model in ("grok-4.3", "grok-4.5")]
 
-    assert spec is not None
-    assert spec.kind == "effort"
-    assert spec.allowed_efforts == ["none", "low", "medium", "high"]
-    assert spec.default is not None
-    assert spec.default.kind == "effort"
-    assert spec.default.value == "high"
+    for spec in specs:
+        assert spec is not None
+        assert spec.kind == "effort"
+        assert spec.allowed_efforts == ["low", "medium", "high"]
+        assert spec.default is not None
+        assert spec.default.kind == "effort"
+        assert spec.default.value == "high"
 
 
 def test_glm_51_matches_glm_5_capabilities() -> None:

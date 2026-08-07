@@ -115,6 +115,7 @@ model: unsloth/Qwen3.5-9B-GGUF
 connection:
   base_url: http://localhost:8080/v1
   auth: none
+  # reasoning_api: reasoning_effort
 defaults:
   temperature: 0.8
   top_p: 0.95
@@ -807,7 +808,7 @@ shell_execution:
   retain_truncated_output: true
   retained_output_max_bytes: 2097152  # Per shell process
   retained_output_temp_directory: null  # Optional parent directory
-  process_poll_max_wait_seconds: 250  # Accepted range: 1–600
+  process_poll_max_wait_seconds: 3600  # Accepted range: 1–3600
   managed_process_poll_history_folding: auto  # auto | on | off
 ```
 
@@ -836,9 +837,10 @@ temporary path so the model can inspect selected ranges or search the complete
 output. Each process is limited by `retained_output_max_bytes`; retained files
 are removed when the shell runtime closes.
 
-`process_poll_max_wait_seconds` caps a single managed-process wait. The default
-stays below Anthropic's five-minute prompt-cache TTL and applies even when a
-model or model overlay declares a longer default poll wait.
+`process_poll_max_wait_seconds` caps a single model-initiated managed-process
+wait. Catalogue and overlay defaults are capped for compatibility. An explicit
+model-string `poll_period` above the configured maximum is rejected instead of
+being silently reduced.
 
 `managed_process_poll_history_folding` controls whether repetitive quiet
 managed-process polling exchanges are collapsed before the next model call:
