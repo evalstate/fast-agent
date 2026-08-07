@@ -11,7 +11,7 @@ social:
 
 !!! note "FastMCP 4 beta"
 
-    fast-agent 0.10 pins `fastmcp-slim[server]==4.0.0b1`, the newest published
+    fast-agent 0.10 pins `fastmcp-slim[server]==4.0.0b2`, the newest published
     FastMCP release compatible with MCP SDK v2 when this release was prepared.
     FastMCP Apps and custom FastMCP server integrations should be treated as
     beta until FastMCP 4 reaches a stable release.
@@ -193,7 +193,7 @@ await request.report("Building report", progress=3, total=4)
 
 For jobs that should continue after the initial call returns, use explicit
 job/status tools. FastMCP task support is an optional package in FastMCP 4; add
-the exactly matching `fastmcp-tasks==4.0.0b1` package and register its Tasks
+the exactly matching `fastmcp-tasks==4.0.0b2` package and register its Tasks
 extension before using task-backed tools.
 
 ## Sessions

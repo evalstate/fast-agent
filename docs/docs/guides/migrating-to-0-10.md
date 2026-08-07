@@ -86,7 +86,7 @@ embedded terminal HTML runtime.
 
 ## FastMCP 4 beta compatibility
 
-fast-agent 0.10 pins `fastmcp-slim[server]==4.0.0b1`, the newest published
+fast-agent 0.10 pins `fastmcp-slim[server]==4.0.0b2`, the newest published
 FastMCP release compatible with MCP SDK v2 at release time. FastMCP 3.4.5 is
 stable but requires MCP SDK v1 and is not compatible with this release.
 
