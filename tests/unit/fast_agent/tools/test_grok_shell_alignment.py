@@ -6,7 +6,6 @@ import logging
 import pytest
 from pydantic import ValidationError
 
-from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.config import Settings, ShellSettings, ShellToolProfile
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.tools.execution_environment import (
@@ -18,6 +17,7 @@ from fast_agent.tools.execution_environment import (
     ShellRuntimeInfo,
 )
 from fast_agent.tools.shell_process import process_result_metadata
+from fast_agent.tools.shell_profiles import resolve_shell_tool_profile
 from fast_agent.tools.shell_runtime import ShellRuntime
 
 
@@ -101,13 +101,24 @@ def test_grok_shell_profile_exposes_aligned_shell_and_unified_process() -> None:
     ],
 )
 def test_auto_profile_selects_aligned_shell_for_grok(model_name: str) -> None:
+    params = ModelDatabase.get_model_params(model_name)
+
     assert ShellSettings().tool_profile == "auto"
-    assert McpAgent._resolve_shell_tool_profile("auto", model_name) == "grok_shell"
+    assert params is not None
+    assert resolve_shell_tool_profile("auto", params.shell_tool_profile) == "grok_shell"
 
 
 @pytest.mark.parametrize("model_name", [None, "gpt-5.6-sol", "claude-opus-4-6", "not-grok-4.5"])
 def test_auto_profile_keeps_minimal_process_for_non_grok(model_name: str | None) -> None:
-    assert McpAgent._resolve_shell_tool_profile("auto", model_name) == "minimal_process"
+    params = ModelDatabase.get_model_params(model_name) if model_name is not None else None
+
+    assert (
+        resolve_shell_tool_profile(
+            "auto",
+            params.shell_tool_profile if params is not None else None,
+        )
+        == "minimal_process"
+    )
 
 
 def test_grok_catalog_entries_select_aligned_shell() -> None:
@@ -122,7 +133,7 @@ def test_grok_catalog_entries_select_aligned_shell() -> None:
 
 @pytest.mark.parametrize("profile", ["native", "minimal_process", "grok_shell"])
 def test_explicit_profile_overrides_grok_auto_selection(profile: ShellToolProfile) -> None:
-    assert McpAgent._resolve_shell_tool_profile(profile, "xai/grok-4.5") == profile
+    assert resolve_shell_tool_profile(profile, "grok_shell") == profile
 
 
 def test_dedicated_grok_process_profile_is_rejected() -> None:

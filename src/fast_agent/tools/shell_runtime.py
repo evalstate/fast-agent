@@ -64,6 +64,11 @@ from fast_agent.tools.shell_process import (
     process_result,
     process_result_metadata,
 )
+from fast_agent.tools.shell_profiles import (
+    ResolvedShellToolProfile,
+    ShellToolProfile,
+    resolve_shell_tool_profile,
+)
 from fast_agent.tools.shell_progress import ShellProgressReporter
 from fast_agent.tools.shell_tool_definitions import (
     PROCESS_OUTPUT_DEBOUNCE_SECONDS,
@@ -184,7 +189,8 @@ class ShellRuntime:
         minimal_shell_tool_name: str = BASH_TOOL_NAME,
         minimal_shell_tool_requires_description: bool = False,
         extended_guidance: bool = False,
-        tool_profile: str | None = None,
+        tool_profile: ShellToolProfile | None = None,
+        model_tool_profile: ResolvedShellToolProfile | None = None,
     ) -> None:
         self._working_directory = str(working_directory) if working_directory is not None else None
         self._environment = shell_environment or LocalShellExecutor(
@@ -218,7 +224,7 @@ class ShellRuntime:
         self._show_bash_output = True
         self._prefer_local_shell = False
         self._max_process_poll_seconds = _default_max_process_poll_seconds()
-        resolved_profile = tool_profile or "minimal_process"
+        configured_profile = tool_profile or "auto"
         self._retained_output_directory: Path | None = None
         self._retained_output_max_bytes = 0
         self._retained_output_next_id = 1
@@ -228,7 +234,7 @@ class ShellRuntime:
             self._show_bash_output = shell_config.show_bash
             self._prefer_local_shell = shell_config.prefer_local_shell
             self._max_process_poll_seconds = shell_config.process_poll_max_wait_seconds
-            resolved_profile = tool_profile or shell_config.tool_profile
+            configured_profile = tool_profile or shell_config.tool_profile
             self._retained_output_max_bytes = shell_config.retained_output_max_bytes
             if shell_config.retain_truncated_output and self.runtime_info().kind == "local":
                 parent = shell_config.retained_output_temp_directory
@@ -251,7 +257,10 @@ class ShellRuntime:
         self._resource_observations_enabled = self.runtime_info().kind == "local"
         self._poll_process_tool: Tool | None = None
         self._terminate_process_tool: Tool | None = None
-        self.set_tool_profile(resolved_profile)
+        self.set_tool_profile(
+            configured_profile,
+            model_profile=model_tool_profile,
+        )
 
     @property
     def tool(self) -> Tool | None:
@@ -274,16 +283,14 @@ class ShellRuntime:
         """Return whether this runtime owns a model-facing tool name."""
         return any(tool.name == name for tool in self.tools)
 
-    def set_tool_profile(self, profile: str) -> None:
-        """Replace model-facing shell tools for a resolved profile."""
-        resolved_profile = "minimal_process" if profile == "auto" else profile
-        if resolved_profile not in {
-            "native",
-            "minimal_process",
-            "grok_shell",
-            "luna_exec",
-        }:
-            raise ValueError(f"Unsupported shell tool profile: {profile}")
+    def set_tool_profile(
+        self,
+        profile: ShellToolProfile,
+        *,
+        model_profile: ResolvedShellToolProfile | None = None,
+    ) -> None:
+        """Replace model-facing shell tools using config and model metadata."""
+        resolved_profile = resolve_shell_tool_profile(profile, model_profile)
         self._minimal_process_profile = resolved_profile == "minimal_process"
         self._grok_shell_profile = resolved_profile == "grok_shell"
         self._luna_exec_profile = resolved_profile == "luna_exec"

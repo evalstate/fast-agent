@@ -12,7 +12,6 @@ from mcp_types import CallToolResult, TextContent
 if TYPE_CHECKING:
     from pathlib import Path
 
-from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.config import Settings, ShellSettings, ShellToolProfile
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.tools.execution_environment import (
@@ -22,6 +21,7 @@ from fast_agent.tools.execution_environment import (
     ShellRuntimeInfo,
 )
 from fast_agent.tools.shell_process import process_result_metadata
+from fast_agent.tools.shell_profiles import resolve_shell_tool_profile
 from fast_agent.tools.shell_runtime import ShellRuntime
 
 
@@ -94,11 +94,8 @@ def test_luna_exec_profile_exposes_exec_and_unified_process() -> None:
         "timeout",
     }
     assert "default" not in execute.input_schema["properties"]["background"]
-    assert (
-        "verifier-persistent server or service"
-        in (execute.input_schema["properties"]["background"]["description"])
-    )
-    assert "training" in (execute.description or "")
+    assert "server or service" in execute.input_schema["properties"]["background"]["description"]
+    assert "result or exit status matters" in (execute.description or "")
 
     process = runtime.tools[1]
     properties = process.input_schema["properties"]
@@ -118,7 +115,10 @@ def test_luna_exec_profile_exposes_exec_and_unified_process() -> None:
     ],
 )
 def test_auto_profile_selects_luna_exec(model_name: str) -> None:
-    assert McpAgent._resolve_shell_tool_profile("auto", model_name) == "luna_exec"
+    params = ModelDatabase.get_model_params(model_name)
+
+    assert params is not None
+    assert resolve_shell_tool_profile("auto", params.shell_tool_profile) == "luna_exec"
 
 
 @pytest.mark.parametrize(
@@ -126,7 +126,7 @@ def test_auto_profile_selects_luna_exec(model_name: str) -> None:
     ["native", "minimal_process", "grok_shell", "luna_exec"],
 )
 def test_explicit_profile_overrides_luna_auto_selection(profile: ShellToolProfile) -> None:
-    assert McpAgent._resolve_shell_tool_profile(profile, "gpt-5.6-luna") == profile
+    assert resolve_shell_tool_profile(profile, "luna_exec") == profile
 
 
 def test_luna_catalog_entry_selects_luna_exec() -> None:

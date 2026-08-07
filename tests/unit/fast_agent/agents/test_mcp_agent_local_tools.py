@@ -49,6 +49,7 @@ from fast_agent.utils.tool_names import (
     BASH_TOOL_NAME,
     EXECUTE_TOOL_NAME,
     GROK_SHELL_TOOL_NAME,
+    LUNA_EXEC_TOOL_NAME,
     PROCESS_TOOL_NAME,
 )
 
@@ -1914,14 +1915,23 @@ async def test_grok_catalog_shell_output_limit_applies_when_setting_is_omitted()
 
 
 @pytest.mark.asyncio
-async def test_grok_uses_aligned_shell_default_and_preserves_native_override() -> None:
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "xai/grok-4.5?reasoning=high",
+        "openrouter/x-ai/grok-4.5",
+    ],
+)
+async def test_grok_uses_aligned_shell_default_and_preserves_native_override(
+    model_name: str,
+) -> None:
     auto_agent = McpAgent(
         config=AgentConfig(
             name="minimal",
             instruction="Instruction",
             servers=[],
             shell=True,
-            model="xai/grok-4.5?reasoning=high",
+            model=model_name,
         ),
         context=Context(config=Settings(shell_execution=ShellSettings())),
     )
@@ -1938,7 +1948,7 @@ async def test_grok_uses_aligned_shell_default_and_preserves_native_override() -
             instruction="Instruction",
             servers=[],
             shell=True,
-            model="xai/grok-4.5?reasoning=high",
+            model=model_name,
         ),
         context=Context(
             config=Settings(
@@ -1984,7 +1994,17 @@ async def test_default_shell_output_limit_returns_after_switching_away_from_grok
 
 
 @pytest.mark.asyncio
-async def test_auto_shell_profile_switches_to_aligned_shell_with_grok_llm() -> None:
+@pytest.mark.parametrize(
+    ("model_name", "shell_tool_name"),
+    [
+        ("xai/grok-4.5", GROK_SHELL_TOOL_NAME),
+        ("codexresponses/gpt-5.6-luna", LUNA_EXEC_TOOL_NAME),
+    ],
+)
+async def test_auto_shell_profile_switches_with_llm(
+    model_name: str,
+    shell_tool_name: str,
+) -> None:
     settings = Settings(shell_execution=ShellSettings())
     agent = McpAgent(
         config=AgentConfig(
@@ -2003,10 +2023,10 @@ async def test_auto_shell_profile_switches_to_aligned_shell_with_grok_llm() -> N
         PROCESS_TOOL_NAME,
     }
 
-    agent._on_llm_attached(cast("Any", StubLLM("xai/grok-4.5")))
+    agent._on_llm_attached(cast("Any", StubLLM(model_name)))
 
     assert {tool.name for tool in shell_runtime.tools} == {
-        GROK_SHELL_TOOL_NAME,
+        shell_tool_name,
         PROCESS_TOOL_NAME,
     }
 

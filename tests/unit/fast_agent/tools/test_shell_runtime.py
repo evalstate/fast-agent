@@ -621,9 +621,7 @@ def test_minimal_process_profile_exposes_only_bash_and_process() -> None:
     assert "default" not in wait_schema
     assert wait_schema["maximum"] == MAX_PROCESS_POLL_WAIT_SECONDS
     assert "Values below 10 are clamped to 10" in wait_schema["description"]
-    assert "Use 30 seconds unless more frequent monitoring is needed" in (
-        process_tool.description or ""
-    )
+    assert "`wait` defaults to 30 seconds" in (process_tool.description or "")
 
 
 def test_minimal_process_profile_supports_catalog_driven_shell_contract() -> None:

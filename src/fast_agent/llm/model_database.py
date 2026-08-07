@@ -22,6 +22,7 @@ from fast_agent.llm.reasoning_effort import (
 )
 from fast_agent.llm.text_verbosity import TextVerbositySpec
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES
+from fast_agent.tools.shell_profiles import ResolvedShellToolProfile
 from fast_agent.utils.text import strip_casefold, strip_to_none
 
 
@@ -69,15 +70,7 @@ class ModelParameters(BaseModel):
     shell_edit_tool: Literal["write_text_file", "edit_file", "apply_patch", "off"] | None = None
     """Optional model-specific default for the local file-edit tool contract."""
 
-    shell_tool_profile: (
-        Literal[
-            "native",
-            "minimal_process",
-            "grok_shell",
-            "luna_exec",
-        ]
-        | None
-    ) = None
+    shell_tool_profile: ResolvedShellToolProfile | None = None
     """Optional model-specific shell contract selected when shell tool profile is auto."""
 
     reasoning: None | str = None
@@ -1279,6 +1272,15 @@ class ModelDatabase:
         update={
             "default_provider": Provider.ZAI,
             "process_poll_default_wait_seconds": 240,
+        }
+    )
+    _PROVIDER_MODEL_OVERRIDES.update(
+        {
+            (Provider.OPENROUTER, f"x-ai/{model_name}"): params
+            for model_name, params in (
+                ("grok-4.3", GROK_43),
+                ("grok-4.5", GROK_45),
+            )
         }
     )
     _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {}

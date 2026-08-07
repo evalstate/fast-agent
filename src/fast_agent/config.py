@@ -42,6 +42,7 @@ from fast_agent.mcp.server_declaration import (
 )
 from fast_agent.plugins.models import PluginContributions, PluginPostUserTurnSpec
 from fast_agent.tools.environment_config import EnvironmentSpec
+from fast_agent.tools.shell_profiles import ShellToolProfile
 from fast_agent.types.streaming import StreamingMode
 from fast_agent.utils.action_normalization import (
     FALSE_ACTION_ALIASES,
@@ -56,13 +57,6 @@ from fast_agent.utils.transports import McpClientTransport
 
 type TerminalImageSize = int | Literal["auto"] | str | None
 type ShellWriteTextFileMode = Literal["auto", "on", "off", "apply_patch", "edit_file"]
-type ShellToolProfile = Literal[
-    "auto",
-    "native",
-    "minimal_process",
-    "grok_shell",
-    "luna_exec",
-]
 
 SHELL_WRITE_TEXT_FILE_MODES: tuple[ShellWriteTextFileMode, ...] = (
     "auto",

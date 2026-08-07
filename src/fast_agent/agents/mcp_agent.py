@@ -58,7 +58,7 @@ from fast_agent.commands.model_capabilities import (
     resolve_model_params,
     resolve_resolved_model,
 )
-from fast_agent.config import MCPServerSettings, ShellSettings, ShellToolProfile
+from fast_agent.config import MCPServerSettings, ShellSettings
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     HUMAN_INPUT_TOOL_NAME,
@@ -121,6 +121,7 @@ from fast_agent.tools.filesystem_tool_definitions import (
     WRITE_TEXT_FILE_TOOL_NAME,
 )
 from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
+from fast_agent.tools.shell_profiles import ResolvedShellToolProfile, ShellToolProfile
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME, SkillReader
 from fast_agent.types import (
@@ -177,6 +178,7 @@ class _ShellRuntimeSettings:
     output_byte_limit: int
     process_poll_default_wait_seconds: int
     tool_profile: ShellToolProfile
+    model_tool_profile: ResolvedShellToolProfile | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -866,9 +868,10 @@ class McpAgent(ABC, ToolAgent):
         output_limit_selection = (
             shell_config.output_byte_limit_selection if shell_config is not None else "auto"
         )
-        model_name = self._resolve_shell_tool_model_name()
         configured_profile = shell_config.tool_profile if shell_config is not None else "auto"
-        tool_profile = self._resolve_shell_tool_profile(configured_profile, model_name)
+        model_params = self._resolve_shell_model_params()
+        model_tool_profile = model_params.shell_tool_profile if model_params is not None else None
+        model_name = self._resolve_shell_tool_model_name()
 
         if output_limit_selection == "explicit" and config_output_byte_limit is not None:
             output_byte_limit = config_output_byte_limit
@@ -891,23 +894,9 @@ class McpAgent(ABC, ToolAgent):
             warning_interval_seconds=warning_interval_seconds,
             output_byte_limit=output_byte_limit,
             process_poll_default_wait_seconds=(self._model_process_poll_default_wait_seconds()),
-            tool_profile=tool_profile,
+            tool_profile=configured_profile,
+            model_tool_profile=model_tool_profile,
         )
-
-    @classmethod
-    def _resolve_shell_tool_profile(
-        cls,
-        configured_profile: ShellToolProfile,
-        model_name: str | None,
-    ) -> ShellToolProfile:
-        if configured_profile != "auto":
-            return configured_profile
-        params = ModelDatabase.get_model_params(model_name) if model_name else None
-        if params is not None and params.shell_tool_profile is not None:
-            return params.shell_tool_profile
-        if cls._prefers_luna_exec_model(model_name):
-            return "luna_exec"
-        return "grok_shell" if cls._prefers_grok_shell_model(model_name) else "minimal_process"
 
     def _model_process_poll_default_wait_seconds(
         self,
@@ -1041,22 +1030,6 @@ class McpAgent(ABC, ToolAgent):
             return False
         normalized = ModelDatabase.normalize_model_name(model_name)
         return re.match(r"^gpt-5\.6(?:$|[-.])", normalized) is not None
-
-    @staticmethod
-    def _prefers_grok_shell_model(model_name: str | None) -> bool:
-        """Return True for Grok-family model names across provider routes."""
-        if not model_name:
-            return False
-        normalized = ModelDatabase.normalize_model_name(model_name)
-        return re.search(r"(?:^|/)grok(?:-|$)", normalized) is not None
-
-    @staticmethod
-    def _prefers_luna_exec_model(model_name: str | None) -> bool:
-        """Return True for GPT-5.6 Luna names across provider routes."""
-        if not model_name:
-            return False
-        normalized = ModelDatabase.normalize_model_name(model_name)
-        return re.search(r"(?:^|/)gpt-5\.6-luna(?:$|[./:?])", normalized) is not None
 
     @staticmethod
     def _prefers_anthropic_edit_file_model(model_name: str | None) -> bool:
@@ -1258,11 +1231,10 @@ class McpAgent(ABC, ToolAgent):
             else None
         )
         configured_profile = shell_config.tool_profile if shell_config is not None else "auto"
+        model_params = self._resolve_shell_model_params(llm)
         self._shell_runtime.set_tool_profile(
-            self._resolve_shell_tool_profile(
-                configured_profile,
-                model_name,
-            )
+            configured_profile,
+            model_profile=(model_params.shell_tool_profile if model_params is not None else None),
         )
         self._bash_tool = self._shell_runtime.tool
         self._shell_runtime.set_process_poll_default_wait_seconds(
@@ -1342,6 +1314,7 @@ class McpAgent(ABC, ToolAgent):
             output_byte_limit=shell_settings.output_byte_limit,
             process_poll_default_wait_seconds=(shell_settings.process_poll_default_wait_seconds),
             tool_profile=shell_settings.tool_profile,
+            model_tool_profile=shell_settings.model_tool_profile,
             config=self._context.config if self._context else None,
             agent_name=self._name,
             shell_environment=self._shell_environment,

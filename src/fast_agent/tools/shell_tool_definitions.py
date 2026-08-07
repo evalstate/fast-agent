@@ -336,17 +336,11 @@ def build_minimal_process_tool(
     return Tool(
         name=PROCESS_TOOL_NAME,
         description=(
-            f"List, inspect, wait for, stop, or read retained output from managed "
-            f"processes returned by {shell_tool_name}. "
-            "`list` returns all retained processes in creation order and takes no "
-            "process ID. "
-            "`status` returns immediately. `wait` accepts an optional `wait_sec`; "
-            "when omitted it uses the configured model-specific polling interval "
-            "(with a nonzero fallback when the model has none). "
-            f"Use {default_wait_seconds} seconds unless more frequent monitoring "
-            f"is needed.{completion_guidance} `stop` terminates the process group. "
-            "`read_output` reads only the bounded retained output owned by that "
-            "managed process; it cannot access arbitrary filesystem paths."
+            f"Manage processes returned by {shell_tool_name}. `list` needs no process "
+            "ID; `status` returns immediately; `wait` defaults to "
+            f"{default_wait_seconds} seconds.{completion_guidance} `stop` terminates "
+            "the process group. `read_output` reads only that process's bounded "
+            "retained output, not arbitrary files."
         ),
         input_schema={
             "type": "object",
@@ -453,15 +447,12 @@ def build_luna_exec_tool(*, shell_name: str) -> Tool:
     return Tool(
         name=LUNA_EXEC_TOOL_NAME,
         description=(
-            f"Run one shell command in {shell_name}. Keep builds, tests, installs, "
-            "downloads, compilation, training, scripts, and any command whose "
-            "completion or exit status matters in the foreground. Foreground commands "
-            "automatically yield a managed process ID when they take time; use process "
-            "to wait, inspect, or stop them. Set `background=true` only for a server "
-            "or service that must remain alive for later checks or the verifier. "
-            "Omit `timeout` for normal foreground auto-yield. A supplied `timeout` is "
-            "a hard foreground deadline that terminates the process group on expiry. "
-            "Do not use shell `&`, `nohup`, or `disown`."
+            f"Run one shell command in {shell_name}. Keep commands whose result or "
+            "exit status matters in the foreground. Long foreground commands yield a "
+            "managed process ID; use process to inspect, wait for, or stop them. Set "
+            "`background=true` only for a server or service that must remain running. "
+            "`timeout` is a foreground hard deadline. Do not use shell `&`, `nohup`, "
+            "or `disown`."
         ),
         input_schema={
             "type": "object",
@@ -477,10 +468,8 @@ def build_luna_exec_tool(*, shell_name: str) -> Tool:
                 "background": {
                     "type": "boolean",
                     "description": (
-                        "Use true only for a verifier-persistent server or service. "
-                        "Never use for builds, tests, installs, downloads, compilation, "
-                        "training, scripts, or commands whose completion or exit status "
-                        "matters. Do not combine with timeout."
+                        "Only for a server or service that must remain running. "
+                        "Do not combine with timeout."
                     ),
                 },
                 "timeout": {
