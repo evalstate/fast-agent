@@ -752,7 +752,7 @@ class LocalEnvironment(LocalShellExecutor):
         validate_artifact_name_parts(prefix=prefix, suffix=suffix)
         directory = self._temporary_artifact_directory
         if directory is None:
-            directory = Path(tempfile.mkdtemp(prefix="fast-agent-output-"))
+            directory = Path(tempfile.mkdtemp(prefix="fast-agent-output-")).resolve()
             if os.name != "nt":
                 directory.chmod(0o700)
             self._temporary_artifact_directory = directory

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -151,4 +152,39 @@ async def test_shared_local_stores_remove_root_after_last_artifact(tmp_path: Pat
 
     assert not second_path.exists()
     assert not directory.exists()
+    assert environment._temporary_artifact_directory is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_local_transient_store_cleans_resolved_path_from_symlinked_temp_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_directory = tmp_path / "real-output"
+    real_directory.mkdir()
+    directory_alias = tmp_path / "fast-agent-output-alias"
+    try:
+        directory_alias.symlink_to(real_directory, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"Directory symlinks are unavailable: {exc}")
+    monkeypatch.setattr(tempfile, "mkdtemp", lambda *, prefix: str(directory_alias))
+    environment = _local_environment(tmp_path)
+    store = TransientArtifactStore(environment)
+
+    result = await store.write_text(
+        producer="subagent",
+        suffix=".log",
+        content="transcript",
+        description="subagent transcript",
+    )
+    artifact_path = Path(result.artifact.path)
+
+    assert artifact_path.parent == real_directory.resolve()
+    assert artifact_path.exists()
+
+    await store.close()
+
+    assert not artifact_path.exists()
+    assert not real_directory.exists()
     assert environment._temporary_artifact_directory is None
