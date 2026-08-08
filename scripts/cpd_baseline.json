@@ -35,7 +35,7 @@
         "fast_agent/llm/model_factory.py",
         "fast_agent/llm/model_factory.py"
       ],
-      "code_hash": "f402336e22e5df2a73f8e830e92eb920253acf89e153cd08ee25e709c1cdf24b",
+      "code_hash": "247c75b0123f69e9e3d6ab2d6bd8125dfa5db6f620e87e3ab3a6e8ea5a653ca6",
       "rationale": "Model configuration and frozen query overrides intentionally expose parallel typed fields with distinct semantics."
     },
     {
