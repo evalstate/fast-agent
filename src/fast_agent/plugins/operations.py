@@ -245,24 +245,31 @@ def _resolve_enabled_plugin_dir(*, destination_root: Path, name: str) -> Path:
 
 
 def check_plugin_updates(*, destination_root: Path) -> list[PluginUpdateInfo]:
-    destination_root = destination_root.resolve()
-    if not destination_root.is_dir():
-        return []
+    return check_plugin_updates_in_roots(destination_roots=(destination_root,))
+
+
+def check_plugin_updates_in_roots(
+    *,
+    destination_roots: Sequence[Path],
+) -> list[PluginUpdateInfo]:
     head_cache: HeadCache = {}
     path_cache: PathCache = {}
     updates: list[PluginUpdateInfo] = []
-    for index, entry in enumerate(
-        [entry for entry in sorted(destination_root.iterdir()) if entry.is_dir()],
-        start=1,
-    ):
-        updates.append(
-            _evaluate_plugin_update(
-                plugin_dir=entry,
-                index=index,
-                head_cache=head_cache,
-                path_cache=path_cache,
+    for destination_root in destination_roots:
+        destination_root = destination_root.resolve()
+        if not destination_root.is_dir():
+            continue
+        for entry in sorted(destination_root.iterdir()):
+            if not entry.is_dir():
+                continue
+            updates.append(
+                _evaluate_plugin_update(
+                    plugin_dir=entry,
+                    index=len(updates) + 1,
+                    head_cache=head_cache,
+                    path_cache=path_cache,
+                )
             )
-        )
     return updates
 
 
@@ -270,9 +277,13 @@ def select_plugin_updates(
     updates: Sequence[PluginUpdateInfo],
     selector: str,
 ) -> list[PluginUpdateInfo]:
+    selector_clean = selector.strip()
+    if selector_clean.isdigit():
+        index = int(selector_clean)
+        return [update for update in updates if update.index == index]
     return select_updates_by_name_or_index(
         updates,
-        selector,
+        selector_clean,
         names=lambda update: (update.name, update.plugin_dir.name),
     )
 

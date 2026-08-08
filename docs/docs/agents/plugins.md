@@ -10,8 +10,8 @@ social:
 
 Plugins package reusable slash commands such as `/find`, `/peek`, or
 `/edit-last`, post-user-turn displays, or both. They install into the active
-fast-agent home under `.fast-agent/plugins/` and are enabled by name from
-`fast-agent.yaml`.
+project or global fast-agent home under `plugins/` and are enabled by name from
+that scope's configuration file.
 
 ```yaml
 plugins:
@@ -24,6 +24,26 @@ Install a plugin from the configured plugin registry:
 
 ```bash
 fast-agent plugins add agent-finder
+```
+
+From an interactive fast-agent session, `/plugins add` makes the scope
+explicit. If you omit it, fast-agent prompts with **global** as the default:
+
+```text
+/plugins add agent-finder
+/plugins add agent-finder --global
+/plugins add agent-finder --project
+```
+
+Global plugins are available across projects. Project plugins are available
+only in the active project and override global plugins with the same name.
+Plugin listings use one combined project-then-global index. Update commands use
+the same indices and can be filtered without renumbering:
+
+```text
+/plugins update all --global --yes
+/plugins update 4 --global
+/plugins update all --project --yes
 ```
 
 Manage installed plugins:

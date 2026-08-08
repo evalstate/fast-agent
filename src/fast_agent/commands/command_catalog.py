@@ -485,8 +485,11 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="add",
                 aliases=("install",),
                 help="Install a plugin",
-                usage="/plugins add [<number|name>] [--registry url]",
-                examples=("/plugins add <number|name>",),
+                usage=("/plugins add [<number|name>] [--global|--project] [--registry url]"),
+                examples=(
+                    "/plugins add <number|name> --global",
+                    "/plugins add <number|name> --project",
+                ),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
@@ -495,6 +498,14 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                     ),
                 ),
                 options=(
+                    CommandOptionSpec(
+                        name="--global",
+                        summary="Install and enable across projects.",
+                    ),
+                    CommandOptionSpec(
+                        name="--project",
+                        summary="Install and enable only in the active project.",
+                    ),
                     CommandOptionSpec(
                         name="--registry",
                         aliases=("-r",),
@@ -521,8 +532,13 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="update",
                 aliases=("refresh", "upgrade"),
                 help="Check or apply plugin updates",
-                usage="/plugins update [<number|name|all>] [--force] [--yes]",
-                examples=("/plugins update all --yes",),
+                usage=(
+                    "/plugins update [<number|name|all>] [--global|--project] [--force] [--yes]"
+                ),
+                examples=(
+                    "/plugins update all --yes",
+                    "/plugins update all --global --yes",
+                ),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
@@ -531,6 +547,14 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                     ),
                 ),
                 options=(
+                    CommandOptionSpec(
+                        name="--global",
+                        summary="Check or update only globally installed plugins.",
+                    ),
+                    CommandOptionSpec(
+                        name="--project",
+                        summary="Check or update only project plugins.",
+                    ),
                     CommandOptionSpec(name="--force", summary="Overwrite local modifications."),
                     CommandOptionSpec(name="--yes", summary="Confirm multi-plugin apply."),
                 ),
@@ -558,7 +582,8 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
         default_action="list",
         examples=(
             "/plugins available",
-            "/plugins add <number|name>",
+            "/plugins add <number|name> --global",
+            "/plugins add <number|name> --project",
             "/plugins remove <number|name>",
             "/plugins update all --yes",
             "/plugins registry",

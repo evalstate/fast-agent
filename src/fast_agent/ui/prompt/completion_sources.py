@@ -1004,16 +1004,22 @@ def _plugins_update_completions(
     argument: str,
     results: list[Completion],
 ) -> list[Completion]:
+    tokens = set(argument.split())
+    scope = "global" if "--global" in tokens else "project" if "--project" in tokens else None
+    partial = _current_argument_token(argument)
     return _extend_managed_update_completions(
         results,
-        argument,
+        partial,
         command_name="plugins",
         all_meta="update all managed plugins",
         name_completions=(
             completer._complete_local_plugin_names(
-                argument,
+                partial,
                 managed_only=True,
-                include_indices=False,
+                include_indices=True,
+                all_scopes=True,
+                unambiguous_names_only=True,
+                scope=scope,
             )
         ),
     )

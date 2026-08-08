@@ -21,6 +21,7 @@ type _PublishValueName = Literal["message", "temp_dir"]
 type _AddValueName = Literal["registry", "skills_dir"]
 type _UpdateValueName = Literal["skills_dir"]
 type _MarketplaceValueName = _PublishValueName | _AddValueName | _UpdateValueName
+type PluginScope = Literal["global", "project"]
 _ValueName = TypeVar("_ValueName", bound=_MarketplaceValueName)
 type _PublishFlagName = Literal["push", "keep_temp"]
 
@@ -30,6 +31,7 @@ class AddArgument:
     selector: str | None = None
     registry: str | None = None
     skills_dir: Path | None = None
+    scope: PluginScope | None = None
     force: bool = False
     error: str | None = None
 
@@ -38,6 +40,7 @@ class AddArgument:
 class UpdateArgument:
     selector: str | None = None
     skills_dir: Path | None = None
+    scope: PluginScope | None = None
     force: bool = False
     yes: bool = False
     error: str | None = None
@@ -84,6 +87,10 @@ _ADD_VALUE_OPTIONS: tuple[ValueOption[_AddValueName], ...] = (
 )
 _ADD_FLAG_OPTIONS = {
     "--force": ("force", True),
+}
+_PLUGIN_SCOPE_FLAG_OPTIONS = {
+    "--global": ("global_scope", True),
+    "--project": ("project_scope", True),
 }
 _PUBLISH_VALUE_OPTIONS: tuple[ValueOption[_PublishValueName], ...] = (
     ValueOption("message", ("--message", "-m"), error_name="--message"),
@@ -267,6 +274,7 @@ def parse_add_argument(
     allow_registry: bool = True,
     allow_skills_dir: bool = True,
     allow_force: bool = True,
+    allow_scope: bool = False,
 ) -> AddArgument:
     """Parse marketplace add command arguments into selector and supported overrides."""
     value_option_names = {
@@ -277,11 +285,14 @@ def parse_add_argument(
         )
         if allowed
     }
+    flag_options = dict(_ADD_FLAG_OPTIONS if allow_force else {})
+    if allow_scope:
+        flag_options.update(_PLUGIN_SCOPE_FLAG_OPTIONS)
     state = _parse_marketplace_argument(
         argument,
         command_name="add",
-        initial_flags={"force": False},
-        flag_options=_ADD_FLAG_OPTIONS if allow_force else {},
+        initial_flags={"force": False, "global_scope": False, "project_scope": False},
+        flag_options=flag_options,
         value_options=tuple(
             option for option in _ADD_VALUE_OPTIONS if option.name in value_option_names
         ),
@@ -289,11 +300,18 @@ def parse_add_argument(
     )
     if state.error is not None:
         return AddArgument(error=state.error)
+    if state.flag("global_scope") and state.flag("project_scope"):
+        return AddArgument(error="Choose one install scope: --global or --project.")
 
     return AddArgument(
         selector=state.selector,
         registry=state.string_value("registry"),
         skills_dir=state.path_value("skills_dir"),
+        scope="global"
+        if state.flag("global_scope")
+        else "project"
+        if state.flag("project_scope")
+        else None,
         force=state.flag("force"),
     )
 
@@ -302,22 +320,38 @@ def parse_update_argument(
     argument: str | None,
     *,
     allow_skills_dir: bool = False,
+    allow_scope: bool = False,
 ) -> UpdateArgument:
     """Parse update command arguments into a named result."""
+    flag_options = dict(_UPDATE_FLAG_OPTIONS)
+    if allow_scope:
+        flag_options.update(_PLUGIN_SCOPE_FLAG_OPTIONS)
     state = _parse_marketplace_argument(
         argument,
         command_name="update",
-        initial_flags={"force": False, "yes": False},
-        flag_options=_UPDATE_FLAG_OPTIONS,
+        initial_flags={
+            "force": False,
+            "yes": False,
+            "global_scope": False,
+            "project_scope": False,
+        },
+        flag_options=flag_options,
         value_options=_UPDATE_VALUE_OPTIONS if allow_skills_dir else (),
         assign_value=_assign_update_value,
     )
     if state.error is not None:
         return UpdateArgument(error=state.error)
+    if state.flag("global_scope") and state.flag("project_scope"):
+        return UpdateArgument(error="Choose one update scope: --global or --project.")
 
     return UpdateArgument(
         selector=state.selector,
         skills_dir=state.path_value("skills_dir"),
+        scope="global"
+        if state.flag("global_scope")
+        else "project"
+        if state.flag("project_scope")
+        else None,
         force=state.flag("force"),
         yes=state.flag("yes"),
     )

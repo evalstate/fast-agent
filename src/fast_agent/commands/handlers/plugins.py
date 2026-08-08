@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -14,6 +15,7 @@ from fast_agent.commands.command_catalog import (
     normalize_command_action,
 )
 from fast_agent.commands.handlers._marketplace_argument_parsing import (
+    PluginScope,
     optional_selector,
     parse_add_argument,
     parse_update_argument,
@@ -38,7 +40,7 @@ from fast_agent.commands.handlers.shared import (
     unique_selection_options,
 )
 from fast_agent.commands.results import CommandOutcome
-from fast_agent.config import get_settings
+from fast_agent.config import find_config_in_directory, get_settings
 from fast_agent.home import PREFERRED_CONFIG_FILENAME
 from fast_agent.marketplace.formatting import (
     format_installed_revision_display,
@@ -57,7 +59,7 @@ from fast_agent.plugins.configuration import (
 from fast_agent.plugins.manifest import load_plugin_manifest
 from fast_agent.plugins.operations import (
     apply_plugin_updates,
-    check_plugin_updates,
+    check_plugin_updates_in_roots,
     fetch_marketplace_plugins_with_source,
     install_marketplace_plugin_sync,
     list_local_plugins,
@@ -111,6 +113,13 @@ class _PluginCommandCatalogProvider(Protocol):
 
     @property
     def plugin_command_base_path(self) -> Path | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class _PluginInstallTarget:
+    scope: PluginScope
+    plugins_dir: Path
+    config_path: Path
 
 
 def _config_path_for_settings(ctx: CommandContext) -> Path:
@@ -198,7 +207,12 @@ def _format_local_plugins(*, plugins_dir: Path, plugins: Sequence[LocalPlugin]) 
     if not plugins:
         content.append_text(Text("No plugins installed.", style="yellow"))
         content.append("\n")
-        content.append_text(Text("Install with /plugins add <number|name>", style="dim"))
+        content.append_text(
+            Text(
+                "Install with /plugins add <number|name> --global|--project",
+                style="dim",
+            )
+        )
         return content
 
     for entry in plugins:
@@ -228,7 +242,16 @@ def _format_local_plugins(*, plugins_dir: Path, plugins: Sequence[LocalPlugin]) 
 
     content.append_text(Text("Browse marketplace plugins with /plugins available", style="dim"))
     content.append("\n")
-    content.append_text(Text("Remove with /plugins remove <number|name>", style="dim"))
+    content.append_text(
+        Text("Remove project plugins with /plugins remove <number|name>", style="dim")
+    )
+    content.append("\n")
+    content.append_text(
+        Text(
+            "Remove global plugins with fast-agent plugins remove <number|name> --global",
+            style="dim",
+        )
+    )
     return content
 
 
@@ -261,7 +284,12 @@ def _format_installed_plugins(
     if not scoped_plugins:
         content.append_text(Text("No plugins installed.", style="yellow"))
         content.append("\n")
-        content.append_text(Text("Install with /plugins add <number|name>", style="dim"))
+        content.append_text(
+            Text(
+                "Install with /plugins add <number|name> --global|--project",
+                style="dim",
+            )
+        )
         return content
 
     # name -> list of (scope, entry) for all installed copies, in load order.
@@ -348,7 +376,25 @@ def _format_installed_plugins(
 
     content.append_text(Text("Browse marketplace plugins with /plugins available", style="dim"))
     content.append("\n")
-    content.append_text(Text("Remove with /plugins remove <number|name>", style="dim"))
+    content.append_text(
+        Text("Remove project plugins with /plugins remove <number|name>", style="dim")
+    )
+    content.append("\n")
+    content.append_text(
+        Text(
+            "Remove global plugins with fast-agent plugins remove <number|name> --global",
+            style="dim",
+        )
+    )
+    content.append("\n")
+    content.append_text(Text("Update both scopes with /plugins update all --yes", style="dim"))
+    content.append("\n")
+    content.append_text(
+        Text(
+            "Filter updates with --global or --project; indices stay as shown above",
+            style="dim",
+        )
+    )
     return content
 
 
@@ -437,9 +483,110 @@ def _local_plugin_selection_options(plugins: Sequence[LocalPlugin]) -> list[str]
     )
 
 
-def _format_install_result(plugin_name: str, install_path: Path, config_path: Path) -> Text:
+def _plugin_install_targets(ctx: CommandContext) -> dict[PluginScope, _PluginInstallTarget]:
+    settings = ctx.resolve_settings()
+    home_paths = resolve_home_paths(settings)
+    targets: dict[PluginScope, _PluginInstallTarget] = {
+        "project": _PluginInstallTarget(
+            scope="project",
+            plugins_dir=home_paths.plugins,
+            config_path=_config_path_for_settings(ctx),
+        )
+    }
+    global_home_value = strip_to_none(settings._fast_agent_global_plugin_home)
+    if global_home_value is not None:
+        global_home = Path(global_home_value).expanduser()
+        targets["global"] = _PluginInstallTarget(
+            scope="global",
+            plugins_dir=global_home / "plugins",
+            config_path=(
+                find_config_in_directory(global_home) or global_home / PREFERRED_CONFIG_FILENAME
+            ),
+        )
+    return targets
+
+
+def _format_plugin_install_scopes(
+    plugin_name: str,
+    targets: Mapping[PluginScope, _PluginInstallTarget],
+) -> Text:
+    content = Text()
+    append_heading(content, f"Install plugin: {plugin_name}")
+    global_target = targets.get("global")
+    if global_target is None:
+        append_warning_line(content, "global: unavailable in this environment")
+    else:
+        content.append("  global", style="bright_blue bold")
+        content.append(" (default)", style="green")
+        content.append("  available across projects", style="dim")
+        content.append("\n")
+        append_detail_line(
+            content,
+            "location",
+            format_display_path(global_target.plugins_dir),
+            value_style="dim green",
+        )
+    project_target = targets["project"]
+    content.append("  project", style="bright_blue bold")
+    content.append("  active project only", style="dim")
+    content.append("\n")
+    append_detail_line(
+        content,
+        "location",
+        format_display_path(project_target.plugins_dir),
+        value_style="dim green",
+    )
+    return content
+
+
+async def _select_plugin_install_target(
+    ctx: CommandContext,
+    outcome: CommandOutcome,
+    *,
+    plugin_name: str,
+    requested_scope: PluginScope | None,
+    interactive: bool,
+    agent_name: str,
+) -> _PluginInstallTarget | None:
+    targets = _plugin_install_targets(ctx)
+    if requested_scope is not None:
+        target = targets.get(requested_scope)
+        if target is None:
+            outcome.add_message(
+                "Global plugin installs are unavailable in this environment.",
+                channel="error",
+            )
+        return target
+    if not interactive:
+        return targets["project"]
+
+    default_scope: PluginScope = "global" if "global" in targets else "project"
+    selected_scope = await prompt_selection_after_message(
+        ctx,
+        content=_format_plugin_install_scopes(plugin_name, targets),
+        right_info="plugins",
+        agent_name=agent_name,
+        prompt="Install scope (global/project): ",
+        options=[scope for scope in ("global", "project") if scope in targets],
+        allow_cancel=True,
+        default=default_scope,
+    )
+    if selected_scope not in ("global", "project"):
+        return None
+    return targets.get(selected_scope)
+
+
+def _format_install_result(
+    plugin_name: str,
+    install_path: Path,
+    config_path: Path,
+    *,
+    scope: PluginScope,
+) -> Text:
     content = Text()
     content.append(f"Installed plugin: {plugin_name}", style="green")
+    content.append("\n")
+    content.append(f"scope: {scope}", style="dim green")
     content.append("\n")
     content.append(f"location: {format_display_path(install_path)}", style="dim green")
     content.append("\n")
@@ -454,7 +601,10 @@ def _add_plugin_install_guidance(
 ) -> None:
     add_info_messages(
         outcome,
-        ("Install with `/plugins add <number|name>`.",),
+        (
+            "Install globally with `/plugins add <number|name> --global`.",
+            "Install for this project with `/plugins add <number|name> --project`.",
+        ),
         right_info="plugins",
         agent_name=agent_name,
     )
@@ -493,6 +643,23 @@ def _format_update_results(updates: Sequence[PluginUpdateInfo], *, title: str) -
         content.append("\n")
 
     return content
+
+
+def _plugin_updates_for_scope(
+    updates: Sequence[PluginUpdateInfo],
+    roots: Sequence[tuple[str, Path]],
+    scope: PluginScope | None,
+) -> list[PluginUpdateInfo]:
+    if scope is None:
+        return list(updates)
+    scope_root = next((root.resolve() for name, root in roots if name == scope), None)
+    if scope_root is None:
+        return []
+    return [update for update in updates if update.plugin_dir.parent == scope_root]
+
+
+def _plugin_update_title(title: str, scope: PluginScope | None) -> str:
+    return f"{title} ({scope or 'project + global'}):"
 
 
 def _refresh_provider_plugins(ctx: CommandContext, config_path: Path) -> None:
@@ -621,13 +788,23 @@ async def handle_add_plugin(
     interactive: bool = True,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
-    parsed = parse_add_argument(argument, allow_skills_dir=False, allow_force=False)
+    parsed = parse_add_argument(
+        argument,
+        allow_skills_dir=False,
+        allow_force=False,
+        allow_scope=True,
+    )
     if parsed.error is not None:
         outcome.add_message(parsed.error, channel="warning")
         return outcome
     settings = ctx.resolve_settings()
-    home_paths = resolve_home_paths(settings)
-    config_path = _config_path_for_settings(ctx)
+    if ctx.no_home or settings._fast_agent_no_home:
+        outcome.add_message(
+            "Plugin installs are disabled in no_home mode.",
+            channel="error",
+        )
+        return outcome
+    active_config_path = _config_path_for_settings(ctx)
     marketplace_url = parsed.registry or get_marketplace_url(settings)
 
     try:
@@ -663,21 +840,37 @@ async def handle_add_plugin(
         )
         return outcome
 
+    target = await _select_plugin_install_target(
+        ctx,
+        outcome,
+        plugin_name=selected.name,
+        requested_scope=parsed.scope,
+        interactive=interactive,
+        agent_name=agent_name,
+    )
+    if target is None:
+        return outcome
+
     try:
         install_path = await run_in_thread(
             install_marketplace_plugin_sync,
             selected,
-            destination_root=home_paths.plugins,
+            destination_root=target.plugins_dir,
         )
         manifest = load_plugin_manifest(install_path)
-        enable_plugin_in_config(config_path, manifest.name)
-        _refresh_provider_plugins(ctx, config_path)
+        enable_plugin_in_config(target.config_path, manifest.name)
+        _refresh_provider_plugins(ctx, active_config_path)
     except Exception as exc:
         outcome.add_message(f"Failed to install plugin: {exc}", channel="error")
         return outcome
 
     outcome.add_message(
-        _format_install_result(manifest.name, install_path, config_path),
+        _format_install_result(
+            manifest.name,
+            install_path,
+            target.config_path,
+            scope=target.scope,
+        ),
         right_info="plugins",
         agent_name=agent_name,
     )
@@ -756,23 +949,41 @@ async def handle_update_plugin(
 ) -> CommandOutcome:
     outcome = CommandOutcome()
 
-    parsed = parse_update_argument(argument)
+    parsed = parse_update_argument(argument, allow_scope=True)
     if parsed.error:
         outcome.add_message(parsed.error, channel="error")
         return outcome
 
-    home_paths = resolve_home_paths(ctx.resolve_settings())
-    updates = await run_in_thread(check_plugin_updates, destination_root=home_paths.plugins)
+    settings = ctx.resolve_settings()
+    home_paths = resolve_home_paths(settings)
+    roots = installed_plugin_roots(settings, project_plugins=home_paths.plugins)
+    if parsed.scope is not None and all(scope != parsed.scope for scope, _ in roots):
+        outcome.add_message(
+            f"Plugin {parsed.scope} scope is unavailable.",
+            channel="error",
+        )
+        return outcome
+    all_updates = await run_in_thread(
+        check_plugin_updates_in_roots,
+        destination_roots=[root for _, root in roots],
+    )
+    updates = _plugin_updates_for_scope(all_updates, roots, parsed.scope)
 
     if parsed.selector is None:
+        apply_hint = (
+            "Apply with `/plugins update <number|name|all> [--global|--project] [--force] [--yes]`."
+        )
         outcome.add_message(
-            _format_update_results(updates, title="Plugin update check:"),
+            _format_update_results(
+                updates,
+                title=_plugin_update_title("Plugin update check", parsed.scope),
+            ),
             right_info="plugins",
             agent_name=agent_name,
         )
         add_info_messages(
             outcome,
-            ("Apply with `/plugins update <number|name|all> [--force] [--yes]`.",),
+            (apply_hint,),
             right_info="plugins",
             agent_name=agent_name,
         )
@@ -780,12 +991,19 @@ async def handle_update_plugin(
 
     selected = select_plugin_updates(updates, parsed.selector)
     if not selected:
-        outcome.add_message(f"Plugin not found: {parsed.selector}", channel="error")
+        scope_suffix = f" in {parsed.scope} scope" if parsed.scope is not None else ""
+        outcome.add_message(
+            f"Plugin not found{scope_suffix}: {parsed.selector}",
+            channel="error",
+        )
         return outcome
 
     if len(selected) > 1 and not parsed.yes:
         outcome.add_message(
-            _format_update_results(selected, title="Update plan:"),
+            _format_update_results(
+                selected,
+                title=_plugin_update_title("Update plan", parsed.scope),
+            ),
             right_info="plugins",
             agent_name=agent_name,
         )
@@ -799,7 +1017,10 @@ async def handle_update_plugin(
 
     applied = await run_in_thread(apply_plugin_updates, selected, force=parsed.force)
     outcome.add_message(
-        _format_update_results(applied, title="Plugin update results:"),
+        _format_update_results(
+            applied,
+            title=_plugin_update_title("Plugin update results", parsed.scope),
+        ),
         right_info="plugins",
         agent_name=agent_name,
     )
@@ -883,14 +1104,6 @@ async def _handle_plugins_available_action(
     return await handle_list_marketplace_plugins(ctx, agent_name=agent_name)
 
 
-async def _handle_plugins_add_action(
-    ctx: "CommandContext",
-    agent_name: str,
-    argument: str | None,
-) -> CommandOutcome:
-    return await handle_add_plugin(ctx, agent_name=agent_name, argument=argument)
-
-
 async def _handle_plugins_remove_action(
     ctx: "CommandContext",
     agent_name: str,
@@ -922,7 +1135,6 @@ async def _handle_plugins_registry_action(
 _PLUGINS_ACTION_HANDLERS: dict[str, _PluginsActionHandler] = {
     "list": _handle_plugins_list_action,
     "available": _handle_plugins_available_action,
-    "add": _handle_plugins_add_action,
     "remove": _handle_plugins_remove_action,
     "update": _handle_plugins_update_action,
     "registry": _handle_plugins_registry_action,
@@ -935,11 +1147,20 @@ async def handle_plugins_command(
     agent_name: str,
     action: str | None,
     argument: str | None,
+    interactive: bool = True,
 ) -> CommandOutcome:
     normalized = normalize_command_action("plugins", action)
 
     if is_help_flag(action) or is_help_flag(argument):
         return handle_plugins_help(agent_name=agent_name)
+
+    if normalized == "add":
+        return await handle_add_plugin(
+            ctx,
+            agent_name=agent_name,
+            argument=argument,
+            interactive=interactive,
+        )
 
     handler = _PLUGINS_ACTION_HANDLERS.get(normalized)
     if handler is not None:

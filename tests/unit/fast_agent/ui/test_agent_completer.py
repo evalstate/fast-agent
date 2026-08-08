@@ -1529,7 +1529,7 @@ def test_catalogued_command_aliases_complete_from_prefix(
     [
         ("/skills add --", {"--registry", "--skills-dir"}),
         ("/packs add --", {"--registry", "--force"}),
-        ("/plugins add --", {"--registry"}),
+        ("/plugins add --", {"--global", "--project", "--registry"}),
     ],
 )
 def test_marketplace_add_completions_use_catalogued_options(
@@ -2490,10 +2490,106 @@ def test_get_completions_for_plugins_update_only_managed() -> None:
             assert metadata["beta"] == "managed plugin"
             assert metadata["gamma"] == "managed plugin"
             assert "1" not in names
-            assert "2" not in names
-            assert "3" not in names
+            assert "2" in names
+            assert "3" in names
         finally:
             update_global_settings(old_settings)
+
+
+def test_get_completions_for_plugins_update_includes_global_and_disambiguates_names(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    global_home = tmp_path / "global-home"
+    project_home = tmp_path / "project-env"
+    project_plugins = project_home / "plugins"
+    global_plugins = global_home / "plugins"
+    _write_plugin(project_plugins, "shared")
+    _mark_plugin_managed(project_plugins, "shared")
+    _write_plugin(global_plugins, "global-only")
+    _mark_plugin_managed(global_plugins, "global-only")
+    _write_plugin(global_plugins, "shared")
+    _mark_plugin_managed(global_plugins, "shared")
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        f"default_model: passthrough\nhome: '{project_home.as_posix()}'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FAST_AGENT_HOME", global_home.as_posix())
+
+    old_settings = get_settings()
+    get_settings(config_path=str(config_path))
+    try:
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/plugins update ", cursor_position=len("/plugins update "))
+        completions = list(completer.get_completions(doc, None))
+        names = [completion.text for completion in completions]
+
+        assert "global-only" in names
+        assert "shared" not in names
+        assert {"1", "2", "3"} <= set(names)
+
+        global_doc = Document(
+            "/plugins update --global ",
+            cursor_position=len("/plugins update --global "),
+        )
+        global_names = [
+            completion.text for completion in completer.get_completions(global_doc, None)
+        ]
+
+        assert "global-only" in global_names
+        assert "shared" in global_names
+        assert "1" not in global_names
+        assert {"2", "3"} <= set(global_names)
+    finally:
+        update_global_settings(old_settings)
+
+
+def test_get_completions_for_plugins_update_omits_directory_alias_collisions(
+    tmp_path: Path,
+) -> None:
+    home_root = tmp_path / ".fast-agent"
+    plugin_root = home_root / "plugins"
+    _write_plugin(plugin_root, "canonical")
+    _mark_plugin_managed(plugin_root, "canonical")
+    canonical_manifest = plugin_root / "canonical" / "plugin.yaml"
+    canonical_manifest.write_text(
+        canonical_manifest.read_text(encoding="utf-8").replace(
+            "name: canonical",
+            "name: search",
+        ),
+        encoding="utf-8",
+    )
+    _write_plugin(plugin_root, "search")
+    _mark_plugin_managed(plugin_root, "search")
+    search_manifest = plugin_root / "search" / "plugin.yaml"
+    search_manifest.write_text(
+        search_manifest.read_text(encoding="utf-8").replace(
+            "name: search",
+            "name: other",
+        ),
+        encoding="utf-8",
+    )
+
+    old_settings = get_settings()
+    override = old_settings.model_copy(
+        update={
+            "home": str(home_root),
+            "plugins": PluginsSettings(),
+        }
+    )
+    update_global_settings(override)
+    try:
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/plugins update ", cursor_position=len("/plugins update "))
+        completions = list(completer.get_completions(doc, None))
+        names = [completion.text for completion in completions]
+
+        assert "search" not in names
+        assert "other" in names
+        assert {"1", "2"} <= set(names)
+    finally:
+        update_global_settings(old_settings)
 
 
 def test_get_completions_for_plugins_registry() -> None:
