@@ -7,7 +7,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
 from urllib.parse import parse_qs, urlparse, urlunparse
 
 from aiohttp import WSMsgType
@@ -43,6 +43,18 @@ _STREAM_START_EVENT_TYPES = {
     "response.output_text.delta",
     "response.text.delta",
 }
+
+
+class ResponsesWebSocketKeepaliveOptions(TypedDict, total=False):
+    """Overrides for client-generated websocket Ping frames."""
+
+    ping_interval: float | None
+    ping_timeout: float | None
+
+
+class _SdkWebSocketConnectionOptions(ResponsesWebSocketKeepaliveOptions, total=False):
+    max_size: int | None
+    open_timeout: float | None
 
 
 class ResponsesWebSocketError(RuntimeError):
@@ -441,6 +453,7 @@ async def connect_websocket(
     url: str,
     headers: Mapping[str, str],
     timeout_seconds: float | None = None,
+    keepalive_options: ResponsesWebSocketKeepaliveOptions | None = None,
 ) -> ManagedWebSocketConnection:
     websocket_base_url, extra_query = _responses_websocket_connection_parts(url)
     api_key = _authorization_token(headers) or "unused"
@@ -448,19 +461,23 @@ async def connect_websocket(
         api_key=api_key,
         websocket_base_url=websocket_base_url,
     )
-    websocket_options = cast(
-        "WebSocketConnectionOptions",
-        {
-            # Preserve aiohttp's previous 4 MiB incoming-message limit.
-            "max_size": RESPONSES_WEBSOCKET_MAX_MESSAGE_BYTES,
-            # The outer fast-agent timeout remains authoritative.
-            "open_timeout": None,
-        },
-    )
+    websocket_options: _SdkWebSocketConnectionOptions = {
+        # Preserve aiohttp's previous 4 MiB incoming-message limit.
+        "max_size": RESPONSES_WEBSOCKET_MAX_MESSAGE_BYTES,
+        # The outer fast-agent timeout remains authoritative.
+        "open_timeout": None,
+    }
+    if keepalive_options is not None:
+        if "ping_interval" in keepalive_options:
+            websocket_options["ping_interval"] = keepalive_options["ping_interval"]
+        if "ping_timeout" in keepalive_options:
+            websocket_options["ping_timeout"] = keepalive_options["ping_timeout"]
     manager = client.responses.connect(
         extra_query=extra_query,
         extra_headers=dict(headers),
-        websocket_connection_options=websocket_options,
+        # The SDK forwards these options to websockets.connect but its generated
+        # TypedDict doesn't yet include open_timeout or Ping keepalive options.
+        websocket_connection_options=cast("WebSocketConnectionOptions", websocket_options),
         # Keep SDK reconnect disabled. Fast-agent owns response-aware replay and
         # resets connection-local continuation state before retrying.
         max_retries=0,
@@ -715,23 +732,53 @@ class WebSocketResponsesStream:
         if close_code is None:
             close_code = getattr(self._websocket, "close_code", None)
         close_reason = getattr(message, "extra", None)
-        diagnostics = self._close_diagnostics(close_code, close_reason)
+        diagnostics = self._close_diagnostics(
+            close_code,
+            close_reason,
+            self._websocket.exception(),
+        )
         detail = "; ".join(diagnostics)
         raise ResponsesWebSocketError(
             "WebSocket stream closed before completion event" + (f" ({detail})" if detail else ""),
             stream_started=self._stream_started,
         )
 
-    def _close_diagnostics(self, close_code: Any, close_reason: Any) -> list[str]:
+    def _close_diagnostics(
+        self,
+        close_code: Any,
+        close_reason: Any,
+        websocket_error: BaseException | None,
+    ) -> list[str]:
         diagnostics = []
-        if close_code is not None:
-            diagnostics.append(f"close_code={close_code}")
-        if close_reason:
-            diagnostics.append(f"reason={close_reason}")
+        received_close_code: int | None = None
+        if isinstance(websocket_error, ConnectionClosed):
+            received = websocket_error.rcvd
+            sent = websocket_error.sent
+            if received is not None:
+                received_close_code = received.code
+                diagnostics.append(f"received_close_code={received.code}")
+                if received.reason:
+                    diagnostics.append(f"received_close_reason={received.reason}")
+            if sent is not None:
+                diagnostics.append(f"sent_close_code={sent.code}")
+                if sent.reason:
+                    diagnostics.append(f"sent_close_reason={sent.reason}")
+            if websocket_error.rcvd_then_sent is not None:
+                order = (
+                    "received_then_sent" if websocket_error.rcvd_then_sent else "sent_then_received"
+                )
+                diagnostics.append(f"close_order={order}")
+        else:
+            if close_code is not None:
+                diagnostics.append(f"close_code={close_code}")
+            if close_reason:
+                diagnostics.append(f"reason={close_reason}")
         diagnostics.append(f"events_seen={self._events_seen}")
         if self._last_frame_preview:
             diagnostics.append(f"last_frame={self._last_frame_preview}")
-        if close_code == 1008:
+        if received_close_code == 1008 or (
+            not isinstance(websocket_error, ConnectionClosed) and close_code == 1008
+        ):
             diagnostics.append(
                 "hint=policy_violation (account/feature may not permit Responses websocket beta)"
             )

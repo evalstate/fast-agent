@@ -39,6 +39,7 @@ from fast_agent.llm.provider.openai.responses_streaming import ResponsesStreamin
 from fast_agent.llm.provider.openai.responses_websocket import (
     ManagedWebSocketConnection,
     ResponsesWebSocketError,
+    ResponsesWebSocketKeepaliveOptions,
     ResponsesWsRequestPlanner,
     StatefulContinuationResponsesWsPlanner,
     WebSocketConnectionManager,
@@ -543,13 +544,21 @@ class ResponsesLLM(
     def _prepare_websocket_arguments(self, arguments: dict[str, Any]) -> None:
         """Apply provider-specific per-request websocket metadata."""
 
+    def _websocket_keepalive_options(self) -> ResponsesWebSocketKeepaliveOptions:
+        return {}
+
     async def _create_websocket_connection(
         self,
         url: str,
         headers: dict[str, str],
         timeout_seconds: float | None,
     ) -> ManagedWebSocketConnection:
-        return await connect_websocket(url=url, headers=headers, timeout_seconds=timeout_seconds)
+        return await connect_websocket(
+            url=url,
+            headers=headers,
+            timeout_seconds=timeout_seconds,
+            keepalive_options=self._websocket_keepalive_options(),
+        )
 
     def _new_ws_request_planner(self) -> ResponsesWsRequestPlanner:
         return StatefulContinuationResponsesWsPlanner()
