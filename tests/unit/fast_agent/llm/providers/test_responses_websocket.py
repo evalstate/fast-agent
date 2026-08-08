@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from aiohttp import WSMsgType
 from mcp_types import CallToolResult, TextContent
+from websockets.exceptions import ConnectionClosedError
+from websockets.frames import Close
 
 from fast_agent.constants import (
     FAST_AGENT_ERROR_CHANNEL,
@@ -28,6 +30,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     WebSocketConnectionManager,
     WebSocketResponsesStream,
     _AttrObjectView,
+    _SdkWebSocket,
     build_ws_headers,
     resolve_responses_ws_url,
     send_response_request,
@@ -868,6 +871,35 @@ async def test_websocket_stream_close_prefers_message_close_code() -> None:
     assert "close_code=0" in message
     assert "close_code=1008" not in message
     assert "policy_violation" not in message
+
+
+@pytest.mark.asyncio
+async def test_websocket_stream_close_reports_received_and_sent_frames() -> None:
+    class _ClosingConnection:
+        async def recv_bytes(self) -> bytes:
+            raise ConnectionClosedError(
+                rcvd=Close(1008, "provider policy"),
+                sent=Close(1008, "provider policy"),
+                rcvd_then_sent=True,
+            )
+
+        async def send_raw(self, data: bytes | str) -> None:
+            del data
+
+        async def close(self, *, code: int = 1000, reason: str = "") -> None:
+            del code, reason
+
+    stream = WebSocketResponsesStream(_SdkWebSocket(_ClosingConnection()))
+
+    with pytest.raises(ResponsesWebSocketError) as excinfo:
+        await stream.__anext__()
+
+    message = str(excinfo.value)
+    assert "received_close_code=1008" in message
+    assert "received_close_reason=provider policy" in message
+    assert "sent_close_code=1008" in message
+    assert "close_order=received_then_sent" in message
+    assert "hint=policy_violation" in message
 
 
 @pytest.mark.asyncio

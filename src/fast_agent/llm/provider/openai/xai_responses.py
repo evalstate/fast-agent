@@ -11,6 +11,7 @@ from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
     ManagedWebSocketConnection,
     ResponsesWebSocketError,
+    ResponsesWebSocketKeepaliveOptions,
     ResponsesWsRequestPlanner,
     StatelessResponsesWsPlanner,
 )
@@ -219,6 +220,12 @@ class XAIResponsesLLM(ResponsesLLM):
         # by replaying full context on each websocket turn until xAI's in-memory
         # continuation path behaves as documented.
         return StatelessResponsesWsPlanner()
+
+    def _websocket_keepalive_options(self) -> ResponsesWebSocketKeepaliveOptions:
+        # xAI currently doesn't reliably answer client-generated Ping frames.
+        # Keep automatic Pong replies enabled while restoring the previous
+        # aiohttp behavior of relying on application stream-idle detection.
+        return {"ping_interval": None}
 
     async def _create_websocket_connection(
         self,
