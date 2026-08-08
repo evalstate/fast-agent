@@ -106,7 +106,7 @@ def test_export_preserves_deepseek_shell_contract() -> None:
     manifest = build_model_overlay_manifest_from_database("deepseek.deepseek-v4-flash")
 
     assert manifest.metadata.shell_tool_name == "Shell"
-    assert manifest.metadata.shell_tool_requires_description is True
+    assert manifest.metadata.shell_tool_requires_description is False
     assert manifest.metadata.shell_edit_tool == "write_text_file"
     assert manifest.metadata.model_specific == ModelDatabase.MODEL_PREFERS_WRITER_EDITOR
 
