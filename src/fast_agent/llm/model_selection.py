@@ -119,9 +119,12 @@ class ModelSelectionCatalog:
             _builtin_entry("Grok 4.5"),
             _builtin_entry("Grok 4.5 (X Search)"),
             _builtin_entry("Grok 4.3"),
-            _builtin_entry("Grok 4.3 (instant)"),
         ),
-        Provider.META_AI: (_builtin_entry("Muse Spark 1.1"),),
+        Provider.META_AI: (
+            _builtin_entry("Muse Spark 1.2"),
+            _builtin_entry("Muse Spark 1.2 (Contributor)"),
+            _builtin_entry("Muse Spark 1.1"),
+        ),
         Provider.DEEPSEEK: (
             _builtin_entry(
                 "deepseek",
@@ -167,6 +170,14 @@ class ModelSelectionCatalog:
             ),
             _builtin_entry("gemma4", display_label="Gemma 4 31B"),
             _builtin_entry("minimax3", display_label="Minimax 3.0"),
+            _builtin_entry(
+                "DeepSeek V4 Flash 0731 (baseten)",
+                display_label="DeepSeek V4 Flash 0731 (baseten)",
+            ),
+            _builtin_entry(
+                "DeepSeek V4 Flash 0731 (deepinfra)",
+                display_label="DeepSeek V4 Flash 0731 (deepinfra)",
+            ),
             _builtin_entry("deepseek-hf", display_label="DeepSeek V4 Pro (HF)"),
             _builtin_entry(
                 "kimi26",

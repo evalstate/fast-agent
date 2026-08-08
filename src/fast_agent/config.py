@@ -17,6 +17,7 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
+from fast_agent.constants import MAX_PROCESS_POLL_WAIT_SECONDS
 from fast_agent.core.exceptions import ConfigFileError
 from fast_agent.home import (
     ConfigDiscoveryResult,
@@ -41,6 +42,7 @@ from fast_agent.mcp.server_declaration import (
 )
 from fast_agent.plugins.models import PluginContributions, PluginPostUserTurnSpec
 from fast_agent.tools.environment_config import EnvironmentSpec
+from fast_agent.tools.shell_profiles import ShellToolProfile
 from fast_agent.types.streaming import StreamingMode
 from fast_agent.utils.action_normalization import (
     FALSE_ACTION_ALIASES,
@@ -54,14 +56,14 @@ from fast_agent.utils.text import strip_casefold, strip_str_to_none
 from fast_agent.utils.transports import McpClientTransport
 
 type TerminalImageSize = int | Literal["auto"] | str | None
-type ShellWriteTextFileMode = Literal["auto", "on", "off", "apply_patch"]
-type ShellToolProfile = Literal["native", "minimal_process"]
+type ShellWriteTextFileMode = Literal["auto", "on", "off", "apply_patch", "edit_file"]
 
 SHELL_WRITE_TEXT_FILE_MODES: tuple[ShellWriteTextFileMode, ...] = (
     "auto",
     "on",
     "off",
     "apply_patch",
+    "edit_file",
 )
 SHELL_WRITE_TEXT_FILE_MODE_HELP = "|".join(SHELL_WRITE_TEXT_FILE_MODES)
 _SHELL_WRITE_TEXT_FILE_MODE_ALIASES: dict[str, ShellWriteTextFileMode] = {
@@ -299,10 +301,13 @@ class ShellSettings(BaseModel):
     """Configuration for shell execution behavior."""
 
     tool_profile: ShellToolProfile = Field(
-        default="minimal_process",
+        default="auto",
         description=(
-            "Model-facing shell contract: 'minimal_process' exposes Bash and Process; "
-            "'native' retains the legacy execute/poll_process/terminate_process tools"
+            "Model-facing shell contract: 'auto' selects a model-specific contract; "
+            "'minimal_process' exposes Bash and Process; "
+            "'native' retains the legacy execute/poll_process/terminate_process tools; "
+            "'grok_shell' exposes aligned shell plus Process; "
+            "'luna_exec' exposes foreground-first exec plus Process"
         ),
     )
     timeout_seconds: int = Field(
@@ -356,12 +361,11 @@ class ShellSettings(BaseModel):
             "(None = platform temporary directory)"
         ),
     )
-    # Stay below Anthropic's 5-minute cache TTL; pinned boundaries make warm polling unnecessary.
     process_poll_max_wait_seconds: int = Field(
-        default=250,
+        default=MAX_PROCESS_POLL_WAIT_SECONDS,
         ge=1,
-        le=600,
-        description="Maximum wait accepted by poll_process",
+        le=MAX_PROCESS_POLL_WAIT_SECONDS,
+        description="Maximum duration of one model-initiated managed-process wait",
     )
     managed_process_poll_history_folding: Literal["auto", "on", "off"] = Field(
         default="auto",
@@ -401,9 +405,10 @@ class ShellSettings(BaseModel):
         description=(
             "Control which local file edit tool is exposed when shell runtime is enabled "
             "('auto' uses apply_patch for Codex and GPT-5.2+ models, edit_file for "
-            "Anthropic-series models, and write_text_file plus edit_file otherwise; "
-            "'on' always exposes write_text_file plus edit_file; 'apply_patch' always "
-            "exposes apply_patch; 'off' disables local file edit tools)"
+            "models that prefer it, and write_text_file plus edit_file otherwise; "
+            "'on' always exposes write_text_file plus edit_file; 'edit_file' exposes "
+            "only edit_file; 'apply_patch' always exposes apply_patch; 'off' disables "
+            "local file edit tools)"
         ),
     )
     model_config = ConfigDict(extra="ignore")
@@ -486,7 +491,9 @@ class ShellSettings(BaseModel):
         normalized = normalize_shell_write_text_file_mode(value)
         if normalized is not None or value is None:
             return normalized
-        raise ValueError("write_text_file_mode must be one of: auto, on, off, apply_patch")
+        raise ValueError(
+            "write_text_file_mode must be one of: auto, on, off, apply_patch, edit_file"
+        )
 
 
 class CompactionSettings(BaseModel):
@@ -1810,11 +1817,12 @@ class LoggerSettings(BaseModel):
     apply_patch_preview_max_lines: int | None = Field(
         default=120,
         description=(
-            "Maximum lines to show in apply_patch previews before appending "
+            "Maximum lines to show in apply_patch and compact write_text_file previews before "
+            "appending "
             "'(+N more lines)' (0/None = no limit)"
         ),
     )
-    """Maximum lines to show in apply_patch previews before truncation"""
+    """Maximum lines to show in apply_patch and compact write_text_file previews"""
 
     _theme_file_config_path: str | None = PrivateAttr(default=None)
 

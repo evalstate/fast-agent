@@ -1382,8 +1382,11 @@ def _tools_command_completions(
     text: str,
     text_lower: str,
 ) -> list[Completion] | None:
-    prefix = "/tools "
-    if not text_lower.startswith(prefix):
+    prefix = next(
+        (candidate for candidate in ("/tools ", "/tool ") if text_lower.startswith(candidate)),
+        None,
+    )
+    if prefix is None:
         return None
 
     partial = text[len(prefix) :].lstrip()
@@ -1391,7 +1394,7 @@ def _tools_command_completions(
         return []
 
     entries = completer._run_async_completion(completer._list_tool_completion_entries) or []
-    candidates = [("summary", "List available tools"), *entries]
+    candidates = entries if prefix == "/tool " else [("summary", "List available tools"), *entries]
     return [
         Completion(
             name,

@@ -32,11 +32,14 @@ Environment variables:
 ## Models
 
 ```bash
-fast-agent --model "metaai.muse-spark-1.1"
-fast-agent --model "metaai.muse-spark-1.1?web_search=on"
+fast-agent --model "metaai.muse-spark-1.2"
+fast-agent --model "metaai.muse-spark-1.2?web_search=on"
+fast-agent --model "metaai.muse-spark-1.2-contributor"
 ```
 
-Muse Spark 1.1 supports text, image, video, and PDF input with a 1,048,576 token context window.
+Muse Spark 1.2, Muse Spark 1.2 Contributor, and Muse Spark 1.1 support text,
+image, video, and PDF input with a 1,048,576 token context window. The
+Contributor tier lets Meta use prompts and completions to train future models.
 
 ## Search grounding
 

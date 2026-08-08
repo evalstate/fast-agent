@@ -205,8 +205,8 @@ async def test_tools_omits_disabled_provider_hosted_tools() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tools_named_selection_renders_complete_input_schema() -> None:
-    schema = {
+async def test_tools_named_selection_renders_input_and_structured_output_schemas() -> None:
+    input_schema = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Search query"},
@@ -215,9 +215,26 @@ async def test_tools_named_selection_renders_complete_input_schema() -> None:
         "required": ["query"],
         "additionalProperties": False,
     }
+    output_schema = {
+        "type": "object",
+        "properties": {
+            "results": {
+                "type": "array",
+                "items": {"type": "string"},
+            }
+        },
+        "required": ["results"],
+    }
     agent = _Agent(
         _MutableLlm(),
-        [Tool(name="search", description="Search things", input_schema=schema)],
+        [
+            Tool(
+                name="search",
+                description="Search things",
+                input_schema=input_schema,
+                output_schema=output_schema,
+            )
+        ],
     )
     ctx = CommandContext(
         agent_provider=_Provider(agent),
@@ -233,8 +250,11 @@ async def test_tools_named_selection_renders_complete_input_schema() -> None:
     assert message.render_markdown is True
     rendered = _plain(message.text)
     assert "# Tool schema: search" in rendered
+    assert "## Input schema" in rendered
     assert '"additionalProperties": false' in rendered
-    assert '"required": [' in rendered
+    assert "## Structured output schema" in rendered
+    assert "Supplied by the MCP tool declaration." in rendered
+    assert '"results": {' in rendered
 
 
 @pytest.mark.asyncio

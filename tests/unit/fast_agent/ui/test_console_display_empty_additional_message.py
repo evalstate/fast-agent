@@ -6,6 +6,7 @@ from rich.console import Group
 from rich.syntax import Syntax
 from rich.text import Text
 
+from fast_agent.command_actions import MarkdownTextStyle
 from fast_agent.config import LoggerSettings, Settings
 from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS, REASONING
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -38,7 +39,9 @@ class _CaptureContentDisplay(ConsoleDisplay):
         message_type: MessageType | None = None,
         check_markdown_markers: bool = False,
         render_markdown: bool | None = None,
+        markdown_styles: tuple[MarkdownTextStyle, ...] = (),
     ) -> None:
+        del markdown_styles
         self.displayed_content.append(content)
 
 

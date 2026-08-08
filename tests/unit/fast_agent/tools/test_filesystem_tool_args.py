@@ -42,6 +42,22 @@ def test_parse_write_text_file_arguments_allows_empty_content() -> None:
 @pytest.mark.parametrize(
     "arguments",
     [
+        {"path": "README.md", "content": "# Plane"},
+        {"content": "# Plane", "path": "README.md"},
+    ],
+)
+def test_parse_write_text_file_arguments_accepts_either_member_order(
+    arguments: dict[str, str],
+) -> None:
+    parsed = parse_write_text_file_arguments(arguments)
+
+    assert parsed.path == "README.md"
+    assert parsed.content == "# Plane"
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
         None,
         {"path": "   ", "content": "x"},
         {"path": "sample.txt"},

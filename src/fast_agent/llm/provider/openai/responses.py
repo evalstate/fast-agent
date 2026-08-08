@@ -245,7 +245,10 @@ class ResponsesLLM(
         self._file_id_cache: dict[str, str] = {}
         self._transport: ResponsesTransport = self._default_transport_setting()
         self._last_transport_used: ResponsesActiveTransport | None = None
-        self._ws_connections = WebSocketConnectionManager(idle_timeout_seconds=300.0)
+        self._ws_connections = WebSocketConnectionManager(
+            idle_timeout_seconds=55 * 60.0,
+            max_age_seconds=55 * 60.0,
+        )
         self._ws_debug_inline = env_flag("FAST_AGENT_DEBUG_RESPONSES_WS")
         self._web_search_override: bool | None = (
             bool(web_search_override) if isinstance(web_search_override, bool) else None

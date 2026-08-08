@@ -15,6 +15,7 @@ from fast_agent.mcp.prompt_serialization import (
     multipart_messages_to_delimited_format,
     save_messages,
     to_json,
+    to_json_bytes,
 )
 from fast_agent.types import COMMENTARY_PHASE
 
@@ -94,6 +95,19 @@ class TestPromptSerialization:
         assert image_block.type == "image"
         assert image_block.data == "base64EncodedImage"
         assert image_block.mime_type == "image/jpeg"
+
+    def test_json_bytes_match_text_serialization(self) -> None:
+        messages = [
+            PromptMessageExtended(
+                role="assistant",
+                content=[TextContent(type="text", text="Résumé ✓")],
+            )
+        ]
+
+        encoded = to_json_bytes(messages, indent=None)
+
+        assert encoded.decode() == to_json(messages, indent=None)
+        assert from_json(encoded.decode())[0].all_text() == "Résumé ✓"
 
     def test_enhanced_json_round_trips_assistant_phase(self):
         original_messages = [

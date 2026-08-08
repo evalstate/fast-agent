@@ -9,7 +9,10 @@ from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
-from fast_agent.constants import MAX_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.constants import (
+    MAX_PROCESS_POLL_WAIT_SECONDS,
+    MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
+)
 from fast_agent.llm.model_mime_support import ResourceSource, tokenizes_support_mime
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
@@ -19,6 +22,7 @@ from fast_agent.llm.reasoning_effort import (
 )
 from fast_agent.llm.text_verbosity import TextVerbositySpec
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES
+from fast_agent.tools.shell_profiles import ResolvedShellToolProfile
 from fast_agent.utils.text import strip_casefold, strip_to_none
 
 
@@ -43,7 +47,11 @@ class ModelParameters(BaseModel):
     managed_process_poll_folding: bool | None = None
     """Whether managed-process poll folding has been validated for this model."""
 
-    process_poll_default_wait_seconds: int = Field(default=0, ge=0, le=600)
+    process_poll_default_wait_seconds: int = Field(
+        default=0,
+        ge=0,
+        le=MAX_PROCESS_POLL_WAIT_SECONDS,
+    )
     """Default poll_process wait when the model omits wait_sec."""
 
     shell_output_byte_limit: int | None = Field(
@@ -52,6 +60,18 @@ class ModelParameters(BaseModel):
         le=MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
     )
     """Optional model-specific default for model-facing shell output previews."""
+
+    shell_tool_name: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_-]*$")
+    """Optional model-facing name for the minimal-process shell tool."""
+
+    shell_tool_requires_description: bool = False
+    """Whether the minimal-process shell tool requires an operator-facing description."""
+
+    shell_edit_tool: Literal["write_text_file", "edit_file", "apply_patch", "off"] | None = None
+    """Optional model-specific default for the local file-edit tool contract."""
+
+    shell_tool_profile: ResolvedShellToolProfile | None = None
+    """Optional model-specific shell contract selected when shell tool profile is auto."""
 
     reasoning: None | str = None
     """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
@@ -233,6 +253,13 @@ class ModelDatabase:
         "targeted changes to existing files. Do not serialize independent file creation "
         "across turns."
     )
+    MODEL_PREFERS_WRITER_EDITOR = (
+        "Use `write_text_file` to create or replace a complete text file. Use "
+        "`edit_file` to create a missing text file or make an exact targeted change to "
+        "an existing text file. For `edit_file` creation, omit `old_string`; for an "
+        "existing file, provide the exact current `old_string`. Do not serialize "
+        "independent file-tool calls across turns when they can be issued together."
+    )
 
     OPENAI_O_CLASS_REASONING = ReasoningEffortSpec(
         kind="effort",
@@ -363,7 +390,7 @@ class ModelDatabase:
 
     XAI_GROK_43_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
-        allowed_efforts=["none", "low", "medium", "high"],
+        allowed_efforts=["low", "medium", "high"],
         default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
@@ -537,7 +564,11 @@ class ModelDatabase:
     )
 
     OPENAI_GPT_56_LUNA = OPENAI_GPT_56.model_copy(
-        update={"context_window": 400_000, "codex_responses_lite": True}
+        update={
+            "context_window": 400_000,
+            "codex_responses_lite": True,
+            "shell_tool_profile": "luna_exec",
+        }
     )
 
     OPENAI_GPT_CODEX_SPARK = ModelParameters(
@@ -697,6 +728,18 @@ class ModelDatabase:
         reasoning="openai",
         reasoning_effort_spec=DEEPSEEK_REASONING_EFFORT_SPEC,
         default_provider=Provider.DEEPSEEK,
+        # Matched full-precision probe data favored the combined writer/editor
+        # contract over edit-only while reducing token usage.
+        model_specific=MODEL_PREFERS_WRITER_EDITOR,
+        shell_tool_name="Shell",
+        shell_tool_requires_description=True,
+        shell_edit_tool="write_text_file",
+    )
+    DEEPSEEK_V4_FLASH_HF = DEEPSEEK_V4_FLASH.model_copy(
+        update={
+            "reasoning": "reasoning_content",
+            "default_provider": Provider.HUGGINGFACE,
+        }
     )
 
     DEEPSEEK_V_32 = ModelParameters(
@@ -846,6 +889,7 @@ class ModelDatabase:
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.XAI,),
         process_poll_default_wait_seconds=240,
+        shell_tool_profile="grok_shell",
     )
 
     GROK_45 = ModelParameters(
@@ -862,9 +906,10 @@ class ModelDatabase:
         managed_process_poll_folding=True,
         process_poll_default_wait_seconds=240,
         shell_output_byte_limit=16_000,
+        shell_tool_profile="grok_shell",
     )
 
-    MUSE_SPARK_11 = ModelParameters(
+    MUSE_SPARK = ModelParameters(
         context_window=1_048_576,
         max_output_tokens=65535,
         tokenizes=META_AI_MULTIMODAL,
@@ -1167,6 +1212,7 @@ class ModelDatabase:
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
         # DeepSeek Models
         "deepseek-v4-flash": _with_fast(DEEPSEEK_V4_FLASH),
+        "deepseek-ai/deepseek-v4-flash-0731": _with_fast(DEEPSEEK_V4_FLASH_HF),
         # Z.ai models
         "glm-5.2": GLM_5_2.model_copy(update={"default_provider": Provider.ZAI}),
         # Google Gemini Models (vanilla aliases and versioned)
@@ -1181,7 +1227,9 @@ class ModelDatabase:
         # xAI Grok Models
         "grok-4.3": GROK_43,
         "grok-4.5": GROK_45,
-        "muse-spark-1.1": MUSE_SPARK_11,
+        "muse-spark-1.2": MUSE_SPARK,
+        "muse-spark-1.2-contributor": MUSE_SPARK,
+        "muse-spark-1.1": MUSE_SPARK,
         "moonshotai/kimi-k2": _with_fast(KIMI_MOONSHOT_INSTRUCT),
         "moonshotai/kimi-k2-instruct-0905": _with_fast(KIMI_MOONSHOT_INSTRUCT),
         "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,
@@ -1231,6 +1279,15 @@ class ModelDatabase:
         update={
             "default_provider": Provider.ZAI,
             "process_poll_default_wait_seconds": 240,
+        }
+    )
+    _PROVIDER_MODEL_OVERRIDES.update(
+        {
+            (Provider.OPENROUTER, f"x-ai/{model_name}"): params
+            for model_name, params in (
+                ("grok-4.3", GROK_43),
+                ("grok-4.5", GROK_45),
+            )
         }
     )
     _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {}

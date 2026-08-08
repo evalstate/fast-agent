@@ -34,8 +34,10 @@ from fast_agent.ui.edit_file_preview import (
     format_edit_file_preview,
 )
 from fast_agent.ui.streaming.json_prefix import JsonPrefixFormatter
+from fast_agent.ui.syntax_highlighting import syntax_language_for_path
 from fast_agent.utils.reasoning_stream_parser import ReasoningSegment, ReasoningStreamParser
 from fast_agent.utils.text import strip_casefold
+from fast_agent.utils.tool_names import is_write_text_file_tool_name
 
 if TYPE_CHECKING:
     from fast_agent.llm.stream_types import StreamChunk
@@ -147,6 +149,8 @@ class StreamSegmentBuffer:
         self._base_kind: BaseSegmentKind = base_kind
         self._segments: list[StreamSegment] = []
         self._pending_table_row = ""
+        self._markdown_line_has_content = False
+        self._markdown_line_is_table = False
         self._reasoning_separator_pending = False
         self._plain_decoder = LiteralNewlineDecoder()
         self._reasoning_decoder = LiteralNewlineDecoder()
@@ -220,8 +224,7 @@ class StreamSegmentBuffer:
 
         last_segment = self._last_segment(kind="markdown")
         text_so_far = last_segment.text if last_segment else ""
-        last_line = self._current_line(text_so_far)
-        currently_in_table = bool(last_segment) and last_line.strip().startswith("|")
+        currently_in_table = bool(last_segment) and self._markdown_line_is_table
         starts_table_row = text.lstrip().startswith("|")
 
         if "\n" not in text and (currently_in_table or starts_table_row):
@@ -243,15 +246,28 @@ class StreamSegmentBuffer:
             self._append_to_segment("markdown", self._pending_table_row)
             self._pending_table_row = ""
 
+        should_check_stable_tail = "\n" in text or (
+            not self._markdown_line_has_content and not text.strip()
+        )
         self._append_to_segment("markdown", text)
-        self._freeze_completed_markdown_tail()
+        if should_check_stable_tail:
+            self._freeze_completed_markdown_tail()
         return True
 
-    @staticmethod
-    def _current_line(text: str) -> str:
-        if not text or text.endswith("\n"):
-            return ""
-        return text.split("\n")[-1]
+    def _update_markdown_line_state(self, text: str) -> None:
+        if "\n" in text:
+            tail = text.rsplit("\n", 1)[-1]
+            stripped = tail.strip()
+            self._markdown_line_has_content = bool(stripped)
+            self._markdown_line_is_table = stripped.startswith("|")
+            return
+
+        if self._markdown_line_has_content:
+            return
+        stripped = text.strip()
+        if stripped:
+            self._markdown_line_has_content = True
+            self._markdown_line_is_table = stripped.startswith("|")
 
     def _consume_reasoning_gap(self) -> str:
         if not self._reasoning_separator_pending:
@@ -291,6 +307,8 @@ class StreamSegmentBuffer:
             last_segment.append(text)
         else:
             self._segments.append(StreamSegment(kind=kind, text=text))
+        if kind == "markdown":
+            self._update_markdown_line_state(text)
 
     def _last_segment(self, *, kind: SegmentKind) -> StreamSegment | None:
         if not self._segments:
@@ -445,6 +463,19 @@ class ToolStreamState:
         return bool(self.raw_text or self.display_text or self.status_text or self.result_text)
 
     def code_preview(self) -> "ToolCodePreview | None":
+        tool_name = self.canonical_tool_name or self.tool_name
+        if is_write_text_file_tool_name(tool_name):
+            content = extract_partial_json_string_field(self.raw_text, field_name="content")
+            if content is None or not content.value:
+                return None
+            path = extract_partial_json_string_field(self.raw_text, field_name="path")
+            language = syntax_language_for_path(path.value.strip()) if path is not None else None
+            return ToolCodePreview(
+                code=content.value,
+                language=language or "text",
+                complete=content.complete,
+            )
+
         preview_spec = _tool_code_preview_spec(self.tool_metadata)
         if preview_spec is None:
             return None

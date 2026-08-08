@@ -30,6 +30,7 @@ from fast_agent.ui.apply_patch_preview import (
     extract_non_command_args,
     format_apply_patch_preview,
     is_shell_execution_tool,
+    limit_preview_lines,
     shell_syntax_language,
     style_apply_patch_preview_text,
 )
@@ -51,6 +52,7 @@ from fast_agent.utils.tool_names import (
     PROCESS_TOOL_NAME,
     SHELL_EXECUTION_TOOL_NAMES,
     is_read_text_file_tool_name,
+    is_write_text_file_tool_name,
     normalize_tool_name,
 )
 
@@ -427,6 +429,33 @@ class ToolDisplay:
             return preview
         return Group(preview, Text("…", style="dim"))
 
+    def _compact_write_text_file_preview(
+        self,
+        syntax: Syntax,
+        path_value: object,
+        *,
+        max_lines: int | None,
+    ) -> Group:
+        path = strip_str_to_none(path_value)
+        language = syntax_language_for_path(path) if path else None
+        preview = Syntax(
+            limit_preview_lines(syntax.code, max_lines=max_lines),
+            language or "text",
+            theme=self._display.code_style,
+            line_numbers=False,
+            word_wrap=self._display.code_word_wrap,
+        )
+        renderables: list[RenderableType] = []
+        if path:
+            label = Text("path: ", style="dim")
+            label.append(
+                fit_path_for_display(path, max(1, console.console.size.width - len("path: "))),
+                style="cyan",
+            )
+            renderables.append(label)
+        renderables.append(preview)
+        return Group(*renderables)
+
     def _show_compact_tool_call(
         self,
         *,
@@ -463,6 +492,17 @@ class ToolDisplay:
 
         arguments = self._display.tool_display_settings.arguments
         if arguments == "none":
+            return
+        if is_write_text_file_tool_name(tool_name) and isinstance(prepared.content, Syntax):
+            console.console.print(
+                self._compact_write_text_file_preview(
+                    prepared.content,
+                    tool_args.get("path"),
+                    max_lines=(
+                        self._display.apply_patch_preview_max_lines if arguments == "auto" else None
+                    ),
+                )
+            )
             return
         if (
             arguments == "auto"
@@ -513,6 +553,7 @@ class ToolDisplay:
         return not (
             is_shell_execution_tool(tool_name)
             or is_read_text_file_tool_name(tool_name)
+            or is_write_text_file_tool_name(tool_name)
             or is_apply_patch_tool_name(tool_name or "")
             or normalized_name == EDIT_FILE_TOOL_NAME
         )
@@ -1096,11 +1137,16 @@ class ToolDisplay:
         structured_content: object = None,
         tool_name: str | None,
         truncate_content: bool,
+        show_structured_content: bool = False,
     ) -> PreparedToolResultContent:
         source_content = content
-        display_content = self._structured_tool_result_display_content(
-            content=content,
-            structured_content=structured_content,
+        display_content = (
+            content
+            if show_structured_content
+            else self._structured_tool_result_display_content(
+                content=content,
+                structured_content=structured_content,
+            )
         )
         display_content = self._compact_managed_process_result(
             display_content,
@@ -1555,8 +1601,19 @@ class ToolDisplay:
         resource_uri: str | None,
     ) -> None:
         resource_label = f"app resource: {resource_uri}" if resource_uri else "app resource"
-        resource_text = Text(resource_label, style="magenta")
-        line = self._display.style.metadata_line(resource_text)
+        self._render_structured_content(
+            structured_content=structured_content,
+            label=resource_label,
+        )
+
+    def _render_structured_content(
+        self,
+        *,
+        structured_content: object,
+        label: str,
+    ) -> None:
+        label_text = Text(label, style="magenta")
+        line = self._display.style.metadata_line(label_text)
         console.console.print(line, markup=self._markup)
         console.console.print()
 
@@ -1583,6 +1640,7 @@ class ToolDisplay:
         is_app_integration_tool: bool,
         app_resource_uri: str | None,
         show_hook_indicator: bool,
+        show_structured_content: bool,
         post_content: RenderableType | None = None,
     ) -> None:
         config_map = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
@@ -1619,6 +1677,12 @@ class ToolDisplay:
             )
             return
 
+        if show_structured_content:
+            self._render_structured_content(
+                structured_content=structured_content,
+                label="■ structured content",
+            )
+
         self._render_tool_result_footer(
             highlight_color=config_map["highlight_color"],
             bottom_metadata_items=bottom_metadata_items,
@@ -1638,6 +1702,7 @@ class ToolDisplay:
         source_label: str | None = None,
         server_name: str | None = None,
         show_hook_indicator: bool = False,
+        show_structured_content: bool = False,
     ) -> None:
         """Display a tool result in the console."""
         logger = get_logger(__name__)
@@ -1655,6 +1720,7 @@ class ToolDisplay:
                 structured_content=structured_content,
                 tool_name=tool_name,
                 truncate_content=truncate_content,
+                show_structured_content=show_structured_content,
             )
             display_content = prepared_content.display_content
             source_content = prepared_content.source_content
@@ -1754,6 +1820,7 @@ class ToolDisplay:
                     is_app_integration_tool=(app_integration_details.is_app_integration_tool),
                     app_resource_uri=app_integration_details.resource_uri,
                     show_hook_indicator=show_hook_indicator,
+                    show_structured_content=show_structured_content,
                     post_content=post_content,
                 )
             else:
@@ -2020,6 +2087,20 @@ class ToolDisplay:
                 metadata=metadata,
                 tool_call_id=tool_call_id,
             )
+
+        if is_write_text_file_tool_name(tool_name):
+            path_value = tool_args.get("path")
+            language = (
+                syntax_language_for_path(path_value.strip())
+                if isinstance(path_value, str)
+                else None
+            )
+            metadata = {
+                **metadata,
+                "variant": "code",
+                "code_arg": "content",
+                "language": language or "text",
+            }
 
         if metadata.get("variant") == "code":
             content, footer_items = self._build_code_tool_call_syntax(tool_args, metadata)

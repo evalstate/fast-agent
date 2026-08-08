@@ -41,6 +41,9 @@ class _CaptureDisplay:
         del args, kwargs
         self.events.append("tool_result")
 
+    def show_history_tool_result(self, *args: Any, **kwargs: Any) -> None:
+        self.show_tool_result(*args, **kwargs)
+
 
 def _capture_history_display(monkeypatch) -> type[_CaptureDisplay]:
     _CaptureDisplay.events = []

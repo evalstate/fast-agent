@@ -65,6 +65,29 @@ async def test_edit_file_is_exposed_as_internal_runtime_tool(tmp_path: Path) -> 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_edit_file_creates_missing_file_without_writer_tool(tmp_path: Path) -> None:
+    agent = _build_agent(tmp_path)
+    try:
+        result = await agent.call_tool(
+            "edit_file",
+            {
+                "path": "nested/created.txt",
+                "new_string": "created\n",
+            },
+        )
+        payload = _result_payload(result)
+
+        assert result.is_error is False
+        assert payload["success"] is True
+        assert payload["created"] is True
+        assert payload["replacements"] == 0
+        assert _read_text(tmp_path / "nested" / "created.txt") == "created\n"
+    finally:
+        await agent._aggregator.close()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_edit_file_replaces_unique_multiline_match_and_returns_structured_diff(
     tmp_path: Path,
 ) -> None:
@@ -233,7 +256,7 @@ async def test_edit_file_reports_missing_file_and_directory_errors(tmp_path: Pat
             "success": False,
             "error": "file_not_found",
             "message": (
-                "File not found: missing.txt. Check the path, or use write_text_file to create it."
+                "File not found: missing.txt. Check the path, or omit old_string to create it."
             ),
             "path": "missing.txt",
         }
@@ -447,7 +470,7 @@ async def test_edit_file_preserves_crlf_when_matching_exact_windows_newlines(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_edit_file_reports_empty_old_string_no_op_and_encoding_errors(
+async def test_edit_file_reports_creation_refusal_no_op_and_encoding_errors(
     tmp_path: Path,
 ) -> None:
     empty_target = tmp_path / "empty.txt"
@@ -484,8 +507,11 @@ async def test_edit_file_reports_empty_old_string_no_op_and_encoding_errors(
 
         assert _result_payload(empty_result) == {
             "success": False,
-            "error": "empty_old_string",
-            "message": "Empty search string is not allowed.",
+            "error": "file_exists",
+            "message": (
+                "File already exists: empty.txt. Re-read it and provide old_string "
+                "for an exact replacement."
+            ),
             "path": "empty.txt",
         }
         assert _result_payload(no_op_result) == {

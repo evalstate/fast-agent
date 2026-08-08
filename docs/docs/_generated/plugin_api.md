@@ -34,7 +34,8 @@ Return `None` for no visible output.
 | `buffer_prefill` | `str | None` | Draft text inserted into the user's input buffer. |
 | `switch_agent` | `str | None` | Switch the active TUI agent after the command. |
 | `refresh_agents` | `bool` | Refresh agent/card state after the command. |
-| `images` | `list[PluginCommandActionImage]` |  |
+| `images` | `list[PluginCommandActionImage]` | Images rendered after command output where supported. |
+| `markdown_styles` | `tuple[MarkdownTextStyle, ...]` | Presentation-only Rich styles for literal visible Markdown text; ignored by portable clients. |
 
 ### Context Fields
 

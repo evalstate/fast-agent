@@ -21,9 +21,20 @@ from fast_agent.commands.tool_summaries import provider_tool_status_label
 
 
 def render_tool_schema_markdown(tool: "Tool") -> str:
-    schema = json.dumps(tool.input_schema, ensure_ascii=False, indent=2)
     name = escape_markdown_text(tool.name)
-    return f"# Tool schema: {name}\n\n```json\n{schema}\n```"
+    input_schema = json.dumps(tool.input_schema, ensure_ascii=False, indent=2)
+    sections = [
+        f"# Tool schema: {name}",
+        f"## Input schema\n\n```json\n{input_schema}\n```",
+    ]
+    if tool.output_schema is not None:
+        output_schema = json.dumps(tool.output_schema, ensure_ascii=False, indent=2)
+        sections.append(
+            "## Structured output schema\n\n"
+            "Supplied by the MCP tool declaration.\n\n"
+            f"```json\n{output_schema}\n```"
+        )
+    return "\n\n".join(sections)
 
 
 def _format_args(args: list[str] | None) -> str | None:

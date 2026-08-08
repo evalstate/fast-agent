@@ -4,8 +4,7 @@ Request parameters definitions for LLM interactions.
 
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypeGuard
 
-from mcp import SamplingMessage
-from mcp_types import CreateMessageRequestParams
+from mcp_types import CreateMessageRequestParams, SamplingMessage
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS, DEFAULT_STREAMING_TIMEOUT

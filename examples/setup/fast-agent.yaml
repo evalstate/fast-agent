@@ -87,9 +87,10 @@ anthropic:
 #   # default_model: "kimi-k3"
 
 #shell_execution:
-# model-facing shell tools: minimal_process (Bash/Process, default) or native
+# model-facing shell tools: auto (Grok shell/Process; others Bash/Process),
+# minimal_process, grok_shell, or native
 # (legacy execute/poll_process/terminate_process compatibility)
-#  tool_profile: minimal_process
+#  tool_profile: auto
 # length of time before terminating subprocess
 #  timeout_seconds: 20
 # warning interval if no output seen
@@ -110,8 +111,8 @@ anthropic:
 #  retained_output_max_bytes: 2097152
 # optional parent directory for retained-output session directories
 #  retained_output_temp_directory: null
-# maximum managed-process wait; 250s stays below the 5m cache TTL
-#  process_poll_max_wait_seconds: 250
+# maximum duration of one model-initiated managed-process wait
+#  process_poll_max_wait_seconds: 3600
 # fold repetitive quiet managed-process polling: auto, on, or off
 # auto enables folding for models with validated support
 #  managed_process_poll_history_folding: auto

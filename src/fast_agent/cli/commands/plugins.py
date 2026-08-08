@@ -133,11 +133,14 @@ def _print_plugin_roots(
     table = indexed_table(
         ("Scope", "white"),
         ("Name", "cyan"),
+        ("Version", "white"),
         ("Commands", "white"),
         ("Keys", "white"),
         ("Provenance", "dim"),
         ("Installed", "green"),
     )
+    for column in table.columns[1:4]:
+        column.no_wrap = True
     for index, (scope, entry) in enumerate(scoped_plugins, start=1):
         status = _plugin_status(
             entry.name,
@@ -148,12 +151,15 @@ def _print_plugin_roots(
         )
         scope_display = scope if status == "-" else f"{scope} ({status})"
         commands = ", ".join(entry.manifest.commands) if entry.manifest else "invalid manifest"
+        version = entry.manifest.version if entry.manifest and entry.manifest.version else "-"
         keys = _format_plugin_keys(entry)
         if entry.source is None:
             provenance = (
                 f"invalid metadata: {entry.metadata_error}" if entry.metadata_error else "unmanaged"
             )
-            table.add_row(str(index), scope_display, entry.name, commands, keys, provenance, "-")
+            table.add_row(
+                str(index), scope_display, entry.name, version, commands, keys, provenance, "-"
+            )
             continue
         source = entry.source
         provenance = format_source_provenance(source.repo_url, source.repo_ref, source.repo_path)
@@ -162,7 +168,9 @@ def _print_plugin_roots(
             source.installed_revision,
             revision_label="",
         )
-        table.add_row(str(index), scope_display, entry.name, commands, keys, provenance, installed)
+        table.add_row(
+            str(index), scope_display, entry.name, version, commands, keys, provenance, installed
+        )
     console.print(table)
 
 

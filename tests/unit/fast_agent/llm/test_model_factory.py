@@ -183,6 +183,32 @@ def test_model_query_unknown_parameter_rejected_for_non_anthropic_model():
         ModelFactory.parse_model_string("openai.gpt-4.1?routing=vertex")
 
 
+def test_process_poll_default_is_not_a_model_query_override() -> None:
+    with pytest.raises(
+        ModelConfigError,
+        match="Unsupported model query parameter 'process_poll_default_wait_seconds'",
+    ):
+        ModelFactory.parse_model_string("xai.grok-4.5?process_poll_default_wait_seconds=420")
+
+
+def test_model_query_poll_period_overrides_catalog_default() -> None:
+    resolved = ModelFactory.resolve_model_spec("xai.grok-4.5?poll_period=420")
+
+    assert resolved.model_config.process_poll_default_wait_seconds == 420
+    assert resolved.process_poll_default_wait_seconds == 420
+    assert resolved.model_params is not None
+    assert resolved.model_params.process_poll_default_wait_seconds == 240
+
+
+@pytest.mark.parametrize("value", ["9", "3601", "abc", ""])
+def test_model_query_poll_period_rejects_invalid_values(value: str) -> None:
+    with pytest.raises(
+        ModelConfigError,
+        match="Use an integer from 10 through 3600",
+    ):
+        ModelFactory.parse_model_string(f"xai.grok-4.5?poll_period={value}")
+
+
 def test_model_query_multiple_unknown_parameters_uses_plural_error() -> None:
     with pytest.raises(
         ModelConfigError,
@@ -707,6 +733,32 @@ def test_factory_request_streaming_timeout_overrides_model_default(
     )
 
     assert llm.default_request_params.streaming_timeout == request_timeout
+
+
+@pytest.mark.parametrize(
+    ("timeout_spec", "expected_timeout"),
+    [("45", 45.0), ("none", None)],
+)
+def test_xai_streaming_timeout_query_overrides_high_reasoning_default(
+    timeout_spec: str,
+    expected_timeout: float | None,
+) -> None:
+    factory = ModelFactory.create_factory(
+        f"xai.grok-4.5?reasoning=high&streaming_timeout={timeout_spec}"
+    )
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+
+    assert llm.default_request_params.streaming_timeout == expected_timeout
+
+
+def test_xai_grok_45_high_reasoning_defaults_to_extended_streaming_timeout() -> None:
+    factory = ModelFactory.create_factory("xai/grok-4.5?reasoning=high")
+    llm = factory(
+        LlmAgent(AgentConfig(name="Test Agent")),
+        request_params=RequestParams(use_history=False),
+    )
+
+    assert llm.default_request_params.streaming_timeout == 300.0
 
 
 def test_model_streaming_timeout_query_overrides_preset_default() -> None:
@@ -1255,6 +1307,14 @@ def test_hf_sampling_overrides_route_non_openai_fields_to_extra_body() -> None:
     assert extra_body["min_p"] == 0.0
     assert extra_body["repetition_penalty"] == 1.0
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+@pytest.mark.parametrize("field", ("reasoning_api", "reasoning_field"))
+def test_reasoning_field_names_are_not_model_query_parameters(field: str) -> None:
+    with pytest.raises(ModelConfigError, match=f"Unsupported model query parameter '{field}'"):
+        ModelFactory.parse_model_string(
+            f"hf.deepseek-ai/DeepSeek-V4-Flash-0731?reasoning=max&{field}=reasoning_effort"
+        )
 
 
 def test_hf_omits_empty_tools_for_router_compatibility() -> None:

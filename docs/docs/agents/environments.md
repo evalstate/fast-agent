@@ -109,6 +109,10 @@ File tools are workspace tools: `read_text_file`, `write_text_file`,
 `edit_file`, and `apply_patch` are exposed only when they operate on the same
 tree the shell sees.
 
+`edit_file` creates a missing text file when `old_string` is omitted or empty,
+including missing parent directories. Creation never overwrites an existing
+path; exact replacement still requires a non-empty `old_string`.
+
 | Runtime | File tools |
 | ------- | ---------- |
 | ACP client with file capabilities | Client workspace tools, with local gap-fill for missing edit/patch tools. |

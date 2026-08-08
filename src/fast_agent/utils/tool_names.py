@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from fast_agent.tools.filesystem_tool_definitions import READ_TEXT_FILE_TOOL_NAME
+from fast_agent.tools.filesystem_tool_definitions import (
+    READ_TEXT_FILE_TOOL_NAME,
+    WRITE_TEXT_FILE_TOOL_NAME,
+)
 from fast_agent.utils.action_normalization import normalize_action_token
 
 EXECUTE_TOOL_NAME = "execute"
@@ -10,6 +13,16 @@ POLL_PROCESS_TOOL_NAME = "poll_process"
 TERMINATE_PROCESS_TOOL_NAME = "terminate_process"
 BASH_TOOL_NAME = "bash"
 PROCESS_TOOL_NAME = "process"
+GROK_SHELL_TOOL_NAME = "shell"
+LUNA_EXEC_TOOL_NAME = "exec"
+SHELL_COMMAND_TOOL_NAMES = frozenset(
+    {
+        EXECUTE_TOOL_NAME,
+        BASH_TOOL_NAME.casefold(),
+        GROK_SHELL_TOOL_NAME,
+        LUNA_EXEC_TOOL_NAME,
+    }
+)
 SHELL_EXECUTION_TOOL_NAMES = frozenset(
     {
         EXECUTE_TOOL_NAME,
@@ -18,6 +31,7 @@ SHELL_EXECUTION_TOOL_NAMES = frozenset(
         BASH_TOOL_NAME.casefold(),
         PROCESS_TOOL_NAME.casefold(),
         "bash",
+        "exec",
         "shell",
     }
 )
@@ -30,6 +44,7 @@ SHELL_BUILTIN_TOOL_NAMES = frozenset(
         "powershell",
         "cmd",
         "shell",
+        "exec",
     }
 )
 EXECUTE_TOOL_KEYWORDS = (EXECUTE_TOOL_NAME, "run", "exec", "command", "bash", "shell")
@@ -58,6 +73,11 @@ def is_shell_execution_tool_name(tool_name: str | None) -> bool:
     return normalize_tool_name(tool_name) in SHELL_EXECUTION_TOOL_NAMES
 
 
+def is_shell_command_tool_name(tool_name: str | None) -> bool:
+    """Return whether a tool starts a shell command rather than managing one."""
+    return normalize_tool_name(tool_name) in SHELL_COMMAND_TOOL_NAMES
+
+
 def matches_tool_name(tool_name: str | None, canonical_name: str) -> bool:
     normalized = normalize_tool_name(tool_name)
     canonical = normalize_tool_name(canonical_name)
@@ -66,3 +86,7 @@ def matches_tool_name(tool_name: str | None, canonical_name: str) -> bool:
 
 def is_read_text_file_tool_name(tool_name: str | None) -> bool:
     return matches_tool_name(tool_name, READ_TEXT_FILE_TOOL_NAME)
+
+
+def is_write_text_file_tool_name(tool_name: str | None) -> bool:
+    return matches_tool_name(tool_name, WRITE_TEXT_FILE_TOOL_NAME)

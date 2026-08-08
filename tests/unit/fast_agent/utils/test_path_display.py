@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import os
+import shutil
 from pathlib import Path
+
+import pytest
 
 from fast_agent.utils.path_display import (
     fit_path_for_display,
@@ -50,6 +54,26 @@ def test_format_working_directory_keeps_relative_child_directory() -> None:
     cwd = Path("/tmp/project")
 
     assert format_working_directory(cwd / "subdir", cwd=cwd) == "subdir"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permits deleting the process cwd")
+def test_path_display_falls_back_to_absolute_path_when_process_cwd_is_deleted(
+    tmp_path: Path,
+) -> None:
+    previous_cwd = Path.cwd()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    displayed_path = workspace / "src/app.py"
+
+    try:
+        os.chdir(workspace)
+        shutil.rmtree(workspace)
+        workspace.mkdir()
+
+        assert format_relative_path(displayed_path) == str(displayed_path)
+        assert format_working_directory(workspace) == str(workspace)
+    finally:
+        os.chdir(previous_cwd)
 
 
 def test_left_truncate_with_ellipsis_truncates_from_left() -> None:

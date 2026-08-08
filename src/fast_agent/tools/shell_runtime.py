@@ -27,6 +27,7 @@ from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     MAX_MANAGED_SHELL_PROCESSES,
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
+    MIN_PROCESS_POLL_WAIT_SECONDS,
     TERMINAL_BYTES_PER_TOKEN,
 )
 from fast_agent.event_progress import ProgressAction
@@ -63,16 +64,26 @@ from fast_agent.tools.shell_process import (
     process_result,
     process_result_metadata,
 )
+from fast_agent.tools.shell_profiles import (
+    ResolvedShellToolProfile,
+    ShellToolProfile,
+    resolve_shell_tool_profile,
+)
 from fast_agent.tools.shell_progress import ShellProgressReporter
 from fast_agent.tools.shell_tool_definitions import (
     PROCESS_OUTPUT_DEBOUNCE_SECONDS,
+    MinimalProcessReadOutputArguments,
     ShellExecuteArguments,
     build_execute_tool,
+    build_grok_shell_tool,
+    build_luna_exec_tool,
     build_minimal_bash_tool,
     build_minimal_process_tool,
     build_poll_process_tool,
     build_terminate_process_tool,
     parse_execute_arguments,
+    parse_grok_shell_arguments,
+    parse_luna_exec_arguments,
     parse_minimal_bash_arguments,
     parse_minimal_process_arguments,
     parse_poll_process_arguments,
@@ -93,6 +104,8 @@ from fast_agent.utils.text import summarize_command
 from fast_agent.utils.tool_names import (
     BASH_TOOL_NAME,
     EXECUTE_TOOL_NAME,
+    GROK_SHELL_TOOL_NAME,
+    LUNA_EXEC_TOOL_NAME,
     POLL_PROCESS_TOOL_NAME,
     PROCESS_TOOL_NAME,
     TERMINATE_PROCESS_TOOL_NAME,
@@ -102,7 +115,6 @@ _IO_DRAIN_TIMEOUT_SECONDS = 2.0
 _DEFAULT_IDLE_YIELD_SECONDS = 10
 _DEFAULT_FOREGROUND_YIELD_SECONDS = 30
 _DEFAULT_MINIMAL_PROCESS_WAIT_SECONDS = 30
-_MINIMAL_PROCESS_MIN_WAIT_SECONDS = 10
 _PROCESS_OUTPUT_DEBOUNCE_SECONDS = PROCESS_OUTPUT_DEBOUNCE_SECONDS
 
 
@@ -110,12 +122,6 @@ def _default_max_process_poll_seconds() -> int:
     from fast_agent.config import ShellSettings
 
     return ShellSettings().process_poll_max_wait_seconds
-
-
-def _default_minimal_process_profile() -> bool:
-    from fast_agent.config import ShellSettings
-
-    return ShellSettings().tool_profile == "minimal_process"
 
 
 _RESOURCE_OBSERVATION_TIMEOUT_SECONDS = 0.075
@@ -137,7 +143,7 @@ class _ShellRuntimeExecution:
 
 @dataclass(frozen=True, slots=True)
 class _ManagedProcessOperation:
-    kind: Literal["list", "status", "wait", "stop"]
+    kind: Literal["list", "status", "wait", "stop", "read_output"]
     process_id: str | None
     wait_sec: int | None
 
@@ -180,7 +186,11 @@ class ShellRuntime:
         shell_environment: ShellEnvironment | None = None,
         idle_yield_seconds: float = _DEFAULT_IDLE_YIELD_SECONDS,
         foreground_yield_seconds: float = _DEFAULT_FOREGROUND_YIELD_SECONDS,
+        minimal_shell_tool_name: str = BASH_TOOL_NAME,
+        minimal_shell_tool_requires_description: bool = False,
         extended_guidance: bool = False,
+        tool_profile: ShellToolProfile | None = None,
+        model_tool_profile: ResolvedShellToolProfile | None = None,
     ) -> None:
         self._working_directory = str(working_directory) if working_directory is not None else None
         self._environment = shell_environment or LocalShellExecutor(
@@ -204,6 +214,8 @@ class ShellRuntime:
         self._agent_name = agent_name
         self._idle_yield_seconds = idle_yield_seconds
         self._foreground_yield_seconds = foreground_yield_seconds
+        self._minimal_shell_tool_name = minimal_shell_tool_name
+        self._minimal_shell_tool_requires_description = minimal_shell_tool_requires_description
         self._extended_guidance = extended_guidance
         self._managed_processes: dict[str, ManagedShellProcess] = {}
         self._next_process_id = 1
@@ -212,7 +224,7 @@ class ShellRuntime:
         self._show_bash_output = True
         self._prefer_local_shell = False
         self._max_process_poll_seconds = _default_max_process_poll_seconds()
-        self._minimal_process_profile = _default_minimal_process_profile()
+        configured_profile = tool_profile or "auto"
         self._retained_output_directory: Path | None = None
         self._retained_output_max_bytes = 0
         self._retained_output_next_id = 1
@@ -222,7 +234,7 @@ class ShellRuntime:
             self._show_bash_output = shell_config.show_bash
             self._prefer_local_shell = shell_config.prefer_local_shell
             self._max_process_poll_seconds = shell_config.process_poll_max_wait_seconds
-            self._minimal_process_profile = shell_config.tool_profile == "minimal_process"
+            configured_profile = tool_profile or shell_config.tool_profile
             self._retained_output_max_bytes = shell_config.retained_output_max_bytes
             if shell_config.retain_truncated_output and self.runtime_info().kind == "local":
                 parent = shell_config.retained_output_temp_directory
@@ -235,50 +247,20 @@ class ShellRuntime:
                     )
                 )
                 self._retained_output_directory.chmod(0o700)
+        self._minimal_process_profile = False
+        self._grok_shell_profile = False
+        self._luna_exec_profile = False
         self._process_poll_default_wait_seconds = min(
             process_poll_default_wait_seconds,
             self._max_process_poll_seconds,
         )
         self._resource_observations_enabled = self.runtime_info().kind == "local"
-
-        if self.enabled:
-            shell_name = self.runtime_info().name
-            if self._minimal_process_profile:
-                self._tool = set_tool_source(
-                    build_minimal_bash_tool(
-                        shell_name=shell_name,
-                        extended_guidance=self._extended_guidance,
-                    ),
-                    SHELL_TOOL_SOURCE,
-                )
-                self._poll_process_tool = set_tool_source(
-                    build_minimal_process_tool(
-                        default_wait_seconds=self._minimal_process_wait_seconds(),
-                        max_wait_seconds=self._max_process_poll_seconds,
-                        extended_guidance=self._extended_guidance,
-                    ),
-                    SHELL_TOOL_SOURCE,
-                )
-                self._terminate_process_tool = None
-            else:
-                self._tool = set_tool_source(
-                    build_execute_tool(shell_name=shell_name),
-                    SHELL_TOOL_SOURCE,
-                )
-                self._poll_process_tool = set_tool_source(
-                    build_poll_process_tool(
-                        default_wait_seconds=self._process_poll_default_wait_seconds,
-                        max_wait_seconds=self._max_process_poll_seconds,
-                    ),
-                    SHELL_TOOL_SOURCE,
-                )
-                self._terminate_process_tool = set_tool_source(
-                    build_terminate_process_tool(),
-                    SHELL_TOOL_SOURCE,
-                )
-        else:
-            self._poll_process_tool = None
-            self._terminate_process_tool = None
+        self._poll_process_tool: Tool | None = None
+        self._terminate_process_tool: Tool | None = None
+        self.set_tool_profile(
+            configured_profile,
+            model_profile=model_tool_profile,
+        )
 
     @property
     def tool(self) -> Tool | None:
@@ -289,13 +271,94 @@ class ShellRuntime:
         """Return all model-facing shell and process lifecycle tools."""
         return [
             tool
-            for tool in (self._tool, self._poll_process_tool, self._terminate_process_tool)
+            for tool in (
+                self._tool,
+                self._poll_process_tool,
+                self._terminate_process_tool,
+            )
             if tool is not None
         ]
 
     def owns_tool(self, name: str) -> bool:
         """Return whether this runtime owns a model-facing tool name."""
         return any(tool.name == name for tool in self.tools)
+
+    def set_tool_profile(
+        self,
+        profile: ShellToolProfile,
+        *,
+        model_profile: ResolvedShellToolProfile | None = None,
+    ) -> None:
+        """Replace model-facing shell tools using config and model metadata."""
+        resolved_profile = resolve_shell_tool_profile(profile, model_profile)
+        self._minimal_process_profile = resolved_profile == "minimal_process"
+        self._grok_shell_profile = resolved_profile == "grok_shell"
+        self._luna_exec_profile = resolved_profile == "luna_exec"
+        if not self.enabled:
+            self._tool = None
+            self._poll_process_tool = None
+            self._terminate_process_tool = None
+            return
+        shell_name = self.runtime_info().name
+        if self._grok_shell_profile or self._luna_exec_profile:
+            shell_tool = (
+                build_luna_exec_tool(shell_name=shell_name)
+                if self._luna_exec_profile
+                else build_grok_shell_tool(shell_name=shell_name)
+            )
+            shell_tool_name = (
+                LUNA_EXEC_TOOL_NAME if self._luna_exec_profile else GROK_SHELL_TOOL_NAME
+            )
+            self._tool = set_tool_source(
+                shell_tool,
+                SHELL_TOOL_SOURCE,
+            )
+            self._poll_process_tool = set_tool_source(
+                build_minimal_process_tool(
+                    default_wait_seconds=self._minimal_process_wait_seconds(),
+                    max_wait_seconds=self._max_process_poll_seconds,
+                    shell_tool_name=shell_tool_name,
+                    extended_guidance=False,
+                ),
+                SHELL_TOOL_SOURCE,
+            )
+            self._terminate_process_tool = None
+        elif self._minimal_process_profile:
+            self._tool = set_tool_source(
+                build_minimal_bash_tool(
+                    shell_name=shell_name,
+                    tool_name=self._minimal_shell_tool_name,
+                    require_description=self._minimal_shell_tool_requires_description,
+                    extended_guidance=self._extended_guidance,
+                ),
+                SHELL_TOOL_SOURCE,
+            )
+            self._poll_process_tool = set_tool_source(
+                build_minimal_process_tool(
+                    default_wait_seconds=self._minimal_process_wait_seconds(),
+                    max_wait_seconds=self._max_process_poll_seconds,
+                    shell_tool_name=self._minimal_shell_tool_name,
+                    extended_guidance=self._extended_guidance,
+                ),
+                SHELL_TOOL_SOURCE,
+            )
+            self._terminate_process_tool = None
+        else:
+            self._tool = set_tool_source(
+                build_execute_tool(shell_name=shell_name),
+                SHELL_TOOL_SOURCE,
+            )
+            self._poll_process_tool = set_tool_source(
+                build_poll_process_tool(
+                    default_wait_seconds=self._process_poll_default_wait_seconds,
+                    max_wait_seconds=self._max_process_poll_seconds,
+                ),
+                SHELL_TOOL_SOURCE,
+            )
+            self._terminate_process_tool = set_tool_source(
+                build_terminate_process_tool(),
+                SHELL_TOOL_SOURCE,
+            )
 
     @property
     def active_process_count(self) -> int:
@@ -304,16 +367,38 @@ class ShellRuntime:
 
     def set_extended_guidance(self, enabled: bool) -> None:
         """Refresh model-facing minimal tools when model guidance policy changes."""
-        if self._extended_guidance == enabled:
+        self.set_minimal_shell_tool_contract(
+            tool_name=self._minimal_shell_tool_name,
+            require_description=self._minimal_shell_tool_requires_description,
+            extended_guidance=enabled,
+        )
+
+    def set_minimal_shell_tool_contract(
+        self,
+        *,
+        tool_name: str,
+        require_description: bool,
+        extended_guidance: bool,
+    ) -> None:
+        """Refresh the catalog-driven model-facing minimal shell contract."""
+        if (
+            self._minimal_shell_tool_name == tool_name
+            and self._minimal_shell_tool_requires_description == require_description
+            and self._extended_guidance == extended_guidance
+        ):
             return
-        self._extended_guidance = enabled
+        self._minimal_shell_tool_name = tool_name
+        self._minimal_shell_tool_requires_description = require_description
+        self._extended_guidance = extended_guidance
         if not self.enabled or not self._minimal_process_profile:
             return
         shell_name = self.runtime_info().name
         self._tool = set_tool_source(
             build_minimal_bash_tool(
                 shell_name=shell_name,
-                extended_guidance=enabled,
+                tool_name=tool_name,
+                require_description=require_description,
+                extended_guidance=extended_guidance,
             ),
             SHELL_TOOL_SOURCE,
         )
@@ -321,7 +406,8 @@ class ShellRuntime:
             build_minimal_process_tool(
                 default_wait_seconds=self._minimal_process_wait_seconds(),
                 max_wait_seconds=self._max_process_poll_seconds,
-                extended_guidance=enabled,
+                shell_tool_name=tool_name,
+                extended_guidance=extended_guidance,
             ),
             SHELL_TOOL_SOURCE,
         )
@@ -440,6 +526,10 @@ class ShellRuntime:
             parsed = (
                 parse_minimal_bash_arguments(arguments)
                 if self._minimal_process_profile
+                else parse_luna_exec_arguments(arguments)
+                if self._luna_exec_profile
+                else parse_grok_shell_arguments(arguments)
+                if self._grok_shell_profile
                 else parse_execute_arguments(arguments)
             )
         except ValueError:
@@ -491,6 +581,8 @@ class ShellRuntime:
                 if operation.kind == "list"
                 else "terminate"
                 if operation.kind == "stop"
+                else "read_output"
+                if operation.kind == "read_output"
                 else "poll"
             ),
             "process_id": operation.process_id,
@@ -537,11 +629,11 @@ class ShellRuntime:
         tool_name: str,
         arguments: dict[str, Any],
     ) -> _ManagedProcessOperation:
-        if tool_name.casefold() == PROCESS_TOOL_NAME and self._minimal_process_profile:
+        if tool_name.casefold() == PROCESS_TOOL_NAME and (self._uses_unified_process_profile()):
             try:
                 parsed = parse_minimal_process_arguments(
                     arguments,
-                    min_wait_seconds=_MINIMAL_PROCESS_MIN_WAIT_SECONDS,
+                    min_wait_seconds=MIN_PROCESS_POLL_WAIT_SECONDS,
                     max_wait_seconds=self._max_process_poll_seconds,
                 )
             except ValueError:
@@ -556,12 +648,18 @@ class ShellRuntime:
                     process_id=None,
                     wait_sec=None,
                 )
+            if isinstance(parsed, MinimalProcessReadOutputArguments):
+                return _ManagedProcessOperation(
+                    kind="read_output",
+                    process_id=parsed.process_id,
+                    wait_sec=None,
+                )
             return _ManagedProcessOperation(
                 kind=parsed.action,
                 process_id=parsed.process_id,
                 wait_sec=(
                     None
-                    if parsed.action == "stop"
+                    if parsed.action in {"stop", "read_output"}
                     else 0
                     if parsed.action == "status"
                     else (
@@ -606,6 +704,120 @@ class ShellRuntime:
         }
         return _text_result(json.dumps(payload, indent=2), is_error=False)
 
+    async def read_process_output(
+        self,
+        parsed: MinimalProcessReadOutputArguments,
+    ) -> CallToolResult:
+        """Read bounded retained output owned by one managed process."""
+        process = await self._get_managed_process(parsed.process_id)
+        if process is None:
+            return _text_result(
+                f"Error: managed shell process {parsed.process_id!r} was not found",
+                is_error=True,
+            )
+
+        retained_path = process.output_state.retained_output_path
+        if retained_path is None or not retained_path.is_file():
+            return process_result(
+                (
+                    f"process_id: {parsed.process_id}\n"
+                    "retained_output: unavailable\n"
+                    "No retained full output exists for this process. Retention begins "
+                    "only after model-facing output is truncated; use status or wait "
+                    "for current unread output."
+                ),
+                is_error=True,
+                metadata={
+                    "process_id": parsed.process_id,
+                    "process_status": self._process_snapshot(
+                        process,
+                        now=time.monotonic(),
+                    ).status,
+                    "retained_output_bytes": 0,
+                    "retained_output_complete": True,
+                },
+            )
+
+        try:
+            retained_blob = retained_path.read_bytes()
+        except OSError as exc:
+            return _text_result(
+                f"Error: retained output for process {parsed.process_id!r} could not be read: "
+                f"{exc.__class__.__name__}",
+                is_error=True,
+            )
+
+        offset = min(parsed.offset, len(retained_blob))
+        limit = parsed.limit or min(
+            self._output_byte_limit,
+            MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
+        )
+        query = parsed.query
+        match_count = 0
+        if query is None:
+            content_blob = retained_blob[offset : offset + limit]
+            next_offset = offset + len(content_blob)
+            has_more = next_offset < len(retained_blob)
+            content = content_blob.decode("utf-8", errors="replace")
+        else:
+            matching_lines = [
+                line
+                for line in retained_blob[offset:]
+                .decode(
+                    "utf-8",
+                    errors="replace",
+                )
+                .splitlines(keepends=True)
+                if query in line
+            ]
+            match_count = len(matching_lines)
+            selected = bytearray()
+            returned_matches = 0
+            truncated_match = False
+            for line in matching_lines:
+                line_blob = line.encode("utf-8", errors="replace")
+                remaining = limit - len(selected)
+                if remaining <= 0:
+                    break
+                selected.extend(line_blob[:remaining])
+                returned_matches += 1
+                if len(line_blob) > remaining:
+                    truncated_match = True
+                    break
+            content_blob = bytes(selected)
+            content = content_blob.decode("utf-8", errors="replace")
+            next_offset = offset
+            has_more = truncated_match or returned_matches < match_count
+
+        snapshot = self._process_snapshot(process, now=time.monotonic())
+        payload = {
+            "process_id": parsed.process_id,
+            "process_status": snapshot.status,
+            "retained_output_bytes": len(retained_blob),
+            "retained_output_complete": process.output_state.retained_output_complete,
+            "offset": offset,
+            "returned_bytes": len(content_blob),
+            "next_offset": next_offset,
+            "has_more": has_more,
+            "query": query,
+            "match_count": match_count if query is not None else None,
+            "content": content,
+        }
+        return process_result(
+            json.dumps(payload, indent=2),
+            is_error=False,
+            metadata={
+                "process_id": parsed.process_id,
+                "process_status": snapshot.status,
+                "retained_output_bytes": len(retained_blob),
+                "retained_output_complete": process.output_state.retained_output_complete,
+                "output_read_offset": offset,
+                "output_read_bytes": len(content_blob),
+                "output_read_has_more": has_more,
+                **({"output_query": query, "output_match_count": match_count} if query else {}),
+            },
+        )
+
     def _invalid_execute_result(self, message: str) -> CallToolResult:
         return _text_result(message, is_error=True)
 
@@ -616,9 +828,12 @@ class ShellRuntime:
             else _DEFAULT_MINIMAL_PROCESS_WAIT_SECONDS
         )
         return min(
-            max(configured_wait, _MINIMAL_PROCESS_MIN_WAIT_SECONDS),
+            max(configured_wait, MIN_PROCESS_POLL_WAIT_SECONDS),
             self._max_process_poll_seconds,
         )
+
+    def _uses_unified_process_profile(self) -> bool:
+        return self._minimal_process_profile or self._grok_shell_profile or self._luna_exec_profile
 
     def set_process_poll_default_wait_seconds(self, value: int) -> None:
         """Update the model-specific default used when wait_sec is omitted."""
@@ -632,7 +847,7 @@ class ShellRuntime:
                 self._poll_process_tool,
                 default_wait_seconds=(
                     self._minimal_process_wait_seconds()
-                    if self._minimal_process_profile
+                    if self._uses_unified_process_profile()
                     else self._process_poll_default_wait_seconds
                 ),
             )
@@ -1176,6 +1391,13 @@ class ShellRuntime:
             process,
             yielded_reason=yielded_reason,
             minimal_process_profile=self._minimal_process_profile,
+            aligned_shell_tool_name=(
+                LUNA_EXEC_TOOL_NAME
+                if self._luna_exec_profile
+                else GROK_SHELL_TOOL_NAME
+                if self._grok_shell_profile
+                else None
+            ),
             io_drain_timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
         )
 
@@ -1416,9 +1638,17 @@ class ShellRuntime:
         defer_display_to_tool_result: bool = False,
     ) -> CallToolResult:
         """Dispatch one model-facing shell lifecycle tool."""
-        if name.casefold() == BASH_TOOL_NAME and self._minimal_process_profile:
+        if (
+            self._tool is not None
+            and name.casefold() == self._tool.name.casefold()
+            and self._minimal_process_profile
+        ):
             try:
-                parsed = parse_minimal_bash_arguments(arguments)
+                parsed = parse_minimal_bash_arguments(
+                    arguments,
+                    tool_name=self._minimal_shell_tool_name,
+                    require_description=self._minimal_shell_tool_requires_description,
+                )
             except ValueError as exc:
                 return self._invalid_execute_result(str(exc))
             return await self._execute_parsed(
@@ -1427,17 +1657,19 @@ class ShellRuntime:
                 show_tool_call_id=show_tool_call_id,
                 defer_display_to_tool_result=defer_display_to_tool_result,
             )
-        if name.casefold() == PROCESS_TOOL_NAME and self._minimal_process_profile:
+        if name.casefold() == PROCESS_TOOL_NAME and (self._uses_unified_process_profile()):
             try:
                 parsed_process = parse_minimal_process_arguments(
                     arguments,
-                    min_wait_seconds=_MINIMAL_PROCESS_MIN_WAIT_SECONDS,
+                    min_wait_seconds=MIN_PROCESS_POLL_WAIT_SECONDS,
                     max_wait_seconds=self._max_process_poll_seconds,
                 )
             except ValueError as exc:
                 return _text_result(str(exc), is_error=True)
             if parsed_process.action == "list":
                 return await self.list_processes()
+            if isinstance(parsed_process, MinimalProcessReadOutputArguments):
+                return await self.read_process_output(parsed_process)
             if parsed_process.action == "stop":
                 return await self._call_process_lifecycle_tool(
                     TERMINATE_PROCESS_TOOL_NAME,
@@ -1460,6 +1692,28 @@ class ShellRuntime:
                     "wait_sec": wait_sec,
                 },
                 tool_use_id=tool_use_id,
+            )
+        if name == GROK_SHELL_TOOL_NAME and self._grok_shell_profile:
+            try:
+                parsed = parse_grok_shell_arguments(arguments)
+            except ValueError as exc:
+                return self._invalid_execute_result(str(exc))
+            return await self._execute_parsed(
+                parsed,
+                tool_use_id,
+                show_tool_call_id=show_tool_call_id,
+                defer_display_to_tool_result=defer_display_to_tool_result,
+            )
+        if name == LUNA_EXEC_TOOL_NAME and self._luna_exec_profile:
+            try:
+                parsed = parse_luna_exec_arguments(arguments)
+            except ValueError as exc:
+                return self._invalid_execute_result(str(exc))
+            return await self._execute_parsed(
+                parsed,
+                tool_use_id,
+                show_tool_call_id=show_tool_call_id,
+                defer_display_to_tool_result=defer_display_to_tool_result,
             )
         if name == EXECUTE_TOOL_NAME:
             return await self.execute(
@@ -1749,6 +2003,38 @@ class ShellRuntime:
                             with suppress(asyncio.CancelledError):
                                 await started_task
                     yielded_reason = "background"
+                elif parsed.hard_timeout_seconds is not None:
+                    completed, _ = await asyncio.wait(
+                        (process.task,),
+                        timeout=parsed.hard_timeout_seconds,
+                        return_when=asyncio.ALL_COMPLETED,
+                    )
+                    if process.task not in completed:
+                        process.terminated = True
+                        process.request.terminate_on_cancel = True
+                        process.task.cancel()
+                        await asyncio.gather(process.task, return_exceptions=True)
+                        result = self._managed_process_result(process)
+                        for block in result.content:
+                            if isinstance(block, TextContent):
+                                block.text = (
+                                    f"{block.text}\noutcome: timed_out\n"
+                                    f"timeout_seconds: {parsed.hard_timeout_seconds}"
+                                )
+                                break
+                        metadata = process_result_metadata(result)
+                        if metadata is not None:
+                            metadata["process_status"] = "timed_out"
+                        result.is_error = True
+                        self._progress.emit(
+                            action=ProgressAction.TOOL_PROGRESS,
+                            tool_use_id=tool_use_id,
+                            details=(f"timed out after {parsed.hard_timeout_seconds}s"),
+                            tool_state="failed",
+                            tool_terminal=True,
+                        )
+                        return result
+                    yielded_reason = None
                 else:
                     yielded_reason = await self._wait_for_initial_process_result(
                         process,

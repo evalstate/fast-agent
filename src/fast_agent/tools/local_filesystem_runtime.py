@@ -251,8 +251,9 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
                     TextContent(
                         type="text",
                         text=(
-                            "Error: 'path', 'old_string', and 'new_string' arguments are required "
-                            "and must be strings; 'replace_all' must be a boolean when provided"
+                            "Error: 'path' and 'new_string' are required strings; "
+                            "'old_string' must be a string when provided and defaults to empty "
+                            "for creation; 'replace_all' must be a boolean when provided"
                         ),
                     )
                 ],

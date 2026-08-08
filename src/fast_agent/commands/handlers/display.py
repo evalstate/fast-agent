@@ -119,7 +119,7 @@ async def handle_show_markdown(ctx: CommandContext, *, agent_name: str) -> Comma
         title="Last Assistant Response",
         right_info="display",
         agent_name=agent_name,
-        render_markdown=True,
+        verbatim=True,
     )
 
     return outcome

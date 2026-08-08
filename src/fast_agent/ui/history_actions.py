@@ -43,6 +43,8 @@ class _HistoryDisplay(Protocol):
 
     def show_tool_result(self, **kwargs: object) -> None: ...
 
+    def show_history_tool_result(self, **kwargs: object) -> None: ...
+
 
 def _json_object(value: object) -> JsonObject | None:
     if not isinstance(value, dict):
@@ -257,12 +259,11 @@ class _HistoryTurnDisplayContext:
             if _is_builtin_subagent_tool(self.tool_metadata_lookup.get(call_id)):
                 await self._display_subagent_result(result)
                 continue
-            self.display.show_tool_result(
+            self.display.show_history_tool_result(
                 result=result,
                 name=self.agent_name,
                 tool_name=self.tool_name_lookup.get(call_id),
                 tool_call_id=call_id,
-                truncate_content=False,
             )
 
     async def _display_subagent_result(self, result: "CallToolResult") -> None:

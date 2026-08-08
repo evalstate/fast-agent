@@ -26,7 +26,9 @@ from fast_agent.agents.mcp_agent import (
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.context import Context
+from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.terminal_output_limits import (
@@ -46,6 +48,8 @@ from fast_agent.ui.tool_display import ToolCallDisplayRequest, ToolResultDisplay
 from fast_agent.utils.tool_names import (
     BASH_TOOL_NAME,
     EXECUTE_TOOL_NAME,
+    GROK_SHELL_TOOL_NAME,
+    LUNA_EXEC_TOOL_NAME,
     PROCESS_TOOL_NAME,
 )
 
@@ -217,6 +221,71 @@ async def test_local_tools_listed_and_callable() -> None:
     assert result.content[0].text == "transcript for 1234"
     assert result.structured_content is None
 
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_model_query_poll_period_updates_shell_runtime_on_model_switch() -> None:
+    agent = McpAgent(
+        config=AgentConfig(name="poll-period", shell=True),
+        context=Context(config=Settings()),
+    )
+
+    await agent.attach_llm(ModelFactory.create_factory("silent?poll_period=90"))
+
+    assert agent._shell_runtime is not None
+    assert agent._shell_runtime._process_poll_default_wait_seconds == 90
+    assert agent._shell_runtime._minimal_process_wait_seconds() == 90
+
+    await agent.set_model("silent?poll_period=120")
+
+    assert agent._shell_runtime._process_poll_default_wait_seconds == 120
+    assert agent._shell_runtime._minimal_process_wait_seconds() == 120
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_model_query_poll_period_above_operator_ceiling_rejects_switch_atomically() -> None:
+    agent = McpAgent(
+        config=AgentConfig(
+            name="poll-period-limit",
+            model="silent?poll_period=30",
+            shell=True,
+        ),
+        context=Context(
+            config=Settings(shell_execution=ShellSettings(process_poll_max_wait_seconds=60))
+        ),
+    )
+    await agent.attach_llm(ModelFactory.create_factory("silent?poll_period=30"))
+    previous_llm = agent.llm
+
+    with pytest.raises(
+        ModelConfigError,
+        match=("poll_period=90 exceeds shell_execution.process_poll_max_wait_seconds=60"),
+    ):
+        await agent.set_model("silent?poll_period=90")
+
+    assert agent.llm is previous_llm
+    assert agent.config.model == "silent?poll_period=30"
+    assert agent._shell_runtime is not None
+    assert agent._shell_runtime._process_poll_default_wait_seconds == 30
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_catalog_poll_default_remains_capped_by_operator_ceiling() -> None:
+    agent = McpAgent(
+        config=AgentConfig(name="catalog-poll-limit", shell=True),
+        context=Context(
+            config=Settings(shell_execution=ShellSettings(process_poll_max_wait_seconds=60))
+        ),
+    )
+
+    await agent.attach_llm(_stub_llm_factory("grok-4.5"))
+
+    assert agent._shell_runtime is not None
+    assert agent._shell_runtime._process_poll_default_wait_seconds == 60
+    assert agent._shell_runtime._minimal_process_wait_seconds() == 60
     await agent._aggregator.close()
 
 
@@ -904,6 +973,107 @@ async def test_write_text_file_auto_mode_uses_edit_only_for_anthropic_series_mod
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "deepseek.deepseek-v4-flash",
+        "hf.deepseek-ai/DeepSeek-V4-Flash-0731?reasoning=max",
+    ],
+)
+async def test_deepseek_uses_catalog_driven_shell_and_writer_editor_contract(
+    model_name: str,
+) -> None:
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model=model_name,
+    )
+    agent = McpAgent(config=config, context=Context())
+
+    tools = {tool.name: tool for tool in (await agent.list_tools()).tools}
+    assert "Shell" in tools
+    assert "bash" not in tools
+    assert "write_text_file" in tools
+    assert "edit_file" in tools
+    assert "apply_patch" not in tools
+    assert set(tools["Shell"].input_schema["properties"]) == {
+        "command",
+        "description",
+        "run_in_background",
+    }
+    assert tools["Shell"].input_schema["required"] == ["command", "description"]
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_edit_mode_overrides_deepseek_writer_editor_default() -> None:
+    settings = Settings(shell_execution=ShellSettings(write_text_file_mode="edit_file"))
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="deepseek.deepseek-v4-flash",
+    )
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "write_text_file" not in tool_names
+    assert "edit_file" in tool_names
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_attaching_deepseek_rebuilds_shell_and_file_tool_contract() -> None:
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="qwen35",
+    )
+    agent = McpAgent(config=config, context=Context())
+
+    initial = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "bash" in initial
+    assert "write_text_file" in initial
+
+    agent._on_llm_attached(cast("Any", StubLLM("deepseek-v4-flash")))
+
+    attached = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "Shell" in attached
+    assert "bash" not in attached
+    assert "write_text_file" in attached
+    assert "edit_file" in attached
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_edit_file_mode_hides_writer_for_other_models() -> None:
+    settings = Settings(shell_execution=ShellSettings(write_text_file_mode="edit_file"))
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="qwen35",
+    )
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "write_text_file" not in tool_names
+    assert "edit_file" in tool_names
+    assert "apply_patch" not in tool_names
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
 async def test_write_text_file_auto_mode_remains_enabled_for_qwen35() -> None:
     config = AgentConfig(
         name="test",
@@ -1026,7 +1196,6 @@ async def test_default_shell_profile_exposes_facades_with_file_tools() -> None:
 @pytest.mark.parametrize(
     ("model", "expects_extended_guidance"),
     [
-        ("gpt-5.6-luna", True),
         ("openai/gpt-5.6-sol", True),
         ("deepseek.deepseek-v4-flash", False),
         ("sonnet", False),
@@ -1046,7 +1215,8 @@ async def test_minimal_shell_extended_guidance_is_gpt56_specific(
     agent = McpAgent(config=config, context=Context(config=Settings()))
 
     tools = {tool.name: tool for tool in (await agent.list_tools()).tools}
-    bash_description = tools["bash"].description or ""
+    shell_tool_name = "Shell" if model == "deepseek.deepseek-v4-flash" else "bash"
+    bash_description = tools[shell_tool_name].description or ""
     process_description = tools["process"].description or ""
 
     assert ("task-relevant verification" in bash_description) is expects_extended_guidance
@@ -1754,21 +1924,30 @@ async def test_grok_catalog_shell_output_limit_applies_when_setting_is_omitted()
 
 
 @pytest.mark.asyncio
-async def test_grok_uses_minimal_process_default_and_preserves_native_override() -> None:
-    minimal_agent = McpAgent(
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "xai/grok-4.5?reasoning=high",
+        "openrouter/x-ai/grok-4.5",
+    ],
+)
+async def test_grok_uses_aligned_shell_default_and_preserves_native_override(
+    model_name: str,
+) -> None:
+    auto_agent = McpAgent(
         config=AgentConfig(
             name="minimal",
             instruction="Instruction",
             servers=[],
             shell=True,
-            model="xai/grok-4.5?reasoning=high",
+            model=model_name,
         ),
         context=Context(config=Settings(shell_execution=ShellSettings())),
     )
-    minimal_runtime = minimal_agent.shell_runtime
-    assert minimal_runtime is not None
-    assert {tool.name for tool in minimal_runtime.tools} == {
-        BASH_TOOL_NAME,
+    auto_runtime = auto_agent.shell_runtime
+    assert auto_runtime is not None
+    assert {tool.name for tool in auto_runtime.tools} == {
+        GROK_SHELL_TOOL_NAME,
         PROCESS_TOOL_NAME,
     }
 
@@ -1778,7 +1957,7 @@ async def test_grok_uses_minimal_process_default_and_preserves_native_override()
             instruction="Instruction",
             servers=[],
             shell=True,
-            model="xai/grok-4.5?reasoning=high",
+            model=model_name,
         ),
         context=Context(
             config=Settings(
@@ -1792,7 +1971,7 @@ async def test_grok_uses_minimal_process_default_and_preserves_native_override()
     assert not native_runtime.owns_tool(BASH_TOOL_NAME)
     assert not native_runtime.owns_tool(PROCESS_TOOL_NAME)
 
-    await minimal_agent._aggregator.close()
+    await auto_agent._aggregator.close()
     await native_agent._aggregator.close()
 
 
@@ -1815,6 +1994,50 @@ async def test_default_shell_output_limit_returns_after_switching_away_from_grok
     agent._on_llm_attached(cast("Any", StubLLM("claude-opus-4-6")))
 
     assert shell_runtime.output_byte_limit == DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+    assert {tool.name for tool in shell_runtime.tools} == {
+        BASH_TOOL_NAME,
+        PROCESS_TOOL_NAME,
+    }
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model_name", "shell_tool_name"),
+    [
+        ("xai/grok-4.5", GROK_SHELL_TOOL_NAME),
+        ("codexresponses/gpt-5.6-luna", LUNA_EXEC_TOOL_NAME),
+    ],
+)
+async def test_auto_shell_profile_switches_with_llm(
+    model_name: str,
+    shell_tool_name: str,
+) -> None:
+    settings = Settings(shell_execution=ShellSettings())
+    agent = McpAgent(
+        config=AgentConfig(
+            name="test",
+            instruction="Instruction",
+            servers=[],
+            shell=True,
+            model="claude-opus-4-6",
+        ),
+        context=Context(config=settings),
+    )
+    shell_runtime = agent.shell_runtime
+    assert shell_runtime is not None
+    assert {tool.name for tool in shell_runtime.tools} == {
+        BASH_TOOL_NAME,
+        PROCESS_TOOL_NAME,
+    }
+
+    agent._on_llm_attached(cast("Any", StubLLM(model_name)))
+
+    assert {tool.name for tool in shell_runtime.tools} == {
+        shell_tool_name,
+        PROCESS_TOOL_NAME,
+    }
 
     await agent._aggregator.close()
 

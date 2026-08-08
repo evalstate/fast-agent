@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
@@ -10,7 +12,7 @@ from mcp_types import TextContent
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.context import Context
 from fast_agent.hooks.hook_context import HookContext
-from fast_agent.hooks.session_history import save_session_history
+from fast_agent.hooks.session_history import _session_history_context, save_session_history
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
@@ -102,6 +104,42 @@ class _Agent:
     def get_agent(self, name: str):
         del name
         return None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permits deleting the process cwd")
+def test_non_acp_session_context_uses_manager_workspace_when_process_cwd_is_deleted(
+    tmp_path: Path,
+) -> None:
+    previous_cwd = Path.cwd()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    manager = _Manager("workspace")
+    manager.workspace_dir = workspace.resolve()
+    history = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="hello")],
+        )
+    ]
+    agent = _Agent(acp_context=None, history=history, session_manager=manager)
+    ctx = HookContext(
+        runner=SimpleNamespace(iteration=1, request_params=None),
+        agent=agent,
+        message=history[-1],
+        hook_type="after_tool_loop_iteration",
+    )
+
+    try:
+        os.chdir(workspace)
+        shutil.rmtree(workspace)
+        workspace.mkdir()
+
+        session_context = _session_history_context(ctx)
+
+        assert session_context.session_cwd == manager.workspace_dir
+        assert session_context.session_manager is manager
+    finally:
+        os.chdir(previous_cwd)
 
 
 @pytest.mark.asyncio

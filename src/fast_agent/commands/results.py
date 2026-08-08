@@ -12,6 +12,8 @@ if TYPE_CHECKING:
 
     from rich.console import RenderableType
 
+    from fast_agent.command_actions import MarkdownTextStyle
+
 CommandChannel = Literal["system", "info", "warning", "error"]
 COMMAND_CHANNEL_LABELS: dict[CommandChannel, str] = {
     "info": "Info",
@@ -34,6 +36,8 @@ class CommandMessage:
     right_info: str | None = None
     agent_name: str | None = None
     render_markdown: bool = False
+    verbatim: bool = False
+    markdown_styles: tuple["MarkdownTextStyle", ...] = ()
     metadata: dict[str, object] = field(default_factory=dict)
     post_content: RenderableType | None = None
 
@@ -64,6 +68,8 @@ class CommandOutcome:
         right_info: str | None = None,
         agent_name: str | None = None,
         render_markdown: bool = False,
+        verbatim: bool = False,
+        markdown_styles: tuple["MarkdownTextStyle", ...] = (),
         metadata: Mapping[str, object] | None = None,
         post_content: RenderableType | None = None,
     ) -> None:
@@ -75,6 +81,8 @@ class CommandOutcome:
                 right_info=right_info,
                 agent_name=agent_name,
                 render_markdown=render_markdown,
+                verbatim=verbatim,
+                markdown_styles=markdown_styles,
                 metadata=dict(metadata) if metadata is not None else {},
                 post_content=post_content,
             )

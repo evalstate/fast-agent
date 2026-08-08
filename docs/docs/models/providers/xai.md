@@ -67,11 +67,30 @@ fast-agent --model "xai.grok-4.5"
 
 Useful xAI query parameters:
 
-- `reasoning=none|low|medium|high` on reasoning-capable Grok models
+- `reasoning=low|medium|high` on reasoning-capable Grok models
 - `web_search=on|off` for xAI web search
 - `x_search=on|off` for xAI's X Search remote tool
 
 `web_search` and `x_search` are distinct provider-managed tools.
+
+Grok 4.5 with `reasoning=high` defaults to a 180-second idle timeout between
+stream events. Other model and reasoning combinations retain the global
+120-second default. Set `streaming_timeout=<seconds>` to override the default,
+or `streaming_timeout=none` to disable stream-idle enforcement.
+
+## Managed process polling
+
+Grok models default to a 240-second managed-process wait when `process(action="wait")`
+omits `wait_sec`. This is local fast-agent runtime policy, not an xAI request parameter.
+Override it for a model selection with `poll_period=<seconds>`:
+
+```bash
+fast-agent --model "xai.grok-4.5?poll_period=420"
+```
+
+The value must be an integer from 10 through 3600 and cannot exceed
+`shell_execution.process_poll_max_wait_seconds`. For a persistent per-model
+default, use an overlay's `metadata.process_poll_default_wait_seconds`.
 
 ## Capabilities
 

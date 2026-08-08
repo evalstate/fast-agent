@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 from collections.abc import Mapping
@@ -9,6 +10,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompts.prompt_load import (
+    load_prompt,
     load_transcript_into_agent,
     rehydrate_usage_from_history,
 )
@@ -251,7 +253,7 @@ class SessionHydrator:
                 warnings=state.warnings,
             )
         if policy.restore_transcript:
-            self._restore_agent_transcript(
+            await self._restore_agent_transcript(
                 session, agent_name, agent, agent_snapshot, policy, state
             )
         if policy.restore_prompt:
@@ -268,7 +270,7 @@ class SessionHydrator:
             )
         )
 
-    def _restore_agent_transcript(
+    async def _restore_agent_transcript(
         self,
         session: Session,
         agent_name: str,
@@ -298,7 +300,7 @@ class SessionHydrator:
             return
 
         try:
-            notice = self._load_agent_transcript(agent, history_path, policy)
+            notice = await self._load_agent_transcript(agent, history_path, policy)
         except Exception as exc:
             state.warnings.append(
                 SessionHydrationWarning(
@@ -315,16 +317,17 @@ class SessionHydrator:
             state.usage_notices.append(notice)
 
     @staticmethod
-    def _load_agent_transcript(
+    async def _load_agent_transcript(
         agent: AgentProtocol,
         history_path: Path,
         policy: SessionHydrationPolicy,
     ) -> str | None:
-        load_transcript_into_agent(agent, history_path)
+        messages = await asyncio.to_thread(load_prompt, history_path)
+        load_transcript_into_agent(agent, messages)
         if policy.restore_usage and agent.usage_accumulator is not None:
             agent.usage_accumulator.reset()
         if policy.restore_usage:
-            return rehydrate_usage_from_history(agent, history_path)
+            return rehydrate_usage_from_history(agent, messages)
         return None
 
     @staticmethod

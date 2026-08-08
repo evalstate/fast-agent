@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from fast_agent.command_actions import MarkdownTextStyle
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
 from fast_agent.commands.results import CommandMessage, CommandOutcome
 
@@ -30,3 +31,30 @@ def test_render_command_outcome_markdown_includes_extra_messages() -> None:
 
     assert "primary" in rendered
     assert "extra" in rendered
+
+
+def test_render_command_outcome_markdown_fences_verbatim_source() -> None:
+    source = "## Heading\n\n- **bold**\n\n```python\nprint('nested fence')\n```"
+    outcome = CommandOutcome()
+    outcome.add_message(source, title="Last Assistant Response", verbatim=True)
+
+    rendered = render_command_outcome_markdown(outcome, heading="markdown")
+
+    assert rendered == (f"# markdown\n\n## Last Assistant Response\n\n````\n{source}\n````")
+
+
+def test_render_command_outcome_markdown_ignores_rich_presentation_styles() -> None:
+    source = "| Cached |\n| ---: |\n| 400,000 (40%) |"
+    outcome = CommandOutcome()
+    outcome.add_message(
+        source,
+        render_markdown=True,
+        markdown_styles=(MarkdownTextStyle(text="40%", style="red"),),
+    )
+
+    rendered = render_command_outcome_markdown(outcome, heading="cost")
+
+    assert "400,000 (40%)" in rendered
+    assert "[red]" not in rendered
+    assert "\x1b" not in rendered
+    assert "🔴" not in rendered

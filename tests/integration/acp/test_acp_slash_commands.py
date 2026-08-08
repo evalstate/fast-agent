@@ -243,10 +243,21 @@ async def test_slash_command_available_commands() -> None:
     assert "history" in command_names
     assert "session" in command_names
     assert "subagents" in command_names
+    assert "tool" in command_names
 
     # Check status command structure
     status_cmd = next(cmd for cmd in commands if cmd.name == "status")
     assert status_cmd.description  # Should have a non-empty description
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_tool_command_requires_a_tool_name() -> None:
+    handler = _handler(StubAgentInstance())
+
+    response = await handler.execute_command("tool", "")
+
+    assert response == "Tool name required: /tool <tool-name>"
 
 
 @pytest.mark.integration
@@ -941,7 +952,7 @@ async def test_slash_command_history_available_in_commands() -> None:
     history_cmd = next(cmd for cmd in commands if cmd.name == "history")
     assert history_cmd.description
     assert history_cmd.input is not None  # Should have input hint
-    assert history_cmd.input.root.hint == "[show|detail <turn>|save|load] [args]"
+    assert history_cmd.input.root.hint == ("[show|detail <turn>|review [turn]|save|load] [args]")
 
 
 @pytest.mark.integration

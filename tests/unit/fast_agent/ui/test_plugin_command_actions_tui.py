@@ -10,13 +10,32 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.keys import Keys
 
 from fast_agent.agents.agent_types import AgentConfig
-from fast_agent.command_actions import PluginCommandActionSpec
+from fast_agent.command_actions import (
+    MarkdownTextStyle,
+    PluginCommandActionResult,
+    PluginCommandActionSpec,
+)
+from fast_agent.ui.interactive.command_dispatch import _plugin_action_outcome
 from fast_agent.ui.prompt.completer import AgentCompleter
 from fast_agent.ui.prompt.keybindings import create_keybindings
 from fast_agent.utils.async_utils import run_in_thread
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
+
+
+def test_plugin_markdown_styles_propagate_to_command_message() -> None:
+    styles = (MarkdownTextStyle(text="40%", style="red"),)
+
+    outcome = _plugin_action_outcome(
+        PluginCommandActionResult(
+            markdown="| Cached |\n| ---: |\n| 400,000 (40%) |",
+            markdown_styles=styles,
+        )
+    )
+
+    assert len(outcome.messages) == 1
+    assert outcome.messages[0].markdown_styles == styles
 
 
 def test_plugin_command_keybinding_is_registered() -> None:

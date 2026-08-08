@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from fast_agent.commands.context import CommandContext
+    from fast_agent.commands.shared_command_intents import HistoryReviewAction
     from fast_agent.interfaces import FastAgentLLMProtocol, LlmCapableProtocol
 
     type _HistorySaveSendFunc = Callable[[str, str], Awaitable[str]]
@@ -72,6 +73,7 @@ class _HistoryRewindTarget:
 @dataclass(frozen=True, slots=True)
 class _SelectedHistoryUserTurn:
     turn: HistoryTurn
+    turn_index: int
     total_turns: int
 
 
@@ -286,7 +288,7 @@ def _selected_history_user_turn(
     *,
     agent_name: str,
     history: Sequence[PromptMessageExtended],
-    turn_index: int,
+    turn_index: int | None,
     empty_action: str,
 ) -> _SelectedHistoryUserTurn | None:
     user_turns = collect_user_turns(list(history))
@@ -297,11 +299,14 @@ def _selected_history_user_turn(
             agent_name=agent_name,
         )
         return None
+    if turn_index is None:
+        turn_index = len(user_turns)
     if turn_index < 1 or turn_index > len(user_turns):
         outcome.add_message("Turn index out of range.", channel="error", agent_name=agent_name)
         return None
     return _SelectedHistoryUserTurn(
         turn=user_turns[turn_index - 1],
+        turn_index=turn_index,
         total_turns=len(user_turns),
     )
 
@@ -362,19 +367,23 @@ async def handle_history_review(
     agent_name: str,
     turn_index: int | None,
     error: str | None = None,
+    action: HistoryReviewAction = "detail",
 ) -> CommandOutcome:
     outcome = CommandOutcome()
 
-    if _add_history_turn_request_error(
-        outcome,
-        agent_name=agent_name,
-        turn_index=turn_index,
-        error=error,
-        command="detail",
-        usage_action="detail",
-    ):
+    if action == "detail":
+        if _add_history_turn_request_error(
+            outcome,
+            agent_name=agent_name,
+            turn_index=turn_index,
+            error=error,
+            command="detail",
+            usage_action="detail",
+        ):
+            return outcome
+    elif error:
+        outcome.add_message(error, channel="error", agent_name=agent_name)
         return outcome
-    assert turn_index is not None
 
     agent_obj = _history_editable_agent(ctx, agent_name)
     history = agent_obj.message_history
@@ -389,7 +398,7 @@ async def handle_history_review(
         return outcome
 
     outcome.add_message(
-        f"History detail: turn {turn_index}",
+        f"History {action}: turn {selected.turn_index}",
         channel="info",
         agent_name=agent_name,
     )
@@ -397,7 +406,7 @@ async def handle_history_review(
     await ctx.io.display_history_turn(
         agent_obj.name,
         list(selected.turn.messages),
-        turn_index=turn_index,
+        turn_index=selected.turn_index,
         total_turns=selected.total_turns,
     )
 

@@ -583,6 +583,21 @@ async def test_environment_filesystem_runtime_reports_edit_write_failure() -> No
 
 
 @pytest.mark.asyncio
+async def test_environment_filesystem_runtime_creates_missing_file_with_edit_file() -> None:
+    env = FakeEnvironment()
+    runtime = EnvironmentFilesystemRuntime(env, enable_edit_file=True)
+
+    result = await runtime.call_tool(
+        "edit_file",
+        {"path": "nested/created.txt", "new_string": "created\n"},
+    )
+
+    assert result.is_error is False
+    assert env.files["/workspace/nested/created.txt"] == "created\n"
+    assert '"created": true' in _text(result)
+
+
+@pytest.mark.asyncio
 async def test_mcp_agent_routes_file_tools_to_injected_execution_environment() -> None:
     env = FakeEnvironment()
     env.files["/workspace/remote.txt"] = "remote file\n"

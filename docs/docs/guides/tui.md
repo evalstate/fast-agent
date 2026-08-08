@@ -77,13 +77,58 @@ Cast asset:
 
 When the internal `read_text_file` tool is used, by default 5 lines of the file are displayed. Adjust this with `shell_execution.output_display_lines`, `SHELL_EXECUTION__OUTPUT_DISPLAY_LINES`, or `fast-agent config shell`.
 
-Use `/history detail` to review the full contents of a turn and tool calls. 
+Use `/history detail <turn>` to review the full contents of a specific turn and its tool calls.
+When a stored MCP result includes `structuredContent`, its JSON is shown alongside the result's
+content blocks.
 
 ## Output Review
 
 By default, **`fast-agent`** truncates tool inputs and outputs. 
 
-You can review the entire output by using the `/history review` command. 
+Use `/history review` to review the latest turn in full, or `/history review <turn>` to select a
+specific turn.
+
+## Inspecting Tool Schemas
+
+Use `/tools` to list tools available to the active agent. Use `/tool <name>` (or
+`/tools <name>`) to inspect a tool declaration:
+
+- the input JSON Schema is always shown;
+- when an MCP tool declares an `outputSchema`, fast-agent identifies it as a
+  structured output schema and shows the complete schema.
+
+```text
+/tools
+/tool hf__hf_whoami
+```
+
+The recording connects to the Hugging Face MCP server as `hf` and inspects its
+`hf_whoami` declaration.
+
+<div
+  class="fa-terminal-demo"
+  data-fa-asciinema-cast="../../assets/tui/mcp-tool-schema.cast"
+  data-fa-asciinema-cols="110"
+  data-fa-asciinema-rows="32"
+  data-fa-asciinema-poster="npt:0:08"
+  data-fa-asciinema-speed="0.85"
+  data-fa-asciinema-idle-time-limit="3"
+  data-fa-asciinema-fit="width"
+>
+  <div class="fa-terminal-theme-switch" aria-label="Terminal theme">
+    <button type="button" data-fa-terminal-theme="auto">Auto</button>
+    <button type="button" data-fa-terminal-theme="light">Light</button>
+    <button type="button" data-fa-terminal-theme="dark">Dark</button>
+  </div>
+  <div data-fa-asciinema-target></div>
+</div>
+
+<!--
+Cast asset:
+- Source: docs/docs/assets/tui/mcp-tool-schema.cast
+- Regenerate: uv run scripts/docs.py cast-build mcp-tool-schema
+- Replay locally: asciinema play docs/docs/assets/tui/mcp-tool-schema.cast
+-->
 
 ## Image Viewer
 

@@ -1221,6 +1221,35 @@ def test_session_trace_exporter_uses_workspace_dir_for_default_output_path(
     assert not (other_cwd / expected_path.name).exists()
 
 
+def test_json_history_load_reuses_decoded_payload_for_timestamps(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    history_path = tmp_path / "history_dev.json"
+    timestamp = datetime(2026, 4, 22, 9, 15, tzinfo=timezone.utc)
+    _write_history_with_timestamps(
+        history_path,
+        messages=[
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="hello")],
+            )
+        ],
+        timestamps=[timestamp],
+    )
+
+    def _unexpected_reload(_path: str) -> list[PromptMessageExtended]:
+        raise AssertionError("JSON history should be decoded only once")
+
+    monkeypatch.setattr("fast_agent.session.trace_exporter.load_messages", _unexpected_reload)
+    loaded = SessionTraceExporter(session_manager=_build_manager(tmp_path))._load_history(
+        history_path
+    )
+
+    assert [message.all_text() for message in loaded.messages] == ["hello"]
+    assert loaded.timestamps == (timestamp,)
+
+
 def test_session_trace_exporter_uses_message_timestamps_for_turn_date(tmp_path: Path) -> None:
     manager = _build_manager(tmp_path)
     session_id = "2604201303-x5MNlH"

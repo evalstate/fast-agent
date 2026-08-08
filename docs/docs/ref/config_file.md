@@ -257,7 +257,7 @@ Responses-family providers can also be toggled per run in the model string:
 - `responses.gpt-5?web_search=on`
 - `openresponses.openai/gpt-oss-120b:groq?web_search=on`
 - `codexresponses.gpt-5.3-codex?web_search=off`
-- `metaai.muse-spark-1.1?web_search=on`
+- `metaai.muse-spark-1.2?web_search=on`
 
 Allowed values: `on`/`off` (also accepts `true`/`false`, `1`/`0`).
 
@@ -343,6 +343,10 @@ deepseek:
   base_url: "https://api.deepseek.com"  # Optional, only include to override
 ```
 
+See the [DeepSeek provider guide](../models/providers/deepseek/) for model
+selection, reasoning, web search, structured output, and stateless Responses
+behavior.
+
 ### Google
 
 ```yaml
@@ -365,7 +369,7 @@ xai:
 metaai:
   api_key: "${META_AI_API_KEY}"
   base_url: "https://api.meta.ai/v1"  # Optional, defaults to this value
-  default_model: "muse-spark-1.1"
+  default_model: "muse-spark-1.2"
   web_search:
     enabled: false
     search_context_size: medium  # Optional: low | medium | high
@@ -375,7 +379,7 @@ metaai:
 ```
 
 MetaAI search grounding can also be toggled per run with
-`metaai.muse-spark-1.1?web_search=on`. See the
+`metaai.muse-spark-1.2?web_search=on`. See the
 [MetaAI provider guide](../models/providers/metaai/) for supported media,
 interactive toggles, and search-result behavior.
 
@@ -795,7 +799,7 @@ skills:
 
 ```yaml
 shell_execution:
-  tool_profile: minimal_process  # Bash + Process (default); native retains legacy tools
+  tool_profile: auto  # Grok uses shell + process; other models use bash + process
   timeout_seconds: 90
   warning_interval_seconds: 30
   interactive_use_pty: true  # Use PTY for interactive prompt shell commands
@@ -803,17 +807,22 @@ shell_execution:
   retain_truncated_output: true
   retained_output_max_bytes: 2097152  # Per shell process
   retained_output_temp_directory: null  # Optional parent directory
-  process_poll_max_wait_seconds: 250  # Accepted range: 1–600
+  process_poll_max_wait_seconds: 3600  # Accepted range: 1–3600
   managed_process_poll_history_folding: auto  # auto | on | off
 ```
 
-`tool_profile` controls the model-facing contract only. The default
-`minimal_process` profile exposes `Bash(command, run_in_background?)` and
-`Process(action, process_id?)`. Use `Process(action="list")` to list retained
-managed processes in creation order; `process_id` is required for `status`,
-`wait`, and `stop`. The `native` profile remains available as a
-compatibility escape hatch for the legacy `execute`, `poll_process`, and
-`terminate_process` schemas; both profiles use the same managed-process runtime.
+`tool_profile` controls the model-facing contract only. The default `auto`
+profile selects the catalog contract for the active model. Grok models expose
+`shell(command, working_directory?, background?, timeout?)` plus unified
+`process(...)`; other models retain `bash(...)` plus unified `process(...)`.
+Use `process(action="list")` to list retained managed processes in creation
+order; `process_id` is required for `status`, `wait`, and `stop`.
+
+Set `tool_profile` explicitly to `minimal_process`, `grok_shell`, or `native`
+to override automatic selection, including after runtime model switches.
+`native` remains a compatibility escape hatch for the legacy `execute`,
+`poll_process`, and `terminate_process` schemas. All profiles use the same
+managed-process runtime.
 
 When `output_byte_limit` is omitted, a model-catalog override is used when
 available, followed by the global 16,000-byte default. An explicit positive
@@ -827,9 +836,10 @@ temporary path so the model can inspect selected ranges or search the complete
 output. Each process is limited by `retained_output_max_bytes`; retained files
 are removed when the shell runtime closes.
 
-`process_poll_max_wait_seconds` caps a single managed-process wait. The default
-stays below Anthropic's five-minute prompt-cache TTL and applies even when a
-model or model overlay declares a longer default poll wait.
+`process_poll_max_wait_seconds` caps a single model-initiated managed-process
+wait. Catalogue and overlay defaults are capped for compatibility. An explicit
+model-string `poll_period` above the configured maximum is rejected instead of
+being silently reduced.
 
 `managed_process_poll_history_folding` controls whether repetitive quiet
 managed-process polling exchanges are collapsed before the next model call:

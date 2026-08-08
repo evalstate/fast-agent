@@ -11,10 +11,9 @@ from typing import Any, Protocol, runtime_checkable
 
 from fast_agent.core.logging.logger import get_logger
 
-STREAM_CAPTURE_ENABLED = bool(
-    os.environ.get("FAST_AGENT_LLM_TRACE") or os.environ.get("LLM_STREAM_DEBUG")
-)
+STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
 STREAM_CAPTURE_DIR = Path("stream-debug")
+_REQUEST_CONTENT_FIELDS = ("messages", "input")
 
 
 @runtime_checkable
@@ -55,8 +54,18 @@ def save_stream_request(
     logger = get_logger(logger_name)
     try:
         request_file = filename_base.with_name(f"{filename_base.name}_request.json")
+        payload = jsonable(arguments)
+        if isinstance(payload, dict):
+            payload = {
+                **{
+                    key: payload[key]
+                    for key in sorted(payload)
+                    if key not in _REQUEST_CONTENT_FIELDS
+                },
+                **{key: payload[key] for key in _REQUEST_CONTENT_FIELDS if key in payload},
+            }
         request_file.write_text(
-            json.dumps(jsonable(arguments), indent=2, sort_keys=True),
+            json.dumps(payload, indent=2),
             encoding="utf-8",
         )
     except Exception as exc:

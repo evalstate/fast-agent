@@ -54,6 +54,14 @@ def test_parse_current_agent_history_intent_unquotes_quoted_arguments() -> None:
     )
 
 
+def test_parse_current_agent_history_review_defaults_to_latest_turn() -> None:
+    assert parse_current_agent_history_intent("review") == HistoryActionIntent(action="review")
+    assert parse_current_agent_history_intent("review 3") == HistoryActionIntent(
+        action="review",
+        turn_index=3,
+    )
+
+
 def test_parse_session_command_intent_parses_export_options() -> None:
     intent = parse_session_command_intent(
         'export latest --agent dev --output "trace file.jsonl" --format atif '

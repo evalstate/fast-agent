@@ -338,6 +338,30 @@ def test_tools_completion_filters_tool_names() -> None:
     assert completions[0].start_position == -2
 
 
+def test_tool_completion_alias_lists_available_tools() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_ToolAgentStub())),
+    )
+
+    completions = list(
+        completer.get_completions(
+            Document("/tool "),
+            CompleteEvent(completion_requested=True),
+        )
+    )
+
+    assert [completion.text for completion in completions] == ["search", "read_file"]
+
+
+def test_human_input_hides_tool_commands() -> None:
+    completer = AgentCompleter(agents=["agent1"], is_human_input=True)
+
+    assert "tool" not in completer.commands
+    assert "tools" not in completer.commands
+
+
 def test_complete_history_files_finds_json_and_md():
     """Test that _complete_history_files finds .json and .md files."""
     with tempfile.TemporaryDirectory() as tmpdir:

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import load_model_overlay_registry
@@ -73,6 +74,30 @@ def test_list_current_aliases_for_provider() -> None:
         "sonnet",
     }.issubset(aliases)
     assert aliases.index("opus") < aliases.index("opus48") < aliases.index("opus46")
+
+
+def test_metaai_picker_lists_muse_tiers_in_release_order() -> None:
+    assert ModelSelectionCatalog.list_current_aliases(Provider.META_AI) == [
+        "Muse Spark 1.2",
+        "Muse Spark 1.2 (Contributor)",
+        "Muse Spark 1.1",
+    ]
+
+
+def test_xai_picker_omits_unsupported_instant_grok() -> None:
+    aliases = ModelSelectionCatalog.list_current_aliases(Provider.XAI)
+
+    assert "Grok 4.3 (instant)" not in aliases
+
+
+def test_metaai_muse_aliases_select_the_current_and_contributor_tiers() -> None:
+    assert {
+        alias: BUILTIN_MODEL_ALIASES[alias] for alias in ("muse", "muse-spark", "musecontrib")
+    } == {
+        "muse": "metaai.muse-spark-1.2",
+        "muse-spark": "metaai.muse-spark-1.2",
+        "musecontrib": "metaai.muse-spark-1.2-contributor",
+    }
 
 
 def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() -> None:
@@ -318,6 +343,27 @@ def test_huggingface_curated_catalog_includes_both_kimi_k3_routes() -> None:
         ("Kimi K3 (together)", "hf.moonshotai/Kimi-K3:together"),
     ]
     assert all(entry.current for entry in kimi_k3_entries)
+
+
+def test_huggingface_curated_catalog_includes_deepseek_v4_flash_0731_routes() -> None:
+    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
+    aliases = {
+        "DeepSeek V4 Flash 0731 (baseten)",
+        "DeepSeek V4 Flash 0731 (deepinfra)",
+    }
+    deepseek_entries = [entry for entry in entries if entry.alias in aliases]
+
+    assert [(entry.display_label, entry.model) for entry in deepseek_entries] == [
+        (
+            "DeepSeek V4 Flash 0731 (baseten)",
+            "hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten?max_tokens=384000",
+        ),
+        (
+            "DeepSeek V4 Flash 0731 (deepinfra)",
+            "hf.deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra",
+        ),
+    ]
+    assert all(entry.current for entry in deepseek_entries)
 
 
 def test_list_all_models_for_provider() -> None:

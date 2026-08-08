@@ -106,7 +106,9 @@ class LocalShellExecutor:
         self._logger = logger
         self._timeout_seconds = timeout_seconds
         self._warning_interval_seconds = warning_interval_seconds
-        self._working_directory = working_directory
+        self._working_directory = self.resolve_working_directory(
+            working_directory if working_directory is not None else Path.cwd()
+        )
         self._config = config
         self._default_env = dict(default_env or {})
         self._temporary_artifact_directory: Path | None = None
@@ -132,7 +134,33 @@ class LocalShellExecutor:
         return Path.cwd()
 
     def set_working_directory(self, working_directory: Path | None) -> None:
-        self._working_directory = working_directory
+        self._working_directory = self.resolve_working_directory(
+            working_directory if working_directory is not None else Path.cwd()
+        )
+
+    def _recover_deleted_process_cwd(self, working_directory: Path) -> None:
+        try:
+            Path.cwd()
+        except FileNotFoundError:
+            try:
+                os.chdir(working_directory)
+            except OSError:
+                fallback = working_directory.parent
+                try:
+                    os.chdir(fallback)
+                except OSError:
+                    self._logger.warning(
+                        "Process working directory was deleted and could not be recovered"
+                    )
+                    return
+                self._logger.warning(
+                    "Process working directory was deleted; "
+                    f"recovered to parent directory: {fallback}"
+                )
+                return
+            self._logger.warning(
+                f"Recovered deleted process working directory: {working_directory}"
+            )
 
     @staticmethod
     def resolve_working_directory(path: Path) -> Path:
@@ -370,6 +398,7 @@ class LocalShellExecutor:
             raise
         finally:
             await self._cancel_task_if_running(watchdog_task)
+            self._recover_deleted_process_cwd(plan.working_dir)
         try:
             drain_timed_out = await self._drain_output_tasks(
                 output_tasks,
@@ -421,6 +450,8 @@ class LocalShellExecutor:
             "cwd": working_dir,
             "env": child_env,
         }
+        if detach:
+            process_kwargs["stdin"] = asyncio.subprocess.DEVNULL
         if is_windows:
             creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
             if creation_flags:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -14,7 +15,10 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 import fast_agent.config as config_module
 from fast_agent.config import load_yaml_mapping
-from fast_agent.constants import MAX_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.constants import (
+    MAX_PROCESS_POLL_WAIT_SECONDS,
+    MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
+)
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.home import resolve_fast_agent_home
@@ -75,6 +79,28 @@ class ModelOverlayConnection(BaseModel):
     api_key_env: str | None = None
     secret_ref: str | None = None
     default_headers: dict[str, str] = Field(default_factory=dict)
+    reasoning_field: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_legacy_reasoning_api(cls, value: object) -> object:
+        if isinstance(value, Mapping):
+            for key, legacy_value in value.items():
+                if key != "reasoning_api":
+                    continue
+                if legacy_value == "reasoning_effort":
+                    raise ValueError(
+                        "connection.reasoning_api is no longer supported; "
+                        "use connection.reasoning_field: reasoning_effort"
+                    )
+                raise ValueError(
+                    "connection.reasoning_api is no longer supported; "
+                    "chat_template_kwargs has no reasoning_field equivalent"
+                )
+        return value
 
     @model_validator(mode="after")
     def _validate_auth_configuration(self) -> "ModelOverlayConnection":
@@ -196,12 +222,19 @@ class ModelOverlayMetadata(BaseModel):
     json_mode: Literal["schema", "object"] | None = None
     structured_tool_policy: Literal["always", "defer", "no_tools"] | None = None
     managed_process_poll_folding: bool | None = None
-    process_poll_default_wait_seconds: int | None = Field(default=None, ge=0, le=600)
+    process_poll_default_wait_seconds: int | None = Field(
+        default=None,
+        ge=0,
+        le=MAX_PROCESS_POLL_WAIT_SECONDS,
+    )
     shell_output_byte_limit: int | None = Field(
         default=None,
         ge=1,
         le=MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
     )
+    shell_tool_name: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_-]*$")
+    shell_tool_requires_description: bool | None = None
+    shell_edit_tool: Literal["write_text_file", "edit_file", "apply_patch", "off"] | None = None
     model_specific: str | None = None
     # Legacy fallback retained for older overlay files. New overlays should use
     # defaults.temperature instead.
@@ -266,6 +299,12 @@ class ModelOverlayManifest(BaseModel):
         validation_alias=AliasChoices("metadata", "model_metadata"),
     )
     picker: ModelOverlayPicker = Field(default_factory=ModelOverlayPicker)
+
+    @model_validator(mode="after")
+    def _validate_provider_connection_options(self) -> "ModelOverlayManifest":
+        if self.connection.reasoning_field is not None and self.provider is not Provider.GENERIC:
+            raise ValueError("connection.reasoning_field is supported only for provider 'generic'")
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -365,6 +404,8 @@ class LoadedModelOverlay:
         default_headers = self.resolved_default_headers()
         if default_headers is not None:
             kwargs["default_headers"] = default_headers
+        if self.manifest.connection.reasoning_field is not None:
+            kwargs["reasoning_field"] = self.manifest.connection.reasoning_field
         return kwargs
 
     def build_model_parameters(self) -> ModelParameters | None:
@@ -393,6 +434,11 @@ class LoadedModelOverlay:
                 self.manifest.metadata.process_poll_default_wait_seconds or 0
             ),
             shell_output_byte_limit=self.manifest.metadata.shell_output_byte_limit,
+            shell_tool_name=self.manifest.metadata.shell_tool_name,
+            shell_tool_requires_description=(
+                self.manifest.metadata.shell_tool_requires_description or False
+            ),
+            shell_edit_tool=self.manifest.metadata.shell_edit_tool,
             model_specific=self.manifest.metadata.model_specific,
             default_provider=self.provider,
             default_temperature=self._default_temperature(),
@@ -446,6 +492,14 @@ class LoadedModelOverlay:
             )
         if metadata.shell_output_byte_limit is not None:
             update_payload["shell_output_byte_limit"] = metadata.shell_output_byte_limit
+        if metadata.shell_tool_name is not None:
+            update_payload["shell_tool_name"] = metadata.shell_tool_name
+        if metadata.shell_tool_requires_description is not None:
+            update_payload["shell_tool_requires_description"] = (
+                metadata.shell_tool_requires_description
+            )
+        if metadata.shell_edit_tool is not None:
+            update_payload["shell_edit_tool"] = metadata.shell_edit_tool
         if metadata.model_specific is not None:
             update_payload["model_specific"] = metadata.model_specific
         if self._default_temperature() is not None:
@@ -699,6 +753,9 @@ def build_model_overlay_manifest_from_database(
         max_output_tokens=existing.max_output_tokens,
         tokenizes=existing.tokenizes if existing.tokenizes else None,
         model_specific=existing.model_specific,
+        shell_tool_name=existing.shell_tool_name,
+        shell_tool_requires_description=existing.shell_tool_requires_description,
+        shell_edit_tool=existing.shell_edit_tool,
         json_mode=json_mode,
         structured_tool_policy=existing.structured_tool_policy,
         managed_process_poll_folding=existing.managed_process_poll_folding,

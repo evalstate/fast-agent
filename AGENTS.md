@@ -6,7 +6,6 @@ examination is helpful. Use codexresponses.gpt-5.6-sol?reasoning=high where extr
 ## fast-agent contributor notes
 
 - Use `uv run` for repo scripts and examples.
-- Use the fast-agent CLI to start sub-agent tasks. Use gpt-5.6-terra?reasoning=high as the primary model for this. Escalate to the user if you want bigger or smaller models.
 - Always run `uv run scripts/format.py --check`, `uv run scripts/lint.py`, and
   `uv run scripts/typecheck.py` after code changes. If the format check fails,
   run `uv run scripts/format.py` before rechecking.

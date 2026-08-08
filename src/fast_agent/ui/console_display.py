@@ -63,6 +63,7 @@ from fast_agent.utils.count_display import format_count
 from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
+    from fast_agent.command_actions import MarkdownTextStyle
     from fast_agent.mcp.app_integrations import AppServerConfig
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.ui.terminal_images import ImageRenderItem
@@ -521,6 +522,7 @@ class ConsoleDisplay:
         pre_content: Text | Group | None = None,
         post_content: RenderableType | None = None,
         render_markdown: bool | None = None,
+        markdown_styles: tuple["MarkdownTextStyle", ...] = (),
         show_hook_indicator: bool = False,
         header_rule_fill: bool = False,
         show_reprint_banner: bool = False,
@@ -542,6 +544,7 @@ class ConsoleDisplay:
             pre_content: Optional Rich Text shown before the main content
             post_content: Optional Rich renderable shown after the main content
             render_markdown: Force markdown rendering (True) or plain rendering (False)
+            markdown_styles: Presentation-only styles for visible Markdown text
             show_hook_indicator: Whether to show the hook indicator glyph (◆)
             header_rule_fill: Whether to extend the header with a dim rule to the right edge
             show_reprint_banner: Whether to emit the bright banner before the main content
@@ -576,6 +579,7 @@ class ConsoleDisplay:
                 message_type,
                 check_markdown_markers=False,
                 render_markdown=render_markdown,
+                markdown_styles=markdown_styles,
             )
         if additional_message:
             console.console.print(additional_message, markup=self._markup)
@@ -742,16 +746,25 @@ class ConsoleDisplay:
         return "dim"
 
     def _print_markdown_text(self, content: str) -> None:
-        console.console.print(
-            build_markdown_renderable(
-                content,
-                code_theme=self.code_style,
-                escape_xml=self._escape_xml,
-                render_fences_with_syntax=self.render_fences_with_syntax,
-                code_word_wrap=self.code_word_wrap,
-            ),
-            markup=self._markup,
+        self._print_styled_markdown_text(content)
+
+    def _print_styled_markdown_text(
+        self,
+        content: str,
+        markdown_styles: tuple["MarkdownTextStyle", ...] = (),
+    ) -> None:
+        renderable = build_markdown_renderable(
+            content,
+            code_theme=self.code_style,
+            escape_xml=self._escape_xml,
+            render_fences_with_syntax=self.render_fences_with_syntax,
+            code_word_wrap=self.code_word_wrap,
         )
+        if markdown_styles:
+            from fast_agent.ui.markdown.renderables import style_markdown_renderable
+
+            renderable = style_markdown_renderable(renderable, markdown_styles)
+        console.console.print(renderable, markup=self._markup)
 
     @staticmethod
     def _looks_like_xml_content(content: str) -> bool:
@@ -774,13 +787,14 @@ class ConsoleDisplay:
         truncate: bool,
         style: str | None,
         render_markdown: bool,
+        markdown_styles: tuple["MarkdownTextStyle", ...],
     ) -> None:
         try:
             json_obj = json.loads(content)
             self._print_pretty(json_obj, truncate=truncate, style=style)
         except (JSONDecodeError, TypeError, ValueError):
             if render_markdown:
-                self._print_markdown_text(content)
+                self._print_styled_markdown_text(content, markdown_styles)
             else:
                 self._print_plain_text(content, truncate=truncate, style=style)
 
@@ -792,6 +806,7 @@ class ConsoleDisplay:
         style: str | None,
         check_markdown_markers: bool,
         render_markdown: bool | None,
+        markdown_styles: tuple["MarkdownTextStyle", ...],
     ) -> None:
         if render_markdown is not None:
             self._display_forced_markdown_string(
@@ -799,6 +814,7 @@ class ConsoleDisplay:
                 truncate=truncate,
                 style=style,
                 render_markdown=render_markdown,
+                markdown_styles=markdown_styles,
             )
             return
 
@@ -939,6 +955,7 @@ class ConsoleDisplay:
         message_type: MessageType | None = None,
         check_markdown_markers: bool = False,
         render_markdown: bool | None = None,
+        markdown_styles: tuple["MarkdownTextStyle", ...] = (),
     ) -> None:
         """
         Display content in the appropriate format.
@@ -950,6 +967,7 @@ class ConsoleDisplay:
             message_type: Type of message to determine appropriate styling
             check_markdown_markers: If True, only use markdown rendering when markers are present
             render_markdown: If set, force markdown rendering (True) or plain rendering (False)
+            markdown_styles: Presentation-only styles for visible Markdown text
         """
         style = self._content_display_style(is_error=is_error, message_type=message_type)
 
@@ -960,6 +978,7 @@ class ConsoleDisplay:
                 style=style,
                 check_markdown_markers=check_markdown_markers,
                 render_markdown=render_markdown,
+                markdown_styles=markdown_styles,
             )
         elif isinstance(content, Text):
             self._display_text_content(
@@ -1045,6 +1064,25 @@ class ConsoleDisplay:
         if not display_tools_enabled():
             return
         self._tool_display.show_tool_result(result, **kwargs)
+
+    def show_history_tool_result(
+        self,
+        result: CallToolResult,
+        *,
+        name: str | None = None,
+        tool_name: str | None = None,
+        tool_call_id: str | None = None,
+    ) -> None:
+        if not display_tools_enabled():
+            return
+        self._tool_display.show_tool_result(
+            result,
+            name=name,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            truncate_content=False,
+            show_structured_content=True,
+        )
 
     def show_tool_call(
         self,

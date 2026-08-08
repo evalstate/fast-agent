@@ -910,7 +910,9 @@ def generate_tui_runtime_reference() -> str:
         "logger.code_theme": "Pygments/Rich syntax theme for Markdown code rendering.",
         "logger.render_fences_with_syntax": "Render Markdown code fences with Rich Syntax.",
         "logger.code_word_wrap": "Wrap Syntax-rendered code blocks instead of cropping.",
-        "logger.apply_patch_preview_max_lines": "Maximum lines to show in apply_patch previews.",
+        "logger.apply_patch_preview_max_lines": (
+            "Maximum lines to show in apply_patch and compact write_text_file previews."
+        ),
         "logger.tool_display.layout": "Compact summary-first or full legacy tool rendering.",
         "logger.tool_display.arguments": (
             "Tool argument visibility; auto shows redacted six-row JSON previews and specialized "
@@ -932,7 +934,7 @@ def generate_tui_runtime_reference() -> str:
         ),
         "logger.terminal_images.width": "Image render width.",
         "logger.terminal_images.height": "Image render height.",
-        "shell_execution.tool_profile": "Model-facing Bash/Process contract.",
+        "shell_execution.tool_profile": "Model-specific shell/process contract.",
         "shell_execution.output_display_lines": "Maximum shell/read_text_file lines to display.",
         "shell_execution.show_bash": "Show shell command output on the console.",
         "shell_execution.interactive_use_pty": "Use a PTY for interactive prompt shell commands.",
@@ -1090,10 +1092,7 @@ def generate_models_reference() -> str:
         else:
             example_value = values[0] if values else "medium"
 
-        if spec.kind == "effort":
-            example = f"{model_base}.{example_value}"
-        else:
-            example = f"{model_base}?reasoning={example_value}"
+        example = f"{model_base}?reasoning={example_value}"
 
         return f"{spec.kind}: {values_text}<br>Example: `{example}`"
 

@@ -303,7 +303,8 @@ class AgentCompleter(Completer):
                 "(or /history show|detail|save|load|clear|rewind|fix)"
             ),
             "compact": "Compact history into a checkpoint summary (/compact preview|prompt)",
-            "tools": "List tools or show a tool's JSON schema",
+            "tool": "Show one tool's input and structured output JSON schemas",
+            "tools": "List tools or show one tool's JSON schemas",
             "model": _catalog_command_description("model"),
             "check": _catalog_command_description("check"),
             "commands": "Show command map and detailed command help",
@@ -329,6 +330,7 @@ class AgentCompleter(Completer):
         }
         if is_human_input:
             self.commands.pop("prompt", None)  # Remove prompt command in human input mode
+            self.commands.pop("tool", None)  # Remove tool command in human input mode
             self.commands.pop("tools", None)  # Remove tools command in human input mode
             self.commands.pop("usage", None)  # Remove usage command in human input mode
         self._add_plugin_commands()

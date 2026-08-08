@@ -1,5 +1,6 @@
 import httpx
 from anthropic import BadRequestError as AnthropicBadRequestError
+from anthropic import RequestTooLargeError as AnthropicRequestTooLargeError
 from openai import APIError as OpenAIAPIError
 from openai import BadRequestError as OpenAIBadRequestError
 
@@ -66,6 +67,31 @@ def test_anthropic_bad_request_is_fatal() -> None:
         "prompt is too long",
         response=response,
         body={"error": {"type": "invalid_request_error"}},
+    )
+
+    assert FastAgentLLM._is_fatal_retry_error(error) is True
+
+
+def test_anthropic_request_too_large_is_fatal() -> None:
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(413, request=request)
+    error = AnthropicRequestTooLargeError(
+        "prompt is too long",
+        response=response,
+        body={"error": {"type": "request_too_large"}},
+    )
+
+    assert FastAgentLLM._is_fatal_retry_error(error) is True
+
+
+def test_openai_api_error_subclass_outside_sdk_module_is_classified() -> None:
+    class WrappedOpenAIError(OpenAIAPIError):
+        pass
+
+    error = WrappedOpenAIError(
+        "Your input exceeds the context window.",
+        httpx.Request("POST", "https://api.openai.com/v1/responses"),
+        body={"code": "context_length_exceeded"},
     )
 
     assert FastAgentLLM._is_fatal_retry_error(error) is True

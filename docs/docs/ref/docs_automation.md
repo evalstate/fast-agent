@@ -62,6 +62,7 @@ uv run scripts/docs.py cast-build model-picker
 uv run scripts/docs.py cast-build skills-direct-install
 uv run scripts/docs.py cast-build skills-slash-commands
 uv run scripts/docs.py cast-build skills-over-mcp
+uv run scripts/docs.py cast-build mcp-tool-schema
 uv run scripts/docs.py cast-build hf-image-generation
 uv run scripts/docs.py cast-check
 ```
@@ -85,6 +86,11 @@ demonstrates integrity checking, not publisher authentication or a safety
 endorsement; record only against a server you trust. Override
 `FAST_AGENT_SKILLS_MCP_DEMO_SERVER` to record against a local server compatible
 with the pinned SEP-2640 draft.
+The `mcp-tool-schema` scenario requires a Hugging Face MCP server running at
+`http://localhost:3000/mcp`, connects to it as `hf`, and runs
+`/tool hf__hf_whoami` to show both its input schema and declared structured
+output schema. Override `FAST_AGENT_TOOL_SCHEMA_DEMO_SERVER` when the server is
+available at a different URL.
 The `hf-image-generation` scenario records the Hugging Face dynamic Space flow with halfcell
 terminal-image rendering so the generated image is captured as ordinary terminal cells. It is more
 service-dependent than the other casts; use it when intentionally refreshing the image-viewer demo.

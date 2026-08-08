@@ -74,6 +74,14 @@ class PluginCommandActionImage:
     mime_type: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class MarkdownTextStyle:
+    """Presentation-only Rich style for visible Markdown text."""
+
+    text: str
+    style: str
+
+
 @dataclass(slots=True)
 class PluginCommandActionResult:
     """Result returned by a plugin command action."""
@@ -84,6 +92,7 @@ class PluginCommandActionResult:
     switch_agent: str | None = None
     refresh_agents: bool = False
     images: list[PluginCommandActionImage] = field(default_factory=list)
+    markdown_styles: tuple[MarkdownTextStyle, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

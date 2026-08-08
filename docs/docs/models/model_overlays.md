@@ -155,6 +155,20 @@ Use `connection` when the overlay needs endpoint-specific transport details:
 - `api_key_env`: environment variable name to read when `auth: env`
 - `secret_ref`: companion secret entry name when `auth: secret_ref`
 - `default_headers`: optional headers to send on each request
+- `reasoning_field`: for `provider: generic` overlays, the top-level OpenAI
+  Chat Completions request field that receives the final `reasoning` value.
+  fast-agent passes the value through the OpenAI SDK's `extra_body` mechanism,
+  which serializes it at the request-body top level. The field name must be an
+  identifier such as `reasoning_effort`; it is connection configuration, not a
+  model-string query parameter.
+
+Endpoint hosting and authentication do not select the provider. For example, a
+Hugging Face-hosted OpenAI Chat Completions endpoint that authenticates with
+`HF_TOKEN` still uses `provider: generic` unless Hugging Face router-specific
+behavior is required.
+
+The unreleased `reasoning_api` connection setting is rejected. Replace
+`reasoning_api: reasoning_effort` with `reasoning_field: reasoning_effort`.
 
 ### Request defaults
 
@@ -193,7 +207,9 @@ Common fields:
   `auto`.
 - `process_poll_default_wait_seconds`: default `poll_process` wait when the model
   omits `wait_sec` (`0` keeps polling non-blocking). The value is capped by
-  `shell_execution.process_poll_max_wait_seconds`.
+  `shell_execution.process_poll_max_wait_seconds`. An explicit model-string
+  `poll_period` takes precedence over this metadata and is rejected if it
+  exceeds the configured maximum.
 - `fast`
 
 ## Authentication options

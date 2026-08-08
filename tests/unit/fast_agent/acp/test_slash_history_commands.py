@@ -123,8 +123,9 @@ async def test_handle_history_uses_shared_parser_for_unknown_action(
 
     assert "Unknown /history action: bogus" in output
     assert (
-        "Usage: /history [turn|show|detail <turn>|save|load|clear [last]|rewind <turn>|fix] [args]"
-        in output
+        "Usage: /history "
+        "[turn|show|detail <turn>|review [turn]|save|load|clear [last]|rewind <turn>|fix] "
+        "[args]" in output
     )
 
 
@@ -144,8 +145,8 @@ async def test_handle_history_unknown_action_includes_webclear_when_available(
     assert "Unknown /history action: bogus" in output
     assert (
         "Usage: /history "
-        "[turn|show|detail <turn>|save|load|clear [last]|rewind <turn>|fix|webclear] [args]"
-        in output
+        "[turn|show|detail <turn>|review [turn]|save|load|clear [last]|rewind "
+        "<turn>|fix|webclear] [args]" in output
     )
 
 

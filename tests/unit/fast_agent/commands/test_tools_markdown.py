@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from fast_agent.commands.renderers.tools_markdown import render_tools_markdown
+from mcp_types import Tool
+
+from fast_agent.commands.renderers.tools_markdown import (
+    render_tool_schema_markdown,
+    render_tools_markdown,
+)
 from fast_agent.commands.tool_summaries import (
     PROVIDER_HOSTED_SUFFIX,
     PROVIDER_MANAGED_CONNECTOR_SUFFIX,
@@ -8,6 +13,27 @@ from fast_agent.commands.tool_summaries import (
     ProviderToolSummary,
     ToolSummary,
 )
+
+
+def test_render_tool_schema_markdown_omits_undeclared_structured_output() -> None:
+    rendered = render_tool_schema_markdown(Tool(name="search", input_schema={"type": "object"}))
+
+    assert "## Input schema" in rendered
+    assert "Structured output schema" not in rendered
+
+
+def test_render_tool_schema_markdown_includes_declared_structured_output() -> None:
+    rendered = render_tool_schema_markdown(
+        Tool(
+            name="search",
+            input_schema={"type": "object"},
+            output_schema={"type": "array", "items": {"type": "string"}},
+        )
+    )
+
+    assert "## Structured output schema" in rendered
+    assert "Supplied by the MCP tool declaration." in rendered
+    assert '"items": {' in rendered
 
 
 def test_render_tools_markdown_includes_local_tool_details() -> None:

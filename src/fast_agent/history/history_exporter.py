@@ -12,15 +12,15 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fast_agent.mcp.prompt_serialization import save_messages, to_json
+from fast_agent.mcp.prompt_serialization import save_messages, to_json_bytes
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
 
 
-def _write_text(path: str, content: str) -> None:
-    with Path(path).open("w", encoding="utf-8") as handle:
+def _write_bytes(path: str, content: bytes) -> None:
+    with Path(path).open("wb") as handle:
         handle.write(content)
 
 
@@ -62,8 +62,8 @@ class HistoryExporter:
             # Serialize on the event loop so the snapshot is consistent, then
             # hand the (potentially multi-MB) file write to a worker thread so
             # per-checkpoint disk latency does not block streaming or the UI.
-            json_str = to_json(messages, indent=None if compact else 2)
-            await asyncio.to_thread(_write_text, target, json_str)
+            json_bytes = to_json_bytes(messages, indent=None if compact else 2)
+            await asyncio.to_thread(_write_bytes, target, json_bytes)
         else:
             save_messages(messages, target)
 

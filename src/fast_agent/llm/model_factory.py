@@ -7,6 +7,10 @@ from urllib.parse import parse_qsl
 
 from pydantic import BaseModel
 
+from fast_agent.constants import (
+    MAX_PROCESS_POLL_WAIT_SECONDS,
+    MIN_PROCESS_POLL_WAIT_SECONDS,
+)
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LLMFactoryProtocol
 from fast_agent.llm.model_aliases import BUILTIN_MODEL_ALIASES
@@ -80,6 +84,7 @@ _STRUCTURED_TOOL_QUERY_KEYS = (
 _WEB_TOOL_QUERY_KEYS = ("web_search", "x_search", "web_fetch")
 _TASK_BUDGET_QUERY_KEYS = ("task_budget", "taskBudget")
 _MAX_TOKENS_QUERY_KEYS = ("max_tokens", "maxTokens")
+_POLL_PERIOD_QUERY_KEYS = ("poll_period",)
 _SAMPLING_QUERY_KEYS = {
     "temperature": ("temperature", "temp"),
     "top_p": ("top_p", "topP"),
@@ -95,6 +100,7 @@ SUPPORTED_MODEL_QUERY_KEYS = frozenset(
         *_WEB_TOOL_QUERY_KEYS,
         *_TASK_BUDGET_QUERY_KEYS,
         *_MAX_TOKENS_QUERY_KEYS,
+        *_POLL_PERIOD_QUERY_KEYS,
         *(key for key_group in _SAMPLING_QUERY_KEYS.values() for key in key_group),
     )
 )
@@ -174,6 +180,7 @@ class ModelConfig(BaseModel):
     min_p: float | None = None
     presence_penalty: float | None = None
     repetition_penalty: float | None = None
+    process_poll_default_wait_seconds: int | None = None
     streaming_timeout: float | None = None
     streaming_timeout_configured: bool = False
 
@@ -202,6 +209,7 @@ class ModelQueryOverrides:
     min_p: float | None = None
     presence_penalty: float | None = None
     repetition_penalty: float | None = None
+    process_poll_default_wait_seconds: int | None = None
     streaming_timeout: float | None = None
     streaming_timeout_configured: bool = False
 
@@ -240,6 +248,10 @@ class ModelQueryOverrides:
             min_p=coalesce(self.min_p, defaults.min_p),
             presence_penalty=coalesce(self.presence_penalty, defaults.presence_penalty),
             repetition_penalty=coalesce(self.repetition_penalty, defaults.repetition_penalty),
+            process_poll_default_wait_seconds=coalesce(
+                self.process_poll_default_wait_seconds,
+                defaults.process_poll_default_wait_seconds,
+            ),
             streaming_timeout=(
                 self.streaming_timeout
                 if self.streaming_timeout_configured
@@ -286,6 +298,9 @@ class ParsedModelSpec:
             min_p=self.query_overrides.min_p,
             presence_penalty=self.query_overrides.presence_penalty,
             repetition_penalty=self.query_overrides.repetition_penalty,
+            process_poll_default_wait_seconds=(
+                self.query_overrides.process_poll_default_wait_seconds
+            ),
             streaming_timeout=self.query_overrides.streaming_timeout,
             streaming_timeout_configured=self.query_overrides.streaming_timeout_configured,
         )
@@ -390,6 +405,32 @@ def _parse_positive_int_query(
         raw_value = _collect_query_values(query_params, keys)[-1]
         raise ModelConfigError(
             f"Invalid {label} query value: '{raw_value}' in '{model_spec}'. Use a positive integer."
+        )
+    return value
+
+
+def _parse_poll_period_query(
+    query_params: ModelQueryPairs,
+    model_spec: str,
+) -> int | None:
+    values = _collect_query_values(query_params, _POLL_PERIOD_QUERY_KEYS)
+    if not values:
+        return None
+
+    raw_value = values[-1]
+    try:
+        value = int(raw_value)
+    except ValueError:
+        value = None
+    if (
+        value is None
+        or value < MIN_PROCESS_POLL_WAIT_SECONDS
+        or value > MAX_PROCESS_POLL_WAIT_SECONDS
+    ):
+        raise ModelConfigError(
+            f"Invalid poll_period query value: '{raw_value}' in '{model_spec}'. "
+            f"Use an integer from {MIN_PROCESS_POLL_WAIT_SECONDS} through "
+            f"{MAX_PROCESS_POLL_WAIT_SECONDS}."
         )
     return value
 
@@ -644,6 +685,10 @@ def _parse_query_overrides(
             model_spec,
             keys=_SAMPLING_QUERY_KEYS["repetition_penalty"],
             label="repetition_penalty",
+        ),
+        process_poll_default_wait_seconds=_parse_poll_period_query(
+            query_params,
+            model_spec,
         ),
         streaming_timeout=streaming_timeout,
         streaming_timeout_configured=streaming_timeout_configured,

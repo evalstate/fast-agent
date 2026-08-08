@@ -3,18 +3,24 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
-from rich.console import Group
+from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
+from rich.errors import StyleSyntaxError
 from rich.markdown import Markdown
+from rich.segment import Segment
+from rich.style import Style
 from rich.syntax import Syntax
 from rich.text import Text
 
 from fast_agent.ui.apply_patch_preview import style_apply_patch_preview_text
 from fast_agent.ui.markdown.content import prepare_markdown_content
 from fast_agent.utils.text import strip_casefold
+
+if TYPE_CHECKING:
+    from fast_agent.command_actions.models import MarkdownTextStyle
 
 _FENCE_OPEN_LINE_RE = re.compile(r"^\s{0,3}(?P<delim>`{3,}|~{3,})(?P<info>.*)$")
 _FENCE_INFO_LINE_RE = re.compile(
@@ -96,6 +102,108 @@ class _RenderableChunk:
     text: str
     language: str = "text"
     reference_definitions: str = ""
+
+
+@dataclass(frozen=True)
+class _StyleMatch:
+    start: int
+    end: int
+    style: Style
+
+
+@dataclass(frozen=True)
+class _LiteralStyledRenderable:
+    renderable: RenderableType
+    styles: tuple[MarkdownTextStyle, ...]
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: ConsoleOptions,
+    ) -> RenderResult:
+        segments = tuple(console.render(self.renderable, options))
+        yield from _apply_literal_styles(segments, self.styles)
+
+
+def _literal_style_matches(
+    text: str,
+    styles: tuple[MarkdownTextStyle, ...],
+) -> tuple[_StyleMatch, ...]:
+    matches: list[_StyleMatch] = []
+    for text_style in styles:
+        if not text_style.text:
+            continue
+        try:
+            style = Style.parse(text_style.style)
+        except StyleSyntaxError:
+            continue
+        start = 0
+        while (index := text.find(text_style.text, start)) >= 0:
+            end = index + len(text_style.text)
+            starts_inside_token = (
+                index > 0
+                and (text_style.text[0].isalnum() or text_style.text[0] == "_")
+                and (text[index - 1].isalnum() or text[index - 1] == "_")
+            )
+            ends_inside_token = (
+                end < len(text)
+                and (text_style.text[-1].isalnum() or text_style.text[-1] == "_")
+                and (text[end].isalnum() or text[end] == "_")
+            )
+            if not starts_inside_token and not ends_inside_token:
+                matches.append(_StyleMatch(start=index, end=end, style=style))
+            start = end
+    return tuple(matches)
+
+
+def _apply_literal_styles(
+    segments: tuple[Segment, ...],
+    styles: tuple[MarkdownTextStyle, ...],
+) -> tuple[Segment, ...]:
+    visible = "".join(segment.text for segment in segments if not segment.control)
+    matches = _literal_style_matches(visible, styles)
+    if not matches:
+        return segments
+
+    output: list[Segment] = []
+    offset = 0
+    for segment in segments:
+        if segment.control or not segment.text:
+            output.append(segment)
+            continue
+
+        start = offset
+        end = start + len(segment.text)
+        offset = end
+        boundaries = {start, end}
+        for match in matches:
+            if match.start < end and match.end > start:
+                boundaries.add(max(start, match.start))
+                boundaries.add(min(end, match.end))
+
+        ordered = sorted(boundaries)
+        for chunk_start, chunk_end in zip(ordered, ordered[1:], strict=False):
+            style = segment.style
+            for match in matches:
+                if match.start <= chunk_start and chunk_end <= match.end:
+                    style = (style or Style()) + match.style
+            output.append(
+                Segment(
+                    segment.text[chunk_start - start : chunk_end - start],
+                    style,
+                    segment.control,
+                )
+            )
+    return tuple(output)
+
+
+def style_markdown_renderable(
+    renderable: RenderableType,
+    styles: tuple[MarkdownTextStyle, ...],
+) -> RenderableType:
+    """Apply Rich styles to literal visible text without changing Markdown source."""
+
+    return _LiteralStyledRenderable(renderable=renderable, styles=styles)
 
 
 @lru_cache(maxsize=64)
@@ -608,4 +716,5 @@ __all__ = [
     "build_markdown_renderable",
     "close_incomplete_code_blocks",
     "extract_single_fenced_code_block",
+    "style_markdown_renderable",
 ]

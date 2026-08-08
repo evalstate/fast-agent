@@ -19,12 +19,8 @@ from typing import (
     cast,
 )
 
-from anthropic import BadRequestError as AnthropicBadRequestError
-from anthropic import RequestTooLargeError as AnthropicRequestTooLargeError
 from mcp import Tool
 from mcp_types import GetPromptResult
-from openai import APIError as OpenAIAPIError
-from openai import BadRequestError as OpenAIBadRequestError
 from pydantic_core import from_json
 
 from fast_agent.constants import (
@@ -751,20 +747,27 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _is_fatal_retry_error(error: Exception) -> bool:
         if isinstance(error, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
             return True
-        if isinstance(
-            error,
-            (
-                OpenAIBadRequestError,
-                AnthropicBadRequestError,
-                AnthropicRequestTooLargeError,
-            ),
-        ):
-            return True
 
-        if isinstance(error, OpenAIAPIError) and isinstance(error.code, str):
-            code = casefold_text(error.code)
-            if code in _NON_RETRYABLE_CONTEXT_ERROR_CODES:
+        exception_module_roots = {
+            exception_type.__module__.partition(".")[0] for exception_type in type(error).__mro__
+        }
+        if "anthropic" in exception_module_roots:
+            from anthropic import BadRequestError as AnthropicBadRequestError
+            from anthropic import RequestTooLargeError as AnthropicRequestTooLargeError
+
+            if isinstance(error, (AnthropicBadRequestError, AnthropicRequestTooLargeError)):
                 return True
+
+        if "openai" in exception_module_roots:
+            from openai import APIError as OpenAIAPIError
+            from openai import BadRequestError as OpenAIBadRequestError
+
+            if isinstance(error, OpenAIBadRequestError):
+                return True
+            if isinstance(error, OpenAIAPIError) and isinstance(error.code, str):
+                code = casefold_text(error.code)
+                if code in _NON_RETRYABLE_CONTEXT_ERROR_CODES:
+                    return True
 
         message = casefold_text(str(error))
         if any(code in message for code in _NON_RETRYABLE_CONTEXT_ERROR_CODES):

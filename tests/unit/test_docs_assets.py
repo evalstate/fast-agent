@@ -108,6 +108,52 @@ def test_mcp_inspect_recorders_use_high_resolution_timelines() -> None:
     assert """wait_for_pane "$SESSION" 'Docs Legacy Remote'""" in legacy_script
 
 
+def test_mcp_tool_schema_recorder_uses_named_local_server() -> None:
+    scenario = docs_assets._scenarios()["mcp-tool-schema"]
+    script = docs_assets._record_script(scenario)
+
+    assert "/mcp connect http://localhost:3000/mcp --name hf" in script
+    assert "/tool hf__hf_whoami" in script
+    assert """wait_for_pane "$SESSION" "Connected MCP server 'hf'""" in script
+    assert """wait_for_pane "$SESSION" 'Structured output schema'""" in script
+    assert "search-backward 'Input schema'" in script
+    assert "search-forward 'Structured output schema'" in script
+    assert 'send-keys -X -t "$SESSION" page-down' in script
+    assert "search-backward 'Structured output schema'" in script
+
+
+def test_mcp_tool_schema_cast_shows_declared_output_schema() -> None:
+    path = ROOT / "docs" / "docs" / "assets" / "tui" / "mcp-tool-schema.cast"
+    output = _cast_output(path)
+    plain = strip_ansi(output).replace("\x1b(B", "")
+    events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()[1:]]
+    duration = events[-1][0]
+    assert isinstance(duration, int | float)
+    final_output = "".join(
+        event[2]
+        for event in events
+        if isinstance(event, list)
+        and len(event) >= 3
+        and event[1] == "o"
+        and isinstance(event[0], int | float)
+        and event[0] >= duration - 3.1
+        and isinstance(event[2], str)
+    )
+    final_plain = strip_ansi(final_output).replace("\x1b(B", "")
+
+    assert "Connected MCP server 'hf'" in plain
+    assert "/tool hf__hf_whoami" in plain
+    assert "Tool schema: hf__hf_whoami" in plain
+    assert "Input schema" in plain
+    assert "Structured output schema" in plain
+    assert "Supplied by the MCP tool declaration." in plain
+    assert "Traceback" not in plain
+    assert "Tool not found" not in plain
+    assert duration >= 15
+    assert "Structured output schema" in final_plain
+    assert "Supplied by the MCP tool declaration." in final_plain
+
+
 def test_asciinema_index_covers_all_committed_casts() -> None:
     index = json.loads(
         (ROOT / "docs" / "docs" / "assets" / "asciinema-index.json").read_text(encoding="utf-8")

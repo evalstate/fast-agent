@@ -67,6 +67,9 @@ The `cache_ttl` setting controls how long cached content persists:
 The TTL is a user policy choice. A 5-minute cache has a lower write premium and
 usually pays off after one future read. A 1-hour cache survives longer gaps but
 has a higher write premium and generally needs two future reads to pay off.
+For long-running managed processes, pair the extended cache with a model-local
+wait such as `opus?poll_period=3000`; the wait returns early if the process
+finishes and leaves margin before the one-hour cache expires.
 Anthropic silently skips cache writes when the marked prefix is below the
 model's minimum cacheable size; check the cache creation/read usage fields
 before treating an early request as a cache miss.

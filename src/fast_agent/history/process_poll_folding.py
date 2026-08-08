@@ -22,10 +22,9 @@ from fast_agent.history.process_poll_fold_audit import (
     ProcessPollFoldAudit,
 )
 from fast_agent.utils.tool_names import (
-    BASH_TOOL_NAME,
-    EXECUTE_TOOL_NAME,
     POLL_PROCESS_TOOL_NAME,
     PROCESS_TOOL_NAME,
+    is_shell_command_tool_name,
     matches_tool_name,
 )
 
@@ -110,10 +109,7 @@ def _managed_process_start_id(
     calls = request.tool_calls or {}
     results = result.tool_results or {}
     for call_id, call in calls.items():
-        if not (
-            matches_tool_name(call.params.name, EXECUTE_TOOL_NAME)
-            or matches_tool_name(call.params.name, BASH_TOOL_NAME)
-        ):
+        if not is_shell_command_tool_name(call.params.name):
             continue
         tool_result = results.get(call_id)
         if tool_result is None:

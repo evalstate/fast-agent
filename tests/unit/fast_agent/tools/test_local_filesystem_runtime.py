@@ -93,6 +93,7 @@ def test_write_text_file_tool_schema_matches_acp_signature() -> None:
         "required": ["path", "content"],
         "additionalProperties": False,
     }
+    assert list(tool.input_schema["properties"]) == ["path", "content"]
 
 
 def test_tools_property_respects_enable_flags() -> None:
@@ -510,6 +511,22 @@ def test_set_enabled_tools_preserves_edit_file_flag_when_omitted() -> None:
     runtime.set_enabled_tools(enable_read=True, enable_write=False, enable_apply_patch=False)
 
     assert [tool.name for tool in runtime.tools] == ["read_text_file", "edit_file"]
+
+
+@pytest.mark.asyncio
+async def test_edit_file_creates_missing_local_file(tmp_path: Path) -> None:
+    runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        working_directory=tmp_path,
+        enable_edit_file=True,
+    )
+
+    result = await runtime.edit_file({"path": "nested/created.txt", "new_string": "created\n"})
+
+    assert result.is_error is False
+    assert result.structured_content is not None
+    assert result.structured_content["created"] is True
+    assert (tmp_path / "nested/created.txt").read_text() == "created\n"
 
 
 @pytest.mark.asyncio

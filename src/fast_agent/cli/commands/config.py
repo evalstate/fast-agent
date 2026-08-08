@@ -24,6 +24,7 @@ from fast_agent.config import (
     load_implicit_settings,
     normalize_shell_write_text_file_mode,
 )
+from fast_agent.constants import MAX_PROCESS_POLL_WAIT_SECONDS
 from fast_agent.home import (
     PREFERRED_CONFIG_FILENAME,
     discover_config_files,
@@ -253,7 +254,7 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
             if name == "retained_output_max_bytes":
                 maximum = 1024 * 1024 * 1024
             elif name == "process_poll_max_wait_seconds":
-                maximum = 600
+                maximum = MAX_PROCESS_POLL_WAIT_SECONDS
             elif "timeout" in name or "interval" in name:
                 maximum = 3600
             else:
@@ -420,7 +421,7 @@ def _normalize_shell_updates(result: dict[str, Any]) -> dict[str, Any]:
         if value is not None:
             shell_updates[key] = value
 
-    # write_text_file mode: auto|on|off|apply_patch (defaults to auto).
+    # File-edit tool mode: auto|on|off|apply_patch|edit_file (defaults to auto).
     mode_raw = result.get("write_text_file_mode", "auto")
     shell_updates["write_text_file_mode"] = normalize_shell_write_text_file_mode(mode_raw) or "auto"
 

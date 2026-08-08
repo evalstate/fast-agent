@@ -154,10 +154,10 @@ def summarize_patch(patch_text: str) -> PatchSummary | None:
     )
 
 
-def render_patch_preview(patch_text: str, max_lines: int | None = None) -> str:
-    lines = patch_text.splitlines()
+def limit_preview_lines(text: str, max_lines: int | None = None) -> str:
+    lines = text.splitlines()
     if max_lines is None or len(lines) <= max_lines:
-        return patch_text
+        return text
 
     if max_lines <= 0:
         omitted = len(lines)
@@ -167,6 +167,10 @@ def render_patch_preview(patch_text: str, max_lines: int | None = None) -> str:
     omitted = len(lines) - max_lines
     visible.append(f"(+{format_count(omitted, 'more line')})")
     return "\n".join(visible)
+
+
+def render_patch_preview(patch_text: str, max_lines: int | None = None) -> str:
+    return limit_preview_lines(patch_text, max_lines=max_lines)
 
 
 def extract_non_command_args(tool_args: Mapping[str, object]) -> JsonObject:

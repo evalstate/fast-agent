@@ -91,7 +91,7 @@ async def paste_clipboard_image_attachment_into_buffer(
         return
 
     token = build_local_attachment_token(pasted.path)
-    buffer.text = append_attachment_tokens(buffer.text, [token])
+    buffer.text = f"{append_attachment_tokens(buffer.text, [token])} "
     buffer.cursor_position = len(buffer.text)
     if app_ref:
         app_ref.invalidate()
