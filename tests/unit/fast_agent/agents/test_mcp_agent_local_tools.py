@@ -1000,10 +1000,9 @@ async def test_deepseek_uses_catalog_driven_shell_and_writer_editor_contract(
     assert "apply_patch" not in tools
     assert set(tools["Shell"].input_schema["properties"]) == {
         "command",
-        "description",
         "run_in_background",
     }
-    assert tools["Shell"].input_schema["required"] == ["command", "description"]
+    assert tools["Shell"].input_schema["required"] == ["command"]
 
     await agent._aggregator.close()
 
