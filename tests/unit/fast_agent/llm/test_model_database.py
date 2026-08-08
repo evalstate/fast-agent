@@ -463,7 +463,7 @@ def test_deepseek_v4_flash_uses_learned_shell_contract() -> None:
 
         assert params is not None
         assert params.shell_tool_name == "Shell"
-        assert params.shell_tool_requires_description is True
+        assert params.shell_tool_requires_description is False
         assert params.shell_edit_tool == "write_text_file"
         assert params.model_specific == ModelDatabase.MODEL_PREFERS_WRITER_EDITOR
         assert "heredoc" not in params.model_specific.casefold()

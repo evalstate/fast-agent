@@ -732,7 +732,6 @@ class ModelDatabase:
         # contract over edit-only while reducing token usage.
         model_specific=MODEL_PREFERS_WRITER_EDITOR,
         shell_tool_name="Shell",
-        shell_tool_requires_description=True,
         shell_edit_tool="write_text_file",
     )
     DEEPSEEK_V4_FLASH_HF = DEEPSEEK_V4_FLASH.model_copy(

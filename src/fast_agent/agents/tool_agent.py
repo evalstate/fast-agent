@@ -682,23 +682,28 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         available_tools: Collection[str],
         should_parallel: bool,
         tool_results: dict[str, CallToolResult],
-    ) -> tuple[list[PlannedToolCall], str | None]:
+    ) -> list[PlannedToolCall]:
         plan = plan_tool_calls(
             tool_call_items,
             available_tools=available_tools,
             execution_tools=self._execution_tools,
         )
-        unavailable_call = plan.unavailable_call
-        if unavailable_call is not None:
-            error_message = f"Tool '{unavailable_call.name}' is not available"
-            logger.error(error_message)
-            return plan.planned_calls, self._mark_tool_loop_error(
+        available_tool_list = sorted(available_tools)
+        available_summary = (
+            f" Available tools: {', '.join(available_tool_list)}."
+            if available_tool_list
+            else " No tools are currently available."
+        )
+        for unavailable_call in plan.unavailable_calls:
+            error_message = f"Tool '{unavailable_call.name}' is not available.{available_summary}"
+            logger.warning(error_message)
+            self._record_tool_error_result(
                 correlation_id=unavailable_call.correlation_id,
                 error_message=error_message,
                 tool_results=tool_results,
                 tool_call_id=unavailable_call.correlation_id if should_parallel else None,
             )
-        return plan.planned_calls, None
+        return plan.planned_calls
 
     def _planned_tool_call_display_request(
         self,
@@ -940,7 +945,6 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         tool_results: dict[str, CallToolResult] = {}
         tool_timings: dict[str, ToolTimingInfo] = {}
         tool_metadata: dict[str, dict[str, Any]] = {}
-        tool_loop_error: str | None = None
         tool_schemas = (await self.list_tools()).tools
         available_tools = self._tool_names(tool_schemas)
 
@@ -950,7 +954,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             tool_call_items,
             should_parallel=should_parallel,
         )
-        planned_calls, tool_loop_error = self._plan_tool_calls(
+        planned_calls = self._plan_tool_calls(
             tool_call_items,
             available_tools=available_tools,
             should_parallel=should_parallel,
@@ -982,7 +986,6 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 tool_results,
                 tool_timings=tool_timings,
                 tool_metadata=tool_metadata,
-                tool_loop_error=tool_loop_error,
             )
 
         for planned_call in planned_calls:
@@ -1002,17 +1005,16 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             tool_results,
             tool_timings=tool_timings,
             tool_metadata=tool_metadata,
-            tool_loop_error=tool_loop_error,
         )
 
-    def _mark_tool_loop_error(
+    def _record_tool_error_result(
         self,
         *,
         correlation_id: str,
         error_message: str,
         tool_results: dict[str, CallToolResult],
         tool_call_id: str | None = None,
-    ) -> str:
+    ) -> None:
         error_result = CallToolResult(
             content=[text_content(error_message)],
             is_error=True,
@@ -1023,6 +1025,21 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             result=error_result,
             tool_call_id=tool_call_id,
             show_hook_indicator=self.has_after_tool_call_hook,
+        )
+
+    def _mark_tool_loop_error(
+        self,
+        *,
+        correlation_id: str,
+        error_message: str,
+        tool_results: dict[str, CallToolResult],
+        tool_call_id: str | None = None,
+    ) -> str:
+        self._record_tool_error_result(
+            correlation_id=correlation_id,
+            error_message=error_message,
+            tool_results=tool_results,
+            tool_call_id=tool_call_id,
         )
         return error_message
 
