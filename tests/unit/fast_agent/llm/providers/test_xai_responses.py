@@ -188,6 +188,15 @@ def test_xai_responses_websocket_headers_are_not_openai_beta_headers() -> None:
     assert "OpenAI-Beta" not in headers
 
 
+def test_xai_websocket_disables_client_generated_keepalive_pings() -> None:
+    llm = XAIResponsesLLM(
+        context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
+        model="grok-4.3",
+    )
+
+    assert llm._websocket_keepalive_options() == {"ping_interval": None}
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("api_key_source", ["config", "environment", "init"])
 async def test_xai_api_key_401_does_not_enter_oauth_refresh(

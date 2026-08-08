@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -15,6 +16,7 @@ from fast_agent.llm.provider.openai.responses import RESPONSES_DIAGNOSTICS_CHANN
 from fast_agent.llm.provider.openai.responses_websocket import (
     PlannedWsRequest,
     ResponsesWebSocketError,
+    ResponsesWebSocketKeepaliveOptions,
     WebSocketResponsesStream,
     close_websocket_connection,
     connect_websocket,
@@ -281,6 +283,119 @@ async def test_sdk_websocket_accepts_previous_four_megabyte_message_limit(
         if connection is not None:
             await close_websocket_connection(connection)
         await runner.cleanup()
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_sdk_websocket_can_disable_client_pings_for_non_pong_server(
+    unused_tcp_port: int,
+) -> None:
+    ping_counts: list[int] = []
+
+    async def _handler(request: web.Request) -> web.WebSocketResponse:
+        ws = web.WebSocketResponse(autoping=False)
+        await ws.prepare(request)
+        connection_index = len(ping_counts)
+        ping_counts.append(0)
+        producer: asyncio.Task[None] | None = None
+
+        async def _send_response() -> None:
+            try:
+                for sequence_number in range(25):
+                    await ws.send_json(
+                        {
+                            "type": "response.output_text.delta",
+                            "sequence_number": sequence_number,
+                            "delta": "x",
+                        }
+                    )
+                    await asyncio.sleep(0.01)
+                await ws.send_json(
+                    {
+                        "type": "response.completed",
+                        "sequence_number": 25,
+                        "response": {
+                            "id": f"resp_{connection_index}",
+                            "status": "completed",
+                            "output": [],
+                            "usage": None,
+                        },
+                    }
+                )
+            except (ConnectionResetError, RuntimeError):
+                pass
+
+        try:
+            async for message in ws:
+                if message.type == WSMsgType.TEXT and producer is None:
+                    producer = asyncio.create_task(_send_response())
+                elif message.type == WSMsgType.PING:
+                    ping_counts[connection_index] += 1
+        finally:
+            if producer is not None and not producer.done():
+                producer.cancel()
+                with suppress(asyncio.CancelledError):
+                    await producer
+        return ws
+
+    async def _consume(
+        keepalive_options: ResponsesWebSocketKeepaliveOptions,
+    ) -> tuple[list[Any], ResponsesWebSocketError | None, Any | None]:
+        connection = await connect_websocket(
+            url=f"ws://127.0.0.1:{unused_tcp_port}/v1/responses",
+            headers={"Authorization": "Bearer test"},
+            timeout_seconds=1.0,
+            keepalive_options=keepalive_options,
+        )
+        stream = WebSocketResponsesStream(connection.websocket)
+        events: list[Any] = []
+        error: ResponsesWebSocketError | None = None
+        final_response: Any | None = None
+        try:
+            await send_response_request(
+                connection.websocket,
+                PlannedWsRequest(
+                    event_type="response.create",
+                    arguments={"model": "test", "input": [], "store": False},
+                ),
+            )
+            try:
+                async for event in stream:
+                    events.append(event)
+                final_response = await stream.get_final_response()
+            except ResponsesWebSocketError as exc:
+                error = exc
+        finally:
+            await close_websocket_connection(connection)
+        return events, error, final_response
+
+    app = web.Application()
+    app.router.add_get("/v1/responses", _handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", unused_tcp_port)
+    await site.start()
+
+    try:
+        active_events, active_error, _ = await _consume(
+            {"ping_interval": 0.05, "ping_timeout": 0.05}
+        )
+        disabled_events, disabled_error, disabled_response = await _consume({"ping_interval": None})
+    finally:
+        await runner.cleanup()
+
+    assert active_events
+    assert active_error is not None
+    assert active_error.stream_started
+    assert "received_close_code" not in str(active_error)
+    assert "sent_close_code=1011" in str(active_error)
+    assert "sent_close_reason=keepalive ping timeout" in str(active_error)
+    assert ping_counts[0] >= 1
+
+    assert disabled_error is None
+    assert len(disabled_events) == 26
+    assert getattr(disabled_response, "status", None) == "completed"
+    assert ping_counts[1] == 0
 
 
 @pytest.mark.e2e
