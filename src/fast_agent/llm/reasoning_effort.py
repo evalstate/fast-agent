@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 ReasoningEffortKind = Literal["effort", "toggle", "budget"]
-ReasoningEffortApi = Literal["reasoning_effort", "chat_template_kwargs"]
 ReasoningEffortLevel = Literal[
     "auto",
     "none",

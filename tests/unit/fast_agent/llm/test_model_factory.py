@@ -1309,30 +1309,11 @@ def test_hf_sampling_overrides_route_non_openai_fields_to_extra_body() -> None:
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
 
 
-def test_hf_reasoning_api_query_emits_top_level_effort() -> None:
-    llm = ModelFactory.create_factory(
-        "hf.deepseek-ai/DeepSeek-V4-Flash-0731?reasoning=max&reasoning_api=reasoning_effort"
-    )(LlmAgent(AgentConfig(name="test")))
-    assert isinstance(llm, HuggingFaceLLM)
-
-    request = llm._prepare_api_request(
-        [{"role": "user", "content": "hi"}],
-        None,
-        llm.default_request_params,
-    )
-
-    assert request["reasoning_effort"] == "max"
-    assert request["max_tokens"] == 393_216
-    assert llm.model_info is not None
-    assert llm.model_info.context_window == 1_048_576
-    assert llm.model_info.reasoning == "reasoning_content"
-
-
-def test_reasoning_api_query_rejects_non_hf_provider() -> None:
-    with pytest.raises(ModelConfigError, match="only for the HuggingFace provider"):
+@pytest.mark.parametrize("field", ("reasoning_api", "reasoning_field"))
+def test_reasoning_field_names_are_not_model_query_parameters(field: str) -> None:
+    with pytest.raises(ModelConfigError, match=f"Unsupported model query parameter '{field}'"):
         ModelFactory.parse_model_string(
-            "openrouter.deepseek-ai/DeepSeek-V4-Flash-0731"
-            "?reasoning=max&reasoning_api=reasoning_effort"
+            f"hf.deepseek-ai/DeepSeek-V4-Flash-0731?reasoning=max&{field}=reasoning_effort"
         )
 
 

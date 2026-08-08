@@ -345,6 +345,27 @@ def test_huggingface_curated_catalog_includes_both_kimi_k3_routes() -> None:
     assert all(entry.current for entry in kimi_k3_entries)
 
 
+def test_huggingface_curated_catalog_includes_deepseek_v4_flash_0731_routes() -> None:
+    entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER[Provider.HUGGINGFACE]
+    aliases = {
+        "DeepSeek V4 Flash 0731 (baseten)",
+        "DeepSeek V4 Flash 0731 (deepinfra)",
+    }
+    deepseek_entries = [entry for entry in entries if entry.alias in aliases]
+
+    assert [(entry.display_label, entry.model) for entry in deepseek_entries] == [
+        (
+            "DeepSeek V4 Flash 0731 (baseten)",
+            "hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten?max_tokens=384000",
+        ),
+        (
+            "DeepSeek V4 Flash 0731 (deepinfra)",
+            "hf.deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra",
+        ),
+    ]
+    assert all(entry.current for entry in deepseek_entries)
+
+
 def test_list_all_models_for_provider() -> None:
     openai_models = ModelSelectionCatalog.list_all_models(Provider.OPENAI)
     assert "gpt-4.1" in openai_models

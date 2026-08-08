@@ -232,6 +232,7 @@ class OpenAILLM(
         )
 
     def __init__(self, provider: Provider = Provider.OPENAI, **kwargs) -> None:
+        self._reasoning_field: str | None = kwargs.pop("reasoning_field", None)
         kwargs.pop("provider", None)
         super().__init__(provider=provider, **kwargs)
 
@@ -1606,7 +1607,35 @@ class OpenAILLM(
         )
         if request_params.sampling_tool_choice is not None and tools:
             arguments["tool_choice"] = request_params.sampling_tool_choice
+        self._apply_configured_reasoning_field(arguments)
         return arguments
+
+    def _apply_configured_reasoning_field(self, arguments: dict[str, Any]) -> None:
+        reasoning_field = self._reasoning_field
+        setting = self.reasoning_effort
+        if reasoning_field is None or setting is None:
+            return
+
+        reasoning_fields = {"reasoning_effort", reasoning_field}
+        extra_body_raw = arguments.get("extra_body")
+        extra_body = dict(extra_body_raw) if isinstance(extra_body_raw, dict) else {}
+        conflicts = sorted(
+            request_field
+            for request_field in reasoning_fields
+            if request_field in arguments or request_field in extra_body
+        )
+        if conflicts:
+            self.logger.warning(
+                "Configured reasoning field overrides existing request fields",
+                reasoning_field=reasoning_field,
+                conflicting_fields=conflicts,
+            )
+
+        for request_field in reasoning_fields:
+            arguments.pop(request_field, None)
+            extra_body.pop(request_field, None)
+        extra_body[reasoning_field] = setting.value
+        arguments["extra_body"] = extra_body
 
     @staticmethod
     def _prepare_non_streaming_request(arguments: dict[str, Any]) -> dict[str, Any]:

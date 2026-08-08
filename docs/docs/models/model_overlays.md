@@ -49,7 +49,6 @@ model: unsloth/Qwen3.5-9B-GGUF
 connection:
   base_url: http://localhost:8080/v1
   auth: none
-  # reasoning_api: reasoning_effort
 defaults:
   temperature: 0.8
   top_p: 0.95
@@ -156,9 +155,20 @@ Use `connection` when the overlay needs endpoint-specific transport details:
 - `api_key_env`: environment variable name to read when `auth: env`
 - `secret_ref`: companion secret entry name when `auth: secret_ref`
 - `default_headers`: optional headers to send on each request
-- `reasoning_api`: Hugging Face custom-endpoint reasoning encoding. Use
-  `reasoning_effort` for a top-level field or `chat_template_kwargs` for nested
-  `thinking` and `reasoning_effort` template arguments.
+- `reasoning_field`: for `provider: generic` overlays, the top-level OpenAI
+  Chat Completions request field that receives the final `reasoning` value.
+  fast-agent passes the value through the OpenAI SDK's `extra_body` mechanism,
+  which serializes it at the request-body top level. The field name must be an
+  identifier such as `reasoning_effort`; it is connection configuration, not a
+  model-string query parameter.
+
+Endpoint hosting and authentication do not select the provider. For example, a
+Hugging Face-hosted OpenAI Chat Completions endpoint that authenticates with
+`HF_TOKEN` still uses `provider: generic` unless Hugging Face router-specific
+behavior is required.
+
+The unreleased `reasoning_api` connection setting is rejected. Replace
+`reasoning_api: reasoning_effort` with `reasoning_field: reasoning_effort`.
 
 ### Request defaults
 

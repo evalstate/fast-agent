@@ -115,7 +115,6 @@ model: unsloth/Qwen3.5-9B-GGUF
 connection:
   base_url: http://localhost:8080/v1
   auth: none
-  # reasoning_api: reasoning_effort
 defaults:
   temperature: 0.8
   top_p: 0.95

@@ -18,7 +18,6 @@ from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
-    ReasoningEffortApi,
     ReasoningEffortSetting,
     parse_reasoning_setting,
 )
@@ -58,10 +57,6 @@ _SERVICE_TIER_QUERY_VALUES: dict[str, ServiceTierSetting] = {
     "fast": "fast",
     "flex": "flex",
 }
-_REASONING_API_QUERY_VALUES: dict[str, ReasoningEffortApi] = {
-    "reasoning_effort": "reasoning_effort",
-    "chat_template_kwargs": "chat_template_kwargs",
-}
 _WEBSOCKET_TRANSPORT_PROVIDERS = (
     Provider.CODEX_RESPONSES,
     Provider.RESPONSES,
@@ -73,7 +68,6 @@ _FLEX_SERVICE_TIER_MODEL_CHECK_PROVIDERS = (
 )
 _SINGLE_VALUE_MODEL_QUERY_KEYS = (
     "reasoning",
-    "reasoning_api",
     "verbosity",
     "structured",
     "instant",
@@ -168,7 +162,6 @@ class ModelConfig(BaseModel):
     provider: Provider
     model_name: str
     reasoning_effort: ReasoningEffortSetting | None = None
-    reasoning_api: ReasoningEffortApi | None = None
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
     structured_tool_policy: StructuredToolPolicy | None = None
@@ -197,7 +190,6 @@ class ModelQueryOverrides:
     """Typed query overrides parsed from a model spec query string."""
 
     reasoning_effort: ReasoningEffortSetting | None = None
-    reasoning_api: ReasoningEffortApi | None = None
     instant: bool | None = None
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
@@ -229,7 +221,6 @@ class ModelQueryOverrides:
 
         return ModelQueryOverrides(
             reasoning_effort=coalesce(self.reasoning_effort, defaults.reasoning_effort),
-            reasoning_api=coalesce(self.reasoning_api, defaults.reasoning_api),
             instant=coalesce(self.instant, defaults.instant),
             text_verbosity=coalesce(self.text_verbosity, defaults.text_verbosity),
             structured_output_mode=coalesce(
@@ -289,7 +280,6 @@ class ParsedModelSpec:
             provider=self.provider,
             model_name=self.model_name,
             reasoning_effort=self.reasoning_effort,
-            reasoning_api=self.query_overrides.reasoning_api,
             text_verbosity=self.query_overrides.text_verbosity,
             structured_output_mode=self.query_overrides.structured_output_mode,
             structured_tool_policy=self.query_overrides.structured_tool_policy,
@@ -482,21 +472,6 @@ def _parse_reasoning_query(
     return None
 
 
-def _parse_reasoning_api_query(
-    query_params: ModelQueryPairs, model_spec: str
-) -> ReasoningEffortApi | None:
-    if not _has_query_key(query_params, "reasoning_api"):
-        return None
-    raw_value = _collect_query_values(query_params, ("reasoning_api",))[-1]
-    normalized_value = strip_casefold(raw_value)
-    reasoning_api = _REASONING_API_QUERY_VALUES.get(normalized_value)
-    if reasoning_api is None:
-        raise ModelConfigError(
-            f"Invalid reasoning_api query value: '{normalized_value}' in '{model_spec}'"
-        )
-    return reasoning_api
-
-
 def _parse_verbosity_query(
     query_params: ModelQueryPairs, model_spec: str
 ) -> TextVerbosityLevel | None:
@@ -657,7 +632,6 @@ def _parse_query_overrides(
 
     return ModelQueryOverrides(
         reasoning_effort=_parse_reasoning_query(query_params, model_spec),
-        reasoning_api=_parse_reasoning_api_query(query_params, model_spec),
         instant=_parse_instant_query(query_params, model_spec),
         text_verbosity=_parse_verbosity_query(query_params, model_spec),
         structured_output_mode=_parse_structured_query(query_params, model_spec),
@@ -874,14 +848,6 @@ def _validate_transport_constraints(
         )
 
 
-def _validate_reasoning_api_constraints(
-    provider: Provider,
-    reasoning_api: ReasoningEffortApi | None,
-) -> None:
-    if reasoning_api is not None and provider is not Provider.HUGGINGFACE:
-        raise ModelConfigError("reasoning_api is supported only for the HuggingFace provider.")
-
-
 def _validate_service_tier_constraints(
     provider: Provider,
     model_name: str,
@@ -994,7 +960,6 @@ class ModelFactory:
             )
 
         _validate_transport_constraints(provider, model_name, merged_overrides.transport)
-        _validate_reasoning_api_constraints(provider, merged_overrides.reasoning_api)
         _validate_service_tier_constraints(provider, model_name, merged_overrides.service_tier)
         return ParsedModelSpec(
             raw_input=raw_input,

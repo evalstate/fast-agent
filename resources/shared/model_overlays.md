@@ -1,5 +1,4 @@
-<ModelOverlays>
----
+## <ModelOverlays>
 
 # Model Overlays
 
@@ -86,6 +85,11 @@ picker:
 - `api_key_env`
 - `secret_ref`
 - `default_headers`
+- `reasoning_field`: for `provider: generic` overlays, the top-level OpenAI
+  Chat Completions request field that receives the final `reasoning` value.
+  The OpenAI SDK carries the field through `extra_body`, so it is serialized at
+  the request-body top level. It must be an identifier and cannot be supplied
+  as a model-string query parameter.
 
 ### Auth modes
 

@@ -199,8 +199,6 @@ class ResolvedModelSpec:
 
         if config.reasoning_effort:
             kwargs["reasoning_effort"] = config.reasoning_effort
-        if config.reasoning_api:
-            kwargs["reasoning_api"] = config.reasoning_api
         if config.text_verbosity:
             kwargs["text_verbosity"] = config.text_verbosity
         if config.structured_output_mode:

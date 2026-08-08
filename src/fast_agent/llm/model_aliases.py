@@ -84,6 +84,10 @@ BUILTIN_MODEL_ALIASES: Final[dict[str, str]] = {
     "deepseek4-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
     "deepseek4pro-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
     "deepseekv4pro-hf": "hf.deepseek-ai/DeepSeek-V4-Pro:together",
+    "DeepSeek V4 Flash 0731 (baseten)": (
+        "hf.deepseek-ai/DeepSeek-V4-Flash-0731:baseten?max_tokens=384000"
+    ),
+    "DeepSeek V4 Flash 0731 (deepinfra)": "hf.deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra",
     "gemma4": "hf.google/gemma-4-31B-it:cerebras?temperature=1.0&top_p=0.95",
     "kimi26": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
     "kimi26instant": ("hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off"),

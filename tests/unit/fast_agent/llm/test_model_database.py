@@ -848,6 +848,25 @@ def test_huggingface_glm52_default_ignores_openai_reasoning_default():
     assert args["reasoning_effort"] == "max"
 
 
+def test_huggingface_deepseek_v4_flash_routes_use_reasoning_effort():
+    for provider in ("baseten", "deepinfra"):
+        llm = _make_hf_llm(f"deepseek-ai/DeepSeek-V4-Flash-0731:{provider}")
+
+        args = _hf_request_args(llm)
+        assert args["reasoning_effort"] == "max"
+
+
+def test_huggingface_deepseek_v4_flash_routes_disable_reasoning():
+    for provider in ("baseten", "deepinfra"):
+        llm = _make_hf_llm_with_reasoning(
+            f"deepseek-ai/DeepSeek-V4-Flash-0731:{provider}",
+            reasoning=False,
+        )
+
+        args = _hf_request_args(llm)
+        assert args["reasoning_effort"] == "none"
+
+
 def test_huggingface_glm52_routes_use_json_object_structured_mode():
     for provider in ("zai-org", "together", "deepinfra", "novita", "fireworks-ai"):
         llm = _make_hf_llm(f"zai-org/glm-5.2:{provider}")
@@ -1006,11 +1025,26 @@ def test_huggingface_gemma4_cerebras_default_reasoning_is_disabled():
     assert args["reasoning_effort"] == "none"
 
 
-def test_huggingface_chat_template_kwargs_helper_preserves_existing_values() -> None:
-    extra_body: dict[str, object] = {"chat_template_kwargs": {"temperature": 0.2}}
+def test_huggingface_chat_template_reasoning_preserves_existing_values() -> None:
+    llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=False)
+    request_params = llm.default_request_params.model_copy(
+        update={
+            "metadata": {
+                "extra_body": {
+                    "chat_template_kwargs": {"temperature": 0.2},
+                }
+            }
+        }
+    )
 
-    HuggingFaceLLM._set_chat_template_kwarg(extra_body, "enable_thinking", False)
+    args = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        request_params,
+    )
+    extra_body = args.get("extra_body")
 
+    assert isinstance(extra_body, dict)
     assert extra_body["chat_template_kwargs"] == {
         "temperature": 0.2,
         "enable_thinking": False,

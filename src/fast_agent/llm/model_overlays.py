@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -78,7 +79,28 @@ class ModelOverlayConnection(BaseModel):
     api_key_env: str | None = None
     secret_ref: str | None = None
     default_headers: dict[str, str] = Field(default_factory=dict)
-    reasoning_api: Literal["reasoning_effort", "chat_template_kwargs"] | None = None
+    reasoning_field: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_legacy_reasoning_api(cls, value: object) -> object:
+        if isinstance(value, Mapping):
+            for key, legacy_value in value.items():
+                if key != "reasoning_api":
+                    continue
+                if legacy_value == "reasoning_effort":
+                    raise ValueError(
+                        "connection.reasoning_api is no longer supported; "
+                        "use connection.reasoning_field: reasoning_effort"
+                    )
+                raise ValueError(
+                    "connection.reasoning_api is no longer supported; "
+                    "chat_template_kwargs has no reasoning_field equivalent"
+                )
+        return value
 
     @model_validator(mode="after")
     def _validate_auth_configuration(self) -> "ModelOverlayConnection":
@@ -280,8 +302,8 @@ class ModelOverlayManifest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_provider_connection_options(self) -> "ModelOverlayManifest":
-        if self.connection.reasoning_api is not None and self.provider is not Provider.HUGGINGFACE:
-            raise ValueError("connection.reasoning_api is supported only for provider 'hf'")
+        if self.connection.reasoning_field is not None and self.provider is not Provider.GENERIC:
+            raise ValueError("connection.reasoning_field is supported only for provider 'generic'")
         return self
 
 
@@ -382,8 +404,8 @@ class LoadedModelOverlay:
         default_headers = self.resolved_default_headers()
         if default_headers is not None:
             kwargs["default_headers"] = default_headers
-        if self.manifest.connection.reasoning_api is not None:
-            kwargs["reasoning_api"] = self.manifest.connection.reasoning_api
+        if self.manifest.connection.reasoning_field is not None:
+            kwargs["reasoning_field"] = self.manifest.connection.reasoning_field
         return kwargs
 
     def build_model_parameters(self) -> ModelParameters | None:

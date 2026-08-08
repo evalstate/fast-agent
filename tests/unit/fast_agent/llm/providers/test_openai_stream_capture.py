@@ -5,7 +5,7 @@ import warnings
 
 import pytest
 
-from fast_agent.llm.provider.openai._stream_capture import save_stream_chunk
+from fast_agent.llm.provider.openai._stream_capture import save_stream_chunk, save_stream_request
 
 
 class _WarningChunk:
@@ -32,6 +32,24 @@ class _ChunkWithNonJsonPayload:
     def model_dump(self, **kwargs: object) -> dict[str, object]:
         _ = kwargs
         return {"payload": _NonJsonPayload()}
+
+
+@pytest.mark.unit
+def test_save_stream_request_places_large_content_after_controls(tmp_path) -> None:
+    filename_base = tmp_path / "capture"
+
+    save_stream_request(
+        filename_base,
+        {
+            "messages": [{"role": "user", "content": "hello"}],
+            "reasoning_effort": "max",
+            "model": "model",
+            "max_tokens": 1024,
+        },
+    )
+
+    payload = json.loads(filename_base.with_name("capture_request.json").read_text())
+    assert list(payload) == ["max_tokens", "model", "reasoning_effort", "messages"]
 
 
 @pytest.mark.unit
