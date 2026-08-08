@@ -188,6 +188,8 @@ class HuggingFaceRouteProfile:
     structured_json_mode: Literal["schema", "object"] | None = None
 
 
+HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND = "custom-endpoint"
+
 _DEEPSEEK_V4_FLASH = "deepseek-ai/deepseek-v4-flash-0731"
 _GLM_52 = "zai-org/glm-5.2"
 _KIMI_K3 = "moonshotai/kimi-k3"
@@ -221,7 +223,13 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
     (
         RouterProfileRule(
             model=_DEEPSEEK_V4_FLASH,
-            backends=frozenset({"baseten", "deepinfra"}),
+            backends=frozenset(
+                {
+                    "baseten",
+                    "deepinfra",
+                    HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND,
+                }
+            ),
             profile=HuggingFaceRouteProfile(reasoning=_DEEPSEEK_REASONING),
         ),
         RouterProfileRule(

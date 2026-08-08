@@ -82,8 +82,15 @@ def test_deepseek_picker_aliases_apply_reasoning_override(alias: str) -> None:
     assert request["reasoning_effort"] == "none"
 
 
-def test_deepseek_unprofiled_route_does_not_invent_wire_contract() -> None:
-    request = _factory_request("hf.deepseek-ai/DeepSeek-V4-Flash-0731:together")
+@pytest.mark.parametrize(
+    "model",
+    (
+        "hf.deepseek-ai/DeepSeek-V4-Flash-0731",
+        "hf.deepseek-ai/DeepSeek-V4-Flash-0731:together",
+    ),
+)
+def test_deepseek_unprofiled_route_does_not_invent_wire_contract(model: str) -> None:
+    request = _factory_request(model)
 
     assert "reasoning_effort" not in request
 
@@ -102,6 +109,76 @@ def test_deepseek_profile_uses_configured_hf_backend() -> None:
     )
 
     assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731:deepinfra"
+    assert request["reasoning_effort"] == "max"
+
+
+@pytest.mark.parametrize(
+    ("reasoning_effort", "expected_effort"),
+    (
+        (None, "max"),
+        ("none", "none"),
+    ),
+)
+def test_deepseek_custom_endpoint_uses_reasoning_without_wire_suffix(
+    reasoning_effort: str | None,
+    expected_effort: str,
+) -> None:
+    settings = Settings(hf=HuggingFaceSettings(base_url="https://dedicated.example.test/v1"))
+    kwargs: dict[str, object] = {
+        "context": Context(config=settings),
+        "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+    }
+    if reasoning_effort is not None:
+        kwargs["reasoning_effort"] = reasoning_effort
+    llm = HuggingFaceLLM(**kwargs)
+
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert llm._provider_base_url() == "https://dedicated.example.test/v1"
+    assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731"
+    assert request["reasoning_effort"] == expected_effort
+
+
+def test_deepseek_custom_endpoint_does_not_override_explicit_router_backend() -> None:
+    settings = Settings(hf=HuggingFaceSettings(base_url="https://dedicated.example.test/v1"))
+    llm = HuggingFaceLLM(
+        context=Context(config=settings),
+        model="deepseek-ai/DeepSeek-V4-Flash-0731:together",
+    )
+
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731:together"
+    assert "reasoning_effort" not in request
+
+
+def test_deepseek_custom_endpoint_uses_nested_hf_base_url_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HF__BASE_URL", "https://dedicated.example.test/v1")
+    settings = Settings()
+    llm = HuggingFaceLLM(
+        context=Context(config=settings),
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
+    )
+
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert settings.hf is not None
+    assert settings.hf.base_url == "https://dedicated.example.test/v1"
+    assert request["model"] == "deepseek-ai/DeepSeek-V4-Flash-0731"
     assert request["reasoning_effort"] == "max"
 
 

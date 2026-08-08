@@ -4,6 +4,7 @@ from typing import Any
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.huggingface_router_profiles import (
     GENERIC_REASONING_TOGGLE,
+    HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND,
     HUGGINGFACE_ROUTE_PROFILES,
     HuggingFaceRouteProfile,
 )
@@ -175,9 +176,15 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         normalized_model = ModelDatabase.normalize_model_name(base_model or model)
         if not normalized_model:
             return None
+        backend = explicit_provider or self._hf_provider_suffix
+        if backend is None and self._provider_base_url() != HUGGINGFACE_BASE_URL:
+            # A dedicated HF endpoint does not use a router-provider suffix in
+            # its wire model. Use an internal marker solely for route-profile
+            # selection so known model contracts still apply.
+            backend = HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND
         return RouterRoute(
             model=normalized_model,
-            backend=explicit_provider or self._hf_provider_suffix,
+            backend=backend,
         )
 
     def _resolve_default_provider(self) -> str | None:
