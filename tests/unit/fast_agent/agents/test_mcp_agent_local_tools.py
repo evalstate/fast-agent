@@ -973,20 +973,29 @@ async def test_write_text_file_auto_mode_uses_edit_only_for_anthropic_series_mod
 
 
 @pytest.mark.asyncio
-async def test_deepseek_uses_catalog_driven_shell_and_edit_only_contract() -> None:
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "deepseek.deepseek-v4-flash",
+        "hf.deepseek-ai/DeepSeek-V4-Flash-0731?reasoning=max",
+    ],
+)
+async def test_deepseek_uses_catalog_driven_shell_and_writer_editor_contract(
+    model_name: str,
+) -> None:
     config = AgentConfig(
         name="test",
         instruction="Instruction",
         servers=[],
         shell=True,
-        model="deepseek.deepseek-v4-flash",
+        model=model_name,
     )
     agent = McpAgent(config=config, context=Context())
 
     tools = {tool.name: tool for tool in (await agent.list_tools()).tools}
     assert "Shell" in tools
     assert "bash" not in tools
-    assert "write_text_file" not in tools
+    assert "write_text_file" in tools
     assert "edit_file" in tools
     assert "apply_patch" not in tools
     assert set(tools["Shell"].input_schema["properties"]) == {
@@ -1000,8 +1009,8 @@ async def test_deepseek_uses_catalog_driven_shell_and_edit_only_contract() -> No
 
 
 @pytest.mark.asyncio
-async def test_explicit_write_mode_overrides_deepseek_edit_only_default() -> None:
-    settings = Settings(shell_execution=ShellSettings(write_text_file_mode="on"))
+async def test_explicit_edit_mode_overrides_deepseek_writer_editor_default() -> None:
+    settings = Settings(shell_execution=ShellSettings(write_text_file_mode="edit_file"))
     config = AgentConfig(
         name="test",
         instruction="Instruction",
@@ -1012,7 +1021,7 @@ async def test_explicit_write_mode_overrides_deepseek_edit_only_default() -> Non
     agent = McpAgent(config=config, context=Context(config=settings))
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
-    assert "write_text_file" in tool_names
+    assert "write_text_file" not in tool_names
     assert "edit_file" in tool_names
 
     await agent._aggregator.close()
@@ -1038,7 +1047,7 @@ async def test_attaching_deepseek_rebuilds_shell_and_file_tool_contract() -> Non
     attached = {tool.name for tool in (await agent.list_tools()).tools}
     assert "Shell" in attached
     assert "bash" not in attached
-    assert "write_text_file" not in attached
+    assert "write_text_file" in attached
     assert "edit_file" in attached
 
     await agent._aggregator.close()

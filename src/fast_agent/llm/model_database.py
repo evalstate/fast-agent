@@ -253,6 +253,13 @@ class ModelDatabase:
         "targeted changes to existing files. Do not serialize independent file creation "
         "across turns."
     )
+    MODEL_PREFERS_WRITER_EDITOR = (
+        "Use `write_text_file` to create or replace a complete text file. Use "
+        "`edit_file` to create a missing text file or make an exact targeted change to "
+        "an existing text file. For `edit_file` creation, omit `old_string`; for an "
+        "existing file, provide the exact current `old_string`. Do not serialize "
+        "independent file-tool calls across turns when they can be issued together."
+    )
 
     OPENAI_O_CLASS_REASONING = ReasoningEffortSpec(
         kind="effort",
@@ -721,12 +728,12 @@ class ModelDatabase:
         reasoning="openai",
         reasoning_effort_spec=DEEPSEEK_REASONING_EFFORT_SPEC,
         default_provider=Provider.DEEPSEEK,
-        # Intentional reuse of the file-writing guidance: probe data
-        # showed ~-20% token usage with no pass-rate regression for this model.
-        model_specific=MODEL_PREFERS_HEREDOCS,
+        # Matched full-precision probe data favored the combined writer/editor
+        # contract over edit-only while reducing token usage.
+        model_specific=MODEL_PREFERS_WRITER_EDITOR,
         shell_tool_name="Shell",
         shell_tool_requires_description=True,
-        shell_edit_tool="edit_file",
+        shell_edit_tool="write_text_file",
     )
     DEEPSEEK_V4_FLASH_HF = DEEPSEEK_V4_FLASH.model_copy(
         update={

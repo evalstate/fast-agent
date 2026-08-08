@@ -458,12 +458,15 @@ def test_model_database_supports_mime_basic():
 
 
 def test_deepseek_v4_flash_uses_learned_shell_contract() -> None:
-    params = ModelDatabase.get_model_params("deepseek-v4-flash")
+    for model_name in ("deepseek-v4-flash", "deepseek-ai/DeepSeek-V4-Flash-0731"):
+        params = ModelDatabase.get_model_params(model_name)
 
-    assert params is not None
-    assert params.shell_tool_name == "Shell"
-    assert params.shell_tool_requires_description is True
-    assert params.shell_edit_tool == "edit_file"
+        assert params is not None
+        assert params.shell_tool_name == "Shell"
+        assert params.shell_tool_requires_description is True
+        assert params.shell_edit_tool == "write_text_file"
+        assert params.model_specific == ModelDatabase.MODEL_PREFERS_WRITER_EDITOR
+        assert "heredoc" not in params.model_specific.casefold()
 
 
 def test_model_database_xai_grok_aliases_and_responses_transport():

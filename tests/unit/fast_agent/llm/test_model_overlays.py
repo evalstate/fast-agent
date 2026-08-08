@@ -102,7 +102,8 @@ def test_export_preserves_deepseek_shell_contract() -> None:
 
     assert manifest.metadata.shell_tool_name == "Shell"
     assert manifest.metadata.shell_tool_requires_description is True
-    assert manifest.metadata.shell_edit_tool == "edit_file"
+    assert manifest.metadata.shell_edit_tool == "write_text_file"
+    assert manifest.metadata.model_specific == ModelDatabase.MODEL_PREFERS_WRITER_EDITOR
 
 
 def test_export_preserves_explicit_provider_over_catalog_default() -> None:
