@@ -28,7 +28,7 @@ class UnavailableToolCall:
 @dataclass(frozen=True)
 class ToolCallPlan:
     planned_calls: list[PlannedToolCall]
-    unavailable_call: UnavailableToolCall | None = None
+    unavailable_calls: list[UnavailableToolCall]
 
 
 @dataclass(frozen=True)
@@ -49,18 +49,29 @@ def plan_tool_calls(
     available_tools: Collection[str],
     execution_tools: Mapping[str, object],
 ) -> ToolCallPlan:
+    known_tool_names = set(available_tools) | set(execution_tools)
+    casefolded_tool_names: dict[str, list[str]] = {}
+    for known_tool_name in known_tool_names:
+        casefolded_tool_names.setdefault(known_tool_name.casefold(), []).append(known_tool_name)
+
     planned_calls: list[PlannedToolCall] = []
+    unavailable_calls: list[UnavailableToolCall] = []
     for correlation_id, tool_request in tool_call_items:
-        tool_name = tool_request.params.name
+        requested_tool_name = tool_request.params.name
         tool_args = tool_request.params.arguments or {}
-        if tool_name not in available_tools and tool_name not in execution_tools:
-            return ToolCallPlan(
-                planned_calls=planned_calls,
-                unavailable_call=UnavailableToolCall(
-                    correlation_id=correlation_id,
-                    name=tool_name,
-                ),
-            )
+        tool_name = requested_tool_name
+        if tool_name not in known_tool_names:
+            casefolded_matches = casefolded_tool_names.get(tool_name.casefold(), [])
+            if len(casefolded_matches) == 1:
+                tool_name = casefolded_matches[0]
+            else:
+                unavailable_calls.append(
+                    UnavailableToolCall(
+                        correlation_id=correlation_id,
+                        name=requested_tool_name,
+                    )
+                )
+                continue
         planned_calls.append(
             PlannedToolCall(
                 correlation_id=correlation_id,
@@ -68,7 +79,10 @@ def plan_tool_calls(
                 arguments=tool_args,
             )
         )
-    return ToolCallPlan(planned_calls=planned_calls)
+    return ToolCallPlan(
+        planned_calls=planned_calls,
+        unavailable_calls=unavailable_calls,
+    )
 
 
 async def execute_planned_tool_call(

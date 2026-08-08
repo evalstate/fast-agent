@@ -86,14 +86,149 @@ async def test_tool_loop_unknown_tool():
     )
 
     tool_response = await tool_agent.run_tools(assistant_message)
-    assert tool_response.channels is not None
-    assert FAST_AGENT_ERROR_CHANNEL in tool_response.channels
-    channel_content = tool_response.channels[FAST_AGENT_ERROR_CHANNEL][0]
-    assert getattr(channel_content, "text", None) == "Tool 'tool_function' is not available"
+    assert tool_response.channels is None or FAST_AGENT_ERROR_CHANNEL not in tool_response.channels
 
-    # make sure that the error content is also visible to the LLM via this "User" message
     assert "user" == tool_response.role
-    assert "Tool 'tool_function' is not available" in tool_response.first_text()
+    assert tool_response.tool_results is not None
+    unknown_result = tool_response.tool_results["my_id"]
+    assert unknown_result.is_error is True
+    assert get_text(unknown_result.content[0]) == (
+        "Tool 'tool_function' is not available. No tools are currently available."
+    )
+
+
+class CorrectingToolNameLlm(PassthroughLLM):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.call_count = 0
+        self.seen_unknown_tool_error = False
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        self.call_count += 1
+        if self.call_count == 1:
+            return Prompt.assistant(
+                "Use the wrong name",
+                stop_reason=LlmStopReason.TOOL_USE,
+                tool_calls={
+                    "wrong_name": CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(name="missing_tool"),
+                    )
+                },
+            )
+        if self.call_count == 2:
+            latest_message = multipart_messages[-1]
+            latest_results = latest_message.tool_results or {}
+            latest_result = latest_results.get("wrong_name")
+            self.seen_unknown_tool_error = bool(
+                latest_result
+                and latest_result.content
+                and "Available tools: tool_function." in (get_text(latest_result.content[0]) or "")
+            )
+            return Prompt.assistant(
+                "Correct the tool name",
+                stop_reason=LlmStopReason.TOOL_USE,
+                tool_calls={
+                    "correct_name": CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(name="tool_function"),
+                    )
+                },
+            )
+        return Prompt.assistant("Recovered", stop_reason=LlmStopReason.END_TURN)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_tool_loop_allows_unknown_tool_name_correction():
+    tool_llm = CorrectingToolNameLlm()
+    tool_agent = ToolAgent(AgentConfig("tool_calling"), [tool_function])
+    tool_agent._llm = tool_llm
+
+    result = await tool_agent.generate("test")
+
+    assert result.last_text() == "Recovered"
+    assert tool_llm.call_count == 3
+    assert tool_llm.seen_unknown_tool_error is True
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_unknown_parallel_tool_does_not_block_valid_sibling():
+    tool_runs = 0
+
+    def counting_tool() -> int:
+        nonlocal tool_runs
+        tool_runs += 1
+        return tool_runs
+
+    tool_agent = ToolAgent(AgentConfig("tool_calling"), [counting_tool])
+    assistant_message = Prompt.assistant(
+        "Run both",
+        stop_reason=LlmStopReason.TOOL_USE,
+        tool_calls={
+            "unknown": CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(name="missing_tool"),
+            ),
+            "valid": CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(name="counting_tool"),
+            ),
+        },
+    )
+
+    tool_response = await tool_agent.run_tools(assistant_message)
+
+    assert tool_runs == 1
+    assert tool_response.channels is None or FAST_AGENT_ERROR_CHANNEL not in tool_response.channels
+    assert tool_response.tool_results is not None
+    assert tool_response.tool_results["unknown"].is_error is True
+    assert tool_response.tool_results["valid"].is_error is False
+
+
+class PersistentUnknownToolLlm(PassthroughLLM):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.call_count = 0
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        self.call_count += 1
+        return Prompt.assistant(
+            "Use the unavailable name",
+            stop_reason=LlmStopReason.TOOL_USE,
+            tool_calls={
+                f"unknown_{self.call_count}": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="missing_tool"),
+                )
+            },
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_unknown_tool_name_recovery_respects_max_iterations():
+    tool_llm = PersistentUnknownToolLlm()
+    tool_agent = ToolAgent(AgentConfig("tool_calling"), [tool_function])
+    tool_agent._llm = tool_llm
+
+    result = await tool_agent.generate("test", RequestParams(max_iterations=1))
+
+    assert result.stop_reason == LlmStopReason.MAX_ITERATIONS
+    assert tool_llm.call_count == 2
 
 
 class PersistentToolGeneratingLlm(PassthroughLLM):
