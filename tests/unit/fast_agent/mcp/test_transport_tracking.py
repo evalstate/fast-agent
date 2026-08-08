@@ -288,6 +288,109 @@ def test_response_channel_records_error_response() -> None:
     assert metrics.consume_response_channel(7) == "get"
 
 
+def test_ping_error_response_is_recorded_as_a_connection_failure() -> None:
+    metrics = TransportChannelMetrics()
+    metrics.register_ping_request(1)
+
+    metrics.record_event(
+        ChannelEvent(
+            channel="get",
+            event_type="message",
+            message=JSONRPCError(
+                jsonrpc="2.0",
+                id=1,
+                error=ErrorData(code=-32603, message="ping timeout"),
+            ),
+        )
+    )
+
+    snapshot = metrics.snapshot()
+    assert snapshot.get is not None
+    assert snapshot.get.state == "error"
+    assert snapshot.get.last_error == "ping timeout (-32603)"
+    assert snapshot.get.last_event == "error"
+
+
+def test_ping_error_response_on_post_channel_is_recorded_as_a_connection_failure() -> None:
+    metrics = TransportChannelMetrics()
+    metrics.register_ping_request(1)
+
+    metrics.record_event(
+        ChannelEvent(
+            channel="post-json",
+            event_type="message",
+            message=JSONRPCError(
+                jsonrpc="2.0",
+                id=1,
+                error=ErrorData(code=-32603, message="ping timeout"),
+            ),
+        )
+    )
+
+    snapshot = metrics.snapshot()
+    assert snapshot.post is not None
+    assert snapshot.post.state == "error"
+    assert snapshot.post.last_error == "ping timeout (-32603)"
+
+
+def test_get_ping_error_is_visible_while_the_channel_stays_connected() -> None:
+    metrics = TransportChannelMetrics()
+    metrics.record_event(ChannelEvent(channel="get", event_type="connect"))
+    metrics.register_ping_request(1)
+
+    metrics.record_event(
+        ChannelEvent(
+            channel="get",
+            event_type="message",
+            message=JSONRPCError(
+                jsonrpc="2.0",
+                id=1,
+                error=ErrorData(code=-32603, message="ping timeout"),
+            ),
+        )
+    )
+
+    snapshot = metrics.snapshot()
+    assert snapshot.get is not None
+    assert snapshot.get.connected is True
+    assert snapshot.get.state == "error"
+    assert snapshot.get.last_error == "ping timeout (-32603)"
+
+
+def test_ping_error_clears_on_the_next_successful_ping() -> None:
+    metrics = TransportChannelMetrics()
+    metrics.record_event(ChannelEvent(channel="get", event_type="connect"))
+    metrics.register_ping_request(1)
+    metrics.record_event(
+        ChannelEvent(
+            channel="get",
+            event_type="message",
+            message=JSONRPCError(
+                jsonrpc="2.0",
+                id=1,
+                error=ErrorData(code=-32603, message="ping timeout"),
+            ),
+        )
+    )
+    first_snapshot = metrics.snapshot()
+    assert first_snapshot.get is not None
+    assert first_snapshot.get.state == "error"
+
+    metrics.register_ping_request(2)
+    metrics.record_event(
+        ChannelEvent(
+            channel="get",
+            event_type="message",
+            message=JSONRPCResponse(jsonrpc="2.0", id=2, result={}),
+        )
+    )
+
+    snapshot = metrics.snapshot()
+    assert snapshot.get is not None
+    assert snapshot.get.state == "open"
+    assert snapshot.get.last_error is None
+
+
 @pytest.mark.parametrize(
     "method",
     ["ping", "PING", " notifications/PING ", "mcp.ping"],
