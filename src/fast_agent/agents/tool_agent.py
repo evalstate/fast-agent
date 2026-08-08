@@ -696,8 +696,8 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         )
         for unavailable_call in plan.unavailable_calls:
             error_message = f"Tool '{unavailable_call.name}' is not available.{available_summary}"
-            logger.error(error_message)
-            self._record_unavailable_tool_result(
+            logger.warning(error_message)
+            self._record_tool_error_result(
                 correlation_id=unavailable_call.correlation_id,
                 error_message=error_message,
                 tool_results=tool_results,
@@ -1007,7 +1007,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             tool_metadata=tool_metadata,
         )
 
-    def _record_unavailable_tool_result(
+    def _record_tool_error_result(
         self,
         *,
         correlation_id: str,
@@ -1035,7 +1035,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         tool_results: dict[str, CallToolResult],
         tool_call_id: str | None = None,
     ) -> str:
-        self._record_unavailable_tool_result(
+        self._record_tool_error_result(
             correlation_id=correlation_id,
             error_message=error_message,
             tool_results=tool_results,
