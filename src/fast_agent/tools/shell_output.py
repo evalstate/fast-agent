@@ -36,6 +36,7 @@ class ShellOutputBuffer:
     retained_output_max_bytes: int = 0
     retained_output_bytes: int = 0
     retained_output_complete: bool = True
+    retained_output_via_process: bool = False
     extended_guidance: bool = False
 
     def append(self, text: str) -> None:
@@ -134,6 +135,20 @@ class ShellOutputBuffer:
     def _truncation_guidance(self) -> str:
         if self.retained_output_path is None or not self.retained_output_path.exists():
             return _OUTPUT_LIMIT_GUIDANCE
+        if self.retained_output_via_process:
+            completeness = (
+                "The complete output"
+                if self.retained_output_complete
+                else (
+                    f"The first {self.retained_output_bytes} bytes retained before "
+                    "the temporary-output quota was reached"
+                )
+            )
+            return (
+                f"{completeness} can be read through the managed process handle. "
+                "Use the process tool with action='read_output' and the process_id "
+                "from this result."
+            )
         notice = format_retained_artifact_notice(
             path=str(self.retained_output_path),
             retained_bytes=self.retained_output_bytes,

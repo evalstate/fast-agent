@@ -434,18 +434,19 @@ Hugging Face and Anthropic skills, and teams can add their own.
 Common workflow:
 
 ```text
-/skills            # list available skills
-/skills add        # browse and install from the active registry
+/skills            # list locally installed skills
+/skills available  # browse the active registry
+/skills search web # search the active registry
+/skills add 1      # install by number or name
 /skills remove 1   # remove by number or name
 /skills registry   # view or switch registries
 ```
 
-`/skills add` presents the available skills as a numbered list, so installing
-one is usually just:
+Browse another registry for one invocation without changing the active source:
 
 ```text
-/skills add
-/skills add 1
+/skills available --registry hf
+/skills add huggingface-datasets --registry hf
 ```
 
 If an agent or sub-agent should **not** see the default skills, make that

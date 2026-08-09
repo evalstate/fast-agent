@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 import pytest
@@ -14,10 +15,12 @@ from fast_agent.core.harness_tools import (
     GET_RESOURCE_TOOL_NAME,
     HARNESS_TOOL_NAMES,
     SLASH_COMMAND_TOOL_NAME,
+    harness_tools_enabled,
     set_harness_tools,
 )
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
+from fast_agent.skills.mcp_registry import McpRegistrySkill, McpSkillRegistry
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 
 if TYPE_CHECKING:
@@ -86,11 +89,38 @@ class _SimulatedMcpAgent(McpAgent):
         return list(self.attached_servers)
 
 
+class _SkillsCatalogAggregator:
+    async def list_mcp_skill_registries(self) -> list[McpSkillRegistry]:
+        return [
+            McpSkillRegistry(
+                server_name="hf",
+                server_version="1.0",
+                skills=[
+                    McpRegistrySkill(
+                        name=f"skill-{index:02}",
+                        description=f"Skill {index} description. " * 30,
+                        uri=f"skill://skill-{index:02}/SKILL.md",
+                        server_name="hf",
+                    )
+                    for index in range(1, 26)
+                ],
+            )
+        ]
+
+
+class _SkillsCatalogAgent(ToolAgent):
+    @property
+    def aggregator(self) -> _SkillsCatalogAggregator:
+        return _SkillsCatalogAggregator()
+
+
 @pytest.mark.asyncio
 async def test_harness_tools_install_execute_and_disable() -> None:
     agent = ToolAgent(AgentConfig("dev", instruction="System details", harness_tools=True))
 
+    assert not harness_tools_enabled(agent)
     assert set_harness_tools(agent, True)
+    assert harness_tools_enabled(agent)
     assert HARNESS_TOOL_NAMES <= _tool_names(agent)
     assert agent._execution_tools[SLASH_COMMAND_TOOL_NAME].parameters["properties"]["command"] == {
         "type": "string"
@@ -112,7 +142,34 @@ async def test_harness_tools_install_execute_and_disable() -> None:
     assert "/usage" in commands_text
     assert "/mcp" in commands_text
     assert "/skills" in commands_text
+    assert "/status" in commands_text
     assert "AgentCard" in resource_text
+
+    for command, expected in (
+        ("/commands mcp", "Usage: `/mcp"),
+        ("/commands mcp attach", "Usage: `/mcp attach <server-name>`"),
+        ("/commands --json", '"kind": "command_index"'),
+        ("/commands mcp attach --json", '"kind": "command_action_detail"'),
+    ):
+        discovered = await agent.call_tool(SLASH_COMMAND_TOOL_NAME, {"command": command})
+        discovered_text = get_text(discovered.content[0])
+        assert not discovered.is_error
+        assert discovered_text is not None
+        assert expected in discovered_text
+
+    async def echo(value: str) -> str:
+        return value
+
+    agent.add_tool(build_default_function_tool(echo))
+    tool_detail = await agent.call_tool(
+        SLASH_COMMAND_TOOL_NAME,
+        {"command": "/tools echo"},
+    )
+    tool_detail_text = get_text(tool_detail.content[0])
+    assert not tool_detail.is_error
+    assert tool_detail_text is not None
+    assert "# Tool schema: echo" in tool_detail_text
+    assert '"value"' in tool_detail_text
 
     for command, expected in (
         ("/usage", "No usage data available."),
@@ -162,6 +219,7 @@ async def test_harness_tools_install_execute_and_disable() -> None:
     assert "/skills \\[list|available|search|add|remove|update|registry|help\\]" in skills_help_text
 
     assert not set_harness_tools(agent, False)
+    assert not harness_tools_enabled(agent)
     assert HARNESS_TOOL_NAMES.isdisjoint(_tool_names(agent))
 
 
@@ -178,6 +236,7 @@ async def test_harness_tools_manage_mcp_servers() -> None:
     assert not connected.is_error
     assert connected_text is not None
     assert "Connected MCP server 'demo'" in connected_text
+    assert "(npx)" in connected_text
     assert agent.attached_servers == ["demo"]
     assert agent.last_server_config is not None
     assert agent.last_options is not None
@@ -216,6 +275,7 @@ async def test_harness_tools_manage_mcp_servers() -> None:
     assert not reconnected.is_error
     assert reconnected_text is not None
     assert "Reconnected MCP server 'demo'" in reconnected_text
+    assert "via stdio" in reconnected_text
 
     disconnected = await agent.call_tool(
         SLASH_COMMAND_TOOL_NAME,
@@ -226,6 +286,69 @@ async def test_harness_tools_manage_mcp_servers() -> None:
     assert disconnected_text is not None
     assert "Disconnected MCP server 'demo'" in disconnected_text
     assert agent.attached_servers == []
+
+
+@pytest.mark.asyncio
+async def test_harness_command_discovery_drilldowns_are_available() -> None:
+    agent = ToolAgent(AgentConfig("dev", harness_tools=True))
+    set_harness_tools(agent, True)
+
+    index = await agent.call_tool(
+        SLASH_COMMAND_TOOL_NAME,
+        {"command": "/commands --json"},
+    )
+    index_text = get_text(index.content[0])
+    assert not index.is_error
+    assert index_text is not None
+    payload = json.loads(index_text)
+    assert isinstance(payload, dict)
+    assert '"name": "--oauth"' not in index_text
+    assert '"name": "--no-oauth"' in index_text
+    commands = payload["commands"]
+    assert isinstance(commands, list)
+
+    for command_entry in commands:
+        assert isinstance(command_entry, dict)
+        command_name = command_entry["name"]
+        assert isinstance(command_name, str)
+        detail = await agent.call_tool(
+            SLASH_COMMAND_TOOL_NAME,
+            {"command": f"/commands {command_name}"},
+        )
+        assert not detail.is_error, get_text(detail.content[0])
+
+        actions = command_entry["actions"]
+        assert isinstance(actions, list)
+        for action_entry in actions:
+            assert isinstance(action_entry, dict)
+            action_name = action_entry["name"]
+            assert isinstance(action_name, str)
+            action_detail = await agent.call_tool(
+                SLASH_COMMAND_TOOL_NAME,
+                {"command": f"/commands {command_name} {action_name}"},
+            )
+            assert not action_detail.is_error, get_text(action_detail.content[0])
+
+
+@pytest.mark.asyncio
+async def test_harness_skills_catalog_supports_one_shot_mcp_json() -> None:
+    agent = _SkillsCatalogAgent(AgentConfig("dev", harness_tools=True))
+    set_harness_tools(agent, True)
+
+    result = await agent.call_tool(
+        SLASH_COMMAND_TOOL_NAME,
+        {"command": ("/skills available --registry hf --limit 10 --page 2 --json")},
+    )
+    result_text = get_text(result.content[0])
+
+    assert not result.is_error
+    assert result_text is not None
+    payload = json.loads(result_text)
+    assert payload["source"]["server_name"] == "hf"
+    assert payload["page"] == 2
+    assert payload["total"] == 25
+    assert payload["skills"][0]["name"] == "skill-11"
+    assert not result_text.startswith("# skills")
 
 
 @pytest.mark.asyncio
@@ -340,6 +463,7 @@ def test_harness_tools_do_not_replace_user_tools() -> None:
     with pytest.raises(AgentConfigError, match="reserved"):
         set_harness_tools(agent, True)
 
+    assert agent.config.harness_tools is False
     assert SLASH_COMMAND_TOOL_NAME in _tool_names(agent)
 
 

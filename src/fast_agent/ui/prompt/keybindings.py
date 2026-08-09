@@ -302,11 +302,17 @@ def _add_cycle_keybindings(
     kb: AgentKeyBindings,
     *,
     app: Any | None,
+    on_cycle_agent_mode: Callable[[], None] | None,
     on_cycle_reasoning: Callable[[], None] | None,
     on_cycle_verbosity: Callable[[], None] | None,
     on_cycle_web_search: Callable[[], None] | None,
     on_cycle_web_fetch: Callable[[], None] | None,
 ) -> None:
+    @kb.add("f5")
+    def _(event) -> None:
+        if _invoke_key_callback(on_cycle_agent_mode, event, app):
+            return
+
     @kb.add("f6")
     def _(event) -> None:
         if _invoke_key_callback(on_cycle_reasoning, event, app):
@@ -436,6 +442,7 @@ def create_keybindings(
     app: Any | None = None,
     agent_provider: "AgentApp | None" = None,
     agent_name: str | None = None,
+    on_cycle_agent_mode: Callable[[], None] | None = None,
 ) -> AgentKeyBindings:
     """Create custom key bindings."""
     kb = AgentKeyBindings()
@@ -447,6 +454,7 @@ def create_keybindings(
     _add_cycle_keybindings(
         kb,
         app=app,
+        on_cycle_agent_mode=on_cycle_agent_mode,
         on_cycle_reasoning=on_cycle_reasoning,
         on_cycle_verbosity=on_cycle_verbosity,
         on_cycle_web_search=on_cycle_web_search,

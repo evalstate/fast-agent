@@ -447,12 +447,18 @@ def build_luna_exec_tool(*, shell_name: str) -> Tool:
     return Tool(
         name=LUNA_EXEC_TOOL_NAME,
         description=(
-            f"Run one shell command in {shell_name}. Keep commands whose result or "
-            "exit status matters in the foreground. Long foreground commands yield a "
-            "managed process ID; use process to inspect, wait for, or stop them. Set "
-            "`background=true` only for a server or service that must remain running. "
-            "`timeout` is a foreground hard deadline. Do not use shell `&`, `nohup`, "
-            "or `disown`."
+            f"Run one shell command in {shell_name}. Keep finite commands whose "
+            "result or exit status matters in the foreground. Omit `timeout` for "
+            "ordinary commands, including builds, tests, installs, downloads, "
+            "compilation, training, and scripts, even when they may be slow; long "
+            "foreground commands auto-yield a managed process ID for process "
+            "wait/status. Set `background=true` only for a server or service that "
+            "must remain running. Use `timeout` only when the user explicitly "
+            "requests a hard deadline or when intentionally bounding disposable "
+            "exploratory work whose termination is acceptable. Timeout expiry "
+            "terminates the process group; inspect useful partial output or "
+            "artifacts, and complete required work without blindly repeating the "
+            "destructive deadline. Do not use shell `&`, `nohup`, or `disown`."
         ),
         input_schema={
             "type": "object",

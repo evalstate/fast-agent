@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
+from weakref import ref
 
 from fast_agent.config import Settings, get_settings
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Iterable, Mapping, Sequence
+    from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
     from pathlib import Path
 
     from fast_agent.commands.results import CommandMessage
@@ -301,7 +302,42 @@ class NonInteractiveCommandIOBase(CommandIO):
         del agent_name, system_prompt, server_count
 
 
-_SESSION_SKILL_SOURCE_OVERRIDES: dict[tuple[str, str, str], str] = {}
+@dataclass(slots=True)
+class _ProviderSkillSourceState:
+    provider_ref: Callable[[], object | None]
+    sources: dict[str, str] = field(default_factory=dict)
+
+
+_ACP_SKILL_SOURCE_OVERRIDES: dict[tuple[str, str], str] = {}
+_PROVIDER_SKILL_SOURCE_OVERRIDES: dict[int, _ProviderSkillSourceState] = {}
+
+
+def _provider_skill_source_state(
+    provider: object,
+    *,
+    create: bool = False,
+) -> _ProviderSkillSourceState | None:
+    provider_id = id(provider)
+    state = _PROVIDER_SKILL_SOURCE_OVERRIDES.get(provider_id)
+    if state is not None and state.provider_ref() is provider:
+        return state
+    if not create:
+        return None
+
+    def remove_provider_state(_provider_ref: object) -> None:
+        _PROVIDER_SKILL_SOURCE_OVERRIDES.pop(provider_id, None)
+
+    try:
+        provider_ref: Callable[[], object | None] = ref(provider, remove_provider_state)
+    except TypeError:
+
+        def strong_provider_ref() -> object:
+            return provider
+
+        provider_ref = strong_provider_ref
+    state = _ProviderSkillSourceState(provider_ref=provider_ref)
+    _PROVIDER_SKILL_SOURCE_OVERRIDES[provider_id] = state
+    return state
 
 
 @dataclass(slots=True)
@@ -353,22 +389,35 @@ class CommandContext:
         active = self.skill_source_overrides.get(agent_name)
         if active is not None or not self.persist_skill_source_overrides:
             return active
-        return _SESSION_SKILL_SOURCE_OVERRIDES.get(self._skill_source_override_key(agent_name))
+        if self.acp_session_id is not None:
+            return _ACP_SKILL_SOURCE_OVERRIDES.get((self.acp_session_id, agent_name))
+        provider_state = _provider_skill_source_state(self.agent_provider)
+        return provider_state.sources.get(agent_name) if provider_state is not None else None
 
     def set_active_skill_source(self, agent_name: str, source: str) -> None:
         self.skill_source_overrides[agent_name] = source
-        if self.persist_skill_source_overrides:
-            _SESSION_SKILL_SOURCE_OVERRIDES[self._skill_source_override_key(agent_name)] = source
+        if not self.persist_skill_source_overrides:
+            return
+        if self.acp_session_id is not None:
+            _ACP_SKILL_SOURCE_OVERRIDES[(self.acp_session_id, agent_name)] = source
+            return
+        provider_state = _provider_skill_source_state(self.agent_provider, create=True)
+        if provider_state is not None:
+            provider_state.sources[agent_name] = source
 
     def clear_active_skill_source(self, agent_name: str) -> None:
         self.skill_source_overrides.pop(agent_name, None)
-        if self.persist_skill_source_overrides:
-            _SESSION_SKILL_SOURCE_OVERRIDES.pop(self._skill_source_override_key(agent_name), None)
-
-    def _skill_source_override_key(self, agent_name: str) -> tuple[str, str, str]:
+        if not self.persist_skill_source_overrides:
+            return
         if self.acp_session_id is not None:
-            return ("acp", self.acp_session_id, agent_name)
-        return ("provider", str(id(self.agent_provider)), agent_name)
+            _ACP_SKILL_SOURCE_OVERRIDES.pop((self.acp_session_id, agent_name), None)
+            return
+        provider_state = _provider_skill_source_state(self.agent_provider)
+        if provider_state is None:
+            return
+        provider_state.sources.pop(agent_name, None)
+        if not provider_state.sources:
+            _PROVIDER_SKILL_SOURCE_OVERRIDES.pop(id(self.agent_provider), None)
 
     def resolve_session_manager(self) -> "SessionManager":
         if self.session_runtime is not None:

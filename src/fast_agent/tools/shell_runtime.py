@@ -228,6 +228,9 @@ class ShellRuntime:
         self._retained_output_directory: Path | None = None
         self._retained_output_max_bytes = 0
         self._retained_output_next_id = 1
+        self._retained_output_via_process = False
+        retain_truncated_output = False
+        retained_output_parent: Path | None = None
         if config is not None:
             shell_config = config.shell_execution
             self._output_display_lines = shell_config.output_display_lines
@@ -236,17 +239,8 @@ class ShellRuntime:
             self._max_process_poll_seconds = shell_config.process_poll_max_wait_seconds
             configured_profile = tool_profile or shell_config.tool_profile
             self._retained_output_max_bytes = shell_config.retained_output_max_bytes
-            if shell_config.retain_truncated_output and self.runtime_info().kind == "local":
-                parent = shell_config.retained_output_temp_directory
-                if parent is not None:
-                    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                self._retained_output_directory = Path(
-                    tempfile.mkdtemp(
-                        prefix="fast-agent-output-",
-                        dir=str(parent) if parent is not None else None,
-                    )
-                )
-                self._retained_output_directory.chmod(0o700)
+            retain_truncated_output = shell_config.retain_truncated_output
+            retained_output_parent = shell_config.retained_output_temp_directory
         self._minimal_process_profile = False
         self._grok_shell_profile = False
         self._luna_exec_profile = False
@@ -261,6 +255,27 @@ class ShellRuntime:
             configured_profile,
             model_profile=model_tool_profile,
         )
+        process_readback_supported = (
+            self._minimal_process_profile or self._grok_shell_profile or self._luna_exec_profile
+        )
+        runtime_kind = self.runtime_info().kind
+        if retain_truncated_output and (runtime_kind == "local" or process_readback_supported):
+            if retained_output_parent is not None:
+                retained_output_parent.mkdir(
+                    mode=0o700,
+                    parents=True,
+                    exist_ok=True,
+                )
+            self._retained_output_directory = Path(
+                tempfile.mkdtemp(
+                    prefix="fast-agent-output-",
+                    dir=(
+                        str(retained_output_parent) if retained_output_parent is not None else None
+                    ),
+                )
+            )
+            self._retained_output_directory.chmod(0o700)
+            self._retained_output_via_process = runtime_kind != "local"
 
     @property
     def tool(self) -> Tool | None:
@@ -1089,6 +1104,7 @@ class ShellRuntime:
             output_byte_limit_requested=output_byte_limit is not None,
             retained_output_path=self._next_retained_output_path(),
             retained_output_max_bytes=self._retained_output_max_bytes,
+            retained_output_via_process=self._retained_output_via_process,
             extended_guidance=self._extended_guidance,
         )
         display_state = self._build_display_state(
@@ -1131,6 +1147,7 @@ class ShellRuntime:
             output_byte_limit_requested=parsed.output_byte_limit is not None,
             retained_output_path=self._next_retained_output_path(),
             retained_output_max_bytes=self._retained_output_max_bytes,
+            retained_output_via_process=self._retained_output_via_process,
             extended_guidance=self._extended_guidance,
         )
         display_state = self._build_display_state(

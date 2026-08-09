@@ -58,6 +58,7 @@ class CommandOutcome:
     switch_agent: str | None = None
     requires_refresh: bool = False
     halt_loop: bool = False
+    direct_response: str | None = None
 
     def add_message(
         self,

@@ -84,23 +84,65 @@ def _model_catalog_action(command: str, *, example_provider: str) -> CommandActi
 COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
     CommandSpec(
         command="skills",
-        summary="Manage local skills",
+        summary="Manage installed skills and skill registries",
         usage="/skills [list|available|search|add|remove|update|registry|help] [args]",
         actions=(
             CommandActionSpec(action="list", help="List local skills", usage="/skills list"),
             CommandActionSpec(
                 action="available",
                 aliases=("marketplace", "browse"),
-                help="Browse marketplace skills",
-                usage="/skills available",
-                examples=("/skills available",),
+                help="Browse skills from the active or selected registry",
+                usage=(
+                    "/skills available [--registry source] [--page N] [--limit N] "
+                    "[--compact|--full|--json]"
+                ),
+                examples=(
+                    "/skills available",
+                    "/skills available --registry hf --compact",
+                ),
+                options=(
+                    CommandOptionSpec(
+                        name="--registry",
+                        aliases=("-r",),
+                        value_name="url|path|mcp-server",
+                        summary="Browse this registry without changing the active registry.",
+                    ),
+                    CommandOptionSpec(
+                        name="--page",
+                        value_name="N",
+                        summary="Show a 1-based result page.",
+                    ),
+                    CommandOptionSpec(
+                        name="--limit",
+                        value_name="N",
+                        summary="Set page size, up to 100.",
+                    ),
+                    CommandOptionSpec(
+                        name="--compact",
+                        summary="Use bounded one-line descriptions.",
+                    ),
+                    CommandOptionSpec(
+                        name="--full",
+                        summary="Use the detailed interactive listing.",
+                    ),
+                    CommandOptionSpec(
+                        name="--json",
+                        summary="Return a machine-readable catalog page.",
+                    ),
+                ),
             ),
             CommandActionSpec(
                 action="search",
                 aliases=("find",),
-                help="Search marketplace skills",
-                usage="/skills search <query>",
-                examples=("/skills search docker",),
+                help="Search skills in the active or selected registry",
+                usage=(
+                    "/skills search <query> [--registry source] [--page N] [--limit N] "
+                    "[--compact|--full|--json]"
+                ),
+                examples=(
+                    "/skills search docker",
+                    "/skills search datasets --registry hf",
+                ),
                 arguments=(
                     CommandArgumentSpec(
                         name="query",
@@ -109,12 +151,45 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                         required=True,
                     ),
                 ),
+                options=(
+                    CommandOptionSpec(
+                        name="--registry",
+                        aliases=("-r",),
+                        value_name="url|path|mcp-server",
+                        summary="Search this registry without changing the active registry.",
+                    ),
+                    CommandOptionSpec(
+                        name="--page",
+                        value_name="N",
+                        summary="Show a 1-based result page.",
+                    ),
+                    CommandOptionSpec(
+                        name="--limit",
+                        value_name="N",
+                        summary="Set page size, up to 100.",
+                    ),
+                    CommandOptionSpec(
+                        name="--compact",
+                        summary="Use bounded one-line descriptions.",
+                    ),
+                    CommandOptionSpec(
+                        name="--full",
+                        summary="Use the detailed interactive listing.",
+                    ),
+                    CommandOptionSpec(
+                        name="--json",
+                        summary="Return a machine-readable catalog page.",
+                    ),
+                ),
             ),
             CommandActionSpec(
                 action="add",
                 aliases=("install",),
                 help="Install a skill",
-                usage=f"/skills add [<{SKILLS_ADD_SELECTOR}>] [--registry url] [--skills-dir path]",
+                usage=(
+                    f"/skills add <{SKILLS_ADD_SELECTOR}> "
+                    "[--registry url|path|mcp-server] [--skills-dir path]"
+                ),
                 examples=(
                     f"/skills add <{SKILLS_ADD_SELECTOR}>",
                     "/skills add https://github.com/org/repo/blob/main/skills/example/SKILL.md",
@@ -125,14 +200,15 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                         name="selector",
                         value_name=SKILLS_ADD_SELECTOR,
                         summary="Skill name, marketplace index, GitHub SKILL.md URL, or local path.",
+                        required=True,
                     ),
                 ),
                 options=(
                     CommandOptionSpec(
                         name="--registry",
                         aliases=("-r",),
-                        value_name="url|path",
-                        summary="Override the skills registry for this invocation.",
+                        value_name="url|path|mcp-server",
+                        summary="Install from this registry without changing the active registry.",
                     ),
                     CommandOptionSpec(
                         name="--skills-dir",
@@ -200,8 +276,8 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 arguments=(
                     CommandArgumentSpec(
                         name="target",
-                        value_name="number|url|path",
-                        summary="Registry selection, URL, or filesystem path.",
+                        value_name="number|url|path|mcp-server",
+                        summary="Registry selection, URL, filesystem path, or attached MCP server.",
                     ),
                 ),
             ),

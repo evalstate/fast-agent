@@ -176,18 +176,25 @@ You can paste images directly with ++alt+v++. In terminals that reserve that cho
 
 Local image attachments, including pasted clipboard images, are displayed inline after your message when terminal image rendering is enabled. Remote image URLs remain as links.
 
-## Model Feature Toggles
+## Agent and Model Feature Toggles
 
-Use the function keys in the prompt to cycle model-specific runtime features:
+Use the function keys in the prompt to cycle agent and model runtime features:
 
-| Key    | Action                     |
-| ------ | -------------------------- |
-| ++f6++ | Cycle reasoning effort     |
-| ++f7++ | Cycle text verbosity       |
-| ++f8++ | Toggle or cycle web search |
-| ++f9++ | Toggle or cycle web fetch  |
+| Key    | Action                                               |
+| ------ | ---------------------------------------------------- |
+| ++f5++ | Cycle Standard → Delegate → Orchestrate → Harness-only |
+| ++f6++ | Cycle reasoning effort                               |
+| ++f7++ | Cycle text verbosity                                 |
+| ++f8++ | Toggle or cycle web search                           |
+| ++f9++ | Toggle or cycle web fetch                            |
 
-These toggles apply when the selected model/provider supports the feature.
+Delegate enables the built-in subagent tool. Orchestrate also enables the
+parent agent's harness tools for allow-listed commands and resources.
+Harness-only keeps those harness tools enabled without subagent delegation. The
+toolbar shows these capabilities as `↳⌘`, with active capabilities highlighted.
+Agent modes apply only to compatible agents and cannot override an explicit
+subagent disable. Model toggles apply when the selected model/provider supports
+the feature.
 
 ## Prompt Shortcuts
 

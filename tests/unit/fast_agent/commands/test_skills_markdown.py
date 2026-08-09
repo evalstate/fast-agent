@@ -73,7 +73,7 @@ def test_render_skills_by_directory_emits_browse_guidance_once(tmp_path: Path) -
     manifests = SkillRegistry.load_directory(skills_root)
     rendered = render_skills_by_directory({skills_root: manifests}, heading="skills", cwd=tmp_path)
 
-    assert rendered.count("Use `/skills available` to browse marketplace skills.") == 1
+    assert rendered.count("Use `/skills available` to browse available skills.") == 1
     assert rendered.count("Search with `/skills search <query>`.") == 1
 
 
@@ -142,8 +142,8 @@ def test_render_marketplace_skills_footer_has_clean_guidance() -> None:
         heading="skills available",
     )
 
-    assert "Search with `/skills search <query>`.\n" in rendered
-    assert "Search with `/skills search <query>`. \n" not in rendered
+    assert "Search available skills with `/skills search <query>`.\n" in rendered
+    assert "Search available skills with `/skills search <query>`. \n" not in rendered
     assert "Change registry with `/skills registry`." in rendered
 
 

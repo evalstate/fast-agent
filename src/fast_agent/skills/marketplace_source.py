@@ -8,6 +8,7 @@ from fast_agent.skills.command_support import (
     filter_marketplace_skills,
     marketplace_repository_hint,
 )
+from fast_agent.skills.configuration import format_marketplace_display_url
 from fast_agent.skills.direct_sources import is_direct_skill_source
 from fast_agent.skills.models import MarketplaceSkill, SkillUpdateInfo
 from fast_agent.skills.operations import (
@@ -34,7 +35,7 @@ class MarketplaceSkillSource:
     def ref(self) -> SkillSourceRef:
         return SkillSourceRef(
             kind="marketplace",
-            display_name=self._source_url,
+            display_name=format_marketplace_display_url(self._source_url),
             source_url=self._source_url,
         )
 
@@ -80,11 +81,11 @@ class MarketplaceSkillSource:
     def list_heading(self, *, query: str | None = None) -> str:
         normalized_query = strip_to_none(query)
         if normalized_query is None:
-            return "Marketplace skills:"
-        return f"Marketplace skills (search: {normalized_query}):"
+            return "Available skills:"
+        return f"Available skills (search: {normalized_query}):"
 
     def empty_message(self) -> str:
-        return "No skills found in the marketplace."
+        return "No skills found in the registry."
 
     def selection_options(self, entries: Sequence[SkillCatalogEntry]) -> list[str]:
         options: list[str] = []

@@ -2518,7 +2518,7 @@ async def test_execute_retained_output_reports_quota(
 
 
 @pytest.mark.asyncio
-async def test_remote_execute_does_not_advertise_host_retained_output(
+async def test_remote_execute_routes_retained_output_through_process(
     tmp_path: Path,
 ) -> None:
     environment = _DirectShellEnvironment(
@@ -2545,9 +2545,28 @@ async def test_remote_execute_does_not_advertise_host_retained_output(
 
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
-    assert "Increase shell_execution.output_byte_limit to retain more." in (result.content[0].text)
+    assert "action='read_output'" in result.content[0].text
+    assert str(tmp_path) not in result.content[0].text
     assert "Use read_text_file for selected line ranges" not in result.content[0].text
-    assert runtime._retained_output_directory is None
+    assert runtime._retained_output_directory is not None
+    metadata = shell_runtime_module.process_result_metadata(result)
+    assert metadata is not None
+
+    readback = await runtime.call_tool(
+        "process",
+        {
+            "process_id": metadata["process_id"],
+            "action": "read_output",
+            "limit": 80,
+        },
+    )
+    assert readback.is_error is False
+    assert readback.content
+    assert isinstance(readback.content[0], TextContent)
+    payload = json.loads(readback.content[0].text)
+    assert payload["content"] == "x" * 80
+
+    await runtime.close()
 
 
 def test_shell_output_retention_continues_after_result_consumption(
