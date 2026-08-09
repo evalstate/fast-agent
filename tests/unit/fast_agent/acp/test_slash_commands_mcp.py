@@ -257,7 +257,7 @@ async def test_slash_command_mcp_inventory_status_attach_connect_reconnect_disco
     assert "Connected MCP server 'demo'" in connected
 
     alias_connected = await handler.execute_command("connect", "docs")
-    assert "Connected configured MCP server 'docs'." in alias_connected
+    assert "Connected configured MCP server 'docs' via stdio." in alias_connected
     assert app.attached_configs[-1] is None
 
     explicit_connected = await handler.execute_command("mcp", "connect docs")

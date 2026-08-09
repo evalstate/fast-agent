@@ -5,7 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from fast_agent.commands.command_discovery import render_commands_index_markdown
+from fast_agent.commands.command_discovery import (
+    parse_commands_discovery_arguments,
+    render_command_detail_markdown,
+    render_commands_index_markdown,
+    render_commands_json,
+)
 from fast_agent.commands.context import (
     CommandContext,
     NonInteractiveCommandIOBase,
@@ -48,7 +53,6 @@ if TYPE_CHECKING:
     )
 
 _COMMAND_HANDLERS = {
-    "tools": tools_handlers.handle_list_tools,
     "prompts": prompt_handlers.handle_list_prompts,
     "usage": display_handlers.handle_show_usage,
     "system": display_handlers.handle_show_system,
@@ -276,7 +280,7 @@ def _mcp_usage_text() -> str:
             (
                 "- /mcp connect <target> [--name <server>] [--auth <token>] "
                 "[--timeout <seconds>] [--protocol auto|modern|legacy] "
-                "[--reconnect|--no-reconnect]"
+                "[--no-oauth] [--reconnect|--no-reconnect]"
             ),
             "  Model-initiated OAuth is unavailable; use a user-facing command.",
             "- /mcp disconnect <server_name>",
@@ -300,13 +304,21 @@ def _render_outcome(
     heading: str,
     io: _HarnessCommandIO,
 ) -> str:
+    if any(message.channel == "error" for message in outcome.messages):
+        rendered = render_command_outcome_markdown(
+            outcome,
+            heading=heading,
+            extra_messages=io.messages,
+        )
+        raise AgentConfigError(f"/{heading} command failed", rendered)
+    if outcome.direct_response is not None:
+        return outcome.direct_response
+
     rendered = render_command_outcome_markdown(
         outcome,
         heading=heading,
         extra_messages=io.messages,
     )
-    if any(message.channel == "error" for message in outcome.messages):
-        raise AgentConfigError(f"/{heading} command failed", rendered)
     return rendered
 
 
@@ -460,6 +472,58 @@ async def _execute_skills_command(
     return _render_outcome(outcome, heading="skills", io=io)
 
 
+def _execute_commands_command(arguments: str) -> str:
+    try:
+        request = parse_commands_discovery_arguments(arguments)
+    except ValueError as exc:
+        raise AgentConfigError("Invalid /commands arguments", str(exc)) from exc
+
+    if request.as_json:
+        return render_commands_json(
+            command_name=request.command_name,
+            action_name=request.action_name,
+            command_names=_COMMAND_NAMES,
+            model_facing=True,
+        )
+    if request.command_name is None:
+        return render_commands_index_markdown(command_names=_COMMAND_NAMES)
+    if request.command_name not in _COMMAND_NAMES:
+        available = ", ".join(f"`/{name}`" for name in _COMMAND_NAMES)
+        raise AgentConfigError(
+            "Unsupported /commands target",
+            f"Command '/{request.command_name}' is unavailable. Supported commands: {available}.",
+        )
+
+    rendered = render_command_detail_markdown(
+        request.command_name,
+        request.action_name,
+        model_facing=True,
+    )
+    if rendered is not None:
+        return rendered
+
+    target = f"/{request.command_name}"
+    if request.action_name is not None:
+        target = f"{target} {request.action_name}"
+    raise AgentConfigError(
+        "Unknown command action",
+        f"No discovery metadata is available for `{target}`.",
+    )
+
+
+def _parse_tools_argument(arguments: str) -> str | None:
+    try:
+        tokens = split_commandline(arguments, syntax="posix")
+    except ValueError as exc:
+        raise AgentConfigError("Invalid /tools arguments", str(exc)) from exc
+    if len(tokens) > 1:
+        raise AgentConfigError(
+            "Invalid /tools arguments",
+            "Usage: /tools [summary|<tool-name>]",
+        )
+    return tokens[0] if tokens else None
+
+
 async def execute_harness_command(
     agent: ToolAgent,
     command: str,
@@ -469,12 +533,7 @@ async def execute_harness_command(
     """Execute an allow-listed model-visible harness command."""
     command_name, arguments = _parse_command(command)
     if command_name in {"help", "?", "commands"}:
-        if arguments.strip():
-            raise AgentConfigError(
-                "Unsupported /commands arguments",
-                "The harness tool currently supports only `/commands`.",
-            )
-        return render_commands_index_markdown(command_names=_COMMAND_NAMES)
+        return _execute_commands_command(arguments)
 
     if command_name == "status":
         if arguments.strip():
@@ -495,6 +554,15 @@ async def execute_harness_command(
                 skill_source_overrides if skill_source_overrides is not None else {}
             ),
         )
+
+    if command_name == "tools":
+        context, io = _command_context(agent)
+        outcome = await tools_handlers.handle_list_tools(
+            context,
+            agent_name=agent.name,
+            argument=_parse_tools_argument(arguments),
+        )
+        return _render_outcome(outcome, heading=command_name, io=io)
 
     handler = _COMMAND_HANDLERS.get(command_name)
     if handler is None:

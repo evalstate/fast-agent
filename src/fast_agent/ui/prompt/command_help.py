@@ -106,6 +106,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  Ctrl+Space     - Open completion menu",
             "  Tab / Shift+Tab - Next/previous completion item (when menu is open)",
             "  Shift+Tab      - Cycle service tier (when completion menu is closed)",
+            "  F5             - Cycle mode (Standard / Delegate / Orchestrate / Harness-only)",
             "  F6             - Cycle reasoning (when supported)",
             "  F7             - Cycle verbosity (when supported)",
             "  F8             - Toggle web search (when supported)",

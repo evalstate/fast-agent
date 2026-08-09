@@ -29,6 +29,7 @@ from fast_agent.mcp.failures import (
     render_mcp_failure,
 )
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
+from fast_agent.skills.source_resolver import mcp_registry_source
 from fast_agent.utils.commandline import join_commandline
 from fast_agent.utils.count_display import format_count_parts
 from fast_agent.utils.numeric import nonnegative_int_or_none
@@ -135,6 +136,17 @@ def _resolve_configured_source_from_context(
     if server_config is None:
         return None
     return _describe_server_config_source(server_config)
+
+
+def _mcp_server_command(action: str, server_name: str) -> str:
+    return join_commandline(["/mcp", action, server_name], syntax="posix")
+
+
+def _skills_browse_command(server_name: str) -> str:
+    return join_commandline(
+        ["/skills", "available", "--registry", mcp_registry_source(server_name)],
+        syntax="posix",
+    )
 
 
 def _configured_connect_server(
@@ -336,8 +348,12 @@ async def handle_mcp_attach(
         return outcome
 
     if result.already_attached:
+        reconnect_command = _mcp_server_command("reconnect", server_name)
         outcome.add_message(
-            f"MCP server '{server_name}' is already attached.",
+            (
+                f"MCP server '{server_name}' is already attached via {result.transport}. "
+                f"Use `{reconnect_command}` to reconnect and refresh capabilities."
+            ),
             channel="warning",
             right_info="mcp",
             agent_name=agent_name,
@@ -346,7 +362,7 @@ async def handle_mcp_attach(
 
     source_suffix = f": {source}." if source else "."
     outcome.add_message(
-        f"Attached configured MCP server '{server_name}'{source_suffix}",
+        f"Attached configured MCP server '{server_name}' via {result.transport}{source_suffix}",
         right_info="mcp",
         agent_name=agent_name,
     )
@@ -355,6 +371,14 @@ async def handle_mcp_attach(
         right_info="mcp",
         agent_name=agent_name,
     )
+    if result.skills_total is not None and result.skills_total > 0:
+        browse_command = _skills_browse_command(server_name)
+        outcome.add_message(
+            f"Browse this server's skills with `{browse_command}`.",
+            channel="info",
+            right_info="mcp",
+            agent_name=agent_name,
+        )
     for warning in result.warnings:
         outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)
     return outcome
@@ -483,9 +507,10 @@ def _connect_success_message(
     mode: _McpConnectRuntimeMode,
     server_name: str,
     configured: bool,
+    transport: str,
 ) -> str:
     if configured:
-        return f"{action} configured MCP server '{server_name}'."
+        return f"{action} configured MCP server '{server_name}' via {transport}."
     return f"{action} MCP server '{server_name}' ({mode})."
 
 
@@ -529,6 +554,7 @@ async def _add_connect_success_messages(
         mode=mode,
         server_name=server_name,
         configured=configured,
+        transport=result.transport,
     )
     outcome.add_message(
         message_text,
@@ -541,6 +567,14 @@ async def _add_connect_success_messages(
     )
     summary = _format_refreshed_summary(counts) if reconnected else _format_added_summary(counts)
     outcome.add_message(summary, right_info="mcp", agent_name=agent_name)
+    if result.skills_total is not None and result.skills_total > 0:
+        browse_command = _skills_browse_command(server_name)
+        outcome.add_message(
+            f"Browse this server's skills with `{browse_command}`.",
+            channel="info",
+            right_info="mcp",
+            agent_name=agent_name,
+        )
     await _emit_connect_progress(on_progress, f"{action} MCP server '{server_name}'.")
 
 
@@ -744,10 +778,11 @@ async def handle_mcp_reconnect(
     if server_name not in attached_servers:
         configured = await manager.list_configured_detached_mcp_servers(agent_name)
         if server_name in configured:
+            attach_command = _mcp_server_command("attach", server_name)
             outcome.add_message(
                 (
                     f"MCP server '{server_name}' is configured but not attached. "
-                    f"Use `/mcp attach {server_name}`."
+                    f"Use `{attach_command}`."
                 ),
                 channel="warning",
                 right_info="mcp",
@@ -778,7 +813,7 @@ async def handle_mcp_reconnect(
 
     counts = _mcp_attach_counts(result)
 
-    message_text = f"Reconnected MCP server '{server_name}'."
+    message_text = f"Reconnected MCP server '{server_name}' via {result.transport}."
     outcome.add_message(
         message_text,
         right_info="mcp",

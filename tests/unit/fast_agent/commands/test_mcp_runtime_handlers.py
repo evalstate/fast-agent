@@ -182,6 +182,26 @@ class _AlreadyAttachedManager(_Manager):
         )
 
 
+class _SkillsManager(_Manager):
+    async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
+        result = await super().attach_mcp_server(
+            agent_name,
+            server_name,
+            server_config=server_config,
+            options=options,
+        )
+        return MCPAttachResult(
+            server_name=result.server_name,
+            transport=result.transport,
+            attached=result.attached,
+            already_attached=result.already_attached,
+            tools_added=result.tools_added,
+            prompts_added=result.prompts_added,
+            warnings=result.warnings,
+            skills_total=25,
+        )
+
+
 class _OAuthEventManager(_Manager):
     async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
         if options and options.oauth_event_handler is not None:
@@ -353,6 +373,39 @@ def test_runtime_rejects_missing_auth_env_reference(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_handle_mcp_attach_reports_transport_and_reconnect_recovery() -> None:
+    manager = _AlreadyAttachedManager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_attach(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        server_name="docs server",
+    )
+
+    message_text = "\n".join(str(message.text) for message in outcome.messages)
+    assert "already attached via stdio" in message_text
+    assert "/mcp reconnect 'docs server'" in message_text
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_attach_points_to_one_shot_skills_registry_browse() -> None:
+    manager = _SkillsManager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_attach(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        server_name="docs server",
+    )
+
+    message_text = "\n".join(str(message.text) for message in outcome.messages)
+    assert "/skills available --registry 'mcp://docs server'" in message_text
+
+
+@pytest.mark.asyncio
 async def test_handle_mcp_connect_and_disconnect() -> None:
     manager = _Manager()
     ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
@@ -401,7 +454,7 @@ async def test_handle_mcp_reconnect_attached_server() -> None:
     )
 
     message_text = "\n".join(str(message.text) for message in outcome.messages)
-    assert "Reconnected MCP server 'demo'." in message_text
+    assert "Reconnected MCP server 'demo' via stdio." in message_text
     assert outcome.messages[0].metadata["mcp_connect_status"] == "reconnected"
     assert "Refreshed 2 tools and 4 prompts (0 new)." in message_text
     assert manager.last_options is not None
@@ -503,7 +556,8 @@ async def test_connect_alias_attaches_matching_central_config() -> None:
     )
 
     assert any(
-        "Attached configured MCP server 'docs': https://docs.example.com/mcp." in str(msg.text)
+        "Attached configured MCP server 'docs' via stdio: https://docs.example.com/mcp."
+        in str(msg.text)
         for msg in attach_outcome.messages
     )
     assert manager.last_config is None
@@ -517,7 +571,7 @@ async def test_connect_alias_attaches_matching_central_config() -> None:
     )
 
     assert any(
-        "Connected configured MCP server 'docs'." in str(msg.text)
+        "Connected configured MCP server 'docs' via stdio." in str(msg.text)
         for msg in connect_outcome.messages
     )
     assert manager.last_config is None
@@ -650,7 +704,8 @@ async def test_connect_alias_attaches_configured_name_that_looks_like_target_syn
     )
 
     assert any(
-        "Connected configured MCP server 'npx'." in str(msg.text) for msg in outcome.messages
+        "Connected configured MCP server 'npx' via stdio." in str(msg.text)
+        for msg in outcome.messages
     )
     assert manager.last_config is None
 

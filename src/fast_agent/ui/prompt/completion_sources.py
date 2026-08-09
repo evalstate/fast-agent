@@ -62,6 +62,7 @@ def _catalog_action_tokens(command_name: str, action_name: str) -> frozenset[str
 
 
 _SKILLS_ADD_ACTIONS = _catalog_action_tokens("skills", "add")
+_SKILLS_AVAILABLE_ACTIONS = _catalog_action_tokens("skills", "available")
 _SKILLS_REMOVE_ACTIONS = _catalog_action_tokens("skills", "remove")
 _SKILLS_UPDATE_ACTIONS = _catalog_action_tokens("skills", "update")
 _SKILLS_REGISTRY_ACTIONS = _catalog_action_tokens("skills", "registry")
@@ -799,13 +800,23 @@ def _skills_search_completions(
     argument: str,
     results: list[Completion],
 ) -> list[Completion]:
+    results.extend(_catalog_option_completions("skills", "search", argument))
     if not argument:
         results.extend(
             [
-                _hint_completion("<query>", "filter marketplace skills by name/description"),
+                _hint_completion("<query>", "filter available skills by name/description"),
                 _hint_completion("(empty)", "no arg lists all; run /skills available to browse"),
             ]
         )
+    return results
+
+
+def _skills_available_completions(
+    _completer: "AgentCompleter",
+    argument: str,
+    results: list[Completion],
+) -> list[Completion]:
+    results.extend(_catalog_option_completions("skills", "available", argument))
     return results
 
 
@@ -858,6 +869,7 @@ def _skills_registry_completions(
 
 _SKILLS_COMPLETION_DISPATCH: MarketplaceCompletionDispatch = (
     (_SKILLS_ADD_ACTIONS, _skills_add_completions),
+    (_SKILLS_AVAILABLE_ACTIONS, _skills_available_completions),
     (_SKILLS_SEARCH_ACTIONS, _skills_search_completions),
     (_SKILLS_REMOVE_ACTIONS, _skills_remove_completions),
     (_SKILLS_UPDATE_ACTIONS, _skills_update_completions),

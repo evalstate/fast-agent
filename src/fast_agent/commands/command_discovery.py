@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, NotRequired, TypedDict, TypeVar
 
 from fast_agent.commands.command_catalog import (
     COMMAND_SPECS,
+    SKILLS_ADD_SELECTOR,
     CommandActionSpec,
     get_command_action_spec,
     get_command_spec,
@@ -264,6 +265,123 @@ def _simple_command_entry(
     }
 
 
+def _mcp_action_payloads() -> list[CommandIndexAction]:
+    server_name_argument: ActionArgumentPayload = {
+        "name": "server_name",
+        "summary": "Configured or attached MCP server name.",
+        "value_name": "server-name",
+        "required": True,
+    }
+    return [
+        {
+            "name": "list",
+            "summary": MCP_TOP_LEVEL_ACTION_DESCRIPTIONS["list"],
+            "usage": "/mcp list",
+            "examples": ["/mcp list"],
+            "notes": ["Use this to discover configured server names before attaching."],
+        },
+        {
+            "name": "status",
+            "summary": MCP_TOP_LEVEL_ACTION_DESCRIPTIONS["status"],
+            "usage": "/mcp status",
+            "examples": ["/mcp status"],
+        },
+        {
+            "name": "attach",
+            "summary": MCP_TOP_LEVEL_ACTION_DESCRIPTIONS["attach"],
+            "usage": "/mcp attach <server-name>",
+            "examples": ["/mcp attach docs"],
+            "arguments": [server_name_argument],
+            "notes": ["Run /mcp list to discover configured server names."],
+        },
+        {
+            "name": "connect",
+            "summary": MCP_TOP_LEVEL_ACTION_DESCRIPTIONS["connect"],
+            "usage": (
+                "/mcp connect <target> [--name server] [--auth token] [--timeout seconds] "
+                "[--protocol auto|modern|legacy] [--oauth|--no-oauth] "
+                "[--reconnect|--no-reconnect]"
+            ),
+            "examples": [
+                "/mcp connect https://example.com/mcp",
+                "/mcp connect --name demo npx demo-server",
+            ],
+            "arguments": [
+                {
+                    "name": "target",
+                    "summary": "MCP URL, executable, npx package, or uvx package.",
+                    "value_name": "target",
+                    "required": True,
+                }
+            ],
+            "options": [
+                {
+                    "name": "--name",
+                    "summary": "Set the attached server name.",
+                    "value_name": "server",
+                    "aliases": ["-n"],
+                },
+                {
+                    "name": "--auth",
+                    "summary": "Set a bearer token for a URL server.",
+                    "value_name": "token",
+                    "aliases": [],
+                },
+                {
+                    "name": "--timeout",
+                    "summary": "Set the startup timeout.",
+                    "value_name": "seconds",
+                    "aliases": [],
+                },
+                {
+                    "name": "--protocol",
+                    "summary": "Select MCP protocol negotiation mode.",
+                    "value_name": "auto|modern|legacy",
+                    "aliases": [],
+                },
+                {
+                    "name": "--oauth",
+                    "summary": "Enable the interactive OAuth flow.",
+                    "value_name": None,
+                    "aliases": [],
+                },
+                {
+                    "name": "--no-oauth",
+                    "summary": "Disable the interactive OAuth flow.",
+                    "value_name": None,
+                    "aliases": [],
+                },
+                {
+                    "name": "--reconnect",
+                    "summary": "Force reconnect and refresh capabilities.",
+                    "value_name": None,
+                    "aliases": [],
+                },
+                {
+                    "name": "--no-reconnect",
+                    "summary": "Disable reconnect-on-disconnect.",
+                    "value_name": None,
+                    "aliases": [],
+                },
+            ],
+        },
+        {
+            "name": "disconnect",
+            "summary": MCP_TOP_LEVEL_ACTION_DESCRIPTIONS["disconnect"],
+            "usage": "/mcp disconnect <server-name>",
+            "examples": ["/mcp disconnect docs"],
+            "arguments": [server_name_argument],
+        },
+        {
+            "name": "reconnect",
+            "summary": MCP_TOP_LEVEL_ACTION_DESCRIPTIONS["reconnect"],
+            "usage": "/mcp reconnect <server-name>",
+            "examples": ["/mcp reconnect docs"],
+            "arguments": [server_name_argument],
+        },
+    ]
+
+
 def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
     families: list[CommandIndexEntry] = [
         {
@@ -360,14 +478,8 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         {
             "name": "mcp",
             "summary": "Runtime MCP control",
-            "usage": (
-                "/mcp [list|status|attach|connect|disconnect|reconnect] [args]; "
-                "connect supports --protocol auto|modern|legacy"
-            ),
-            "actions": [
-                {"name": name, "summary": summary}
-                for name, summary in MCP_TOP_LEVEL_ACTION_DESCRIPTIONS.items()
-            ],
+            "usage": "/mcp [list|status|attach|connect|disconnect|reconnect] [args]",
+            "actions": _mcp_action_payloads(),
             "examples": [
                 "/mcp list",
                 "/mcp status",
@@ -394,6 +506,12 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
             summary="List prompt templates",
             usage="/prompts",
             examples=["/prompts"],
+        ),
+        _simple_command_entry(
+            "status",
+            summary="Show runtime status",
+            usage="/status",
+            examples=["/status"],
         ),
         {
             "name": "prompt",
@@ -460,38 +578,118 @@ def _structured_action_payloads(actions: list[CommandIndexAction]) -> list[Actio
     ]
 
 
-def _command_index_payload(entry: CommandIndexEntry) -> CommandIndexPayload:
-    return {
+def _command_index_payload(
+    entry: CommandIndexEntry,
+    *,
+    model_facing: bool = False,
+) -> CommandIndexPayload:
+    detail: CommandDetailEntry = {
         "name": entry["name"],
         "summary": entry["summary"],
         "usage": entry["usage"],
         "actions": _structured_action_payloads(entry["actions"]),
         "examples": entry["examples"],
     }
+    if model_facing:
+        detail = _model_facing_command_detail(detail)
+    return {
+        "name": detail["name"],
+        "summary": detail["summary"],
+        "usage": detail["usage"],
+        "actions": detail["actions"],
+        "examples": detail["examples"],
+    }
 
 
-def _build_command_detail(name: str) -> CommandDetailEntry | None:
+def _model_facing_command_detail(detail: CommandDetailEntry) -> CommandDetailEntry:
+    actions: list[ActionPayload] = []
+    for action in detail["actions"]:
+        transformed = action.copy()
+        if detail["name"] == "mcp" and action["name"] == "connect":
+            transformed["usage"] = (
+                "/mcp connect <target> [--name server] [--auth token] [--timeout seconds] "
+                "[--protocol auto|modern|legacy] [--no-oauth] "
+                "[--reconnect|--no-reconnect]"
+            )
+            transformed["options"] = [
+                option for option in action.get("options", []) if option["name"] != "--oauth"
+            ]
+            transformed["notes"] = [
+                *action.get("notes", []),
+                (
+                    "Interactive OAuth and environment-variable auth references are unavailable "
+                    "through model-facing commands."
+                ),
+                "Ad-hoc stdio targets require shell access.",
+                "Prefer configured credentials over passing secrets through model context.",
+            ]
+        elif detail["name"] == "skills":
+            if action["name"] == "registry":
+                transformed["notes"] = [
+                    *action.get("notes", []),
+                    (
+                        "Registry selection is scoped to the current harness tool instance and "
+                        "does not write configuration."
+                    ),
+                ]
+            elif action["name"] in {"available", "search"}:
+                usage = transformed.get("usage")
+                if usage is not None:
+                    transformed["usage"] = usage.replace(
+                        "[--compact|--full|--json]",
+                        "[--compact|--json]",
+                    )
+                transformed["options"] = [
+                    option for option in action.get("options", []) if option["name"] != "--full"
+                ]
+                transformed["notes"] = [
+                    *action.get("notes", []),
+                    "Model-facing listings default to compact output.",
+                ]
+            elif action["name"] == "add":
+                transformed["usage"] = (
+                    f"/skills add <{SKILLS_ADD_SELECTOR}> "
+                    "[--registry url|path|mcp-server] [--skills-dir path]"
+                )
+                transformed["arguments"] = [
+                    {**argument, "required": True} for argument in action.get("arguments", [])
+                ]
+                transformed["notes"] = [
+                    *action.get("notes", []),
+                    "A selector is required for model-facing installation.",
+                ]
+        actions.append(transformed)
+    return {**detail, "actions": actions}
+
+
+def _build_command_detail(
+    name: str,
+    *,
+    model_facing: bool = False,
+) -> CommandDetailEntry | None:
     normalized = normalize_action_token(name)
     spec = get_command_spec(normalized)
     if spec is not None:
-        return {
+        detail: CommandDetailEntry = {
             "name": spec.command,
             "summary": spec.summary,
             "usage": spec.usage,
             "actions": [_action_payload_from_catalog(action) for action in spec.actions],
             "examples": list(spec.examples),
         }
+        return _model_facing_command_detail(detail) if model_facing else detail
 
     for entry in _discovery_top_level_catalog():
         if entry["name"] != normalized:
             continue
-        return {
+        entry_detail: CommandDetailEntry = {
             "name": entry["name"],
             "summary": entry["summary"],
             "usage": entry["usage"],
             "actions": _structured_action_payloads(entry["actions"]),
             "examples": entry["examples"],
         }
+        return _model_facing_command_detail(entry_detail) if model_facing else entry_detail
     return None
 
 
@@ -708,13 +906,22 @@ def render_commands_index_markdown(*, command_names: Collection[str] | None = No
     return "\n".join(lines)
 
 
-def render_command_detail_markdown(command_name: str, action_name: str | None = None) -> str | None:
+def render_command_detail_markdown(
+    command_name: str,
+    action_name: str | None = None,
+    *,
+    model_facing: bool = False,
+) -> str | None:
     """Render markdown for /commands <name> [<action>]."""
 
     if action_name is not None:
-        return _render_command_action_detail_markdown(command_name, action_name)
+        return _render_command_action_detail_markdown(
+            command_name,
+            action_name,
+            model_facing=model_facing,
+        )
 
-    detail = _build_command_detail(command_name)
+    detail = _build_command_detail(command_name, model_facing=model_facing)
     if detail is None:
         return None
     return _render_command_detail_markdown(detail)
@@ -723,8 +930,10 @@ def render_command_detail_markdown(command_name: str, action_name: str | None = 
 def _render_command_action_detail_markdown(
     command_name: str,
     action_name: str,
+    *,
+    model_facing: bool = False,
 ) -> str | None:
-    detail = _build_command_detail(command_name)
+    detail = _build_command_detail(command_name, model_facing=model_facing)
     if detail is None:
         return None
 
@@ -804,6 +1013,7 @@ def render_commands_json(
     command_name: str | None = None,
     action_name: str | None = None,
     command_names: Collection[str] | None = None,
+    model_facing: bool = False,
 ) -> str:
     """Render JSON payload for /commands outputs."""
 
@@ -811,18 +1021,19 @@ def render_commands_json(
 
     if command_name is None:
         commands = [
-            _command_index_payload(item)
+            _command_index_payload(item, model_facing=model_facing)
             for item in _discovery_top_level_catalog()
             if allowed is None or item["name"] in allowed
         ]
         return _render_discovery_json("command_index", commands=commands)
 
-    detail = _build_command_detail(command_name)
+    detail = _build_command_detail(command_name, model_facing=model_facing)
     if detail is None:
+        suggestions = command_discovery_names() if allowed is None else tuple(sorted(allowed))
         return _render_discovery_json(
             "error",
             error=f"Unknown command: {command_name}",
-            suggestions=command_discovery_names(),
+            suggestions=suggestions,
         )
 
     if allowed is not None and detail["name"] not in allowed:

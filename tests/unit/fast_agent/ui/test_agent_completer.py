@@ -1461,7 +1461,7 @@ def test_marketplace_completion_dispatch_tables_cover_argument_actions() -> None
     assert completion_sources._SKILLS_COMPLETION_DISPATCH
     assert _completion_dispatch_tokens(completion_sources._SKILLS_COMPLETION_DISPATCH) == frozenset(
         token
-        for action in ("add", "search", "remove", "update", "registry")
+        for action in ("add", "available", "search", "remove", "update", "registry")
         for token in command_action_tokens("skills", action)
     )
 

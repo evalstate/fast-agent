@@ -5,10 +5,18 @@ from typing import TYPE_CHECKING, cast
 from prompt_toolkit.formatted_text import HTML, to_formatted_text
 
 from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
+from fast_agent.core.agent_capabilities import (
+    AgentCapabilityMode,
+    cycle_agent_capability_mode,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui import notification_tracker
 from fast_agent.ui.prompt.attachment_tokens import build_local_attachment_token
+from fast_agent.ui.prompt.status_bar.agent_capabilities import (
+    render_agent_capability_indicator,
+)
 from fast_agent.ui.prompt.status_bar.attachment import DraftAttachmentSummary
 from fast_agent.ui.prompt.status_bar.renderer import (
     AttachmentResourceSnapshot,
@@ -264,6 +272,35 @@ def test_build_middle_segment_renders_muted_process_indicator_when_idle() -> Non
     assert "ansibrightblack" in middle
 
 
+def test_agent_capability_indicator_styles_each_capability_independently() -> None:
+    assert render_agent_capability_indicator(AgentCapabilityMode.STANDARD) == (
+        "<style bg='ansibrightblack'>↳</style><style bg='ansibrightblack'>⌘ </style>"
+    )
+    assert render_agent_capability_indicator(AgentCapabilityMode.DELEGATE) == (
+        "<style bg='ansigreen'>↳</style><style bg='ansibrightblack'>⌘ </style>"
+    )
+    assert render_agent_capability_indicator(AgentCapabilityMode.HARNESS_ONLY) == (
+        "<style bg='ansibrightblack'>↳</style><style bg='ansigreen'>⌘ </style>"
+    )
+    assert render_agent_capability_indicator(AgentCapabilityMode.ORCHESTRATE) == (
+        "<style bg='ansigreen'>↳</style><style bg='ansigreen'>⌘ </style>"
+    )
+
+
+def test_build_middle_segment_leaves_space_after_harness_indicator() -> None:
+    middle = _build_middle_segment(
+        ToolbarAgentState(
+            model_display="gpt-4.1",
+            capability_mode=AgentCapabilityMode.ORCHESTRATE,
+            turn_count=3,
+        ),
+        shortcut_text="",
+    )
+
+    plain = "".join(fragment[1] for fragment in to_formatted_text(HTML(middle)))
+    assert "↻ ↳⌘ |" in plain
+
+
 def test_build_middle_segment_warns_when_process_capacity_exceeds_seventy_five_percent() -> None:
     at_threshold = _build_middle_segment(
         ToolbarAgentState(
@@ -367,6 +404,22 @@ def test_toolbar_agent_state_cache_refreshes_when_active_process_count_changes()
     assert cached.cache_hit is True
     assert active.cache_hit is False
     assert active.state.active_process_count == 1
+
+
+def test_toolbar_agent_state_cache_refreshes_when_capability_mode_changes() -> None:
+    agent = ToolAgent(AgentConfig("dev", model="unknown.custom"))
+    provider = cast("AgentApp", _StubAgentProvider(agent))
+    cache = ToolbarRenderCache()
+
+    standard = _resolve_toolbar_agent_state_cached("agent", provider, cache=cache)
+    cached = _resolve_toolbar_agent_state_cached("agent", provider, cache=cache)
+    cycle_agent_capability_mode(agent)
+    delegate = _resolve_toolbar_agent_state_cached("agent", provider, cache=cache)
+
+    assert standard.state.capability_mode is AgentCapabilityMode.STANDARD
+    assert cached.cache_hit is True
+    assert delegate.cache_hit is False
+    assert delegate.state.capability_mode is AgentCapabilityMode.DELEGATE
 
 
 def test_toolbar_agent_state_uses_protocol_default_capabilities() -> None:

@@ -7,6 +7,8 @@ import pytest
 if TYPE_CHECKING:
     from prompt_toolkit import PromptSession
 
+from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.ui.prompt import input as prompt_input
 
 
@@ -46,6 +48,12 @@ def test_build_prompt_text_resolver_shows_named_non_default_agent() -> None:
     )
 
     assert resolver().value == "<ansibrightblue>review</ansibrightblue> ❯ "
+
+
+def test_cycle_agent_mode_reports_explicit_subagent_disable(capsys) -> None:
+    prompt_input._cycle_agent_mode(ToolAgent(AgentConfig("dev", subagents=False)))
+
+    assert "Subagents are disabled by configuration." in capsys.readouterr().out
 
 
 @pytest.mark.asyncio

@@ -68,14 +68,16 @@ This example uses the hosted Hugging Face MCP Server:
 /mcp connect --name hf https://huggingface.co/mcp
 /mcp
 /skills registry
-/skills registry hf
-/skills available
-/skills add <number|name>
+/skills available --registry hf
+/skills search datasets --registry hf
+/skills add <number|name> --registry hf
 ```
 
 `/mcp` shows when a server advertises the
-`io.modelcontextprotocol/skills` extension and points you to `/skills registry`
-to select the MCP server as the current install source.
+`io.modelcontextprotocol/skills` extension and points you to the one-shot
+`/skills available --registry <server>` browse command. Use
+`/skills registry <server>` when you want to make that server the active source
+for subsequent skills commands.
 
 Listings show `integrity: SHA-256 manifest; checked on install` when the server
 supplies a complete resource manifest. A listing has not yet checked the served

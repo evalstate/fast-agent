@@ -68,7 +68,7 @@ if TYPE_CHECKING:
 
 
 async def handle_skills_available(
-    handler: "SlashCommandHandler",
+    _handler: "SlashCommandHandler",
     *,
     query: str | None = None,
     registry: str | None = None,
@@ -82,12 +82,12 @@ async def handle_skills_available(
     except Exception as exc:
         return (
             f"# {heading}\n\n"
-            f"Failed to load marketplace: {exc}\n\n"
+            f"Failed to load skills: {exc}\n\n"
             f"Repository: {markdown_code_span(display_url)}"
         )
 
     if not marketplace:
-        return f"# {heading}\n\nNo skills found in the marketplace."
+        return f"# {heading}\n\nNo skills found in the registry."
 
     selected_marketplace = list(marketplace)
     if normalized_query is not None:
@@ -156,20 +156,29 @@ async def _handle_skills_list_action(handler: "SlashCommandHandler", remainder: 
 
 
 async def _handle_skills_available_action(handler: "SlashCommandHandler", remainder: str) -> str:
-    parsed = parse_skills_slash_options(remainder)
-    if parsed.error:
-        return f"# skills available\n\n{parsed.error}"
-    return await handle_skills_available(handler, registry=parsed.registry)
+    return await _handle_skills_catalog_action(handler, action="available", argument=remainder)
 
 
 async def _handle_skills_search_action(handler: "SlashCommandHandler", remainder: str) -> str:
-    parsed = parse_skills_slash_options(remainder)
-    if parsed.error:
-        return f"# skills search\n\n{parsed.error}"
-    query = strip_to_none(parsed.argument)
-    if query is None:
-        return "# skills search\n\nUsage: /skills search <query>"
-    return await handle_skills_available(handler, query=query, registry=parsed.registry)
+    return await _handle_skills_catalog_action(handler, action="search", argument=remainder)
+
+
+async def _handle_skills_catalog_action(
+    handler: "SlashCommandHandler",
+    *,
+    action: str,
+    argument: str,
+) -> str:
+    ctx = handler._build_command_context()
+    io = cast("ACPCommandIO", ctx.io)
+    outcome = await skills_handlers.handle_skills_command(
+        ctx,
+        agent_name=handler.current_agent_name,
+        action=action,
+        argument=argument,
+        interactive=True,
+    )
+    return handler._format_outcome_as_markdown(outcome, f"skills {action}", io=io)
 
 
 async def _handle_unknown_skills_action(_handler: "SlashCommandHandler", remainder: str) -> str:
@@ -261,7 +270,16 @@ async def handle_skills_add(handler: "SlashCommandHandler", argument: str) -> st
 
     argument_value = strip_to_none(parsed.argument)
     if not argument_value:
-        return await _render_skills_add_marketplace(registry=parsed.registry)
+        browse_command = skills_handlers.skills_available_command(parsed.registry)
+        return "\n".join(
+            (
+                "# skills add",
+                "",
+                "A skill selector is required.",
+                "",
+                f"Browse with `{browse_command}` or search with `/skills search <query>`.",
+            )
+        )
 
     tool_call_id = build_tool_call_id()
     await send_skills_update(
@@ -316,31 +334,6 @@ async def handle_skills_add(handler: "SlashCommandHandler", argument: str) -> st
         )
 
     return handler._format_outcome_as_markdown(outcome, "skills add", io=io)
-
-
-async def _render_skills_add_marketplace(*, registry: str | None = None) -> str:
-    marketplace_url = registry or get_marketplace_url(get_settings())
-    display_url = format_marketplace_display_url(marketplace_url)
-    try:
-        marketplace = await fetch_marketplace_skills(marketplace_url)
-    except Exception as exc:
-        return (
-            "# skills add\n\n"
-            f"Failed to load marketplace: {exc}\n\n"
-            f"Repository: {markdown_code_span(display_url)}"
-        )
-
-    repository = display_url
-    if marketplace:
-        repo_url = marketplace[0].repo_url
-        repo_ref = marketplace[0].repo_ref
-        repository = f"{repo_url}@{repo_ref}" if repo_ref else repo_url
-
-    return render_marketplace_skills(
-        marketplace,
-        heading="skills add",
-        repository=repository,
-    )
 
 
 async def handle_skills_remove(handler: "SlashCommandHandler", argument: str) -> str:

@@ -29,6 +29,12 @@ def _is_harness_tool(agent: ToolAgent, name: str) -> bool:
     return tool is not None and tool.meta == HARNESS_TOOL_METADATA
 
 
+def harness_tools_enabled(agent: object) -> bool:
+    return isinstance(agent, ToolAgent) and all(
+        _is_harness_tool(agent, name) for name in HARNESS_TOOL_NAMES
+    )
+
+
 def _resource_text(result: ReadResourceResult, *, max_chars: int = 4000) -> str:
     lines: list[str] = []
     for index, content in enumerate(result.contents, start=1):
@@ -65,9 +71,9 @@ def set_harness_tools(agent: object, enabled: bool | None = None) -> bool:
         return False
     if enabled is None:
         enabled = agent.config.harness_tools
-    agent.config.harness_tools = enabled
 
     if not enabled or agent.config.tool_only:
+        agent.config.harness_tools = enabled
         for name in HARNESS_TOOL_NAMES:
             if _is_harness_tool(agent, name):
                 agent.remove_tool(name)
@@ -78,6 +84,7 @@ def set_harness_tools(agent: object, enabled: bool | None = None) -> bool:
         if existing is not None and existing.meta != HARNESS_TOOL_METADATA:
             raise AgentConfigError(f"Tool name '{name}' is reserved by fast-agent")
 
+    agent.config.harness_tools = True
     skill_source_overrides: dict[str, str] = {}
 
     async def slash_command(command: str) -> str:
@@ -98,7 +105,8 @@ def set_harness_tools(agent: object, enabled: bool | None = None) -> bool:
                 description=(
                     "Execute an allow-listed fast-agent slash command, including model-managed "
                     "MCP servers and skills. "
-                    "Use `/commands` to list the supported command surface."
+                    "Use `/commands` for help or `/commands --json` for the machine-readable "
+                    "command surface."
                 ),
                 metadata=HARNESS_TOOL_METADATA,
             )

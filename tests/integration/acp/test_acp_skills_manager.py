@@ -170,7 +170,7 @@ skills:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_skills_add_lists_marketplace(tmp_path: Path) -> None:
+async def test_skills_add_requires_selector(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     skill_dir = repo_root / "skills" / "test-skill"
     skill_dir.mkdir(parents=True)
@@ -219,9 +219,10 @@ skills:
         handler = _handler(instance, "test-agent")
 
         response = await handler.execute_command("skills", "add")
-        assert "test-skill" in response
-        assert escape_markdown_text("MAGIC_SKILL") in response
-        assert repo_root.as_posix() in response
+        assert "A skill selector is required." in response
+        assert (
+            "Browse with `/skills available` or search with `/skills search <query>`." in response
+        )
     finally:
         get_settings(config_path=str(Path(__file__).parent / "fastagent.config.yaml"))
 
@@ -279,7 +280,7 @@ skills:
         response = await handler.execute_command("skills", "available")
         assert "test-skill" in response
         assert escape_markdown_text("MAGIC_SKILL") in response
-        assert repo_root.as_posix() in response
+        assert escape_markdown_text(marketplace_path.as_posix()) in response
     finally:
         get_settings(config_path=str(Path(__file__).parent / "fastagent.config.yaml"))
 

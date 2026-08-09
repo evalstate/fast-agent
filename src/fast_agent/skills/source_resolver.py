@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
+from urllib.parse import urlsplit
 
 from fast_agent.skills.configuration import get_marketplace_url
 from fast_agent.skills.marketplace_source import MarketplaceSkillSource
@@ -95,6 +97,11 @@ class SkillSourceResolver:
             or self._ctx.active_skill_source(self._agent_name)
             or get_marketplace_url(settings)
         )
+        if override is not None and _is_bare_source_name(source_url):
+            registry = find_mcp_registry(await self.mcp_registries(), source_url)
+            if registry is not None:
+                return self._mcp_source(registry)
+
         mcp_server_name = mcp_registry_server_name(source_url)
         if mcp_server_name is None:
             return SkillSourceResolution(source=MarketplaceSkillSource(source_url))
@@ -107,6 +114,9 @@ class SkillSourceResolver:
                 error=f"MCP skill registry is not available: {mcp_server_name}",
             )
 
+        return self._mcp_source(registry)
+
+    def _mcp_source(self, registry: "McpSkillRegistry") -> SkillSourceResolution:
         agent = self._ctx.agent_provider._agent(self._agent_name)
         if not isinstance(agent, McpSkillRegistryAgent):
             return SkillSourceResolution(
@@ -191,3 +201,10 @@ class SkillSourceResolver:
             groups.append(SkillUpdateSourceGroup(source=source, updates=source_updates))
 
         return groups
+
+
+def _is_bare_source_name(source: str) -> bool:
+    value = source.strip()
+    if not value or urlsplit(value).scheme or Path(value).expanduser().exists():
+        return False
+    return not any(separator in value for separator in ("/", "\\"))

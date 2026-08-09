@@ -691,6 +691,9 @@ class SlashCommandHandler:
         *,
         io: ACPCommandIO | None = None,
     ) -> str:
+        has_error = any(message.channel == "error" for message in outcome.messages)
+        if outcome.direct_response is not None and not has_error:
+            return outcome.direct_response
         extra_messages = io.messages if io else None
         markdown = render_command_outcome_markdown(
             outcome,

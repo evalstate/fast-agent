@@ -5,9 +5,12 @@ from fast_agent.skills.command_support import (
     filter_marketplace_skills,
     marketplace_repository_hint,
     marketplace_search_tokens,
+    parse_skills_catalog_options,
     parse_skills_slash_options,
     skills_usage_lines,
 )
+from fast_agent.skills.configuration import format_marketplace_display_url
+from fast_agent.skills.marketplace_source import MarketplaceSkillSource
 from fast_agent.skills.models import MarketplaceSkill
 
 
@@ -105,6 +108,65 @@ def test_parse_skills_slash_options_reports_split_errors() -> None:
     parsed = parse_skills_slash_options('alpha "unterminated')
 
     assert parsed.error == "Invalid /skills arguments: No closing quotation"
+
+
+def test_parse_skills_catalog_options_supports_registry_paging_and_json() -> None:
+    parsed = parse_skills_catalog_options(
+        'image "model trainer" --registry hf --page 2 --limit 25 --json'
+    )
+
+    assert parsed.error is None
+    assert parsed.argument == "image 'model trainer'"
+    assert parsed.registry == "hf"
+    assert parsed.page == 2
+    assert parsed.page_explicit is True
+    assert parsed.limit == 25
+    assert parsed.output == "json"
+
+
+def test_parse_skills_catalog_options_preserves_json_on_split_error() -> None:
+    parsed = parse_skills_catalog_options('--json "unterminated')
+
+    assert parsed.output == "json"
+    assert parsed.error == "Invalid /skills arguments: No closing quotation"
+
+
+def test_parse_skills_catalog_options_rejects_invalid_or_conflicting_options() -> None:
+    assert parse_skills_catalog_options("--page 0").error is not None
+    assert parse_skills_catalog_options("--limit 101").error == (
+        "Invalid value for --limit: maximum is 100"
+    )
+    assert parse_skills_catalog_options("--compact --json").error == (
+        "Conflicting output option: --json"
+    )
+    assert parse_skills_catalog_options("--registry hf -r other").error == (
+        "Duplicate option: --registry"
+    )
+    assert parse_skills_catalog_options("--page 1 --page 2").error == "Duplicate option: --page"
+    assert parse_skills_catalog_options("--unknown").error == "Unknown option: --unknown"
+    huge_page = "9" * 5_000
+    assert parse_skills_catalog_options(f"--page {huge_page}").error == (
+        "Invalid value for --page: maximum is 1000000"
+    )
+
+
+def test_parse_skills_catalog_options_preserves_paths_and_dash_queries() -> None:
+    windows = parse_skills_catalog_options(r"--registry C:\tmp\registry --compact")
+    dashed = parse_skills_catalog_options("-- --starts-with-dash")
+
+    assert windows.registry == r"C:\tmp\registry"
+    assert dashed.argument == "--starts-with-dash"
+
+
+def test_marketplace_source_display_redacts_registry_credentials() -> None:
+    url = "https://user:secret@example.test/skills.json?token=secret#private"
+
+    display = format_marketplace_display_url(url)
+    source = MarketplaceSkillSource(url)
+
+    assert "secret" not in display
+    assert "secret" not in source.ref.display_name
+    assert "REDACTED" in source.ref.display_name
 
 
 def test_filter_marketplace_skills_matches_bundle_and_description_fields() -> None:
