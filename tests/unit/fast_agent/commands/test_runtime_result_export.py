@@ -39,7 +39,7 @@ from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.cli.runtime.runner import _should_convert_keyboard_interrupt_to_task_cancel
 from fast_agent.cli.runtime.session_resume import resume_session_id
 from fast_agent.config import Settings, ShellSettings
-from fast_agent.core.exceptions import AgentConfigError, EnvironmentStartupError
+from fast_agent.core.exceptions import AgentConfigError, EnvironmentStartupError, PromptExitError
 from fast_agent.core.harness_app import DefaultHarnessApp
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import load_messages
@@ -754,6 +754,28 @@ async def test_run_cli_flow_handles_harness_startup_errors_like_cli_run() -> Non
 
     assert exc_info.value.code == 1
     assert fast.handled_errors == [error]
+
+
+@pytest.mark.asyncio
+async def test_run_cli_flow_treats_prompt_exit_as_clean_success() -> None:
+    request = _make_request(result_file=None, message=None)
+    error = PromptExitError("exit")
+    fast = _FailingHarnessRuntime(error)
+
+    async def flow(
+        agent_app: object,
+        request: AgentRunRequest,
+        *,
+        session_manager: object | None = None,
+        harness_session: object | None = None,
+    ) -> None:
+        del agent_app, request, session_manager, harness_session
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_cli_flow(cast("Any", fast), request, flow=flow)
+
+    assert exc_info.value.code == 0
+    assert fast.handled_errors == []
 
 
 @pytest.mark.asyncio
@@ -1847,7 +1869,8 @@ async def test_run_cli_flow_retries_interactive_after_keyboard_interrupt(
     app = _InterruptingAgentApp()
     request = _make_request(result_file=None, message=None)
 
-    await _run_cli_flow(app, request)
+    with pytest.raises(PromptExitError):
+        await _run_cli_flow(app, request)
 
     captured = capsys.readouterr()
     assert app.interactive_calls == 2
@@ -1876,7 +1899,7 @@ async def test_run_cli_flow_exits_after_double_keyboard_interrupt(
     app = _InterruptingAgentApp()
     request = _make_request(result_file=None, message=None)
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(PromptExitError):
         await _run_cli_flow(app, request)
 
     captured = capsys.readouterr()
@@ -1907,7 +1930,8 @@ async def test_run_cli_flow_retries_interactive_after_cancelled_error(
     app = _CancelledAgentApp()
     request = _make_request(result_file=None, message=None)
 
-    await _run_cli_flow(app, request)
+    with pytest.raises(PromptExitError):
+        await _run_cli_flow(app, request)
 
     captured = capsys.readouterr()
     assert app.interactive_calls == 2

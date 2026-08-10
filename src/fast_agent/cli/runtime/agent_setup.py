@@ -18,6 +18,7 @@ from fast_agent.commands.model_capabilities import resolve_reasoning_effort
 from fast_agent.core.card_tool_attachment import load_and_attach_card_tool_agents
 from fast_agent.core.exceptions import (
     AgentConfigError,
+    PromptExitError,
     ServerInitializationError,
     walk_exception_chain,
 )
@@ -726,6 +727,7 @@ async def _run_cli_flow(
         await _resume_session_if_requested(agent_app, request)
     transient_messages_by_agent: dict[str, list[PromptMessageExtended]] | None = None
     one_shot_response: PromptMessageExtended | None = None
+    interactive_exit = False
     if request.execution_mode == "one_shot_message":
         assert request.message is not None
         agent_obj = agent_app._agent(request.target_agent_name)
@@ -788,6 +790,7 @@ async def _run_cli_flow(
             session_manager=session_manager,
             harness_session=harness_session,
         )
+        interactive_exit = True
 
     await _export_requested_outputs(
         agent_app,
@@ -798,6 +801,8 @@ async def _run_cli_flow(
     )
     if one_shot_response is not None and one_shot_response.stop_reason == LlmStopReason.ERROR:
         raise typer.Exit(1)
+    if interactive_exit:
+        raise PromptExitError("User requested to exit fast-agent session")
 
 
 async def _run_interactive_with_interrupt_recovery(
@@ -841,7 +846,7 @@ async def _run_interactive_with_interrupt_recovery(
             )
             if exiting:
                 typer.echo("Second Ctrl+C received; exiting fast-agent.", err=True)
-                raise
+                raise PromptExitError("User requested to exit fast-agent session") from None
 
             ctrl_c_deadline = now + ctrl_c_exit_window_seconds
             typer.echo(

@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.fastagent import FastAgent, RunSettings
 
 if TYPE_CHECKING:
@@ -44,3 +45,24 @@ async def test_finalize_run_limits_shutdown_time_after_exit_request() -> None:
     )
 
     assert blocking_agent.started.is_set()
+
+
+@pytest.mark.asyncio
+async def test_direct_run_treats_prompt_exit_as_clean_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fast = FastAgent("TestAgent", parse_cli_args=False, quiet=True)
+
+    @fast.agent(name="main", model="passthrough", default=True)
+    async def main() -> None:
+        pass
+
+    handled_errors: list[Exception] = []
+    monkeypatch.setattr(fast, "_handle_error", handled_errors.append)
+
+    with pytest.raises(SystemExit) as exc_info:
+        async with fast.run():
+            raise PromptExitError("exit")
+
+    assert exc_info.value.code == 0
+    assert handled_errors == []

@@ -22,6 +22,7 @@ from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
     RESPONSES_CREATE_EVENT_TYPE,
+    RESPONSES_WEBSOCKET_CLOSE_TIMEOUT_SECONDS,
     ManagedWebSocketConnection,
     PlannedWsRequest,
     ResponsesWebSocketError,
@@ -32,6 +33,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     _AttrObjectView,
     _SdkWebSocket,
     build_ws_headers,
+    connect_websocket,
     resolve_responses_ws_url,
     send_response_request,
 )
@@ -103,6 +105,57 @@ class _HangingWebSocket(_FakeWebSocket):
         del timeout
         await asyncio.Event().wait()
         raise AssertionError("unreachable")
+
+
+@pytest.mark.asyncio
+async def test_connect_websocket_bounds_close_handshake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_options: dict[str, object] = {}
+
+    class _Connection:
+        async def recv_bytes(self) -> bytes:
+            return b""
+
+        async def send_raw(self, data: bytes | str) -> None:
+            del data
+
+        async def close(self, *, code: int = 1000, reason: str = "") -> None:
+            del code, reason
+
+    class _Manager:
+        async def enter(self) -> _Connection:
+            return _Connection()
+
+        async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+            del exc_type, exc, tb
+
+    class _Responses:
+        def connect(self, **kwargs: Any) -> _Manager:
+            captured_options.update(kwargs["websocket_connection_options"])
+            return _Manager()
+
+    class _Client:
+        def __init__(self, **kwargs: Any) -> None:
+            del kwargs
+            self.responses = _Responses()
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.openai.responses_websocket.AsyncOpenAI",
+        _Client,
+    )
+
+    connection = await connect_websocket(
+        url="wss://example.test/v1/responses",
+        headers={"Authorization": "Bearer test"},
+    )
+    await connection.session.close()
+
+    assert captured_options["close_timeout"] == RESPONSES_WEBSOCKET_CLOSE_TIMEOUT_SECONDS
 
 
 class _FakeResponsesClient:
