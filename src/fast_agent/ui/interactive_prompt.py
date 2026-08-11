@@ -1095,8 +1095,13 @@ class InteractivePrompt:
 
         print(f"$ {command}", flush=True)
         emit_prompt_mark("C")
-        result = await shell_runtime.execute_direct_shell(command)
-        emit_prompt_mark(f"D;{result.exit_code}")
+        result: ShellExecutionResult | None = None
+        try:
+            result = await shell_runtime.execute_direct_shell(command)
+        finally:
+            exit_code = result.exit_code if result is not None else None
+            emit_prompt_mark(f"D;{exit_code}" if exit_code is not None else "D")
+        assert result is not None
         self._record_shell_execution_result(result, display=display)
         return result
 
@@ -1109,12 +1114,17 @@ class InteractivePrompt:
     ) -> ShellExecutionResult:
         print(f"$ {command}", flush=True)
         emit_prompt_mark("C")
-        result = run_interactive_shell_command(
-            command,
-            echo_command=False,
-            restore_scroll_region=restore_scroll_region,
-        )
-        emit_prompt_mark(f"D;{result.exit_code}")
+        result: ShellExecutionResult | None = None
+        try:
+            result = run_interactive_shell_command(
+                command,
+                echo_command=False,
+                restore_scroll_region=restore_scroll_region,
+            )
+        finally:
+            exit_code = result.exit_code if result is not None else None
+            emit_prompt_mark(f"D;{exit_code}" if exit_code is not None else "D")
+        assert result is not None
         self._record_shell_execution_result(result, display=display)
         return result
 

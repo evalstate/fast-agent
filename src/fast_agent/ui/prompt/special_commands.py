@@ -21,7 +21,7 @@ from fast_agent.ui.command_payloads import (
     is_command_payload,
 )
 from fast_agent.ui.console import rich_print
-from fast_agent.ui.prompt.command_help import render_help_lines
+from fast_agent.ui.prompt.command_help import render_help_lines, render_status_bar_help_lines
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -86,14 +86,20 @@ def _handle_help(
     agent_app: "AgentApp | bool | None",
     *,
     available_agents: set[str],
+    topic: str | None = None,
 ) -> bool:
     rich_print()
-    for line in render_help_lines(
-        show_webclear_help=_help_includes_webclear(
-            agent_app,
-            available_agents=available_agents,
+    lines = (
+        render_status_bar_help_lines()
+        if topic == "STATUS"
+        else render_help_lines(
+            show_webclear_help=_help_includes_webclear(
+                agent_app,
+                available_agents=available_agents,
+            )
         )
-    ):
+    )
+    for line in lines:
         rich_print(line)
     return True
 
@@ -133,6 +139,9 @@ def _parse_special_command(command: str) -> _ParsedSpecialCommand:
     if command == "HELP":
         return _ParsedSpecialCommand(_SpecialCommandKind.HELP)
 
+    if command == "HELP:STATUS":
+        return _ParsedSpecialCommand(_SpecialCommandKind.HELP, "STATUS")
+
     if command.upper() == "EXIT":
         return _ParsedSpecialCommand(_SpecialCommandKind.EXIT)
 
@@ -165,7 +174,11 @@ def _handle_special_command_string(
                 return False
             return _SIMPLE_COMMANDS[parsed.argument]()
         case _SpecialCommandKind.HELP:
-            return _handle_help(agent_app, available_agents=available_agents)
+            return _handle_help(
+                agent_app,
+                available_agents=available_agents,
+                topic=parsed.argument,
+            )
         case _SpecialCommandKind.EXIT:
             raise PromptExitError("User requested to exit fast-agent session")
         case _SpecialCommandKind.SELECT_PROMPT:

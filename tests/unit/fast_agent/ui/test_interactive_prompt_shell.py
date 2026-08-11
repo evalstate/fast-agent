@@ -13,8 +13,9 @@ if TYPE_CHECKING:
 
 
 class _ShellRuntime:
-    def __init__(self, *, kind: str = "remote") -> None:
+    def __init__(self, *, kind: str = "remote", fail_direct: bool = False) -> None:
         self.kind = kind
+        self.fail_direct = fail_direct
         self.commands: list[str] = []
         self.direct_commands: list[str] = []
 
@@ -34,6 +35,8 @@ class _ShellRuntime:
 
     async def execute_direct_shell(self, command: str) -> ShellExecutionResult:
         self.direct_commands.append(command)
+        if self.fail_direct:
+            raise RuntimeError("shell failed")
         print("remote output")
         return ShellExecutionResult(stdout="remote output\n", stderr="", exit_code=0)
 
@@ -126,3 +129,23 @@ async def test_bare_environment_shell_reports_interactive_unavailable(
     assert runtime.commands == []
     assert "Interactive shell is not available for hf-gpu" in captured.out
     assert "use `!!` to start a local shell" in captured.out
+
+
+@pytest.mark.asyncio
+async def test_environment_shell_failure_still_closes_prompt_mark(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _ShellRuntime(fail_direct=True)
+    display = _Display()
+    marks: list[str] = []
+    monkeypatch.setattr("fast_agent.ui.interactive_prompt.emit_prompt_mark", marks.append)
+
+    with pytest.raises(RuntimeError, match="shell failed"):
+        await InteractivePrompt()._execute_pending_shell_command(
+            pending=PendingCommandExecution(shell_execute_cmd="false"),
+            prompt_provider=cast("AgentApp", _Provider(runtime)),
+            agent_name="agent",
+            display=cast("ConsoleDisplay", display),
+        )
+
+    assert marks == ["C", "D"]

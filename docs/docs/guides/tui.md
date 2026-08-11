@@ -196,6 +196,43 @@ Agent modes apply only to compatible agents and cannot override an explicit
 subagent disable. Model toggles apply when the selected model/provider supports
 the feature.
 
+## Status Bar
+
+Run `/help status` in the interactive prompt for this legend. The bar reads from
+left to right:
+
+```text
+status bar
+├─ Agent
+│  └─ <name>  active agent
+├─ Activity
+│  ├─ ↻  managed shell processes: dim idle, yellow active, red near the limit
+│  ├─ ↳  subagent delegation: green enabled, dim disabled
+│  └─ ⌘  harness tools: green enabled, dim disabled
+├─ Model
+│  ├─ T V D  text, vision, and document support
+│  │  └─ green supported; reversed white unsupported; red related content error
+│  ├─ ▲ / ▲1…▲9 / ▲+  no draft attachments / count / ten or more
+│  │  └─ green usable; red missing, unknown, or unsupported
+│  ├─ ⣀…⣿ (paired: ⢀…⢸ ⡀…⡇)  reasoning, then verbosity gauges
+│  │  └─ fuller and green → yellow → red mean higher; dim inactive; blue auto
+│  ├─ ∞<model>  plan (OAuth login/monthly token plan)
+│  ├─ ▼<model>  overlay
+│  ├─ »  service tier: dim standard, blue flex, red fast
+│  ├─ ⊕  web search: green enabled, dim disabled
+│  └─ ⇣  web fetch: green enabled, dim disabled
+├─ Context
+│  └─ <percent> used, or a zero-padded turn count when usage is unavailable
+├─ Mode
+│  └─ NRM normal input; MLT multiline input
+└─ Right side
+   ├─ <working directory> / fast-agent <version>
+   ├─ ◀  notifications, sampling, elicitation, warnings, or tool updates
+   └─ transient copy notice
+```
+
+Unsupported controls are omitted.
+
 ## Prompt Shortcuts
 
 | Key            | Action                                                                   |

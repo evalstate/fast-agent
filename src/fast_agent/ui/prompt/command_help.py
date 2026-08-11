@@ -16,6 +16,10 @@ CATALOG_HELP_COMMANDS = (
     "check",
 )
 
+HELP_TOPIC_DESCRIPTIONS = {
+    "status": "Explain the interactive status bar",
+}
+
 
 def _catalog_help_lines(command_names: tuple[str, ...]) -> list[str]:
     lines: list[str] = []
@@ -39,6 +43,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
     lines = [
         "[bold]Available Commands:[/bold]",
         "  /help          - Show this help",
+        "  /help status   - Explain the interactive status bar",
         "  /system        - Show the current system prompt",
         "  /prompt <name> - Load a Prompt File or use MCP Prompt",
         "  /attach [path|url ...|clear] - Stage or clear file/^file: or URL/^url: attachments",
@@ -123,3 +128,38 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
         ]
     )
     return lines
+
+
+def render_status_bar_help_lines() -> list[str]:
+    return [
+        "[bold]Interactive Status Bar (left → right):[/bold]",
+        "  status bar",
+        "  ├─ Agent",
+        "  │  └─ <name>  active agent",
+        "  ├─ Activity",
+        "  │  ├─ ↻  managed shell processes: dim idle, yellow active, red near the limit",
+        "  │  ├─ ↳  subagent delegation: green enabled, dim disabled",
+        "  │  └─ ⌘  harness tools: green enabled, dim disabled",
+        "  ├─ Model",
+        "  │  ├─ T V D  text, vision, and document support",
+        "  │  │  └─ green supported; reversed white unsupported; red related content error",
+        "  │  ├─ ▲ / ▲1…▲9 / ▲+  no draft attachments / count / ten or more",
+        "  │  │  └─ green usable; red missing, unknown, or unsupported",
+        "  │  ├─ ⣀…⣿ (paired: ⢀…⢸ ⡀…⡇)  reasoning, then verbosity gauges",
+        "  │  │  └─ fuller and green → yellow → red mean higher; dim inactive; blue auto",
+        "  │  ├─ ∞<model>  plan (OAuth login/monthly token plan)",
+        "  │  ├─ ▼<model>  overlay",
+        "  │  ├─ »  service tier: dim standard, blue flex, red fast",
+        "  │  ├─ ⊕  web search: green enabled, dim disabled",
+        "  │  └─ ⇣  web fetch: green enabled, dim disabled",
+        "  ├─ Context",
+        "  │  └─ <percent> used, or a zero-padded turn count when usage is unavailable",
+        "  ├─ Mode",
+        "  │  └─ NRM normal input; MLT multiline input",
+        "  └─ Right side",
+        "     ├─ <working directory> / fast-agent <version>",
+        "     ├─ ◀  notifications, sampling, elicitation, warnings, or tool updates",
+        "     └─ transient copy notice",
+        "",
+        "[dim]Unsupported controls are omitted. This topic explains TUI toolbar icons.[/dim]",
+    ]
