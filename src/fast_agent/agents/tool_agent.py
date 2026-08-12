@@ -869,17 +869,33 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
     ) -> tuple[dict[str, CallToolResult], dict[str, ToolTimingInfo]]:
         async def run_one(
             planned_call: PlannedToolCall,
-        ) -> tuple[str, CallToolResult, float]:
+        ) -> tuple[
+            str,
+            CallToolResult,
+            float,
+            ToolResultDisplayRequest | None,
+            Exception | None,
+        ]:
             result, duration_ms = await self._execute_planned_tool_call(
                 planned_call,
                 request_params=request_params,
             )
-            return planned_call.correlation_id, result, duration_ms
+            try:
+                display_request = await self._tool_result_display_request(
+                    planned_call,
+                    result,
+                    duration_ms=duration_ms,
+                    tool_call_id=planned_call.correlation_id,
+                )
+            except Exception as exc:
+                return planned_call.correlation_id, result, duration_ms, None, exc
+            return planned_call.correlation_id, result, duration_ms, display_request, None
 
         results = await gather_with_cancel(run_one(call) for call in planned_calls)
         tool_results: dict[str, CallToolResult] = {}
         tool_timings: dict[str, ToolTimingInfo] = {}
         display_requests: list[ToolResultDisplayRequest] = []
+        presentation_errors: list[Exception] = []
         for planned_call, item in zip(planned_calls, results, strict=False):
             if isinstance(item, BaseException):
                 result = CallToolResult(
@@ -887,22 +903,26 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     is_error=True,
                 )
                 duration_ms = 0.0
+                display_request = await self._tool_result_display_request(
+                    planned_call,
+                    result,
+                    duration_ms=duration_ms,
+                    tool_call_id=planned_call.correlation_id,
+                )
             else:
-                _, result, duration_ms = item
+                _, result, duration_ms, display_request, presentation_error = item
+                if presentation_error is not None:
+                    presentation_errors.append(presentation_error)
 
             tool_results[planned_call.correlation_id] = result
             tool_timings[planned_call.correlation_id] = ToolTimingInfo(
                 timing_ms=duration_ms,
                 transport_channel=None,
             )
-            display_request = await self._tool_result_display_request(
-                planned_call,
-                result,
-                duration_ms=duration_ms,
-                tool_call_id=planned_call.correlation_id,
-            )
             if display_request is not None:
                 display_requests.append(display_request)
+        if presentation_errors:
+            raise presentation_errors[0]
         self.display.show_parallel_tool_results(display_requests)
         return tool_results, tool_timings
 

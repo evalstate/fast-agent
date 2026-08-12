@@ -25,6 +25,7 @@ from fast_agent.core.server_runtime import (
     resolve_server_instance_scope,
     run_server_mode,
 )
+from fast_agent.core.shutdown import TUI_SHUTDOWN_TIMEOUT_SECONDS, ShutdownBudget
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.tools.environment_registry import UnknownEnvironmentError, environment_name
 from fast_agent.ui.usage_display import finalize_usage_report
@@ -46,7 +47,6 @@ if TYPE_CHECKING:
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
-_PROMPT_EXIT_SHUTDOWN_TIMEOUT_SECONDS = 1.0
 
 
 class FastAgentRunMixin:
@@ -269,7 +269,7 @@ class FastAgentRunMixin:
         active_agents: dict[str, AgentProtocol] = {}
         had_error = False
         run_state: ManagedRunState | None = None
-        shutdown_timeout: float | None = None
+        shutdown_budget: ShutdownBudget | None = None
         lifecycle = FastAgentRunLifecycle(cast("FastAgent", self))
         lifecycle_state = None
         try:
@@ -315,8 +315,10 @@ class FastAgentRunMixin:
             yield run_state.wrapper
 
         except PromptExitError as e:
-            shutdown_timeout = _PROMPT_EXIT_SHUTDOWN_TIMEOUT_SECONDS
-            self._handle_error(e)
+            shutdown_budget = ShutdownBudget(
+                TUI_SHUTDOWN_TIMEOUT_SECONDS,
+                reason="interactive_exit",
+            )
             raise SystemExit(0) from e
         except (
             ServerConfigError,
@@ -341,15 +343,24 @@ class FastAgentRunMixin:
                         run_state,
                         active_agents,
                         had_error=had_error,
-                        shutdown_timeout=shutdown_timeout,
+                        shutdown_budget=shutdown_budget,
                         exc_type=exc_type,
                         exc=exc,
                         traceback=traceback,
                     )
                 finally:
                     if environment_name(lifecycle_state.runtime.shell_environment) is not None:
-                        with suppress(Exception):
-                            await lifecycle_state.runtime.shell_environment.close()
+
+                        async def close_environment() -> None:
+                            with suppress(Exception):
+                                await lifecycle_state.runtime.shell_environment.close()
+
+                        if shutdown_budget is None:
+                            await close_environment()
+                        else:
+                            await shutdown_budget.run("environment", close_environment)
+                    if shutdown_budget is not None:
+                        shutdown_budget.complete()
 
     async def start_server(
         self,

@@ -10,8 +10,8 @@ social:
 # DeepSeek
 
 Use the `deepseek` provider for fast-agent's native DeepSeek Responses route.
-It uses a stateless Responses API over SSE and currently supports
-`deepseek-v4-flash`.
+It uses a stateless Responses API over SSE and supports `deepseek-v4-flash`
+and `deepseek-v4-pro`.
 
 ## Setup
 
@@ -34,9 +34,20 @@ The explicit model string is:
 deepseek.deepseek-v4-flash
 ```
 
-The native provider rejects other model names. In particular,
-`deepseek-chat`, `deepseek-reasoner`, and `deepseek-v4-pro` are not native
-DeepSeek model strings in fast-agent.
+Select V4 Pro with:
+
+```bash
+fast-agent go --model deepseekpro
+```
+
+or its explicit model string:
+
+```text
+deepseek.deepseek-v4-pro
+```
+
+The native provider rejects other model names such as `deepseek-chat` and
+`deepseek-reasoner`.
 
 ## Configuration
 
@@ -62,7 +73,8 @@ deepseek:
 ```
 
 `base_url`, `default_model`, and `default_headers` are optional. A configured
-`default_model` must currently be `deepseek-v4-flash`.
+`default_model` must be `deepseek-v4-flash` or `deepseek-v4-pro`. Flash remains
+the default when this setting is omitted.
 
 Run `fast-agent check` after configuring credentials.
 

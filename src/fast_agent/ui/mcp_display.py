@@ -59,6 +59,7 @@ class _ChannelSummaryEntry:
     label: str
     arrow: str
     channel: ChannelSnapshot | None
+    availability: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -518,17 +519,37 @@ def _build_channel_entries(status: ServerStatus) -> list[_ChannelSummaryEntry]:
 
     transport_lower = strip_casefold(status.transport or "")
     entries: list[_ChannelSummaryEntry] = []
-    if snapshot.get is not None:
+    if transport_lower == "http":
+        get_availability = None
+        if snapshot.get is None:
+            get_availability = (
+                "unavailable (no session)"
+                if status.is_connected and status.session_id is None
+                else "not observed"
+            )
+        entries.append(_ChannelSummaryEntry("GET (SSE)", "◀", snapshot.get, get_availability))
+    elif snapshot.get is not None:
         entries.append(_ChannelSummaryEntry("GET (SSE)", "◀", snapshot.get))
+
     listen_channel = snapshot.listen
-    if (
-        listen_channel is None
-        and transport_lower == "http"
-        and strip_casefold(status.subscription_state or "") == "disabled"
-    ):
-        listen_channel = ChannelSnapshot(state="disabled")
-    if listen_channel is not None:
-        entries.append(_ChannelSummaryEntry("LISTEN (SSE)", "◀", listen_channel))
+    listen_availability = None
+    if listen_channel is None and transport_lower == "http":
+        if status.protocol_era == "legacy":
+            listen_availability = "unavailable (legacy protocol)"
+        elif strip_casefold(status.subscription_state or "") == "disabled":
+            listen_channel = ChannelSnapshot(state="disabled")
+            listen_availability = "unavailable (not advertised)"
+        else:
+            listen_availability = "not observed"
+    if listen_channel is not None or transport_lower == "http":
+        entries.append(
+            _ChannelSummaryEntry(
+                "LISTEN (SSE)",
+                "◀",
+                listen_channel,
+                listen_availability,
+            )
+        )
 
     post_sse_channel = snapshot.post_sse
     post_json_channel = snapshot.post_json
@@ -549,8 +570,22 @@ def _build_channel_entries(status: ServerStatus) -> list[_ChannelSummaryEntry]:
         )
     )
     if transport_lower == "http" or (transport_lower != "sse" and has_http_channels):
-        entries.append(_ChannelSummaryEntry("POST (SSE)", "▶", post_sse_channel))
-        entries.append(_ChannelSummaryEntry("POST (JSON)", "▶", post_json_channel))
+        entries.append(
+            _ChannelSummaryEntry(
+                "POST (SSE)",
+                "▶",
+                post_sse_channel,
+                "not observed" if post_sse_channel is None else None,
+            )
+        )
+        entries.append(
+            _ChannelSummaryEntry(
+                "POST (JSON)",
+                "▶",
+                post_json_channel,
+                "not observed" if post_json_channel is None else None,
+            )
+        )
     elif post_sse_channel is not None:
         entries.append(_ChannelSummaryEntry("POST (SSE)", "▶", post_sse_channel))
 
@@ -799,6 +834,8 @@ def _render_single_channel_row(
         is_stdio=layout.is_stdio,
         show_ping=layout.show_ping,
     )
+    if entry.availability:
+        line.append(f"  {entry.availability}", style=Colours.TEXT_DIM)
     _status_console().print(line)
     return _channel_error_entry(entry.label, entry.channel)
 
@@ -818,6 +855,27 @@ def _render_channel_errors(errors: list[_ChannelErrorEntry], indent: str) -> Non
         error_line.append(f"{error.label}: ", style=Colours.TEXT_DEFAULT)
         error_line.append(_truncate_detail(error.message, max_len=60), style=Colours.TEXT_ERROR)
         _status_console().print(error_line)
+
+
+def _render_discovery_status(status: ServerStatus, indent: str) -> None:
+    snapshot = status.transport_channels
+    discovery = snapshot.discovery if snapshot is not None else None
+    if discovery is None or discovery.state not in {"legacy-fallback", "failed"}:
+        return
+
+    empty_line = Text(indent)
+    empty_line.append("│", style="dim")
+    _status_console().print(empty_line)
+
+    line = Text(indent)
+    line.append("│ ", style=Colours.TEXT_DIM)
+    line.append("△ ", style=Colours.TEXT_WARNING)
+    line.append("Discovery: ", style=Colours.TEXT_DEFAULT)
+    detail = discovery.detail or "probe failed"
+    line.append(detail, style=Colours.TEXT_WARNING)
+    if discovery.state == "legacy-fallback":
+        line.append("; legacy fallback succeeded", style=Colours.TEXT_DIM)
+    _status_console().print(line)
 
 
 def _render_channel_footer(
@@ -885,6 +943,7 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
         if error is not None:
             errors.append(error)
 
+    _render_discovery_status(status, indent)
     _render_channel_errors(errors, indent)
     _render_channel_footer(
         entries,

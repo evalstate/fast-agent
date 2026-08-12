@@ -2,6 +2,7 @@ import asyncio
 import io
 import json
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
@@ -83,6 +84,7 @@ class SubagentDisplayRecorder(ConsoleDisplay):
     def __init__(self) -> None:
         super().__init__(config=None)
         self.events: list[tuple[str, dict[str, object]]] = []
+        self.assistant_messages: asyncio.Queue[dict[str, object]] = asyncio.Queue()
 
     def show_user_message(
         self,
@@ -132,17 +134,14 @@ class SubagentDisplayRecorder(ConsoleDisplay):
             show_hook_indicator,
             show_reprint_banner,
         )
-        self.events.append(
-            (
-                "assistant",
-                {
-                    "message": message_text,
-                    "name": name,
-                    "model": model,
-                    "bottom_items": bottom_items,
-                },
-            )
-        )
+        payload: dict[str, object] = {
+            "message": message_text,
+            "name": name,
+            "model": model,
+            "bottom_items": bottom_items,
+        }
+        self.events.append(("assistant", payload))
+        self.assistant_messages.put_nowait(payload)
 
     def show_tool_call(
         self,
@@ -355,6 +354,31 @@ class ParallelBlockingLLM(PassthroughLLM):
         self.started.put_nowait(self.name)
         await self.release.wait()
         return Prompt.assistant("done")
+
+
+class SelectiveBlockingLLM(PassthroughLLM):
+    def __init__(
+        self,
+        started: asyncio.Queue[str],
+        releases: dict[str, asyncio.Event],
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.started = started
+        self.releases = releases
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        del request_params, tools, is_template
+        message = multipart_messages[-1].last_text() or ""
+        self.started.put_nowait(message)
+        await self.releases[message].wait()
+        return Prompt.assistant(f"done: {message}")
 
 
 class FailingLLM(PassthroughLLM):
@@ -1834,6 +1858,84 @@ async def test_parallel_subagent_live_display_keeps_call_and_session_identity(tm
             "call-b",
         }
     finally:
+        reset_session_manager()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("agent_cls", [ToolAgent, McpAgent], ids=["tool-agent", "mcp-agent"])
+async def test_parallel_subagent_result_displays_as_each_call_completes(
+    tmp_path,
+    agent_cls: type[ToolAgent],
+) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    set_session_manager(manager)
+    started: asyncio.Queue[str] = asyncio.Queue()
+    releases = {
+        "first task": asyncio.Event(),
+        "second task": asyncio.Event(),
+    }
+    run: asyncio.Task[PromptMessageExtended] | None = None
+
+    try:
+        parent = agent_cls(AgentConfig("parent", model="passthrough", subagents=True))
+        await parent.attach_llm(
+            lambda agent, **kwargs: SelectiveBlockingLLM(
+                started,
+                releases,
+                name=agent.name,
+                **kwargs,
+            )
+        )
+        assert install_subagent_tool(parent)
+        display = SubagentDisplayRecorder()
+        parent.display = display
+
+        run = asyncio.create_task(
+            parent.run_tools(
+                Prompt.assistant(
+                    tool_calls={
+                        "call-first": _subagent_call("first task", "first"),
+                        "call-second": _subagent_call("second task", "second"),
+                    }
+                )
+            )
+        )
+        assert {await started.get(), await started.get()} == {"first task", "second task"}
+
+        releases["second task"].set()
+        completed_result = await asyncio.wait_for(display.assistant_messages.get(), timeout=1)
+
+        assert completed_result["message"] == "done: second task"
+        assert completed_result["name"] == "subagent: second"
+        assert not run.done()
+        assert [event for event, _ in display.events].count("assistant") == 1
+
+        releases["first task"].set()
+        result_message = await run
+
+        assert result_message.tool_results is not None
+        assert list(result_message.tool_results) == ["call-first", "call-second"]
+        assert {get_text(result.content[0]) for result in result_message.tool_results.values()} == {
+            "done: first task",
+            "done: second task",
+        }
+        assert [
+            payload["message"] for event, payload in display.events if event == "assistant"
+        ] == [
+            "done: second task",
+            "done: first task",
+        ]
+    finally:
+        for release in releases.values():
+            release.set()
+        if run is not None:
+            with suppress(Exception):
+                await run
         reset_session_manager()
 
 

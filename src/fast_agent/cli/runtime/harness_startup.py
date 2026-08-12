@@ -241,7 +241,6 @@ async def run_harness_cli_flow(
                     quiet=request.quiet,
                 )
     except PromptExitError as exc:
-        fast._handle_error(exc)
         raise SystemExit(0) from exc
     except (
         ServerConfigError,
@@ -306,7 +305,6 @@ async def run_harness_parallel_cli_flow(
                     quiet=request.quiet,
                 )
     except PromptExitError as exc:
-        fast._handle_error(exc)
         raise SystemExit(0) from exc
     except (
         ServerConfigError,

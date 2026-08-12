@@ -3,6 +3,8 @@ from __future__ import annotations
 import shlex
 import sys
 
+import pytest
+
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.ui.interactive_shell import (
     _interactive_shell_prefers_pty,
@@ -80,3 +82,45 @@ def test_update_alt_screen_state_tracks_enter_and_exit_sequences() -> None:
 
     _update_alt_screen_state(cleanup_state, b"\x1b[?1049l")
     assert "1049" not in cleanup_state.alt_screen_modes
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="PTYs are unavailable on Windows")
+@pytest.mark.parametrize(
+    ("restore_scroll_region", "expected"),
+    [(False, None), (True, b"\x1b[r")],
+)
+def test_run_interactive_shell_restores_requested_scroll_region(
+    restore_scroll_region: bool,
+    expected: bytes | None,
+) -> None:
+    import errno
+    import os
+    import pty
+
+    pid, master_fd = pty.fork()
+    if pid == 0:
+        result = run_interactive_shell_command(
+            _python_shell_command("pass"),
+            show_output=False,
+            echo_command=False,
+            restore_scroll_region=restore_scroll_region,
+        )
+        os._exit(result.exit_code)
+
+    output = b""
+    while True:
+        try:
+            chunk = os.read(master_fd, 1024)
+        except OSError as exc:
+            if exc.errno == errno.EIO:
+                break
+            raise
+        if not chunk:
+            break
+        output += chunk
+
+    _, wait_status = os.waitpid(pid, 0)
+    os.close(master_fd)
+
+    assert os.waitstatus_to_exitcode(wait_status) == 0
+    assert output == (expected or b"")

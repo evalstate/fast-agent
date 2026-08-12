@@ -42,7 +42,7 @@ The `default_headers` option is available for OpenAI-compatible providers (inclu
 | Groq | `groq` | `GROQ_API_KEY` | Additional provider; OpenAI-compatible hosted inference |
 | xAI / Grok | `xai` | `XAI_API_KEY` | Grok models, reasoning, web search, and X Search |
 | MetaAI | `metaai` | `META_AI_API_KEY` | Muse Spark Responses API models |
-| [DeepSeek](providers/deepseek/) | `deepseek` | `DEEPSEEK_API_KEY` | Native stateless Responses API; `deepseek-v4-flash` |
+| [DeepSeek](providers/deepseek/) | `deepseek` | `DEEPSEEK_API_KEY` | Native stateless Responses API; `deepseek-v4-flash`, `deepseek-v4-pro` |
 | Z.ai | `zai` | `ZAI_API_KEY` | Native GLM Chat Completions API |
 | Moonshot | `moonshot` | `MOONSHOT_API_KEY` | Native Kimi Chat Completions API |
 | Aliyun | `aliyun` | `ALIYUN_API_KEY` | Additional provider; DashScope compatible-mode endpoint |

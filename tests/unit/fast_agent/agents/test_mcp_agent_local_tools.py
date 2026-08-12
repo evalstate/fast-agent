@@ -977,6 +977,7 @@ async def test_write_text_file_auto_mode_uses_edit_only_for_anthropic_series_mod
     "model_name",
     [
         "deepseek.deepseek-v4-flash",
+        "deepseek.deepseek-v4-pro",
         "hf.deepseek-ai/DeepSeek-V4-Flash-0731?reasoning=max",
     ],
 )

@@ -116,6 +116,8 @@ class ModelSelectionCatalog:
             ),
         ),
         Provider.XAI: (
+            _builtin_entry("Grok 4.6"),
+            _builtin_entry("Grok 4.6 (X Search)"),
             _builtin_entry("Grok 4.5"),
             _builtin_entry("Grok 4.5 (X Search)"),
             _builtin_entry("Grok 4.3"),
@@ -130,6 +132,10 @@ class ModelSelectionCatalog:
                 "deepseek",
                 display_label="DeepSeek V4 Flash",
                 fast=True,
+            ),
+            _builtin_entry(
+                "DeepSeek V4 Pro",
+                display_label="DeepSeek V4 Pro",
             ),
         ),
         Provider.ZAI: (_builtin_entry("zaiglm", display_label="GLM 5.2"),),

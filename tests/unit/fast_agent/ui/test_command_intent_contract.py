@@ -69,7 +69,6 @@ def test_session_completion_descriptions_cover_parser_actions() -> None:
 
 def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
     assert frozenset(prompt_parser._SIMPLE_SLASH_FACTORIES) == {
-        "help",
         "system",
         "usage",
         "markdown",
@@ -80,6 +79,7 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
         "stop",
     }
     assert frozenset(prompt_parser._COMMAND_PARSERS) == {
+        "help",
         "compact",
         "history",
         "session",
@@ -372,6 +372,13 @@ def test_slash_parser_static_dispatch_tables_cover_expected_commands() -> None:
             "! pwd",
             ShellCommand(command="pwd", local=False, interactive=False),
             id="environment-shell-command",
+        ),
+        pytest.param(
+            "!",
+            ShellCommand(
+                command=prompt_parser.default_shell_command(), local=False, interactive=True
+            ),
+            id="environment-interactive-shell",
         ),
         pytest.param(
             "!!",

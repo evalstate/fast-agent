@@ -154,11 +154,20 @@ class ChannelSnapshot(BaseModel):
     activity_bucket_count: int | None = None
 
 
+class DiscoverySnapshot(BaseModel):
+    """Outcome of the modern discovery probe and any legacy fallback."""
+
+    state: Literal["pending", "modern", "legacy-fallback", "failed"]
+    status_code: int | None = None
+    detail: str | None = None
+
+
 class TransportSnapshot(BaseModel):
     """Collection of channel snapshots for a transport."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    discovery: DiscoverySnapshot | None = None
     post: ChannelSnapshot | None = None
     post_json: ChannelSnapshot | None = None
     post_sse: ChannelSnapshot | None = None
@@ -199,6 +208,11 @@ class TransportChannelMetrics:
 
         self._response_channel_by_id: dict[RequestId, ChannelName] = {}
         self._ping_request_ids: set[RequestId] = set()
+        self._discovery_state: Literal["pending", "modern", "legacy-fallback", "failed"] | None = (
+            None
+        )
+        self._discovery_status_code: int | None = None
+        self._discovery_detail: str | None = None
 
         self._init_history(bucket_seconds, bucket_count)
 
@@ -311,6 +325,19 @@ class TransportChannelMetrics:
     def discard_ping_request(self, request_id: RequestId) -> None:
         with self._lock:
             self._ping_request_ids.discard(request_id)
+
+    def record_discovery_response(self, status_code: int) -> None:
+        with self._lock:
+            self._discovery_status_code = status_code
+            self._discovery_detail = f"HTTP {status_code}"
+            self._discovery_state = "failed" if status_code >= 400 else "pending"
+
+    def resolve_negotiation(self, *, protocol_mode: str, protocol_era: str) -> None:
+        with self._lock:
+            if protocol_era == "modern":
+                self._discovery_state = "modern"
+            elif protocol_mode == "auto" and self._discovery_state is not None:
+                self._discovery_state = "legacy-fallback"
 
     def _handle_post_event(self, event: ChannelEvent, now: datetime) -> None:
         mode = POST_CHANNEL_MODE_BY_NAME[cast("PostChannelName", event.channel)]
@@ -717,6 +744,7 @@ class TransportChannelMetrics:
 
             now = datetime.now(timezone.utc)
             return TransportSnapshot(
+                discovery=self._build_discovery_snapshot(),
                 post=self._build_post_snapshot(now),
                 post_json=self._build_post_mode_snapshot("json", now),
                 post_sse=self._build_post_mode_snapshot("sse", now),
@@ -730,11 +758,21 @@ class TransportChannelMetrics:
 
     def _has_snapshot_activity(self) -> bool:
         return bool(
-            self._has_post_snapshot_activity()
+            self._discovery_state is not None
+            or self._has_post_snapshot_activity()
             or self._has_listen_snapshot_activity()
             or self._has_get_snapshot_activity()
             or self._has_resumption_snapshot_activity()
             or self._has_stdio_snapshot_activity()
+        )
+
+    def _build_discovery_snapshot(self) -> DiscoverySnapshot | None:
+        if self._discovery_state is None:
+            return None
+        return DiscoverySnapshot(
+            state=self._discovery_state,
+            status_code=self._discovery_status_code,
+            detail=self._discovery_detail,
         )
 
     def _has_post_snapshot_activity(self) -> bool:

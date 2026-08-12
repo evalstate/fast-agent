@@ -16,6 +16,7 @@ from fast_agent.core.agent_instance_factory import (
     AgentInstanceFactory,
     CallableAgentInstanceFactory,
 )
+from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.harness_persistence import (
     CallbackHarnessSessionPersistence,
     FileHarnessSessionPersistence,
@@ -23,6 +24,7 @@ from fast_agent.core.harness_persistence import (
 )
 from fast_agent.core.live_session_registry import InMemoryLiveSessionRegistry
 from fast_agent.core.run_lifecycle import FastAgentRunLifecycle, FastAgentRunLifecycleState
+from fast_agent.core.shutdown import TUI_SHUTDOWN_TIMEOUT_SECONDS, ShutdownBudget
 from fast_agent.tools.environment_registry import environment_name
 from fast_agent.types import (
     AgentAuth,
@@ -587,23 +589,45 @@ class AgentHarness:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        shutdown_budget = (
+            ShutdownBudget(TUI_SHUTDOWN_TIMEOUT_SECONDS, reason="interactive_exit")
+            if isinstance(exc, PromptExitError)
+            else None
+        )
+
         if self._sessions is not None:
-            await self._sessions._close_all()
+
+            async def close_sessions() -> None:
+                assert self._sessions is not None
+                await self._sessions._close_all()
+
+            if shutdown_budget is None:
+                await close_sessions()
+            else:
+                await shutdown_budget.run("harness.sessions", close_sessions)
             self._sessions = None
 
         if self._runtime is not None:
-            for instance in list(self._runtime.managed_instances):
-                with suppress(Exception):
-                    await self._dispose_instance(instance)
-            if (
-                self._shell_environment is not None
-                and environment_name(self._shell_environment) is not None
-            ):
-                with suppress(Exception):
-                    await self._shell_environment.close()
-            if self._local_environment is not None:
-                with suppress(Exception):
-                    await self._local_environment.close()
+
+            async def close_runtime() -> None:
+                assert self._runtime is not None
+                for instance in list(self._runtime.managed_instances):
+                    with suppress(Exception):
+                        await self._dispose_instance(instance)
+                if (
+                    self._shell_environment is not None
+                    and environment_name(self._shell_environment) is not None
+                ):
+                    with suppress(Exception):
+                        await self._shell_environment.close()
+                if self._local_environment is not None:
+                    with suppress(Exception):
+                        await self._local_environment.close()
+
+            if shutdown_budget is None:
+                await close_runtime()
+            else:
+                await shutdown_budget.run("harness.runtime", close_runtime)
             self._runtime = None
             self._shell_environment = None
             self._local_environment = None
@@ -614,6 +638,7 @@ class AgentHarness:
                 None,
                 {},
                 had_error=exc_type is not None,
+                shutdown_budget=shutdown_budget,
                 exc_type=exc_type,
                 exc=exc,
                 traceback=traceback,
@@ -621,6 +646,9 @@ class AgentHarness:
             self._lifecycle_state = None
             self._lifecycle = None
             self._settings = None
+
+        if shutdown_budget is not None:
+            shutdown_budget.complete()
 
     async def session(
         self,

@@ -436,6 +436,50 @@ class _DummyRegistry:
         return MCPServerSettings(name="demo", url="http://example.com/mcp")
 
 
+@pytest.mark.parametrize(
+    ("with_user_oauth_handler", "expected_console_output"),
+    [(False, True), (True, False)],
+)
+def test_managed_connection_preserves_oauth_console_output_without_user_handler(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    with_user_oauth_handler: bool,
+    expected_console_output: bool,
+) -> None:
+    manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
+    config = MCPServerSettings(name="demo", url="http://example.com/mcp")
+    server_conn = _make_server_connection()
+    captured_hooks: list[Any] = []
+    sentinel = object()
+
+    def _fake_create_client_connection(*_args, hooks, **_kwargs):
+        captured_hooks.append(hooks)
+        return sentinel
+
+    async def _user_oauth_handler(_event) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.mcp_connection_manager.create_client_connection",
+        _fake_create_client_connection,
+    )
+    factory = manager._client_connection_factory(
+        [server_conn],
+        server_name="demo",
+        config=config,
+        oauth_mode="auto",
+        oauth_active=True,
+        oauth_event_handler=_user_oauth_handler if with_user_oauth_handler else None,
+        allow_oauth_paste_fallback=True,
+        transport_metrics=None,
+    )
+
+    assert factory() is sentinel
+    assert len(captured_hooks) == 1
+    assert captured_hooks[0].oauth_event_handler is not None
+    assert captured_hooks[0].emit_oauth_console_output is expected_console_output
+
+
 def test_disabled_mcp_diagnostics_skips_timeline_metrics_and_ping_history() -> None:
     settings = Settings.model_validate({"mcp": {"diagnostics": {"enabled": False}}})
     manager = MCPConnectionManager(

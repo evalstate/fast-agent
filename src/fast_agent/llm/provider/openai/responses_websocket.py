@@ -14,6 +14,7 @@ from aiohttp import WSMsgType
 from openai import AsyncOpenAI
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
+from fast_agent.core.shutdown import write_shutdown_trace
 from fast_agent.llm.provider.openai.responses_events import (
     is_responses_failure_event,
     is_responses_terminal_event,
@@ -33,6 +34,7 @@ RESPONSES_WEBSOCKET_BETA_HEADER = "responses_websockets=2026-02-06"
 RESPONSES_WEBSOCKET_BETA_HEADER_NAME = "OpenAI-Beta"
 RESPONSES_CREATE_EVENT_TYPE = "response.create"
 RESPONSES_WEBSOCKET_MAX_MESSAGE_BYTES = 4 * 1024 * 1024
+RESPONSES_WEBSOCKET_CLOSE_TIMEOUT_SECONDS = 0.25
 _STREAM_START_EVENT_TYPES = {
     "response.output_item.added",
     "response.function_call_arguments.delta",
@@ -53,6 +55,7 @@ class ResponsesWebSocketKeepaliveOptions(TypedDict, total=False):
 
 
 class _SdkWebSocketConnectionOptions(ResponsesWebSocketKeepaliveOptions, total=False):
+    close_timeout: float | None
     max_size: int | None
     open_timeout: float | None
 
@@ -466,6 +469,9 @@ async def connect_websocket(
         "max_size": RESPONSES_WEBSOCKET_MAX_MESSAGE_BYTES,
         # The outer fast-agent timeout remains authoritative.
         "open_timeout": None,
+        # Allow a graceful close without letting a peer consume the TUI's
+        # two-second total shutdown budget.
+        "close_timeout": RESPONSES_WEBSOCKET_CLOSE_TIMEOUT_SECONDS,
     }
     if keepalive_options is not None:
         if "ping_interval" in keepalive_options:
@@ -506,11 +512,29 @@ async def connect_websocket(
 
 
 async def close_websocket_connection(connection: ManagedWebSocketConnection) -> None:
-    if not connection.websocket.closed:
-        with suppress(Exception):
-            await connection.websocket.close()
-    if not connection.session.closed:
-        await connection.session.close()
+    started_at = time.monotonic()
+    websocket_outcome = "already_closed" if connection.websocket.closed else "completed"
+    session_outcome = "already_closed" if connection.session.closed else "completed"
+    write_shutdown_trace("shutdown.websocket.start")
+    try:
+        if not connection.websocket.closed:
+            try:
+                await connection.websocket.close()
+            except Exception:
+                websocket_outcome = "failed"
+        if not connection.session.closed:
+            try:
+                await connection.session.close()
+            except BaseException:
+                session_outcome = "failed"
+                raise
+    finally:
+        write_shutdown_trace(
+            "shutdown.websocket.end",
+            elapsed_ms=round((time.monotonic() - started_at) * 1000, 3),
+            websocket_outcome=websocket_outcome,
+            session_outcome=session_outcome,
+        )
 
 
 async def send_response_request(

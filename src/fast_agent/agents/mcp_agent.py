@@ -97,7 +97,10 @@ from fast_agent.mcp.provider_management import (
     build_provider_managed_mcp_state,
     split_managed_server_names,
 )
-from fast_agent.mcp.tool_result_metadata import tool_result_display_metadata
+from fast_agent.mcp.tool_result_metadata import (
+    ToolResultDisplayMetadata,
+    tool_result_display_metadata,
+)
 from fast_agent.mcp.tool_result_truncation import truncate_tool_result_for_llm
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
@@ -2040,16 +2043,41 @@ class McpAgent(ABC, ToolAgent):
         previous_shell_display_setting = self._defer_shell_display_to_tool_result
         self._show_shell_tool_call_id = True
         self._defer_shell_display_to_tool_result = True
-        try:
-            results = await gather_with_cancel(
-                self._execute_mcp_planned_tool_call(call, request_params=request_params)
-                for call in planned_calls
+
+        async def run_one(
+            call: PlannedMcpToolCall,
+        ) -> tuple[
+            str,
+            CallToolResult,
+            float,
+            ToolResultDisplayMetadata,
+            ToolResultDisplayRequest | None,
+            Exception | None,
+        ]:
+            correlation_id, result, duration_ms = await self._execute_mcp_planned_tool_call(
+                call,
+                request_params=request_params,
             )
+            result, display_metadata = self._prepare_planned_tool_result(call, result)
+            try:
+                display_request = await self._planned_tool_result_display_request(
+                    call,
+                    result,
+                    duration_ms=duration_ms,
+                    display_metadata=display_metadata,
+                )
+            except Exception as exc:
+                return correlation_id, result, duration_ms, display_metadata, None, exc
+            return correlation_id, result, duration_ms, display_metadata, display_request, None
+
+        try:
+            results = await gather_with_cancel(run_one(call) for call in planned_calls)
         finally:
             self._show_shell_tool_call_id = previous_shell_tool_call_id_setting
             self._defer_shell_display_to_tool_result = previous_shell_display_setting
 
         display_requests: list[ToolResultDisplayRequest] = []
+        presentation_errors: list[Exception] = []
         for call, item in zip(planned_calls, results, strict=True):
             if isinstance(item, BaseException):
                 self.logger.error(f"MCP tool {call.display_tool_name} failed: {item}")
@@ -2058,17 +2086,36 @@ class McpAgent(ABC, ToolAgent):
                     is_error=True,
                 )
                 duration_ms = 0.0
+                display_request = await self._record_planned_tool_result(
+                    call,
+                    result,
+                    duration_ms=duration_ms,
+                    tool_results=tool_results,
+                    tool_timings=tool_timings,
+                )
             else:
-                _, result, duration_ms = item
-            display_request = await self._record_planned_tool_result(
-                call,
-                result,
-                duration_ms=duration_ms,
-                tool_results=tool_results,
-                tool_timings=tool_timings,
-            )
+                (
+                    _,
+                    result,
+                    duration_ms,
+                    display_metadata,
+                    display_request,
+                    presentation_error,
+                ) = item
+                self._store_planned_tool_result(
+                    call,
+                    result,
+                    duration_ms=duration_ms,
+                    display_metadata=display_metadata,
+                    tool_results=tool_results,
+                    tool_timings=tool_timings,
+                )
+                if presentation_error is not None:
+                    presentation_errors.append(presentation_error)
             if display_request is not None:
                 display_requests.append(display_request)
+        if presentation_errors:
+            raise presentation_errors[0]
         self.display.show_parallel_tool_results(display_requests)
 
     async def _run_sequential_planned_tool_calls(
@@ -2136,6 +2183,27 @@ class McpAgent(ABC, ToolAgent):
         tool_results: dict[str, CallToolResult],
         tool_timings: dict[str, ToolTimingInfo],
     ) -> ToolResultDisplayRequest | None:
+        result, display_metadata = self._prepare_planned_tool_result(call, result)
+        self._store_planned_tool_result(
+            call,
+            result,
+            duration_ms=duration_ms,
+            display_metadata=display_metadata,
+            tool_results=tool_results,
+            tool_timings=tool_timings,
+        )
+        return await self._planned_tool_result_display_request(
+            call,
+            result,
+            duration_ms=duration_ms,
+            display_metadata=display_metadata,
+        )
+
+    def _prepare_planned_tool_result(
+        self,
+        call: PlannedMcpToolCall,
+        result: CallToolResult,
+    ) -> tuple[CallToolResult, ToolResultDisplayMetadata]:
         if not call.is_local_shell:
             result = truncate_tool_result_for_llm(
                 result,
@@ -2146,13 +2214,32 @@ class McpAgent(ABC, ToolAgent):
             display_tool_name=call.display_tool_name,
             tool_args=call.tool_args,
         )
+        return result, tool_result_display_metadata(result)
+
+    @staticmethod
+    def _store_planned_tool_result(
+        call: PlannedMcpToolCall,
+        result: CallToolResult,
+        *,
+        duration_ms: float,
+        display_metadata: ToolResultDisplayMetadata,
+        tool_results: dict[str, CallToolResult],
+        tool_timings: dict[str, ToolTimingInfo],
+    ) -> None:
         tool_results[call.correlation_id] = result
-        display_metadata = tool_result_display_metadata(result)
         tool_timings[call.correlation_id] = ToolTimingInfo(
             timing_ms=duration_ms,
             transport_channel=display_metadata.get("transport_channel"),
         )
 
+    async def _planned_tool_result_display_request(
+        self,
+        call: PlannedMcpToolCall,
+        result: CallToolResult,
+        *,
+        duration_ms: float,
+        display_metadata: ToolResultDisplayMetadata,
+    ) -> ToolResultDisplayRequest | None:
         if display_metadata.get("suppress_display", False):
             return None
         if self._is_builtin_subagent_tool(call.metadata):

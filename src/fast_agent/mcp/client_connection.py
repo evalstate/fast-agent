@@ -178,7 +178,7 @@ class MCPClientConnection:
     async def ping(self, read_timeout_seconds: float | None = None) -> object:
         """Send a legacy health ping; modern runtimes never call this."""
         del read_timeout_seconds
-        return await self.client.send_ping()  # ty: ignore[deprecated]
+        return await self.client.session.send_ping()
 
     async def list_tools(
         self,

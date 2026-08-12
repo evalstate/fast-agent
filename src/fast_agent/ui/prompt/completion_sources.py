@@ -25,6 +25,7 @@ from fast_agent.commands.shared_command_intents import (
 )
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.mcp.connect_targets import mcp_connect_flag_descriptions
+from fast_agent.ui.prompt.command_help import HELP_TOPIC_DESCRIPTIONS
 from fast_agent.utils.commandline import join_commandline, split_commandline
 from fast_agent.utils.text import starts_with_casefold, strip_casefold
 
@@ -1425,6 +1426,17 @@ def _tools_command_completions(
     ]
 
 
+def _help_command_completions(
+    _completer: "AgentCompleter",
+    text: str,
+    text_lower: str,
+) -> list[Completion] | None:
+    if not text_lower.startswith("/help "):
+        return None
+    partial = text[len("/help ") :]
+    return _subcommand_completions(partial, HELP_TOPIC_DESCRIPTIONS)
+
+
 def command_completions(
     completer: "AgentCompleter",
     text: str,
@@ -1435,6 +1447,7 @@ def command_completions(
         "Callable[[AgentCompleter, str, str], list[Completion] | None]",
         ...,
     ] = (
+        _help_command_completions,
         _tools_command_completions,
         _history_command_completions,
         _compact_command_completions,

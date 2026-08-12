@@ -8,6 +8,7 @@ from contextlib import suppress
 from typing import TYPE_CHECKING
 
 from fast_agent.cli.asyncio_utils import set_asyncio_exception_handler
+from fast_agent.integrations.herdr_lifecycle import release_agent
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.utils.async_utils import configure_uvloop, create_event_loop, ensure_event_loop
 
@@ -118,6 +119,7 @@ def run_request(request: AgentRunRequest) -> None:
             loop.run_until_complete(loop.shutdown_asyncgens())
         with suppress(BaseException):
             loop.close()
+        release_agent()
 
     if exit_code not in (None, 0):
         raise SystemExit(exit_code)

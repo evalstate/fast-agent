@@ -128,6 +128,44 @@ async def test_http_diagnostic_hooks_track_post_get_and_resumption() -> None:
 
 
 @pytest.mark.asyncio
+async def test_http_discover_400_is_discovery_not_post_error() -> None:
+    metrics = TransportChannelMetrics()
+    hooks = _http_diagnostic_hooks(
+        "docs",
+        MCPClientHooks(transport_metrics=metrics),
+    )
+    assert hooks is not None
+
+    async def server(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(400, request=request)
+
+    async with httpx2.AsyncClient(
+        transport=httpx2.MockTransport(server),
+        event_hooks=hooks,
+    ) as client:
+        await client.post(
+            "https://example.com/mcp",
+            headers={"Accept": "application/json, text/event-stream"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "server/discover",
+                "params": {},
+            },
+        )
+
+    snapshot = metrics.snapshot()
+    assert snapshot.discovery is not None
+    assert snapshot.discovery.state == "failed"
+    assert snapshot.discovery.status_code == 400
+    assert snapshot.discovery.detail == "HTTP 400"
+    assert snapshot.post_json is not None
+    assert snapshot.post_json.request_count == 1
+    assert snapshot.post_json.state != "error"
+    assert snapshot.post_json.last_error is None
+
+
+@pytest.mark.asyncio
 async def test_http_diagnostic_hooks_classify_only_final_redirect_response() -> None:
     metrics = TransportChannelMetrics()
     hooks = _http_diagnostic_hooks(

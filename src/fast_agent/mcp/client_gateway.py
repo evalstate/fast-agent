@@ -76,6 +76,7 @@ class MCPClientHooks:
     stderr_line_handler: Callable[[str], None] | None = None
     http_response_handler: HttpResponseHandler | None = None
     oauth_event_handler: OAuthEventHandler | None = None
+    emit_oauth_console_output: bool | None = None
     oauth_abort_event: threading.Event | None = None
     allow_oauth_paste_fallback: bool = True
     transport_metrics: TransportChannelMetrics | None = None
@@ -323,7 +324,11 @@ def _create_transport(
         trigger_oauth=oauth_active,
         oauth_mode=oauth_mode if oauth_active else "disabled",
         oauth_event_handler=hooks.oauth_event_handler,
-        emit_oauth_console_output=hooks.oauth_event_handler is None,
+        emit_oauth_console_output=(
+            hooks.emit_oauth_console_output
+            if hooks.emit_oauth_console_output is not None
+            else hooks.oauth_event_handler is None
+        ),
         oauth_abort_event=hooks.oauth_abort_event,
         allow_oauth_paste_fallback=hooks.allow_oauth_paste_fallback,
     )
@@ -447,6 +452,10 @@ def _http_diagnostic_hooks(
                 except (ValidationError, ValueError):
                     message = None
                 channel = _http_post_channel(response, message)
+                is_discovery = (
+                    isinstance(message, JSONRPCRequest)
+                    and strip_casefold(message.method or "") == "server/discover"
+                )
                 if message is not None:
                     metrics.record_event(
                         ChannelEvent(
@@ -456,14 +465,19 @@ def _http_diagnostic_hooks(
                         )
                     )
                 if response.status_code >= 400:
-                    metrics.record_event(
-                        ChannelEvent(
-                            channel=channel,
-                            event_type="error",
-                            status_code=response.status_code,
-                            detail=f"HTTP {response.status_code}",
+                    if is_discovery:
+                        metrics.record_discovery_response(response.status_code)
+                    else:
+                        metrics.record_event(
+                            ChannelEvent(
+                                channel=channel,
+                                event_type="error",
+                                status_code=response.status_code,
+                                detail=f"HTTP {response.status_code}",
+                            )
                         )
-                    )
+                elif is_discovery:
+                    metrics.record_discovery_response(response.status_code)
         except Exception:
             logger.debug("%s: HTTP diagnostics hook failed", server_name, exc_info=True)
 

@@ -394,6 +394,12 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
+    XAI_GROK_46_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="high"),
+    )
+
     # Muse Spark: Responses reasoning.effort; "none" is rejected by the API.
     MUSE_SPARK_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
@@ -728,6 +734,7 @@ class ModelDatabase:
         reasoning="openai",
         reasoning_effort_spec=DEEPSEEK_REASONING_EFFORT_SPEC,
         default_provider=Provider.DEEPSEEK,
+        managed_process_poll_folding=True,
         # Matched full-precision probe data favored the combined writer/editor
         # contract over edit-only while reducing token usage.
         model_specific=MODEL_PREFERS_WRITER_EDITOR,
@@ -740,6 +747,7 @@ class ModelDatabase:
             "default_provider": Provider.HUGGINGFACE,
         }
     )
+    DEEPSEEK_V4_PRO = DEEPSEEK_V4_FLASH
 
     DEEPSEEK_V_32 = ModelParameters(
         context_window=65536,
@@ -906,6 +914,10 @@ class ModelDatabase:
         process_poll_default_wait_seconds=240,
         shell_output_byte_limit=16_000,
         shell_tool_profile="grok_shell",
+    )
+
+    GROK_46 = GROK_45.model_copy(
+        update={"reasoning_effort_spec": XAI_GROK_46_REASONING_EFFORT_SPEC}
     )
 
     MUSE_SPARK = ModelParameters(
@@ -1211,6 +1223,7 @@ class ModelDatabase:
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
         # DeepSeek Models
         "deepseek-v4-flash": _with_fast(DEEPSEEK_V4_FLASH),
+        "deepseek-v4-pro": DEEPSEEK_V4_PRO,
         "deepseek-ai/deepseek-v4-flash-0731": _with_fast(DEEPSEEK_V4_FLASH_HF),
         # Z.ai models
         "glm-5.2": GLM_5_2.model_copy(update={"default_provider": Provider.ZAI}),
@@ -1226,6 +1239,7 @@ class ModelDatabase:
         # xAI Grok Models
         "grok-4.3": GROK_43,
         "grok-4.5": GROK_45,
+        "grok-4.6": GROK_46,
         "muse-spark-1.2": MUSE_SPARK,
         "muse-spark-1.2-contributor": MUSE_SPARK,
         "muse-spark-1.1": MUSE_SPARK,
@@ -1286,6 +1300,7 @@ class ModelDatabase:
             for model_name, params in (
                 ("grok-4.3", GROK_43),
                 ("grok-4.5", GROK_45),
+                ("grok-4.6", GROK_46),
             )
         }
     )

@@ -1,12 +1,14 @@
 import json
+import warnings
 from collections.abc import Awaitable, Callable
+from typing import cast
 
 import httpx2
 import pytest
 from anyio import Event, create_task_group, sleep_forever
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.exceptions import MCPError
+from mcp.shared.exceptions import MCPDeprecationWarning, MCPError
 from mcp_types import (
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
@@ -435,6 +437,34 @@ def _operations() -> list[object]:
             id="get_skill",
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_legacy_ping_bypasses_deprecated_client_wrapper() -> None:
+    class FakeSession:
+        async def send_ping(self):
+            return "pong"
+
+    class FakeClient:
+        session = FakeSession()
+
+        async def send_ping(self):
+            warnings.warn(
+                "ping is removed as of 2026-07-28; the method only works under mode='legacy'.",
+                MCPDeprecationWarning,
+                stacklevel=2,
+            )
+            raise AssertionError("deprecated high-level wrapper should not be called")
+
+    connection = object.__new__(MCPClientConnection)
+    connection.client = cast("Client", FakeClient())
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = await connection.ping()
+
+    assert result == "pong"
+    assert caught == []
 
 
 @pytest.mark.asyncio

@@ -21,6 +21,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.agent_instance_factory import CallableAgentInstanceFactory
+from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.fastagent import AgentInstance, RunRuntime, RunSettings
 from fast_agent.tools.execution_environment import (
     ShellExecution,
@@ -50,6 +51,28 @@ def test_public_harness_exports_and_factory() -> None:
     assert AgentResponse.__name__ == "AgentResponse"
     assert HarnessSession.__name__ == "HarnessSession"
     assert HarnessSessions.__name__ == "HarnessSessions"
+
+
+@pytest.mark.asyncio
+async def test_harness_prompt_exit_has_one_total_shutdown_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _BlockingSessions:
+        async def _close_all(self) -> None:
+            await asyncio.Event().wait()
+
+    fast = FastAgent("test", parse_cli_args=False)
+    harness = fast.harness()
+    harness._sessions = cast("Any", _BlockingSessions())
+    monkeypatch.setattr("fast_agent.core.harness.TUI_SHUTDOWN_TIMEOUT_SECONDS", 0.02)
+    error = PromptExitError("exit")
+
+    await asyncio.wait_for(
+        harness.__aexit__(PromptExitError, error, None),
+        timeout=0.2,
+    )
+
+    assert harness._sessions is None
 
 
 def test_environments_resolve_relative_paths_from_explicit_config(

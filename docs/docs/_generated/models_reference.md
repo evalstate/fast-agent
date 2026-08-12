@@ -35,6 +35,7 @@
 | `sol` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `sol?reasoning=high` | `low`, `medium`, `high`<br>Example: `sol?verbosity=low` | — |
 | `terra` | `codexresponses` | Text, Vision, Document | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `terra?reasoning=high` | `low`, `medium`, `high`<br>Example: `terra?verbosity=low` | — |
 | `deepseek` | `deepseek` | Text | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseek?reasoning=max` | — | — |
+| `deepseekpro` | `deepseek` | Text | `json` (schema) | effort: `none`, `low`, `high`, `max`, `off`<br>Example: `deepseekpro?reasoning=max` | — | — |
 | `passthrough` | `fast-agent` | Text | `json` (schema) | — | — | — |
 | `playback` | `fast-agent` | Text | `json` (schema) | — | — | — |
 | `silent` | `fast-agent` | Text | `json` (schema) | — | — | — |
@@ -116,5 +117,6 @@
 | `o4-mini` | `responses` | Text, Vision, Document | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `o4-mini?reasoning=medium` | — | — |
 | `responses.o3-pro` | `responses` | Text | `json` (schema) | — | — | — |
 | `grok43` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `grok43?reasoning=high` | — | — |
-| `grok` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `grok?reasoning=high` | — | — |
+| `grok45` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `grok45?reasoning=high` | — | — |
+| `grok` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `grok?reasoning=high` | — | — |
 | `zaiglm` | `zai` | Text | `json` (object) | effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `off`<br>Example: `zaiglm?reasoning=max` | — | — |

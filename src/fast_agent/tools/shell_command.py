@@ -16,25 +16,101 @@ _UV_RUN_FLAG_OPTIONS = frozenset(
     {
         "--active",
         "--all-extras",
+        "--all-groups",
+        "--all-packages",
         "--compile-bytecode",
         "--exact",
         "--frozen",
         "--isolated",
         "--locked",
         "--managed-python",
+        "--no-binary",
+        "--no-build",
+        "--no-build-isolation",
+        "--no-cache",
+        "--no-config",
+        "--no-default-groups",
         "--no-dev",
         "--no-editable",
+        "--no-env-file",
+        "--no-index",
         "--no-managed-python",
+        "--no-progress",
         "--no-project",
         "--no-python-downloads",
         "--no-sources",
         "--no-sync",
         "--offline",
+        "--only-dev",
         "--quiet",
+        "--refresh",
+        "--reinstall",
+        "--system-certs",
+        "--upgrade",
         "--verbose",
+        "-U",
+        "-n",
         "-q",
         "-v",
     }
+)
+_UV_RUN_VALUE_OPTIONS = frozenset(
+    {
+        "--allow-insecure-host",
+        "--cache-dir",
+        "--color",
+        "--config-file",
+        "--config-setting",
+        "--config-settings-package",
+        "--default-index",
+        "--directory",
+        "--env-file",
+        "--exclude-newer",
+        "--exclude-newer-package",
+        "--extra",
+        "--extra-index-url",
+        "--find-links",
+        "--fork-strategy",
+        "--group",
+        "--index",
+        "--index-strategy",
+        "--index-url",
+        "--keyring-provider",
+        "--link-mode",
+        "--no-binary-package",
+        "--no-build-isolation-package",
+        "--no-build-package",
+        "--no-editable-package",
+        "--no-extra",
+        "--no-group",
+        "--no-sources-package",
+        "--only-group",
+        "--package",
+        "--prerelease",
+        "--project",
+        "--python",
+        "--python-platform",
+        "--refresh-package",
+        "--reinstall-package",
+        "--resolution",
+        "--upgrade-group",
+        "--upgrade-package",
+        "--with",
+        "--with-editable",
+        "--with-requirements",
+        "-C",
+        "-P",
+        "-f",
+        "-i",
+        "-p",
+        "-w",
+    }
+)
+_UV_RUN_SHORT_FLAG_OPTIONS = frozenset(
+    option[1:] for option in _UV_RUN_FLAG_OPTIONS if len(option) == 2
+)
+_UV_RUN_SHORT_VALUE_OPTIONS = frozenset(
+    option[1:] for option in _UV_RUN_VALUE_OPTIONS if len(option) == 2
 )
 _PNPM_EXEC_FLAG_OPTIONS = frozenset({"--recursive", "--silent", "--workspace-root", "-r", "-w"})
 _PNPM_EXEC_VALUE_OPTIONS = frozenset({"--dir", "-C"})
@@ -248,6 +324,47 @@ def _heredoc_redirect_target(line: str, declaration: _HeredocDeclaration) -> str
     return _shell_redirect_target(line[start:end])
 
 
+def _uv_run_compact_option_width(option: str) -> Literal[1, 2] | None:
+    if len(option) <= 2 or not option.startswith("-") or option.startswith("--"):
+        return None
+    for offset, short_option in enumerate(option[1:], start=2):
+        if short_option in _UV_RUN_SHORT_FLAG_OPTIONS:
+            continue
+        if short_option in _UV_RUN_SHORT_VALUE_OPTIONS:
+            return 1 if offset < len(option) else 2
+        return None
+    return 1
+
+
+def _skip_uv_run_options(command: list[str], index: int) -> int | None:
+    while index < len(command):
+        option = command[index]
+        if option == "--":
+            return index + 1
+        if option in _UV_RUN_FLAG_OPTIONS:
+            index += 1
+            continue
+        if option in _UV_RUN_VALUE_OPTIONS:
+            if index + 1 >= len(command):
+                return None
+            index += 2
+            continue
+        name, separator, value = option.partition("=")
+        if separator and name in _UV_RUN_VALUE_OPTIONS:
+            if not value:
+                return None
+            index += 1
+            continue
+        compact_width = _uv_run_compact_option_width(option)
+        if compact_width is not None:
+            if compact_width == 2 and index + 1 >= len(command):
+                return None
+            index += compact_width
+            continue
+        break
+    return index
+
+
 def _heredoc_stdin_interpreter(
     line: str,
     declaration: _HeredocDeclaration,
@@ -266,14 +383,17 @@ def _heredoc_stdin_interpreter(
     command = tokens[:declaration_index]
     if len(command) == 2 and command[1] == "-":
         return posixpath.basename(command[0]).casefold()
-    if (
-        len(command) >= 4
-        and posixpath.basename(command[0]).casefold() == "uv"
-        and command[1] == "run"
-        and command[-1] == "-"
-        and all(option in _UV_RUN_FLAG_OPTIONS for option in command[2:-2])
-    ):
-        return posixpath.basename(command[-2]).casefold()
+    if len(command) >= 3 and posixpath.basename(command[0]).casefold() == "uv":
+        if command[1] != "run":
+            return None
+        command_index = _skip_uv_run_options(command, 2)
+        if command_index is None:
+            return None
+        invocation = command[command_index:]
+        if invocation == ["-"]:
+            return "python"
+        if len(invocation) == 2 and invocation[1] == "-":
+            return posixpath.basename(invocation[0]).casefold()
     if command and posixpath.basename(command[0]).casefold() == "pnpm" and command[-1] == "-":
         index = 1
         while index < len(command):
@@ -550,9 +670,13 @@ def _match_inline_code_span(tokens: list[_ShellToken]) -> ShellInlineCodeSpan | 
         if basename == "uv":
             if index + 1 >= len(tokens) or tokens[index + 1].value != "run":
                 return None
-            index += 2
-            while index < len(tokens) and tokens[index].value in _UV_RUN_FLAG_OPTIONS:
-                index += 1
+            command_index = _skip_uv_run_options(
+                [token.value for token in tokens],
+                index + 2,
+            )
+            if command_index is None:
+                return None
+            index = command_index
             continue
         break
     else:

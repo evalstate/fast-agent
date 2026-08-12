@@ -6,6 +6,7 @@ from fast_agent.human_input.types import (
     HumanInputRequest,
     HumanInputResponse,
 )
+from fast_agent.integrations.herdr_lifecycle import herdr_blocked
 from fast_agent.tools.elicitation import set_elicitation_input_callback
 from fast_agent.ui.elicitation_form import (
     show_simple_elicitation_form,
@@ -148,12 +149,13 @@ async def elicitation_input_callback(
             return _cancelled_response(request_id)
 
         schema = _requested_schema(request)
-        response = await _prompt_for_elicitation(
-            request=request,
-            agent_name=effective_agent_name,
-            server_name=effective_server_name,
-            schema=schema,
-        )
+        with herdr_blocked():
+            response = await _prompt_for_elicitation(
+                request=request,
+                agent_name=effective_agent_name,
+                server_name=effective_server_name,
+                schema=schema,
+            )
         return HumanInputResponse(
             request_id=request_id,
             response=response.strip(),
