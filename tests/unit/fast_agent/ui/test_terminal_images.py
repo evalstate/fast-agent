@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from mcp_types import ImageContent, TextContent
-from rich.console import Console
+from rich.console import Console, Group
 from rich.measure import Measurement
 from textual_image._terminal import CellSize
 from textual_image.renderable import sixel as textual_sixel_renderer
@@ -259,7 +259,7 @@ def test_herdr_auto_halfcell_warning_follows_image(monkeypatch) -> None:
         terminal_image_renderer.extract_image_render_items([_image_content()]),
     )
 
-    assert renderable is not None
+    assert isinstance(renderable, Group)
     assert len(renderable.renderables) == 3
     assert isinstance(renderable.renderables[2], terminal_image_renderer.Text)
     assert renderable.renderables[2].plain == terminal_image_renderer.HERDR_HALFCELL_NOTICE

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from io import StringIO
 from typing import TYPE_CHECKING
 
 from prompt_toolkit.document import Document
+from rich.console import Console
 
 from fast_agent.ui.command_payloads import CommandError
+from fast_agent.ui.prompt import special_commands
 from fast_agent.ui.prompt.completer import AgentCompleter
 from fast_agent.ui.prompt.parser import parse_special_input
 from fast_agent.ui.prompt.special_commands import handle_special_commands
@@ -21,11 +24,15 @@ def test_parse_help_status_topic() -> None:
     assert invalid == CommandError(message="Unexpected arguments for /help: unknown")
 
 
-def test_help_status_renders_tree_legend(capsys: pytest.CaptureFixture[str]) -> None:
+def test_help_status_renders_tree_legend(monkeypatch: pytest.MonkeyPatch) -> None:
+    output_buffer = StringIO()
+    output_console = Console(file=output_buffer, color_system=None)
+    monkeypatch.setattr(special_commands, "rich_print", output_console.print)
+
     result = handle_special_commands(parse_special_input("/help status"))
 
     assert result is True
-    output = capsys.readouterr().out
+    output = output_buffer.getvalue()
     assert "Interactive Status Bar (left → right):" in output
     assert "├─ Activity" in output
     assert "├─ Model" in output
