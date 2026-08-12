@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 from uuid import uuid4
 
 from mcp_types import ContentBlock, TextContent
 
-from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
     ManagedWebSocketConnection,
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from mcp import Tool
     from openai.types.responses import ResponseUsage
 
+    from fast_agent.config import XAISettings
     from fast_agent.llm.provider.openai.responses import ResponsesTransport
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.tool_activity_presentation import ToolActivityFamily
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
 DEFAULT_XAI_MODEL = "grok-4.6"
 GROK_45_HIGH_STREAMING_TIMEOUT: Final = 300.0
 XAI_BASE_URL = "https://api.x.ai/v1"
+XAI_EXPERIMENTAL_STREAMING_MODELS: Final = frozenset({"grok-4.5", "grok-4.6"})
 XAI_X_SEARCH_INTERNAL_TOOL_NAMES = frozenset(
     {
         "x_keyword_search",
@@ -119,8 +121,8 @@ class XAIResponsesLLM(ResponsesLLM):
     def x_search_enabled(self) -> bool:
         if self._x_search_override is not None:
             return self._x_search_override
-        settings = self._get_provider_config()
-        return bool(getattr(settings, "x_search", False)) if settings else False
+        settings = self._xai_settings()
+        return settings.x_search if settings is not None else False
 
     def set_x_search_enabled(self, value: bool | None) -> None:
         self._x_search_override = value
@@ -191,16 +193,19 @@ class XAIResponsesLLM(ResponsesLLM):
             return "high"
         return super()._resolve_reasoning_effort()
 
+    def _xai_settings(self) -> XAISettings | None:
+        return cast("XAISettings | None", self._get_provider_config())
+
     def _provider_base_url(self) -> str | None:
         base_url: str | None = os.getenv("XAI_BASE_URL", XAI_BASE_URL)
-        settings = self._get_provider_config()
-        if settings and getattr(settings, "base_url", None):
+        settings = self._xai_settings()
+        if settings is not None and settings.base_url:
             base_url = settings.base_url
         return base_url
 
     def _provider_default_headers(self) -> dict[str, str] | None:
-        settings = self._get_provider_config()
-        return getattr(settings, "default_headers", None) if settings else None
+        settings = self._xai_settings()
+        return settings.default_headers if settings is not None else None
 
     def _build_websocket_headers(self) -> dict[str, str]:
         headers = dict(self._default_headers() or {})
@@ -280,20 +285,48 @@ class XAIResponsesLLM(ResponsesLLM):
         tools: list[Tool] | None,
     ) -> dict[str, Any]:
         args = super()._build_response_args(input_items, request_params, tools)
-        # Keep the first pass xAI payload conservative; these are OpenAI-specific
-        # Responses extensions and xAI's websocket docs show the portable core.
-        args.pop("include", None)
+        settings = self._xai_settings()
+        reasoning_summary = settings.reasoning_summary if settings is not None else None
+        stream_tool_calls = settings.stream_tool_calls if settings is not None else False
+        model = args.get("model")
+        if (reasoning_summary is not None or stream_tool_calls) and (
+            not isinstance(model, str) or model not in XAI_EXPERIMENTAL_STREAMING_MODELS
+        ):
+            supported = ", ".join(sorted(XAI_EXPERIMENTAL_STREAMING_MODELS))
+            raise ModelConfigError(
+                "xAI reasoning summaries and streamed tool arguments are experimental "
+                f"and supported only for {supported}; got '{model}'."
+            )
+
+        # xAI accepts encrypted reasoning passback for stateless full-context
+        # replay. Keep only the include verified by Grok Build and live probes.
+        args["include"] = ["reasoning.encrypted_content"]
         args.pop("service_tier", None)
         args["prompt_cache_key"] = self._prompt_cache_key
         reasoning = args.get("reasoning")
         if isinstance(reasoning, dict):
             effort = reasoning.get("effort")
             args["reasoning"] = {"effort": effort} if effort else reasoning
+            if reasoning_summary is not None:
+                args["reasoning"]["summary"] = reasoning_summary
+        if stream_tool_calls:
+            extra_body = args.setdefault("extra_body", {})
+            if isinstance(extra_body, dict):
+                extra_body["stream_tool_calls"] = True
         if self.x_search_enabled:
             tools_payload = args.setdefault("tools", [])
             if isinstance(tools_payload, list):
                 tools_payload.append({"type": "x_search"})
         return args
+
+    def _prepare_websocket_arguments(self, arguments: dict[str, Any]) -> None:
+        extra_body = arguments.get("extra_body")
+        if not isinstance(extra_body, dict):
+            return
+        if extra_body.pop("stream_tool_calls", None) is True:
+            arguments["stream_tool_calls"] = True
+        if not extra_body:
+            arguments.pop("extra_body")
 
     def clear(self, *, clear_prompts: bool = False) -> None:
         super().clear(clear_prompts=clear_prompts)

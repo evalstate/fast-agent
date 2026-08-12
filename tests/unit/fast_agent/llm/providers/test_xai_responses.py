@@ -10,6 +10,7 @@ from openai.types.responses.response_usage import InputTokensDetails, OutputToke
 from fast_agent.config import Settings, XAISettings, XAIWebSearchSettings
 from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS
 from fast_agent.context import Context
+from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
     ResponsesWebSocketError,
@@ -263,7 +264,7 @@ def test_xai_responses_builds_parallel_response_payload_with_default_reasoning()
     assert args["store"] is False
     assert args["input"] == input_items
     assert args["parallel_tool_calls"] is True
-    assert "include" not in args
+    assert args["include"] == ["reasoning.encrypted_content"]
     assert args["reasoning"] == {"effort": "high"}
     assert "service_tier" not in args
     assert "stream" not in args
@@ -288,6 +289,54 @@ def test_xai_responses_builds_payload_with_selected_reasoning_effort() -> None:
 
     assert llm.reasoning_effort == ReasoningEffortSetting(kind="effort", value="high")
     assert args["reasoning"] == {"effort": "high"}
+
+
+@pytest.mark.parametrize("model", ["grok-4.5", "grok-4.6"])
+def test_xai_responses_builds_experimental_streaming_payload(model: str) -> None:
+    llm = XAIResponsesLLM(
+        context=Context(
+            config=Settings(
+                xai=XAISettings(
+                    api_key="test-key",
+                    reasoning_summary="concise",
+                    stream_tool_calls=True,
+                )
+            )
+        ),
+        model=model,
+    )
+
+    args = llm._build_response_args([], llm.default_request_params, tools=None)
+
+    assert args["reasoning"] == {"effort": "high", "summary": "concise"}
+    assert args["extra_body"] == {"stream_tool_calls": True}
+
+
+def test_xai_responses_flattens_stream_tool_calls_for_websocket() -> None:
+    llm = XAIResponsesLLM(
+        context=Context(
+            config=Settings(xai=XAISettings(api_key="test-key", stream_tool_calls=True))
+        ),
+        model="grok-4.6",
+    )
+    args = llm._build_response_args([], llm.default_request_params, tools=None)
+
+    llm._prepare_websocket_arguments(args)
+
+    assert args["stream_tool_calls"] is True
+    assert "extra_body" not in args
+
+
+def test_xai_responses_rejects_unverified_experimental_model() -> None:
+    llm = XAIResponsesLLM(
+        context=Context(
+            config=Settings(xai=XAISettings(api_key="test-key", stream_tool_calls=True))
+        ),
+        model="grok-4.3",
+    )
+
+    with pytest.raises(ModelConfigError, match="supported only for grok-4.5, grok-4.6"):
+        llm._build_response_args([], llm.default_request_params, tools=None)
 
 
 def test_xai_grok_46_builds_payload_with_xhigh_reasoning() -> None:
@@ -419,7 +468,7 @@ def test_xai_responses_builds_web_search_tool_when_enabled() -> None:
     args = llm._build_response_args(input_items, llm.default_request_params, tools=None)
 
     assert args["tools"] == [{"type": "web_search"}]
-    assert "include" not in args
+    assert args["include"] == ["reasoning.encrypted_content"]
 
 
 def test_xai_responses_builds_xai_web_search_options() -> None:

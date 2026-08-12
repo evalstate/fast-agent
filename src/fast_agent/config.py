@@ -1440,6 +1440,14 @@ class XAISettings(BaseModel):
     )
     web_search: XAIWebSearchSettings = Field(default_factory=XAIWebSearchSettings)
     x_search: bool = Field(default=False, description="Enable xAI X Search remote tool.")
+    reasoning_summary: Literal["concise"] | None = Field(
+        default=None,
+        description="Request experimental concise reasoning summaries from Grok 4.5/4.6.",
+    )
+    stream_tool_calls: bool = Field(
+        default=False,
+        description="Stream experimental function-call argument deltas from Grok 4.5/4.6.",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 

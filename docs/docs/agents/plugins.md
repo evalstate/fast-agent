@@ -183,8 +183,9 @@ command-only plugins.
 
 The
 [card-packs registry](https://github.com/fast-agent-ai/card-packs/tree/main/plugins/price-calculator)
-includes a price calculator using hardcoded GPT-5.6, Kimi K3, and DeepSeek V4
-Flash rates. Install and enable it with:
+includes a price calculator with a versioned catalog covering GPT-5.6, Kimi K3,
+DeepSeek V4 Flash and Pro, Muse Spark, and Grok 4.3 through 4.6. Install and
+enable it with:
 
 ```bash
 fast-agent plugins add price-calculator
@@ -197,10 +198,10 @@ estimated cost.
 
 GPT-5.6 prompts above 272,000 tokens use the long-context table. Standard and
 Flex prices are supported; Fast-tier calls are shown as unpriced until a Fast
-price table is configured. Kimi K3 and DeepSeek V4 Flash cache writes are also
-shown as unpriced because their supplied tables do not specify a cache-write
-rate. Unknown calls never count as zero: the display labels partial totals with
-the number of unpriced model calls.
+price table is configured. Kimi K3, DeepSeek V4 Flash, and DeepSeek V4 Pro cache
+writes are also shown as unpriced because their supplied tables do not specify
+a cache-write rate. Unknown calls never count as zero: the display labels
+partial totals with the number of unpriced model calls.
 
 ## Build a Plugin
 
