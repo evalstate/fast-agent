@@ -135,6 +135,14 @@ class ModelSelectionCatalog:
         Provider.ZAI: (_builtin_entry("zaiglm", display_label="GLM 5.2"),),
         Provider.MOONSHOT: (_builtin_entry("kimik3", display_label="Kimi K3"),),
         Provider.OPENROUTER: (),
+        Provider.ATLASCLOUD: (
+            CatalogModelEntry(
+                alias="qwen3.8-max",
+                model="atlascloud.qwen/qwen3.8-max",
+                display_label="Qwen3.8 Max",
+                fast=True,
+            ),
+        ),
         Provider.ALIYUN: (
             _builtin_entry("qwen-turbo", fast=True),
             _builtin_entry("qwen3-max"),

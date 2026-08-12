@@ -463,6 +463,15 @@ def test_openrouter_all_models_use_discovered_models_when_no_curated(monkeypatch
     assert models == ["openrouter.openai/gpt-4.1-mini"]
 
 
+def test_atlascloud_catalog_includes_default_model() -> None:
+    entries = ModelSelectionCatalog.list_current_entries(Provider.ATLASCLOUD)
+
+    assert len(entries) == 1
+    assert entries[0].alias == "qwen3.8-max"
+    assert entries[0].model == "atlascloud.qwen/qwen3.8-max"
+    assert entries[0].fast is True
+
+
 def test_overlay_catalog_uses_explicit_environment_context(
     monkeypatch,
     tmp_path: Path,

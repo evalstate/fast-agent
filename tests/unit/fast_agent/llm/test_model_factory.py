@@ -22,6 +22,7 @@ from fast_agent.llm.model_factory import ModelFactory, ParsedModelSpec, Provider
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.anthropic.llm_anthropic_vertex import AnthropicVertexLLM
+from fast_agent.llm.provider.openai.llm_atlascloud import AtlasCloudLLM
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
@@ -85,6 +86,18 @@ def test_full_model_strings():
         assert config.provider == exp_provider
         assert config.model_name == exp_model
         assert config.reasoning_effort == exp_effort
+
+
+def test_atlascloud_model_string_and_factory() -> None:
+    config = ModelFactory.parse_model_string("atlascloud.qwen/qwen3.8-max")
+    assert config.provider == Provider.ATLASCLOUD
+    assert config.model_name == "qwen/qwen3.8-max"
+
+    factory = ModelFactory.create_factory("atlascloud.qwen/qwen3.8-max")
+    llm = factory(LlmAgent(AgentConfig(name="Atlas Cloud Test")))
+
+    assert isinstance(llm, AtlasCloudLLM)
+    assert llm.provider == Provider.ATLASCLOUD
 
 
 def test_deprecated_reasoning_suffix_is_rejected() -> None:
