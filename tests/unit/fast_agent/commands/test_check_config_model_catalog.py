@@ -118,6 +118,15 @@ def test_show_provider_model_catalog_moonshot_includes_curated_model(capsys) -> 
     assert "moonshot.kimi-k3" in _collapse(output)
 
 
+def test_show_provider_model_catalog_atlascloud_includes_curated_model(capsys) -> None:
+    show_provider_model_catalog("atlascloud")
+
+    output = capsys.readouterr().out
+    assert "Atlas Cloud model catalog (curated)" in output
+    assert "qwen3.8-max" in output
+    assert "atlascloud.qwen/qwen3.8-max" in _collapse(output)
+
+
 def test_show_models_overview_includes_provider_args_and_named_aliases(
     tmp_path: Path,
     capsys,
