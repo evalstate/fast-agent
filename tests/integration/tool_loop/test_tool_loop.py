@@ -1,13 +1,16 @@
 import asyncio
+from collections.abc import Callable
 
 import pytest
 from mcp import CallToolRequest, Tool
 from mcp_types import CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.context import Context
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -55,6 +58,15 @@ async def test_tool_loop(fast_agent):
 
 def tool_function() -> int:
     return 0
+
+
+def _mcp_tool_agent(*tools: Callable[..., object]) -> McpAgent:
+    return McpAgent(
+        AgentConfig("tool_calling"),
+        connection_persistence=False,
+        context=Context(),
+        tools=tools,
+    )
 
 
 @pytest.mark.integration
@@ -160,6 +172,59 @@ async def test_tool_loop_allows_unknown_tool_name_correction():
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_mcp_tool_loop_allows_unknown_tool_name_correction():
+    tool_llm = CorrectingToolNameLlm()
+    tool_agent = _mcp_tool_agent(tool_function)
+    tool_agent._llm = tool_llm
+
+    try:
+        result = await tool_agent.generate("test")
+    finally:
+        await tool_agent.shutdown()
+
+    assert result.last_text() == "Recovered"
+    assert tool_llm.call_count == 3
+    assert tool_llm.seen_unknown_tool_error is True
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_mcp_tool_loop_resolves_unique_case_only_name():
+    tool_runs = 0
+
+    def write_text_file(path: str, content: str) -> str:
+        nonlocal tool_runs
+        tool_runs += 1
+        return f"{path}: {content}"
+
+    tool_agent = _mcp_tool_agent(write_text_file)
+    assistant_message = Prompt.assistant(
+        "Write the file",
+        stop_reason=LlmStopReason.TOOL_USE,
+        tool_calls={
+            "write": CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="Write_text_file",
+                    arguments={"path": "test.txt", "content": "test"},
+                ),
+            ),
+        },
+    )
+
+    try:
+        tool_response = await tool_agent.run_tools(assistant_message)
+    finally:
+        await tool_agent.shutdown()
+
+    assert tool_runs == 1
+    assert tool_response.channels is None or FAST_AGENT_ERROR_CHANNEL not in tool_response.channels
+    assert tool_response.tool_results is not None
+    assert tool_response.tool_results["write"].is_error is False
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_unknown_parallel_tool_does_not_block_valid_sibling():
     tool_runs = 0
 
@@ -190,6 +255,46 @@ async def test_unknown_parallel_tool_does_not_block_valid_sibling():
     assert tool_response.channels is None or FAST_AGENT_ERROR_CHANNEL not in tool_response.channels
     assert tool_response.tool_results is not None
     assert tool_response.tool_results["unknown"].is_error is True
+    assert tool_response.tool_results["valid"].is_error is False
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_unknown_parallel_mcp_tool_does_not_block_valid_sibling():
+    tool_runs = 0
+
+    def counting_tool() -> int:
+        nonlocal tool_runs
+        tool_runs += 1
+        return tool_runs
+
+    tool_agent = _mcp_tool_agent(counting_tool)
+    assistant_message = Prompt.assistant(
+        "Run both",
+        stop_reason=LlmStopReason.TOOL_USE,
+        tool_calls={
+            "unknown": CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(name="Write_test_script"),
+            ),
+            "valid": CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(name="counting_tool"),
+            ),
+        },
+    )
+
+    try:
+        tool_response = await tool_agent.run_tools(assistant_message)
+    finally:
+        await tool_agent.shutdown()
+
+    assert tool_runs == 1
+    assert tool_response.channels is None or FAST_AGENT_ERROR_CHANNEL not in tool_response.channels
+    assert tool_response.tool_results is not None
+    assert get_text(tool_response.tool_results["unknown"].content[0]) == (
+        "Tool 'Write_test_script' is not available. Available tools: counting_tool."
+    )
     assert tool_response.tool_results["valid"].is_error is False
 
 
@@ -226,6 +331,22 @@ async def test_unknown_tool_name_recovery_respects_max_iterations():
     tool_agent._llm = tool_llm
 
     result = await tool_agent.generate("test", RequestParams(max_iterations=1))
+
+    assert result.stop_reason == LlmStopReason.MAX_ITERATIONS
+    assert tool_llm.call_count == 2
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_unknown_mcp_tool_name_recovery_respects_max_iterations():
+    tool_llm = PersistentUnknownToolLlm()
+    tool_agent = _mcp_tool_agent(tool_function)
+    tool_agent._llm = tool_llm
+
+    try:
+        result = await tool_agent.generate("test", RequestParams(max_iterations=1))
+    finally:
+        await tool_agent.shutdown()
 
     assert result.stop_reason == LlmStopReason.MAX_ITERATIONS
     assert tool_llm.call_count == 2

@@ -44,6 +44,8 @@ written back to the staged file.
 xai:
   api_key: "${XAI_API_KEY}"
   # base_url: "https://api.x.ai/v1" # default
+  # reasoning_summary: concise # experimental; Grok 4.5/4.6
+  # stream_tool_calls: true # experimental; Grok 4.5/4.6
 ```
 
 Environment variables:
@@ -73,6 +75,9 @@ Useful xAI query parameters:
 - `x_search=on|off` for xAI's X Search remote tool
 
 `web_search` and `x_search` are distinct provider-managed tools.
+
+Grok 4.5 and 4.6 also support two opt-in experimental Responses settings:
+
 
 Grok 4.5 with `reasoning=high` defaults to a 300-second idle timeout between
 stream events. Other model and reasoning combinations retain the global

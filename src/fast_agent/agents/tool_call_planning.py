@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Callable, Collection, Mapping
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
 from typing import Any
 
@@ -46,13 +46,15 @@ type ToolCallExecutor = Callable[
 def plan_tool_calls(
     tool_call_items: list[tuple[str, Any]],
     *,
-    available_tools: Collection[str],
-    execution_tools: Mapping[str, object],
+    known_tool_names: Collection[str],
+    case_insensitive_tool_names: Collection[str],
 ) -> ToolCallPlan:
-    known_tool_names = set(available_tools) | set(execution_tools)
+    """Accept known names exactly and uniquely casefold names opted into correction."""
+    known_names = set(known_tool_names)
     casefolded_tool_names: dict[str, list[str]] = {}
-    for known_tool_name in known_tool_names:
-        casefolded_tool_names.setdefault(known_tool_name.casefold(), []).append(known_tool_name)
+    for tool_name in set(case_insensitive_tool_names):
+        known_names.add(tool_name)
+        casefolded_tool_names.setdefault(tool_name.casefold(), []).append(tool_name)
 
     planned_calls: list[PlannedToolCall] = []
     unavailable_calls: list[UnavailableToolCall] = []
@@ -60,7 +62,7 @@ def plan_tool_calls(
         requested_tool_name = tool_request.params.name
         tool_args = tool_request.params.arguments or {}
         tool_name = requested_tool_name
-        if tool_name not in known_tool_names:
+        if tool_name not in known_names:
             casefolded_matches = casefolded_tool_names.get(tool_name.casefold(), [])
             if len(casefolded_matches) == 1:
                 tool_name = casefolded_matches[0]

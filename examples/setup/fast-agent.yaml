@@ -86,6 +86,11 @@ anthropic:
 #   # base_url: "https://api.moonshot.ai/v1"
 #   # default_model: "kimi-k3"
 
+# Experimental Grok 4.5/4.6 Responses streaming:
+# xai:
+#   reasoning_summary: concise
+#   stream_tool_calls: true
+
 #shell_execution:
 # model-facing shell tools: auto (Grok shell/Process; others Bash/Process),
 # minimal_process, grok_shell, or native
