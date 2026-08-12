@@ -679,14 +679,16 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         self,
         tool_call_items: list[tuple[str, Any]],
         *,
+        known_tool_names: Collection[str],
+        case_insensitive_tool_names: Collection[str],
         available_tools: Collection[str],
         should_parallel: bool,
         tool_results: dict[str, CallToolResult],
     ) -> list[PlannedToolCall]:
         plan = plan_tool_calls(
             tool_call_items,
-            available_tools=available_tools,
-            execution_tools=self._execution_tools,
+            known_tool_names=known_tool_names,
+            case_insensitive_tool_names=case_insensitive_tool_names,
         )
         available_tool_list = sorted(available_tools)
         available_summary = (
@@ -976,6 +978,8 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         )
         planned_calls = self._plan_tool_calls(
             tool_call_items,
+            known_tool_names={*available_tools, *self._execution_tools},
+            case_insensitive_tool_names={*available_tools, *self._execution_tools},
             available_tools=available_tools,
             should_parallel=should_parallel,
             tool_results=tool_results,
@@ -1046,22 +1050,6 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             tool_call_id=tool_call_id,
             show_hook_indicator=self.has_after_tool_call_hook,
         )
-
-    def _mark_tool_loop_error(
-        self,
-        *,
-        correlation_id: str,
-        error_message: str,
-        tool_results: dict[str, CallToolResult],
-        tool_call_id: str | None = None,
-    ) -> str:
-        self._record_tool_error_result(
-            correlation_id=correlation_id,
-            error_message=error_message,
-            tool_results=tool_results,
-            tool_call_id=tool_call_id,
-        )
-        return error_message
 
     def _finalize_tool_results(
         self,

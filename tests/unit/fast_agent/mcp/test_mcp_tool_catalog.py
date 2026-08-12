@@ -35,6 +35,13 @@ def test_tool_catalog_is_an_ordered_structural_snapshot() -> None:
 
     assert catalog.namespaced_tool("first-server__search") is first
     assert catalog.first_tool_named("search") is second
+    assert catalog.routable_tool_names() == {
+        "first-server__search",
+        "second__search",
+        "second__render",
+        "search",
+        "render",
+    }
     assert catalog.server_tool_names("second") == ("search", "render")
     assert catalog.resolve_tool_name("first-server__search").local_name == "search"
     assert catalog.resolve_tool_name("first-server__other").server_name == "first-server"

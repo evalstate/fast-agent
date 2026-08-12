@@ -15,8 +15,8 @@ def _tool_request(name: str, arguments: dict[str, object] | None = None) -> Simp
 def test_plan_tool_calls_resolves_unique_case_only_name() -> None:
     plan = plan_tool_calls(
         [("call-1", _tool_request("shell", {"command": "pwd"}))],
-        available_tools=["Shell"],
-        execution_tools={},
+        known_tool_names=["Shell"],
+        case_insensitive_tool_names=["Shell"],
     )
 
     assert plan.unavailable_calls == []
@@ -31,8 +31,8 @@ def test_plan_tool_calls_keeps_valid_siblings_when_one_name_is_unavailable() -> 
             ("call-1", _tool_request("missing_tool")),
             ("call-2", _tool_request("Shell", {"command": "pwd"})),
         ],
-        available_tools=["Shell"],
-        execution_tools={},
+        known_tool_names=["Shell"],
+        case_insensitive_tool_names=["Shell"],
     )
 
     assert [(call.correlation_id, call.name) for call in plan.planned_calls] == [
@@ -46,10 +46,21 @@ def test_plan_tool_calls_keeps_valid_siblings_when_one_name_is_unavailable() -> 
 def test_plan_tool_calls_does_not_resolve_ambiguous_case_only_name() -> None:
     plan = plan_tool_calls(
         [("call-1", _tool_request("SHELL"))],
-        available_tools=["Shell", "shell"],
-        execution_tools={},
+        known_tool_names=["Shell", "shell"],
+        case_insensitive_tool_names=["Shell", "shell"],
     )
 
     assert plan.planned_calls == []
     assert len(plan.unavailable_calls) == 1
     assert plan.unavailable_calls[0].name == "SHELL"
+
+
+def test_plan_tool_calls_casefolds_only_model_visible_names() -> None:
+    plan = plan_tool_calls(
+        [("call-1", _tool_request("WRITE_TEXT_FILE"))],
+        known_tool_names=["write_text_file", "Write_Text_File"],
+        case_insensitive_tool_names=["write_text_file"],
+    )
+
+    assert plan.unavailable_calls == []
+    assert plan.planned_calls[0].name == "write_text_file"

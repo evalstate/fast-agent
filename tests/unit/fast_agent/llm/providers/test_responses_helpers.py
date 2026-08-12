@@ -1279,6 +1279,45 @@ def test_dedupes_duplicate_reasoning_ids():
     assert len(reasoning_items) == 1
 
 
+def test_encrypted_reasoning_replay_preserves_raw_summary_and_omits_status() -> None:
+    output_harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="reasoning",
+                id="rs_123",
+                status="completed",
+                summary=[SimpleNamespace(type="summary_text", text="Checked the arithmetic.")],
+                content=None,
+                encrypted_content="encrypted-reasoning",
+            )
+        ]
+    )
+
+    blocks = output_harness._extract_encrypted_reasoning(response)
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        channels={OPENAI_REASONING_ENCRYPTED: blocks},
+    )
+    items = _ContentHarness()._convert_extended_messages_to_provider([message])
+
+    assert items == [
+        {
+            "type": "reasoning",
+            "id": "rs_123",
+            "summary": [
+                {
+                    "type": "summary_text",
+                    "text": "Checked the arithmetic.",
+                }
+            ],
+            "content": None,
+            "encrypted_content": "encrypted-reasoning",
+        }
+    ]
+
+
 def test_extract_raw_assistant_message_items_preserves_phase_metadata() -> None:
     harness = _OutputHarness()
     response = SimpleNamespace(
@@ -1575,6 +1614,38 @@ def test_responses_tool_use_id_prefers_call_id_when_available():
     assert tool_calls is not None
     assert list(tool_calls.keys()) == ["call_123"]
     assert harness._tool_call_id_map["call_123"] == "call_123"
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        ('{"city":"London"', "incomplete or invalid JSON"),
+        ('{"city":"London"} trailing', "incomplete or invalid JSON"),
+        ('["London"]', "arguments must be a JSON object"),
+        ('"London"', "arguments must be a JSON object"),
+        ("", "did not return JSON arguments"),
+        (None, "did not return JSON arguments"),
+    ],
+)
+def test_responses_rejects_invalid_final_tool_arguments(
+    arguments: str | None,
+    message: str,
+) -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                id="fc_123",
+                call_id="call_123",
+                name="weather",
+                arguments=arguments,
+            )
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match=message):
+        harness._extract_tool_calls(response)
 
 
 def test_responses_tool_use_id_falls_back_to_item_id_when_call_id_missing():
