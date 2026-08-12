@@ -616,6 +616,15 @@ def test_reasoning_query_allows_xai_grok_43_effort() -> None:
     assert config.reasoning_effort == ReasoningEffortSetting(kind="effort", value="high")
 
 
+def test_reasoning_query_allows_xai_grok_46_xhigh_effort() -> None:
+    factory = ModelFactory.create_factory("xai.grok-4.6?reasoning=xhigh")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+
+    assert isinstance(llm, ResponsesLLM)
+    assert llm.provider == Provider.XAI
+    assert llm.reasoning_effort == ReasoningEffortSetting(kind="effort", value="xhigh")
+
+
 def test_x_search_query_allows_xai_grok() -> None:
     config = ModelFactory.parse_model_string("xai.grok-4.3?x_search=enabled")
     assert config.provider == Provider.XAI
@@ -990,6 +999,13 @@ def test_deepseek_alias_resolves_to_deepseek_responses_model():
     assert config.model_name == "deepseek-v4-flash"
 
 
+def test_deepseek_pro_alias_resolves_to_deepseek_responses_model() -> None:
+    config = ModelFactory.parse_model_string("deepseekpro")
+
+    assert config.provider == Provider.DEEPSEEK
+    assert config.model_name == "deepseek-v4-pro"
+
+
 def test_deepseek_hf_aliases_resolve_to_hf_deepseek_v4_pro():
     for alias in ("deepseek-hf", "deepseek4-hf", "deepseek4pro-hf", "deepseekv4pro-hf"):
         config = ModelFactory.parse_model_string(alias)
@@ -997,10 +1013,12 @@ def test_deepseek_hf_aliases_resolve_to_hf_deepseek_v4_pro():
         assert config.model_name == "deepseek-ai/DeepSeek-V4-Pro:together"
 
 
-def test_deepseek_responses_model_resolves_to_official_provider():
-    config = ModelFactory.parse_model_string("deepseek-v4-flash")
+@pytest.mark.parametrize("model", ["deepseek-v4-flash", "deepseek-v4-pro"])
+def test_deepseek_responses_model_resolves_to_official_provider(model: str) -> None:
+    config = ModelFactory.parse_model_string(model)
+
     assert config.provider == Provider.DEEPSEEK
-    assert config.model_name == "deepseek-v4-flash"
+    assert config.model_name == model
 
 
 @pytest.mark.parametrize(
@@ -1013,7 +1031,6 @@ def test_deepseek_responses_model_resolves_to_official_provider():
         "deepseek4flash",
         "deepseek4pro-direct",
         "deepseek-reasoner",
-        "deepseek-v4-pro",
         "deepseek-chat",
     ),
 )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from typing import TYPE_CHECKING, Any, Final
+from uuid import uuid4
 
 from mcp_types import ContentBlock, TextContent
 
@@ -32,10 +33,11 @@ if TYPE_CHECKING:
     from openai.types.responses import ResponseUsage
 
     from fast_agent.llm.provider.openai.responses import ResponsesTransport
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.tool_activity_presentation import ToolActivityFamily
     from fast_agent.types import RequestParams
 
-DEFAULT_XAI_MODEL = "grok-4.3"
+DEFAULT_XAI_MODEL = "grok-4.6"
 GROK_45_HIGH_STREAMING_TIMEOUT: Final = 300.0
 XAI_BASE_URL = "https://api.x.ai/v1"
 XAI_X_SEARCH_INTERNAL_TOOL_NAMES = frozenset(
@@ -75,6 +77,7 @@ class XAIResponsesLLM(ResponsesLLM):
         self._x_search_override: bool | None = (
             bool(x_search_override) if isinstance(x_search_override, bool) else None
         )
+        self._prompt_cache_key = uuid4().hex
 
     def _apply_reasoning_streaming_timeout_default(self) -> None:
         params = self.default_request_params
@@ -221,6 +224,17 @@ class XAIResponsesLLM(ResponsesLLM):
         # continuation path behaves as documented.
         return StatelessResponsesWsPlanner()
 
+    def _extract_assistant_message_items(
+        self,
+        msg: PromptMessageExtended,
+    ) -> list[dict[str, Any]]:
+        items = super()._extract_assistant_message_items(msg)
+        # xAI can reuse one message ID for distinct responses on a persistent
+        # websocket. The ID is optional and cannot safely identify replay items.
+        for item in items:
+            item.pop("id", None)
+        return items
+
     def _websocket_keepalive_options(self) -> ResponsesWebSocketKeepaliveOptions:
         # xAI currently doesn't reliably answer client-generated Ping frames.
         # Keep automatic Pong replies enabled while restoring the previous
@@ -270,6 +284,7 @@ class XAIResponsesLLM(ResponsesLLM):
         # Responses extensions and xAI's websocket docs show the portable core.
         args.pop("include", None)
         args.pop("service_tier", None)
+        args["prompt_cache_key"] = self._prompt_cache_key
         reasoning = args.get("reasoning")
         if isinstance(reasoning, dict):
             effort = reasoning.get("effort")
@@ -279,3 +294,7 @@ class XAIResponsesLLM(ResponsesLLM):
             if isinstance(tools_payload, list):
                 tools_payload.append({"type": "x_search"})
         return args
+
+    def clear(self, *, clear_prompts: bool = False) -> None:
+        super().clear(clear_prompts=clear_prompts)
+        self._prompt_cache_key = uuid4().hex

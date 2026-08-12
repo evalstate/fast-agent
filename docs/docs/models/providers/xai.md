@@ -57,9 +57,9 @@ An explicit `xai.api_key` or `XAI_API_KEY` takes precedence over stored OAuth.
 ## Use a model
 
 ```bash
-fast-agent --model "xai.grok-4.3?reasoning=high"
-fast-agent --model "xai.grok-4.3?web_search=on"
-fast-agent --model "xai.grok-4.3?x_search=on"
+fast-agent --model "xai.grok-4.6?reasoning=xhigh"
+fast-agent --model "xai.grok-4.6?web_search=on"
+fast-agent --model "xai.grok-4.6?x_search=on"
 fast-agent --model "xai.grok-4.5"
 ```
 
@@ -67,16 +67,21 @@ fast-agent --model "xai.grok-4.5"
 
 Useful xAI query parameters:
 
-- `reasoning=low|medium|high` on reasoning-capable Grok models
+- `reasoning=low|medium|high|xhigh` on Grok 4.6
+- `reasoning=low|medium|high` on Grok 4.3 and 4.5
 - `web_search=on|off` for xAI web search
 - `x_search=on|off` for xAI's X Search remote tool
 
 `web_search` and `x_search` are distinct provider-managed tools.
 
-Grok 4.5 with `reasoning=high` defaults to a 180-second idle timeout between
+Grok 4.5 with `reasoning=high` defaults to a 300-second idle timeout between
 stream events. Other model and reasoning combinations retain the global
 120-second default. Set `streaming_timeout=<seconds>` to override the default,
 or `streaming_timeout=none` to disable stream-idle enforcement.
+
+fast-agent creates an opaque `prompt_cache_key` for each xAI conversation and
+sends it on every Responses API request. The key remains stable across turns so
+
 
 ## Managed process polling
 
@@ -85,7 +90,7 @@ omits `wait_sec`. This is local fast-agent runtime policy, not an xAI request pa
 Override it for a model selection with `poll_period=<seconds>`:
 
 ```bash
-fast-agent --model "xai.grok-4.5?poll_period=420"
+fast-agent --model "xai.grok-4.6?poll_period=420"
 ```
 
 The value must be an integer from 10 through 3600 and cannot exceed

@@ -90,6 +90,14 @@ def test_xai_picker_omits_unsupported_instant_grok() -> None:
     assert "Grok 4.3 (instant)" not in aliases
 
 
+def test_xai_picker_promotes_grok_46() -> None:
+    aliases = ModelSelectionCatalog.list_current_aliases(Provider.XAI)
+
+    assert aliases[:2] == ["Grok 4.6", "Grok 4.6 (X Search)"]
+    assert BUILTIN_MODEL_ALIASES["grok"] == "xai.grok-4.6"
+    assert BUILTIN_MODEL_ALIASES["grok46"] == "xai.grok-4.6"
+
+
 def test_metaai_muse_aliases_select_the_current_and_contributor_tiers() -> None:
     assert {
         alias: BUILTIN_MODEL_ALIASES[alias] for alias in ("muse", "muse-spark", "musecontrib")
@@ -121,9 +129,9 @@ def test_codex_picker_aliases_resolve_through_the_canonical_runtime_presets() ->
         ) == ModelFactory.parse_model_string(model_spec)
 
 
-def test_deepseek_catalog_exposes_only_responses_model() -> None:
+def test_deepseek_catalog_exposes_both_responses_models() -> None:
     aliases = ModelSelectionCatalog.list_current_aliases(Provider.DEEPSEEK)
-    assert aliases == ["deepseek"]
+    assert aliases == ["deepseek", "DeepSeek V4 Pro"]
 
 
 def test_non_current_aliases_are_listed_but_not_current() -> None:

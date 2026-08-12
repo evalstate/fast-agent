@@ -56,7 +56,7 @@ def test_gpt_56_context_windows_follow_provider_limits() -> None:
 
 
 def test_managed_process_poll_folding_is_enabled_for_validated_models() -> None:
-    for model in ("grok-4.3", "grok-4.5"):
+    for model in ("grok-4.3", "grok-4.5", "grok-4.6"):
         grok = ModelDatabase.get_model_params(
             model,
             provider=Provider.XAI,
@@ -458,10 +458,15 @@ def test_model_database_supports_mime_basic():
 
 
 def test_deepseek_v4_flash_uses_learned_shell_contract() -> None:
-    for model_name in ("deepseek-v4-flash", "deepseek-ai/DeepSeek-V4-Flash-0731"):
+    for model_name in (
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "deepseek-ai/DeepSeek-V4-Flash-0731",
+    ):
         params = ModelDatabase.get_model_params(model_name)
 
         assert params is not None
+        assert params.managed_process_poll_folding is True
         assert params.shell_tool_name == "Shell"
         assert params.shell_tool_requires_description is False
         assert params.shell_edit_tool == "write_text_file"
@@ -473,15 +478,24 @@ def test_model_database_xai_grok_aliases_and_responses_transport():
     assert ModelDatabase.get_default_provider("grok") == Provider.XAI
     assert ModelDatabase.get_default_provider("grok-4.3") == Provider.XAI
     assert ModelDatabase.get_default_provider("grok-4.5") == Provider.XAI
+    assert ModelDatabase.get_default_provider("grok-4.6") == Provider.XAI
 
     assert ModelDatabase.get_context_window("grok") == 500_000
     assert ModelDatabase.get_context_window("grok-4.3") == 1_000_000
     assert ModelDatabase.get_context_window("grok-4.5") == 500_000
+    assert ModelDatabase.get_context_window("grok-4.6") == 500_000
     assert ModelDatabase.get_model_params("grok-4.3-latest") is None
     assert ModelDatabase.get_model_params("grok-4-fast-reasoning") is None
     assert ModelDatabase.get_model_params("grok-3") is None
     assert ModelDatabase.get_response_transports("grok-4.3") == ("sse", "websocket")
     assert ModelDatabase.supports_response_websocket_provider("grok-4.3", Provider.XAI)
+
+    openrouter = ModelDatabase.get_model_params(
+        "x-ai/grok-4.6",
+        provider=Provider.OPENROUTER,
+    )
+    assert openrouter is not None
+    assert openrouter.reasoning_effort_spec == ModelDatabase.XAI_GROK_46_REASONING_EFFORT_SPEC
 
 
 def test_model_database_xai_image_input_mime_types_match_docs():
@@ -642,6 +656,11 @@ def test_model_database_grok_reasoning_spec() -> None:
         assert spec.default is not None
         assert spec.default.kind == "effort"
         assert spec.default.value == "high"
+
+    grok_46_spec = ModelDatabase.get_reasoning_effort_spec("grok-4.6")
+    assert grok_46_spec is not None
+    assert grok_46_spec.allowed_efforts == ["low", "medium", "high", "xhigh"]
+    assert grok_46_spec.default == ReasoningEffortSetting(kind="effort", value="high")
 
 
 def test_glm_51_matches_glm_5_capabilities() -> None:

@@ -14,6 +14,7 @@ from fast_agent.llm.provider.openai.llm_deepseek import (
     DEEPSEEK_BASE_URL,
     DEFAULT_DEEPSEEK_MODEL,
     DEFAULT_DEEPSEEK_REASONING_EFFORT,
+    SUPPORTED_DEEPSEEK_MODELS,
     DeepSeekResponsesLLM,
 )
 from fast_agent.llm.provider_types import Provider
@@ -54,12 +55,16 @@ def test_deepseek_responses_uses_provider_configuration() -> None:
     assert llm._default_headers() == {"X-Test": "1"}
 
 
-@pytest.mark.parametrize(
-    "model",
-    ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro"],
-)
+@pytest.mark.parametrize("model", SUPPORTED_DEEPSEEK_MODELS)
+def test_deepseek_responses_accepts_native_models(model: str) -> None:
+    llm = DeepSeekResponsesLLM(context=Context(config=Settings()), model=model)
+
+    assert llm.default_request_params.model == model
+
+
+@pytest.mark.parametrize("model", ["deepseek-chat", "deepseek-reasoner"])
 def test_deepseek_responses_rejects_models_not_migrated_to_responses(model: str) -> None:
-    with pytest.raises(ModelConfigError, match="currently supports only 'deepseek-v4-flash'"):
+    with pytest.raises(ModelConfigError, match="DeepSeek Responses supports"):
         DeepSeekResponsesLLM(context=Context(config=Settings()), model=model)
 
 

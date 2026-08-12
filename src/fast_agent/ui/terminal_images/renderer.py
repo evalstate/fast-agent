@@ -142,7 +142,7 @@ def render_plugin_command_images_for_settings(
 def render_image_items(
     settings: TerminalImageSettings,
     items: Sequence[ImageRenderItem],
-) -> RenderableType | None:
+) -> Group | None:
     if not items:
         return None
 

@@ -8,6 +8,7 @@ from openai.types.responses import ResponseUsage
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
 from fast_agent.config import Settings, XAISettings, XAIWebSearchSettings
+from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS
 from fast_agent.context import Context
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
@@ -25,6 +26,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.usage_tracking import UsageSchema
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 
@@ -286,6 +288,102 @@ def test_xai_responses_builds_payload_with_selected_reasoning_effort() -> None:
 
     assert llm.reasoning_effort == ReasoningEffortSetting(kind="effort", value="high")
     assert args["reasoning"] == {"effort": "high"}
+
+
+def test_xai_grok_46_builds_payload_with_xhigh_reasoning() -> None:
+    llm = XAIResponsesLLM(
+        context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
+        model="grok-4.6",
+        reasoning_effort="xhigh",
+    )
+
+    args = llm._build_response_args([], llm.default_request_params, tools=None)
+
+    assert llm.reasoning_effort == ReasoningEffortSetting(kind="effort", value="xhigh")
+    assert args["reasoning"] == {"effort": "xhigh"}
+
+
+def test_xai_prompt_cache_key_is_stable_per_conversation_and_rotates_on_clear() -> None:
+    llm = XAIResponsesLLM(
+        context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
+        model="grok-4.6",
+    )
+
+    first = llm._build_response_args([], llm.default_request_params, tools=None)
+    second = llm._build_response_args([], llm.default_request_params, tools=None)
+    first_key = first["prompt_cache_key"]
+
+    assert isinstance(first_key, str)
+    assert first_key
+    assert second["prompt_cache_key"] == first_key
+    assert "extra_body" not in first
+
+    planned = llm._new_ws_request_planner().plan(first)
+    assert planned.arguments["prompt_cache_key"] == first_key
+
+    llm.clear()
+    after_clear = llm._build_response_args([], llm.default_request_params, tools=None)
+    assert after_clear["prompt_cache_key"] != first_key
+
+
+@pytest.mark.parametrize("model", ["grok-4.5", "grok-4.6"])
+def test_xai_replays_distinct_assistant_messages_when_provider_reuses_item_id(
+    model: str,
+) -> None:
+    llm = XAIResponsesLLM(
+        context=Context(config=Settings(xai=XAISettings(api_key="test-key"))),
+        model=model,
+    )
+    messages: list[PromptMessageExtended] = []
+    for user_text, assistant_text in (
+        ("good evening", "Hello."),
+        ("write an essay", "The essay."),
+        ("was that fun?", "Yes."),
+    ):
+        messages.append(
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text=user_text)],
+            )
+        )
+        raw_item = {
+            "type": "message",
+            "id": "msg_reused",
+            "role": "assistant",
+            "status": "completed",
+            "content": [{"type": "output_text", "text": assistant_text}],
+        }
+        messages.append(
+            PromptMessageExtended(
+                role="assistant",
+                content=[TextContent(type="text", text=assistant_text)],
+                channels={
+                    OPENAI_ASSISTANT_MESSAGE_ITEMS: [
+                        TextContent(type="text", text=json.dumps(raw_item))
+                    ]
+                },
+            )
+        )
+
+    input_items = llm._convert_to_provider_format(messages)
+    args = llm._build_response_args(input_items, llm.default_request_params, tools=None)
+    planned = llm._new_ws_request_planner().plan(args)
+    replayed = planned.arguments["input"]
+
+    assert [item["role"] for item in replayed] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    assert [item["content"][0]["text"] for item in replayed if item["role"] == "assistant"] == [
+        "Hello.",
+        "The essay.",
+        "Yes.",
+    ]
+    assert all("id" not in item for item in replayed if item["role"] == "assistant")
 
 
 def test_xai_responses_advertises_web_search() -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from fast_agent.constants import REASONING
 from fast_agent.core.exceptions import ModelConfigError
@@ -25,6 +25,10 @@ if TYPE_CHECKING:
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
 DEFAULT_DEEPSEEK_REASONING_EFFORT = "max"
+SUPPORTED_DEEPSEEK_MODELS: Final = (
+    DEFAULT_DEEPSEEK_MODEL,
+    "deepseek-v4-pro",
+)
 
 
 class DeepSeekResponsesLLM(ResponsesLLM):
@@ -38,10 +42,10 @@ class DeepSeekResponsesLLM(ResponsesLLM):
         super().__init__(provider=provider, **kwargs)
 
         model = self.default_request_params.model
-        if model != DEFAULT_DEEPSEEK_MODEL:
+        if model not in SUPPORTED_DEEPSEEK_MODELS:
             raise ModelConfigError(
-                "DeepSeek Responses currently supports only "
-                f"'{DEFAULT_DEEPSEEK_MODEL}', got '{model}'."
+                "DeepSeek Responses supports "
+                f"{', '.join(repr(item) for item in SUPPORTED_DEEPSEEK_MODELS)}, got '{model}'."
             )
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:

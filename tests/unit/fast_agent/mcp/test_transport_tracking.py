@@ -30,6 +30,19 @@ def test_ping_response_not_counted_as_post_response():
     assert snapshot.post_json.notification_count == 0
 
 
+def test_successful_auto_legacy_fallback_resolves_discovery() -> None:
+    metrics = TransportChannelMetrics()
+    metrics.record_discovery_response(400)
+
+    metrics.resolve_negotiation(protocol_mode="auto", protocol_era="legacy")
+
+    discovery = metrics.snapshot().discovery
+    assert discovery is not None
+    assert discovery.state == "legacy-fallback"
+    assert discovery.status_code == 400
+    assert discovery.detail == "HTTP 400"
+
+
 def test_transport_message_counts_are_tallied_by_channel() -> None:
     metrics = TransportChannelMetrics()
 

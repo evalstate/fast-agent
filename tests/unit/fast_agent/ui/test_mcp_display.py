@@ -7,7 +7,11 @@ from rich.console import Console
 
 from fast_agent.mcp.app_integrations import AppServerConfig
 from fast_agent.mcp.mcp_aggregator import ServerStatus
-from fast_agent.mcp.transport_tracking import ChannelSnapshot, TransportSnapshot
+from fast_agent.mcp.transport_tracking import (
+    ChannelSnapshot,
+    DiscoverySnapshot,
+    TransportSnapshot,
+)
 from fast_agent.ui import console
 from fast_agent.ui.mcp_display import (
     SYMBOL_NOTIFICATION,
@@ -279,7 +283,8 @@ def test_render_channel_summary_shows_distinct_post_response_modes() -> None:
         _restore_console_size(original_console)
 
     assert "POST (SSE)" in output
-    assert "GET (SSE)" not in output
+    assert "GET (SSE)" in output
+    assert "not observed" in output
     assert "POST (JSON)" in output
     assert strip_ansi(output).count("     6     0     0") == 1
     assert "HEALTH" not in output
@@ -303,6 +308,44 @@ def test_render_idle_http_summary_shows_both_post_response_modes() -> None:
 
     assert "POST (SSE)" in output
     assert "POST (JSON)" in output
+
+
+def test_stateless_legacy_http_explains_unavailable_channels_and_discovery() -> None:
+    status = ServerStatus(
+        server_name="demo",
+        transport="http",
+        protocol_mode="auto",
+        protocol_era="legacy",
+        session_id=None,
+        is_connected=True,
+        ping_interval_seconds=30,
+        transport_channels=TransportSnapshot(
+            discovery=DiscoverySnapshot(
+                state="legacy-fallback",
+                status_code=400,
+                detail="HTTP 400",
+            )
+        ),
+    )
+
+    original_console = _set_console_size(width=160)
+    try:
+        with console.console.capture() as capture:
+            _render_channel_summary(status, indent="  ", total_width=160)
+        output = strip_ansi(capture.get())
+    finally:
+        _restore_console_size(original_console)
+
+    assert output.count("GET (SSE)") == 1
+    assert output.count("LISTEN (SSE)") == 1
+    assert output.count("POST (SSE)") == 1
+    assert output.count("POST (JSON)") == 1
+    assert "unavailable (no session)" in output
+    assert "unavailable (legacy protocol)" in output
+    assert output.count("not observed") == 2
+    assert "Discovery: HTTP 400; legacy fallback succeeded" in output
+    assert "POST: HTTP 400" not in output
+    assert _get_health_state(status).label == "pending"
 
 
 def test_render_disabled_listen_channel_uses_disabled_style() -> None:
