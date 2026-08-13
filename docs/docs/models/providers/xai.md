@@ -79,10 +79,11 @@ Useful xAI query parameters:
 Grok 4.5 and 4.6 also support two opt-in experimental Responses settings:
 
 
-Grok 4.5 with `reasoning=high` defaults to a 300-second idle timeout between
-stream events. Other model and reasoning combinations retain the global
-120-second default. Set `streaming_timeout=<seconds>` to override the default,
-or `streaming_timeout=none` to disable stream-idle enforcement.
+Grok 4.5 with `reasoning=high`, and Grok 4.6 with `reasoning=high` or
+`reasoning=xhigh`, default to a 300-second idle timeout between stream events.
+Other model and reasoning combinations retain the global 120-second default.
+Set `streaming_timeout=<seconds>` to override the default, or
+`streaming_timeout=none` to disable stream-idle enforcement.
 
 fast-agent creates an opaque `prompt_cache_key` for each xAI conversation and
 sends it on every Responses API request. The key remains stable across turns so
