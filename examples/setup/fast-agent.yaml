@@ -118,6 +118,9 @@ anthropic:
 #  retained_output_temp_directory: null
 # maximum duration of one model-initiated managed-process wait
 #  process_poll_max_wait_seconds: 3600
+# maximum total foreground runtime before returning a live process;
+# 0 returns it at the initial yield without stopping it
+#  foreground_auto_await_max_seconds: 240
 # fold repetitive quiet managed-process polling: auto, on, or off
 # auto enables folding for models with validated support
 #  managed_process_poll_history_folding: auto

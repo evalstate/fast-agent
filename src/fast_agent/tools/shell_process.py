@@ -27,6 +27,23 @@ if TYPE_CHECKING:
     from fast_agent.tools.shell_runtime import ShellRuntime
 
 
+class ForegroundAutoAwaitMetadata(TypedDict):
+    """Provenance for a runtime-owned wait after the initial foreground yield."""
+
+    initial_yield_reason: Literal["idle", "foreground"]
+    max_total_seconds: float
+    initial_yield_elapsed_seconds: float
+    awaited_seconds: float
+    total_elapsed_seconds: float
+    outcome: Literal[
+        "process_finished",
+        "cap_reached",
+        "terminated",
+        "cancelled",
+        "disabled",
+    ]
+
+
 class ProcessResultMetadata(TypedDict, total=False):
     """Durable metadata emitted by managed-process lifecycle tools."""
 
@@ -60,6 +77,7 @@ class ProcessResultMetadata(TypedDict, total=False):
     poll_deadline_overshoot_seconds: float
     resource_snapshot: ProcessResourceSnapshotMetadata
     resource_observation: str
+    foreground_auto_await: ForegroundAutoAwaitMetadata
 
 
 def process_result_metadata(result: CallToolResult) -> ProcessResultMetadata | None:
@@ -222,6 +240,7 @@ class ManagedShellProcess:
     terminated: bool = False
     buffered_result_recorded: bool = False
     active_poll: ActiveProcessPoll | None = None
+    foreground_auto_await: ForegroundAutoAwaitMetadata | None = None
     resource_observations: ProcessResourceObservationState = field(
         default_factory=ProcessResourceObservationState
     )
@@ -297,6 +316,11 @@ def build_managed_process_result(
                 "Command is still running; no completion result is available yet "
                 "because it reached the foreground yield threshold."
             )
+        elif yielded_reason == "auto_await_cap":
+            status_message = (
+                "Command is still running after the bounded foreground auto-await "
+                "total-runtime cap was reached. The command was not stopped."
+            )
         else:
             status_message = "Command is still running; no completion result is available yet."
         if aligned_shell_tool_name is not None and persistent_background:
@@ -335,7 +359,7 @@ def build_managed_process_result(
         if (
             (minimal_process_profile or aligned_shell_tool_name is not None)
             and process.lifecycle == "session"
-            and yielded_reason in {"idle", "foreground"}
+            and yielded_reason in {"idle", "foreground", "auto_await_cap"}
         ):
             sections.append(
                 "This process is session-scoped and will be stopped when the agent finishes. "

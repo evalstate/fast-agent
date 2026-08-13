@@ -147,6 +147,8 @@ def test_dedicated_grok_process_profile_is_rejected() -> None:
 async def test_grok_shell_explicit_timeout_suppresses_auto_yield() -> None:
     environment = _ManagedEnvironment()
     runtime = _runtime("grok_shell", environment)
+    metadata = runtime.metadata({"command": "build", "working_directory": "project", "timeout": 1})
+    assert metadata["timeout_seconds"] == 1
 
     task = asyncio.create_task(
         runtime.call_tool(
@@ -179,6 +181,7 @@ async def test_grok_shell_hard_timeout_uses_cross_platform_cancellation_contract
     assert result.is_error is True
     assert metadata is not None
     assert metadata["process_status"] == "timed_out"
+    assert "foreground_auto_await" not in metadata
     assert environment.cancelled is True
 
 

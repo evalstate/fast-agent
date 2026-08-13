@@ -70,6 +70,9 @@ MIN_PROCESS_POLL_WAIT_SECONDS = 10
 MAX_PROCESS_POLL_WAIT_SECONDS = 3600
 """Maximum configurable managed-process wait in seconds."""
 
+MAX_FOREGROUND_AUTO_AWAIT_SECONDS = 3600
+"""Maximum configurable total runtime for foreground auto-await."""
+
 DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 16_000
 """Baseline byte limit for ACP terminal output when no model info exists."""
 

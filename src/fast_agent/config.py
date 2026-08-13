@@ -17,7 +17,10 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_command_action_specs
-from fast_agent.constants import MAX_PROCESS_POLL_WAIT_SECONDS
+from fast_agent.constants import (
+    MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
+    MAX_PROCESS_POLL_WAIT_SECONDS,
+)
 from fast_agent.core.exceptions import ConfigFileError
 from fast_agent.home import (
     ConfigDiscoveryResult,
@@ -367,6 +370,15 @@ class ShellSettings(BaseModel):
         le=MAX_PROCESS_POLL_WAIT_SECONDS,
         description="Maximum duration of one model-initiated managed-process wait",
     )
+    foreground_auto_await_max_seconds: int = Field(
+        default=240,
+        ge=0,
+        le=MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
+        description=(
+            "Maximum total foreground runtime before returning a live process; "
+            "0 returns it at the initial idle or total-runtime yield"
+        ),
+    )
     managed_process_poll_history_folding: Literal["auto", "on", "off"] = Field(
         default="auto",
         description=(
@@ -484,6 +496,16 @@ class ShellSettings(BaseModel):
     def _coerce_process_poll_max_wait_seconds(cls, value: Any) -> int:
         _reject_bool_integer_field(value, field_name="process_poll_max_wait_seconds")
         return int(value.strip()) if isinstance(value, str) else int(value)
+
+    @field_validator("foreground_auto_await_max_seconds", mode="before")
+    @classmethod
+    def _coerce_foreground_auto_await_max_seconds(cls, value: Any) -> int:
+        _reject_bool_integer_field(value, field_name="foreground_auto_await_max_seconds")
+        if isinstance(value, str):
+            return MCPTimelineSettings._parse_duration(value)
+        if type(value) is not int:
+            raise TypeError("foreground_auto_await_max_seconds must be an integer")
+        return value
 
     @field_validator("write_text_file_mode", mode="before")
     @classmethod

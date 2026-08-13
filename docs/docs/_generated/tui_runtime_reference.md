@@ -41,5 +41,6 @@
 | `shell_execution.timeout_seconds` | `SHELL_EXECUTION__TIMEOUT_SECONDS` | `int` | `90` | Maximum seconds without command output before termination. |
 | `shell_execution.warning_interval_seconds` | `SHELL_EXECUTION__WARNING_INTERVAL_SECONDS` | `int` | `30` | Show timeout warnings every N seconds. |
 | `shell_execution.process_poll_max_wait_seconds` | `SHELL_EXECUTION__PROCESS_POLL_MAX_WAIT_SECONDS` | `int` | `3600` | Maximum managed-process wait. |
+| `shell_execution.foreground_auto_await_max_seconds` | `SHELL_EXECUTION__FOREGROUND_AUTO_AWAIT_MAX_SECONDS` | `int` | `240` | Maximum total foreground runtime before returning a live process. |
 | `shell_execution.managed_process_poll_history_folding` | `SHELL_EXECUTION__MANAGED_PROCESS_POLL_HISTORY_FOLDING` | `Literal['auto', 'on', 'off']` | `auto` | Fold repetitive quiet managed-process polling. |
 | `tui.completion_menu_reserved_lines` | `TUI__COMPLETION_MENU_RESERVED_LINES` | `int` | `6` | Prompt-toolkit lines reserved below the input for completion menus. |

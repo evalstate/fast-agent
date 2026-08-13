@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import posixpath
 import shutil
 import tempfile
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
 from fast_agent.agents.tool_agent import _tool_progress_context
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+    MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
     MAX_MANAGED_SHELL_PROCESSES,
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
     MIN_PROCESS_POLL_WAIT_SECONDS,
@@ -55,6 +57,7 @@ from fast_agent.tools.shell_command import (
 from fast_agent.tools.shell_output import ShellOutputBuffer
 from fast_agent.tools.shell_process import (
     ActiveProcessPoll,
+    ForegroundAutoAwaitMetadata,
     ManagedProcessSnapshot,
     ManagedShellProcess,
     ProcessResultMetadata,
@@ -124,6 +127,12 @@ def _default_max_process_poll_seconds() -> int:
     return ShellSettings().process_poll_max_wait_seconds
 
 
+def _default_foreground_auto_await_max_seconds() -> int:
+    from fast_agent.config import ShellSettings
+
+    return ShellSettings().foreground_auto_await_max_seconds
+
+
 _RESOURCE_OBSERVATION_TIMEOUT_SECONDS = 0.075
 
 
@@ -191,6 +200,7 @@ class ShellRuntime:
         extended_guidance: bool = False,
         tool_profile: ShellToolProfile | None = None,
         model_tool_profile: ResolvedShellToolProfile | None = None,
+        foreground_auto_await_max_seconds: float | None = None,
     ) -> None:
         self._working_directory = str(working_directory) if working_directory is not None else None
         self._environment = shell_environment or LocalShellExecutor(
@@ -214,6 +224,9 @@ class ShellRuntime:
         self._agent_name = agent_name
         self._idle_yield_seconds = idle_yield_seconds
         self._foreground_yield_seconds = foreground_yield_seconds
+        self._foreground_auto_await_max_seconds = float(
+            _default_foreground_auto_await_max_seconds()
+        )
         self._minimal_shell_tool_name = minimal_shell_tool_name
         self._minimal_shell_tool_requires_description = minimal_shell_tool_requires_description
         self._extended_guidance = extended_guidance
@@ -237,10 +250,26 @@ class ShellRuntime:
             self._show_bash_output = shell_config.show_bash
             self._prefer_local_shell = shell_config.prefer_local_shell
             self._max_process_poll_seconds = shell_config.process_poll_max_wait_seconds
+            self._foreground_auto_await_max_seconds = float(
+                shell_config.foreground_auto_await_max_seconds
+            )
             configured_profile = tool_profile or shell_config.tool_profile
             self._retained_output_max_bytes = shell_config.retained_output_max_bytes
             retain_truncated_output = shell_config.retain_truncated_output
             retained_output_parent = shell_config.retained_output_temp_directory
+        if foreground_auto_await_max_seconds is not None:
+            auto_await_max_seconds = float(foreground_auto_await_max_seconds)
+            if (
+                isinstance(foreground_auto_await_max_seconds, bool)
+                or not math.isfinite(auto_await_max_seconds)
+                or auto_await_max_seconds < 0
+                or auto_await_max_seconds > MAX_FOREGROUND_AUTO_AWAIT_SECONDS
+            ):
+                raise ValueError(
+                    "foreground_auto_await_max_seconds must be finite and between "
+                    f"0 and {MAX_FOREGROUND_AUTO_AWAIT_SECONDS}"
+                )
+            self._foreground_auto_await_max_seconds = auto_await_max_seconds
         self._minimal_process_profile = False
         self._grok_shell_profile = False
         self._luna_exec_profile = False
@@ -575,8 +604,10 @@ class ShellRuntime:
             "working_dir_display": format_relative_path(working_dir),
             "idle_yield_seconds": idle_yield_seconds,
             "foreground_yield_seconds": self._foreground_yield_seconds,
+            "foreground_auto_await_max_seconds": self._foreground_auto_await_max_seconds,
             "background": parsed.background if parsed is not None else False,
             "lifecycle": parsed.lifecycle if parsed is not None else "session",
+            "timeout_seconds": (parsed.hard_timeout_seconds if parsed is not None else None),
             "output_byte_limit": output_byte_limit,
             "streams_output": True,
             "returns_exit_code": True,
@@ -1298,7 +1329,7 @@ class ShellRuntime:
         process: ManagedShellProcess,
         *,
         idle_yield_seconds: float,
-    ) -> str | None:
+    ) -> Literal["idle", "foreground"] | None:
         if process.task.done():
             return None
         foreground_deadline = process.started_at + self._foreground_yield_seconds
@@ -1329,6 +1360,65 @@ class ShellRuntime:
                 return None
 
         return None
+
+    async def _auto_await_foreground_process(
+        self,
+        process: ManagedShellProcess,
+        *,
+        initial_yield_reason: Literal["idle", "foreground"],
+    ) -> ForegroundAutoAwaitMetadata:
+        """Continue one foreground invocation without creating a model action."""
+        auto_await_started_at = time.monotonic()
+        initial_yield_elapsed_seconds = max(
+            auto_await_started_at - process.started_at,
+            0.0,
+        )
+        deadline_at = process.started_at + self._foreground_auto_await_max_seconds
+        remaining_seconds = max(deadline_at - auto_await_started_at, 0.0)
+        if self._foreground_auto_await_max_seconds > 0:
+            await asyncio.wait(
+                (process.task,),
+                timeout=remaining_seconds,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finished_at = time.monotonic()
+        outcome: Literal[
+            "process_finished",
+            "cap_reached",
+            "terminated",
+            "cancelled",
+            "disabled",
+        ]
+        if self._foreground_auto_await_max_seconds <= 0:
+            outcome = "disabled"
+        elif process.task.cancelled():
+            outcome = "terminated" if process.terminated else "cancelled"
+        elif process.task.done():
+            outcome = "process_finished"
+        else:
+            outcome = "cap_reached"
+        metadata = ForegroundAutoAwaitMetadata(
+            initial_yield_reason=initial_yield_reason,
+            max_total_seconds=self._foreground_auto_await_max_seconds,
+            initial_yield_elapsed_seconds=initial_yield_elapsed_seconds,
+            awaited_seconds=(
+                0.0 if outcome == "disabled" else max(finished_at - auto_await_started_at, 0.0)
+            ),
+            total_elapsed_seconds=max(finished_at - process.started_at, 0.0),
+            outcome=outcome,
+        )
+        process.foreground_auto_await = metadata
+        return metadata
+
+    @staticmethod
+    async def _terminate_managed_process_task(process: ManagedShellProcess) -> None:
+        """Request process-group termination and wait for the environment contract."""
+        if process.task.done():
+            return
+        process.terminated = True
+        process.request.terminate_on_cancel = True
+        process.task.cancel()
+        await asyncio.gather(process.task, return_exceptions=True)
 
     def _record_buffered_process_result(self, process: ManagedShellProcess) -> None:
         if process.buffered_result_recorded or not process.task.done():
@@ -1404,7 +1494,7 @@ class ShellRuntime:
         yielded_reason: str | None = None,
     ) -> CallToolResult:
         self._record_buffered_process_result(process)
-        return build_managed_process_result(
+        result = build_managed_process_result(
             process,
             yielded_reason=yielded_reason,
             minimal_process_profile=self._minimal_process_profile,
@@ -1417,6 +1507,10 @@ class ShellRuntime:
             ),
             io_drain_timeout_seconds=_IO_DRAIN_TIMEOUT_SECONDS,
         )
+        metadata = process_result_metadata(result)
+        if metadata is not None and process.foreground_auto_await is not None:
+            metadata["foreground_auto_await"] = process.foreground_auto_await
+        return result
 
     async def poll_process(
         self,
@@ -1619,10 +1713,7 @@ class ShellRuntime:
                         "process_status": "already_exited",
                     },
                 )
-            process.terminated = True
-            process.request.terminate_on_cancel = True
-            process.task.cancel()
-            await asyncio.gather(process.task, return_exceptions=True)
+            await self._terminate_managed_process_task(process)
             if not process.task.cancelled():
                 exception = process.task.exception()
                 if exception is not None:
@@ -1989,11 +2080,13 @@ class ShellRuntime:
             "Executing command with "
             f"idle_yield={idle_yield_seconds}s, "
             f"foreground_yield={self._foreground_yield_seconds}s, "
+            f"foreground_auto_await_max={self._foreground_auto_await_max_seconds}s total, "
             f"background={parsed.background}, "
             f"lifecycle={parsed.lifecycle}"
         )
 
         progress_context = progress_display.paused() if display_tools_enabled() else nullcontext()
+        process: ManagedShellProcess | None = None
         with progress_context:
             try:
                 self._progress.emit(
@@ -2006,6 +2099,8 @@ class ShellRuntime:
                     parsed,
                     defer_display_to_tool_result=defer_display_to_tool_result,
                 )
+                initial_yield_reason: Literal["idle", "foreground"] | None = None
+                yielded_reason: str | None
                 if parsed.background:
                     started_task = asyncio.create_task(process.callbacks.started_event.wait())
                     try:
@@ -2027,10 +2122,7 @@ class ShellRuntime:
                         return_when=asyncio.ALL_COMPLETED,
                     )
                     if process.task not in completed:
-                        process.terminated = True
-                        process.request.terminate_on_cancel = True
-                        process.task.cancel()
-                        await asyncio.gather(process.task, return_exceptions=True)
+                        await self._terminate_managed_process_task(process)
                         result = self._managed_process_result(process)
                         for block in result.content:
                             if isinstance(block, TextContent):
@@ -2053,10 +2145,50 @@ class ShellRuntime:
                         return result
                     yielded_reason = None
                 else:
-                    yielded_reason = await self._wait_for_initial_process_result(
+                    initial_yield_reason = await self._wait_for_initial_process_result(
                         process,
                         idle_yield_seconds=idle_yield_seconds,
                     )
+                    yielded_reason = initial_yield_reason
+
+                foreground_auto_await: ForegroundAutoAwaitMetadata | None = None
+                if (
+                    not parsed.background
+                    and parsed.hard_timeout_seconds is None
+                    and initial_yield_reason is not None
+                ):
+                    if self._foreground_auto_await_max_seconds > 0:
+                        remaining_auto_await_seconds = max(
+                            process.started_at
+                            + self._foreground_auto_await_max_seconds
+                            - time.monotonic(),
+                            0.0,
+                        )
+                        self._progress.emit(
+                            action=ProgressAction.CALLING_TOOL,
+                            tool_use_id=tool_use_id,
+                            tool_event="progress",
+                            details=f"auto-awaiting {process.process_id}",
+                            process_elapsed_seconds=max(
+                                time.monotonic() - process.started_at,
+                                0.0,
+                            ),
+                            process_command=summarize_command(process.command),
+                            process_id=process.process_id,
+                            process_wait_seconds=math.ceil(remaining_auto_await_seconds),
+                            process_yield_reason=initial_yield_reason,
+                            log_message="Foreground process auto-await",
+                        )
+                    foreground_auto_await = await self._auto_await_foreground_process(
+                        process,
+                        initial_yield_reason=initial_yield_reason,
+                    )
+                    if foreground_auto_await["outcome"] == "process_finished":
+                        yielded_reason = None
+                    elif foreground_auto_await["outcome"] == "disabled":
+                        yielded_reason = initial_yield_reason
+                    else:
+                        yielded_reason = "auto_await_cap"
 
                 result = self._managed_process_result(
                     process,
@@ -2114,9 +2246,21 @@ class ShellRuntime:
                     details=completion_details,
                     tool_state="failed" if result.is_error else "completed",
                     tool_terminal=True,
+                    process_yield_reason=metadata.get("process_yield_reason"),
                 )
                 return result
 
+            except asyncio.CancelledError:
+                if process is not None and process.lifecycle == "session":
+                    await self._terminate_managed_process_task(process)
+                self._progress.emit(
+                    action=ProgressAction.TOOL_PROGRESS,
+                    tool_use_id=tool_use_id,
+                    details="cancelled",
+                    tool_state="failed",
+                    tool_terminal=True,
+                )
+                raise
             except Exception as exc:
                 self._logger.error(f"Execute tool failed: {exc}")
                 self._progress.emit(

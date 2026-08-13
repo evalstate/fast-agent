@@ -808,6 +808,7 @@ shell_execution:
   retained_output_max_bytes: 2097152  # Per shell process
   retained_output_temp_directory: null  # Optional parent directory
   process_poll_max_wait_seconds: 3600  # Accepted range: 1–3600
+  foreground_auto_await_max_seconds: 240  # Total runtime; range: 0–3600; 0 disables
   managed_process_poll_history_folding: auto  # auto | on | off
 ```
 
@@ -835,6 +836,23 @@ result exceeds its model-facing preview. The truncation notice includes the
 temporary path so the model can inspect selected ranges or search the complete
 output. Each process is limited by `retained_output_max_bytes`; retained files
 are removed when the shell runtime closes.
+
+`foreground_auto_await_max_seconds` is the maximum total foreground runtime,
+measured from shell process start, during which a finite command remains in its
+original shell tool call. Commands retain the initial no-output and
+total-runtime yield checks (10 and 30 seconds by default); after either check,
+the runtime waits only for the remaining total budget. If the command finishes
+before the deadline, its final result is returned without a model turn spent
+scheduling a process wait. Reaching the deadline returns the live,
+session-scoped process to the model and does not stop it. Explicit background
+commands and explicit hard timeouts are unchanged. Set the value to `0` to
+return live foreground processes at the initial yield boundary.
+
+The 240-second default follows fast-agent's common managed-process wait cadence
+and avoids holding a shell call for a full five minutes. It reduces cache-expiry
+risk but cannot guarantee a cache hit: it bounds only the foreground shell
+invocation, while model generation, parallel sibling tools, hooks, result
+assembly, provider behavior, and network latency can add time.
 
 `process_poll_max_wait_seconds` caps a single model-initiated managed-process
 wait. Catalogue and overlay defaults are capped for compatibility. An explicit
