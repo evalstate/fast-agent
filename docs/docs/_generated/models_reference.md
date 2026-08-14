@@ -59,6 +59,7 @@
 | `deepseek-hf` | `hf` | Text | `json` (schema) | — | — | — |
 | `deepseek32` | `hf` | Text | `json` (schema) | — | — | — |
 | `gemma4` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `low`, `medium`, `high`, `off`<br>Example: `gemma4?reasoning=none` | — | — |
+| `glimmer` | `hf` | Text, Vision | — | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `glimmer?reasoning=high` | — | — |
 | `glm47` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm47?reasoning=off` | — | — |
 | `glm51` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm51?reasoning=off` | — | — |
 | `glm5` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm5?reasoning=off` | — | — |

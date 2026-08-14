@@ -147,6 +147,10 @@ class ModelSelectionCatalog:
         ),
         Provider.HUGGINGFACE: (
             _builtin_entry(
+                "glimmer",
+                display_label="Muse Glimmer 30B (together)",
+            ),
+            _builtin_entry(
                 "Kimi K3 (fireworks-ai)",
                 display_label="Kimi K3 (fireworks-ai)",
                 description="image-only HF route",

@@ -164,6 +164,31 @@ class ChatTemplateReasoningToggle:
 
 
 @dataclass(frozen=True, slots=True)
+class ChatTemplateReasoningStrength:
+    default_strength: str
+
+    def apply(
+        self,
+        arguments: dict[str, Any],
+        *,
+        setting: ReasoningEffortSetting | None,
+        spec: ReasoningEffortSpec | None,
+    ) -> None:
+        effective = _effective_setting(setting, spec)
+        strength = self.default_strength
+        if (
+            effective is not None
+            and effective.kind == "effort"
+            and isinstance(effective.value, str)
+        ):
+            strength = effective.value
+
+        extra_body = _extra_body(arguments)
+        _set_chat_template_kwarg(extra_body, "reasoning_strength", strength)
+        arguments["extra_body"] = extra_body
+
+
+@dataclass(frozen=True, slots=True)
 class GenericDisableReasoningToggle:
     def apply(
         self,
@@ -194,6 +219,7 @@ _DEEPSEEK_V4_FLASH = "deepseek-ai/deepseek-v4-flash-0731"
 _GLM_52 = "zai-org/glm-5.2"
 _KIMI_K3 = "moonshotai/kimi-k3"
 _GEMMA_4 = "google/gemma-4-31b-it"
+_MUSE_GLIMMER = "meta-models/muse-glimmer-30b"
 
 _DEEPSEEK_REASONING = TopLevelReasoningEffort(default_effort="max")
 _KIMI_K3_REASONING = TopLevelReasoningEffort(
@@ -218,6 +244,7 @@ _GEMMA_4_CEREBRAS_REASONING = TopLevelReasoningEffort(
     default_effort="none",
     cleanup_extra_body=frozenset({"chat_template_kwargs"}),
 )
+_MUSE_GLIMMER_REASONING = ChatTemplateReasoningStrength(default_strength="high")
 
 HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
     (
@@ -254,6 +281,11 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
             model=_GEMMA_4,
             backends=frozenset({"cerebras"}),
             profile=HuggingFaceRouteProfile(reasoning=_GEMMA_4_CEREBRAS_REASONING),
+        ),
+        RouterProfileRule(
+            model=_MUSE_GLIMMER,
+            backends=frozenset({"together"}),
+            profile=HuggingFaceRouteProfile(reasoning=_MUSE_GLIMMER_REASONING),
         ),
         RouterProfileRule(
             model="moonshotai/kimi-k2.5",
