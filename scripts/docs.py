@@ -133,7 +133,9 @@ def social_variants() -> int:
 def benchmark_social(args: list[str]) -> int:
     """Render Terminal-Bench campaign storyboard assets."""
     result = subprocess.run(
-        [sys.executable, str(DOCS_DIR / "generate_benchmark_social.py"), *args], cwd=ROOT
+        [sys.executable, str(DOCS_DIR / "generate_benchmark_social.py"), *args],
+        cwd=ROOT,
+        check=False,
     )
     return result.returncode
 
