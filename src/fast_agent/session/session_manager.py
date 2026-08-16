@@ -436,15 +436,25 @@ class Session:
         return str(current_path)
 
     def _save_metadata(self) -> None:
-        """Save session metadata."""
-        self._save_snapshot(snapshot_from_session_info(self.info))
+        """Save session metadata without replacing persisted runtime state."""
+        updated = snapshot_from_session_info(self.info)
+        with self._metadata_lock():
+            snapshot = self._load_snapshot_or_compatibility()
+            snapshot.created_at = updated.created_at
+            snapshot.last_activity = updated.last_activity
+            snapshot.metadata = updated.metadata
+            _merge_compatibility_continuation(snapshot, updated)
+            self._write_snapshot(snapshot)
 
     def _save_snapshot(self, snapshot: SessionSnapshot) -> None:
         """Save a typed snapshot payload."""
+        with self._metadata_lock():
+            self._write_snapshot(snapshot)
+
+    def _write_snapshot(self, snapshot: SessionSnapshot) -> None:
         metadata_file = self.directory / "session.json"
         payload = snapshot.model_dump(mode="json")
-        with self._metadata_lock():
-            self._atomic_write_json(metadata_file, payload)
+        self._atomic_write_json(metadata_file, payload)
 
     def _default_save_identity(self) -> "SessionSaveIdentity":
         """Build a compatibility save identity when a caller does not supply one."""
@@ -674,6 +684,32 @@ class Session:
             reverse=True,
         )
         return candidates[0] if candidates else None
+
+
+def _merge_compatibility_continuation(
+    snapshot: SessionSnapshot,
+    updated: SessionSnapshot,
+) -> None:
+    continuation = snapshot.continuation
+    updated_continuation = updated.continuation
+
+    if updated_continuation.active_agent is not None:
+        continuation.active_agent = updated_continuation.active_agent
+    if updated_continuation.cwd is not None:
+        continuation.cwd = updated_continuation.cwd
+    if updated_continuation.git is not None:
+        continuation.git = updated_continuation.git
+    if updated_continuation.lineage.forked_from is not None:
+        continuation.lineage.forked_from = updated_continuation.lineage.forked_from
+    if updated_continuation.lineage.acp_session_id is not None:
+        continuation.lineage.acp_session_id = updated_continuation.lineage.acp_session_id
+
+    for agent_name, updated_agent in updated_continuation.agents.items():
+        agent = continuation.agents.get(agent_name)
+        if agent is None:
+            continuation.agents[agent_name] = updated_agent
+        elif updated_agent.history_file is not None:
+            agent.history_file = updated_agent.history_file
 
 
 class SessionManager:
